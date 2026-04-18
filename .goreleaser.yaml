@@ -1,0 +1,97 @@
+version: 2
+builds:
+  # =====================================================================================
+  # Linux build
+  # =====================================================================================
+  - id: linux
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    goamd64:
+      - v1
+      - v2
+      - v3
+      - v4
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/andresbott/aether/app/metainfo.Version={{.Version}}
+      - -X github.com/andresbott/aether/app/metainfo.BuildTime={{.Date}}
+      - -X github.com/andresbott/aether/app/metainfo.ShaVer={{.Commit}}
+    binary: aether
+    env:
+      - CGO_ENABLED=1
+      - >-
+        {{- if eq .Arch "arm64" }}CC=aarch64-linux-gnu-gcc{{- end }}
+      - >-
+        {{- if eq .Arch "arm64" }}CXX=aarch64-linux-gnu-g++{{- end }}
+
+  # =====================================================================================
+  # Windows build
+  # =====================================================================================
+  - id: windows
+    goos:
+      - windows
+    goarch:
+      - amd64
+    goamd64:
+      - v2
+      - v3
+      - v4
+    ldflags:
+      - -s -w
+      - -X github.com/andresbott/aether/app/metainfo.Version={{.Version}}
+      - -X github.com/andresbott/aether/app/metainfo.BuildTime={{.Date}}
+      - -X github.com/andresbott/aether/app/metainfo.ShaVer={{.Commit}}
+    flags:
+      - -trimpath
+    binary: aether
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
+      - CXX=x86_64-w64-mingw32-g++
+
+archives:
+  - formats: [zip]
+    name_template: >-
+      aether_
+      {{- title .Os  }}_
+      {{- if eq .Arch "amd64" }}x86_64_{{ .Amd64 }}
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+
+nfpms:
+  -
+    id: aether
+    package_name: aether
+
+    maintainer: "Andres Bott <contact@andresbott.com>"
+    homepage: https://github.com/andresbott/aether
+    description: |
+      Music server
+    formats:
+      - deb
+
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/aether/README.md
+      - src: LICENSE
+        dst: /usr/share/doc/aether/LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

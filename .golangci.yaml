@@ -1,0 +1,47 @@
+version: "2"
+linters:
+  default: standard # errcheck,govet,ineffassign,staticcheck,unused
+  enable:
+    - nolintlint
+    - gocyclo
+    - nestif
+    - gosec
+    - dupl
+
+  exclusions:
+    rules:
+      - path: '(.+)_test\.go'
+        linters:
+          - noop
+          - nestif
+          - dupl
+          - gosec
+      # Vendored third-party code
+      - path: 'webui/node_modules/'
+        linters:
+          - gocyclo
+          - nestif
+          - gosec
+          - errcheck
+          - govet
+          - staticcheck
+          - unused
+
+  settings:
+    nolintlint:
+      allow-no-explanation: []
+      require-explanation: true
+      require-specific: true
+    gocyclo:
+      min-complexity: 20  # Default: 30 (but we recommend 10-20)
+    gocognit:
+      min-complexity: 20  # Default: 30 (but we recommend 10-20)
+    nestif:
+      min-complexity: 5   # Default: 5
+
+
+output:
+  sort-order:
+    - file
+    - severity
+    - linter

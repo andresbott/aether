@@ -1,0 +1,22 @@
+# Go
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+webui/node_modules/
+webui/dist/
+
+# IDE
+.idea/
+
+# Build
+/dist/
+
+# Env
+.env
+
+# SPA embedded files (rebuilt from webui/)
+app/spa/files/ui/*
+!app/spa/files/ui/.gitkeep

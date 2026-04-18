@@ -1,0 +1,13 @@
+Server:
+  Port: 8075
+  BindIp: ""
+
+Observability:
+  Port: 9009
+  BindIp: ""
+
+DataDir: "./data"
+
+Env:
+  LogLevel: "info"
+  Production: false

@@ -1,0 +1,42 @@
+name: golang
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      ## Setup GO
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: run tests
+        run: make test
+
+      - name: ensure test coverage
+        run: make coverage
+
+  build-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: webui/package-lock.json
+
+      - name: Install NPM dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Run UI tests
+        run: make ui-test
+
+      - name: Build frontend
+        run: make package-ui

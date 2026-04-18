@@ -1,0 +1,8 @@
+body {
+  margin: 0;
+  font-family: var(--font-family);
+}
+
+#app {
+  min-height: 100vh;
+}
