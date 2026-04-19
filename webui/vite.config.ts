@@ -17,6 +17,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { '*': '' }
+      },
+      '/rest': {
+        target: 'http://localhost:8075',
+        changeOrigin: true,
+        secure: false
       }
     }
   }

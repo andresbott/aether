@@ -9,11 +9,34 @@ import (
 )
 
 type AppCfg struct {
-	Server  serverCfg
-	Obs     serverCfg `config:"Observability"`
-	Env     Env
-	DataDir string
-	Msgs    []Msg
+	Server     serverCfg
+	Obs        serverCfg `config:"Observability"`
+	Env        Env
+	DataDir    string
+	Msgs       []Msg
+	Scanner    ScannerCfg
+	TaskRunner TaskRunnerCfg
+}
+
+type ScannerCfg struct {
+	MusicPaths      []string
+	ExcludePatterns []string
+	TagReadWorkers  int
+	FollowSymlinks  bool
+	MultiValue      MultiValueCfg
+}
+
+type MultiValueCfg struct {
+	Genre       string
+	Artist      string
+	AlbumArtist string
+}
+
+type TaskRunnerCfg struct {
+	Parallelism int
+	QueueSize   int
+	HistorySize int
+	LogDir      string
 }
 
 type Env struct {
@@ -53,6 +76,14 @@ var defaultCfg = AppCfg{
 	Env: Env{
 		LogLevel:   "info",
 		Production: false,
+	},
+	Scanner: ScannerCfg{
+		FollowSymlinks: true,
+	},
+	TaskRunner: TaskRunnerCfg{
+		Parallelism: 2,
+		QueueSize:   20,
+		HistorySize: 50,
 	},
 }
 

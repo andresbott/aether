@@ -1,60 +1,73 @@
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import App from './App.vue'
-// @ts-expect-error theme.js has no type declarations
-import CustomTheme from '@/theme.js'
-
-import 'primeflex/primeflex.css'
-import '@tabler/icons-webfont/dist/tabler-icons-300.min.css'
-import '@/assets/style.css'
-
 import PrimeVue from 'primevue/config'
+import ToastService from 'primevue/toastservice'
+import Tooltip from 'primevue/tooltip'
+import FocusTrap from 'primevue/focustrap'
+import StyleClass from 'primevue/styleclass'
+import Ripple from 'primevue/ripple'
+
+import CustomTheme from './theme'
+import 'primeflex/primeflex.css'
+import 'primeicons/primeicons.css'
+import './assets/scss/_main.scss'
+
+import App from './App.vue'
+import router from './router'
+import { subsonicClient } from './lib/api/subsonic'
+
+subsonicClient.initWithDefaults()
 
 const app = createApp(App)
 
-const applyTheme = () => {
-  const darkModeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-  const htmlElement = document.documentElement
+document.documentElement.classList.remove('dark-mode')
 
-  if (darkModeMediaQuery.matches) {
-    htmlElement.classList.add('dark-mode')
-  } else {
-    htmlElement.classList.remove('dark-mode')
-  }
-}
-
-applyTheme()
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme)
-
-app.use(PrimeVue, {
-  theme: {
-    preset: CustomTheme,
-    options: {
-      prefix: 'c',
-      darkModeSelector: '.dark-mode',
-      cssLayer: false
+app.directive('focus', {
+    mounted(el: HTMLElement) {
+        el.focus()
+        setTimeout(() => {
+            el.focus()
+        }, 300)
     }
-  }
 })
 
-import { createPinia } from 'pinia'
-app.use(createPinia())
+app.use(PrimeVue, {
+    theme: {
+        preset: CustomTheme,
+        options: {
+            prefix: 'c',
+            darkModeSelector: '.dark-mode',
+            cssLayer: false
+        }
+    },
+    locale: {
+        firstDayOfWeek: 1
+    },
+    ripple: true
+})
 
-import router from './router'
+app.directive('tooltip', Tooltip)
+app.directive('styleclass', StyleClass)
+app.directive('focustrap', FocusTrap)
+app.directive('ripple', Ripple)
+app.use(ToastService)
+
+app.use(createPinia())
 app.use(router)
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 3,
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 30
-    },
-    mutations: {
-      retry: false
+    defaultOptions: {
+        queries: {
+            refetchOnWindowFocus: false,
+            retry: 3,
+            staleTime: 1000 * 60 * 5,
+            gcTime: 1000 * 60 * 30
+        },
+        mutations: {
+            retry: false
+        }
     }
-  }
 })
 
 app.use(VueQueryPlugin, { queryClient })

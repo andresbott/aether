@@ -4,11 +4,25 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/app/router/handlers"
+	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
 	"github.com/gorilla/mux"
 )
 
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
+
+	// Task API
+	if h.taskRunner != nil {
+		th := taskHandler.Handler{
+			Runner:        h.taskRunner,
+			TaskLogGetter: h.taskLogGetter,
+		}
+		r.Path("/tasks").Methods(http.MethodGet).Handler(th.ListTasks())
+		r.Path("/tasks/{name}").Methods(http.MethodPost).Handler(th.TriggerTask())
+		r.Path("/tasks/{name}/executions").Methods(http.MethodGet).Handler(th.ListExecutions())
+		r.Path("/tasks/{name}/executions/{id}").Methods(http.MethodDelete).Handler(th.CancelExecution())
+		r.Path("/tasks/{name}/executions/{id}/log").Methods(http.MethodGet).Handler(th.GetExecutionLog())
+	}
 
 	r.PathPrefix("").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "wrong api call", http.StatusBadRequest)

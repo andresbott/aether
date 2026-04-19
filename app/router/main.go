@@ -4,18 +4,27 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
+	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/gorilla/mux"
 )
 
 type Cfg struct {
-	Logger *slog.Logger
+	Logger        *slog.Logger
+	TaskRunner    *taskrunner.Runner
+	TaskLogGetter taskrunner.TaskLogGetter
+	Store         *store.Store
 }
 
 type MainAppHandler struct {
-	router *mux.Router
-	logger *slog.Logger
+	router        *mux.Router
+	logger        *slog.Logger
+	taskRunner    *taskrunner.Runner
+	taskLogGetter taskrunner.TaskLogGetter
+	store         *store.Store
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -25,19 +34,27 @@ func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func New(cfg Cfg) (*MainAppHandler, error) {
 	r := mux.NewRouter()
 	app := MainAppHandler{
-		router: r,
-		logger: cfg.Logger,
+		router:        r,
+		logger:        cfg.Logger,
+		taskRunner:    cfg.TaskRunner,
+		taskLogGetter: cfg.TaskLogGetter,
+		store:         cfg.Store,
 	}
 
+	hist, _ := middleware.NewPromHistogram("", nil, nil)
 	prodMid := middleware.New(middleware.Cfg{
 		JsonErrors:  true,
 		GenericErrs: false,
 		Logger:      cfg.Logger,
-		PromHisto:   middleware.NewPromHistogram("", nil, nil),
+		PromHisto:   hist,
 	})
 	r.Use(prodMid.Middleware)
 
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
+
+	if app.store != nil {
+		subsonic.Register(app.router, app.store)
+	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {
 		return nil, err

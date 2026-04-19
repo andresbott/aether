@@ -10,6 +10,8 @@ webui/dist/
 
 # IDE
 .idea/
+docs/superpowers
+.playwright-mcp
 
 # Build
 /dist/

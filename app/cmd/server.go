@@ -16,6 +16,12 @@ import (
 	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router"
 	"github.com/andresbott/aether/app/router/handlers"
+	"github.com/andresbott/aether/app/tasks"
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanner"
+	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/tags"
+	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -90,8 +96,49 @@ func runServer(configFile string) error {
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA busy_timeout=5000")
 
+	// Migrate domain models
+	if err := model.Migrate(db); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+
+	dataStore := store.New(db)
+
+	// Parse scanner config
+	scanCfg := parseScannerCfg(cfg.Scanner)
+
+	// Task runner
+	logDir := cfg.TaskRunner.LogDir
+	if logDir == "" {
+		logDir = filepath.Join(cfg.DataDir, "task-logs")
+	}
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{
+		Parallelism: cfg.TaskRunner.Parallelism,
+		QueueSize:   cfg.TaskRunner.QueueSize,
+		HistorySize: cfg.TaskRunner.HistorySize,
+		Logger:      l,
+		DB:          db,
+		LogDir:      logDir,
+		LogLevel:    GetLogLevel(cfg.Env.LogLevel),
+	})
+	if err != nil {
+		return fmt.Errorf("task runner: %w", err)
+	}
+
+	// Tag reader
+	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
+
+	// Register tasks
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
+	runner.Start()
+
+	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)
+
 	routerCfg := router.Cfg{
-		Logger: l,
+		Logger:        l,
+		TaskRunner:    runner,
+		TaskLogGetter: taskLogReader,
+		Store:         dataStore,
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {
@@ -115,6 +162,12 @@ func runServer(configFile string) error {
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
 	g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
+	g.Go(func() error {
+		<-gctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return runner.Shutdown(shutdownCtx)
+	})
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -145,6 +198,28 @@ func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component 
 		return err
 	}
 	return nil
+}
+
+func parseScannerCfg(cfg ScannerCfg) scanner.Config {
+	var musicPaths []scanner.MusicPath
+	for _, raw := range cfg.MusicPaths {
+		musicPaths = append(musicPaths, scanner.ParseMusicPath(raw))
+	}
+	genreMode, genreDelim := scanner.ParseMultiValueMode(cfg.MultiValue.Genre)
+	artistMode, artistDelim := scanner.ParseMultiValueMode(cfg.MultiValue.Artist)
+	albumArtistMode, albumArtistDelim := scanner.ParseMultiValueMode(cfg.MultiValue.AlbumArtist)
+
+	return scanner.Config{
+		MusicPaths:      musicPaths,
+		ExcludePatterns: cfg.ExcludePatterns,
+		TagReadWorkers:  cfg.TagReadWorkers,
+		FollowSymlinks:  cfg.FollowSymlinks,
+		MultiValue: scanner.MultiValueConfig{
+			GenreMode: genreMode, GenreDelim: genreDelim,
+			ArtistMode: artistMode, ArtistDelim: artistDelim,
+			AlbumArtistMode: albumArtistMode, AlbumArtistDelim: albumArtistDelim,
+		},
+	}
 }
 
 func initDataDir(path string) error {

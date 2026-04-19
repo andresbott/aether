@@ -5,13 +5,18 @@ go 1.25.7
 require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-bumbu/config v0.4.0
-	github.com/go-bumbu/http v0.3.1
+	github.com/go-bumbu/http v0.4.0
+	github.com/go-bumbu/tempo v0.2.0
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/mattn/go-isatty v0.0.21
 	github.com/phsym/console-slog v0.3.1
 	github.com/prometheus/client_golang v1.23.2
+	github.com/rainycape/unidecode v0.0.0-20150907023854-cb7f23ec59be
+	github.com/reugn/go-quartz v0.15.2
 	github.com/samber/slog-formatter v1.3.0
 	github.com/spf13/cobra v1.10.2
+	go.senan.xyz/taglib v0.11.1
 	golang.org/x/sync v0.20.0
 	gorm.io/gorm v1.31.1
 )
@@ -21,7 +26,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
-	github.com/google/uuid v1.3.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
@@ -35,6 +39,7 @@ require (
 	github.com/samber/slog-common v0.21.0 // indirect
 	github.com/samber/slog-multi v1.8.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/tetratelabs/wazero v1.10.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect

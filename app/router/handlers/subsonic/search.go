@@ -1,0 +1,53 @@
+package subsonic
+
+import "net/http"
+
+func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
+	query := paramStr(r, "query")
+	artistCount := paramInt(r, "artistCount", 20)
+	artistOffset := paramInt(r, "artistOffset", 0)
+	albumCount := paramInt(r, "albumCount", 20)
+	albumOffset := paramInt(r, "albumOffset", 0)
+	songCount := paramInt(r, "songCount", 20)
+	songOffset := paramInt(r, "songOffset", 0)
+
+	artists, err := h.store.SearchArtists(query, artistCount, artistOffset)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	albums, err := h.store.SearchAlbums(query, albumCount, albumOffset)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	songs, err := h.store.SearchSongs(query, songCount, songOffset)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+
+	artistList := make([]map[string]any, 0, len(artists))
+	for _, a := range artists {
+		artistList = append(artistList, map[string]any{
+			"id":   encodeArtistID(a.ID),
+			"name": a.Name,
+		})
+	}
+	albumList := make([]map[string]any, 0, len(albums))
+	for _, al := range albums {
+		albumList = append(albumList, albumToMap(&al))
+	}
+	songList := make([]map[string]any, 0, len(songs))
+	for _, t := range songs {
+		songList = append(songList, trackToChild(&t, t.Album))
+	}
+
+	writeResponse(w, map[string]any{
+		"searchResult3": map[string]any{
+			"artist": artistList,
+			"album":  albumList,
+			"song":   songList,
+		},
+	})
+}

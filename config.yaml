@@ -11,3 +11,19 @@ DataDir: "./data"
 Env:
   LogLevel: "info"
   Production: false
+
+Scanner:
+  MusicPaths:
+    - "/home/odo/tmp/gonic/data/music1/"
+    - "/home/odo/tmp/gonic/data/music2/"
+  ExcludePatterns: []
+  FollowSymlinks: true
+  MultiValue:
+    Genre: "none"
+    Artist: "none"
+    AlbumArtist: "none"
+
+TaskRunner:
+  Parallelism: 2
+  QueueSize: 20
+  HistorySize: 50
