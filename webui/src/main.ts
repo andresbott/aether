@@ -3,6 +3,7 @@ import { createPinia } from 'pinia'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
+import ConfirmationService from 'primevue/confirmationservice'
 import Tooltip from 'primevue/tooltip'
 import FocusTrap from 'primevue/focustrap'
 import StyleClass from 'primevue/styleclass'
@@ -52,6 +53,7 @@ app.directive('styleclass', StyleClass)
 app.directive('focustrap', FocusTrap)
 app.directive('ripple', Ripple)
 app.use(ToastService)
+app.use(ConfirmationService)
 
 app.use(createPinia())
 app.use(router)

@@ -18,7 +18,7 @@ type reconcileStats struct {
 	Updated   int
 }
 
-func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart time.Time) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart time.Time, mv MultiValueConfig) (reconcileStats, error) {
 	var stats reconcileStats
 
 	for _, tr := range results {
@@ -27,7 +27,7 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 		}
 
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, tr, scanStart, &stats)
+			return s.reconcileTrack(tx, tr, scanStart, mv, &stats)
 		}); err != nil {
 			continue
 		}
@@ -37,9 +37,8 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.Time, mv MultiValueConfig, stats *reconcileStats) error {
 	meta := tr.meta
-	mv := s.cfg.MultiValue
 
 	// Resolve artists
 	artistNames := ApplyMultiValue(mv.ArtistMode, mv.ArtistDelim, firstStr(meta.Artist), meta.Artist)
@@ -114,6 +113,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	isNew := result.Error != nil
 
 	track.AlbumID = album.ID
+	track.LibraryID = tr.walk.LibraryID
 	track.Filename = filepath.Base(tr.walk.FilePath)
 	track.FilePath = tr.walk.FilePath
 	track.FileSize = fileSize(tr.walk.FilePath)

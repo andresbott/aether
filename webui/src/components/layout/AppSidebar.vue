@@ -19,8 +19,7 @@ const navItems: NavItem[] = [
     { label: 'Library', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
     { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
     { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
-    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' },
-    { label: 'Admin', icon: 'pi pi-cog', route: '/admin', routeName: 'admin' }
+    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
 const isActive = (item: NavItem): boolean => {
@@ -37,13 +36,6 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 <template>
     <aside class="sidebar" :class="{ collapsed }">
-        <div class="sidebar-header">
-            <h2 v-if="!collapsed" class="logo">Aether</h2>
-            <button class="collapse-btn" @click="uiStore.toggleSidebar">
-                <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
-            </button>
-        </div>
-
         <nav class="sidebar-nav">
             <button
                 v-for="item in navItems"
@@ -57,13 +49,24 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
         </nav>
+
+        <button
+            class="collapse-btn"
+            type="button"
+            :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+            v-tooltip.right="collapsed ? 'Expand' : undefined"
+            @click="uiStore.toggleSidebar"
+        >
+            <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
+            <span v-if="!collapsed" class="collapse-label">Collapse</span>
+        </button>
     </aside>
 </template>
 
 <style scoped>
 .sidebar {
     width: var(--app-sidebar-width);
-    height: 100vh;
+    height: 100%;
     background-color: var(--app-surface);
     border-right: 1px solid var(--app-border);
     display: flex;
@@ -75,37 +78,6 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 .sidebar.collapsed {
     width: var(--app-sidebar-collapsed-width);
-}
-
-.sidebar-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1.25rem 1rem;
-    border-bottom: 1px solid var(--app-border);
-    min-height: 64px;
-}
-
-.logo {
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--app-accent);
-    margin: 0;
-    white-space: nowrap;
-}
-
-.collapse-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.5rem;
-    border-radius: 6px;
-    color: var(--app-text-secondary);
-    transition: background-color 0.2s;
-}
-
-.collapse-btn:hover {
-    background-color: var(--app-background);
 }
 
 .sidebar-nav {
@@ -153,6 +125,42 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .nav-item i {
     font-size: 1.1rem;
     flex-shrink: 0;
+}
+
+.collapse-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--app-text-secondary);
+    border-top: 1px solid var(--app-border);
+    transition: background-color 0.2s, color 0.2s;
+    width: 100%;
+    text-align: left;
+}
+
+.sidebar.collapsed .collapse-btn {
+    justify-content: center;
+    padding: 0.75rem;
+    gap: 0;
+}
+
+.collapse-btn:hover {
+    background-color: var(--app-background);
+    color: var(--app-text-primary);
+}
+
+.collapse-btn i {
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.collapse-label {
+    font-size: 0.9rem;
+    font-weight: 500;
 }
 
 @media (max-width: 768px) {

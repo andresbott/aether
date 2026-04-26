@@ -14,29 +14,15 @@ type AppCfg struct {
 	Env        Env
 	DataDir    string
 	Msgs       []Msg
-	Scanner    ScannerCfg
 	TaskRunner TaskRunnerCfg
 }
 
-type ScannerCfg struct {
-	MusicPaths      []string
-	ExcludePatterns []string
-	TagReadWorkers  int
-	FollowSymlinks  bool
-	MultiValue      MultiValueCfg
-}
-
-type MultiValueCfg struct {
-	Genre       string
-	Artist      string
-	AlbumArtist string
-}
-
 type TaskRunnerCfg struct {
-	Parallelism int
-	QueueSize   int
-	HistorySize int
-	LogDir      string
+	Parallelism    int
+	QueueSize      int
+	HistorySize    int
+	LogDir         string
+	TagReadWorkers int
 }
 
 type Env struct {
@@ -77,13 +63,11 @@ var defaultCfg = AppCfg{
 		LogLevel:   "info",
 		Production: false,
 	},
-	Scanner: ScannerCfg{
-		FollowSymlinks: true,
-	},
 	TaskRunner: TaskRunnerCfg{
-		Parallelism: 2,
-		QueueSize:   20,
-		HistorySize: 50,
+		Parallelism:    2,
+		QueueSize:      20,
+		HistorySize:    50,
+		TagReadWorkers: 0,
 	},
 }
 

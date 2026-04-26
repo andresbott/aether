@@ -34,7 +34,7 @@ func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, lo
 		if isFull {
 			mode = "full"
 		}
-		tempo.Info(ctx, fmt.Sprintf("starting %s library scan (%d music paths)", mode, len(cfg.MusicPaths)))
+		tempo.Info(ctx, fmt.Sprintf("starting %s library scan", mode))
 
 		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: isFull})
 		if err != nil {

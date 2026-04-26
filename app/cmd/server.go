@@ -103,8 +103,7 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
-	// Parse scanner config
-	scanCfg := parseScannerCfg(cfg.Scanner)
+	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
 
 	// Task runner
 	logDir := cfg.TaskRunner.LogDir
@@ -200,27 +199,6 @@ func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component 
 	return nil
 }
 
-func parseScannerCfg(cfg ScannerCfg) scanner.Config {
-	var musicPaths []scanner.MusicPath
-	for _, raw := range cfg.MusicPaths {
-		musicPaths = append(musicPaths, scanner.ParseMusicPath(raw))
-	}
-	genreMode, genreDelim := scanner.ParseMultiValueMode(cfg.MultiValue.Genre)
-	artistMode, artistDelim := scanner.ParseMultiValueMode(cfg.MultiValue.Artist)
-	albumArtistMode, albumArtistDelim := scanner.ParseMultiValueMode(cfg.MultiValue.AlbumArtist)
-
-	return scanner.Config{
-		MusicPaths:      musicPaths,
-		ExcludePatterns: cfg.ExcludePatterns,
-		TagReadWorkers:  cfg.TagReadWorkers,
-		FollowSymlinks:  cfg.FollowSymlinks,
-		MultiValue: scanner.MultiValueConfig{
-			GenreMode: genreMode, GenreDelim: genreDelim,
-			ArtistMode: artistMode, ArtistDelim: artistDelim,
-			AlbumArtistMode: albumArtistMode, AlbumArtistDelim: albumArtistDelim,
-		},
-	}
-}
 
 func initDataDir(path string) error {
 	absPath, err := filepath.Abs(path)

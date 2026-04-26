@@ -7,29 +7,6 @@ import (
 	"github.com/andresbott/aether/internal/scanner"
 )
 
-func TestParseMusicPath(t *testing.T) {
-	tests := []struct {
-		input string
-		alias string
-		path  string
-	}{
-		{"music -> /mnt/media/music", "music", "/mnt/media/music"},
-		{"/mnt/media/more-music", "", "/mnt/media/more-music"},
-		{"  my lib -> /some/path  ", "my lib", "/some/path"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			mp := scanner.ParseMusicPath(tt.input)
-			if mp.Alias != tt.alias {
-				t.Errorf("alias: got %q, want %q", mp.Alias, tt.alias)
-			}
-			if mp.Path != tt.path {
-				t.Errorf("path: got %q, want %q", mp.Path, tt.path)
-			}
-		})
-	}
-}
-
 func TestParseMultiValueMode(t *testing.T) {
 	tests := []struct {
 		input string

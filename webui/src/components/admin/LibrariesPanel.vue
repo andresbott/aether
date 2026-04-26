@@ -1,0 +1,148 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import Button from 'primevue/button'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import { useConfirm } from 'primevue/useconfirm'
+import ConfirmDialog from 'primevue/confirmdialog'
+import {
+    useLibraries,
+    useCreateLibrary,
+    useUpdateLibrary,
+    useDeleteLibrary
+} from '@/composables/useLibraries'
+import type { Library, LibraryInput } from '@/types/libraries'
+import LibraryDialog from './LibraryDialog.vue'
+
+const { data: libraries, isLoading } = useLibraries()
+const createMutation = useCreateLibrary()
+const updateMutation = useUpdateLibrary()
+const deleteMutation = useDeleteLibrary()
+const confirm = useConfirm()
+
+const dialogVisible = ref(false)
+const editing = ref<Library | null>(null)
+
+function openCreate() {
+    editing.value = null
+    dialogVisible.value = true
+}
+function openEdit(lib: Library) {
+    editing.value = lib
+    dialogVisible.value = true
+}
+function onSubmit(input: LibraryInput) {
+    if (editing.value) {
+        updateMutation.mutate(
+            { id: editing.value.id, input },
+            { onSuccess: () => (dialogVisible.value = false) }
+        )
+    } else {
+        createMutation.mutate(input, {
+            onSuccess: () => (dialogVisible.value = false)
+        })
+    }
+}
+function onDelete(lib: Library) {
+    confirm.require({
+        message: `Delete library "${lib.name}" (${lib.path})? This will remove ${lib.track_count} tracks and any related stars/play history. This cannot be undone.`,
+        header: 'Delete library?',
+        icon: 'pi pi-exclamation-triangle',
+        rejectLabel: 'Cancel',
+        acceptLabel: 'Delete',
+        acceptClass: 'p-button-danger',
+        accept: () => deleteMutation.mutate(lib.id)
+    })
+}
+
+function formatDate(s: string | null): string {
+    if (!s) return '—'
+    return new Date(s).toLocaleString()
+}
+
+const submitting = computed(
+    () => createMutation.isPending.value || updateMutation.isPending.value
+)
+</script>
+
+<template>
+    <section class="section">
+        <div class="section-header">
+            <h2>Libraries</h2>
+            <Button label="Add library" icon="pi pi-plus" @click="openCreate" />
+        </div>
+
+        <div v-if="isLoading" class="loading">
+            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+        </div>
+
+        <div v-else-if="!libraries || libraries.length === 0" class="empty-state">
+            <p>No libraries configured yet.</p>
+            <p>Add a library to start scanning music.</p>
+        </div>
+
+        <DataTable v-else :value="libraries" responsiveLayout="scroll">
+            <Column field="name" header="Name" />
+            <Column field="path" header="Path" />
+            <Column field="track_count" header="Tracks" style="width: 7rem; text-align: right" />
+            <Column header="Last scan" style="width: 14rem">
+                <template #body="{ data }">{{ formatDate(data.last_scan_started_at) }}</template>
+            </Column>
+            <Column header="" style="width: 11rem; text-align: right">
+                <template #body="{ data }">
+                    <Button
+                        icon="pi pi-pencil"
+                        text
+                        rounded
+                        @click="openEdit(data)"
+                    />
+                    <Button
+                        icon="pi pi-trash"
+                        text
+                        rounded
+                        severity="danger"
+                        @click="onDelete(data)"
+                    />
+                </template>
+            </Column>
+        </DataTable>
+
+        <LibraryDialog
+            v-model:visible="dialogVisible"
+            :library="editing"
+            :submitting="submitting"
+            @submit="onSubmit"
+            @cancel="dialogVisible = false"
+        />
+
+        <ConfirmDialog />
+    </section>
+</template>
+
+<style scoped>
+.section {
+    margin-bottom: 2.5rem;
+}
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+.section h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+.loading {
+    display: flex;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--app-text-secondary);
+}
+.empty-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--app-text-secondary);
+}
+</style>

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import Button from 'primevue/button'
 import SelectButton from 'primevue/selectbutton'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
+import LibrariesPanel from '@/components/admin/LibrariesPanel.vue'
 import { useTasks, useExecutions, useTriggerTask } from '@/composables/useTasks'
 import type { ExecutionInfo } from '@/types/tasks'
 
@@ -50,6 +51,8 @@ const triggerTask = (taskId: string) => {
 <template>
     <div class="admin-view">
         <h1>Admin</h1>
+
+        <LibrariesPanel />
 
         <section class="section">
             <h2>Tasks</h2>

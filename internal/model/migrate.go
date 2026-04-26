@@ -4,6 +4,7 @@ import "gorm.io/gorm"
 
 func Migrate(db *gorm.DB) error {
 	err := db.AutoMigrate(
+		&Library{},
 		&Artist{},
 		&Album{},
 		&Track{},

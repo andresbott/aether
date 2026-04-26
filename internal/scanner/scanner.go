@@ -3,13 +3,17 @@ package scanner
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"regexp"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/go-bumbu/tempo"
 )
 
 type ScanOptions struct {
@@ -27,17 +31,10 @@ type Scanner struct {
 	cfg       Config
 	store     *store.Store
 	tagReader tags.Reader
-	excludes  []*regexp.Regexp
 }
 
 func New(cfg Config, s *store.Store, tagReader tags.Reader) *Scanner {
-	var excludes []*regexp.Regexp
-	for _, p := range cfg.ExcludePatterns {
-		if re, err := regexp.Compile(p); err == nil {
-			excludes = append(excludes, re)
-		}
-	}
-	return &Scanner{cfg: cfg, store: s, tagReader: tagReader, excludes: excludes}
+	return &Scanner{cfg: cfg, store: s, tagReader: tagReader}
 }
 
 type tagResult struct {
@@ -49,21 +46,60 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	scanStart := time.Now()
 	stats := ScanStats{}
 
-	walkResults, err := Walk(s.cfg.MusicPaths, s.excludes, s.cfg.FollowSymlinks)
+	libs, err := s.store.ListLibraries()
 	if err != nil {
-		return stats, err
+		return stats, fmt.Errorf("list libraries: %w", err)
+	}
+	if len(libs) == 0 {
+		tempo.Info(ctx, "no libraries configured; nothing to scan")
+		return stats, nil
 	}
 
-	// Bulk-update LastSeenAt for all encountered files
+	for i := range libs {
+		if ctx.Err() != nil {
+			return stats, ctx.Err()
+		}
+		if err := s.scanLibrary(ctx, &libs[i], scanStart, opts, &stats); err != nil {
+			return stats, err
+		}
+	}
+
+	if ctx.Err() == nil {
+		if err := s.store.Cleanup(scanStart); err != nil {
+			return stats, err
+		}
+	}
+
+	return stats, nil
+}
+
+func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart time.Time, opts ScanOptions, stats *ScanStats) error {
+	now := time.Now()
+	lib.LastScanStartedAt = &now
+	if err := s.store.UpdateLibrary(lib); err != nil {
+		return fmt.Errorf("update library scan timestamp: %w", err)
+	}
+
+	excludes, err := compileExcludes(lib.ExcludePatterns)
+	if err != nil {
+		return fmt.Errorf("library %q: %w", lib.Name, err)
+	}
+
+	mv := buildMultiValueConfig(lib)
+
+	walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
+	if err != nil {
+		return err
+	}
+
 	allPaths := make([]string, len(walkResults))
 	for i, wr := range walkResults {
 		allPaths[i] = wr.FilePath
 	}
-	if err := s.bulkUpdateLastSeen(allPaths, scanStart); err != nil {
-		return stats, err
+	if err := s.store.BulkUpdateLastSeen(allPaths, scanStart); err != nil {
+		return err
 	}
 
-	// Filter for incremental: skip unchanged files
 	var toProcess []WalkResult
 	if opts.IsFull {
 		toProcess = walkResults
@@ -71,7 +107,6 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		toProcess = s.filterChanged(walkResults)
 	}
 
-	// Read tags in parallel
 	workers := s.cfg.TagReadWorkers
 	if workers <= 0 {
 		workers = runtime.NumCPU()
@@ -117,26 +152,18 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	wg.Wait()
 
 	if ctx.Err() != nil {
-		return stats, ctx.Err()
+		return ctx.Err()
 	}
 
-	// Reconcile
-	reconcileStats, err := s.reconcile(ctx, tagResults, scanStart)
+	rec, err := s.reconcile(ctx, tagResults, scanStart, mv)
 	if err != nil {
-		return stats, err
+		return err
 	}
-	stats.TracksProcessed = reconcileStats.Processed
-	stats.TracksNew = reconcileStats.New
-	stats.TracksUpdated = reconcileStats.Updated
+	stats.TracksProcessed += rec.Processed
+	stats.TracksNew += rec.New
+	stats.TracksUpdated += rec.Updated
 
-	// Cleanup
-	if ctx.Err() == nil {
-		if err := s.cleanup(scanStart); err != nil {
-			return stats, err
-		}
-	}
-
-	return stats, nil
+	return nil
 }
 
 func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
@@ -144,12 +171,11 @@ func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
 	for i, wr := range results {
 		paths[i] = wr.FilePath
 	}
-
 	modMap, err := s.store.FilterChanged(paths)
 	if err != nil {
+		slog.Warn("filterChanged store error; falling back to full rescan", "err", err)
 		return results
 	}
-
 	var out []WalkResult
 	for _, wr := range results {
 		dbMod, found := modMap[wr.FilePath]
@@ -160,6 +186,33 @@ func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
 	return out
 }
 
-func (s *Scanner) bulkUpdateLastSeen(allPaths []string, scanTime time.Time) error {
-	return s.store.BulkUpdateLastSeen(allPaths, scanTime)
+func compileExcludes(jsonPatterns string) ([]*regexp.Regexp, error) {
+	if jsonPatterns == "" {
+		return nil, nil
+	}
+	patterns, err := decodeExcludePatterns(jsonPatterns)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*regexp.Regexp, 0, len(patterns))
+	for _, p := range patterns {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			slog.Warn("invalid exclude pattern, skipping", "pattern", p, "err", err)
+			continue
+		}
+		out = append(out, re)
+	}
+	return out, nil
+}
+
+func buildMultiValueConfig(lib *model.Library) MultiValueConfig {
+	gMode, gDelim := ParseMultiValueMode(lib.MultiValueGenre)
+	aMode, aDelim := ParseMultiValueMode(lib.MultiValueArtist)
+	aaMode, aaDelim := ParseMultiValueMode(lib.MultiValueAlbumArtist)
+	return MultiValueConfig{
+		GenreMode: gMode, GenreDelim: gDelim,
+		ArtistMode: aMode, ArtistDelim: aDelim,
+		AlbumArtistMode: aaMode, AlbumArtistDelim: aaDelim,
+	}
 }

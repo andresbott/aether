@@ -61,6 +61,11 @@ const routes: RouteRecordRaw[] = [
         path: '/admin',
         name: 'admin',
         component: () => import('@/views/AdminView.vue')
+    },
+    {
+        path: '/settings',
+        name: 'settings',
+        component: () => import('@/views/SettingsView.vue')
     }
 ]
 

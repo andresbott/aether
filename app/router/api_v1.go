@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/app/router/handlers"
+	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
 	"github.com/gorilla/mux"
 )
@@ -22,6 +23,11 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 		r.Path("/tasks/{name}/executions").Methods(http.MethodGet).Handler(th.ListExecutions())
 		r.Path("/tasks/{name}/executions/{id}").Methods(http.MethodDelete).Handler(th.CancelExecution())
 		r.Path("/tasks/{name}/executions/{id}/log").Methods(http.MethodGet).Handler(th.GetExecutionLog())
+	}
+
+	if h.store != nil {
+		lh := &libraryHandler.Handler{Store: h.store}
+		lh.Routes(r)
 	}
 
 	r.PathPrefix("").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

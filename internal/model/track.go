@@ -5,6 +5,7 @@ import "time"
 type Track struct {
 	ID                  uint   `gorm:"primaryKey"`
 	AlbumID             uint   `gorm:"index;not null"`
+	LibraryID           uint   `gorm:"index;not null;constraint:OnDelete:CASCADE"`
 	Filename            string `gorm:"not null"`
 	FilePath            string `gorm:"uniqueIndex;not null"`
 	FileSize            int64
@@ -29,6 +30,7 @@ type Track struct {
 	UpdatedAt           time.Time
 
 	Album   *Album    `gorm:"foreignKey:AlbumID"`
+	Library *Library `gorm:"foreignKey:LibraryID"`
 	Artists []*Artist `gorm:"many2many:track_artists"`
 	Genres  []*Genre  `gorm:"many2many:track_genres"`
 }

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 )
 
@@ -29,12 +30,17 @@ func TestWalk(t *testing.T) {
 		"artist2/album2/01.ogg",
 	})
 
-	results, err := scanner.Walk([]scanner.MusicPath{{Path: dir}}, nil, true)
+	results, err := scanner.Walk([]model.Library{{ID: 1, Path: dir}}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 3 {
 		t.Fatalf("expected 3 audio files, got %d", len(results))
+	}
+	for _, r := range results {
+		if r.LibraryID != 1 {
+			t.Fatalf("expected LibraryID=1, got %d", r.LibraryID)
+		}
 	}
 }
 
@@ -47,7 +53,7 @@ func TestWalkExcludePattern(t *testing.T) {
 	})
 
 	excludes := []*regexp.Regexp{regexp.MustCompile(`^\..`)}
-	results, err := scanner.Walk([]scanner.MusicPath{{Path: dir}}, excludes, true)
+	results, err := scanner.Walk([]model.Library{{ID: 1, Path: dir}}, excludes, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,20 +62,30 @@ func TestWalkExcludePattern(t *testing.T) {
 	}
 }
 
-func TestWalkMultiplePaths(t *testing.T) {
+func TestWalkMultipleLibraries(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	createTestFiles(t, dir1, []string{"01.mp3"})
 	createTestFiles(t, dir2, []string{"02.flac"})
 
-	results, err := scanner.Walk([]scanner.MusicPath{
-		{Path: dir1, Alias: "lib1"},
-		{Path: dir2, Alias: "lib2"},
+	results, err := scanner.Walk([]model.Library{
+		{ID: 1, Path: dir1},
+		{ID: 2, Path: dir2},
 	}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(results))
+	}
+	byLib := map[uint]string{}
+	for _, r := range results {
+		byLib[r.LibraryID] = filepath.Base(r.FilePath)
+	}
+	if byLib[1] != "01.mp3" {
+		t.Fatalf("LibraryID=1 should map to 01.mp3, got %q", byLib[1])
+	}
+	if byLib[2] != "02.flac" {
+		t.Fatalf("LibraryID=2 should map to 02.flac, got %q", byLib[2])
 	}
 }

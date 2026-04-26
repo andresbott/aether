@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/andresbott/aether/internal/model"
 )
 
 var audioExtensions = map[string]bool{
@@ -19,7 +21,7 @@ var audioExtensions = map[string]bool{
 
 type WalkResult struct {
 	FilePath  string
-	MusicPath MusicPath
+	LibraryID uint
 	ModTime   time.Time
 	Dir       string
 }
@@ -28,14 +30,14 @@ func IsAudioFile(name string) bool {
 	return audioExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
-func Walk(paths []MusicPath, excludes []*regexp.Regexp, followSymlinks bool) ([]WalkResult, error) {
+func Walk(libs []model.Library, excludes []*regexp.Regexp, followSymlinks bool) ([]WalkResult, error) {
 	var results []WalkResult
-	for _, mp := range paths {
+	for _, lib := range libs {
 		walkFn := func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
-			relPath, _ := filepath.Rel(mp.Path, path)
+			relPath, _ := filepath.Rel(lib.Path, path)
 			for _, ex := range excludes {
 				if ex.MatchString(relPath) || ex.MatchString(d.Name()) {
 					if d.IsDir() {
@@ -70,7 +72,7 @@ func Walk(paths []MusicPath, excludes []*regexp.Regexp, followSymlinks bool) ([]
 						}
 						results = append(results, WalkResult{
 							FilePath:  innerPath,
-							MusicPath: mp,
+							LibraryID: lib.ID,
 							ModTime:   innerInfo.ModTime(),
 							Dir:       filepath.Dir(innerPath),
 						})
@@ -87,7 +89,7 @@ func Walk(paths []MusicPath, excludes []*regexp.Regexp, followSymlinks bool) ([]
 			}
 			results = append(results, WalkResult{
 				FilePath:  path,
-				MusicPath: mp,
+				LibraryID: lib.ID,
 				ModTime:   info.ModTime(),
 				Dir:       filepath.Dir(path),
 			})
@@ -95,11 +97,11 @@ func Walk(paths []MusicPath, excludes []*regexp.Regexp, followSymlinks bool) ([]
 		}
 
 		if followSymlinks {
-			if err := symWalk(mp.Path, walkFn); err != nil {
+			if err := symWalk(lib.Path, walkFn); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := filepath.WalkDir(mp.Path, walkFn); err != nil {
+			if err := filepath.WalkDir(lib.Path, walkFn); err != nil {
 				return nil, err
 			}
 		}

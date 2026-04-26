@@ -47,3 +47,12 @@
 
 - [ ] Cleanup orphaned `playlist_tracks`, `starred_items`, and `play_histories` when tracks/albums/artists are deleted during scan cleanup
 - [ ] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors
+
+## Frontend Layout — Pre-existing items surfaced during topbar refactor
+
+Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not introduced by that work. To review:
+
+- [ ] `PlayerControls` is `position: fixed` (not a flex row inside `App.vue`'s shell), so the bottom of `.main-content` sits *under* the player. Any content scrolled to the bottom is partially obscured. Fix candidates: give `.app-container` a `padding-bottom: var(--app-player-height)`, or restructure `PlayerControls` into the column flex
+- [ ] `QueueSidebar` height uses `calc(100vh - var(--app-player-height))` — works but is now slightly inconsistent with the new body-row layout. Could be simplified to `height: 100%` to match `AppSidebar` and let flex govern
+- [ ] `.nav-item.active` in `AppSidebar.vue` uses a hard-coded `#eef2ff` background instead of a `var(--app-*)` token — odd one out vs. the rest of the file
+- [ ] `.view-placeholder` styles in `App.vue` look orphaned (the class isn't used in `App.vue`'s template) — verify whether any view actually consumes them, then either remove or move into the consuming view

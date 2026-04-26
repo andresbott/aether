@@ -44,10 +44,14 @@ func (s *Store) FilterChanged(paths []string) (map[string]time.Time, error) {
 	return modMap, nil
 }
 
-func (s *Store) Cleanup(scanStart time.Time) error {
+func (s *Store) DeleteTracksNotSeenSince(scanStart time.Time) error {
 	if err := s.db.Where("last_seen_at < ?", scanStart).Delete(&model.Track{}).Error; err != nil {
 		return fmt.Errorf("delete orphaned tracks: %w", err)
 	}
+	return nil
+}
+
+func (s *Store) DeleteOrphanedAggregates() error {
 	queries := []string{
 		`DELETE FROM albums WHERE id NOT IN (SELECT DISTINCT album_id FROM tracks)`,
 		`DELETE FROM album_artists WHERE album_id NOT IN (SELECT id FROM albums)`,
@@ -56,11 +60,23 @@ func (s *Store) Cleanup(scanStart time.Time) error {
 		`DELETE FROM album_genres WHERE album_id NOT IN (SELECT id FROM albums)`,
 		`DELETE FROM artists WHERE id NOT IN (SELECT DISTINCT artist_id FROM album_artists) AND id NOT IN (SELECT DISTINCT artist_id FROM track_artists)`,
 		`DELETE FROM genres WHERE id NOT IN (SELECT DISTINCT genre_id FROM track_genres) AND id NOT IN (SELECT DISTINCT genre_id FROM album_genres)`,
+		`DELETE FROM playlist_tracks WHERE track_id NOT IN (SELECT id FROM tracks)`,
+		`DELETE FROM play_histories WHERE track_id NOT IN (SELECT id FROM tracks)`,
+		`DELETE FROM starred_items WHERE item_type = 'track' AND item_id NOT IN (SELECT id FROM tracks)`,
+		`DELETE FROM starred_items WHERE item_type = 'album' AND item_id NOT IN (SELECT id FROM albums)`,
+		`DELETE FROM starred_items WHERE item_type = 'artist' AND item_id NOT IN (SELECT id FROM artists)`,
 	}
 	for _, q := range queries {
 		if err := s.db.Exec(q).Error; err != nil {
-			return fmt.Errorf("cleanup query: %w", err)
+			return fmt.Errorf("cleanup query %q: %w", q, err)
 		}
 	}
 	return nil
+}
+
+func (s *Store) Cleanup(scanStart time.Time) error {
+	if err := s.DeleteTracksNotSeenSince(scanStart); err != nil {
+		return err
+	}
+	return s.DeleteOrphanedAggregates()
 }

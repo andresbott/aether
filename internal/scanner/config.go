@@ -5,26 +5,10 @@ import (
 	"strings"
 )
 
-type MusicPath struct {
-	Alias string
-	Path  string
-}
-
-func ParseMusicPath(s string) MusicPath {
-	s = strings.TrimSpace(s)
-	if parts := strings.SplitN(s, "->", 2); len(parts) == 2 {
-		return MusicPath{
-			Alias: strings.TrimSpace(parts[0]),
-			Path:  strings.TrimSpace(parts[1]),
-		}
-	}
-	return MusicPath{Path: s}
-}
-
 type MultiValueMode int
 
 const (
-	MVNone  MultiValueMode = iota
+	MVNone MultiValueMode = iota
 	MVMulti
 	MVDelim
 )
@@ -84,9 +68,5 @@ type MultiValueConfig struct {
 }
 
 type Config struct {
-	MusicPaths      []MusicPath
-	ExcludePatterns []string
-	TagReadWorkers  int
-	FollowSymlinks  bool
-	MultiValue      MultiValueConfig
+	TagReadWorkers int
 }
