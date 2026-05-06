@@ -3,6 +3,7 @@ package router
 import (
 	"log/slog"
 	"net/http"
+	"path/filepath"
 
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
@@ -17,6 +18,7 @@ type Cfg struct {
 	TaskRunner    *taskrunner.Runner
 	TaskLogGetter taskrunner.TaskLogGetter
 	Store         *store.Store
+	DataDir       string
 }
 
 type MainAppHandler struct {
@@ -25,6 +27,7 @@ type MainAppHandler struct {
 	taskRunner    *taskrunner.Runner
 	taskLogGetter taskrunner.TaskLogGetter
 	store         *store.Store
+	dataDir       string
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -39,6 +42,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		taskRunner:    cfg.TaskRunner,
 		taskLogGetter: cfg.TaskLogGetter,
 		store:         cfg.Store,
+		dataDir:       cfg.DataDir,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)
@@ -53,7 +57,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		subsonic.Register(app.router, app.store)
+		subsonic.Register(app.router, app.store, filepath.Join(app.dataDir, "generated-covers"), filepath.Join(app.dataDir, "radio-covers"))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

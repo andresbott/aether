@@ -8,29 +8,45 @@ import (
 	"unicode"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 )
 
 func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
+	libs, err := h.store.ListLibraries()
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	folders := make([]map[string]any, 0, len(libs))
+	for _, lib := range libs {
+		folders = append(folders, map[string]any{
+			"id":   lib.ID,
+			"name": lib.Name,
+		})
+	}
 	writeResponse(w, map[string]any{
 		"musicFolders": map[string]any{
-			"musicFolder": []map[string]any{
-				{"id": 1, "name": "Music"},
-			},
+			"musicFolder": folders,
 		},
 	})
 }
 
 func (h *Handler) getArtists(w http.ResponseWriter, r *http.Request) {
-	h.writeArtistIndex(w, "artists")
+	h.writeArtistIndex(w, r, "artists")
 }
 
-func (h *Handler) writeArtistIndex(w http.ResponseWriter, key string) {
-	artists, err := h.store.GetArtists()
+func (h *Handler) getIndexes(w http.ResponseWriter, r *http.Request) {
+	h.writeArtistIndex(w, r, "indexes")
+}
+
+func (h *Handler) writeArtistIndex(w http.ResponseWriter, r *http.Request, key string) {
+	filter := &store.ArtistsFilter{LibraryID: paramLibraryID(r)}
+	artists, err := h.store.GetArtists(filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	albumCounts, err := h.store.GetArtistAlbumCounts()
+	albumCounts, err := h.store.GetArtistAlbumCounts(filter)
 	if err != nil {
 		albumCounts = make(map[uint]int)
 	}
@@ -61,10 +77,6 @@ func (h *Handler) writeArtistIndex(w http.ResponseWriter, key string) {
 			"index": indices,
 		},
 	})
-}
-
-func (h *Handler) getIndexes(w http.ResponseWriter, r *http.Request) {
-	h.writeArtistIndex(w, "indexes")
 }
 
 func (h *Handler) getArtist(w http.ResponseWriter, r *http.Request) {

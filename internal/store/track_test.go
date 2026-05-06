@@ -109,7 +109,7 @@ func TestGetSongsByGenre(t *testing.T) {
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
 	db.Create(&track)
 	db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
-	songs, err := s.GetSongsByGenre("Rock", 10, 0)
+	songs, err := s.GetSongsByGenre("Rock", 10, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestSearchSongs(t *testing.T) {
 	db := s.DB()
 	db.Create(&model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3", Title: "Everything", TitleNorm: "everything"})
 	db.Create(&model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/02.mp3", Title: "Kid A", TitleNorm: "kid a"})
-	results, err := s.SearchSongs("every", 10, 0)
+	results, err := s.SearchSongs("every", 10, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,5 +145,90 @@ func TestGetTrackFilePath(t *testing.T) {
 	}
 	if path != "/music/radiohead/01.mp3" {
 		t.Fatalf("unexpected: %s", path)
+	}
+}
+
+func TestGetRandomSongsByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "2.mp3", FilePath: "/l1/2.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "3.mp3", FilePath: "/l2/3.mp3"})
+
+	id1 := lib1.ID
+	got, err := s.GetRandomSongs(10, &store.RandomSongsFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 tracks in library 1, got %d", len(got))
+	}
+	for _, tr := range got {
+		if tr.LibraryID != lib1.ID {
+			t.Fatalf("track %d has LibraryID %d, expected %d", tr.ID, tr.LibraryID, lib1.ID)
+		}
+	}
+}
+
+func TestGetSongsByGenreByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+
+	rock := model.Genre{Name: "Rock"}
+	db.Create(&rock)
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	t1 := model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"}
+	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
+	db.Create(&t1)
+	db.Create(&t2)
+	db.Model(&t1).Association("Genres").Replace([]*model.Genre{&rock})
+	db.Model(&t2).Association("Genres").Replace([]*model.Genre{&rock})
+
+	id1 := lib1.ID
+	got, err := s.GetSongsByGenre("Rock", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].LibraryID != lib1.ID {
+		t.Fatalf("expected 1 track in library 1, got %+v", got)
+	}
+}
+
+func TestSearchSongsByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Title: "Hello World", TitleNorm: "hello world", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Title: "Hello There", TitleNorm: "hello there", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+
+	id1 := lib1.ID
+	got, err := s.SearchSongs("hello", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].LibraryID != lib1.ID {
+		t.Fatalf("expected 1 track in library 1, got %+v", got)
 	}
 }

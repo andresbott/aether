@@ -170,5 +170,6 @@ export interface InternetRadioStation {
     id: string
     name: string
     streamUrl: string
-    homePageUrl?: string
+    homepageUrl?: string
+    coverArt?: string
 }

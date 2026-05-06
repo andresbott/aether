@@ -18,9 +18,10 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		size = 500
 	}
 	filter := &store.AlbumListFilter{
-		Genre:    paramStr(r, "genre"),
-		FromYear: paramInt(r, "fromYear", 0),
-		ToYear:   paramInt(r, "toYear", 0),
+		Genre:     paramStr(r, "genre"),
+		FromYear:  paramInt(r, "fromYear", 0),
+		ToYear:    paramInt(r, "toYear", 0),
+		LibraryID: paramLibraryID(r),
 	}
 	albums, err := h.store.GetAlbumList(listType, size, offset, filter)
 	if err != nil {
@@ -43,12 +44,11 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 	if size > 500 {
 		size = 500
 	}
-	var filter *store.RandomSongsFilter
-	genre := paramStr(r, "genre")
-	fromYear := paramInt(r, "fromYear", 0)
-	toYear := paramInt(r, "toYear", 0)
-	if genre != "" || fromYear > 0 || toYear > 0 {
-		filter = &store.RandomSongsFilter{Genre: genre, FromYear: fromYear, ToYear: toYear}
+	filter := &store.RandomSongsFilter{
+		Genre:     paramStr(r, "genre"),
+		FromYear:  paramInt(r, "fromYear", 0),
+		ToYear:    paramInt(r, "toYear", 0),
+		LibraryID: paramLibraryID(r),
 	}
 	tracks, err := h.store.GetRandomSongs(size, filter)
 	if err != nil {
@@ -74,7 +74,8 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 	}
 	count := paramInt(r, "count", 10)
 	offset := paramInt(r, "offset", 0)
-	tracks, err := h.store.GetSongsByGenre(genre, count, offset)
+	filter := &store.SearchFilter{LibraryID: paramLibraryID(r)}
+	tracks, err := h.store.GetSongsByGenre(genre, count, offset, filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -91,7 +92,7 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
-	starred, err := h.store.GetStarred()
+	starred, err := h.store.GetStarred(&store.StarredFilter{LibraryID: paramLibraryID(r)})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return

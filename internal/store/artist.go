@@ -22,9 +22,17 @@ func (s *Store) FindOrCreateArtists(names []string) ([]*model.Artist, error) {
 	return artists, nil
 }
 
-func (s *Store) GetArtists() ([]model.Artist, error) {
+func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
+	q := s.db.Model(&model.Artist{})
+	if filter != nil && filter.LibraryID != nil {
+		q = q.
+			Distinct().
+			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
+			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
+			Where("tracks.library_id = ?", *filter.LibraryID)
+	}
 	var artists []model.Artist
-	err := s.db.Order("name_norm ASC").Find(&artists).Error
+	err := q.Order("name_norm ASC").Find(&artists).Error
 	return artists, err
 }
 
@@ -47,17 +55,21 @@ func (s *Store) GetArtist(id uint) (*model.Artist, []model.Album, error) {
 	return &artist, albums, nil
 }
 
-func (s *Store) GetArtistAlbumCounts() (map[uint]int, error) {
+func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error) {
 	type row struct {
 		ArtistID uint
 		Count    int
 	}
 	var rows []row
-	err := s.db.
+	q := s.db.
 		Table("album_artists").
-		Select("artist_id, COUNT(*) as count").
-		Group("artist_id").
-		Find(&rows).Error
+		Select("album_artists.artist_id AS artist_id, COUNT(DISTINCT album_artists.album_id) AS count")
+	if filter != nil && filter.LibraryID != nil {
+		q = q.
+			Joins("JOIN tracks ON tracks.album_id = album_artists.album_id").
+			Where("tracks.library_id = ?", *filter.LibraryID)
+	}
+	err := q.Group("album_artists.artist_id").Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +80,17 @@ func (s *Store) GetArtistAlbumCounts() (map[uint]int, error) {
 	return result, nil
 }
 
-func (s *Store) SearchArtists(query string, count, offset int) ([]model.Artist, error) {
-	var artists []model.Artist
+func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {
 	norm := unidecode.Normalize(query)
-	err := s.db.
-		Where("name_norm LIKE ?", "%"+norm+"%").
-		Order("name_norm ASC").
-		Limit(count).
-		Offset(offset).
-		Find(&artists).Error
+	q := s.db.Model(&model.Artist{}).Where("name_norm LIKE ?", "%"+norm+"%")
+	if filter != nil && filter.LibraryID != nil {
+		q = q.
+			Distinct().
+			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
+			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
+			Where("tracks.library_id = ?", *filter.LibraryID)
+	}
+	var artists []model.Artist
+	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&artists).Error
 	return artists, err
 }

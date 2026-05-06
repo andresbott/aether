@@ -10,6 +10,7 @@ const player = usePlayer()
         <SongDetail
             v-if="player.currentTrack.value"
             :song="player.currentTrack.value"
+            card
             @play="player.togglePlayPause"
         />
         <div v-else class="empty-state">

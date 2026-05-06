@@ -24,27 +24,39 @@ const { data: musicFolders } = useMusicFolders()
 
 const libraryItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
-    if (folders.length <= 1) {
-        return [
-            {
-                label: 'Library',
-                icon: 'pi pi-headphones',
-                route: '/library',
-                routeName: 'library'
-            }
-        ]
-    }
-    return folders.map((folder) => ({
-        label: folder.name,
-        icon: 'pi pi-headphones',
-        route: `/library/${folder.id}`,
-        routeName: 'library',
-        folderId: folder.id
-    }))
+    const folderItems: NavItem[] =
+        folders.length <= 1
+            ? [
+                  {
+                      label: 'Library',
+                      icon: 'pi pi-headphones',
+                      route: '/library',
+                      routeName: 'library'
+                  }
+              ]
+            : [
+                  {
+                      label: 'All Music',
+                      icon: 'pi pi-headphones',
+                      route: '/library',
+                      routeName: 'library'
+                  },
+                  ...folders.map((folder) => ({
+                      label: folder.name,
+                      icon: 'pi pi-folder',
+                      route: `/library/${folder.id}`,
+                      routeName: 'library',
+                      folderId: folder.id
+                  }))
+              ]
+    return [
+        ...folderItems,
+        { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
+        { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
+    ]
 })
 
-const otherSourceItems: NavItem[] = [
-    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
+const streamingItems: NavItem[] = [
     { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
@@ -70,6 +82,23 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 <template>
     <aside class="sidebar" :class="{ collapsed }">
+        <div class="sidebar-header">
+            <template v-if="!collapsed">
+                <div class="header-content">
+                    <h3>Browse</h3>
+                </div>
+            </template>
+            <button
+                class="collapse-btn"
+                type="button"
+                :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+                v-tooltip.right="collapsed ? 'Expand' : undefined"
+                @click="uiStore.toggleSidebar"
+            >
+                <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
+            </button>
+        </div>
+
         <nav class="sidebar-nav">
             <button
                 v-for="item in primaryItems"
@@ -100,11 +129,11 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
             </button>
 
             <div class="nav-separator" :class="{ 'has-label': !collapsed }">
-                <span v-if="!collapsed" class="nav-section-label">More</span>
+                <span v-if="!collapsed" class="nav-section-label">Streaming</span>
             </div>
 
             <button
-                v-for="item in otherSourceItems"
+                v-for="item in streamingItems"
                 :key="item.routeName"
                 class="nav-item"
                 :class="{ active: isActive(item) }"
@@ -115,17 +144,6 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
         </nav>
-
-        <button
-            class="collapse-btn"
-            type="button"
-            :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
-            v-tooltip.right="collapsed ? 'Expand' : undefined"
-            @click="uiStore.toggleSidebar"
-        >
-            <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
-            <span v-if="!collapsed" class="collapse-label">Collapse</span>
-        </button>
     </aside>
 </template>
 
@@ -149,7 +167,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .sidebar-nav {
     display: flex;
     flex-direction: column;
-    padding: 0.75rem 0.5rem;
+    padding: 0 0 0.75rem;
     gap: 0.25rem;
     flex: 1;
     overflow-y: auto;
@@ -159,11 +177,10 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 1.5rem;
     border: none;
     background: none;
     cursor: pointer;
-    border-radius: 8px;
     color: var(--app-text-secondary);
     font-size: 0.9rem;
     font-weight: 500;
@@ -186,6 +203,11 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .nav-item.active {
     background-color: #eef2ff;
     color: var(--app-accent);
+    box-shadow: inset -3px 0 0 var(--app-accent);
+}
+
+.nav-item.active:hover {
+    background-color: #e0e7ff;
 }
 
 .nav-item i {
@@ -193,25 +215,34 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     flex-shrink: 0;
 }
 
+.sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+    min-height: 3rem;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.sidebar.collapsed .sidebar-header {
+    justify-content: center;
+    padding: 0.5rem;
+}
+
 .collapse-btn {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--app-text-secondary);
-    border-top: 1px solid var(--app-border);
-    transition: background-color 0.2s, color 0.2s;
-    width: 100%;
-    text-align: left;
-}
-
-.sidebar.collapsed .collapse-btn {
     justify-content: center;
-    padding: 0.75rem;
-    gap: 0;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background-color 0.15s, color 0.15s;
 }
 
 .collapse-btn:hover {
@@ -219,24 +250,23 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     color: var(--app-text-primary);
 }
 
-.collapse-btn i {
-    font-size: 1rem;
-    flex-shrink: 0;
+.header-content {
+    flex: 1;
+    min-width: 0;
 }
 
-.collapse-label {
-    font-size: 0.9rem;
-    font-weight: 500;
+.header-content h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
 }
 
 .nav-separator {
-    margin: 0.75rem 0.5rem 0.25rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--app-border);
+    margin: 0.75rem 0 0.25rem;
 }
 
 .nav-separator.has-label {
-    padding-left: 0.5rem;
+    padding-left: 1.5rem;
 }
 
 .nav-section-label {

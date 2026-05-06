@@ -1,6 +1,10 @@
 package subsonic
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/andresbott/aether/internal/store"
+)
 
 func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	query := paramStr(r, "query")
@@ -11,17 +15,19 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	songCount := paramInt(r, "songCount", 20)
 	songOffset := paramInt(r, "songOffset", 0)
 
-	artists, err := h.store.SearchArtists(query, artistCount, artistOffset)
+	filter := &store.SearchFilter{LibraryID: paramLibraryID(r)}
+
+	artists, err := h.store.SearchArtists(query, artistCount, artistOffset, filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	albums, err := h.store.SearchAlbums(query, albumCount, albumOffset)
+	albums, err := h.store.SearchAlbums(query, albumCount, albumOffset, filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs, err := h.store.SearchSongs(query, songCount, songOffset)
+	songs, err := h.store.SearchSongs(query, songCount, songOffset, filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return

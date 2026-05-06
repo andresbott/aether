@@ -1,9 +1,14 @@
 package subsonic
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
+	"github.com/andresbott/aether/internal/covergen"
 	"go.senan.xyz/taglib"
 )
 
@@ -39,6 +44,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	}
 	var coverPath string
 	var albumID uint
+	var seed string
 	switch itemType {
 	case "album":
 		album, err := h.store.GetAlbum(id)
@@ -48,6 +54,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		}
 		coverPath = album.CoverPath
 		albumID = album.ID
+		seed = album.AlbumArtistNorm + "|" + album.NameNorm
 	case "track":
 		song, err := h.store.GetSong(id)
 		if err != nil {
@@ -57,6 +64,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		if song.Album != nil {
 			coverPath = song.Album.CoverPath
 			albumID = song.Album.ID
+			seed = song.Album.AlbumArtistNorm + "|" + song.Album.NameNorm
 		}
 	case "artist":
 		artist, _, err := h.store.GetArtist(id)
@@ -65,6 +73,15 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		coverPath = artist.CoverPath
+		seed = artist.NameNorm
+	case "radio":
+		station, err := h.store.GetInternetRadioStation(id)
+		if err != nil {
+			writeError(w, 70, "radio station not found")
+			return
+		}
+		coverPath = station.CoverPath
+		seed = station.Name
 	default:
 		writeError(w, 0, "unsupported cover art id type")
 		return
@@ -85,7 +102,73 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.NotFound(w, r)
+	if seed == "" {
+		http.NotFound(w, r)
+		return
+	}
+	size := quantizeCoverSize(paramInt(r, "size", 512))
+	cachePath, err := h.generatedCoverPath(seed, size)
+	if err != nil {
+		http.Error(w, "cover generation failed", http.StatusInternalServerError)
+		return
+	}
+	http.ServeFile(w, r, cachePath)
+}
+
+// quantizeCoverSize rounds the requested size up to the nearest supported
+// generated-cover bucket. Values outside the range are clamped.
+func quantizeCoverSize(requested int) int {
+	buckets := []int{128, 256, 512, 1024}
+	if requested <= 0 {
+		return 512
+	}
+	for _, b := range buckets {
+		if requested <= b {
+			return b
+		}
+	}
+	return buckets[len(buckets)-1]
+}
+
+// generatedCoverPath returns the filesystem path of a generated cover for
+// seed at size. The file is created on demand; concurrent callers may both
+// generate and rename — the final os.Rename is atomic so the served file is
+// always a complete PNG.
+func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
+	hash := sha256.Sum256([]byte(seed))
+	name := fmt.Sprintf("%s_%d.png", hex.EncodeToString(hash[:6]), size)
+	path := filepath.Join(h.coverCacheDir, name)
+
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+
+	if err := os.MkdirAll(h.coverCacheDir, 0755); err != nil {
+		return "", fmt.Errorf("create cover cache dir: %w", err)
+	}
+	data, err := covergen.Generate(seed, size)
+	if err != nil {
+		return "", fmt.Errorf("generate cover (size=%d): %w", size, err)
+	}
+	tmp, err := os.CreateTemp(h.coverCacheDir, "cover-*.png.tmp")
+	if err != nil {
+		return "", fmt.Errorf("create temp cover file: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", fmt.Errorf("write temp cover file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("close temp cover file: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return "", fmt.Errorf("rename temp cover file: %w", err)
+	}
+	return path, nil
 }
 
 func (h *Handler) readEmbeddedCover(albumID uint) []byte {

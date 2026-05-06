@@ -1,15 +1,132 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Menu from 'primevue/menu'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import { useToast } from 'primevue/usetoast'
+import type { MenuItem } from 'primevue/menuitem'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
+import { useCreatePlaylist } from '@/composables/useSubsonicQueries'
 import { subsonicClient } from '@/lib/api/subsonic'
+import type { Song } from '@/types/subsonic'
 
+const router = useRouter()
 const player = usePlayer()
-const { sidebarCollapsed, sidebarWidth, setSidebarWidth, MIN_WIDTH, MAX_WIDTH } =
-    useQueueSidebar()
+const { sidebarCollapsed, sidebarWidth, toggleSidebar, setSidebarWidth } = useQueueSidebar()
 
+const toast = useToast()
+const createPlaylist = useCreatePlaylist()
+
+const showSaveDialog = ref(false)
+const playlistName = ref('')
+
+const handleSave = () => {
+    const name = playlistName.value.trim()
+    if (!name) return
+    const songIds = player.queue.value.map(s => s.id)
+    createPlaylist.mutate(
+        { name, songIds },
+        {
+            onSuccess: () => {
+                showSaveDialog.value = false
+                playlistName.value = ''
+                toast.add({
+                    severity: 'success',
+                    summary: 'Playlist created',
+                    detail: name,
+                    life: 3000
+                })
+            },
+            onError: (err: Error) => {
+                toast.add({
+                    severity: 'error',
+                    summary: 'Failed to save playlist',
+                    detail: err.message,
+                    life: 5000
+                })
+            }
+        }
+    )
+}
+
+const headerMenu = ref()
+const hoveredTrackIndex = ref<number | null>(null)
 const isResizing = ref(false)
+
+const queueWithIndex = computed(() =>
+    player.queue.value.map((song, index) => ({
+        ...song,
+        index,
+        isCurrent: index === player.currentIndex.value
+    }))
+)
+
+const trackCount = computed(() => player.queue.value.length)
+
+const totalDuration = computed(() => {
+    const total = player.queue.value.reduce((sum, song) => sum + (song.duration || 0), 0)
+    if (!total) return '0 min'
+    const hours = Math.floor(total / 3600)
+    const mins = Math.floor((total % 3600) / 60)
+    return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`
+})
+
+const getCoverUrl = (coverArt?: string): string | null => {
+    if (!coverArt || !subsonicClient.isConfigured()) return null
+    return subsonicClient.getCoverArtUrl(coverArt, 48)
+}
+
+const formatDuration = (seconds?: number): string => {
+    if (!seconds) return ''
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const onRowClick = (event: { data: Song & { index: number } }): void => {
+    router.push({ name: 'song', params: { index: event.data.index.toString() } })
+}
+
+const handlePlayPauseClick = (event: Event, index: number): void => {
+    event.stopPropagation()
+    if (index === player.currentIndex.value) {
+        player.togglePlayPause()
+    } else {
+        player.playQueueItem(index)
+    }
+}
+
+const toggleHeaderMenu = (event: Event): void => {
+    headerMenu.value.toggle(event)
+}
+
+const headerMenuItems = computed<MenuItem[]>(() => [
+    {
+        label: 'Clear Queue',
+        icon: 'pi pi-trash',
+        command: () => player.clearQueue()
+    },
+    {
+        label: 'Save as Playlist',
+        icon: 'pi pi-save',
+        command: () => {
+            playlistName.value = ''
+            showSaveDialog.value = true
+        }
+    },
+    {
+        label: 'Shuffle Queue',
+        icon: 'pi pi-random',
+        command: () => {
+            console.log('Shuffle queue')
+        }
+    }
+])
 
 const startResize = (event: MouseEvent) => {
     event.preventDefault()
@@ -26,96 +143,211 @@ const startResize = (event: MouseEvent) => {
         isResizing.value = false
         document.removeEventListener('mousemove', onMouseMove)
         document.removeEventListener('mouseup', onMouseUp)
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
     }
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
-}
-
-const trackCount = computed(() => player.queue.value.length)
-
-const totalDuration = computed(() => {
-    const total = player.queue.value.reduce((sum, song) => sum + (song.duration || 0), 0)
-    const mins = Math.floor(total / 60)
-    return `${mins} min`
-})
-
-const getCoverUrl = (coverArt?: string): string | null => {
-    if (!coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(coverArt, 40)
-}
-
-const formatDuration = (seconds?: number): string => {
-    if (!seconds) return ''
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
+    document.body.style.cursor = 'ew-resize'
+    document.body.style.userSelect = 'none'
 }
 </script>
 
 <template>
     <aside
-        v-if="!sidebarCollapsed"
         class="queue-sidebar"
-        :style="{ width: sidebarWidth + 'px' }"
+        :class="{ resizing: isResizing, collapsed: sidebarCollapsed }"
+        :style="sidebarCollapsed ? undefined : { width: sidebarWidth + 'px' }"
     >
-        <div class="resize-handle" @mousedown="startResize"></div>
+        <div v-if="!sidebarCollapsed" class="resize-handle" @mousedown="startResize"></div>
 
         <div class="queue-header">
-            <div>
-                <h3>Current Queue</h3>
-                <span v-if="trackCount > 0" class="queue-info">
-                    {{ trackCount }} tracks &bull; {{ totalDuration }}
-                </span>
-            </div>
-            <Button
-                v-if="trackCount > 0"
-                icon="pi pi-trash"
-                text
-                rounded
-                size="small"
-                severity="secondary"
-                @click="player.clearQueue"
-                v-tooltip="'Clear queue'"
-            />
+            <button
+                class="collapse-btn"
+                type="button"
+                :aria-label="sidebarCollapsed ? 'Expand queue' : 'Collapse queue'"
+                v-tooltip.left="sidebarCollapsed ? 'Expand queue' : 'Collapse'"
+                @click="toggleSidebar"
+            >
+                <i :class="sidebarCollapsed ? 'pi pi-angle-left' : 'pi pi-angle-right'"></i>
+            </button>
+            <template v-if="!sidebarCollapsed">
+                <div class="header-content">
+                    <h3>
+                        Queue
+                        <span v-if="trackCount > 0" class="queue-info">
+                            {{ trackCount }} {{ trackCount === 1 ? 'track' : 'tracks' }} &bull;
+                            {{ totalDuration }}
+                        </span>
+                    </h3>
+                </div>
+                <Button
+                    icon="pi pi-ellipsis-v"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :disabled="trackCount === 0"
+                    @click="toggleHeaderMenu"
+                    v-tooltip.left="'Queue options'"
+                />
+            </template>
         </div>
 
-        <div v-if="trackCount === 0" class="empty-state">
+        <div v-if="sidebarCollapsed" class="queue-collapsed">
+            <div v-if="trackCount === 0" class="empty-state-collapsed">
+                <i class="pi pi-list"></i>
+            </div>
+            <div v-else class="collapsed-list">
+                <button
+                    v-for="item in queueWithIndex"
+                    :key="item.index"
+                    type="button"
+                    class="collapsed-item"
+                    :class="{ current: item.isCurrent }"
+                    v-tooltip.left="`${item.title} — ${item.artist || 'Unknown'}`"
+                    @click="player.playQueueItem(item.index)"
+                >
+                    <div class="collapsed-cover">
+                        <img
+                            v-if="getCoverUrl(item.coverArt)"
+                            :src="getCoverUrl(item.coverArt)!"
+                            alt=""
+                        />
+                        <i v-else class="pi pi-music"></i>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <div v-else-if="trackCount === 0" class="empty-state">
             <i class="pi pi-list" style="font-size: 2rem"></i>
             <p>Queue is empty</p>
         </div>
 
-        <div v-else class="queue-list">
-            <div
-                v-for="(song, index) in player.queue.value"
-                :key="index"
-                class="queue-item"
-                :class="{ active: index === player.currentIndex.value }"
-                @click="player.playQueueItem(index)"
+        <div v-else class="queue-content">
+            <DataTable
+                :value="queueWithIndex"
+                scrollable
+                scroll-height="flex"
+                :row-class="(data) => (data.isCurrent ? 'current-track' : '')"
+                @row-click="onRowClick"
+                class="queue-table"
             >
-                <div class="queue-item-cover">
-                    <img
-                        v-if="getCoverUrl(song.coverArt)"
-                        :src="getCoverUrl(song.coverArt)!"
-                        alt=""
-                    />
-                    <div v-else class="cover-mini-placeholder">
-                        <i class="pi pi-music"></i>
-                    </div>
-                </div>
-                <div class="queue-item-info">
-                    <div class="queue-item-title">{{ song.title }}</div>
-                    <div class="queue-item-artist">{{ song.artist }}</div>
-                </div>
-                <span class="queue-item-duration">{{ formatDuration(song.duration) }}</span>
-            </div>
+                <Column style="width: 48px" body-class="play-indicator-cell">
+                    <template #body="slotProps">
+                        <div
+                            class="play-indicator-container"
+                            @mouseenter="hoveredTrackIndex = slotProps.data.index"
+                            @mouseleave="hoveredTrackIndex = null"
+                            @click.stop="handlePlayPauseClick($event, slotProps.data.index)"
+                        >
+                            <i
+                                v-if="
+                                    hoveredTrackIndex === slotProps.data.index &&
+                                    (!slotProps.data.isCurrent || !player.isPlaying.value)
+                                "
+                                class="pi pi-play play-hover-icon"
+                            ></i>
+                            <i
+                                v-else-if="
+                                    hoveredTrackIndex === slotProps.data.index &&
+                                    slotProps.data.isCurrent &&
+                                    player.isPlaying.value
+                                "
+                                class="pi pi-pause play-hover-icon"
+                            ></i>
+                            <i
+                                v-else-if="slotProps.data.isCurrent && player.isPlaying.value"
+                                class="pi pi-volume-up playing-icon"
+                            ></i>
+                            <i
+                                v-else-if="slotProps.data.isCurrent"
+                                class="pi pi-pause playing-icon"
+                            ></i>
+                            <span v-else class="track-number">{{
+                                slotProps.data.index + 1
+                            }}</span>
+                        </div>
+                    </template>
+                </Column>
+
+                <Column field="title" style="min-width: 0">
+                    <template #body="slotProps">
+                        <div class="track-cell">
+                            <div class="track-cover">
+                                <img
+                                    v-if="getCoverUrl(slotProps.data.coverArt)"
+                                    :src="getCoverUrl(slotProps.data.coverArt)!"
+                                    alt=""
+                                />
+                                <i v-else class="pi pi-music"></i>
+                            </div>
+                            <div class="track-info">
+                                <div class="track-title">{{ slotProps.data.title }}</div>
+                                <div class="track-artist">
+                                    {{ slotProps.data.artist || 'Unknown' }}
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </Column>
+
+                <Column style="width: 64px" body-class="duration-cell">
+                    <template #body="slotProps">
+                        <span class="track-duration">{{
+                            formatDuration(slotProps.data.duration)
+                        }}</span>
+                        <Button
+                            icon="pi pi-trash"
+                            text
+                            rounded
+                            size="small"
+                            severity="secondary"
+                            class="remove-button"
+                            @click.stop="player.removeFromQueue(slotProps.data.index)"
+                            v-tooltip.left="'Remove from queue'"
+                        />
+                    </template>
+                </Column>
+
+            </DataTable>
         </div>
+
+        <Menu ref="headerMenu" :model="headerMenuItems" :popup="true" />
+
+        <Dialog
+            v-model:visible="showSaveDialog"
+            header="Save Queue as Playlist"
+            :modal="true"
+            :style="{ width: '400px' }"
+        >
+            <div class="save-form">
+                <InputText
+                    v-model="playlistName"
+                    placeholder="Playlist name"
+                    class="w-full"
+                    autofocus
+                    @keyup.enter="handleSave"
+                />
+            </div>
+            <template #footer>
+                <Button label="Cancel" text @click="showSaveDialog = false" />
+                <Button
+                    label="Save"
+                    :loading="createPlaylist.isPending.value"
+                    :disabled="!playlistName.trim()"
+                    @click="handleSave"
+                />
+            </template>
+        </Dialog>
     </aside>
 </template>
 
 <style scoped>
 .queue-sidebar {
-    height: calc(100vh - var(--app-player-height));
+    height: 100%;
     background-color: var(--app-surface);
     border-left: 1px solid var(--app-border);
     display: flex;
@@ -123,6 +355,93 @@ const formatDuration = (seconds?: number): string => {
     flex-shrink: 0;
     position: relative;
     overflow: hidden;
+    transition: width 0.3s ease;
+}
+
+.queue-sidebar.resizing {
+    transition: none;
+}
+
+.queue-sidebar.collapsed {
+    width: var(--app-sidebar-collapsed-width);
+}
+
+.queue-sidebar.collapsed .queue-header {
+    justify-content: center;
+    padding: 0.5rem;
+}
+
+.queue-collapsed {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem 0;
+    gap: 0.4rem;
+}
+
+.collapsed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.collapsed-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    width: 100%;
+}
+
+.collapsed-item:hover {
+    background-color: var(--app-background);
+}
+
+.collapsed-item.current {
+    background-color: #eef2ff;
+    box-shadow: inset 3px 0 0 var(--app-accent);
+}
+
+.collapsed-item.current:hover {
+    background-color: #e0e7ff;
+}
+
+.collapsed-cover {
+    width: 40px;
+    height: 40px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.collapsed-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.collapsed-cover i {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.empty-state-collapsed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 0;
+    color: var(--app-text-secondary);
+    font-size: 1.2rem;
 }
 
 .resize-handle {
@@ -143,20 +462,48 @@ const formatDuration = (seconds?: number): string => {
 .queue-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    border-bottom: 1px solid var(--app-border);
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem 0.5rem 0.5rem;
+    min-height: 3rem;
+    box-sizing: border-box;
     flex-shrink: 0;
 }
 
-.queue-header h3 {
+.collapse-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.collapse-btn:hover {
+    background-color: var(--app-background);
+    color: var(--app-text-primary);
+}
+
+.header-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.header-content h3 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
 }
 
 .queue-info {
+    margin-left: 0.5rem;
     font-size: 0.8rem;
+    font-weight: 400;
     color: var(--app-text-secondary);
 }
 
@@ -170,70 +517,139 @@ const formatDuration = (seconds?: number): string => {
     color: var(--app-text-secondary);
 }
 
-.queue-list {
+.queue-content {
     flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-.queue-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
+.queue-table {
+    flex: 1;
+}
+
+.queue-table :deep(.p-datatable-wrapper) {
+    height: 100%;
+}
+
+.queue-table :deep(.p-datatable-thead) {
+    display: none;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr) {
     cursor: pointer;
     transition: background-color 0.15s;
 }
 
-.queue-item:hover {
+.queue-table :deep(.p-datatable-tbody > tr > td) {
+    padding: 0.5rem 0.25rem;
+    border: none;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr > td:first-child) {
+    padding-left: 0.5rem;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr > td:last-child) {
+    padding-right: 0.5rem;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr:hover) {
     background-color: var(--app-background);
 }
 
-.queue-item.active {
+.queue-table :deep(.current-track) {
     background-color: #eef2ff;
-    border-left: 3px solid var(--app-accent);
 }
 
-.queue-item-cover {
+.queue-table :deep(.current-track:hover) {
+    background-color: #e0e7ff;
+}
+
+.queue-table :deep(.current-track td:first-child) {
+    box-shadow: inset 3px 0 0 var(--app-accent);
+}
+
+.play-indicator-cell {
+    text-align: center;
+}
+
+.play-indicator-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    width: 100%;
+    height: 40px;
+}
+
+.playing-icon {
+    color: var(--app-accent);
+    font-size: 1rem;
+}
+
+.play-hover-icon {
+    color: var(--app-text-primary);
+    font-size: 1rem;
+    transition: color 0.15s, transform 0.15s;
+}
+
+.play-hover-icon:hover {
+    color: var(--app-accent);
+    transform: scale(1.1);
+}
+
+.track-number {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+    font-weight: 500;
+}
+
+.track-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.track-cover {
     width: 40px;
     height: 40px;
+    flex-shrink: 0;
     border-radius: 4px;
     overflow: hidden;
-    flex-shrink: 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.queue-item-cover img {
+.track-cover img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.cover-mini-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 0.8rem;
+.track-cover i {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.85);
 }
 
-.queue-item-info {
-    flex: 1;
+.track-info {
     min-width: 0;
+    flex: 1;
 }
 
-.queue-item-title {
-    font-size: 0.85rem;
+.track-title {
+    font-size: 0.9rem;
     font-weight: 500;
+    color: var(--app-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.queue-item-artist {
+.track-artist {
     font-size: 0.75rem;
     color: var(--app-text-secondary);
     white-space: nowrap;
@@ -241,15 +657,51 @@ const formatDuration = (seconds?: number): string => {
     text-overflow: ellipsis;
 }
 
-.queue-item-duration {
+.current-track .track-title {
+    color: var(--app-accent-hover);
+    font-weight: 600;
+}
+
+.current-track .track-artist {
+    color: var(--app-accent);
+}
+
+.duration-cell {
+    text-align: right;
+    position: relative;
+}
+
+.track-duration {
     font-size: 0.75rem;
     color: var(--app-text-secondary);
-    flex-shrink: 0;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr:hover .track-duration) {
+    visibility: hidden;
+}
+
+.queue-table :deep(.remove-button) {
+    position: absolute;
+    top: 50%;
+    right: 0.25rem;
+    transform: translateY(-50%);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+}
+
+.queue-table :deep(.p-datatable-tbody > tr:hover .remove-button) {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 @media (max-width: 1200px) {
     .queue-sidebar {
         display: none;
     }
+}
+
+.save-form {
+    padding: 1rem 0;
 }
 </style>

@@ -42,13 +42,18 @@ func (s *Store) GetAlbum(id uint) (*model.Album, error) {
 }
 
 type AlbumListFilter struct {
-	Genre    string
-	FromYear int
-	ToYear   int
+	Genre     string
+	FromYear  int
+	ToYear    int
+	LibraryID *uint
 }
 
 func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumListFilter) ([]model.Album, error) {
 	q := s.db.Model(&model.Album{}).Preload("Artists").Preload("Genres")
+
+	if filter != nil && filter.LibraryID != nil {
+		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
 
 	switch listType {
 	case "alphabeticalByName":
@@ -98,15 +103,15 @@ func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumLis
 	return albums, err
 }
 
-func (s *Store) SearchAlbums(query string, count, offset int) ([]model.Album, error) {
+func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilter) ([]model.Album, error) {
 	norm := unidecode.Normalize(query)
-	var albums []model.Album
-	err := s.db.
+	q := s.db.
 		Preload("Artists").
-		Where("name_norm LIKE ?", "%"+norm+"%").
-		Order("name_norm ASC").
-		Limit(count).
-		Offset(offset).
-		Find(&albums).Error
+		Where("name_norm LIKE ?", "%"+norm+"%")
+	if filter != nil && filter.LibraryID != nil {
+		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
+	var albums []model.Album
+	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&albums).Error
 	return albums, err
 }

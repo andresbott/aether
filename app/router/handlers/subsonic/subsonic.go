@@ -11,11 +11,13 @@ import (
 )
 
 type Handler struct {
-	store *store.Store
+	store         *store.Store
+	coverCacheDir string
+	radioCoverDir string
 }
 
-func Register(r *mux.Router, s *store.Store) {
-	h := &Handler{store: s}
+func Register(r *mux.Router, s *store.Store, coverCacheDir, radioCoverDir string) {
+	h := &Handler{store: s, coverCacheDir: coverCacheDir, radioCoverDir: radioCoverDir}
 	sub := r.PathPrefix("/rest").Subrouter()
 
 	sub.Use(func(next http.Handler) http.Handler {
@@ -72,12 +74,19 @@ func Register(r *mux.Router, s *store.Store) {
 	register("unstar", h.unstar)
 	register("scrobble", h.scrobble)
 	register("setRating", h.setRating)
+
+	// Internet Radio
+	register("getInternetRadioStations", h.getInternetRadioStations)
+	register("createInternetRadioStation", h.createInternetRadioStation)
+	register("updateInternetRadioStation", h.updateInternetRadioStation)
+	register("deleteInternetRadioStation", h.deleteInternetRadioStation)
 }
 
 func encodeArtistID(id uint) string   { return fmt.Sprintf("ar-%d", id) }
 func encodeAlbumID(id uint) string    { return fmt.Sprintf("al-%d", id) }
 func encodeTrackID(id uint) string    { return fmt.Sprintf("tr-%d", id) }
 func encodePlaylistID(id uint) string { return fmt.Sprintf("pl-%d", id) }
+func encodeRadioID(id uint) string    { return fmt.Sprintf("rs-%d", id) }
 
 func decodeID(s string) (string, uint, error) {
 	parts := strings.SplitN(s, "-", 2)
@@ -98,6 +107,8 @@ func decodeID(s string) (string, uint, error) {
 		itemType = "track"
 	case "pl":
 		itemType = "playlist"
+	case "rs":
+		itemType = "radio"
 	default:
 		return "", 0, fmt.Errorf("unknown id prefix: %s", parts[0])
 	}
@@ -122,4 +133,20 @@ func paramInt(r *http.Request, key string, defaultVal int) int {
 
 func paramStrSlice(r *http.Request, key string) []string {
 	return r.URL.Query()[key]
+}
+
+// paramLibraryID parses the optional musicFolderId query parameter.
+// Returns nil when absent or unparseable — treated as "cross-library"
+// per the Subsonic spec (param is optional).
+func paramLibraryID(r *http.Request) *uint {
+	s := r.URL.Query().Get("musicFolderId")
+	if s == "" {
+		return nil
+	}
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return nil
+	}
+	u := uint(n)
+	return &u
 }

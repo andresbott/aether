@@ -48,6 +48,13 @@ const initAudioElement = (): HTMLAudioElement => {
     return audioElement
 }
 
+const getTrackUrl = (track: Song | null): string | null => {
+    if (!track) return null
+    if (track.streamUrl) return track.streamUrl
+    if (!subsonicClient.isConfigured()) return null
+    return subsonicClient.getStreamUrl(track.id)
+}
+
 export function usePlayer() {
     const audio = initAudioElement()
 
@@ -65,6 +72,14 @@ export function usePlayer() {
 
     if (queue.value.length > 0 && currentIndex.value < queue.value.length) {
         currentTrack.value = queue.value[currentIndex.value] || null
+    }
+
+    if (!audio.src) {
+        const url = getTrackUrl(currentTrack.value)
+        if (url) {
+            audio.src = url
+            audio.volume = volume.value
+        }
     }
 
     watch(
@@ -98,25 +113,6 @@ export function usePlayer() {
         return currentIndex.value > 0
     })
 
-    const currentTrackUrl = computed(() => {
-        if (!currentTrack.value) return null
-        if (currentTrack.value.streamUrl) {
-            return currentTrack.value.streamUrl
-        }
-        if (!subsonicClient.isConfigured()) return null
-        return subsonicClient.getStreamUrl(currentTrack.value.id)
-    })
-
-    watch(currentTrackUrl, (url) => {
-        if (url) {
-            audio.src = url
-            audio.volume = volume.value
-            if (isPlaying.value) {
-                audio.play().catch(console.error)
-            }
-        }
-    })
-
     watch(volume, (newVolume) => {
         audio.volume = newVolume
         saveToLocalStorage(STORAGE_KEY_VOLUME, newVolume)
@@ -126,10 +122,7 @@ export function usePlayer() {
         if (!currentTrack.value && queue.value.length > 0) {
             loadTrack(0)
         }
-        const url = currentTrackUrl.value
-        if (!url) return
-        audio.src = url
-        audio.volume = volume.value
+        if (!audio.src) return
         audio.play().catch((err) => {
             if (err.name !== 'AbortError') {
                 console.error('Failed to play:', err)
@@ -155,6 +148,11 @@ export function usePlayer() {
         currentIndex.value = index
         currentTrack.value = queue.value[index] || null
         currentTime.value = 0
+        const url = getTrackUrl(currentTrack.value)
+        if (url) {
+            audio.src = url
+            audio.volume = volume.value
+        }
     }
 
     const playNext = (): void => {

@@ -138,6 +138,7 @@ func runServer(configFile string) error {
 		TaskRunner:    runner,
 		TaskLogGetter: taskLogReader,
 		Store:         dataStore,
+		DataDir:       cfg.DataDir,
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {

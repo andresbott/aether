@@ -110,11 +110,88 @@ func TestSearchAlbums(t *testing.T) {
 	db := s.DB()
 	db.Create(&model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"})
 	db.Create(&model.Album{Name: "OK Computer", NameNorm: "ok computer", AlbumArtistNorm: "radiohead"})
-	results, err := s.SearchAlbums("kid", 10, 0)
+	results, err := s.SearchAlbums("kid", 10, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+}
+
+func TestGetAlbumListByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+
+	onlyL1 := model.Album{Name: "Only1", NameNorm: "only1", AlbumArtistNorm: "x"}
+	onlyL2 := model.Album{Name: "Only2", NameNorm: "only2", AlbumArtistNorm: "x"}
+	shared := model.Album{Name: "Shared", NameNorm: "shared", AlbumArtistNorm: "x"}
+	db.Create(&onlyL1)
+	db.Create(&onlyL2)
+	db.Create(&shared)
+
+	db.Create(&model.Track{AlbumID: onlyL1.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: onlyL2.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib1.ID, Filename: "c.mp3", FilePath: "/l1/c.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib2.ID, Filename: "d.mp3", FilePath: "/l2/d.mp3"})
+
+	id1 := lib1.ID
+	got, err := s.GetAlbumList("alphabeticalByName", 10, 0, &store.AlbumListFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 albums (Only1 + Shared), got %d", len(got))
+	}
+	names := map[string]bool{got[0].Name: true, got[1].Name: true}
+	if !names["Only1"] || !names["Shared"] {
+		t.Fatalf("expected Only1 and Shared, got %v", names)
+	}
+
+	all, err := s.GetAlbumList("alphabeticalByName", 10, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 albums with nil filter, got %d", len(all))
+	}
+}
+
+func TestSearchAlbumsByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+
+	a1 := model.Album{Name: "Blue Album", NameNorm: "blue album", AlbumArtistNorm: "x"}
+	a2 := model.Album{Name: "Blue Planet", NameNorm: "blue planet", AlbumArtistNorm: "x"}
+	db.Create(&a1)
+	db.Create(&a2)
+	db.Create(&model.Track{AlbumID: a1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: a2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+
+	id1 := lib1.ID
+	got, err := s.SearchAlbums("blue", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "Blue Album" {
+		t.Fatalf("expected only Blue Album, got %+v", got)
+	}
+
+	all, err := s.SearchAlbums("blue", 10, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2 albums with nil filter, got %d", len(all))
 	}
 }

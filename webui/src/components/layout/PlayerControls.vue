@@ -112,10 +112,10 @@ const volumePercent = computed({
     height: var(--app-player-height);
     background-color: var(--app-player-bg);
     color: var(--app-player-text);
-    display: grid;
-    grid-template-columns: auto 1fr auto;
+    display: flex;
     align-items: center;
-    gap: 1.5rem;
+    justify-content: center;
+    gap: 4.5rem;
     padding: 0 1.5rem;
     z-index: 100;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
@@ -129,6 +129,9 @@ const volumePercent = computed({
 .player-center {
     display: flex;
     align-items: center;
+    justify-content: center;
+    width: 520px;
+    max-width: 100%;
 }
 
 .playback-buttons {
@@ -218,7 +221,6 @@ const volumePercent = computed({
 .player-right {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
     gap: 0.75rem;
 }
 

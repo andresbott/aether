@@ -22,3 +22,6 @@ docs/superpowers
 # SPA embedded files (rebuilt from webui/)
 app/spa/files/ui/*
 !app/spa/files/ui/.gitkeep
+
+# Generated cover art test samples
+internal/covergen/testdata/*.png

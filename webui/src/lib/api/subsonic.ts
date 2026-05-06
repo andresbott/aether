@@ -230,6 +230,56 @@ class SubsonicClient {
         return response.internetRadioStations?.internetRadioStation || []
     }
 
+    async createInternetRadioStation(
+        name: string,
+        streamUrl: string,
+        homepageUrl?: string,
+        coverFile?: File
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('createInternetRadioStation.view')
+        const body = new FormData()
+        body.append('name', name)
+        body.append('streamUrl', streamUrl)
+        if (homepageUrl) body.append('homepageUrl', homepageUrl)
+        if (coverFile) body.append('coverFile', coverFile)
+        await this.submitMultipart(url, body)
+    }
+
+    async updateInternetRadioStation(
+        id: string,
+        name: string,
+        streamUrl: string,
+        homepageUrl?: string,
+        coverFile?: File,
+        coverClear?: boolean
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('updateInternetRadioStation.view')
+        const body = new FormData()
+        body.append('id', id)
+        body.append('name', name)
+        body.append('streamUrl', streamUrl)
+        if (homepageUrl) body.append('homepageUrl', homepageUrl)
+        if (coverFile) body.append('coverFile', coverFile)
+        if (coverClear) body.append('coverClear', 'true')
+        await this.submitMultipart(url, body)
+    }
+
+    private async submitMultipart(url: string, body: FormData): Promise<void> {
+        const response = await fetch(url, { method: 'POST', body })
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+        const data = await response.json()
+        if (data['subsonic-response'].status === 'failed') {
+            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+        }
+    }
+
+    async deleteInternetRadioStation(id: string): Promise<void> {
+        if (!this.isConfigured()) return
+        await this.request('deleteInternetRadioStation.view', { id })
+    }
+
     getStreamUrl(id: string, maxBitRate?: number): string {
         const params: Record<string, string | number | undefined> = { id }
         if (maxBitRate) {

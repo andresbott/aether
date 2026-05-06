@@ -44,6 +44,7 @@ onMounted(() => {
     width: 100%;
     overflow: hidden;
     background-color: var(--app-background);
+    padding-bottom: var(--app-player-height);
 }
 
 .body-row {

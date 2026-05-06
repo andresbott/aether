@@ -255,3 +255,59 @@ export function useRandomSongs(
         staleTime: 2 * 60 * 1000
     })
 }
+
+export function useCreateRadioStation() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: {
+            name: string
+            streamUrl: string
+            homepageUrl?: string
+            coverFile?: File
+        }) =>
+            subsonicClient.createInternetRadioStation(
+                params.name,
+                params.streamUrl,
+                params.homepageUrl,
+                params.coverFile
+            ),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
+        }
+    })
+}
+
+export function useUpdateRadioStation() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: {
+            id: string
+            name: string
+            streamUrl: string
+            homepageUrl?: string
+            coverFile?: File
+            coverClear?: boolean
+        }) =>
+            subsonicClient.updateInternetRadioStation(
+                params.id,
+                params.name,
+                params.streamUrl,
+                params.homepageUrl,
+                params.coverFile,
+                params.coverClear
+            ),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
+        }
+    })
+}
+
+export function useDeleteRadioStation() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => subsonicClient.deleteInternetRadioStation(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
+        }
+    })
+}

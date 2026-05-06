@@ -20,32 +20,51 @@ type StarredResult struct {
 	Tracks  []model.Track
 }
 
-func (s *Store) GetStarred() (*StarredResult, error) {
+func (s *Store) GetStarred(filter *StarredFilter) (*StarredResult, error) {
 	result := &StarredResult{}
+
 	var artistIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'artist'").Pluck("item_id", &artistIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(artistIDs) > 0 {
-		if err := s.db.Where("id IN ?", artistIDs).Find(&result.Artists).Error; err != nil {
+		q := s.db.Model(&model.Artist{}).Where("artists.id IN ?", artistIDs)
+		if filter != nil && filter.LibraryID != nil {
+			q = q.
+				Distinct().
+				Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
+				Joins("JOIN tracks ON tracks.id = track_artists.track_id").
+				Where("tracks.library_id = ?", *filter.LibraryID)
+		}
+		if err := q.Find(&result.Artists).Error; err != nil {
 			return nil, err
 		}
 	}
+
 	var albumIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'album'").Pluck("item_id", &albumIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(albumIDs) > 0 {
-		if err := s.db.Preload("Artists").Where("id IN ?", albumIDs).Find(&result.Albums).Error; err != nil {
+		q := s.db.Preload("Artists").Where("albums.id IN ?", albumIDs)
+		if filter != nil && filter.LibraryID != nil {
+			q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+		}
+		if err := q.Find(&result.Albums).Error; err != nil {
 			return nil, err
 		}
 	}
+
 	var trackIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'track'").Pluck("item_id", &trackIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(trackIDs) > 0 {
-		if err := s.db.Preload("Album").Preload("Album.Artists").Preload("Artists").Preload("Genres").Where("id IN ?", trackIDs).Find(&result.Tracks).Error; err != nil {
+		q := s.db.Preload("Album").Preload("Album.Artists").Preload("Artists").Preload("Genres").Where("tracks.id IN ?", trackIDs)
+		if filter != nil && filter.LibraryID != nil {
+			q = q.Where("tracks.library_id = ?", *filter.LibraryID)
+		}
+		if err := q.Find(&result.Tracks).Error; err != nil {
 			return nil, err
 		}
 	}
