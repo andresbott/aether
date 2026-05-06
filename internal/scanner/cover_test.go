@@ -18,9 +18,14 @@ func TestIsCoverFile(t *testing.T) {
 		{"front.png", true},
 		{"album.png", true},
 		{"albumart.jpg", true},
+		{"Adele-19 [Front].jpg", true},
+		{"BSO_Bar_Coyote--Frontal.jpg", true},
+		{"my-cover-scan.png", true},
 		{"track01.mp3", false},
 		{"notes.txt", false},
 		{"cover.txt", false},
+		{"back.jpg", false},
+		{"insert.jpg", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -37,6 +42,22 @@ func TestBestCover(t *testing.T) {
 	best := scanner.BestCover(files)
 	if best != "cover.jpg" {
 		t.Errorf("expected cover.jpg, got %s", best)
+	}
+}
+
+func TestBestCoverPrefersExactOverSubstring(t *testing.T) {
+	files := []string{"Adele-19 [Front].jpg", "cover.jpg"}
+	best := scanner.BestCover(files)
+	if best != "cover.jpg" {
+		t.Errorf("expected cover.jpg, got %s", best)
+	}
+}
+
+func TestBestCoverSubstringMatch(t *testing.T) {
+	files := []string{"back.jpg", "Adele-19 [Front].jpg"}
+	best := scanner.BestCover(files)
+	if best != "Adele-19 [Front].jpg" {
+		t.Errorf("expected Adele-19 [Front].jpg, got %s", best)
 	}
 }
 

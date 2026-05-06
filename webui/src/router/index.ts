@@ -8,9 +8,10 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/HomeView.vue')
     },
     {
-        path: '/library',
+        path: '/library/:folderId?',
         name: 'library',
-        component: () => import('@/views/LibraryView.vue')
+        component: () => import('@/views/LibraryView.vue'),
+        props: true
     },
     {
         path: '/album/:id',

@@ -300,11 +300,15 @@ class SubsonicClient {
         await this.request('unstar.view', { id })
     }
 
-    async getRandomSongs(size = 50): Promise<Song[]> {
+    async getRandomSongs(size = 50, musicFolderId?: number): Promise<Song[]> {
         if (!this.isConfigured()) return []
+        const params: Record<string, string | number | undefined> = { size }
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
         const response = await this.request<{ randomSongs: { song: Song[] } }>(
             'getRandomSongs.view',
-            { size }
+            params
         )
         return response.randomSongs?.song || []
     }

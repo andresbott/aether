@@ -31,7 +31,8 @@ export const queryKeys = {
     podcastChannel: (id: string) => ['subsonic', 'podcastChannel', id] as const,
     newestPodcasts: (count: number) => ['subsonic', 'newestPodcasts', count] as const,
     radioStations: ['subsonic', 'radioStations'] as const,
-    randomSongs: (size: number) => ['subsonic', 'randomSongs', size] as const
+    randomSongs: (size: number, musicFolderId?: number) =>
+        ['subsonic', 'randomSongs', size, musicFolderId] as const
 }
 
 export function usePing() {
@@ -241,10 +242,16 @@ export function useToggleStar() {
     })
 }
 
-export function useRandomSongs(size: number | Ref<number> | ComputedRef<number> = 50) {
+export function useRandomSongs(
+    size: number | Ref<number> | ComputedRef<number> = 50,
+    musicFolderId?: number | Ref<number | undefined> | ComputedRef<number | undefined>
+) {
     return useQuery({
-        queryKey: computed(() => queryKeys.randomSongs(unref(size))),
-        queryFn: () => subsonicClient.getRandomSongs(unref(size)),
+        queryKey: computed(() =>
+            queryKeys.randomSongs(unref(size), unref(musicFolderId))
+        ),
+        queryFn: () =>
+            subsonicClient.getRandomSongs(unref(size), unref(musicFolderId)),
         staleTime: 2 * 60 * 1000
     })
 }

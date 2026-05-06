@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
+import { useMusicFolders } from '@/composables/useSubsonicQueries'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,11 +13,37 @@ interface NavItem {
     icon: string
     route: string
     routeName: string
+    folderId?: number
 }
 
-const navItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
-    { label: 'Library', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
+const primaryItems: NavItem[] = [
+    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' }
+]
+
+const { data: musicFolders } = useMusicFolders()
+
+const libraryItems = computed<NavItem[]>(() => {
+    const folders = musicFolders.value ?? []
+    if (folders.length <= 1) {
+        return [
+            {
+                label: 'Library',
+                icon: 'pi pi-headphones',
+                route: '/library',
+                routeName: 'library'
+            }
+        ]
+    }
+    return folders.map((folder) => ({
+        label: folder.name,
+        icon: 'pi pi-headphones',
+        route: `/library/${folder.id}`,
+        routeName: 'library',
+        folderId: folder.id
+    }))
+})
+
+const otherSourceItems: NavItem[] = [
     { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
     { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
@@ -24,6 +51,13 @@ const navItems: NavItem[] = [
 
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
+    if (item.routeName === 'library') {
+        if (route.name !== 'library') return false
+        const raw = route.params.folderId
+        const currentFolder = Array.isArray(raw) ? raw[0] : raw
+        const currentId = currentFolder ? Number(currentFolder) : undefined
+        return item.folderId === currentId
+    }
     return route.path.startsWith(item.route)
 }
 
@@ -38,7 +72,39 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     <aside class="sidebar" :class="{ collapsed }">
         <nav class="sidebar-nav">
             <button
-                v-for="item in navItems"
+                v-for="item in primaryItems"
+                :key="item.routeName"
+                class="nav-item"
+                :class="{ active: isActive(item) }"
+                @click="navigateTo(item)"
+                v-tooltip.right="collapsed ? item.label : undefined"
+            >
+                <i :class="item.icon"></i>
+                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+
+            <div class="nav-separator" :class="{ 'has-label': !collapsed }">
+                <span v-if="!collapsed" class="nav-section-label">Library</span>
+            </div>
+
+            <button
+                v-for="item in libraryItems"
+                :key="item.route"
+                class="nav-item"
+                :class="{ active: isActive(item) }"
+                @click="navigateTo(item)"
+                v-tooltip.right="collapsed ? item.label : undefined"
+            >
+                <i :class="item.icon"></i>
+                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+
+            <div class="nav-separator" :class="{ 'has-label': !collapsed }">
+                <span v-if="!collapsed" class="nav-section-label">More</span>
+            </div>
+
+            <button
+                v-for="item in otherSourceItems"
                 :key="item.routeName"
                 class="nav-item"
                 :class="{ active: isActive(item) }"
@@ -161,6 +227,25 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .collapse-label {
     font-size: 0.9rem;
     font-weight: 500;
+}
+
+.nav-separator {
+    margin: 0.75rem 0.5rem 0.25rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--app-border);
+}
+
+.nav-separator.has-label {
+    padding-left: 0.5rem;
+}
+
+.nav-section-label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--app-text-secondary);
 }
 
 @media (max-width: 768px) {

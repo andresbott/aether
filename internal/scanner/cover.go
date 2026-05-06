@@ -9,44 +9,56 @@ import (
 var coverNames = []string{"cover", "folder", "front", "album", "albumart", "albumartsmall", "thumb"}
 var coverExts = map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".bmp": true, ".webp": true}
 
-var coverPriority = map[string]int{
-	"cover":    0,
-	"front":    1,
-	"folder":   2,
-	"album":    3,
-	"albumart": 4,
+// Priorities: exact-match tokens beat substring matches. Lower is better.
+var coverExactPriority = map[string]int{
+	"cover":         0,
+	"front":         1,
+	"folder":        2,
+	"album":         3,
+	"albumart":      4,
+	"albumartsmall": 5,
+	"thumb":         6,
 }
 
+var coverSubstringTokens = []string{"cover", "front", "folder", "album", "albumart"}
+
 func IsCoverFile(filename string) bool {
-	ext := strings.ToLower(filepath.Ext(filename))
-	if !coverExts[ext] {
-		return false
-	}
-	base := strings.ToLower(strings.TrimSuffix(filename, filepath.Ext(filename)))
-	for _, name := range coverNames {
-		if base == name {
-			return true
-		}
-	}
-	return false
+	return coverRank(filename) >= 0
 }
 
 func BestCover(filenames []string) string {
 	best := ""
-	bestPri := len(coverPriority) + 1
+	bestPri := -1
 	for _, f := range filenames {
-		if !IsCoverFile(f) {
+		pri := coverRank(f)
+		if pri < 0 {
 			continue
 		}
-		base := strings.ToLower(strings.TrimSuffix(f, filepath.Ext(f)))
-		pri, ok := coverPriority[base]
-		if !ok {
-			pri = len(coverPriority)
-		}
-		if pri < bestPri {
+		if best == "" || pri < bestPri {
 			bestPri = pri
 			best = f
 		}
 	}
 	return best
+}
+
+// coverRank returns the match priority for filename (lower is better), or -1
+// if the filename is not recognised as a cover. Exact matches of canonical
+// names rank highest; substring matches rank below all exact matches.
+func coverRank(filename string) int {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if !coverExts[ext] {
+		return -1
+	}
+	base := strings.ToLower(strings.TrimSuffix(filename, filepath.Ext(filename)))
+	if pri, ok := coverExactPriority[base]; ok {
+		return pri
+	}
+	exactMax := len(coverExactPriority)
+	for i, tok := range coverSubstringTokens {
+		if strings.Contains(base, tok) {
+			return exactMax + i
+		}
+	}
+	return -1
 }

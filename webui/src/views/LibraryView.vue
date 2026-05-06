@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
-import { useAlbumList, useArtists, useRandomSongs } from '@/composables/useSubsonicQueries'
+import {
+    useAlbumList,
+    useArtists,
+    useMusicFolders,
+    useRandomSongs
+} from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+
+const route = useRoute()
 
 const viewMode = ref('albums')
 const viewOptions = [
@@ -15,9 +23,23 @@ const viewOptions = [
     { label: 'Songs', value: 'songs' }
 ]
 
-const { data: albums, isLoading: albumsLoading } = useAlbumList('newest', 50)
-const { data: artists, isLoading: artistsLoading } = useArtists()
-const { data: songs, isLoading: songsLoading } = useRandomSongs(100)
+const folderId = computed<number | undefined>(() => {
+    const raw = route.params.folderId
+    const value = Array.isArray(raw) ? raw[0] : raw
+    if (!value) return undefined
+    const num = Number(value)
+    return Number.isFinite(num) ? num : undefined
+})
+
+const { data: folders } = useMusicFolders()
+const folderName = computed(() => {
+    if (folderId.value === undefined) return 'Library'
+    return folders.value?.find((f) => f.id === folderId.value)?.name ?? 'Library'
+})
+
+const { data: albums, isLoading: albumsLoading } = useAlbumList('newest', 50, 0, folderId)
+const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
+const { data: songs, isLoading: songsLoading } = useRandomSongs(100, folderId)
 const player = usePlayer()
 
 const formatDuration = (seconds?: number): string => {
@@ -37,7 +59,7 @@ const playSong = (index: number) => {
 <template>
     <div class="library-view">
         <div class="library-header">
-            <h1>Library</h1>
+            <h1>{{ folderName }}</h1>
             <SelectButton
                 v-model="viewMode"
                 :options="viewOptions"
