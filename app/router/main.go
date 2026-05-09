@@ -8,6 +8,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/gorilla/mux"
@@ -19,6 +20,7 @@ type Cfg struct {
 	TaskLogGetter taskrunner.TaskLogGetter
 	Store         *store.Store
 	DataDir       string
+	TagReader     tags.Reader
 }
 
 type MainAppHandler struct {
@@ -28,6 +30,7 @@ type MainAppHandler struct {
 	taskLogGetter taskrunner.TaskLogGetter
 	store         *store.Store
 	dataDir       string
+	tagReader     tags.Reader
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +46,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		taskLogGetter: cfg.TaskLogGetter,
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,
+		tagReader:     cfg.TagReader,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

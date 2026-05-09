@@ -53,7 +53,11 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	// Resolve album artists
 	albumArtistNames := ApplyMultiValue(mv.AlbumArtistMode, mv.AlbumArtistDelim, firstStr(meta.AlbumArtist), meta.AlbumArtist)
 	if len(albumArtistNames) == 0 {
-		albumArtistNames = artistNames
+		if meta.Compilation {
+			albumArtistNames = []string{"Various Artists"}
+		} else {
+			albumArtistNames = artistNames
+		}
 	}
 	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames)
 	if err != nil {

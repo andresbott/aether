@@ -24,7 +24,6 @@ const coverUrl = computed(() => {
         <div class="card-info">
             <div class="card-title">{{ album.name }}</div>
             <div class="card-subtitle">{{ album.artist }}</div>
-            <div v-if="album.year" class="card-year">{{ album.year }}</div>
         </div>
     </router-link>
 </template>

@@ -22,39 +22,27 @@ const primaryItems: NavItem[] = [
 
 const { data: musicFolders } = useMusicFolders()
 
-const libraryItems = computed<NavItem[]>(() => {
+const folderItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
-    const folderItems: NavItem[] =
-        folders.length <= 1
-            ? [
-                  {
-                      label: 'Library',
-                      icon: 'pi pi-headphones',
-                      route: '/library',
-                      routeName: 'library'
-                  }
-              ]
-            : [
-                  {
-                      label: 'All Music',
-                      icon: 'pi pi-headphones',
-                      route: '/library',
-                      routeName: 'library'
-                  },
-                  ...folders.map((folder) => ({
-                      label: folder.name,
-                      icon: 'pi pi-folder',
-                      route: `/library/${folder.id}`,
-                      routeName: 'library',
-                      folderId: folder.id
-                  }))
-              ]
+    if (folders.length <= 1) {
+        return [{ label: 'Library', icon: 'pi pi-headphones', route: '/library', routeName: 'library' }]
+    }
     return [
-        ...folderItems,
-        { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
-        { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
+        { label: 'All Music', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
+        ...folders.map((folder) => ({
+            label: folder.name,
+            icon: 'pi pi-folder',
+            route: `/library/${folder.id}`,
+            routeName: 'library',
+            folderId: folder.id
+        }))
     ]
 })
+
+const libraryExtras: NavItem[] = [
+    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
+    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
+]
 
 const streamingItems: NavItem[] = [
     { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
@@ -117,7 +105,19 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
             </div>
 
             <button
-                v-for="item in libraryItems"
+                v-for="item in folderItems"
+                :key="item.route"
+                class="nav-item"
+                :class="{ active: isActive(item), 'sub-item': item.folderId !== undefined }"
+                @click="navigateTo(item)"
+                v-tooltip.right="collapsed ? item.label : undefined"
+            >
+                <i :class="item.icon"></i>
+                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+
+            <button
+                v-for="item in libraryExtras"
                 :key="item.route"
                 class="nav-item"
                 :class="{ active: isActive(item) }"
@@ -208,6 +208,11 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 .nav-item.active:hover {
     background-color: #e0e7ff;
+}
+
+.nav-item.sub-item {
+    padding-left: 2.5rem;
+    font-size: 0.85rem;
 }
 
 .nav-item i {

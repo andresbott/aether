@@ -65,8 +65,32 @@ const routes: RouteRecordRaw[] = [
     },
     {
         path: '/admin',
-        name: 'admin',
-        component: () => import('@/views/AdminView.vue')
+        component: () => import('@/views/AdminView.vue'),
+        meta: { layout: 'admin' },
+        children: [
+            {
+                path: '',
+                redirect: '/admin/libraries'
+            },
+            {
+                path: 'libraries',
+                name: 'admin-libraries',
+                component: () => import('@/views/admin/AdminLibrariesView.vue'),
+                meta: { layout: 'admin' }
+            },
+            {
+                path: 'tasks',
+                name: 'admin-tasks',
+                component: () => import('@/views/admin/AdminTasksView.vue'),
+                meta: { layout: 'admin' }
+            },
+            {
+                path: 'metadata',
+                name: 'admin-metadata',
+                component: () => import('@/views/admin/MetadataEditorView.vue'),
+                meta: { layout: 'admin' }
+            }
+        ]
     },
     {
         path: '/settings',

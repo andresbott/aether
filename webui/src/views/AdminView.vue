@@ -1,171 +1,72 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import Button from 'primevue/button'
-import SelectButton from 'primevue/selectbutton'
-import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
-import LibrariesPanel from '@/components/admin/LibrariesPanel.vue'
-import { useTasks, useExecutions, useTriggerTask } from '@/composables/useTasks'
-import type { ExecutionInfo } from '@/types/tasks'
+import { RouterLink, RouterView } from 'vue-router'
 
-const { data: tasks, isLoading: tasksLoading } = useTasks()
-const triggerMutation = useTriggerTask()
-
-const selectedTaskFilter = ref<string>('all')
-
-const taskFilterOptions = computed(() => {
-    const options = [{ label: 'All', value: 'all' }]
-    if (tasks.value) {
-        tasks.value.forEach((t) => {
-            options.push({ label: t.name, value: t.id })
-        })
-    }
-    return options
-})
-
-const firstTaskId = computed(() => tasks.value?.[0]?.id ?? '')
-
-const { data: executions, isLoading: executionsLoading } = useExecutions(
-    computed(() => (selectedTaskFilter.value === 'all' ? firstTaskId.value : selectedTaskFilter.value))
-)
-
-const filteredExecutions = computed<ExecutionInfo[]>(() => {
-    if (!executions.value) return []
-    if (selectedTaskFilter.value === 'all') return executions.value
-    return executions.value.filter((e) => e.task_name === selectedTaskFilter.value)
-})
-
-const isTaskActive = (taskId: string): boolean => {
-    if (!executions.value) return false
-    return executions.value.some(
-        (e) =>
-            e.task_name === taskId &&
-            (e.status === 'Queued' || e.status === 'Running')
-    )
-}
-
-const triggerTask = (taskId: string) => {
-    triggerMutation.mutate(taskId)
-}
+const navItems = [
+    { label: 'Libraries', to: { name: 'admin-libraries' } },
+    { label: 'Tasks', to: { name: 'admin-tasks' } },
+    { label: 'Metadata Editor', to: { name: 'admin-metadata' } },
+] as const
 </script>
 
 <template>
-    <div class="admin-view">
-        <h1>Admin</h1>
-
-        <LibrariesPanel />
-
-        <section class="section">
-            <h2>Tasks</h2>
-            <div v-if="tasksLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
-            </div>
-            <div v-else-if="tasks && tasks.length > 0" class="task-cards">
-                <div v-for="task in tasks" :key="task.id" class="task-card">
-                    <div class="task-info">
-                        <h3>{{ task.name }}</h3>
-                        <p v-if="task.description">{{ task.description }}</p>
-                    </div>
-                    <Button
-                        label="Run"
-                        icon="pi pi-play"
-                        :disabled="isTaskActive(task.id) || triggerMutation.isPending.value"
-                        :loading="triggerMutation.isPending.value"
-                        @click="triggerTask(task.id)"
-                    />
-                </div>
-            </div>
-            <div v-else class="empty-state">
-                <p>No tasks registered</p>
-            </div>
-        </section>
-
-        <section class="section">
-            <div class="section-header">
-                <h2>Execution History</h2>
-                <SelectButton
-                    v-if="taskFilterOptions.length > 2"
-                    v-model="selectedTaskFilter"
-                    :options="taskFilterOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    :allowEmpty="false"
-                />
-            </div>
-            <ExecutionHistory
-                :executions="filteredExecutions"
-                :isLoading="executionsLoading"
-            />
-        </section>
+    <div class="admin-shell">
+        <nav class="admin-nav">
+            <RouterLink
+                v-for="item in navItems"
+                :key="item.label"
+                :to="item.to"
+                class="admin-nav-item"
+            >
+                {{ item.label }}
+            </RouterLink>
+        </nav>
+        <div class="admin-content">
+            <RouterView />
+        </div>
     </div>
 </template>
 
 <style scoped>
-.admin-view {
+.admin-shell {
+    display: flex;
+    gap: 2rem;
     max-width: 1200px;
     margin: 0 auto;
+    min-height: 100%;
 }
 
-.admin-view h1 {
-    font-size: 2rem;
-    font-weight: 700;
-    margin-bottom: 2rem;
-}
-
-.section {
-    margin-bottom: 2.5rem;
-}
-
-.section h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-}
-
-.section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-}
-
-.loading {
-    display: flex;
-    justify-content: center;
-    padding: 2rem;
-    color: var(--app-text-secondary);
-}
-
-.task-cards {
+.admin-nav {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.25rem;
+    width: 180px;
+    flex-shrink: 0;
+    padding-top: 0.25rem;
 }
 
-.task-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    background-color: var(--app-surface);
-    border: 1px solid var(--app-border);
-    border-radius: 8px;
-}
-
-.task-info h3 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.task-info p {
-    margin: 0.25rem 0 0;
-    font-size: 0.85rem;
+.admin-nav-item {
+    display: block;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
     color: var(--app-text-secondary);
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s;
 }
 
-.empty-state {
-    text-align: center;
-    padding: 2rem;
-    color: var(--app-text-secondary);
+.admin-nav-item:hover {
+    background-color: var(--app-border);
+    color: var(--app-text-primary);
+}
+
+.admin-nav-item.router-link-active {
+    background-color: #eef2ff;
+    color: var(--app-accent);
+}
+
+.admin-content {
+    flex: 1;
+    min-width: 0;
 }
 </style>
