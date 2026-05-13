@@ -224,3 +224,74 @@ func TestDeleteLibraryNotFound(t *testing.T) {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
 }
+
+func TestCreateLibraryWithDefaultView(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"Classical","path":"` + dir + `","default_view":"artists"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["default_view"] != "artists" {
+		t.Fatalf("expected default_view=artists, got %v", got["default_view"])
+	}
+}
+
+func TestCreateLibraryDefaultsToAlbums(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"Main","path":"` + dir + `"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["default_view"] != "albums" {
+		t.Fatalf("expected default_view=albums, got %v", got["default_view"])
+	}
+}
+
+func TestCreateLibraryRejectsBadDefaultView(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `","default_view":"songs"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateLibraryDefaultView(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	dir := t.TempDir()
+	lib := &model.Library{Name: "A", Path: dir, DefaultView: "albums"}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"A","path":"` + dir + `","default_view":"artists"}`
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["default_view"] != "artists" {
+		t.Fatalf("expected default_view=artists, got %v", got["default_view"])
+	}
+}

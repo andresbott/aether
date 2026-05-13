@@ -1,0 +1,14 @@
+package subsonic
+
+import "net/http"
+
+func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Request) {
+	writeResponse(w, map[string]any{
+		"openSubsonicExtensions": []map[string]any{
+			{
+				"name":     "musicFolderDefaultView",
+				"versions": []int{1},
+			},
+		},
+	})
+}

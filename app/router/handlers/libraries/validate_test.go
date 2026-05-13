@@ -60,3 +60,24 @@ func TestValidateMultiValueGrammar(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateDefaultView(t *testing.T) {
+	cases := []struct {
+		in string
+		ok bool
+	}{
+		{"", true},        // empty coerced to default by caller
+		{"albums", true},
+		{"artists", true},
+		{"songs", false},
+		{"Albums", false}, // case-sensitive
+		{"  ", false},
+	}
+	for _, c := range cases {
+		err := validateDefaultView(c.in)
+		gotOK := err == nil
+		if gotOK != c.ok {
+			t.Errorf("%q: expected ok=%v, got err=%v", c.in, c.ok, err)
+		}
+	}
+}

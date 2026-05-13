@@ -129,15 +129,6 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
     }
 }
 
-export interface AppliedFlags {
-    title: boolean
-    album: boolean
-    artists: boolean
-    album_artists: boolean
-    year: boolean
-    compilation: boolean
-}
-
 export interface EditValues {
     title: string
     album: string
@@ -145,19 +136,4 @@ export interface EditValues {
     album_artists: string[]
     year: number
     compilation: boolean
-}
-
-/**
- * Build the `fields` object for PUT /metadata/tracks, including only fields
- * whose "apply" flag is on.
- */
-export function buildPatchFields(applied: AppliedFlags, values: EditValues): PatchFields {
-    const out: PatchFields = {}
-    if (applied.title) out.title = values.title
-    if (applied.album) out.album = values.album
-    if (applied.artists) out.artists = [...values.artists]
-    if (applied.album_artists) out.album_artists = [...values.album_artists]
-    if (applied.year) out.year = values.year
-    if (applied.compilation) out.compilation = values.compilation
-    return out
 }

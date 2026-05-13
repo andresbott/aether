@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-    diffInitialValues,
-    buildPatchFields
-} from '@/composables/useMetadataEditor'
+import { diffInitialValues } from '@/composables/useMetadataEditor'
 import type { Track } from '@/types/metadata'
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
@@ -44,28 +41,3 @@ describe('diffInitialValues', () => {
     })
 })
 
-describe('buildPatchFields', () => {
-    it('includes only enabled fields', () => {
-        const applied = {
-            title: true, album: false, artists: false, album_artists: false,
-            year: true, compilation: false
-        }
-        const values = {
-            title: 'Hi', album: 'unused', artists: ['unused'], album_artists: ['unused'],
-            year: 2001, compilation: true
-        }
-        expect(buildPatchFields(applied, values)).toEqual({ title: 'Hi', year: 2001 })
-    })
-
-    it('returns an empty object when nothing is applied', () => {
-        const applied = {
-            title: false, album: false, artists: false, album_artists: false,
-            year: false, compilation: false
-        }
-        const values = {
-            title: 'a', album: 'b', artists: ['c'], album_artists: ['d'],
-            year: 1, compilation: true
-        }
-        expect(buildPatchFields(applied, values)).toEqual({})
-    })
-})

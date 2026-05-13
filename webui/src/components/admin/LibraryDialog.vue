@@ -38,6 +38,7 @@ interface FormState {
     artistDelim: string
     albumArtistMode: string
     albumArtistDelim: string
+    default_view: 'albums' | 'artists'
 }
 
 function emptyForm(): FormState {
@@ -51,7 +52,8 @@ function emptyForm(): FormState {
         artistMode: 'none',
         artistDelim: '',
         albumArtistMode: 'none',
-        albumArtistDelim: ''
+        albumArtistDelim: '',
+        default_view: 'albums'
     }
 }
 
@@ -89,7 +91,8 @@ watch(
                 follow_symlinks: lib.follow_symlinks,
                 genreMode: g.mode, genreDelim: g.delim,
                 artistMode: a.mode, artistDelim: a.delim,
-                albumArtistMode: aa.mode, albumArtistDelim: aa.delim
+                albumArtistMode: aa.mode, albumArtistDelim: aa.delim,
+                default_view: lib.default_view
             }
             initialPath.value = lib.path
         } else {
@@ -115,7 +118,8 @@ function buildInput(): LibraryInput {
         follow_symlinks: form.value.follow_symlinks,
         multi_value_genre: buildMV(form.value.genreMode, form.value.genreDelim),
         multi_value_artist: buildMV(form.value.artistMode, form.value.artistDelim),
-        multi_value_album_artist: buildMV(form.value.albumArtistMode, form.value.albumArtistDelim)
+        multi_value_album_artist: buildMV(form.value.albumArtistMode, form.value.albumArtistDelim),
+        default_view: form.value.default_view
     }
 }
 
@@ -127,6 +131,11 @@ function onCancel() {
     emit('cancel')
     emit('update:visible', false)
 }
+
+const defaultViewOptions = [
+    { label: 'Albums', value: 'albums' },
+    { label: 'Artists', value: 'artists' }
+]
 </script>
 
 <template>
@@ -151,6 +160,14 @@ function onCancel() {
 
             <label>Follow symlinks</label>
             <InputSwitch v-model="form.follow_symlinks" />
+
+            <label>Default view</label>
+            <Dropdown
+                v-model="form.default_view"
+                :options="defaultViewOptions"
+                optionLabel="label"
+                optionValue="value"
+            />
 
             <label>Exclude patterns</label>
             <Textarea

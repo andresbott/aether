@@ -38,6 +38,7 @@ func Register(r *mux.Router, s *store.Store, coverCacheDir, radioCoverDir string
 	// System
 	register("ping", h.ping)
 	register("getLicense", h.getLicense)
+	register("getOpenSubsonicExtensions", h.getOpenSubsonicExtensions)
 
 	// Browsing
 	register("getMusicFolders", h.getMusicFolders)

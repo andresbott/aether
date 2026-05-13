@@ -11,6 +11,7 @@ type Library struct {
 	MultiValueGenre       string // "" / "none" / "multi" / "delim <sep>"
 	MultiValueArtist      string
 	MultiValueAlbumArtist string
+	DefaultView           string `gorm:"not null;default:'albums'"` // "albums" | "artists"
 	LastScanStartedAt     *time.Time
 	CreatedAt             time.Time
 	UpdatedAt             time.Time

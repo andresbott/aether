@@ -36,6 +36,7 @@
 - [ ] Song view — display track detail from queue
 - [ ] Favorites/starring — star/unstar from album/artist/track views
 - [ ] Songs tab in Library — fetch and display all songs
+- [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
 
 ## Integration
 
@@ -53,6 +54,13 @@
 
 - [ ] Cleanup orphaned `playlist_tracks`, `starred_items`, and `play_histories` when tracks/albums/artists are deleted during scan cleanup
 - [ ] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors
+- [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
+- [ ] Album cover on the library grid can show another album's image after metadata edits + rescan (works correctly on the album detail view). Root causes:
+    - `internal/scanner/reconcile.go:92-97` only sets `album.CoverPath` when empty; it's never re-evaluated. Re-tagged tracks leaving their old album don't repoint or clear the stale path, and two albums sharing a directory can end up pointing at the same `cover.jpg`.
+    - Embedded-cover lookup `internal/store/track.go:113` (`GetCoverTrackPath`) returns the *first* track with `has_embedded_cover=true`, with no ordering — which track wins is unstable across rescans.
+    - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums.
+    - No `Cache-Control`/ETag on `getCoverArt` responses; browser keeps serving the stale body until mtime or URL changes.
+  Fix options: clear `album.CoverPath` at the start of each reconcile pass and redetect; or drop `CoverPath` entirely and resolve per-request from a current track's directory. Pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`). Add a stable ETag (album `updated_at`) so edits immediately invalidate client caches.
 
 ## Frontend Layout — Pre-existing items surfaced during topbar refactor
 
@@ -61,7 +69,7 @@ Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not
 - [ ] `PlayerControls` is `position: fixed` (not a flex row inside `App.vue`'s shell), so the bottom of `.main-content` sits *under* the player. Any content scrolled to the bottom is partially obscured. Fix candidates: give `.app-container` a `padding-bottom: var(--app-player-height)`, or restructure `PlayerControls` into the column flex
 - [ ] `.nav-item.active` in `AppSidebar.vue` uses a hard-coded `#eef2ff` background instead of a `var(--app-*)` token — odd one out vs. the rest of the file
 - [ ] `.view-placeholder` styles in `App.vue` look orphaned (the class isn't used in `App.vue`'s template) — verify whether any view actually consumes them, then either remove or move into the consuming view
-- [ ] Clicking a row in the expanded `QueueSidebar` currently navigates to the song detail view — it should not switch views (keep the user on the current page); only the play/pause control should trigger playback
+- [ ] Clicking a row in the expanded `QueueSidebar` currently navigates to the song detail view — it should instead play that song (jump the queue to that track and start playback) and stay on the current page. The song-detail view should only be reached from the "Now Playing" surface, not by clicking queue entries
 - [ ] Make songs in the `QueueSidebar` sortable via drag and drop — reorder tracks within the current queue by dragging
 - [ ] Clicking a track row in the album view should not start playback — only the explicit play control on the row should play the song
 - [ ] Album view should support multi-disc albums — group tracks by disc number (CD1, CD2, etc.) with per-disc headers
@@ -70,4 +78,5 @@ Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not
 - [ ] Mute support in the player — clicking the volume icon toggles mute (preserving the previous volume level to restore on unmute)
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] "Now Playing" view should combine the current track detail (cover, metadata, lyrics, etc.) with a list view of the full queue below it — single landing page instead of separate song-detail + queue-sidebar split
+- [ ] Rework `RadioView.vue` to match the album grid style used in `LibraryView.vue` — reuse the `AlbumCard` layout (square cover tile, title/subtitle below, hover lift) for radio stations so the library and radio views feel consistent
 - [ ] Create an app icon / logo — favicon, PWA icons (various sizes), and a wordmark for the topbar

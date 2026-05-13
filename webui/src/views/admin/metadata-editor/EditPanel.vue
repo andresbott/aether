@@ -3,14 +3,11 @@ import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import Checkbox from 'primevue/checkbox'
-import ToggleButton from 'primevue/togglebutton'
 import Chips from 'primevue/chips'
 import Button from 'primevue/button'
 import type { Track, PatchFields } from '@/types/metadata'
 import {
     diffInitialValues,
-    buildPatchFields,
-    type AppliedFlags,
     type EditValues
 } from '@/composables/useMetadataEditor'
 
@@ -24,11 +21,20 @@ const emit = defineEmits<{
 
 const isMass = computed(() => props.selection.length > 1)
 
+type DirtyFlags = {
+    title: boolean
+    album: boolean
+    artists: boolean
+    album_artists: boolean
+    year: boolean
+    compilation: boolean
+}
+
 const values = ref<EditValues>({
     title: '', album: '', artists: [], album_artists: [],
     year: 0, compilation: false
 })
-const applied = ref<AppliedFlags>({
+const dirty = ref<DirtyFlags>({
     title: false, album: false, artists: false, album_artists: false,
     year: false, compilation: false
 })
@@ -47,52 +53,31 @@ function reset() {
         year: diff.year.value,
         compilation: diff.compilation.value
     }
-    if (isMass.value) {
-        applied.value = {
-            title: false, album: false, artists: false, album_artists: false,
-            year: false, compilation: false
-        }
-        placeholders.value = {
-            title: diff.title.shared ? '' : '(multiple values)',
-            album: diff.album.shared ? '' : '(multiple values)',
-            year: diff.year.shared ? '' : '(multiple values)',
-            artists: diff.artists.shared ? '' : '(multiple values)',
-            album_artists: diff.album_artists.shared ? '' : '(multiple values)'
-        }
-    } else {
-        // Single-edit: all fields implicitly "applied" when user changes them;
-        // we detect changes in `dirty`.
-        applied.value = {
-            title: true, album: true, artists: true, album_artists: true,
-            year: true, compilation: true
-        }
-        placeholders.value = {
-            title: '', album: '', year: '', artists: '', album_artists: ''
-        }
+    dirty.value = {
+        title: false, album: false, artists: false, album_artists: false,
+        year: false, compilation: false
+    }
+    placeholders.value = {
+        title: diff.title.shared ? '' : '(multiple values)',
+        album: diff.album.shared ? '' : '(multiple values)',
+        year: diff.year.shared ? '' : '(multiple values)',
+        artists: diff.artists.shared ? '' : '(multiple values)',
+        album_artists: diff.album_artists.shared ? '' : '(multiple values)'
     }
 }
 
 watch(() => props.selection, reset, { immediate: true, deep: true })
 
-// For single-edit, only send fields that actually changed from initial.
-const singleEditChangedFields = computed<PatchFields>(() => {
-    if (isMass.value || props.selection.length !== 1) return {}
-    const t = props.selection[0]
-    const out: PatchFields = {}
-    if (values.value.title !== t.title) out.title = values.value.title
-    if (values.value.album !== t.album) out.album = values.value.album
-    if (values.value.year !== t.year) out.year = values.value.year
-    if (values.value.compilation !== t.compilation) out.compilation = values.value.compilation
-    const arrEq = (a: string[], b: string[]) =>
-        a.length === b.length && a.every((x, i) => x === b[i])
-    if (!arrEq(values.value.artists, t.artists)) out.artists = [...values.value.artists]
-    if (!arrEq(values.value.album_artists, t.album_artists)) out.album_artists = [...values.value.album_artists]
-    return out
-})
-
 const patchFields = computed<PatchFields>(() => {
-    if (isMass.value) return buildPatchFields(applied.value, values.value)
-    return singleEditChangedFields.value
+    const out: PatchFields = {}
+    if (dirty.value.album) out.album = values.value.album
+    if (dirty.value.artists) out.artists = [...values.value.artists]
+    if (dirty.value.album_artists) out.album_artists = [...values.value.album_artists]
+    if (dirty.value.year) out.year = values.value.year
+    if (dirty.value.compilation) out.compilation = values.value.compilation
+    // title is only editable in single-track mode
+    if (!isMass.value && dirty.value.title) out.title = values.value.title
+    return out
 })
 
 const canSave = computed(() => Object.keys(patchFields.value).length > 0 && !props.isSaving)
@@ -111,76 +96,59 @@ function save() {
             {{ isMass ? `Editing ${selection.length} tracks` : 'Editing 1 track' }}
         </h3>
 
-        <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.title"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
+        <div v-if="!isMass" class="field-row">
             <label>Title</label>
-            <InputText v-model="values.title" :placeholder="placeholders.title" />
+            <InputText
+                v-model="values.title"
+                @update:modelValue="dirty.title = true"
+                :placeholder="placeholders.title"
+            />
         </div>
 
         <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.album"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
             <label>Album</label>
-            <InputText v-model="values.album" :placeholder="placeholders.album" />
+            <InputText
+                v-model="values.album"
+                @update:modelValue="dirty.album = true"
+                :placeholder="placeholders.album"
+            />
         </div>
 
         <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.artists"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
             <label>Artists</label>
-            <Chips v-model="values.artists" :placeholder="placeholders.artists" />
+            <Chips
+                v-model="values.artists"
+                @update:modelValue="dirty.artists = true"
+                :placeholder="placeholders.artists"
+            />
         </div>
 
         <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.album_artists"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
             <label>Album artists</label>
-            <Chips v-model="values.album_artists" :placeholder="placeholders.album_artists" />
+            <Chips
+                v-model="values.album_artists"
+                @update:modelValue="dirty.album_artists = true"
+                :placeholder="placeholders.album_artists"
+            />
         </div>
 
         <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.year"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
             <label>Year</label>
-            <InputNumber v-model="values.year" :useGrouping="false" />
+            <InputNumber
+                v-model="values.year"
+                @update:modelValue="dirty.year = true"
+                :useGrouping="false"
+                :placeholder="placeholders.year"
+            />
         </div>
 
         <div class="field-row">
-            <ToggleButton
-                v-if="isMass"
-                v-model="applied.compilation"
-                onLabel="apply"
-                offLabel="apply"
-                class="apply-toggle"
-            />
             <label>Compilation</label>
-            <Checkbox v-model="values.compilation" :binary="true" />
+            <Checkbox
+                v-model="values.compilation"
+                @update:modelValue="dirty.compilation = true"
+                :binary="true"
+            />
         </div>
 
         <div class="actions">
@@ -212,7 +180,7 @@ function save() {
 }
 .field-row {
     display: grid;
-    grid-template-columns: 6rem 8rem 1fr;
+    grid-template-columns: 8rem 1fr;
     align-items: center;
     gap: 0.5rem;
 }
@@ -220,8 +188,13 @@ function save() {
     font-size: 0.85rem;
     color: var(--app-text-secondary);
 }
-.apply-toggle {
-    min-width: 6rem;
+.field-row :deep(.p-inputtext),
+.field-row :deep(.p-inputnumber),
+.field-row :deep(.p-chips) {
+    width: 100%;
+}
+.field-row :deep(.p-inputnumber-input) {
+    width: 100%;
 }
 .actions {
     margin-top: 1rem;

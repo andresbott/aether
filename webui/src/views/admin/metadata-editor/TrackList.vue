@@ -45,25 +45,17 @@ function selectionChanged(value: Track[]) {
         </div>
         <div v-else-if="rows.length === 0" class="empty">No audio files in this folder.</div>
 
+        <div v-else class="table-wrapper">
         <DataTable
-            v-else
             :value="rows"
             :selection="selection"
             selectionMode="multiple"
             dataKey="path"
-            scrollable
-            scrollHeight="flex"
             @update:selection="selectionChanged"
             :rowClass="(t: Track) => (t.error ? 'row-error' : '')"
         >
             <Column selectionMode="multiple" style="width: 3rem" />
-            <Column field="name" header="File" style="min-width: 16rem" />
-            <Column field="title" header="Title" style="min-width: 12rem" />
-            <Column header="Artists" style="min-width: 12rem">
-                <template #body="{ data }">{{ (data as Track).artists.join('; ') }}</template>
-            </Column>
-            <Column field="album" header="Album" style="min-width: 12rem" />
-            <Column field="year" header="Year" style="width: 6rem" />
+            <Column field="path" header="Path" />
             <Column header="" style="width: 10rem">
                 <template #body="{ data }">
                     <span v-if="(data as Track).error" class="err" :title="(data as Track).error">
@@ -72,6 +64,7 @@ function selectionChanged(value: Track[]) {
                 </template>
             </Column>
         </DataTable>
+        </div>
     </div>
 </template>
 
@@ -80,6 +73,13 @@ function selectionChanged(value: Track[]) {
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.table-wrapper {
+    flex: 1;
+    overflow-y: auto;
     min-height: 0;
 }
 .track-list-header {

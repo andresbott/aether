@@ -80,6 +80,7 @@ export interface Playlist {
 export interface MusicFolder {
     id: number
     name: string
+    defaultView?: 'albums' | 'artists'
 }
 
 export interface SearchResult3 {

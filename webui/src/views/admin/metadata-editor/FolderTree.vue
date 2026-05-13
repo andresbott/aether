@@ -45,10 +45,7 @@ async function resetTree() {
     loadError.value = null
     if (props.libraryId === null) return
     try {
-        const root = makeNode('Library root', '', false)
-        root.children = await loadChildren('')
-        nodes.value = [root]
-        expandedKeys.value = { __root__: true }
+        nodes.value = await loadChildren('')
     } catch (err: any) {
         loadError.value = err?.response?.data?.error ?? err.message
     }

@@ -68,3 +68,12 @@ func validateName(name string) error {
 	}
 	return nil
 }
+
+func validateDefaultView(v string) error {
+	switch v {
+	case "", "albums", "artists":
+		return nil
+	default:
+		return fmt.Errorf("invalid default_view: %q (allowed: albums, artists)", v)
+	}
+}

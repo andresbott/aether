@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
 import AppTopbar from '@/components/layout/AppTopbar.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
@@ -9,6 +9,7 @@ import QueueSidebar from '@/components/layout/QueueSidebar.vue'
 import { useUiStore } from '@/store/uiStore'
 
 const uiStore = useUiStore()
+const route = useRoute()
 
 onMounted(() => {
     uiStore.checkScreenWidth()
@@ -31,7 +32,7 @@ onUnmounted(() => {
                 <main class="main-content">
                     <RouterView />
                 </main>
-                <QueueSidebar />
+                <QueueSidebar v-if="route.name !== 'home'" />
             </div>
         </div>
 

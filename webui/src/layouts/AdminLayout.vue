@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
+
+const navItems = [
+    { label: 'Libraries', to: { name: 'admin-libraries' } },
+    { label: 'Tasks', to: { name: 'admin-tasks' } },
+    { label: 'Metadata Editor', to: { name: 'admin-metadata' } },
+] as const
 </script>
 
 <template>
@@ -11,9 +17,21 @@ import { RouterLink, RouterView } from 'vue-router'
                 Back to player
             </RouterLink>
         </header>
-        <main class="admin-content">
-            <RouterView />
-        </main>
+        <div class="admin-body">
+            <aside class="admin-sidebar">
+                <RouterLink
+                    v-for="item in navItems"
+                    :key="item.label"
+                    :to="item.to"
+                    class="admin-nav-item"
+                >
+                    {{ item.label }}
+                </RouterLink>
+            </aside>
+            <main class="admin-content">
+                <RouterView />
+            </main>
+        </div>
     </div>
 </template>
 
@@ -58,9 +76,47 @@ import { RouterLink, RouterView } from 'vue-router'
     color: var(--app-text-primary);
 }
 
+.admin-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.admin-sidebar {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.75rem 0.5rem;
+    background-color: var(--app-surface);
+    border-right: 1px solid var(--app-border);
+}
+
+.admin-nav-item {
+    display: block;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--app-text-secondary);
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.admin-nav-item:hover {
+    background-color: var(--app-border);
+    color: var(--app-text-primary);
+}
+
+.admin-nav-item.router-link-active {
+    background-color: var(--app-accent-soft, #eef2ff);
+    color: var(--app-accent);
+}
+
 .admin-content {
     flex: 1;
-    overflow-y: auto;
-    padding: 2rem;
+    overflow: hidden;
+    min-height: 0;
 }
 </style>

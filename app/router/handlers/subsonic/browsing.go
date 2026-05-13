@@ -19,9 +19,14 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	folders := make([]map[string]any, 0, len(libs))
 	for _, lib := range libs {
+		dv := lib.DefaultView
+		if dv == "" {
+			dv = "albums"
+		}
 		folders = append(folders, map[string]any{
-			"id":   lib.ID,
-			"name": lib.Name,
+			"id":          lib.ID,
+			"name":        lib.Name,
+			"defaultView": dv,
 		})
 	}
 	writeResponse(w, map[string]any{

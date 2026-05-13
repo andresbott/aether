@@ -27,6 +27,7 @@ type libraryDTO struct {
 	MultiValueGenre       string     `json:"multi_value_genre"`
 	MultiValueArtist      string     `json:"multi_value_artist"`
 	MultiValueAlbumArtist string     `json:"multi_value_album_artist"`
+	DefaultView           string     `json:"default_view"`
 	LastScanStartedAt     *time.Time `json:"last_scan_started_at"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             time.Time  `json:"updated_at"`
@@ -64,6 +65,10 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if err != nil {
 		return libraryDTO{}, err
 	}
+	dv := lib.DefaultView
+	if dv == "" {
+		dv = "albums"
+	}
 	return libraryDTO{
 		ID:                    lib.ID,
 		Name:                  lib.Name,
@@ -73,6 +78,7 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		MultiValueGenre:       lib.MultiValueGenre,
 		MultiValueArtist:      lib.MultiValueArtist,
 		MultiValueAlbumArtist: lib.MultiValueAlbumArtist,
+		DefaultView:           dv,
 		LastScanStartedAt:     lib.LastScanStartedAt,
 		CreatedAt:             lib.CreatedAt,
 		UpdatedAt:             lib.UpdatedAt,
@@ -173,12 +179,20 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := validateDefaultView(in.DefaultView); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
+	dv := in.DefaultView
+	if dv == "" {
+		dv = "albums"
+	}
 	lib := &model.Library{
 		Name:                  in.Name,
 		Path:                  abs,
@@ -187,6 +201,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		MultiValueGenre:       in.MultiValueGenre,
 		MultiValueArtist:      in.MultiValueArtist,
 		MultiValueAlbumArtist: in.MultiValueAlbumArtist,
+		DefaultView:           dv,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -238,6 +253,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := validateDefaultView(in.DefaultView); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -253,6 +272,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing.MultiValueGenre = in.MultiValueGenre
 	existing.MultiValueArtist = in.MultiValueArtist
 	existing.MultiValueAlbumArtist = in.MultiValueAlbumArtist
+	dv := in.DefaultView
+	if dv == "" {
+		dv = "albums"
+	}
+	existing.DefaultView = dv
 
 	err = h.Store.Transaction(func(tx *store.Store) error {
 		if pathChanged {

@@ -98,6 +98,8 @@ const triggerTask = (taskId: string) => {
 .tasks-view {
     display: flex;
     flex-direction: column;
+    padding: 2rem;
+    overflow-y: auto;
 }
 
 .section {
