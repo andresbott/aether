@@ -123,12 +123,7 @@ onMounted(scrollCurrentIntoView)
             </div>
 
             <div ref="currentBlockRef" class="current-block">
-                <SongDetail
-                    v-if="variant === 'full' && currentSong"
-                    :song="currentSong"
-                    card
-                    @play="player.togglePlayPause"
-                />
+                <SongDetail v-if="variant === 'full' && currentSong" :song="currentSong" card />
                 <div v-else-if="currentSong" class="now-playing-strip">
                     <span class="strip-number track-number">{{ currentPosition }}</span>
                     <div class="strip-cover">
