@@ -1,36 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import SongDetail from '@/components/library/SongDetail.vue'
 import Button from 'primevue/button'
-import Menu from 'primevue/menu'
-import type { MenuItem } from 'primevue/menuitem'
-import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import { usePlayer } from '@/composables/usePlayer'
-import { useQueueActions } from '@/composables/useQueueActions'
 
 const props = defineProps<{ index: string }>()
 const router = useRouter()
 const player = usePlayer()
-const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } = useQueueActions()
-
-const actionsMenu = ref()
-const toggleActionsMenu = (event: Event): void => {
-    actionsMenu.value.toggle(event)
-}
-
-const actionsMenuItems = computed<MenuItem[]>(() => [
-    {
-        label: 'Clear Queue',
-        icon: 'pi pi-trash',
-        command: () => clearQueue()
-    },
-    {
-        label: 'Save as Playlist',
-        icon: 'pi pi-save',
-        command: () => openSaveDialog()
-    }
-])
 
 const songIndex = computed(() => parseInt(props.index, 10))
 
@@ -69,14 +46,6 @@ const playCurrent = () => {
                 <span class="queue-position">{{ songIndex + 1 }} / {{ player.queue.value.length }}</span>
                 <Button icon="pi pi-chevron-right" text rounded :disabled="!hasNext" @click="goToNext" />
             </div>
-            <Button
-                icon="pi pi-ellipsis-v"
-                text
-                rounded
-                :disabled="player.queue.value.length === 0"
-                @click="toggleActionsMenu"
-                v-tooltip.bottom="'Queue options'"
-            />
         </div>
 
         <SongDetail v-if="song" :song="song" @play="playCurrent" />
@@ -85,15 +54,6 @@ const playCurrent = () => {
             <i class="pi pi-music" style="font-size: 3rem"></i>
             <p>No song at this position in the queue</p>
         </div>
-
-        <Menu ref="actionsMenu" :model="actionsMenuItems" :popup="true" />
-
-        <SavePlaylistDialog
-            v-model:visible="showSaveDialog"
-            v-model:name="playlistName"
-            :saving="isSaving"
-            @save="handleSave"
-        />
     </div>
 </template>
 

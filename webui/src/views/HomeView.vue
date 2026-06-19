@@ -2,14 +2,49 @@
 import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
+import Button from 'primevue/button'
+import Menu from 'primevue/menu'
+import type { MenuItem } from 'primevue/menuitem'
 import SongDetail from '@/components/library/SongDetail.vue'
+import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import { usePlayer } from '@/composables/usePlayer'
+import { useQueueActions } from '@/composables/useQueueActions'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
 const player = usePlayer()
+const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } = useQueueActions()
 
 const currentCardRef = ref<HTMLElement | null>(null)
+const headerRef = ref<HTMLElement | null>(null)
+
+const trackCount = computed(() => player.queue.value.length)
+
+const totalDuration = computed(() => {
+    const total = player.queue.value.reduce((sum, song) => sum + (song.duration || 0), 0)
+    if (!total) return ''
+    const hours = Math.floor(total / 3600)
+    const mins = Math.floor((total % 3600) / 60)
+    return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`
+})
+
+const actionsMenu = ref()
+const toggleActionsMenu = (event: Event): void => {
+    actionsMenu.value.toggle(event)
+}
+
+const actionsMenuItems = computed<MenuItem[]>(() => [
+    {
+        label: 'Clear Queue',
+        icon: 'pi pi-trash',
+        command: () => clearQueue()
+    },
+    {
+        label: 'Save as Playlist',
+        icon: 'pi pi-save',
+        command: () => openSaveDialog()
+    }
+])
 
 const historyRows = computed(() =>
     player.queue.value
@@ -41,7 +76,14 @@ const onRowClick = (event: { data: Song & { _queueIndex: number } }) => {
 
 const scrollCurrentIntoView = () => {
     nextTick(() => {
-        currentCardRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        const el = currentCardRef.value
+        if (!el) return
+        // Offset the scroll target by the sticky header's rendered height plus
+        // .main-content's 1rem top padding, so the current song lands just below
+        // the header instead of behind it.
+        const headerHeight = headerRef.value?.offsetHeight ?? 0
+        el.style.scrollMarginTop = `${headerHeight + 24}px`
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
 }
 
@@ -58,9 +100,27 @@ onMounted(scrollCurrentIntoView)
         </div>
 
         <template v-else>
-            <div v-if="historyRows.length > 0" class="queue-section history-section">
-                <p class="section-label">History</p>
+            <div ref="headerRef" class="now-playing-header">
+                <div class="np-title">
+                    <h2>Now Playing</h2>
+                    <span class="np-meta">
+                        {{ trackCount }} {{ trackCount === 1 ? 'track' : 'tracks' }}
+                        <template v-if="totalDuration"> &bull; {{ totalDuration }}</template>
+                    </span>
+                </div>
+                <Button
+                    icon="pi pi-ellipsis-v"
+                    text
+                    rounded
+                    severity="secondary"
+                    @click="toggleActionsMenu"
+                    v-tooltip.bottom="'Queue options'"
+                />
+            </div>
+
+            <div class="now-playing-panel">
                 <DataTable
+                    v-if="historyRows.length > 0"
                     :value="historyRows"
                     class="queue-table history-table"
                     @row-click="onRowClick"
@@ -91,22 +151,20 @@ onMounted(scrollCurrentIntoView)
                         </template>
                     </Column>
                 </DataTable>
-            </div>
 
-            <div ref="currentCardRef" class="current-card-wrapper">
-                <SongDetail
-                    v-if="player.currentTrack.value"
-                    :song="player.currentTrack.value"
-                    card
-                    @play="player.togglePlayPause"
-                />
-            </div>
+                <div ref="currentCardRef" class="current-song">
+                    <SongDetail
+                        v-if="player.currentTrack.value"
+                        :song="player.currentTrack.value"
+                        card
+                        @play="player.togglePlayPause"
+                    />
+                </div>
 
-            <div v-if="upcomingRows.length > 0" class="queue-section upcoming-section">
-                <p class="section-label">Up next</p>
                 <DataTable
+                    v-if="upcomingRows.length > 0"
                     :value="upcomingRows"
-                    class="queue-table"
+                    class="queue-table upcoming-table"
                     @row-click="onRowClick"
                 >
                     <Column style="width: 40px">
@@ -137,6 +195,15 @@ onMounted(scrollCurrentIntoView)
                 </DataTable>
             </div>
         </template>
+
+        <Menu ref="actionsMenu" :model="actionsMenuItems" :popup="true" />
+
+        <SavePlaylistDialog
+            v-model:visible="showSaveDialog"
+            v-model:name="playlistName"
+            :saving="isSaving"
+            @save="handleSave"
+        />
     </div>
 </template>
 
@@ -147,6 +214,51 @@ onMounted(scrollCurrentIntoView)
     display: flex;
     flex-direction: column;
     gap: 2rem;
+}
+
+.now-playing-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: var(--app-background);
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--app-border);
+}
+
+/* .main-content has 1rem top padding, so the sticky header pins just below it,
+   leaving a band where scrolling tracks would show. This strip moves with the
+   pinned header and paints over that band. */
+.now-playing-header::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 100%;
+    height: 1rem;
+    background-color: var(--app-background);
+}
+
+.np-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.np-title h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--app-text-primary);
+}
+
+.np-meta {
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
 }
 
 .empty-state {
@@ -170,27 +282,37 @@ onMounted(scrollCurrentIntoView)
     margin: 0;
 }
 
-.queue-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+.now-playing-panel {
+    background-color: var(--app-surface);
+    border: 1px solid var(--app-border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.section-label {
-    margin: 0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--app-text-secondary);
+/* SongDetail's own card chrome is dropped so it merges into the single panel. */
+.now-playing-panel :deep(.song-detail--card) {
+    max-width: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
 }
 
-.history-section {
-    opacity: 0.45;
-}
-
-.current-card-wrapper {
+.current-song {
     scroll-margin-top: 1rem;
+}
+
+/* Already-played tracks: faded, above the current song inside the panel. */
+.history-table {
+    opacity: 0.45;
+    border-bottom: 1px solid var(--app-border);
+    padding: 0.5rem;
+}
+
+.upcoming-table {
+    border-top: 1px solid var(--app-border);
+    padding: 0.5rem;
 }
 
 .queue-table :deep(.p-datatable-thead) {

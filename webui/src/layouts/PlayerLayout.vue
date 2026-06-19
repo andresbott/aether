@@ -71,7 +71,7 @@ onUnmounted(() => {
     overflow-y: auto;
     overflow-x: hidden;
     background-color: var(--app-background);
-    padding: 2rem;
+    padding: 1rem 2rem;
 }
 
 .view-placeholder {
