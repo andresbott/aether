@@ -1,0 +1,317 @@
+<script setup lang="ts">
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import Button from 'primevue/button'
+import Menu from 'primevue/menu'
+import type { MenuItem } from 'primevue/menuitem'
+import SongDetail from '@/components/library/SongDetail.vue'
+import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
+import QueueRow from '@/components/layout/QueueRow.vue'
+import { usePlayer } from '@/composables/usePlayer'
+import { useQueueActions } from '@/composables/useQueueActions'
+import { subsonicClient } from '@/lib/api/subsonic'
+
+const props = defineProps<{ variant: 'full' | 'sidebar' }>()
+
+const player = usePlayer()
+const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } =
+    useQueueActions()
+
+const headerMenu = ref()
+const currentBlockRef = ref<HTMLElement | null>(null)
+
+const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
+const trackCount = computed(() => player.queue.value.length)
+
+const totalDuration = computed(() => {
+    const total = player.queue.value.reduce((sum, s) => sum + (s.duration || 0), 0)
+    if (!total) return ''
+    const hours = Math.floor(total / 3600)
+    const mins = Math.floor((total % 3600) / 60)
+    return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`
+})
+
+// Pre-built as one string so the header has no stray whitespace between the
+// count and the unit word (keeps `.text()` assertions reliable in tests).
+const summary = computed(() => {
+    const tracks = `${trackCount.value} ${trackCount.value === 1 ? 'track' : 'tracks'}`
+    return totalDuration.value ? `${tracks} • ${totalDuration.value}` : tracks
+})
+
+const historyRows = computed(() =>
+    player.queue.value
+        .slice(0, player.currentIndex.value)
+        .map((song, i) => ({ ...song, queueIndex: i }))
+)
+
+const upcomingRows = computed(() =>
+    player.queue.value
+        .slice(player.currentIndex.value + 1)
+        .map((song, i) => ({ ...song, queueIndex: player.currentIndex.value + 1 + i }))
+)
+
+const currentSong = computed(() => player.queue.value[player.currentIndex.value] ?? null)
+const currentPosition = computed(() => player.currentIndex.value + 1)
+
+const stripCoverUrl = computed<string | null>(() => {
+    const art = currentSong.value?.coverArt
+    if (!art || !subsonicClient.isConfigured()) return null
+    return subsonicClient.getCoverArtUrl(art, 160)
+})
+
+const onPlayRow = (index: number): void => {
+    player.playQueueItem(index)
+}
+
+const onRemoveRow = (index: number): void => {
+    player.removeFromQueue(index)
+}
+
+const toggleMenu = (event: Event): void => {
+    headerMenu.value.toggle(event)
+}
+
+const menuItems = computed<MenuItem[]>(() => [
+    { label: 'Clear Queue', icon: 'pi pi-trash', command: () => clearQueue() },
+    { label: 'Save as Playlist', icon: 'pi pi-save', command: () => openSaveDialog() }
+])
+
+const scrollCurrentIntoView = (): void => {
+    nextTick(() => {
+        currentBlockRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+    })
+}
+
+watch(() => player.currentIndex.value, scrollCurrentIntoView)
+onMounted(scrollCurrentIntoView)
+</script>
+
+<template>
+    <div class="queue-view" :class="`queue-view--${variant}`">
+        <div class="queue-view-header">
+            <slot name="header-start" />
+            <div class="header-title">
+                <h3>{{ title }}</h3>
+                <span v-if="trackCount > 0" class="queue-info">{{ summary }}</span>
+            </div>
+            <Button
+                icon="pi pi-ellipsis-v"
+                text
+                rounded
+                size="small"
+                severity="secondary"
+                :disabled="trackCount === 0"
+                v-tooltip.left="'Queue options'"
+                @click="toggleMenu"
+            />
+        </div>
+
+        <div v-if="trackCount === 0" class="queue-empty">
+            <i class="pi pi-play-circle" style="font-size: 2.5rem"></i>
+            <p>{{ variant === 'full' ? 'Nothing is playing' : 'Queue is empty' }}</p>
+        </div>
+
+        <div v-else class="queue-body">
+            <div v-if="historyRows.length" class="queue-history">
+                <QueueRow
+                    v-for="row in historyRows"
+                    :key="row.id + ':' + row.queueIndex"
+                    :song="row"
+                    :position="row.queueIndex + 1"
+                    @play="onPlayRow(row.queueIndex)"
+                    @remove="onRemoveRow(row.queueIndex)"
+                />
+            </div>
+
+            <div ref="currentBlockRef" class="current-block">
+                <SongDetail
+                    v-if="variant === 'full' && currentSong"
+                    :song="currentSong"
+                    card
+                    @play="player.togglePlayPause"
+                />
+                <div v-else-if="currentSong" class="now-playing-strip">
+                    <span class="strip-number track-number">{{ currentPosition }}</span>
+                    <div class="strip-cover">
+                        <img v-if="stripCoverUrl" :src="stripCoverUrl" alt="" />
+                        <i v-else class="pi pi-music"></i>
+                    </div>
+                    <div class="strip-info">
+                        <div class="strip-title">{{ currentSong.title }}</div>
+                        <div class="strip-artist">{{ currentSong.artist || 'Unknown' }}</div>
+                        <div v-if="currentSong.album" class="strip-album">
+                            {{ currentSong.album }}
+                        </div>
+                    </div>
+                    <Button
+                        class="strip-play"
+                        :icon="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"
+                        rounded
+                        @click="player.togglePlayPause"
+                    />
+                </div>
+            </div>
+
+            <div v-if="upcomingRows.length" class="queue-upcoming">
+                <QueueRow
+                    v-for="row in upcomingRows"
+                    :key="row.id + ':' + row.queueIndex"
+                    :song="row"
+                    :position="row.queueIndex + 1"
+                    @play="onPlayRow(row.queueIndex)"
+                    @remove="onRemoveRow(row.queueIndex)"
+                />
+            </div>
+        </div>
+
+        <Menu ref="headerMenu" :model="menuItems" :popup="true" />
+
+        <SavePlaylistDialog
+            v-model:visible="showSaveDialog"
+            v-model:name="playlistName"
+            :saving="isSaving"
+            @save="handleSave"
+        />
+    </div>
+</template>
+
+<style scoped>
+.queue-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.queue-view--full {
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.queue-view-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    min-height: 3rem;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.header-title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.header-title h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.queue-info {
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--app-text-secondary);
+}
+
+.queue-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    gap: 0.75rem;
+    color: var(--app-text-secondary);
+}
+
+.queue-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Already-played tracks are faded. */
+.queue-history {
+    opacity: 0.45;
+}
+
+.current-block {
+    scroll-margin-top: 1rem;
+    padding: 0.5rem 0;
+}
+
+.queue-view--full .current-block {
+    padding: 1rem 0;
+}
+
+.now-playing-strip {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 0.5rem;
+    border-top: 1px solid var(--app-border);
+    border-bottom: 1px solid var(--app-border);
+}
+
+.now-playing-strip .strip-number {
+    width: 1.75rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.strip-cover {
+    width: 140px;
+    height: 140px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.strip-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.strip-cover i {
+    font-size: 2rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.strip-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.strip-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--app-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.strip-artist {
+    font-size: 0.9rem;
+    color: var(--app-text-secondary);
+}
+
+.strip-album {
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
+}
+
+.strip-play {
+    flex-shrink: 0;
+}
+</style>
