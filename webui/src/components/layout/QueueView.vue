@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import Button from 'primevue/button'
-import Menu from 'primevue/menu'
-import type { MenuItem } from 'primevue/menuitem'
 import SongDetail from '@/components/library/SongDetail.vue'
 import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import QueueRow from '@/components/layout/QueueRow.vue'
@@ -16,7 +14,6 @@ const player = usePlayer()
 const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } =
     useQueueActions()
 
-const headerMenu = ref()
 const currentBlockRef = ref<HTMLElement | null>(null)
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
@@ -66,15 +63,6 @@ const onRemoveRow = (index: number): void => {
     player.removeFromQueue(index)
 }
 
-const toggleMenu = (event: Event): void => {
-    headerMenu.value.toggle(event)
-}
-
-const menuItems = computed<MenuItem[]>(() => [
-    { label: 'Clear Queue', icon: 'pi pi-trash', command: () => clearQueue() },
-    { label: 'Save as Playlist', icon: 'pi pi-save', command: () => openSaveDialog() }
-])
-
 const scrollCurrentIntoView = (): void => {
     nextTick(() => {
         currentBlockRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
@@ -93,16 +81,30 @@ onMounted(scrollCurrentIntoView)
                 <h3>{{ title }}</h3>
                 <span v-if="trackCount > 0" class="queue-info">{{ summary }}</span>
             </div>
-            <Button
-                icon="pi pi-ellipsis-v"
-                text
-                rounded
-                size="small"
-                severity="secondary"
-                :disabled="trackCount === 0"
-                v-tooltip.left="'Queue options'"
-                @click="toggleMenu"
-            />
+            <div class="header-actions">
+                <Button
+                    class="queue-action-save"
+                    icon="pi pi-save"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :disabled="trackCount === 0"
+                    v-tooltip.bottom="'Save as playlist'"
+                    @click="openSaveDialog"
+                />
+                <Button
+                    class="queue-action-clear"
+                    icon="pi pi-trash"
+                    text
+                    rounded
+                    size="small"
+                    severity="secondary"
+                    :disabled="trackCount === 0"
+                    v-tooltip.bottom="'Clear queue'"
+                    @click="clearQueue"
+                />
+            </div>
         </div>
 
         <div v-if="trackCount === 0" class="queue-empty">
@@ -163,8 +165,6 @@ onMounted(scrollCurrentIntoView)
             </div>
         </div>
 
-        <Menu ref="headerMenu" :model="menuItems" :popup="true" />
-
         <SavePlaylistDialog
             v-model:visible="showSaveDialog"
             v-model:name="playlistName"
@@ -216,6 +216,13 @@ onMounted(scrollCurrentIntoView)
     font-size: 0.8rem;
     font-weight: 400;
     color: var(--app-text-secondary);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
 }
 
 .queue-empty {

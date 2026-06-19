@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref, defineComponent, h } from 'vue'
+import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
 const queue = ref<any[]>([])
@@ -41,23 +41,6 @@ vi.mock('@/components/library/SongDetail.vue', () => ({
 
 vi.mock('@/components/layout/SavePlaylistDialog.vue', () => ({
     default: { name: 'SavePlaylistDialog', template: '<div class="stub-save-dialog"></div>' }
-}))
-
-vi.mock('primevue/menu', () => ({
-    default: defineComponent({
-        props: ['model'],
-        setup(props, { expose }) {
-            expose({ toggle: () => {} })
-            return () =>
-                h(
-                    'div',
-                    { class: 'mock-menu' },
-                    (props.model || []).map((i: any) =>
-                        h('button', { class: 'menu-item', onClick: i.command }, i.label)
-                    )
-                )
-        }
-    })
 }))
 
 import QueueView from '@/components/layout/QueueView.vue'
@@ -152,14 +135,23 @@ describe('QueueView', () => {
         expect(w.find('.strip-toggle-icon').classes()).toContain('pi-pause')
     })
 
-    it('the options menu offers Clear Queue and Save as Playlist', async () => {
+    it('the header exposes Save as Playlist and Clear Queue as icon buttons', async () => {
         const w = mountView('sidebar')
-        const items = w.findAll('.menu-item')
-        expect(items.map((i) => i.text())).toEqual(['Clear Queue', 'Save as Playlist'])
-        await items[0].trigger('click')
-        expect(clearQueue).toHaveBeenCalled()
-        await items[1].trigger('click')
+        const save = w.find('.queue-action-save')
+        const clear = w.find('.queue-action-clear')
+        expect(save.exists()).toBe(true)
+        expect(clear.exists()).toBe(true)
+        await save.trigger('click')
         expect(openSaveDialog).toHaveBeenCalled()
+        await clear.trigger('click')
+        expect(clearQueue).toHaveBeenCalled()
+    })
+
+    it('disables the header action buttons when the queue is empty', () => {
+        queue.value = []
+        const w = mountView('sidebar')
+        expect(w.find('.queue-action-save').attributes('disabled')).toBeDefined()
+        expect(w.find('.queue-action-clear').attributes('disabled')).toBeDefined()
     })
 
     it('shows the empty state when the queue is empty', () => {
