@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { reorderQueue } from '@/utils/queueReorder'
+import { reorderQueue, computeDropTarget } from '@/utils/queueReorder'
 
 const q = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 
@@ -38,5 +38,18 @@ describe('reorderQueue', () => {
         const out = reorderQueue(q, [], 3)
         expect(out).toEqual(q)
         expect(out).not.toBe(q)
+    })
+})
+
+describe('computeDropTarget', () => {
+    it('uses the anchor index when a following row exists', () => {
+        expect(computeDropTarget(3, false, 5, 10)).toBe(3)
+        expect(computeDropTarget(3, true, 5, 10)).toBe(3)
+    })
+    it('falls back to currentIndex at the end of the history list', () => {
+        expect(computeDropTarget(undefined, true, 5, 10)).toBe(5)
+    })
+    it('falls back to queue length at the end of the upcoming list', () => {
+        expect(computeDropTarget(undefined, false, 5, 10)).toBe(10)
     })
 })

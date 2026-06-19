@@ -8,6 +8,7 @@ import QueueRow from '@/components/layout/QueueRow.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
 import { useQueueEdit } from '@/composables/useQueueEdit'
+import { computeDropTarget } from '@/utils/queueReorder'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const props = defineProps<{ variant: 'full' | 'sidebar' }>()
@@ -85,8 +86,15 @@ const handleSortEnd = (evt: Sortable.SortableEvent): void => {
     // list) is the anchor to insert before; none → append at the end.
     const toList = evt.to as HTMLElement
     const after = toList.children[(evt.newIndex ?? 0) + 1] as HTMLElement | undefined
-    const anchorIndex = after?.dataset.queueIndex
-    const targetIndex = anchorIndex !== undefined ? Number(anchorIndex) : player.queue.value.length
+    const anchorRaw = after?.dataset.queueIndex
+    const anchorIndex = anchorRaw !== undefined ? Number(anchorRaw) : undefined
+    const isHistory = toList === historyListRef.value
+    const targetIndex = computeDropTarget(
+        anchorIndex,
+        isHistory,
+        player.currentIndex.value,
+        player.queue.value.length
+    )
 
     // Revert SortableJS's DOM mutation so Vue can re-render cleanly from state.
     const fromList = evt.from as HTMLElement

@@ -1,4 +1,20 @@
 /**
+ * The queue index to insert a dropped block before. When there is a following
+ * row, use its index. With no following row, the drop is at the end of a list:
+ * the history list ends just before the current track (→ currentIndex); the
+ * upcoming list ends at the tail of the queue (→ queueLength).
+ */
+export function computeDropTarget(
+    anchorIndex: number | undefined,
+    isHistory: boolean,
+    currentIndex: number,
+    queueLength: number
+): number {
+    if (anchorIndex !== undefined) return anchorIndex
+    return isHistory ? currentIndex : queueLength
+}
+
+/**
  * Reorder `queue` by removing the items at `fromIndices` and reinserting them
  * as one contiguous block immediately before the first NON-moved item whose
  * original index is `>= targetIndex`. If there is no such item (target points
