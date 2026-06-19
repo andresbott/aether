@@ -56,6 +56,12 @@ describe('QueueRow', () => {
         expect(w.emitted('select')).toBeUndefined()
     })
 
+    it('checkbox click does not propagate to row select', async () => {
+        const w = mountRow({ editing: true })
+        await w.find('input[type="checkbox"]').trigger('click')
+        expect(w.emitted('select')).toBeUndefined()
+    })
+
     it('delete button emits delete without emitting select', async () => {
         const w = mountRow({ editing: true })
         await w.find('.delete-button').trigger('click')
