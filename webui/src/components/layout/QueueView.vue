@@ -125,7 +125,18 @@ onMounted(scrollCurrentIntoView)
             <div ref="currentBlockRef" class="current-block">
                 <SongDetail v-if="variant === 'full' && currentSong" :song="currentSong" card />
                 <div v-else-if="currentSong" class="now-playing-strip">
-                    <span class="strip-number track-number">{{ currentPosition }}</span>
+                    <button
+                        type="button"
+                        class="strip-index"
+                        :aria-label="player.isPlaying.value ? 'Pause' : 'Play'"
+                        @click="player.togglePlayPause"
+                    >
+                        <span class="strip-number-value">{{ currentPosition }}</span>
+                        <i
+                            class="strip-toggle-icon"
+                            :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"
+                        ></i>
+                    </button>
                     <div class="strip-cover">
                         <img v-if="stripCoverUrl" :src="stripCoverUrl" alt="" />
                         <i v-else class="pi pi-music"></i>
@@ -137,12 +148,6 @@ onMounted(scrollCurrentIntoView)
                             {{ currentSong.album }}
                         </div>
                     </div>
-                    <Button
-                        class="strip-play"
-                        :icon="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"
-                        rounded
-                        @click="player.togglePlayPause"
-                    />
                 </div>
             </div>
 
@@ -253,10 +258,46 @@ onMounted(scrollCurrentIntoView)
     border-bottom: 1px solid var(--app-border);
 }
 
-.now-playing-strip .strip-number {
+/* Left column aligns with QueueRow's .row-index so the current song's play
+   affordance lines up with the other tracks: the position number by default,
+   swapped for a play/pause toggle on hover. */
+.now-playing-strip .strip-index {
     width: 1.75rem;
-    text-align: center;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: inherit;
+}
+
+.strip-number-value {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--app-text-secondary);
+}
+
+.strip-toggle-icon {
+    display: none;
+    font-size: 1rem;
+    color: var(--app-text-primary);
+    transition: color 0.15s, transform 0.15s;
+}
+
+.now-playing-strip:hover .strip-number-value {
+    display: none;
+}
+
+.now-playing-strip:hover .strip-toggle-icon {
+    display: inline;
+}
+
+.strip-index:hover .strip-toggle-icon {
+    color: var(--app-accent);
+    transform: scale(1.1);
 }
 
 .strip-cover {
@@ -304,9 +345,5 @@ onMounted(scrollCurrentIntoView)
 .strip-album {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
-}
-
-.strip-play {
-    flex-shrink: 0;
 }
 </style>

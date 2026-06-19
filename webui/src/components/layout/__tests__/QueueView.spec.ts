@@ -137,10 +137,19 @@ describe('QueueView', () => {
         expect(removeFromQueue).toHaveBeenCalledWith(2)
     })
 
-    it('the compact strip play button toggles playback', async () => {
+    it('the strip play/pause toggle sits in the index column and toggles playback', async () => {
         const w = mountView('sidebar')
-        await w.find('.now-playing-strip .strip-play').trigger('click')
+        const toggle = w.find('.now-playing-strip .strip-index')
+        expect(toggle.exists()).toBe(true)
+        expect(w.find('.strip-toggle-icon').classes()).toContain('pi-play')
+        await toggle.trigger('click')
         expect(togglePlayPause).toHaveBeenCalled()
+    })
+
+    it('the strip toggle shows a pause icon while playing', () => {
+        isPlaying.value = true
+        const w = mountView('sidebar')
+        expect(w.find('.strip-toggle-icon').classes()).toContain('pi-pause')
     })
 
     it('the options menu offers Clear Queue and Save as Playlist', async () => {
