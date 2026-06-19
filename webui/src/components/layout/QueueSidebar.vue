@@ -5,54 +5,18 @@ import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Menu from 'primevue/menu'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
-import { useToast } from 'primevue/usetoast'
 import type { MenuItem } from 'primevue/menuitem'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
-import { useCreatePlaylist } from '@/composables/useSubsonicQueries'
+import { useQueueActions } from '@/composables/useQueueActions'
+import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
 const router = useRouter()
 const player = usePlayer()
 const { sidebarCollapsed, sidebarWidth, toggleSidebar, setSidebarWidth } = useQueueSidebar()
-
-const toast = useToast()
-const createPlaylist = useCreatePlaylist()
-
-const showSaveDialog = ref(false)
-const playlistName = ref('')
-
-const handleSave = () => {
-    const name = playlistName.value.trim()
-    if (!name) return
-    const songIds = player.queue.value.map(s => s.id)
-    createPlaylist.mutate(
-        { name, songIds },
-        {
-            onSuccess: () => {
-                showSaveDialog.value = false
-                playlistName.value = ''
-                toast.add({
-                    severity: 'success',
-                    summary: 'Playlist created',
-                    detail: name,
-                    life: 3000
-                })
-            },
-            onError: (err: Error) => {
-                toast.add({
-                    severity: 'error',
-                    summary: 'Failed to save playlist',
-                    detail: err.message,
-                    life: 5000
-                })
-            }
-        }
-    )
-}
+const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } = useQueueActions()
 
 const headerMenu = ref()
 const hoveredTrackIndex = ref<number | null>(null)
@@ -109,15 +73,12 @@ const headerMenuItems = computed<MenuItem[]>(() => [
     {
         label: 'Clear Queue',
         icon: 'pi pi-trash',
-        command: () => player.clearQueue()
+        command: () => clearQueue()
     },
     {
         label: 'Save as Playlist',
         icon: 'pi pi-save',
-        command: () => {
-            playlistName.value = ''
-            showSaveDialog.value = true
-        }
+        command: () => openSaveDialog()
     },
     {
         label: 'Shuffle Queue',
@@ -317,31 +278,12 @@ const startResize = (event: MouseEvent) => {
 
         <Menu ref="headerMenu" :model="headerMenuItems" :popup="true" />
 
-        <Dialog
+        <SavePlaylistDialog
             v-model:visible="showSaveDialog"
-            header="Save Queue as Playlist"
-            :modal="true"
-            :style="{ width: '400px' }"
-        >
-            <div class="save-form">
-                <InputText
-                    v-model="playlistName"
-                    placeholder="Playlist name"
-                    class="w-full"
-                    autofocus
-                    @keyup.enter="handleSave"
-                />
-            </div>
-            <template #footer>
-                <Button label="Cancel" text @click="showSaveDialog = false" />
-                <Button
-                    label="Save"
-                    :loading="createPlaylist.isPending.value"
-                    :disabled="!playlistName.trim()"
-                    @click="handleSave"
-                />
-            </template>
-        </Dialog>
+            v-model:name="playlistName"
+            :saving="isSaving"
+            @save="handleSave"
+        />
     </aside>
 </template>
 
@@ -701,7 +643,4 @@ const startResize = (event: MouseEvent) => {
     }
 }
 
-.save-form {
-    padding: 1rem 0;
-}
 </style>
