@@ -58,12 +58,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/RadioView.vue')
     },
     {
-        path: '/song/:index',
-        name: 'song',
-        component: () => import('@/views/SongView.vue'),
-        props: true
-    },
-    {
         path: '/admin',
         component: () => import('@/views/AdminView.vue'),
         meta: { layout: 'admin' },
