@@ -31,6 +31,11 @@ vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
 }))
 
+const sortableCreate = vi.fn(() => ({ destroy: vi.fn() }))
+vi.mock('sortablejs', () => ({
+    default: { create: (...args: unknown[]) => sortableCreate(...(args as [])) }
+}))
+
 vi.mock('@/components/library/SongDetail.vue', () => ({
     default: {
         name: 'SongDetail',
@@ -69,6 +74,7 @@ beforeEach(() => {
     togglePlayPause.mockReset()
     openSaveDialog.mockReset()
     clearQueue.mockReset()
+    sortableCreate.mockClear()
 })
 
 describe('QueueView', () => {
@@ -174,5 +180,27 @@ describe('QueueView', () => {
         const w = mountView('full')
         expect(w.find('.queue-empty').exists()).toBe(true)
         expect(w.text()).toContain('Nothing is playing')
+    })
+
+    it('creates Sortable instances on the row lists when entering edit mode', async () => {
+        const w = mountView('sidebar')
+        expect(sortableCreate).not.toHaveBeenCalled()
+        await w.find('.queue-action-edit').trigger('click')
+        await w.vm.$nextTick()
+        // history (1) + upcoming (1) lists both present → two Sortable instances
+        expect(sortableCreate).toHaveBeenCalledTimes(2)
+        const opts = (sortableCreate.mock.calls[0] as unknown[])[1] as { handle: string; group: string }
+        expect(opts.handle).toBe('.drag-handle')
+        expect(opts.group).toBe('queue')
+    })
+
+    it('destroys Sortable instances when leaving edit mode', async () => {
+        const destroy = vi.fn()
+        sortableCreate.mockReturnValue({ destroy })
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w.vm.$nextTick()
+        await w.find('.queue-action-edit').trigger('click') // turn off
+        expect(destroy).toHaveBeenCalled()
     })
 })

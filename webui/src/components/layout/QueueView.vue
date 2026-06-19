@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import Sortable from 'sortablejs'
 import Button from 'primevue/button'
 import SongDetail from '@/components/library/SongDetail.vue'
 import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
@@ -20,10 +21,14 @@ const {
     isSelected,
     onRowClick: onEditRowClick,
     toggleCheckbox,
+    selectionForDrag,
     clearSelection
 } = useQueueEdit()
 
 const currentBlockRef = ref<HTMLElement | null>(null)
+const historyListRef = ref<HTMLElement | null>(null)
+const upcomingListRef = ref<HTMLElement | null>(null)
+let sortables: Sortable[] = []
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
@@ -72,6 +77,50 @@ const onDeleteRow = (index: number): void => {
     player.removeFromQueue(index)
     clearSelection()
 }
+
+const handleSortEnd = (evt: Sortable.SortableEvent): void => {
+    const item = evt.item as HTMLElement
+    const draggedIndex = Number(item.dataset.queueIndex)
+    // The row that ends up right after the dropped item (in its destination
+    // list) is the anchor to insert before; none → append at the end.
+    const toList = evt.to as HTMLElement
+    const after = toList.children[(evt.newIndex ?? 0) + 1] as HTMLElement | undefined
+    const anchorIndex = after?.dataset.queueIndex
+    const targetIndex = anchorIndex !== undefined ? Number(anchorIndex) : player.queue.value.length
+
+    // Revert SortableJS's DOM mutation so Vue can re-render cleanly from state.
+    const fromList = evt.from as HTMLElement
+    const reference = fromList.children[evt.oldIndex ?? 0] ?? null
+    fromList.insertBefore(item, reference)
+
+    if (Number.isNaN(draggedIndex)) return
+    player.moveInQueue(selectionForDrag(draggedIndex), targetIndex)
+    clearSelection()
+}
+
+const destroySortables = (): void => {
+    sortables.forEach((s) => s.destroy())
+    sortables = []
+}
+
+const createSortables = (): void => {
+    destroySortables()
+    const options: Sortable.Options = {
+        group: 'queue',
+        handle: '.drag-handle',
+        animation: 150,
+        onEnd: handleSortEnd
+    }
+    if (historyListRef.value) sortables.push(Sortable.create(historyListRef.value, options))
+    if (upcomingListRef.value) sortables.push(Sortable.create(upcomingListRef.value, options))
+}
+
+watch(editMode, (on) => {
+    if (on) nextTick(createSortables)
+    else destroySortables()
+})
+
+onUnmounted(destroySortables)
 
 const scrollCurrentIntoView = (): void => {
     nextTick(() => {
@@ -136,7 +185,7 @@ onMounted(scrollCurrentIntoView)
         </div>
 
         <div v-else class="queue-body">
-            <div v-if="historyRows.length" class="queue-history">
+            <div v-if="historyRows.length" ref="historyListRef" class="queue-history">
                 <QueueRow
                     v-for="row in historyRows"
                     :key="row.id + ':' + row.queueIndex"
@@ -180,7 +229,7 @@ onMounted(scrollCurrentIntoView)
                 </div>
             </div>
 
-            <div v-if="upcomingRows.length" class="queue-upcoming">
+            <div v-if="upcomingRows.length" ref="upcomingListRef" class="queue-upcoming">
                 <QueueRow
                     v-for="row in upcomingRows"
                     :key="row.id + ':' + row.queueIndex"
