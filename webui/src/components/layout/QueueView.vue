@@ -6,6 +6,7 @@ import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import QueueRow from '@/components/layout/QueueRow.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
+import { useQueueEdit } from '@/composables/useQueueEdit'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const props = defineProps<{ variant: 'full' | 'sidebar' }>()
@@ -13,6 +14,14 @@ const props = defineProps<{ variant: 'full' | 'sidebar' }>()
 const player = usePlayer()
 const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } =
     useQueueActions()
+const {
+    editMode,
+    toggleEditMode,
+    isSelected,
+    onRowClick: onEditRowClick,
+    toggleCheckbox,
+    clearSelection
+} = useQueueEdit()
 
 const currentBlockRef = ref<HTMLElement | null>(null)
 
@@ -59,8 +68,9 @@ const onPlayRow = (index: number): void => {
     player.playQueueItem(index)
 }
 
-const onRemoveRow = (index: number): void => {
+const onDeleteRow = (index: number): void => {
     player.removeFromQueue(index)
+    clearSelection()
 }
 
 const scrollCurrentIntoView = (): void => {
@@ -82,6 +92,19 @@ onMounted(scrollCurrentIntoView)
                 <span v-if="trackCount > 0" class="queue-info">{{ summary }}</span>
             </div>
             <div class="header-actions">
+                <Button
+                    class="queue-action-edit"
+                    icon="pi pi-pencil"
+                    text
+                    rounded
+                    size="small"
+                    :severity="editMode ? 'primary' : 'secondary'"
+                    :class="{ 'is-active': editMode }"
+                    :aria-pressed="editMode"
+                    :disabled="trackCount === 0"
+                    v-tooltip.bottom="editMode ? 'Done editing' : 'Edit queue'"
+                    @click="toggleEditMode"
+                />
                 <Button
                     class="queue-action-save"
                     icon="pi pi-save"
@@ -118,9 +141,13 @@ onMounted(scrollCurrentIntoView)
                     v-for="row in historyRows"
                     :key="row.id + ':' + row.queueIndex"
                     :song="row"
-                    :position="row.queueIndex + 1"
+                    :queue-index="row.queueIndex"
+                    :editing="editMode"
+                    :selected="isSelected(row.queueIndex)"
                     @play="onPlayRow(row.queueIndex)"
-                    @remove="onRemoveRow(row.queueIndex)"
+                    @select="(p) => onEditRowClick(row.queueIndex, p.additive)"
+                    @toggle-check="toggleCheckbox(row.queueIndex)"
+                    @delete="onDeleteRow(row.queueIndex)"
                 />
             </div>
 
@@ -158,9 +185,13 @@ onMounted(scrollCurrentIntoView)
                     v-for="row in upcomingRows"
                     :key="row.id + ':' + row.queueIndex"
                     :song="row"
-                    :position="row.queueIndex + 1"
+                    :queue-index="row.queueIndex"
+                    :editing="editMode"
+                    :selected="isSelected(row.queueIndex)"
                     @play="onPlayRow(row.queueIndex)"
-                    @remove="onRemoveRow(row.queueIndex)"
+                    @select="(p) => onEditRowClick(row.queueIndex, p.additive)"
+                    @toggle-check="toggleCheckbox(row.queueIndex)"
+                    @delete="onDeleteRow(row.queueIndex)"
                 />
             </div>
         </div>

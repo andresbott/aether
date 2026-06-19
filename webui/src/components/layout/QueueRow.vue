@@ -4,10 +4,23 @@ import Button from 'primevue/button'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
-const props = defineProps<{ song: Song; position: number }>()
-const emit = defineEmits<{ play: []; remove: [] }>()
+const props = defineProps<{
+    song: Song
+    queueIndex: number
+    editing?: boolean
+    selected?: boolean
+}>()
+
+const emit = defineEmits<{
+    play: []
+    select: [payload: { additive: boolean }]
+    toggleCheck: []
+    delete: []
+}>()
 
 const hovered = ref(false)
+
+const position = computed(() => props.queueIndex + 1)
 
 const coverUrl = computed<string | null>(() => {
     if (!props.song.coverArt || !subsonicClient.isConfigured()) return null
@@ -20,10 +33,54 @@ const formatDuration = (seconds?: number): string => {
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
 }
+
+const onRowClick = (event: MouseEvent): void => {
+    emit('select', { additive: event.ctrlKey || event.metaKey })
+}
 </script>
 
 <template>
+    <div
+        v-if="editing"
+        class="queue-row queue-row--editing"
+        :class="{ selected }"
+        role="option"
+        :aria-selected="selected"
+        :data-queue-index="queueIndex"
+        @click="onRowClick"
+    >
+        <span class="row-index">
+            <span class="row-checkbox" @click.stop>
+                <input type="checkbox" :checked="selected" @change="emit('toggleCheck')" />
+            </span>
+        </span>
+        <span class="row-cover">
+            <img v-if="coverUrl" :src="coverUrl" alt="" />
+            <i v-else class="pi pi-music"></i>
+        </span>
+        <span class="row-info">
+            <span class="row-title">{{ song.title }}</span>
+            <span class="row-artist">{{ song.artist || 'Unknown' }}</span>
+        </span>
+        <span class="row-end row-end--editing">
+            <span class="drag-handle" @click.stop v-tooltip.left="'Drag to reorder'">
+                <i class="pi pi-bars"></i>
+            </span>
+            <Button
+                icon="pi pi-trash"
+                text
+                rounded
+                size="small"
+                severity="secondary"
+                class="delete-button"
+                v-tooltip.left="'Delete from queue'"
+                @click.stop="emit('delete')"
+            />
+        </span>
+    </div>
+
     <button
+        v-else
         type="button"
         class="queue-row"
         @click="emit('play')"
@@ -44,16 +101,6 @@ const formatDuration = (seconds?: number): string => {
         </span>
         <span class="row-end">
             <span class="row-duration">{{ formatDuration(song.duration) }}</span>
-            <Button
-                icon="pi pi-trash"
-                text
-                rounded
-                size="small"
-                severity="secondary"
-                class="remove-button"
-                v-tooltip.left="'Remove from queue'"
-                @click.stop="emit('remove')"
-            />
         </span>
     </button>
 </template>
@@ -70,10 +117,19 @@ const formatDuration = (seconds?: number): string => {
     cursor: pointer;
     text-align: left;
     transition: background-color 0.15s;
+    box-sizing: border-box;
 }
 
 .queue-row:hover {
     background-color: var(--app-background);
+}
+
+.queue-row--editing {
+    cursor: default;
+}
+
+.queue-row--editing.selected {
+    background-color: #eef2ff;
 }
 
 .row-index {
@@ -82,6 +138,18 @@ const formatDuration = (seconds?: number): string => {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+}
+
+.row-checkbox {
+    display: flex;
+    align-items: center;
+}
+
+.row-checkbox input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--app-accent);
+    cursor: pointer;
 }
 
 .track-number {
@@ -149,27 +217,28 @@ const formatDuration = (seconds?: number): string => {
     text-align: right;
 }
 
+.row-end--editing {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.25rem;
+    width: auto;
+}
+
 .row-duration {
     font-size: 0.75rem;
     color: var(--app-text-secondary);
 }
 
-.queue-row:hover .row-duration {
-    visibility: hidden;
+.drag-handle {
+    display: flex;
+    align-items: center;
+    color: var(--app-text-secondary);
+    cursor: grab;
+    padding: 0.25rem;
 }
 
-.remove-button {
-    position: absolute;
-    top: 50%;
-    right: 0;
-    transform: translateY(-50%);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.15s;
-}
-
-.queue-row:hover .remove-button {
-    opacity: 1;
-    pointer-events: auto;
+.drag-handle:active {
+    cursor: grabbing;
 }
 </style>

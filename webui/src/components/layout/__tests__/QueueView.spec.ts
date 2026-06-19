@@ -114,9 +114,24 @@ describe('QueueView', () => {
         expect(playQueueItem).toHaveBeenCalledWith(2)
     })
 
-    it('the per-row remove button removes that item from the queue', async () => {
+    it('has no per-row remove control outside edit mode', () => {
         const w = mountView('sidebar')
-        await w.find('.queue-upcoming .remove-button').trigger('click')
+        expect(w.find('.queue-upcoming .delete-button').exists()).toBe(false)
+        expect(w.find('.queue-upcoming input[type="checkbox"]').exists()).toBe(false)
+    })
+
+    it('the pencil button toggles edit mode on the rows', async () => {
+        const w = mountView('sidebar')
+        expect(w.find('.queue-row--editing').exists()).toBe(false)
+        await w.find('.queue-action-edit').trigger('click')
+        expect(w.find('.queue-row--editing').exists()).toBe(true)
+        expect(w.find('.queue-upcoming input[type="checkbox"]').exists()).toBe(true)
+    })
+
+    it('deletes a track via the per-row delete button in edit mode', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('.queue-upcoming .delete-button').trigger('click')
         expect(removeFromQueue).toHaveBeenCalledWith(2)
     })
 
