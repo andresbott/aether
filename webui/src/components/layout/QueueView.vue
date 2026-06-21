@@ -9,6 +9,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
 import { useQueueEdit } from '@/composables/useQueueEdit'
 import { computeDropTarget } from '@/utils/queueReorder'
+import { buildMultiDragImage } from '@/utils/queueDragImage'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const props = defineProps<{ variant: 'full' | 'sidebar' }>()
@@ -30,6 +31,10 @@ const currentBlockRef = ref<HTMLElement | null>(null)
 const historyListRef = ref<HTMLElement | null>(null)
 const upcomingListRef = ref<HTMLElement | null>(null)
 let sortables: Sortable[] = []
+// Rows hidden during a multi-drag (the non-grabbed selected ones) and the
+// off-screen custom drag image; both are torn down when the drag ends.
+let hiddenRows: HTMLElement[] = []
+let dragImageEl: HTMLElement | null = null
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
@@ -79,7 +84,49 @@ const onDeleteRow = (index: number): void => {
     clearSelection()
 }
 
+// When a multi-selection is dragged, lift the other selected rows out of the
+// list (imperatively, to avoid a Vue re-render mid-drag fighting SortableJS)
+// and show a stacked drag image under the cursor.
+const handleSortStart = (evt: Sortable.SortableEvent): void => {
+    const item = evt.item as HTMLElement
+    const ids = selectionForDrag(Number(item.dataset.queueIndex))
+    if (ids.length <= 1) return
+    const selected = new Set(ids)
+    for (const list of [historyListRef.value, upcomingListRef.value]) {
+        if (!list) continue
+        for (const child of Array.from(list.children)) {
+            const el = child as HTMLElement
+            if (el !== item && selected.has(Number(el.dataset.queueIndex))) {
+                el.style.display = 'none'
+                hiddenRows.push(el)
+            }
+        }
+    }
+}
+
+const setDragData = (dataTransfer: DataTransfer | null, dragEl: HTMLElement): void => {
+    if (!dataTransfer) return
+    const ids = selectionForDrag(Number(dragEl.dataset.queueIndex))
+    if (ids.length <= 1) return
+    const img = buildMultiDragImage(dragEl, ids.length)
+    document.body.appendChild(img)
+    dragImageEl = img
+    dataTransfer.setDragImage(img, 24, 24)
+}
+
+const cleanupMultiDrag = (): void => {
+    hiddenRows.forEach((el) => {
+        el.style.display = ''
+    })
+    hiddenRows = []
+    if (dragImageEl) {
+        dragImageEl.remove()
+        dragImageEl = null
+    }
+}
+
 const handleSortEnd = (evt: Sortable.SortableEvent): void => {
+    cleanupMultiDrag()
     const item = evt.item as HTMLElement
     const draggedIndex = Number(item.dataset.queueIndex)
     // The row that ends up right after the dropped item (in its destination
@@ -107,6 +154,7 @@ const handleSortEnd = (evt: Sortable.SortableEvent): void => {
 }
 
 const destroySortables = (): void => {
+    cleanupMultiDrag()
     sortables.forEach((s) => s.destroy())
     sortables = []
 }
@@ -117,6 +165,8 @@ const createSortables = (): void => {
         group: 'queue',
         handle: '.drag-handle',
         animation: 150,
+        onStart: handleSortStart,
+        setData: setDragData,
         onEnd: handleSortEnd
     }
     if (historyListRef.value) sortables.push(Sortable.create(historyListRef.value, options))
