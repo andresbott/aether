@@ -345,32 +345,12 @@ onMounted(scrollCurrentIntoView)
     opacity: 0.45;
 }
 
-/* In edit mode, an empty history/upcoming list still renders as a labelled drop
-   zone so a track can be moved before the first or after the last when the
-   playing track sits at that edge (and the list would otherwise be absent). */
+/* In edit mode, an empty history/upcoming list still renders (with no visible
+   chrome) as a droppable area so a track can be moved before the first or after
+   the last when the playing track sits at that edge and the list would
+   otherwise be absent. Just a drop target — no placeholder. */
 .queue-list--drop-empty {
-    opacity: 1;
-    min-height: 2.75rem;
-    margin: 0.25rem 0.5rem;
-    border: 1px dashed var(--app-border);
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.queue-list--drop-empty::before {
-    font-size: 0.75rem;
-    color: var(--app-text-secondary);
-    pointer-events: none;
-}
-
-.queue-history.queue-list--drop-empty::before {
-    content: 'Drop here to play before the current track';
-}
-
-.queue-upcoming.queue-list--drop-empty::before {
-    content: 'Drop here to play after the current track';
+    min-height: 2.5rem;
 }
 
 .current-block {
