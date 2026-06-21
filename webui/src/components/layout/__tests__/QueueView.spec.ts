@@ -141,6 +141,30 @@ describe('QueueView', () => {
         expect(removeFromQueue).toHaveBeenCalledWith(2)
     })
 
+    it('shows a history drop zone in edit mode when the first track is playing', async () => {
+        currentIndex.value = 0
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        const history = w.find('.queue-history')
+        expect(history.exists()).toBe(true)
+        expect(history.classes()).toContain('queue-list--drop-empty')
+    })
+
+    it('shows an upcoming drop zone in edit mode when the last track is playing', async () => {
+        currentIndex.value = 2
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        const upcoming = w.find('.queue-upcoming')
+        expect(upcoming.exists()).toBe(true)
+        expect(upcoming.classes()).toContain('queue-list--drop-empty')
+    })
+
+    it('does not render an empty history list outside edit mode', () => {
+        currentIndex.value = 0
+        const w = mountView('sidebar')
+        expect(w.find('.queue-history').exists()).toBe(false)
+    })
+
     it('the strip play/pause toggle sits in the index column and toggles playback', async () => {
         const w = mountView('sidebar')
         const toggle = w.find('.now-playing-strip .strip-index')

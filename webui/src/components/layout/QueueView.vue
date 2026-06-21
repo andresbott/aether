@@ -193,7 +193,12 @@ onMounted(scrollCurrentIntoView)
         </div>
 
         <div v-else class="queue-body">
-            <div v-if="historyRows.length" ref="historyListRef" class="queue-history">
+            <div
+                v-if="historyRows.length || editMode"
+                ref="historyListRef"
+                class="queue-history"
+                :class="{ 'queue-list--drop-empty': editMode && historyRows.length === 0 }"
+            >
                 <QueueRow
                     v-for="row in historyRows"
                     :key="row.id + ':' + row.queueIndex"
@@ -237,7 +242,12 @@ onMounted(scrollCurrentIntoView)
                 </div>
             </div>
 
-            <div v-if="upcomingRows.length" ref="upcomingListRef" class="queue-upcoming">
+            <div
+                v-if="upcomingRows.length || editMode"
+                ref="upcomingListRef"
+                class="queue-upcoming"
+                :class="{ 'queue-list--drop-empty': editMode && upcomingRows.length === 0 }"
+            >
                 <QueueRow
                     v-for="row in upcomingRows"
                     :key="row.id + ':' + row.queueIndex"
@@ -333,6 +343,34 @@ onMounted(scrollCurrentIntoView)
 /* Already-played tracks are faded. */
 .queue-history {
     opacity: 0.45;
+}
+
+/* In edit mode, an empty history/upcoming list still renders as a labelled drop
+   zone so a track can be moved before the first or after the last when the
+   playing track sits at that edge (and the list would otherwise be absent). */
+.queue-list--drop-empty {
+    opacity: 1;
+    min-height: 2.75rem;
+    margin: 0.25rem 0.5rem;
+    border: 1px dashed var(--app-border);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.queue-list--drop-empty::before {
+    font-size: 0.75rem;
+    color: var(--app-text-secondary);
+    pointer-events: none;
+}
+
+.queue-history.queue-list--drop-empty::before {
+    content: 'Drop here to play before the current track';
+}
+
+.queue-upcoming.queue-list--drop-empty::before {
+    content: 'Drop here to play after the current track';
 }
 
 .current-block {
