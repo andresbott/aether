@@ -12,6 +12,7 @@ webui/dist/
 .idea/
 docs/superpowers
 .playwright-mcp
+*.iml
 
 # Build
 /dist/
