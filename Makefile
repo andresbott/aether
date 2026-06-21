@@ -25,19 +25,25 @@ coverage:
 		if [ -f coverage.out ]; then \
 			coverage=$$(go tool cover -func=coverage.out | grep total: | awk '{print $$3}' | sed 's/%//'); \
 			if [ -z "$$coverage" ]; then \
-				echo "⚠️ No coverage total for $$pkg"; \
+				echo "⚠️  $$pkg: no coverage total"; \
 				fail=1; \
 			elif awk "BEGIN { exit !($$coverage < $(COVERAGE_THRESHOLD)) }"; then \
-				echo "❌ Coverage in $$pkg ($$coverage%) is below $(COVERAGE_THRESHOLD)!"; \
+				echo "❌ $$pkg: $$coverage% (below $(COVERAGE_THRESHOLD)%)"; \
 				fail=1; \
+			else \
+				echo "✅ $$pkg: $$coverage%"; \
 			fi; \
 			rm -f coverage.out; \
 		else \
-			echo "⚠️ No coverage data for $$pkg"; \
+			echo "⚠️  $$pkg: no coverage data"; \
 			fail=1; \
 		fi; \
 	done; \
-	exit $$fail
+	if [ $$fail -ne 0 ]; then \
+		echo "❌ coverage below threshold ($(COVERAGE_THRESHOLD)%)"; \
+		exit 1; \
+	fi; \
+	echo "✅ coverage: all packages >= $(COVERAGE_THRESHOLD)%"
 
 benchmark: ## run go benchmarks
 	@go test -run=^$$ -bench=. ./...

@@ -1,6 +1,9 @@
 package tags
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestFirst(t *testing.T) {
 	m := map[string][]string{
@@ -92,6 +95,77 @@ func TestParseFloatPtr(t *testing.T) {
 	}
 	if got := parseFloatPtr("bad"); got != nil {
 		t.Errorf("parseFloatPtr invalid: want nil got %v", got)
+	}
+}
+
+func TestParseFFProbeJSON(t *testing.T) {
+	const sample = `{
+		"streams": [{"codec_type": "audio"}, {"codec_type": "video"}],
+		"format": {
+			"duration": "180.5",
+			"bit_rate": "320000",
+			"tags": {
+				"title": "Song Title",
+				"artist": "A; B",
+				"album_artist": "Album Artist",
+				"album": "The Album",
+				"genre": "Rock; Indie",
+				"date": "2001-05-04",
+				"track": "3/12",
+				"disc": "1/2",
+				"compilation": "1",
+				"replaygain_track_gain": "-6.50 dB",
+				"replaygain_track_peak": "0.988",
+				"musicbrainz_trackid": "mb-1",
+				"musicbrainz_albumid": "mb-2",
+				"lyrics": "la la"
+			}
+		}
+	}`
+	m, err := parseFFProbeJSON([]byte(sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Title != "Song Title" {
+		t.Errorf("Title = %q", m.Title)
+	}
+	if m.Album != "The Album" {
+		t.Errorf("Album = %q", m.Album)
+	}
+	if len(m.Artist) != 2 || m.Artist[0] != "A" || m.Artist[1] != "B" {
+		t.Errorf("Artist = %v", m.Artist)
+	}
+	if m.Year != 2001 {
+		t.Errorf("Year = %d", m.Year)
+	}
+	if m.TrackNumber != 3 {
+		t.Errorf("TrackNumber = %d", m.TrackNumber)
+	}
+	if m.DiscNumber != 1 {
+		t.Errorf("DiscNumber = %d", m.DiscNumber)
+	}
+	if !m.HasCover {
+		t.Error("expected HasCover true (video stream present)")
+	}
+	if m.Bitrate != 320 {
+		t.Errorf("Bitrate = %d", m.Bitrate)
+	}
+	if m.Duration != 180*time.Second {
+		t.Errorf("Duration = %v", m.Duration)
+	}
+	if !m.Compilation {
+		t.Error("expected Compilation true")
+	}
+	if m.ReplayGain.TrackGain == nil || *m.ReplayGain.TrackGain != -6.5 {
+		t.Errorf("TrackGain = %v", m.ReplayGain.TrackGain)
+	}
+	if m.ReplayGain.TrackPeak == nil || *m.ReplayGain.TrackPeak != 0.988 {
+		t.Errorf("TrackPeak = %v", m.ReplayGain.TrackPeak)
+	}
+
+	// Invalid JSON returns an error.
+	if _, err := parseFFProbeJSON([]byte("not json")); err == nil {
+		t.Fatal("expected error for invalid JSON")
 	}
 }
 
