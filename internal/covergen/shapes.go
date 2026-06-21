@@ -137,7 +137,7 @@ func drawForeground(img *image.RGBA, rng *rand.Rand) {
 			ecx += stackDX * (i + 1)
 			ecy += stackDY * (i + 1)
 		}
-		drawShape(img, kind, ecx, ecy, r, alphas[i], rng.Float64()*2*math.Pi)
+		drawShape(img, kind, ecx, ecy, r, alphas[i%len(alphas)], rng.Float64()*2*math.Pi)
 	}
 }
 
@@ -193,6 +193,15 @@ func drawShape(img *image.RGBA, kind shapeKind, cx, cy, radius int, maxAlpha uin
 // insideShape reports whether the offset (dx, dy) from the shape's centre
 // lies inside a shape of kind with half-extent radius.
 func insideShape(kind shapeKind, dx, dy, radius int) bool {
+	if isCornerShape(kind) || isRightTriShape(kind) {
+		return insideWedge(kind, dx, dy, radius)
+	}
+	return insideBasicShape(kind, dx, dy, radius)
+}
+
+// insideBasicShape covers the centred shapes (triangles, circle, square,
+// half circle, diamond).
+func insideBasicShape(kind shapeKind, dx, dy, radius int) bool {
 	r := float64(radius)
 	fx, fy := float64(dx), float64(dy)
 	switch kind {
@@ -202,15 +211,13 @@ func insideShape(kind shapeKind, dx, dy, radius int) bool {
 			return false
 		}
 		t := (fy + r) / (r * 1.5) // 0 at apex, 1 at base
-		halfBase := t * r
-		return math.Abs(fx) <= halfBase
+		return math.Abs(fx) <= t*r
 	case shapeInvTriangle:
 		if fy < -r/2 || fy > r {
 			return false
 		}
 		t := (r - fy) / (r * 1.5)
-		halfBase := t * r
-		return math.Abs(fx) <= halfBase
+		return math.Abs(fx) <= t*r
 	case shapeCircle:
 		return fx*fx+fy*fy <= r*r
 	case shapeSquare:
@@ -222,25 +229,25 @@ func insideShape(kind shapeKind, dx, dy, radius int) bool {
 		return fx*fx+fy*fy <= r*r
 	case shapeDiamond:
 		return math.Abs(fx)+math.Abs(fy) <= r
-	case shapeCornerTL:
-		// 90° at (0,0), legs along +x and +y to length r.
+	}
+	return false
+}
+
+// insideWedge covers the corner and right-triangle shapes. Each is a right
+// triangle whose 90° vertex sits at the origin with legs of length r; corner
+// and right-tri variants share identical geometry and differ only in where the
+// caller anchors them on the canvas.
+func insideWedge(kind shapeKind, dx, dy, radius int) bool {
+	r := float64(radius)
+	fx, fy := float64(dx), float64(dy)
+	switch kind {
+	case shapeCornerTL, shapeRightTriTL:
 		return fx >= 0 && fy >= 0 && fx+fy <= r
-	case shapeCornerTR:
-		// 90° at (0,0), legs along -x and +y.
+	case shapeCornerTR, shapeRightTriTR:
 		return fx <= 0 && fy >= 0 && -fx+fy <= r
-	case shapeCornerBL:
-		// 90° at (0,0), legs along +x and -y.
+	case shapeCornerBL, shapeRightTriBL:
 		return fx >= 0 && fy <= 0 && fx-fy <= r
-	case shapeCornerBR:
-		// 90° at (0,0), legs along -x and -y.
-		return fx <= 0 && fy <= 0 && -fx-fy <= r
-	case shapeRightTriTL:
-		return fx >= 0 && fy >= 0 && fx+fy <= r
-	case shapeRightTriTR:
-		return fx <= 0 && fy >= 0 && -fx+fy <= r
-	case shapeRightTriBL:
-		return fx >= 0 && fy <= 0 && fx-fy <= r
-	case shapeRightTriBR:
+	case shapeCornerBR, shapeRightTriBR:
 		return fx <= 0 && fy <= 0 && -fx-fy <= r
 	}
 	return false

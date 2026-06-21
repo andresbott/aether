@@ -23,9 +23,9 @@ func starItems(h *Handler, r *http.Request, doStar bool) {
 			continue
 		}
 		if doStar {
-			h.store.Star(itemType, id)
+			_ = h.store.Star(itemType, id)
 		} else {
-			h.store.Unstar(itemType, id)
+			_ = h.store.Unstar(itemType, id)
 		}
 	}
 	for _, idStr := range paramStrSlice(r, "albumId") {
@@ -34,9 +34,9 @@ func starItems(h *Handler, r *http.Request, doStar bool) {
 			continue
 		}
 		if doStar {
-			h.store.Star("album", id)
+			_ = h.store.Star("album", id)
 		} else {
-			h.store.Unstar("album", id)
+			_ = h.store.Unstar("album", id)
 		}
 	}
 	for _, idStr := range paramStrSlice(r, "artistId") {
@@ -45,9 +45,9 @@ func starItems(h *Handler, r *http.Request, doStar bool) {
 			continue
 		}
 		if doStar {
-			h.store.Star("artist", id)
+			_ = h.store.Star("artist", id)
 		} else {
-			h.store.Unstar("artist", id)
+			_ = h.store.Unstar("artist", id)
 		}
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-var coverNames = []string{"cover", "folder", "front", "album", "albumart", "albumartsmall", "thumb"}
 var coverExts = map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".bmp": true, ".webp": true}
 
 // Priorities: exact-match tokens beat substring matches. Lower is better.

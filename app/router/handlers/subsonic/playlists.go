@@ -120,15 +120,7 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 	name := paramStr(r, "name")
 	comment := paramStr(r, "comment")
 	if name != "" || comment != "" {
-		pl, _ := h.store.GetPlaylist(id)
-		if pl != nil {
-			if name == "" {
-				name = pl.Name
-			}
-			if comment == "" {
-				comment = pl.Comment
-			}
-		}
+		name, comment = h.fillPlaylistDefaults(id, name, comment)
 		if err := h.store.UpdatePlaylist(id, name, comment); err != nil {
 			writeError(w, 0, "internal error")
 			return
@@ -163,6 +155,22 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeResponse(w, nil)
+}
+
+// fillPlaylistDefaults backfills an empty name or comment from the stored
+// playlist so a partial update doesn't blank out the field that was omitted.
+func (h *Handler) fillPlaylistDefaults(id uint, name, comment string) (string, string) {
+	pl, _ := h.store.GetPlaylist(id)
+	if pl == nil {
+		return name, comment
+	}
+	if name == "" {
+		name = pl.Name
+	}
+	if comment == "" {
+		comment = pl.Comment
+	}
+	return name, comment
 }
 
 func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {

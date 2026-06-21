@@ -33,8 +33,8 @@ func TestGetNowPlaying(t *testing.T) {
 	t2 := model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/02.mp3", Title: "Old"}
 	db.Create(&t1)
 	db.Create(&t2)
-	s.RecordPlay(t1.ID, time.Now())
-	s.RecordPlay(t2.ID, time.Now().Add(-10*time.Minute))
+	_ = s.RecordPlay(t1.ID, time.Now())
+	_ = s.RecordPlay(t2.ID, time.Now().Add(-10*time.Minute))
 	entries, err := s.GetNowPlaying()
 	if err != nil {
 		t.Fatal(err)

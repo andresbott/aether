@@ -52,7 +52,7 @@ func NewFileTaskLogSink(dir string) (*FileTaskLogSink, error) {
 	return &FileTaskLogSink{dir: dir}, nil
 }
 
-func (f *FileTaskLogSink) Append(ctx context.Context, taskID uuid.UUID, level string, msg string) error {
+func (f *FileTaskLogSink) Append(ctx context.Context, taskID uuid.UUID, level string, msg string) (err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	path := filepath.Join(f.dir, taskID.String()+".log")
@@ -60,7 +60,11 @@ func (f *FileTaskLogSink) Append(ctx context.Context, taskID uuid.UUID, level st
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	line := fmt.Sprintf("%s %s %s\n", time.Now().UTC().Format(time.RFC3339Nano), level, msg)
 	_, err = file.WriteString(line)
 	return err

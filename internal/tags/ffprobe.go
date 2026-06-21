@@ -25,7 +25,7 @@ func (FFProbeReader) CanRead(absPath string) bool {
 }
 
 func (FFProbeReader) Read(absPath string) (Metadata, error) {
-	out, err := exec.Command(
+	out, err := exec.Command( //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
 		"ffprobe", "-hide_banner", "-v", "0", "-i", absPath,
 		"-show_entries", "format:stream=codec_type", "-of", "json",
 	).Output()

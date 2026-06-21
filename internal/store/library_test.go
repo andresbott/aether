@@ -133,10 +133,10 @@ func TestDeleteLibraryCascade(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	track := model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "1.mp3", FilePath: "/l/1.mp3"}
 	db.Create(&track)
-	db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
 	db.Create(&model.StarredItem{ItemType: "track", ItemID: track.ID})
 
 	if err := s.DeleteLibrary(lib.ID); err != nil {

@@ -17,8 +17,8 @@ func createTestAlbumAndArtist(t *testing.T, s *store.Store) (model.Album, model.
 	db.Create(&genre)
 	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", Year: 2000}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
 	return album, artist, genre
 }
 
@@ -58,7 +58,7 @@ func TestGetSong(t *testing.T) {
 	db := s.DB()
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3", Title: "Everything"}
 	db.Create(&track)
-	db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
 	found, err := s.GetSong(track.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +108,7 @@ func TestGetSongsByGenre(t *testing.T) {
 	db := s.DB()
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
 	db.Create(&track)
-	db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
+	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
 	songs, err := s.GetSongsByGenre("Rock", 10, 0, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestGetSongsByGenreByLibrary(t *testing.T) {
 	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
-	db.Model(&t1).Association("Genres").Replace([]*model.Genre{&rock})
-	db.Model(&t2).Association("Genres").Replace([]*model.Genre{&rock})
+	_ = db.Model(&t1).Association("Genres").Replace([]*model.Genre{&rock})
+	_ = db.Model(&t2).Association("Genres").Replace([]*model.Genre{&rock})
 
 	id1 := lib1.ID
 	got, err := s.GetSongsByGenre("Rock", 10, 0, &store.SearchFilter{LibraryID: &id1})

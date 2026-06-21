@@ -42,10 +42,10 @@ func TestGetAlbum(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", Year: 2000}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	rock := model.Genre{Name: "Rock"}
 	db.Create(&rock)
-	db.Model(&album).Association("Genres").Replace([]*model.Genre{&rock})
+	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&rock})
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3", Title: "Everything", TrackNumber: 1, Duration: 250}
 	db.Create(&track)
 	found, err := s.GetAlbum(album.ID)
