@@ -90,8 +90,8 @@ func pngBytes(t *testing.T) []byte {
 
 func TestGetInternetRadioStations(t *testing.T) {
 	s := testStore(t)
-	s.CreateInternetRadioStation("BBC R1", "http://example.com/r1", "http://bbc.co.uk")
-	s.CreateInternetRadioStation("Nova", "http://example.com/nova", "")
+	_, _ = s.CreateInternetRadioStation("BBC R1", "http://example.com/r1", "http://bbc.co.uk")
+	_, _ = s.CreateInternetRadioStation("Nova", "http://example.com/nova", "")
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
@@ -100,7 +100,7 @@ func TestGetInternetRadioStations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
@@ -140,7 +140,7 @@ func TestCreateInternetRadioStationHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", body.SubsonicResponse.Status, body.SubsonicResponse.Error)
@@ -161,7 +161,7 @@ func TestCreateInternetRadioStationMissingName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Status != "failed" || body.SubsonicResponse.Error.Code != 10 {
 		t.Fatalf("expected failed + code 10, got %+v", body.SubsonicResponse)
@@ -176,7 +176,7 @@ func TestCreateInternetRadioStationMissingStreamURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Error.Code != 10 {
 		t.Fatalf("expected code 10, got %+v", body.SubsonicResponse.Error)
@@ -198,7 +198,7 @@ func TestUpdateInternetRadioStationHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", body.SubsonicResponse.Status, body.SubsonicResponse.Error)
@@ -218,7 +218,7 @@ func TestUpdateInternetRadioStationMissingID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Error.Code != 10 {
 		t.Fatalf("expected code 10, got %+v", body.SubsonicResponse.Error)
@@ -237,7 +237,7 @@ func TestUpdateInternetRadioStationNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Error.Code != 70 {
 		t.Fatalf("expected code 70, got %+v", body.SubsonicResponse.Error)
@@ -256,7 +256,7 @@ func TestUpdateInternetRadioStationBadIDPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Status != "failed" {
 		t.Fatalf("expected failed, got %+v", body.SubsonicResponse)
@@ -273,7 +273,7 @@ func TestDeleteInternetRadioStationHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", body.SubsonicResponse.Status, body.SubsonicResponse.Error)
@@ -293,7 +293,7 @@ func TestDeleteInternetRadioStationMissingID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Error.Code != 10 {
 		t.Fatalf("expected code 10, got %+v", body.SubsonicResponse.Error)
@@ -308,7 +308,7 @@ func TestDeleteInternetRadioStationNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body := decodeRadio(t, resp)
 	if body.SubsonicResponse.Error.Code != 70 {
 		t.Fatalf("expected code 70, got %+v", body.SubsonicResponse.Error)
@@ -324,7 +324,7 @@ func TestGetInternetRadioStationsIncludesCoverArt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var body struct {
 		SubsonicResponse struct {
 			InternetRadioStations struct {
@@ -357,7 +357,7 @@ func TestCreateInternetRadioStationMultipartWithCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	env := decodeRadio(t, resp)
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
@@ -386,7 +386,7 @@ func TestCreateInternetRadioStationMultipartWithoutCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	env := decodeRadio(t, resp)
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
@@ -411,7 +411,7 @@ func TestCreateInternetRadioStationMultipartOversize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	env := decodeRadio(t, resp)
 	if env.SubsonicResponse.Status != "failed" {
 		t.Fatalf("expected failed, got %+v", env.SubsonicResponse)
@@ -430,7 +430,7 @@ func TestCreateInternetRadioStationMultipartBadType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	env := decodeRadio(t, resp)
 	if env.SubsonicResponse.Status != "failed" {
 		t.Fatalf("expected failed, got %+v", env.SubsonicResponse)
@@ -448,7 +448,7 @@ func TestUpdateInternetRadioStationMultipartReplaceCover(t *testing.T) {
 		"streamUrl": "http://r1",
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	var st model.InternetRadioStation
 	s.DB().First(&st)
 	original := st.CoverPath
@@ -466,7 +466,7 @@ func TestUpdateInternetRadioStationMultipartReplaceCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	env := decodeRadio(t, resp2)
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
@@ -492,7 +492,7 @@ func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 		"streamUrl": "http://r1",
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	var st model.InternetRadioStation
 	s.DB().First(&st)
 
@@ -506,7 +506,7 @@ func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	env := decodeRadio(t, resp2)
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
@@ -531,7 +531,7 @@ func TestDeleteInternetRadioStationRemovesCover(t *testing.T) {
 		"streamUrl": "http://r1",
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	var st model.InternetRadioStation
 	s.DB().First(&st)
 
@@ -539,7 +539,7 @@ func TestDeleteInternetRadioStationRemovesCover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	env := decodeRadio(t, resp2)
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)

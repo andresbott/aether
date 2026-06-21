@@ -97,7 +97,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	if albumID > 0 {
 		if data := h.readEmbeddedCover(albumID); data != nil {
 			w.Header().Set("Content-Type", detectImageContentType(data))
-			w.Write(data)
+			_, _ = w.Write(data)
 			return
 		}
 	}
@@ -143,7 +143,7 @@ func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
 		return path, nil
 	}
 
-	if err := os.MkdirAll(h.coverCacheDir, 0755); err != nil {
+	if err := os.MkdirAll(h.coverCacheDir, 0750); err != nil {
 		return "", fmt.Errorf("create cover cache dir: %w", err)
 	}
 	data, err := covergen.Generate(seed, size)
@@ -156,16 +156,16 @@ func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("write temp cover file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("close temp cover file: %w", err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("rename temp cover file: %w", err)
 	}
 	return path, nil

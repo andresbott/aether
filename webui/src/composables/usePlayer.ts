@@ -2,6 +2,7 @@ import { ref, computed, watch } from 'vue'
 import type { Song, PlayerState } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { saveToLocalStorage, loadFromLocalStorage } from '@/utils/localStorage'
+import { reorderQueue } from '@/utils/queueReorder'
 
 const STORAGE_KEY_QUEUE = 'musicPlayer:queue'
 const STORAGE_KEY_CURRENT_INDEX = 'musicPlayer:currentIndex'
@@ -249,6 +250,17 @@ export function usePlayer() {
         queue.value.splice(index, 1)
     }
 
+    const moveInQueue = (fromIndices: number[], targetIndex: number): void => {
+        if (fromIndices.length === 0) return
+        const current = queue.value[currentIndex.value] ?? null
+        const next = reorderQueue(queue.value, fromIndices, targetIndex)
+        queue.value = next
+        if (current) {
+            const idx = next.indexOf(current)
+            if (idx !== -1) currentIndex.value = idx
+        }
+    }
+
     const clearQueue = (): void => {
         queue.value = []
         currentIndex.value = 0
@@ -291,6 +303,7 @@ export function usePlayer() {
         playNow,
         playAlbum,
         removeFromQueue,
+        moveInQueue,
         clearQueue,
         playQueueItem
     }

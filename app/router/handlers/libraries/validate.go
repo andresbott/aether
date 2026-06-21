@@ -26,7 +26,7 @@ func validatePath(path string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("path is not a directory: %s", abs)
 	}
-	f, err := os.Open(abs)
+	f, err := os.Open(abs) //nolint:gosec // G304: abs is an admin-configured library root being validated, not an attacker-controlled path
 	if err != nil {
 		return "", fmt.Errorf("path is not readable: %w", err)
 	}

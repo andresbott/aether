@@ -41,7 +41,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -89,7 +89,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	if err := png.Encode(f, img); err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
+	_ = f.Close()
 	if err := s.UpdateInternetRadioStationCoverPath(st.ID, pngPath); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -126,7 +126,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -158,7 +158,7 @@ func TestGetCoverArtRadioNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var body struct {
 		SubsonicResponse struct {
 			Error struct {

@@ -43,9 +43,9 @@ func TestGetStarredAll(t *testing.T) {
 	db.Create(&album)
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
 	db.Create(&track)
-	s.Star("artist", artist.ID)
-	s.Star("album", album.ID)
-	s.Star("track", track.ID)
+	_ = s.Star("artist", artist.ID)
+	_ = s.Star("album", album.ID)
+	_ = s.Star("track", track.ID)
 	starred, err := s.GetStarred(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -78,8 +78,8 @@ func TestGetStarredByLibrary(t *testing.T) {
 	t2 := model.Track{AlbumID: album2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
-	db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist1})
-	db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist2})
+	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist1})
+	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist2})
 
 	if err := s.Star("artist", artist1.ID); err != nil {
 		t.Fatal(err)

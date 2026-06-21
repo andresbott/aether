@@ -24,4 +24,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.5
+          # Pin the exact version so the bundled gosec ruleset matches local
+          # runs; version skew makes nolintlint flag directives inconsistently.
+          version: v2.12.2

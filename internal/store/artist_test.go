@@ -57,7 +57,7 @@ func TestGetArtist(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	found, albums, err := s.GetArtist(artist.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -116,9 +116,9 @@ func TestGetArtistsByLibrary(t *testing.T) {
 	db.Create(&t1)
 	db.Create(&t2)
 	db.Create(&t3)
-	db.Model(&t1).Association("Artists").Replace([]*model.Artist{&a1})
-	db.Model(&t2).Association("Artists").Replace([]*model.Artist{&a2})
-	db.Model(&t3).Association("Artists").Replace([]*model.Artist{&a3, &a1})
+	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&a1})
+	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&a2})
+	_ = db.Model(&t3).Association("Artists").Replace([]*model.Artist{&a3, &a1})
 
 	id1 := lib1.ID
 	got, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &id1})
@@ -154,8 +154,8 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 	alb2 := model.Album{Name: "A2", NameNorm: "a2", AlbumArtistNorm: "alpha"}
 	db.Create(&alb1)
 	db.Create(&alb2)
-	db.Model(&alb1).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Model(&alb2).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&alb1).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&alb2).Association("Artists").Replace([]*model.Artist{&artist})
 
 	db.Create(&model.Track{AlbumID: alb1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
 	db.Create(&model.Track{AlbumID: alb2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"})
@@ -190,8 +190,8 @@ func TestSearchArtistsByLibrary(t *testing.T) {
 	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
-	db.Model(&t1).Association("Artists").Replace([]*model.Artist{&a1})
-	db.Model(&t2).Association("Artists").Replace([]*model.Artist{&a2})
+	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&a1})
+	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&a2})
 
 	id1 := lib1.ID
 	got, err := s.SearchArtists("alph", 10, 0, &store.SearchFilter{LibraryID: &id1})

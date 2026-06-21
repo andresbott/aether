@@ -40,5 +40,5 @@ func newRNG(seed string) *rand.Rand {
 	h := sha256.Sum256([]byte(seed))
 	s1 := binary.BigEndian.Uint64(h[0:8])
 	s2 := binary.BigEndian.Uint64(h[8:16])
-	return rand.New(rand.NewPCG(s1, s2))
+	return rand.New(rand.NewPCG(s1, s2)) //nolint:gosec // G404: deterministic seeded RNG for reproducible cover art, not security-sensitive
 }

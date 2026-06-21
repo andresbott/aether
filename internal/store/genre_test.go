@@ -46,10 +46,10 @@ func TestGetGenres(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "a"}
 	db.Create(&album)
-	db.Model(&album).Association("Genres").Replace([]*model.Genre{&rock})
+	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&rock})
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
 	db.Create(&track)
-	db.Model(&track).Association("Genres").Replace([]*model.Genre{&rock, &electronic})
+	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&rock, &electronic})
 	genres, err := s.GetGenres()
 	if err != nil {
 		t.Fatal(err)

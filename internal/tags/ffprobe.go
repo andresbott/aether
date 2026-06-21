@@ -25,14 +25,20 @@ func (FFProbeReader) CanRead(absPath string) bool {
 }
 
 func (FFProbeReader) Read(absPath string) (Metadata, error) {
-	out, err := exec.Command(
+	out, err := exec.Command( //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
 		"ffprobe", "-hide_banner", "-v", "0", "-i", absPath,
 		"-show_entries", "format:stream=codec_type", "-of", "json",
 	).Output()
 	if err != nil {
 		return Metadata{}, fmt.Errorf("ffprobe exec: %w", err)
 	}
+	return parseFFProbeJSON(out)
+}
 
+// parseFFProbeJSON maps the JSON produced by `ffprobe ... -of json` into
+// Metadata. It is kept separate from the exec call above so the parsing logic
+// can be unit-tested without the ffprobe binary present.
+func parseFFProbeJSON(out []byte) (Metadata, error) {
 	var d struct {
 		Streams []struct {
 			CodecType string `json:"codec_type"`

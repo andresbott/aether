@@ -20,6 +20,8 @@ const (
 	radioCoverMaxBytes = 5 * 1024 * 1024 // 5 MB
 	// Multipart parse memory: 1 MB kept in memory, rest spilled to a temp file.
 	radioMultipartMemory = 1 * 1024 * 1024
+	// Hard cap on the whole multipart request body (cover + form fields).
+	maxRadioRequestBytes = radioCoverMaxBytes + radioMultipartMemory
 )
 
 func (h *Handler) getInternetRadioStations(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +78,7 @@ func (h *Handler) createRadioQueryString(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
 	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil {
 		writeError(w, 0, "invalid multipart body")
 		return
@@ -159,6 +162,7 @@ func (h *Handler) updateRadioQueryString(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
 	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil {
 		writeError(w, 0, "invalid multipart body")
 		return
@@ -287,7 +291,7 @@ func readCoverFile(r *http.Request) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("read cover file")
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, radioCoverMaxBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("read cover file")
@@ -316,7 +320,7 @@ func (h *Handler) writeRadioCover(id uint, ext string, data []byte) (string, err
 	if h.radioCoverDir == "" {
 		return "", fmt.Errorf("radio cover dir not configured")
 	}
-	if err := os.MkdirAll(h.radioCoverDir, 0755); err != nil {
+	if err := os.MkdirAll(h.radioCoverDir, 0750); err != nil {
 		return "", fmt.Errorf("create radio cover dir: %w", err)
 	}
 	final := filepath.Join(h.radioCoverDir, fmt.Sprintf("%d.%s", id, ext))
@@ -326,16 +330,16 @@ func (h *Handler) writeRadioCover(id uint, ext string, data []byte) (string, err
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("write temp cover: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("close temp cover: %w", err)
 	}
 	if err := os.Rename(tmpName, final); err != nil {
-		os.Remove(tmpName)
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("rename temp cover: %w", err)
 	}
 	return final, nil

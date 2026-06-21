@@ -16,6 +16,15 @@ linters:
           - nestif
           - dupl
           - gosec
+      # gosec taint analysis (G703 path traversal, G705 XSS) and unbounded-form
+      # parsing (G120) flag the media-serving handlers, but served paths come
+      # from the trusted DB (clients supply only a numeric ID, never a path),
+      # responses are images or text/plain (never HTML), and request bodies are
+      # bounded via http.MaxBytesReader. Scoped to these two files only.
+      - path: 'app/router/handlers/subsonic/(media|radio)\.go'
+        linters:
+          - gosec
+        text: 'G703|G705|G120'
       # Vendored third-party code
       - path: 'webui/node_modules/'
         linters:

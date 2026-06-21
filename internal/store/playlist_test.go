@@ -41,8 +41,8 @@ func TestCreatePlaylistWithTracks(t *testing.T) {
 
 func TestGetPlaylists(t *testing.T) {
 	s := testStore(t)
-	s.CreatePlaylist("A", "admin", nil)
-	s.CreatePlaylist("B", "admin", nil)
+	_, _ = s.CreatePlaylist("A", "admin", nil)
+	_, _ = s.CreatePlaylist("B", "admin", nil)
 	playlists, err := s.GetPlaylists()
 	if err != nil {
 		t.Fatal(err)

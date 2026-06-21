@@ -57,15 +57,15 @@ func TestCleanup(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "a"}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	now := time.Now()
 	old := now.Add(-time.Hour)
 	t1 := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3", LastSeenAt: now}
 	t2 := model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/02.mp3", LastSeenAt: old}
 	db.Create(&t1)
 	db.Create(&t2)
-	db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist})
 	if err := s.Cleanup(now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestDeleteOrphanedAggregates(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "Orphan", NameNorm: "orphan", AlbumArtistNorm: "orphan"}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	// Album has no tracks, artist has no track-membership — both should be cleaned.
 
 	if err := s.DeleteOrphanedAggregates(); err != nil {
@@ -162,10 +162,10 @@ func TestDeleteOrphanedAggregatesPreservesLiveStarredItems(t *testing.T) {
 	db.Create(&artist)
 	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "a"}
 	db.Create(&album)
-	db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
 	db.Create(&track)
-	db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
 	db.Create(&model.StarredItem{ItemType: "track", ItemID: track.ID})
 	db.Create(&model.StarredItem{ItemType: "album", ItemID: album.ID})
 	db.Create(&model.StarredItem{ItemType: "artist", ItemID: artist.ID})

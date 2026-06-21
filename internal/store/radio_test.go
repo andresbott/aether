@@ -30,8 +30,8 @@ func TestCreateInternetRadioStationNoHomepage(t *testing.T) {
 
 func TestGetInternetRadioStations(t *testing.T) {
 	s := testStore(t)
-	s.CreateInternetRadioStation("Zulu", "http://z", "")
-	s.CreateInternetRadioStation("Alpha", "http://a", "")
+	_, _ = s.CreateInternetRadioStation("Zulu", "http://z", "")
+	_, _ = s.CreateInternetRadioStation("Alpha", "http://a", "")
 	stations, err := s.GetInternetRadioStations()
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestUpdateInternetRadioStationCoverPath(t *testing.T) {
 func TestUpdateInternetRadioStationCoverPathClear(t *testing.T) {
 	s := testStore(t)
 	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
-	s.UpdateInternetRadioStationCoverPath(st.ID, "/tmp/covers/1.png")
+	_ = s.UpdateInternetRadioStationCoverPath(st.ID, "/tmp/covers/1.png")
 	if err := s.UpdateInternetRadioStationCoverPath(st.ID, ""); err != nil {
 		t.Fatal(err)
 	}

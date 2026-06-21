@@ -2,7 +2,6 @@ package subsonic
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -43,8 +42,4 @@ func writeError(w http.ResponseWriter, code int, message string) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"subsonic-response": resp})
-}
-
-func writeErrorf(w http.ResponseWriter, code int, format string, args ...any) {
-	writeError(w, code, fmt.Sprintf(format, args...))
 }
