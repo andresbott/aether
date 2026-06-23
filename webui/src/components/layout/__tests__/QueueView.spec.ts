@@ -286,4 +286,16 @@ describe('QueueView album drop', () => {
         await flushPromises()
         expect(insertIntoQueue).not.toHaveBeenCalled()
     })
+
+    it('accepts an album drop into an empty queue', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
+        queue.value = []
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w
+            .find('.queue-empty')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 0)
+    })
 })

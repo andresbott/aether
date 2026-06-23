@@ -247,7 +247,14 @@ onMounted(scrollCurrentIntoView)
             </div>
         </div>
 
-        <div v-if="trackCount === 0" class="queue-empty">
+        <div
+            v-if="trackCount === 0"
+            ref="queueBodyRef"
+            class="queue-empty"
+            @dragover="onQueueDragOver"
+            @dragleave="onQueueDragLeave"
+            @drop="onQueueDrop"
+        >
             <i class="pi pi-play-circle" style="font-size: 2.5rem"></i>
             <p>{{ variant === 'full' ? 'Nothing is playing' : 'Queue is empty' }}</p>
         </div>
