@@ -261,6 +261,21 @@ export function usePlayer() {
         }
     }
 
+    const insertIntoQueue = (songs: Song[], targetIndex: number): void => {
+        if (songs.length === 0) return
+        const clamped = Math.max(0, Math.min(targetIndex, queue.value.length))
+        const current = queue.value[currentIndex.value] ?? null
+        queue.value = [
+            ...queue.value.slice(0, clamped),
+            ...songs,
+            ...queue.value.slice(clamped)
+        ]
+        if (current) {
+            const idx = queue.value.indexOf(current)
+            if (idx !== -1) currentIndex.value = idx
+        }
+    }
+
     const clearQueue = (): void => {
         queue.value = []
         currentIndex.value = 0
@@ -304,6 +319,7 @@ export function usePlayer() {
         playAlbum,
         removeFromQueue,
         moveInQueue,
+        insertIntoQueue,
         clearQueue,
         playQueueItem
     }
