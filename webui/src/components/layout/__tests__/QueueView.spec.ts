@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
@@ -37,8 +37,10 @@ vi.mock('@/composables/useQueueActions', () => ({
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
+    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getAlbum: vi.fn() }
 }))
+
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 const sortableCreate = vi.fn(() => ({ destroy: vi.fn() }))
 vi.mock('sortablejs', () => ({
@@ -59,6 +61,7 @@ vi.mock('@/components/layout/SavePlaylistDialog.vue', () => ({
 
 import QueueView from '@/components/layout/QueueView.vue'
 import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 const song = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -86,6 +89,7 @@ beforeEach(() => {
     openSaveDialog.mockReset()
     clearQueue.mockReset()
     sortableCreate.mockClear()
+    ;(subsonicClient.getAlbum as ReturnType<typeof vi.fn>).mockReset()
 })
 
 describe('QueueView', () => {
@@ -241,21 +245,22 @@ describe('QueueView', () => {
 })
 
 describe('QueueView album drop', () => {
+    const getAlbum = subsonicClient.getAlbum as ReturnType<typeof vi.fn>
+
     const setAlbumPayload = () =>
-        useAlbumDragData().setAlbumDrag({
-            songs: [{ id: 'X', title: 'X' } as any],
-            albumName: 'LP',
-            count: 1
-        })
+        useAlbumDragData().setAlbumDrag({ albumId: 'al1', albumName: 'LP', count: 1 })
 
     const dataTransfer = (types: string[]) => ({ types, dropEffect: '' })
 
-    it('inserts album songs when dropped on the queue body', async () => {
+    it('fetches the album and inserts its songs when dropped on the queue body', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
         setAlbumPayload()
         const w = mountView('sidebar')
         await w
             .find('.queue-body')
             .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(getAlbum).toHaveBeenCalledWith('al1')
         // jsdom rects are 0 → append; queue has 3 items → index 3
         expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
     })
@@ -267,6 +272,8 @@ describe('QueueView album drop', () => {
         await w
             .find('.queue-body')
             .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(getAlbum).not.toHaveBeenCalled()
         expect(insertIntoQueue).not.toHaveBeenCalled()
     })
 
@@ -276,6 +283,7 @@ describe('QueueView album drop', () => {
         await w
             .find('.queue-body')
             .trigger('drop', { dataTransfer: dataTransfer(['text/plain']) })
+        await flushPromises()
         expect(insertIntoQueue).not.toHaveBeenCalled()
     })
 })

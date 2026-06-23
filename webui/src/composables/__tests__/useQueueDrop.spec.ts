@@ -2,12 +2,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ref } from 'vue'
 import { useQueueDrop } from '@/composables/useQueueDrop'
 import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 const insertIntoQueue = vi.fn()
 const queue = ref<Array<{ id: string }>>([])
 vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({ queue, insertIntoQueue })
 }))
+
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
+
+vi.mock('@/lib/api/subsonic', () => ({
+    subsonicClient: { getAlbum: vi.fn() }
+}))
+
+const getAlbum = subsonicClient.getAlbum as ReturnType<typeof vi.fn>
 
 const dropEvent = (types: string[]) =>
     ({
@@ -21,18 +30,14 @@ describe('useQueueDrop', () => {
     let editing = false
     const body = document.createElement('div')
 
-    const make = () =>
-        useQueueDrop({ bodyRef: ref(body), isEditing: () => editing })
+    const make = () => useQueueDrop({ bodyRef: ref(body), isEditing: () => editing })
 
     beforeEach(() => {
         editing = false
         queue.value = [{ id: 'A' }, { id: 'B' }, { id: 'C' }]
         insertIntoQueue.mockReset()
-        useAlbumDragData().setAlbumDrag({
-            songs: [{ id: 'X', title: 'X' }],
-            albumName: 'LP',
-            count: 1
-        })
+        getAlbum.mockReset()
+        useAlbumDragData().setAlbumDrag({ albumId: 'al1', albumName: 'LP', count: 2 })
     })
 
     it('allows the drop (preventDefault) for an album drag when not editing', () => {
@@ -55,26 +60,46 @@ describe('useQueueDrop', () => {
         expect(e.preventDefault).not.toHaveBeenCalled()
     })
 
-    it('inserts the payload songs at the computed index on drop', () => {
-        // jsdom rects are all 0 → pointer not above any midpoint → append at end (3)
+    it('fetches the album by id and inserts its songs at the computed index on drop', async () => {
+        getAlbum.mockResolvedValue({
+            id: 'al1',
+            name: 'LP',
+            song: [
+                { id: 'X', title: 'X' },
+                { id: 'Y', title: 'Y' }
+            ]
+        })
         const e = dropEvent([ALBUM_DRAG_MIME])
-        make().onDrop(e)
+        await make().onDrop(e)
         expect(e.preventDefault).toHaveBeenCalled()
+        expect(getAlbum).toHaveBeenCalledWith('al1')
+        // jsdom rects are 0 → pointer above no midpoint → append; queue has 3 → index 3
         expect(insertIntoQueue).toHaveBeenCalledWith(
-            [{ id: 'X', title: 'X' }],
+            [
+                { id: 'X', title: 'X' },
+                { id: 'Y', title: 'Y' }
+            ],
             3
         )
         expect(useAlbumDragData().albumDragPayload.value).toBeNull()
     })
 
-    it('does not insert on drop while editing', () => {
-        editing = true
-        make().onDrop(dropEvent([ALBUM_DRAG_MIME]))
+    it('does not insert when the fetched album has no songs', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [] })
+        await make().onDrop(dropEvent([ALBUM_DRAG_MIME]))
         expect(insertIntoQueue).not.toHaveBeenCalled()
     })
 
-    it('does not insert on drop for a non-album drag', () => {
-        make().onDrop(dropEvent(['text/plain']))
+    it('does not fetch or insert on drop while editing', async () => {
+        editing = true
+        await make().onDrop(dropEvent([ALBUM_DRAG_MIME]))
+        expect(getAlbum).not.toHaveBeenCalled()
+        expect(insertIntoQueue).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch or insert on drop for a non-album drag', async () => {
+        await make().onDrop(dropEvent(['text/plain']))
+        expect(getAlbum).not.toHaveBeenCalled()
         expect(insertIntoQueue).not.toHaveBeenCalled()
     })
 })

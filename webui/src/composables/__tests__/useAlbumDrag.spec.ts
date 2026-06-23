@@ -1,16 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
-import type { AlbumWithSongs } from '@/types/subsonic'
+import type { Album } from '@/types/subsonic'
 
-const album: AlbumWithSongs = {
+const album: Album = {
     id: 'al1',
     name: 'LP',
     artist: 'The Artist',
-    song: [
-        { id: 's1', title: 'One' },
-        { id: 's2', title: 'Two' }
-    ]
+    songCount: 2
 }
 
 const fakeDragEvent = () => {
@@ -36,7 +33,7 @@ describe('useAlbumDrag', () => {
         document.body.innerHTML = ''
     })
 
-    it('sets the MIME marker, payload and a custom drag image on start', () => {
+    it('sets the MIME marker, id payload and a custom drag image on start', () => {
         const e = fakeDragEvent()
         useAlbumDrag().start(e, album, 'cover-url')
 
@@ -46,13 +43,13 @@ describe('useAlbumDrag', () => {
         expect(document.querySelector('.album-drag-image')).not.toBeNull()
 
         const payload = useAlbumDragData().albumDragPayload.value
+        expect(payload?.albumId).toBe('al1')
         expect(payload?.count).toBe(2)
-        expect(payload?.songs.map((s) => s.id)).toEqual(['s1', 's2'])
     })
 
-    it('cancels the drag and sets no payload when the album has no songs', () => {
+    it('cancels the drag and sets no payload when the album has no id', () => {
         const e = fakeDragEvent()
-        useAlbumDrag().start(e, { ...album, song: [] }, null)
+        useAlbumDrag().start(e, { ...album, id: '' }, null)
         expect(e.preventDefault).toHaveBeenCalled()
         expect(useAlbumDragData().albumDragPayload.value).toBeNull()
     })

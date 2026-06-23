@@ -1,13 +1,16 @@
 import { ref, computed, type Ref } from 'vue'
+import { useToast } from 'primevue/usetoast'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
 import { computeInsertIndex, type QueueRowRect } from '@/utils/queueInsert'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 /**
  * Drop-target side of dragging an album into the play queue. Bound to the
  * QueueView body. Native HTML5 DnD; gated on the album MIME marker and disabled
  * while the queue is in edit mode (where SortableJS owns the lists). The drop
- * index is computed from the pointer Y against the rows' on-screen rects.
+ * index is computed from the pointer Y against the rows' on-screen rects; the
+ * album's songs are resolved by id on drop.
  */
 export function useQueueDrop(options: {
     bodyRef: Ref<HTMLElement | null>
@@ -15,6 +18,7 @@ export function useQueueDrop(options: {
 }) {
     const { bodyRef, isEditing } = options
     const player = usePlayer()
+    const toast = useToast()
     const { albumDragPayload, clearAlbumDrag } = useAlbumDragData()
 
     const indicatorTop = ref<number | null>(null)
@@ -64,17 +68,36 @@ export function useQueueDrop(options: {
         indicatorTop.value = null
     }
 
-    const onDrop = (e: DragEvent): void => {
+    const onDrop = async (e: DragEvent): Promise<void> => {
         const body = bodyRef.value
         if (!body || isEditing() || !isAlbumDrag(e)) return
         e.preventDefault()
         indicatorTop.value = null
         const payload = albumDragPayload.value
+        clearAlbumDrag()
         if (!payload) return
         const rows = collectRows(body)
         const target = computeInsertIndex(rows, e.clientY, player.queue.value.length)
-        player.insertIntoQueue(payload.songs, target)
-        clearAlbumDrag()
+        try {
+            const album = await subsonicClient.getAlbum(payload.albumId)
+            if (album?.song?.length) {
+                player.insertIntoQueue(album.song, target)
+            } else {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Nothing to add',
+                    detail: 'This album has no tracks.',
+                    life: 3000
+                })
+            }
+        } catch (err) {
+            toast.add({
+                severity: 'error',
+                summary: 'Could not load album',
+                detail: (err as Error).message,
+                life: 5000
+            })
+        }
     }
 
     return { indicatorTop, indicatorCount, onDragOver, onDragLeave, onDrop }
