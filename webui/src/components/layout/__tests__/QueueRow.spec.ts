@@ -73,4 +73,9 @@ describe('QueueRow', () => {
         const w = mountRow({ editing: true, selected: true })
         expect(w.find('[role="option"]').attributes('aria-selected')).toBe('true')
     })
+
+    it('exposes the queue index on the normal-mode row for drop targeting', () => {
+        const w = mountRow({ editing: false })
+        expect(w.find('button.queue-row').attributes('data-queue-index')).toBe('4')
+    })
 })

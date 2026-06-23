@@ -83,6 +83,7 @@ const onRowClick = (event: MouseEvent): void => {
         v-else
         type="button"
         class="queue-row"
+        :data-queue-index="queueIndex"
         @click="emit('play')"
         @mouseenter="hovered = true"
         @mouseleave="hovered = false"
