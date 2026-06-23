@@ -330,10 +330,23 @@ onMounted(scrollCurrentIntoView)
     min-height: 0;
 }
 
+/* Fill the main content area so the scroll bar sits at its right edge (matching
+   every other view, which scrolls on .main-content). The 1100px cap + centering
+   moves onto the inner content, so the header and rows stay in the same place
+   while the scrollable area spans the full width. */
 .queue-view--full {
-    max-width: 1100px;
-    margin: 0 auto;
     width: 100%;
+}
+
+.queue-view--full .queue-view-header,
+.queue-view--full .queue-history,
+.queue-view--full .current-block,
+.queue-view--full .queue-upcoming {
+    max-width: 1100px;
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
 }
 
 .queue-view-header {
