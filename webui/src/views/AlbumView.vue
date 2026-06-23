@@ -6,12 +6,18 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const player = usePlayer()
 const toggleStar = useToggleStar()
+const albumDrag = useAlbumDrag()
+
+const onAlbumDragStart = (event: DragEvent): void => {
+    if (album.value) albumDrag.start(event, album.value, coverUrl.value)
+}
 
 const handleStar = () => {
     if (!album.value) return
@@ -108,6 +114,15 @@ const playFromTrack = (index: number) => {
                             rounded
                             @click="handleStar"
                         />
+                        <span
+                            class="album-drag-handle"
+                            draggable="true"
+                            v-tooltip.bottom="'Drag album to queue'"
+                            @dragstart="onAlbumDragStart"
+                            @dragend="albumDrag.end"
+                        >
+                            <i class="pi pi-bars"></i>
+                        </span>
                     </div>
                 </div>
             </div>
@@ -233,5 +248,19 @@ const playFromTrack = (index: number) => {
 
 .track-table :deep(.clickable-row:hover) {
     background-color: #f9fafb !important;
+}
+
+.album-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--app-text-secondary);
+    cursor: grab;
+}
+
+.album-drag-handle:active {
+    cursor: grabbing;
 }
 </style>
