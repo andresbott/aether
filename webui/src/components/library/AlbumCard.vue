@@ -2,21 +2,34 @@
 import { computed } from 'vue'
 import type { Album } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { useAlbumDrag } from '@/composables/useAlbumDrag'
 
 const props = defineProps<{
     album: Album
 }>()
 
+const albumDrag = useAlbumDrag()
+
 const coverUrl = computed(() => {
     if (!props.album.coverArt || !subsonicClient.isConfigured()) return null
     return subsonicClient.getCoverArtUrl(props.album.coverArt, 200)
 })
+
+const onCardDragStart = (event: DragEvent): void => {
+    albumDrag.start(event, props.album, coverUrl.value)
+}
 </script>
 
 <template>
-    <router-link :to="{ name: 'album', params: { id: album.id } }" class="album-card">
+    <router-link
+        :to="{ name: 'album', params: { id: album.id } }"
+        class="album-card"
+        draggable="true"
+        @dragstart="onCardDragStart"
+        @dragend="albumDrag.end"
+    >
         <div class="card-cover">
-            <img v-if="coverUrl" :src="coverUrl" :alt="album.name" />
+            <img v-if="coverUrl" :src="coverUrl" :alt="album.name" draggable="false" />
             <div v-else class="cover-placeholder">
                 <i class="pi pi-music" style="font-size: 2rem"></i>
             </div>
