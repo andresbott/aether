@@ -9,9 +9,18 @@ const isPlaying = ref(false)
 const playQueueItem = vi.fn()
 const removeFromQueue = vi.fn()
 const togglePlayPause = vi.fn()
+const insertIntoQueue = vi.fn()
 
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ queue, currentIndex, isPlaying, playQueueItem, removeFromQueue, togglePlayPause })
+    usePlayer: () => ({
+        queue,
+        currentIndex,
+        isPlaying,
+        playQueueItem,
+        removeFromQueue,
+        togglePlayPause,
+        insertIntoQueue
+    })
 }))
 
 const openSaveDialog = vi.fn()
@@ -49,6 +58,7 @@ vi.mock('@/components/layout/SavePlaylistDialog.vue', () => ({
 }))
 
 import QueueView from '@/components/layout/QueueView.vue'
+import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
 
 const song = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -72,6 +82,7 @@ beforeEach(() => {
     playQueueItem.mockReset()
     removeFromQueue.mockReset()
     togglePlayPause.mockReset()
+    insertIntoQueue.mockReset()
     openSaveDialog.mockReset()
     clearQueue.mockReset()
     sortableCreate.mockClear()
@@ -226,5 +237,45 @@ describe('QueueView', () => {
         await w.vm.$nextTick()
         await w.find('.queue-action-edit').trigger('click') // turn off
         expect(destroy).toHaveBeenCalled()
+    })
+})
+
+describe('QueueView album drop', () => {
+    const setAlbumPayload = () =>
+        useAlbumDragData().setAlbumDrag({
+            songs: [{ id: 'X', title: 'X' } as any],
+            albumName: 'LP',
+            count: 1
+        })
+
+    const dataTransfer = (types: string[]) => ({ types, dropEffect: '' })
+
+    it('inserts album songs when dropped on the queue body', async () => {
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w
+            .find('.queue-body')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        // jsdom rects are 0 → append; queue has 3 items → index 3
+        expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
+    })
+
+    it('ignores a drop while in edit mode', async () => {
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w
+            .find('.queue-body')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        expect(insertIntoQueue).not.toHaveBeenCalled()
+    })
+
+    it('ignores a non-album drop', async () => {
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w
+            .find('.queue-body')
+            .trigger('drop', { dataTransfer: dataTransfer(['text/plain']) })
+        expect(insertIntoQueue).not.toHaveBeenCalled()
     })
 })

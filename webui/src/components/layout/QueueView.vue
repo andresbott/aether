@@ -8,6 +8,7 @@ import QueueRow from '@/components/layout/QueueRow.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
 import { useQueueEdit } from '@/composables/useQueueEdit'
+import { useQueueDrop } from '@/composables/useQueueDrop'
 import { computeDropTarget } from '@/utils/queueReorder'
 import { buildMultiDragImage } from '@/utils/queueDragImage'
 import { subsonicClient } from '@/lib/api/subsonic'
@@ -35,6 +36,15 @@ let sortables: Sortable[] = []
 // off-screen custom drag image; both are torn down when the drag ends.
 let hiddenRows: HTMLElement[] = []
 let dragImageEl: HTMLElement | null = null
+
+const queueBodyRef = ref<HTMLElement | null>(null)
+const {
+    indicatorTop: dropIndicatorTop,
+    indicatorCount: dropIndicatorCount,
+    onDragOver: onQueueDragOver,
+    onDragLeave: onQueueDragLeave,
+    onDrop: onQueueDrop
+} = useQueueDrop({ bodyRef: queueBodyRef, isEditing: () => editMode.value })
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
@@ -242,7 +252,21 @@ onMounted(scrollCurrentIntoView)
             <p>{{ variant === 'full' ? 'Nothing is playing' : 'Queue is empty' }}</p>
         </div>
 
-        <div v-else class="queue-body">
+        <div
+            v-else
+            ref="queueBodyRef"
+            class="queue-body"
+            @dragover="onQueueDragOver"
+            @dragleave="onQueueDragLeave"
+            @drop="onQueueDrop"
+        >
+            <div
+                v-if="dropIndicatorTop !== null"
+                class="queue-drop-indicator"
+                :style="{ top: dropIndicatorTop + 'px' }"
+            >
+                <span class="queue-drop-indicator__badge">+{{ dropIndicatorCount }}</span>
+            </div>
             <div
                 v-if="historyRows.length || editMode"
                 ref="historyListRef"
@@ -263,7 +287,11 @@ onMounted(scrollCurrentIntoView)
                 />
             </div>
 
-            <div ref="currentBlockRef" class="current-block">
+            <div
+                ref="currentBlockRef"
+                class="current-block"
+                :data-queue-index="player.currentIndex.value"
+            >
                 <SongDetail v-if="variant === 'full' && currentSong" :song="currentSong" card />
                 <div v-else-if="currentSong" class="now-playing-strip">
                     <button
@@ -401,6 +429,32 @@ onMounted(scrollCurrentIntoView)
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    position: relative;
+}
+
+.queue-drop-indicator {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--app-accent);
+    pointer-events: none;
+    z-index: 5;
+}
+
+.queue-drop-indicator__badge {
+    position: absolute;
+    left: 0.5rem;
+    top: -0.7rem;
+    padding: 0 6px;
+    height: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    background: var(--app-accent);
+    color: #ffffff;
+    border-radius: 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 700;
 }
 
 /* Already-played tracks are faded. */
