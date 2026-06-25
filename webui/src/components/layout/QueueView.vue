@@ -41,14 +41,11 @@ const queueBodyRef = ref<HTMLElement | null>(null)
 const {
     indicatorTop: dropIndicatorTop,
     indicatorCount: dropIndicatorCount,
+    dragActive: dropActive,
     onDragOver: onQueueDragOver,
     onDragLeave: onQueueDragLeave,
     onDrop: onQueueDrop
 } = useQueueDrop({ bodyRef: queueBodyRef, isEditing: () => editMode.value })
-
-// Non-null only while an album is being dragged over the drop target, so it
-// doubles as the "this empty panel is an active drop zone" flag.
-const dropActive = computed(() => dropIndicatorTop.value !== null)
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)

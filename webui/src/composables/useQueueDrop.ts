@@ -23,6 +23,10 @@ export function useQueueDrop(options: {
 
     const indicatorTop = ref<number | null>(null)
     const indicatorCount = computed(() => albumDragPayload.value?.count ?? 0)
+    // True for the whole duration of an album drag (payload set at dragstart,
+    // cleared at dragend/drop) — independent of whether the cursor is over the
+    // queue, so a drop target can advertise itself the moment a drag begins.
+    const dragActive = computed(() => albumDragPayload.value !== null)
 
     const isAlbumDrag = (e: DragEvent): boolean =>
         !!e.dataTransfer && e.dataTransfer.types.includes(ALBUM_DRAG_MIME)
@@ -100,5 +104,5 @@ export function useQueueDrop(options: {
         }
     }
 
-    return { indicatorTop, indicatorCount, onDragOver, onDragLeave, onDrop }
+    return { indicatorTop, indicatorCount, dragActive, onDragOver, onDragLeave, onDrop }
 }

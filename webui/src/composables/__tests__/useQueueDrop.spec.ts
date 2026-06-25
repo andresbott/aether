@@ -40,6 +40,13 @@ describe('useQueueDrop', () => {
         useAlbumDragData().setAlbumDrag({ albumId: 'al1', albumName: 'LP', count: 2 })
     })
 
+    it('reports an active album drag whenever a payload is present', () => {
+        const d = make()
+        expect(d.dragActive.value).toBe(true) // beforeEach set a payload
+        useAlbumDragData().clearAlbumDrag()
+        expect(d.dragActive.value).toBe(false)
+    })
+
     it('allows the drop (preventDefault) for an album drag when not editing', () => {
         const e = dropEvent([ALBUM_DRAG_MIME])
         make().onDragOver(e)

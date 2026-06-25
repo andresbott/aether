@@ -299,18 +299,21 @@ describe('QueueView album drop', () => {
         expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 0)
     })
 
-    it('highlights the empty queue as a drop zone while an album is dragged over it', async () => {
+    it('highlights the empty queue as a drop zone as soon as an album drag starts', async () => {
         queue.value = []
-        setAlbumPayload()
+        useAlbumDragData().clearAlbumDrag()
         const w = mountView('sidebar')
-        const empty = w.find('.queue-empty')
-        expect(empty.classes()).not.toContain('queue-empty--drop-active')
+        expect(w.find('.queue-empty').classes()).not.toContain('queue-empty--drop-active')
 
-        await empty.trigger('dragover', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        // A drag starting anywhere sets the shared payload → the empty queue
+        // advertises itself immediately, without the cursor being over it.
+        setAlbumPayload()
+        await w.vm.$nextTick()
         expect(w.find('.queue-empty').classes()).toContain('queue-empty--drop-active')
         expect(w.text()).toContain('Drop to add album')
 
-        await w.find('.queue-empty').trigger('dragleave')
+        useAlbumDragData().clearAlbumDrag()
+        await w.vm.$nextTick()
         expect(w.find('.queue-empty').classes()).not.toContain('queue-empty--drop-active')
     })
 })
