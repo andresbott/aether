@@ -298,4 +298,19 @@ describe('QueueView album drop', () => {
         await flushPromises()
         expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 0)
     })
+
+    it('highlights the empty queue as a drop zone while an album is dragged over it', async () => {
+        queue.value = []
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        const empty = w.find('.queue-empty')
+        expect(empty.classes()).not.toContain('queue-empty--drop-active')
+
+        await empty.trigger('dragover', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        expect(w.find('.queue-empty').classes()).toContain('queue-empty--drop-active')
+        expect(w.text()).toContain('Drop to add album')
+
+        await w.find('.queue-empty').trigger('dragleave')
+        expect(w.find('.queue-empty').classes()).not.toContain('queue-empty--drop-active')
+    })
 })

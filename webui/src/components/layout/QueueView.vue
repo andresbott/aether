@@ -46,6 +46,10 @@ const {
     onDrop: onQueueDrop
 } = useQueueDrop({ bodyRef: queueBodyRef, isEditing: () => editMode.value })
 
+// Non-null only while an album is being dragged over the drop target, so it
+// doubles as the "this empty panel is an active drop zone" flag.
+const dropActive = computed(() => dropIndicatorTop.value !== null)
+
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
 
@@ -251,12 +255,17 @@ onMounted(scrollCurrentIntoView)
             v-if="trackCount === 0"
             ref="queueBodyRef"
             class="queue-empty"
+            :class="{ 'queue-empty--drop-active': dropActive }"
             @dragover="onQueueDragOver"
             @dragleave="onQueueDragLeave"
             @drop="onQueueDrop"
         >
-            <i class="pi pi-play-circle" style="font-size: 2.5rem"></i>
-            <p>{{ variant === 'full' ? 'Nothing is playing' : 'Queue is empty' }}</p>
+            <i
+                :class="dropActive ? 'pi pi-plus-circle' : 'pi pi-play-circle'"
+                style="font-size: 2.5rem"
+            ></i>
+            <p v-if="dropActive">Drop to add album</p>
+            <p v-else>{{ variant === 'full' ? 'Nothing is playing' : 'Queue is empty' }}</p>
         </div>
 
         <div
@@ -429,6 +438,16 @@ onMounted(scrollCurrentIntoView)
     flex: 1;
     gap: 0.75rem;
     color: var(--app-text-secondary);
+    /* Reserve the border so the drop-active state adds no layout shift. */
+    border: 2px dashed transparent;
+    border-radius: 8px;
+    transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.queue-empty--drop-active {
+    border-color: var(--app-accent);
+    background-color: #eef2ff;
+    color: var(--app-accent);
 }
 
 .queue-body {
