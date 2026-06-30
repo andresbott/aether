@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
 	"go.senan.xyz/taglib"
 )
@@ -72,7 +73,11 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 70, "artist not found")
 			return
 		}
-		coverPath = artist.CoverPath
+		if artist.MBArtistID != "" {
+			if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+				coverPath = p
+			}
+		}
 		seed = artist.NameNorm
 	case "radio":
 		station, err := h.store.GetInternetRadioStation(id)

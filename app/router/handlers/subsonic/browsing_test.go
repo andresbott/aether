@@ -28,7 +28,7 @@ func testStore(t *testing.T) *store.Store {
 func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
-	Register(r, s, "", "")
+	Register(r, s, nil, "", "")
 	return httptest.NewServer(r)
 }
 

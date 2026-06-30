@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
@@ -61,7 +62,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		subsonic.Register(app.router, app.store, filepath.Join(app.dataDir, "generated-covers"), filepath.Join(app.dataDir, "radio-covers"))
+		assets := assetstore.New(filepath.Join(app.dataDir, "metadata"))
+		subsonic.Register(app.router, app.store, assets, filepath.Join(app.dataDir, "generated-covers"), filepath.Join(app.dataDir, "radio-covers"))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

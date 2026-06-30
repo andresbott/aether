@@ -50,7 +50,7 @@ func newRadioServer(t *testing.T, s *store.Store) (*httptest.Server, string) {
 	t.Helper()
 	radioDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, t.TempDir(), radioDir)
+	Register(r, s, nil, t.TempDir(), radioDir)
 	return httptest.NewServer(r), radioDir
 }
 
