@@ -15,26 +15,26 @@ type Reader interface {
 }
 
 type Metadata struct {
-	Title         string
-	Artist        []string
-	AlbumArtist   []string
-	Album         string
-	Genre         []string
-	Year          int
-	TrackNumber   int
-	DiscNumber    int
-	DiscSubtitle  string
-	Duration      time.Duration
-	Bitrate       int
+	Title           string
+	Artist          []string
+	AlbumArtist     []string
+	Album           string
+	Genre           []string
+	Year            int
+	TrackNumber     int
+	DiscNumber      int
+	DiscSubtitle    string
+	Duration        time.Duration
+	Bitrate         int
 	MBRecordingID   string
 	MBReleaseID     string
 	MBArtistID      []string
 	MBAlbumArtistID []string
-	Lyrics        string
-	Compilation   bool
-	ReleaseType   string
-	HasCover      bool
-	ReplayGain    ReplayGain
+	Lyrics          string
+	Compilation     bool
+	ReleaseType     string
+	HasCover        bool
+	ReplayGain      ReplayGain
 }
 
 type ReplayGain struct {
