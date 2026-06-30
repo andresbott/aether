@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import DataTable from 'primevue/datatable'
+import type { DataTableRowClickEvent } from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
@@ -65,7 +66,7 @@ const duration = (e: ExecutionInfo): string => {
             dataKey="id"
             stripedRows
             class="queue-table"
-            @rowClick="(e) => emit('rowClick', e.data as ExecutionInfo)"
+            @rowClick="(e: DataTableRowClickEvent) => emit('rowClick', e.data as ExecutionInfo)"
         >
             <template #empty><div class="empty-table">No executions found</div></template>
             <Column field="task_name" header="Task" style="width: 140px" />
