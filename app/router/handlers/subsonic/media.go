@@ -32,6 +32,64 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
+type coverMeta struct {
+	coverPath string
+	albumID   uint
+	seed      string
+}
+
+// resolveCoverMeta looks up cover metadata for the given item type and ID.
+// It writes an HTTP error and returns false if the item cannot be found or the
+// type is unsupported.
+func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id uint) (coverMeta, bool) {
+	switch itemType {
+	case "album":
+		album, err := h.store.GetAlbum(id)
+		if err != nil {
+			writeError(w, 70, "album not found")
+			return coverMeta{}, false
+		}
+		return coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}, true
+	case "track":
+		song, err := h.store.GetSong(id)
+		if err != nil {
+			writeError(w, 70, "song not found")
+			return coverMeta{}, false
+		}
+		if song.Album != nil {
+			return coverMeta{coverPath: song.Album.CoverPath, albumID: song.Album.ID, seed: song.Album.AlbumArtistNorm + "|" + song.Album.NameNorm}, true
+		}
+		return coverMeta{}, true
+	case "artist":
+		artist, _, err := h.store.GetArtist(id)
+		if err != nil {
+			writeError(w, 70, "artist not found")
+			return coverMeta{}, false
+		}
+		meta := coverMeta{seed: artist.NameNorm}
+		if artist.MBArtistID != "" {
+			if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+				meta.coverPath = p
+			}
+		}
+		return meta, true
+	case "radio":
+		station, err := h.store.GetInternetRadioStation(id)
+		if err != nil {
+			writeError(w, 70, "radio station not found")
+			return coverMeta{}, false
+		}
+		meta := coverMeta{seed: station.Name}
+		if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
+			meta.coverPath = p
+		}
+		return meta, true
+	default:
+		writeError(w, 0, "unsupported cover art id type")
+		return coverMeta{}, false
+	}
+}
+
 func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	idStr := paramStr(r, "id")
 	if idStr == "" {
@@ -43,80 +101,32 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	var coverPath string
-	var albumID uint
-	var seed string
-	switch itemType {
-	case "album":
-		album, err := h.store.GetAlbum(id)
-		if err != nil {
-			writeError(w, 70, "album not found")
-			return
-		}
-		coverPath = album.CoverPath
-		albumID = album.ID
-		seed = album.AlbumArtistNorm + "|" + album.NameNorm
-	case "track":
-		song, err := h.store.GetSong(id)
-		if err != nil {
-			writeError(w, 70, "song not found")
-			return
-		}
-		if song.Album != nil {
-			coverPath = song.Album.CoverPath
-			albumID = song.Album.ID
-			seed = song.Album.AlbumArtistNorm + "|" + song.Album.NameNorm
-		}
-	case "artist":
-		artist, _, err := h.store.GetArtist(id)
-		if err != nil {
-			writeError(w, 70, "artist not found")
-			return
-		}
-		if artist.MBArtistID != "" {
-			if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
-				coverPath = p
-			}
-		}
-		seed = artist.NameNorm
-	case "radio":
-		station, err := h.store.GetInternetRadioStation(id)
-		if err != nil {
-			writeError(w, 70, "radio station not found")
-			return
-		}
-		if h.assets != nil {
-			if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
-				coverPath = p
-			}
-		}
-		seed = station.Name
-	default:
-		writeError(w, 0, "unsupported cover art id type")
+	meta, ok := h.resolveCoverMeta(w, itemType, id)
+	if !ok {
 		return
 	}
 
-	if coverPath != "" {
-		if _, err := os.Stat(coverPath); err == nil {
-			http.ServeFile(w, r, coverPath)
+	if meta.coverPath != "" {
+		if _, err := os.Stat(meta.coverPath); err == nil {
+			http.ServeFile(w, r, meta.coverPath)
 			return
 		}
 	}
 
-	if albumID > 0 {
-		if data := h.readEmbeddedCover(albumID); data != nil {
+	if meta.albumID > 0 {
+		if data := h.readEmbeddedCover(meta.albumID); data != nil {
 			w.Header().Set("Content-Type", detectImageContentType(data))
 			_, _ = w.Write(data)
 			return
 		}
 	}
 
-	if seed == "" {
+	if meta.seed == "" {
 		http.NotFound(w, r)
 		return
 	}
 	size := quantizeCoverSize(paramInt(r, "size", 512))
-	cachePath, err := h.generatedCoverPath(seed, size)
+	cachePath, err := h.generatedCoverPath(meta.seed, size)
 	if err != nil {
 		http.Error(w, "cover generation failed", http.StatusInternalServerError)
 		return

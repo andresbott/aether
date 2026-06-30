@@ -91,7 +91,9 @@ func pngBytes(t *testing.T) []byte {
 }
 
 func TestRadioKeyStable(t *testing.T) {
-	if RadioKey("http://a/stream") != RadioKey("http://a/stream") {
+	k1 := RadioKey("http://a/stream")
+	k2 := RadioKey("http://a/stream")
+	if k1 != k2 {
 		t.Fatal("RadioKey not stable")
 	}
 	if RadioKey("http://a") == RadioKey("http://b") {
@@ -521,6 +523,58 @@ func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 	// Cover must be gone after clear.
 	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); ok {
 		t.Fatal("expected cover to be cleared from asset store")
+	}
+}
+
+func TestUpdateInternetRadioStationRekeysCoverOnURLChange(t *testing.T) {
+	s := testStore(t)
+	srv, as := newRadioServer(t, s)
+	defer srv.Close()
+
+	const oldURL = "http://old-stream"
+	const newURL = "http://new-stream"
+
+	// Create station with a cover.
+	body, contentType := buildMultipart(t, map[string]string{
+		"name":      "ReKey FM",
+		"streamUrl": oldURL,
+	}, pngBytes(t), "c.png")
+	resp, err := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	var st model.InternetRadioStation
+	s.DB().First(&st)
+
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(oldURL)); !ok {
+		t.Fatal("seed cover missing from asset store under old key")
+	}
+
+	// Update with new URL and NO new cover — cover must be re-keyed.
+	body2, ct2 := buildMultipart(t, map[string]string{
+		"id":        fmt.Sprintf("rs-%d", st.ID),
+		"name":      "ReKey FM",
+		"streamUrl": newURL,
+	}, nil, "")
+	resp2, err := http.Post(srv.URL+"/rest/updateInternetRadioStation.view", ct2, body2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	env := decodeRadio(t, resp2)
+	if env.SubsonicResponse.Status != "ok" {
+		t.Fatalf("update failed: %+v", env.SubsonicResponse)
+	}
+
+	// Cover must be retrievable under new key.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(newURL)); !ok {
+		t.Fatal("cover not found under new key after URL change")
+	}
+	// Cover must be gone under old key.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(oldURL)); ok {
+		t.Fatal("cover still present under old key after URL change")
 	}
 }
 

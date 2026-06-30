@@ -34,7 +34,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, nil, cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -116,7 +116,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, nil, cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 

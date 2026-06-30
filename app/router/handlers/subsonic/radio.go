@@ -115,7 +115,7 @@ func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	if coverBytes != nil && h.assets != nil {
+	if coverBytes != nil {
 		if err := h.assets.PutManual(assetstore.KindRadio, RadioKey(streamURL), coverExt, coverBytes); err != nil {
 			writeError(w, 0, "internal error")
 			return
@@ -214,33 +214,31 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.assets != nil {
-		oldKey := RadioKey(existing.StreamURL)
-		newKey := RadioKey(streamURL)
-		switch {
-		case coverBytes != nil:
-			if err := h.assets.PutManual(assetstore.KindRadio, newKey, coverExt, coverBytes); err != nil {
-				writeError(w, 0, "internal error")
-				return
-			}
-			if oldKey != newKey {
-				_ = h.assets.Delete(assetstore.KindRadio, oldKey)
-			}
-		case r.Form.Get("coverClear") == "true":
-			_ = h.assets.Delete(assetstore.KindRadio, newKey)
-			if oldKey != newKey {
-				_ = h.assets.Delete(assetstore.KindRadio, oldKey)
-			}
-		default:
-			// URL changed with no cover change: re-key the existing cover so it
-			// isn't orphaned.
-			if oldKey != newKey {
-				if p, ok := h.assets.Get(assetstore.KindRadio, oldKey); ok {
-					if data, rerr := os.ReadFile(p); rerr == nil {
-						ext := strings.TrimPrefix(filepath.Ext(p), ".")
-						_ = h.assets.PutManual(assetstore.KindRadio, newKey, ext, data)
-						_ = h.assets.Delete(assetstore.KindRadio, oldKey)
-					}
+	oldKey := RadioKey(existing.StreamURL)
+	newKey := RadioKey(streamURL)
+	switch {
+	case coverBytes != nil:
+		if err := h.assets.PutManual(assetstore.KindRadio, newKey, coverExt, coverBytes); err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
+		if oldKey != newKey {
+			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+		}
+	case r.Form.Get("coverClear") == "true":
+		_ = h.assets.Delete(assetstore.KindRadio, newKey)
+		if oldKey != newKey {
+			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+		}
+	default:
+		// URL changed with no cover change: re-key the existing cover so it
+		// isn't orphaned.
+		if oldKey != newKey {
+			if p, ok := h.assets.Get(assetstore.KindRadio, oldKey); ok {
+				if data, rerr := os.ReadFile(p); rerr == nil { //nolint:gosec // p is a path returned by our own asset store
+					ext := strings.TrimPrefix(filepath.Ext(p), ".")
+					_ = h.assets.PutManual(assetstore.KindRadio, newKey, ext, data)
+					_ = h.assets.Delete(assetstore.KindRadio, oldKey)
 				}
 			}
 		}
@@ -273,9 +271,7 @@ func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Requ
 		writeError(w, 0, "internal error")
 		return
 	}
-	if h.assets != nil {
-		_ = h.assets.Delete(assetstore.KindRadio, RadioKey(existing.StreamURL))
-	}
+	_ = h.assets.Delete(assetstore.KindRadio, RadioKey(existing.StreamURL))
 	writeResponse(w, nil)
 }
 

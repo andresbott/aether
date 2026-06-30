@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
@@ -27,8 +28,9 @@ func testStore(t *testing.T) *store.Store {
 
 func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
+	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, nil, "")
+	Register(r, s, as, t.TempDir())
 	return httptest.NewServer(r)
 }
 
