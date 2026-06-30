@@ -149,12 +149,30 @@ func runServer(configFile string) error {
 	}
 	runner.Start()
 
+	scheduleStore, err := taskrunner.NewScheduleStore(db)
+	if err != nil {
+		return fmt.Errorf("schedule store: %w", err)
+	}
+	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
+		ScheduleStore: scheduleStore,
+		Enqueuer: taskrunner.FuncEnqueuer(func(_ context.Context, name string) error {
+			_, addErr := runner.AddRun(name)
+			return addErr
+		}),
+		Logger: l,
+	})
+	if err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
+
 	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)
 
 	routerCfg := router.Cfg{
 		Logger:        l,
 		TaskRunner:    runner,
 		TaskLogGetter: taskLogReader,
+		ScheduleStore: scheduleStore,
+		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
@@ -178,11 +196,14 @@ func runServer(configFile string) error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
+	scheduler.Start(rootCtx)
+
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
 	g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
 	g.Go(func() error {
 		<-gctx.Done()
+		scheduler.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return runner.Shutdown(shutdownCtx)
