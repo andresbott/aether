@@ -9,12 +9,12 @@ import (
 )
 
 type AppCfg struct {
-	Server     serverCfg
-	Obs        serverCfg `config:"Observability"`
-	Env        Env
-	DataDir    string
-	Msgs       []Msg
-	TaskRunner TaskRunnerCfg
+	Server       serverCfg
+	Obs          serverCfg `config:"Observability"`
+	Env          Env
+	DataDir      string
+	Msgs         []Msg
+	TaskRunner   TaskRunnerCfg
 	ArtistImages ArtistImagesCfg
 }
 

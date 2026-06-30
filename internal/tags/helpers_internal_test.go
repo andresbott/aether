@@ -60,9 +60,9 @@ func TestParseYear(t *testing.T) {
 		{map[string][]string{"year": {"1999"}}, 1999},
 		{map[string][]string{"ORIGINALDATE": {"1985"}}, 1985},
 		{map[string][]string{}, 0},
-		{map[string][]string{"DATE": {"19"}}, 0},     // too short
-		{map[string][]string{"DATE": {"abcd"}}, 0},   // not numeric
-		{map[string][]string{"DATE": {"0000"}}, 0},   // not > 0
+		{map[string][]string{"DATE": {"19"}}, 0},   // too short
+		{map[string][]string{"DATE": {"abcd"}}, 0}, // not numeric
+		{map[string][]string{"DATE": {"0000"}}, 0}, // not > 0
 	}
 	for _, c := range cases {
 		if got := parseYear(c.tags); got != c.want {
