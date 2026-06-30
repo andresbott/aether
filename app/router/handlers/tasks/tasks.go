@@ -244,7 +244,11 @@ func (h *Handler) PatchTask() http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		sch, _ = h.ScheduleStore.GetByTaskName(r.Context(), name)
+		sch, err = h.ScheduleStore.GetByTaskName(r.Context(), name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		if h.Scheduler != nil {
 			_ = h.Scheduler.Refresh(context.Background())
 		}
