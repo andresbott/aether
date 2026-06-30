@@ -55,7 +55,6 @@ const onSave = () => {
         @update:visible="emit('update:visible', $event)"
         :header="task ? `Schedule: ${task.name}` : 'Schedule'"
         modal
-        appendTo="self"
         :style="{ width: '480px' }"
     >
         <div class="schedule-form">
