@@ -5,6 +5,8 @@
 package subsonic
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"gorm.io/gorm"
 )
 
@@ -23,6 +26,13 @@ const (
 	// Hard cap on the whole multipart request body (cover + form fields).
 	maxRadioRequestBytes = radioCoverMaxBytes + radioMultipartMemory
 )
+
+// RadioKey is the durable asset-store key for a station's cover: a hash of the
+// stream URL, stable across DB drops.
+func RadioKey(streamURL string) string {
+	sum := sha256.Sum256([]byte(streamURL))
+	return hex.EncodeToString(sum[:])
+}
 
 func (h *Handler) getInternetRadioStations(w http.ResponseWriter, r *http.Request) {
 	stations, err := h.store.GetInternetRadioStations()
@@ -101,18 +111,12 @@ func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st, err := h.store.CreateInternetRadioStation(name, streamURL, homepageURL)
-	if err != nil {
+	if _, err := h.store.CreateInternetRadioStation(name, streamURL, homepageURL); err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	if coverBytes != nil {
-		path, err := h.writeRadioCover(st.ID, coverExt, coverBytes)
-		if err != nil {
-			writeError(w, 0, "internal error")
-			return
-		}
-		if err := h.store.UpdateInternetRadioStationCoverPath(st.ID, path); err != nil {
+	if coverBytes != nil && h.assets != nil {
+		if err := h.assets.PutManual(assetstore.KindRadio, RadioKey(streamURL), coverExt, coverBytes); err != nil {
 			writeError(w, 0, "internal error")
 			return
 		}
@@ -210,28 +214,35 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch {
-	case coverBytes != nil:
-		// Remove the old file if its extension differs from the new one.
-		if existing.CoverPath != "" && filepath.Ext(existing.CoverPath) != "."+coverExt {
-			_ = os.Remove(existing.CoverPath)
-		}
-		path, err := h.writeRadioCover(id, coverExt, coverBytes)
-		if err != nil {
-			writeError(w, 0, "internal error")
-			return
-		}
-		if err := h.store.UpdateInternetRadioStationCoverPath(id, path); err != nil {
-			writeError(w, 0, "internal error")
-			return
-		}
-	case r.Form.Get("coverClear") == "true":
-		if existing.CoverPath != "" {
-			_ = os.Remove(existing.CoverPath)
-		}
-		if err := h.store.UpdateInternetRadioStationCoverPath(id, ""); err != nil {
-			writeError(w, 0, "internal error")
-			return
+	if h.assets != nil {
+		oldKey := RadioKey(existing.StreamURL)
+		newKey := RadioKey(streamURL)
+		switch {
+		case coverBytes != nil:
+			if err := h.assets.PutManual(assetstore.KindRadio, newKey, coverExt, coverBytes); err != nil {
+				writeError(w, 0, "internal error")
+				return
+			}
+			if oldKey != newKey {
+				_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			}
+		case r.Form.Get("coverClear") == "true":
+			_ = h.assets.Delete(assetstore.KindRadio, newKey)
+			if oldKey != newKey {
+				_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			}
+		default:
+			// URL changed with no cover change: re-key the existing cover so it
+			// isn't orphaned.
+			if oldKey != newKey {
+				if p, ok := h.assets.Get(assetstore.KindRadio, oldKey); ok {
+					if data, rerr := os.ReadFile(p); rerr == nil {
+						ext := strings.TrimPrefix(filepath.Ext(p), ".")
+						_ = h.assets.PutManual(assetstore.KindRadio, newKey, ext, data)
+						_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+					}
+				}
+			}
 		}
 	}
 
@@ -262,8 +273,8 @@ func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Requ
 		writeError(w, 0, "internal error")
 		return
 	}
-	if existing.CoverPath != "" {
-		_ = os.Remove(existing.CoverPath)
+	if h.assets != nil {
+		_ = h.assets.Delete(assetstore.KindRadio, RadioKey(existing.StreamURL))
 	}
 	writeResponse(w, nil)
 }
@@ -312,35 +323,4 @@ func readCoverFile(r *http.Request) ([]byte, string, error) {
 	default:
 		return nil, "", fmt.Errorf("unsupported image format (%s)", ct)
 	}
-}
-
-// writeRadioCover writes data to {radioCoverDir}/<id>.<ext> atomically and
-// returns the final path.
-func (h *Handler) writeRadioCover(id uint, ext string, data []byte) (string, error) {
-	if h.radioCoverDir == "" {
-		return "", fmt.Errorf("radio cover dir not configured")
-	}
-	if err := os.MkdirAll(h.radioCoverDir, 0750); err != nil {
-		return "", fmt.Errorf("create radio cover dir: %w", err)
-	}
-	final := filepath.Join(h.radioCoverDir, fmt.Sprintf("%d.%s", id, ext))
-	tmp, err := os.CreateTemp(h.radioCoverDir, "cover-*.tmp")
-	if err != nil {
-		return "", fmt.Errorf("create temp cover: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("write temp cover: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("close temp cover: %w", err)
-	}
-	if err := os.Rename(tmpName, final); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("rename temp cover: %w", err)
-	}
-	return final, nil
 }

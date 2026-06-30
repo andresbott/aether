@@ -85,7 +85,11 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 70, "radio station not found")
 			return
 		}
-		coverPath = station.CoverPath
+		if h.assets != nil {
+			if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
+				coverPath = p
+			}
+		}
 		seed = station.Name
 	default:
 		writeError(w, 0, "unsupported cover art id type")

@@ -53,11 +53,3 @@ func (s *Store) DeleteInternetRadioStation(id uint) error {
 	}
 	return nil
 }
-
-func (s *Store) UpdateInternetRadioStationCoverPath(id uint, path string) error {
-	var existing model.InternetRadioStation
-	if err := s.db.First(&existing, id).Error; err != nil {
-		return err
-	}
-	return s.db.Model(&existing).Update("cover_path", path).Error
-}

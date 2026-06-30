@@ -63,7 +63,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 
 	if app.store != nil {
 		assets := assetstore.New(filepath.Join(app.dataDir, "metadata"))
-		subsonic.Register(app.router, app.store, assets, filepath.Join(app.dataDir, "generated-covers"), filepath.Join(app.dataDir, "radio-covers"))
+		subsonic.Register(app.router, app.store, assets, filepath.Join(app.dataDir, "generated-covers"))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

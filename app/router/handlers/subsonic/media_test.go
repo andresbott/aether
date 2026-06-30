@@ -1,6 +1,7 @@
 package subsonic
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -9,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,9 +32,9 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 		t.Fatalf("create album: %v", err)
 	}
 
-	cacheDir := filepath.Join(t.TempDir(), "generated-covers")
+	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, nil, cacheDir, "")
+	Register(r, s, nil, cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -80,24 +80,20 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	s := testStore(t)
 	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
 
-	// Create a real PNG file on disk and point CoverPath at it.
-	dir := t.TempDir()
-	pngPath := filepath.Join(dir, fmt.Sprintf("%d.png", st.ID))
+	// Store a PNG into the asset store keyed by RadioKey(streamURL).
+	var buf bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	f, err := os.Create(pngPath)
-	if err != nil {
+	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
 	}
-	if err := png.Encode(f, img); err != nil {
-		t.Fatal(err)
-	}
-	_ = f.Close()
-	if err := s.UpdateInternetRadioStationCoverPath(st.ID, pngPath); err != nil {
+	assetDir := t.TempDir()
+	as := assetstore.New(assetDir)
+	if err := as.PutManual(assetstore.KindRadio, RadioKey(st.StreamURL), "png", buf.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, nil, t.TempDir(), dir)
+	Register(r, s, as, t.TempDir())
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -120,7 +116,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, nil, cacheDir, t.TempDir())
+	Register(r, s, nil, cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -198,7 +194,7 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir(), "")
+	Register(r, s, as, t.TempDir())
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 

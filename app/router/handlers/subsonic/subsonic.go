@@ -15,11 +15,10 @@ type Handler struct {
 	store         *store.Store
 	assets        *assetstore.Store
 	coverCacheDir string
-	radioCoverDir string
 }
 
-func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCacheDir, radioCoverDir string) {
-	h := &Handler{store: s, assets: assets, coverCacheDir: coverCacheDir, radioCoverDir: radioCoverDir}
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCacheDir string) {
+	h := &Handler{store: s, assets: assets, coverCacheDir: coverCacheDir}
 	sub := r.PathPrefix("/rest").Subrouter()
 
 	sub.Use(func(next http.Handler) http.Handler {
