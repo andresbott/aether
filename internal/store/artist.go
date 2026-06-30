@@ -5,15 +5,24 @@ import (
 	"github.com/andresbott/aether/internal/unidecode"
 )
 
-func (s *Store) FindOrCreateArtists(names []string) ([]*model.Artist, error) {
+func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Artist, error) {
 	artists := make([]*model.Artist, 0, len(names))
-	for _, name := range names {
+	for i, name := range names {
+		mbid := ""
+		if i < len(mbids) {
+			mbid = mbids[i]
+		}
 		norm := unidecode.Normalize(name)
 		var artist model.Artist
 		err := s.db.Where("name_norm = ?", norm).First(&artist).Error
 		if err != nil {
-			artist = model.Artist{Name: name, NameNorm: norm}
+			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 			if err := s.db.Create(&artist).Error; err != nil {
+				return nil, err
+			}
+		} else if artist.MBArtistID == "" && mbid != "" {
+			artist.MBArtistID = mbid
+			if err := s.db.Model(&artist).Update("mb_artist_id", mbid).Error; err != nil {
 				return nil, err
 			}
 		}

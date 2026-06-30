@@ -12,7 +12,7 @@ func TestFindOrCreateArtists(t *testing.T) {
 	var artists []*model.Artist
 	err := s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		artists, txErr = tx.FindOrCreateArtists([]string{"Björk", "Radiohead"})
+		artists, txErr = tx.FindOrCreateArtists([]string{"Björk", "Radiohead"}, nil)
 		return txErr
 	})
 	if err != nil {
@@ -25,7 +25,7 @@ func TestFindOrCreateArtists(t *testing.T) {
 	var again []*model.Artist
 	err = s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		again, txErr = tx.FindOrCreateArtists([]string{"Björk"})
+		again, txErr = tx.FindOrCreateArtists([]string{"Björk"}, nil)
 		return txErr
 	})
 	if err != nil {
@@ -33,6 +33,32 @@ func TestFindOrCreateArtists(t *testing.T) {
 	}
 	if again[0].ID != artists[0].ID {
 		t.Fatal("expected same artist ID on second call")
+	}
+}
+
+func TestFindOrCreateArtistsSetsMBID(t *testing.T) {
+	s := testStore(t)
+	var got []*model.Artist
+	err := s.Transaction(func(tx *store.Store) error {
+		var e error
+		got, e = tx.FindOrCreateArtists([]string{"Björk"}, []string{"mbid-bjork"})
+		return e
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if got[0].MBArtistID != "mbid-bjork" {
+		t.Fatalf("MBID not set, got %q", got[0].MBArtistID)
+	}
+	// Backfill: same artist, now with an MBID where it was set; calling again
+	// with empty must not clear it.
+	err = s.Transaction(func(tx *store.Store) error {
+		var e error
+		got, e = tx.FindOrCreateArtists([]string{"Björk"}, nil)
+		return e
+	})
+	if err != nil || got[0].MBArtistID != "mbid-bjork" {
+		t.Fatalf("MBID lost on re-find: %q (err %v)", got[0].MBArtistID, err)
 	}
 }
 
