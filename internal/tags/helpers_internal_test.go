@@ -169,6 +169,41 @@ func TestParseFFProbeJSON(t *testing.T) {
 	}
 }
 
+func TestAllOrSingle(t *testing.T) {
+	// Multi-value split on null byte.
+	m := map[string][]string{"MBID": {"a\x00b\x00c"}}
+	got := allOrSingle(m, "MBID")
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Errorf("null-byte split: %v", got)
+	}
+
+	// Multi-value split on semicolon.
+	m2 := map[string][]string{"MBID": {"x;y;z"}}
+	got2 := allOrSingle(m2, "MBID")
+	if len(got2) != 3 || got2[0] != "x" || got2[1] != "y" || got2[2] != "z" {
+		t.Errorf("semicolon split: %v", got2)
+	}
+
+	// Trimming and skipping empties.
+	m3 := map[string][]string{"K": {" a ; ; b "}}
+	got3 := allOrSingle(m3, "K")
+	if len(got3) != 2 || got3[0] != "a" || got3[1] != "b" {
+		t.Errorf("trim/skip empties: %v", got3)
+	}
+
+	// Absent key returns nil.
+	if got := allOrSingle(m, "MISSING"); got != nil {
+		t.Errorf("absent key: want nil got %v", got)
+	}
+
+	// First present key wins.
+	m4 := map[string][]string{"B": {"second"}}
+	got4 := allOrSingle(m4, "A", "B")
+	if len(got4) != 1 || got4[0] != "second" {
+		t.Errorf("first present key wins: %v", got4)
+	}
+}
+
 func TestSplitSemicolon(t *testing.T) {
 	if got := splitSemicolon("A;B;C"); len(got) != 3 {
 		t.Errorf("splitSemicolon basic: %v", got)

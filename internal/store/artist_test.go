@@ -63,6 +63,39 @@ func TestFindOrCreateArtistsSetsMBID(t *testing.T) {
 	}
 }
 
+func TestFindOrCreateArtistsBackfillsMBID(t *testing.T) {
+	s := testStore(t)
+	// First call: create artist with no MBID.
+	var first []*model.Artist
+	err := s.Transaction(func(tx *store.Store) error {
+		var e error
+		first, e = tx.FindOrCreateArtists([]string{"Portishead"}, nil)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if first[0].MBArtistID != "" {
+		t.Fatalf("expected empty MBID on first create, got %q", first[0].MBArtistID)
+	}
+	// Second call: same artist but now with a real MBID — must backfill.
+	var second []*model.Artist
+	err = s.Transaction(func(tx *store.Store) error {
+		var e error
+		second, e = tx.FindOrCreateArtists([]string{"Portishead"}, []string{"mbid-portishead"})
+		return e
+	})
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if second[0].ID != first[0].ID {
+		t.Fatal("expected same artist row")
+	}
+	if second[0].MBArtistID != "mbid-portishead" {
+		t.Fatalf("MBID not backfilled, got %q", second[0].MBArtistID)
+	}
+}
+
 func TestGetArtists(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
