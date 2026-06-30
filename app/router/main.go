@@ -19,6 +19,8 @@ type Cfg struct {
 	Logger        *slog.Logger
 	TaskRunner    *taskrunner.Runner
 	TaskLogGetter taskrunner.TaskLogGetter
+	ScheduleStore *taskrunner.ScheduleStore
+	Scheduler     *taskrunner.Scheduler
 	Store         *store.Store
 	DataDir       string
 	TagReader     tags.Reader
@@ -29,6 +31,8 @@ type MainAppHandler struct {
 	logger        *slog.Logger
 	taskRunner    *taskrunner.Runner
 	taskLogGetter taskrunner.TaskLogGetter
+	scheduleStore *taskrunner.ScheduleStore
+	scheduler     *taskrunner.Scheduler
 	store         *store.Store
 	dataDir       string
 	tagReader     tags.Reader
@@ -45,6 +49,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		logger:        cfg.Logger,
 		taskRunner:    cfg.TaskRunner,
 		taskLogGetter: cfg.TaskLogGetter,
+		scheduleStore: cfg.ScheduleStore,
+		scheduler:     cfg.Scheduler,
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,
 		tagReader:     cfg.TagReader,
