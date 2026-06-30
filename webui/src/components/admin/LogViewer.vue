@@ -5,7 +5,6 @@ import { useExecutionLog } from '@/composables/useTasks'
 
 const props = defineProps<{
     visible: boolean
-    taskName: string
     executionId: string
 }>()
 
@@ -23,14 +22,8 @@ watch(
     }
 )
 
-const taskNameRef = computed(() => props.taskName)
 const executionIdRef = computed(() => props.executionId)
-
-const { data: logText } = useExecutionLog(
-    taskNameRef,
-    executionIdRef,
-    enabled
-)
+const { data: logText } = useExecutionLog(executionIdRef, enabled)
 
 watch(logText, async () => {
     await nextTick()
@@ -66,7 +59,6 @@ watch(logText, async () => {
     border-radius: 6px;
     padding: 1rem;
 }
-
 .log-content pre {
     margin: 0;
     font-family: 'Fira Code', 'Consolas', 'Courier New', monospace;
@@ -76,7 +68,6 @@ watch(logText, async () => {
     white-space: pre-wrap;
     word-break: break-all;
 }
-
 .log-empty {
     display: flex;
     flex-direction: column;
