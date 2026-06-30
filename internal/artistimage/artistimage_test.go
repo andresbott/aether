@@ -2,6 +2,7 @@ package artistimage
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -50,12 +51,73 @@ func TestChainFallsThrough(t *testing.T) {
 	}
 }
 
+func TestTheAudioDBFetch(t *testing.T) {
+	mux := http.NewServeMux()
+	var base string
+	mux.HandleFunc("/api/v1/json/testkey/artist-mb.php", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"artists":[{"strArtistThumb":"` + base + `/img.jpg"}]}`))
+	})
+	mux.HandleFunc("/img.jpg", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("JPGDATA"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	p := NewTheAudioDB("testkey")
+	p.BaseURL = srv.URL
+	p.Client = srv.Client()
+
+	data, ext, err := p.Fetch(context.Background(), "some-mbid")
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if string(data) != "JPGDATA" || ext != "jpg" {
+		t.Fatalf("got data=%q ext=%q", data, ext)
+	}
+}
+
+func TestDownloadNon200(t *testing.T) {
+	mux := http.NewServeMux()
+	var base string
+	// Metadata endpoint returns a thumb URL that 404s.
+	mux.HandleFunc("/api/v1/json/testkey/artist-mb.php", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"artists":[{"strArtistThumb":"` + base + `/missing.jpg"}]}`))
+	})
+	mux.HandleFunc("/missing.jpg", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	p := NewTheAudioDB("testkey")
+	p.BaseURL = srv.URL
+	p.Client = srv.Client()
+
+	_, _, err := p.Fetch(context.Background(), "some-mbid")
+	if err == nil {
+		t.Fatal("expected error when image URL returns 404, got nil")
+	}
+}
+
+func TestChainErrorContinuation(t *testing.T) {
+	failing := stubProvider{err: errors.New("provider error")}
+	hit := stubProvider{data: []byte("X"), ext: "jpg"}
+	c := NewChain(failing, hit)
+	data, ext, err := c.Fetch(context.Background(), "m")
+	if err != nil || string(data) != "X" || ext != "jpg" {
+		t.Fatalf("chain should continue past error: data=%q ext=%q err=%v", data, ext, err)
+	}
+}
+
 type stubProvider struct {
 	data []byte
 	ext  string
+	err  error
 }
 
 func (s stubProvider) Name() string { return "stub" }
 func (s stubProvider) Fetch(_ context.Context, _ string) ([]byte, string, error) {
-	return s.data, s.ext, nil
+	return s.data, s.ext, s.err
 }
