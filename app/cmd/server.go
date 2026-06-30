@@ -17,6 +17,8 @@ import (
 	"github.com/andresbott/aether/app/router"
 	"github.com/andresbott/aether/app/router/handlers"
 	"github.com/andresbott/aether/app/tasks"
+	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
@@ -103,6 +105,15 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
+	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
+	var fetcher tasks.Fetcher
+	if cfg.ArtistImages.Enabled {
+		fetcher = artistimage.NewChain(
+			artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey),
+			artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey),
+		)
+	}
+
 	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
 
 	// Task runner
@@ -127,8 +138,22 @@ func runServer(configFile string) error {
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
 	// Register tasks
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
+	enqueueFetch := func() {
+		if !cfg.ArtistImages.Enabled {
+			return
+		}
+		if _, err := runner.AddRun(tasks.FetchArtistImagesTaskName); err != nil {
+			l.Warn("failed to enqueue artist-image fetch", slog.String("error", err.Error()))
+		}
+	}
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false, enqueueFetch), tasks.ScanTaskName, 1)
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true, enqueueFetch), tasks.ScanFullTaskName, 1)
+	if cfg.ArtistImages.Enabled {
+		runner.RegisterTask(
+			tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
+			tasks.FetchArtistImagesTaskName, 1,
+		)
+	}
 	runner.Start()
 
 	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)

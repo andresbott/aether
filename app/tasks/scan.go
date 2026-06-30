@@ -27,7 +27,7 @@ var ScanFullTaskDef = TaskDef{
 	Description: "Full scan -- re-reads all tracks regardless of modification time",
 }
 
-func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, logger *slog.Logger, isFull bool) func(ctx context.Context) error {
+func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, logger *slog.Logger, isFull bool, afterScan func()) func(ctx context.Context) error {
 	sc := scanner.New(cfg, s, tagReader)
 	return func(ctx context.Context) error {
 		mode := "incremental"
@@ -47,6 +47,9 @@ func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, lo
 
 		if len(stats.Errors) > 0 {
 			tempo.Info(ctx, fmt.Sprintf("scan had %d tag reading errors", len(stats.Errors)))
+		}
+		if afterScan != nil {
+			afterScan()
 		}
 		return nil
 	}
