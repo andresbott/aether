@@ -15,6 +15,7 @@ type AppCfg struct {
 	DataDir    string
 	Msgs       []Msg
 	TaskRunner TaskRunnerCfg
+	ArtistImages ArtistImagesCfg
 }
 
 type TaskRunnerCfg struct {
@@ -23,6 +24,12 @@ type TaskRunnerCfg struct {
 	HistorySize    int
 	LogDir         string
 	TagReadWorkers int
+}
+
+type ArtistImagesCfg struct {
+	Enabled          bool
+	FanartApiKey     string
+	TheAudioDBApiKey string
 }
 
 type Env struct {
@@ -68,6 +75,11 @@ var defaultCfg = AppCfg{
 		QueueSize:      20,
 		HistorySize:    50,
 		TagReadWorkers: 0,
+	},
+	ArtistImages: ArtistImagesCfg{
+		Enabled:          false,
+		FanartApiKey:     "",
+		TheAudioDBApiKey: "",
 	},
 }
 
