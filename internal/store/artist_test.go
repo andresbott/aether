@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -193,6 +194,29 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 	}
 	if counts[artist.ID] != 1 {
 		t.Fatalf("expected 1 album in library 1, got %d", counts[artist.ID])
+	}
+}
+
+func TestArtistsWithMBIDAndStamp(t *testing.T) {
+	st := testStore(t)
+	_ = st.Transaction(func(tx *store.Store) error {
+		_, e := tx.FindOrCreateArtists([]string{"A", "B"}, []string{"mbid-a", ""})
+		return e
+	})
+	withMBID, err := st.ArtistsWithMBID()
+	if err != nil {
+		t.Fatalf("ArtistsWithMBID: %v", err)
+	}
+	if len(withMBID) != 1 || withMBID[0].MBArtistID != "mbid-a" {
+		t.Fatalf("expected 1 artist with MBID, got %+v", withMBID)
+	}
+	now := time.Now()
+	if err := st.SetArtistImageFetchedAt(withMBID[0].ID, now); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	got, _, _ := st.GetArtist(withMBID[0].ID)
+	if got.LastImageFetchAt == nil {
+		t.Fatal("LastImageFetchAt not stamped")
 	}
 }
 

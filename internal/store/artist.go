@@ -1,6 +1,8 @@
 package store
 
 import (
+	"time"
+
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
 )
@@ -87,6 +89,16 @@ func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error
 		result[r.ArtistID] = r.Count
 	}
 	return result, nil
+}
+
+func (s *Store) ArtistsWithMBID() ([]model.Artist, error) {
+	var artists []model.Artist
+	err := s.db.Where("mb_artist_id != ''").Find(&artists).Error
+	return artists, err
+}
+
+func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
+	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
 }
 
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {
