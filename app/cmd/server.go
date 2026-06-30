@@ -137,17 +137,10 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
-	// Register tasks
-	enqueueFetch := func() {
-		if !cfg.ArtistImages.Enabled {
-			return
-		}
-		if _, err := runner.AddRun(tasks.FetchArtistImagesTaskName); err != nil {
-			l.Warn("failed to enqueue artist-image fetch", slog.String("error", err.Error()))
-		}
-	}
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false, enqueueFetch), tasks.ScanTaskName, 1)
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true, enqueueFetch), tasks.ScanFullTaskName, 1)
+	// Register tasks — scan and metadata fetch are independent tasks; a scan
+	// does NOT auto-trigger the artist-image fetch. Run each on demand.
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
 	if cfg.ArtistImages.Enabled {
 		runner.RegisterTask(
 			tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
