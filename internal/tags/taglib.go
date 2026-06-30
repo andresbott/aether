@@ -46,6 +46,8 @@ func (TaglibReader) Read(absPath string) (Metadata, error) {
 	m.DiscSubtitle = first(raw, "discsubtitle", "DISCSUBTITLE", "TSST")
 	m.MBRecordingID = first(raw, "musicbrainz_trackid", "MUSICBRAINZ_TRACKID")
 	m.MBReleaseID = first(raw, "musicbrainz_albumid", "MUSICBRAINZ_ALBUMID")
+	m.MBArtistID = allOrSingle(raw, "musicbrainz_artistid", "MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id")
+	m.MBAlbumArtistID = allOrSingle(raw, "musicbrainz_albumartistid", "MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id")
 	m.Lyrics = first(raw, "lyrics", "LYRICS", "USLT")
 	m.Compilation = parseBool(first(raw, "compilation", "COMPILATION", "TCMP"))
 	m.ReleaseType = first(raw, "musicbrainz_albumtype", "MUSICBRAINZ_ALBUMTYPE", "RELEASETYPE")

@@ -85,6 +85,8 @@ func parseFFProbeJSON(out []byte) (Metadata, error) {
 	m.DiscSubtitle = first(tags, "TSST", "discsubtitle")
 	m.MBRecordingID = first(tags, "musicbrainz_trackid", "MUSICBRAINZ_TRACKID", "MusicBrainz Release Track Id")
 	m.MBReleaseID = first(tags, "musicbrainz_albumid", "MUSICBRAINZ_ALBUMID", "MusicBrainz Album Id")
+	m.MBArtistID = allOrSingle(tags, "musicbrainz_artistid", "MUSICBRAINZ_ARTISTID", "MusicBrainz Artist Id")
+	m.MBAlbumArtistID = allOrSingle(tags, "musicbrainz_albumartistid", "MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id")
 	m.Lyrics = first(tags, "lyrics", "LYRICS")
 	m.Compilation = parseBool(first(tags, "compilation", "COMPILATION"))
 	m.ReleaseType = first(tags, "MUSICBRAINZ_ALBUMTYPE", "musicbrainz_albumtype")
