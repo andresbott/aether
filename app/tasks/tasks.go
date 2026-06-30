@@ -7,7 +7,7 @@ type TaskDef struct {
 	Description string `json:"description"`
 }
 
-var AvailableTasks = []TaskDef{ScanTaskDef, ScanFullTaskDef}
+var AvailableTasks = []TaskDef{ScanTaskDef, ScanFullTaskDef, FetchArtistImagesTaskDef}
 
 func TaskNameExists(taskName string) bool {
 	for _, t := range AvailableTasks {
