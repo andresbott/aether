@@ -51,7 +51,7 @@ const hashView = computed<ViewMode | null>(() => {
 const viewMode = computed<ViewMode>({
     get: () => hashView.value ?? serverDefault.value,
     set: (v) => {
-        router.replace({ hash: `#${v}` })
+        router.replace({ hash: `#${v}`, query: route.query })
     }
 })
 
@@ -66,7 +66,7 @@ const albumLayout = computed<AlbumLayout>({
         const query = { ...route.query }
         if (v === 'list') query.view = 'list'
         else delete query.view
-        router.replace({ query })
+        router.replace({ hash: route.hash, query })
     }
 })
 

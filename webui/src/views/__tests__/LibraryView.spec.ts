@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
+import SelectButton from 'primevue/selectbutton'
 
 const route = { params: { folderId: '1' }, hash: '#albums', query: {} as Record<string, string> }
 const replace = vi.fn()
@@ -51,5 +52,18 @@ describe('LibraryView album layout toggle', () => {
         const w = mountView()
         expect(w.findComponent(AlbumListViewStub).exists()).toBe(true)
         expect(w.findComponent(AlbumListViewStub).props('folderId')).toBe(1)
+    })
+
+    it('preserves the hash when toggling album layout', async () => {
+        const w = mountView()
+        // The layout SelectButton is the second SelectButton (index 1),
+        // only rendered when viewMode === 'albums'
+        const allBtns = w.findAllComponents(SelectButton)
+        const layoutBtn = allBtns[1]
+        layoutBtn.vm.$emit('update:modelValue', 'list')
+        await w.vm.$nextTick()
+        expect(replace).toHaveBeenCalledWith(
+            expect.objectContaining({ hash: '#albums', query: expect.objectContaining({ view: 'list' }) })
+        )
     })
 })
