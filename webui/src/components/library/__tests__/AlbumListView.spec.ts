@@ -37,7 +37,11 @@ const mountView = () =>
     })
 
 describe('AlbumListView', () => {
-    afterEach(() => { state.total.value = 3 })
+    afterEach(() => {
+        state.total.value = 3
+        ensureRange.mockClear()
+        scrollToIndex.mockClear()
+    })
 
     it('renders the alphabet rail with the index letters', () => {
         const w = mountView()
@@ -49,6 +53,14 @@ describe('AlbumListView', () => {
         w.findComponent(AlphabetRail).vm.$emit('select', 2)
         await w.vm.$nextTick()
         expect(scrollToIndex).toHaveBeenCalledWith(2)
+    })
+
+    it('loads the target window when a letter is selected', async () => {
+        const w = mountView()
+        w.findComponent(AlphabetRail).vm.$emit('select', 100)
+        await w.vm.$nextTick()
+        expect(ensureRange).toHaveBeenCalled()
+        expect(ensureRange.mock.calls.at(-1)![0]).toBe(100)
     })
 
     it('shows an empty state when there are no albums', () => {

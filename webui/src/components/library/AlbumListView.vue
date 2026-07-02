@@ -4,7 +4,7 @@ import VirtualScroller from 'primevue/virtualscroller'
 import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
-import { useAlbumTable } from '@/composables/useAlbumTable'
+import { useAlbumTable, ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
 
 const props = defineProps<{ folderId?: number }>()
 
@@ -19,6 +19,7 @@ function onLazyLoad(event: VirtualScrollerLazyEvent): void {
 }
 
 function onSelectLetter(offset: number): void {
+    void ensureRange(offset, offset + ALBUM_PAGE_SIZE - 1)
     scroller.value?.scrollToIndex(offset)
 }
 </script>
