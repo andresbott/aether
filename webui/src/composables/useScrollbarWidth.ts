@@ -10,6 +10,7 @@ export function useScrollbarWidth(): Ref<number> {
     const width = ref(0)
 
     onMounted(() => {
+        if (typeof document === 'undefined') return
         const probe = document.createElement('div')
         probe.style.position = 'absolute'
         probe.style.top = '-9999px'
@@ -17,8 +18,11 @@ export function useScrollbarWidth(): Ref<number> {
         probe.style.height = '100px'
         probe.style.overflow = 'scroll'
         document.body.appendChild(probe)
-        width.value = probe.offsetWidth - probe.clientWidth
-        probe.remove()
+        try {
+            width.value = probe.offsetWidth - probe.clientWidth
+        } finally {
+            probe.remove()
+        }
     })
 
     return width
