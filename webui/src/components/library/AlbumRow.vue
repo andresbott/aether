@@ -54,10 +54,12 @@ function onDragStart(event: DragEvent): void {
     text-decoration: none;
     color: inherit;
     border-bottom: 1px solid var(--p-content-border-color);
+    cursor: pointer;
+    transition: background-color 0.15s;
 }
 
 .album-row:hover:not(.placeholder) {
-    background: var(--p-content-hover-background);
+    background-color: var(--app-hover);
 }
 
 .col-cover {
