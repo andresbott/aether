@@ -67,6 +67,10 @@ func TestGetAlbumList2Index(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
 	var body struct {
 		SubsonicResponse struct {
 			AlbumList2Index struct {
