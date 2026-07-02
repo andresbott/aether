@@ -66,6 +66,7 @@ describe('LibraryView', () => {
         route.hash = '#artists'
         const w = mountView()
         expect(w.findComponent(ArtistGridStub).exists()).toBe(true)
+        expect(w.findComponent(ArtistGridStub).props('folderId')).toBe(1)
         expect(w.text()).toContain('87 artists')
     })
 
@@ -74,6 +75,7 @@ describe('LibraryView', () => {
         route.query = { view: 'list' }
         const w = mountView()
         expect(w.findComponent(ArtistListStub).exists()).toBe(true)
+        expect(w.findComponent(ArtistListStub).props('folderId')).toBe(1)
     })
 
     it('shows the layout toggle on BOTH tabs', () => {
