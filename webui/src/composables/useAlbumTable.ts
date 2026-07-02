@@ -1,9 +1,10 @@
-import { ref, computed, unref, watch } from 'vue'
+import { ref, unref, watch } from 'vue'
 import type { Ref, ComputedRef } from 'vue'
-import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { useQueryClient } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { queryKeys } from '@/composables/useSubsonicQueries'
-import type { Album, AlbumLetter } from '@/types/subsonic'
+import type { Album } from '@/types/subsonic'
+import { useAlbumIndex } from '@/composables/useAlbumIndex'
 
 export const ALBUM_PAGE_SIZE = 100
 
@@ -12,14 +13,7 @@ export function useAlbumTable(
 ) {
     const queryClient = useQueryClient()
 
-    const indexQuery = useQuery({
-        queryKey: computed(() => ['subsonic', 'albumIndex', unref(folderId)] as const),
-        queryFn: () => subsonicClient.getAlbumIndex(unref(folderId)),
-        staleTime: 2 * 60 * 1000
-    })
-
-    const total = computed(() => indexQuery.data.value?.total ?? 0)
-    const letters = computed<AlbumLetter[]>(() => indexQuery.data.value?.index ?? [])
+    const { total, letters, isLoading, error } = useAlbumIndex(folderId)
 
     const items = ref<(Album | undefined)[]>([])
     let loadedPages = new Set<number>()
@@ -66,8 +60,8 @@ export function useAlbumTable(
         total,
         letters,
         items,
-        isLoading: indexQuery.isLoading,
-        error: indexQuery.error,
+        isLoading,
+        error,
         ensureRange
     }
 }
