@@ -32,4 +32,11 @@ describe('AlphabetRail', () => {
         await b.trigger('click')
         expect(w.emitted('select')).toBeUndefined()
     })
+
+    it('emits 0 for the # bucket', async () => {
+        const w = mount(AlphabetRail, { props: { letters } })
+        const hash = w.findAll('button').find((b) => b.text() === '#')!
+        await hash.trigger('click')
+        expect(w.emitted('select')).toEqual([[0]])
+    })
 })
