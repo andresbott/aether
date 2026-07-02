@@ -80,12 +80,13 @@ function onSelectLetter(offset: number): void {
     top: 0;
     bottom: 0;
     right: var(--sb-w, 0px);
-    width: 1.25rem;
+    width: 1.75rem;
     background: var(--app-bg, transparent);
 }
 
 .list-body :deep(.album-row) {
-    padding-right: calc(1.25rem + var(--sb-w, 0px));
+    /* rail width (1.75rem) + a gap so the last column doesn't touch the letters */
+    padding-right: calc(2.75rem + var(--sb-w, 0px));
 }
 
 .loading {

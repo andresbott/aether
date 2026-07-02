@@ -49,8 +49,8 @@ function onSelect(letter: string): void {
     background: none;
     border: none;
     padding: 0 0.25rem;
-    font-size: 0.7rem;
-    line-height: 1.2;
+    font-size: 0.85rem;
+    line-height: 1.3;
     cursor: pointer;
     color: var(--app-text-secondary);
     border-radius: 3px;
