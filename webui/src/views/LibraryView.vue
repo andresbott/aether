@@ -56,8 +56,8 @@ const viewMode = computed<ViewMode>({
 })
 
 const layoutOptions = [
-    { value: 'grid', icon: 'pi pi-th-large' },
-    { value: 'list', icon: 'pi pi-list' }
+    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' },
+    { label: 'List', value: 'list', icon: 'pi pi-list' }
 ]
 
 const albumLayout = computed<AlbumLayout>({
@@ -89,6 +89,7 @@ const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
                 v-if="viewMode === 'albums'"
                 v-model="albumLayout"
                 :options="layoutOptions"
+                optionLabel="label"
                 optionValue="value"
                 :allowEmpty="false"
                 dataKey="value"
@@ -106,8 +107,12 @@ const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
                 <div v-if="albumsLoading" class="loading">
                     <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
                 </div>
-                <div class="album-grid">
+                <div v-else-if="albums && albums.length > 0" class="album-grid">
                     <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
+                </div>
+                <div v-else class="empty-state">
+                    <i class="pi pi-music" style="font-size: 3rem"></i>
+                    <p>No albums found</p>
                 </div>
             </template>
         </div>

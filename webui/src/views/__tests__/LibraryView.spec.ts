@@ -11,7 +11,7 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useAlbumList: () => ({ data: ref([]), isLoading: ref(false) }),
+    useAlbumList: () => ({ data: ref([{ id: 'a1', name: 'Album One' }]), isLoading: ref(false) }),
     useArtists: () => ({ data: ref([]), isLoading: ref(false) }),
     useMusicFolders: () => ({ data: ref([{ id: 1, name: 'Main' }]) })
 }))
