@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 
@@ -19,7 +19,7 @@ vi.mock('@/composables/useAlbumTable', () => ({
 // Stub VirtualScroller: renders nothing but exposes scrollToIndex and can emit lazy-load.
 const VirtualScrollerStub = {
     name: 'VirtualScroller',
-    props: ['items', 'itemSize'],
+    props: { items: null, itemSize: null, lazy: Boolean },
     emits: ['lazy-load'],
     setup(_: unknown, { expose }: { expose: (o: object) => void }) {
         expose({ scrollToIndex })
@@ -37,6 +37,8 @@ const mountView = () =>
     })
 
 describe('AlbumListView', () => {
+    afterEach(() => { state.total.value = 3 })
+
     it('renders the alphabet rail with the index letters', () => {
         const w = mountView()
         expect(w.findComponent(AlphabetRail).props('letters')).toEqual(state.letters.value)
@@ -53,6 +55,10 @@ describe('AlbumListView', () => {
         state.total.value = 0
         const w = mountView()
         expect(w.text()).toContain('No albums found')
-        state.total.value = 3
+    })
+
+    it('runs the virtual scroller in lazy mode', () => {
+        const w = mountView()
+        expect(w.findComponent(VirtualScrollerStub).props('lazy')).toBe(true)
     })
 })
