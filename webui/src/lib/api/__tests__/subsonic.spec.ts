@@ -31,3 +31,35 @@ describe('subsonicClient.getAlbumIndex', () => {
         expect(result).toEqual({ total: 0, index: [] })
     })
 })
+
+describe('subsonicClient.getArtistIndex', () => {
+    beforeEach(() => subsonicClient.initWithDefaults())
+    afterEach(() => vi.unstubAllGlobals())
+
+    const grouped = {
+        artists: {
+            index: [
+                { name: 'A', artist: [{ id: 'ar1', name: 'ABBA' }, { id: 'ar2', name: 'Air' }] },
+                { name: 'B', artist: [{ id: 'ar3', name: 'Beck' }] },
+                { name: 'E', artist: [] } // empty group is skipped
+            ]
+        }
+    }
+
+    it('parses groups into total, letters (cumulative offsets) and flattened items', async () => {
+        mockFetchOnce(grouped)
+        const res = await subsonicClient.getArtistIndex(1)
+        expect(res.total).toBe(3)
+        expect(res.letters).toEqual([
+            { name: 'A', offset: 0, count: 2 },
+            { name: 'B', offset: 2, count: 1 }
+        ])
+        expect(res.items.map((a) => a.id)).toEqual(['ar1', 'ar2', 'ar3'])
+    })
+
+    it('getArtists returns the flattened list (delegates to getArtistIndex)', async () => {
+        mockFetchOnce(grouped)
+        const artists = await subsonicClient.getArtists()
+        expect(artists.map((a) => a.id)).toEqual(['ar1', 'ar2', 'ar3'])
+    })
+})

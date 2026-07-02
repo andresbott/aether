@@ -104,6 +104,12 @@ export interface AlbumIndex {
     index: AlbumLetter[]
 }
 
+export interface ArtistIndex {
+    total: number
+    letters: AlbumLetter[]
+    items: Artist[]
+}
+
 export interface ArtistInfo {
     biography?: string
     musicBrainzId?: string
