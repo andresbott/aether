@@ -93,6 +93,17 @@ export interface AlbumList {
     album: Album[]
 }
 
+export interface AlbumLetter {
+    name: string // "#" or "A".."Z"
+    offset: number
+    count: number
+}
+
+export interface AlbumIndex {
+    total: number
+    index: AlbumLetter[]
+}
+
 export interface ArtistInfo {
     biography?: string
     musicBrainzId?: string

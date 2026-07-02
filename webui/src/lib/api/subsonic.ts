@@ -5,6 +5,7 @@ import type {
     SearchResult3,
     Album,
     AlbumWithSongs,
+    AlbumIndex,
     Artist,
     Song,
     Playlist,
@@ -126,6 +127,19 @@ class SubsonicClient {
             params
         )
         return response.albumList2?.album || []
+    }
+
+    async getAlbumIndex(musicFolderId?: number): Promise<AlbumIndex> {
+        if (!this.isConfigured()) return { total: 0, index: [] }
+        const params: Record<string, string | number | undefined> = {}
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{ albumList2Index?: AlbumIndex }>(
+            'getAlbumList2Index.view',
+            params
+        )
+        return response.albumList2Index ?? { total: 0, index: [] }
     }
 
     async getAlbum(id: string): Promise<AlbumWithSongs | null> {
