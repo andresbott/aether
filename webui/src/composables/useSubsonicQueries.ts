@@ -22,7 +22,6 @@ export const queryKeys = {
         ['subsonic', 'albumList', type, offset, musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
-    artists: (musicFolderId?: number) => ['subsonic', 'artists', musicFolderId] as const,
     search: (query: string) => ['subsonic', 'search', query] as const,
     playlists: ['subsonic', 'playlists'] as const,
     playlist: (id: string) => ['subsonic', 'playlist', id] as const,
@@ -97,16 +96,6 @@ export function useArtist(
         queryFn: () => subsonicClient.getArtist(id),
         staleTime: 5 * 60 * 1000,
         ...options
-    })
-}
-
-export function useArtists(
-    musicFolderId?: number | Ref<number | undefined> | ComputedRef<number | undefined>
-) {
-    return useQuery({
-        queryKey: computed(() => queryKeys.artists(unref(musicFolderId))),
-        queryFn: () => subsonicClient.getArtists(unref(musicFolderId)),
-        staleTime: 5 * 60 * 1000
     })
 }
 
