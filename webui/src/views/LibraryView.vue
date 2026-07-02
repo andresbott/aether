@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
+import AlbumListView from '@/components/library/AlbumListView.vue'
 import {
     useAlbumList,
     useArtists,
@@ -11,6 +12,7 @@ import {
 } from '@/composables/useSubsonicQueries'
 
 type ViewMode = 'albums' | 'artists'
+type AlbumLayout = 'grid' | 'list'
 
 const route = useRoute()
 const router = useRouter()
@@ -53,6 +55,21 @@ const viewMode = computed<ViewMode>({
     }
 })
 
+const layoutOptions = [
+    { value: 'grid', icon: 'pi pi-th-large' },
+    { value: 'list', icon: 'pi pi-list' }
+]
+
+const albumLayout = computed<AlbumLayout>({
+    get: () => (route.query.view === 'list' ? 'list' : 'grid'),
+    set: (v) => {
+        const query = { ...route.query }
+        if (v === 'list') query.view = 'list'
+        else delete query.view
+        router.replace({ query })
+    }
+})
+
 const { data: albums, isLoading: albumsLoading } = useAlbumList('newest', 50, 0, folderId)
 const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
 </script>
@@ -68,19 +85,31 @@ const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
                 optionValue="value"
                 :allowEmpty="false"
             />
+            <SelectButton
+                v-if="viewMode === 'albums'"
+                v-model="albumLayout"
+                :options="layoutOptions"
+                optionValue="value"
+                :allowEmpty="false"
+                dataKey="value"
+                aria-label="Album layout"
+            >
+                <template #option="slotProps">
+                    <i :class="slotProps.option.icon"></i>
+                </template>
+            </SelectButton>
         </div>
 
         <div v-if="viewMode === 'albums'">
-            <div v-if="albumsLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-            </div>
-            <div v-else-if="albums && albums.length > 0" class="album-grid">
-                <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
-            </div>
-            <div v-else class="empty-state">
-                <i class="pi pi-music" style="font-size: 3rem"></i>
-                <p>No albums found</p>
-            </div>
+            <AlbumListView v-if="albumLayout === 'list'" :folderId="folderId" />
+            <template v-else>
+                <div v-if="albumsLoading" class="loading">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                </div>
+                <div class="album-grid">
+                    <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
+                </div>
+            </template>
         </div>
 
         <div v-else-if="viewMode === 'artists'">
