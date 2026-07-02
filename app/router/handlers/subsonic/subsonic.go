@@ -52,6 +52,7 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCach
 
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
+	register("getAlbumList2Index", h.getAlbumList2Index)
 	register("getRandomSongs", h.getRandomSongs)
 	register("getSongsByGenre", h.getSongsByGenre)
 	register("getStarred2", h.getStarred2)

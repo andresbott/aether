@@ -135,6 +135,29 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
+	filter := &store.AlbumListFilter{LibraryID: paramLibraryID(r)}
+	letters, total, err := h.store.GetAlbumLetterIndex(filter)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	index := make([]map[string]any, 0, len(letters))
+	for _, l := range letters {
+		index = append(index, map[string]any{
+			"name":   l.Letter,
+			"offset": l.Offset,
+			"count":  l.Count,
+		})
+	}
+	writeResponse(w, map[string]any{
+		"albumList2Index": map[string]any{
+			"total": total,
+			"index": index,
+		},
+	})
+}
+
 func (h *Handler) getNowPlaying(w http.ResponseWriter, r *http.Request) {
 	tracks, err := h.store.GetNowPlaying()
 	if err != nil {
