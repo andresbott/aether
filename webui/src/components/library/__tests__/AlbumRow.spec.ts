@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, RouterLinkStub } from '@vue/test-utils'
 
 const start = vi.fn()
@@ -28,12 +28,17 @@ const album: Album = {
 const mountRow = (a?: Album) =>
     mount(AlbumRow, { props: { album: a }, global: { stubs: { RouterLink: RouterLinkStub } } })
 
+beforeEach(() => {
+    start.mockReset()
+    end.mockReset()
+})
+
 describe('AlbumRow', () => {
     it('renders title, artist, song count and formatted duration', () => {
         const w = mountRow(album)
         expect(w.text()).toContain('Album One')
         expect(w.text()).toContain('The Artist')
-        expect(w.text()).toContain('9')
+        expect(w.find('.col-songs').text()).toBe('9')
         expect(w.text()).toContain('2:05')
     })
 
