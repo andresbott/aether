@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 
@@ -32,6 +32,10 @@ const mountView = () =>
     })
 
 describe('ArtistListView', () => {
+    beforeEach(() => {
+        scrollToIndex.mockClear()
+    })
+
     it('passes the index letters to the alphabet rail', () => {
         const w = mountView()
         expect(w.findComponent(AlphabetRail).props('letters')).toEqual(state.letters.value)
