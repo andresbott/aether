@@ -5,13 +5,14 @@ import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import { useAlbumTable, ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
+import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 
 const props = defineProps<{ folderId?: number }>()
 
 const { total, letters, items, isLoading, error, ensureRange } = useAlbumTable(
     toRef(props, 'folderId')
 )
-
+const scrollbarWidth = useScrollbarWidth()
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onLazyLoad(event: VirtualScrollerLazyEvent): void {
@@ -25,7 +26,7 @@ function onSelectLetter(offset: number): void {
 </script>
 
 <template>
-    <div class="album-list-view">
+    <div class="album-list-view" :style="{ '--sb-w': scrollbarWidth + 'px' }">
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         </div>
@@ -38,66 +39,53 @@ function onSelectLetter(offset: number): void {
             <p>No albums found</p>
         </div>
         <div v-else class="list-body">
-            <div class="table-region">
-                <div class="album-row header-row">
-                    <div class="col-cover"></div>
-                    <div class="col-title">Title</div>
-                    <div class="col-artist">Artist</div>
-                    <div class="col-songs">Songs</div>
-                    <div class="col-duration">Duration</div>
-                </div>
-                <VirtualScroller
-                    ref="scroller"
-                    :items="items"
-                    :itemSize="56"
-                    lazy
-                    :numToleratedItems="10"
-                    class="album-scroller"
-                    @lazy-load="onLazyLoad"
-                >
-                    <template #item="{ item }">
-                        <AlbumRow :album="item" />
-                    </template>
-                </VirtualScroller>
-            </div>
+            <VirtualScroller
+                ref="scroller"
+                :items="items"
+                :itemSize="56"
+                lazy
+                :numToleratedItems="10"
+                class="list-scroller"
+                @lazy-load="onLazyLoad"
+            >
+                <template #item="{ item }">
+                    <AlbumRow :album="item" />
+                </template>
+            </VirtualScroller>
             <AlphabetRail :letters="letters" @select="onSelectLetter" />
         </div>
     </div>
 </template>
 
 <style scoped>
+.album-list-view {
+    height: 100%;
+    min-height: 0;
+}
+
 .list-body {
-    display: flex;
-    gap: 0.5rem;
-    align-items: flex-start;
+    position: relative;
+    height: 100%;
 }
 
-.table-region {
-    flex: 1;
-    min-width: 0;
-}
-
-.album-scroller {
-    height: calc(100vh - 260px);
+.list-scroller {
+    height: 100%;
     width: 100%;
+    scrollbar-gutter: stable;
 }
 
-.header-row {
-    display: grid;
-    grid-template-columns: 48px 2fr 1.5fr 4rem 5rem;
-    align-items: center;
-    gap: 1rem;
-    height: 40px;
-    padding: 0 0.5rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--app-text-secondary);
-    border-bottom: 2px solid var(--p-content-border-color);
+/* Rail hugs the LEFT of the flush-right native scrollbar (offset by its width). */
+.list-body :deep(.alphabet-rail) {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: var(--sb-w, 0px);
+    width: 1.25rem;
+    background: var(--app-bg, transparent);
 }
 
-.header-row .col-songs,
-.header-row .col-duration {
-    text-align: right;
+.list-body :deep(.album-row) {
+    padding-right: calc(1.25rem + var(--sb-w, 0px));
 }
 
 .loading {

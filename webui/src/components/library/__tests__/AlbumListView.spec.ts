@@ -15,6 +15,7 @@ vi.mock('@/composables/useAlbumTable', () => ({
     ALBUM_PAGE_SIZE: 100,
     useAlbumTable: () => ({ ...state, ensureRange })
 }))
+vi.mock('@/composables/useScrollbarWidth', () => ({ useScrollbarWidth: () => ref(10) }))
 
 // Stub VirtualScroller: renders nothing but exposes scrollToIndex and can emit lazy-load.
 const VirtualScrollerStub = {
