@@ -43,17 +43,22 @@ export function useAlbumTable(
             loadedPages.add(page)
             const offset = page * ALBUM_PAGE_SIZE
             const fid = unref(folderId)
-            const albums = await queryClient.fetchQuery({
-                queryKey: queryKeys.albumList('alphabeticalByName', offset, fid),
-                queryFn: () =>
-                    subsonicClient.getAlbumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
-                staleTime: 2 * 60 * 1000
-            })
-            const next = items.value.slice()
-            for (let i = 0; i < albums.length; i++) {
-                next[offset + i] = albums[i]
+            try {
+                const albums = await queryClient.fetchQuery({
+                    queryKey: queryKeys.albumList('alphabeticalByName', offset, fid),
+                    queryFn: () =>
+                        subsonicClient.getAlbumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
+                    staleTime: 2 * 60 * 1000
+                })
+                const next = items.value.slice()
+                for (let i = 0; i < albums.length; i++) {
+                    next[offset + i] = albums[i]
+                }
+                items.value = next
+            } catch (e) {
+                loadedPages.delete(page)
+                throw e
             }
-            items.value = next
         }
     }
 

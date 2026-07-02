@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { defineComponent, h, ref, nextTick } from 'vue'
+import { defineComponent, h, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
@@ -50,6 +50,7 @@ describe('useAlbumTable', () => {
         )
         const c = withComposable()
         await vi.waitFor(() => expect(c.api!.total.value).toBe(250))
+        expect(c.api!.items.value.length).toBe(250)
 
         await c.api!.ensureRange(0, 50)
         expect(getAlbumList).toHaveBeenCalledTimes(1)
