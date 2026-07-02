@@ -228,6 +228,35 @@ func TestGetAlbumLetterIndexByLibrary(t *testing.T) {
 	}
 }
 
+func TestAlbumTrackStats(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	a := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	b := model.Album{Name: "B", NameNorm: "b", AlbumArtistNorm: "x"}
+	db.Create(&a)
+	db.Create(&b)
+	db.Create(&model.Track{AlbumID: a.ID, Filename: "1.mp3", FilePath: "/1.mp3", Duration: 100})
+	db.Create(&model.Track{AlbumID: a.ID, Filename: "2.mp3", FilePath: "/2.mp3", Duration: 200})
+
+	stats, err := s.AlbumTrackStats([]uint{a.ID, b.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats[a.ID].Count != 2 || stats[a.ID].Duration != 300 {
+		t.Fatalf("album A stats = %+v, want count 2 duration 300", stats[a.ID])
+	}
+	if _, ok := stats[b.ID]; ok {
+		t.Fatalf("album B has no tracks; should be absent")
+	}
+	empty, err := s.AlbumTrackStats(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty map for no ids, got %d", len(empty))
+	}
+}
+
 func TestSearchAlbumsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

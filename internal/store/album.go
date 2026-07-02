@@ -155,6 +155,34 @@ func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int
 	return letters, running, nil
 }
 
+// AlbumTrackStat holds aggregate track figures for one album.
+type AlbumTrackStat struct {
+	AlbumID  uint
+	Count    int
+	Duration int
+}
+
+// AlbumTrackStats returns song count and total duration per album for the given
+// album IDs, in one grouped query. Albums with no tracks are absent from the map.
+func (s *Store) AlbumTrackStats(albumIDs []uint) (map[uint]AlbumTrackStat, error) {
+	out := map[uint]AlbumTrackStat{}
+	if len(albumIDs) == 0 {
+		return out, nil
+	}
+	var rows []AlbumTrackStat
+	if err := s.db.Model(&model.Track{}).
+		Select("album_id AS album_id, COUNT(*) AS count, COALESCE(SUM(duration), 0) AS duration").
+		Where("album_id IN ?", albumIDs).
+		Group("album_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.AlbumID] = r
+	}
+	return out, nil
+}
+
 func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilter) ([]model.Album, error) {
 	norm := unidecode.Normalize(query)
 	q := s.db.

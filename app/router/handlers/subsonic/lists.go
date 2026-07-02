@@ -28,9 +28,23 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
+	ids := make([]uint, 0, len(albums))
+	for i := range albums {
+		ids = append(ids, albums[i].ID)
+	}
+	stats, err := h.store.AlbumTrackStats(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, albumToMap(&al))
+		m := albumToMap(&al)
+		if st, ok := stats[al.ID]; ok {
+			m["songCount"] = st.Count
+			m["duration"] = st.Duration
+		}
+		albumList = append(albumList, m)
 	}
 	writeResponse(w, map[string]any{
 		"albumList2": map[string]any{
