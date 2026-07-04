@@ -5,23 +5,32 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 
 const props = defineProps<{
-    album: Album
+    album?: Album
 }>()
 
 const albumDrag = useAlbumDrag()
 
 const coverUrl = computed(() => {
-    if (!props.album.coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(props.album.coverArt, 200)
+    const art = props.album?.coverArt
+    if (!art || !subsonicClient.isConfigured()) return null
+    return subsonicClient.getCoverArtUrl(art, 200)
 })
 
 const onCardDragStart = (event: DragEvent): void => {
-    albumDrag.start(event, props.album, coverUrl.value)
+    if (props.album) albumDrag.start(event, props.album, coverUrl.value)
 }
 </script>
 
 <template>
+    <div v-if="!album" class="album-card placeholder" aria-hidden="true">
+        <div class="card-cover"></div>
+        <div class="card-info">
+            <div class="card-title"></div>
+            <div class="card-subtitle"></div>
+        </div>
+    </div>
     <router-link
+        v-else
         :to="{ name: 'album', params: { id: album.id } }"
         class="album-card"
         draggable="true"
@@ -104,5 +113,21 @@ const onCardDragStart = (event: DragEvent): void => {
 .card-year {
     font-size: 0.75rem;
     color: var(--app-text-secondary);
+}
+
+.album-card.placeholder {
+    cursor: default;
+}
+
+.album-card.placeholder .card-cover {
+    background: var(--app-hover, rgba(127, 127, 127, 0.08));
+}
+
+.album-card.placeholder .card-title,
+.album-card.placeholder .card-subtitle {
+    height: 0.9em;
+    margin: 0.15rem 0;
+    border-radius: 3px;
+    background: var(--app-hover, rgba(127, 127, 127, 0.08));
 }
 </style>

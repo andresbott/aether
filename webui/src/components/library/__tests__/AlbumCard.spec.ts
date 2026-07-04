@@ -55,3 +55,15 @@ describe('AlbumCard drag source', () => {
         })
     })
 })
+
+describe('AlbumCard placeholder', () => {
+    it('renders a placeholder with no link or image when album is undefined', () => {
+        const w = mount(AlbumCard, {
+            props: {},
+            global: { stubs: { RouterLink: RouterLinkStub } }
+        })
+        expect(w.find('.album-card.placeholder').exists()).toBe(true)
+        expect(w.findComponent(RouterLinkStub).exists()).toBe(false)
+        expect(w.find('img').exists()).toBe(false)
+    })
+})
