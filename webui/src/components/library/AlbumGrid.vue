@@ -1,41 +1,53 @@
 <script setup lang="ts">
 import { toRef } from 'vue'
+import VirtualCardGrid from '@/components/library/VirtualCardGrid.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
-import { useAlbumList } from '@/composables/useSubsonicQueries'
+import { useAlbumTable, ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
 
 const props = defineProps<{ folderId?: number }>()
-const { data: albums, isLoading } = useAlbumList('newest', 50, 0, toRef(props, 'folderId'))
+
+const { total, letters, items, isLoading, error, ensureRange } = useAlbumTable(
+    toRef(props, 'folderId')
+)
+
+function onLazyLoad(first: number, last: number): void {
+    void ensureRange(first, last)
+}
 </script>
 
 <template>
-    <div class="grid-scroll">
+    <div class="album-grid-view">
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         </div>
-        <div v-else-if="albums && albums.length > 0" class="album-grid">
-            <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
+        <div v-else-if="error" class="empty-state">
+            <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+            <p>Could not load albums</p>
         </div>
-        <div v-else class="empty-state">
+        <div v-else-if="total === 0" class="empty-state">
             <i class="pi pi-music" style="font-size: 3rem"></i>
             <p>No albums found</p>
         </div>
+        <VirtualCardGrid
+            v-else
+            :key="folderId"
+            :items="items"
+            :letters="letters"
+            :total="total"
+            :pageSize="ALBUM_PAGE_SIZE"
+            @lazyLoad="onLazyLoad"
+        >
+            <template #card="{ item }">
+                <AlbumCard :album="item" />
+            </template>
+        </VirtualCardGrid>
     </div>
 </template>
 
 <style scoped>
-.grid-scroll {
+.album-grid-view {
     height: 100%;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-}
-
-.album-grid {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 1rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 2rem;
+    min-height: 0;
 }
 
 .loading {
