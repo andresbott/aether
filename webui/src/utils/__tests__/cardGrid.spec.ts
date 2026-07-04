@@ -58,6 +58,10 @@ describe('offsetToRow', () => {
         expect(offsetToRow(4, 4)).toBe(1)
         expect(offsetToRow(9, 4)).toBe(2)
     })
+
+    it('returns 0 for non-positive columns', () => {
+        expect(offsetToRow(9, 0)).toBe(0)
+    })
 })
 
 describe('rowRangeToItemRange', () => {

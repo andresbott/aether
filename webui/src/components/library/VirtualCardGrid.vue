@@ -81,6 +81,8 @@ function onLazyLoad(e: VirtualScrollerLazyEvent): void {
 function onSelect(offset: number): void {
     if (props.total > 0) emit('lazyLoad', offset, Math.min(props.total - 1, offset + props.pageSize - 1))
     scroller.value?.scrollToIndex(offsetToRow(offset, columns.value))
+    // Update remembered range so a resize immediately after a rail jump re-emits the jumped range, not the stale pre-jump one.
+    lastRowRange = { first: offsetToRow(offset, columns.value), last: offsetToRow(Math.min(props.total - 1, offset + props.pageSize - 1), columns.value) }
 }
 
 let ro: ResizeObserver | null = null

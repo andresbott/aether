@@ -51,27 +51,6 @@ export function useMusicFolders() {
     })
 }
 
-export function useAlbumList(
-    type: string | Ref<string> | ComputedRef<string> = 'newest',
-    size: number | Ref<number> | ComputedRef<number> = 20,
-    offset: number | Ref<number> | ComputedRef<number> = 0,
-    musicFolderId?: number | Ref<number | undefined> | ComputedRef<number | undefined>
-) {
-    return useQuery({
-        queryKey: computed(() =>
-            queryKeys.albumList(unref(type), unref(offset), unref(musicFolderId))
-        ),
-        queryFn: () =>
-            subsonicClient.getAlbumList(
-                unref(type),
-                unref(size),
-                unref(offset),
-                unref(musicFolderId)
-            ),
-        staleTime: 2 * 60 * 1000
-    })
-}
-
 export function useAlbum(
     id: string,
     options?: Omit<UseQueryOptions<AlbumWithSongs | null>, 'queryKey' | 'queryFn'>

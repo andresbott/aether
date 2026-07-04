@@ -22,6 +22,7 @@ const { total, letters, items, isLoading, error } = useArtistTable(toRef(props, 
             <i class="pi pi-users" style="font-size: 3rem"></i>
             <p>No artists found</p>
         </div>
+        <!-- lazyLoad not handled: useArtistTable returns a fully-materialized Artist[] with no paging. -->
         <VirtualCardGrid v-else :key="folderId" :items="items" :letters="letters" :total="total">
             <template #card="{ item }">
                 <ArtistCard v-if="item" :artist="item" />
