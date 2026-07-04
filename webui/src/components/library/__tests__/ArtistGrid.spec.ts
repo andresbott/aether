@@ -40,6 +40,10 @@ const mountGrid = () =>
 describe('ArtistGrid', () => {
     afterEach(() => {
         state.total.value = 2
+        state.items.value = [
+            { id: 'ar1', name: 'A' },
+            { id: 'ar2', name: 'B' }
+        ]
         state.isLoading.value = false
         state.error.value = null
         mountCount = 0
@@ -60,10 +64,6 @@ describe('ArtistGrid', () => {
         state.items.value = []
         const w = mountGrid()
         expect(w.text()).toContain('No artists found')
-        state.items.value = [
-            { id: 'ar1', name: 'A' },
-            { id: 'ar2', name: 'B' }
-        ]
     })
 
     it('re-mounts the grid when the folder changes', async () => {
