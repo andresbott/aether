@@ -23,6 +23,9 @@ export function useCreateLibrary() {
         mutationFn: (input: LibraryInput) => LibrariesApi.createLibrary(input),
         onSuccess: (lib) => {
             qc.invalidateQueries({ queryKey: libraryQueryKeys.all })
+            // Also drop Subsonic library data so the new library appears in
+            // the music folders the library view is driven by.
+            qc.invalidateQueries({ queryKey: ['subsonic'] })
             toast.add({
                 severity: 'success',
                 summary: 'Library created',
@@ -49,6 +52,10 @@ export function useUpdateLibrary() {
             LibrariesApi.updateLibrary(id, input),
         onSuccess: (lib) => {
             qc.invalidateQueries({ queryKey: libraryQueryKeys.all })
+            // Also drop Subsonic library data: the library view reads its
+            // default view (and albums/artists) from the Subsonic music
+            // folders, so edits must refresh that cache too.
+            qc.invalidateQueries({ queryKey: ['subsonic'] })
             toast.add({
                 severity: 'success',
                 summary: lib.path_changed ? 'Library updated — tracks wiped' : 'Library updated',

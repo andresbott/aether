@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-bumbu/config"
 )
@@ -27,7 +28,6 @@ type TaskRunnerCfg struct {
 }
 
 type ArtistImagesCfg struct {
-	Enabled          bool
 	FanartApiKey     string
 	TheAudioDBApiKey string
 }
@@ -77,7 +77,6 @@ var defaultCfg = AppCfg{
 		TagReadWorkers: 0,
 	},
 	ArtistImages: ArtistImagesCfg{
-		Enabled:          false,
 		FanartApiKey:     "",
 		TheAudioDBApiKey: "",
 	},
@@ -111,6 +110,11 @@ func getAppCfg(file string) (AppCfg, error) {
 		return cfg, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 	cfg.DataDir = absPath
+
+	// API keys may be loaded from files (config value "@<path>"); file content
+	// is returned verbatim, so trim surrounding whitespace/newlines.
+	cfg.ArtistImages.FanartApiKey = strings.TrimSpace(cfg.ArtistImages.FanartApiKey)
+	cfg.ArtistImages.TheAudioDBApiKey = strings.TrimSpace(cfg.ArtistImages.TheAudioDBApiKey)
 
 	return cfg, nil
 }

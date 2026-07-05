@@ -6,9 +6,17 @@
     --app-text-secondary: #6b7280;
     --app-accent: #6366f1;
     --app-accent-hover: #4f46e5;
+    /* Row hover tint — translucent so it reads on both the white surface
+       (sidebar) and the grey app background (full Now Playing view). */
+    --app-hover: rgba(0, 0, 0, 0.04);
     --app-player-bg: #1a2942;
     --app-player-text: #e2e8f0;
     --app-sidebar-width: 280px;
     --app-sidebar-collapsed-width: 70px;
     --app-player-height: 64px;
+    /* Shared max width of the centered main-content column. The scaffold header
+       and every body/view center on this same column so titles line up over
+       their rows — keep them all bound to this token. See
+       docs/architecture/main-content-view-layout.md. */
+    --app-content-max-width: 1400px;
 }

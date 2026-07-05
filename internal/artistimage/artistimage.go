@@ -7,7 +7,13 @@ import (
 	"net/url"
 	"path"
 	"strings"
+
+	"golang.org/x/time/rate"
 )
+
+// requestsPerSecond is the fair-use rate limit applied per provider to its
+// outbound API and image-download requests (burst 1).
+const requestsPerSecond rate.Limit = 1
 
 type Provider interface {
 	// Fetch returns image bytes and a file extension ("jpg"/"png"), or

@@ -7,12 +7,15 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type FanartTV struct {
 	APIKey  string
 	BaseURL string
 	Client  *http.Client
+	limiter *rate.Limiter
 }
 
 func NewFanartTV(apiKey string) *FanartTV {
@@ -20,6 +23,7 @@ func NewFanartTV(apiKey string) *FanartTV {
 		APIKey:  apiKey,
 		BaseURL: "https://webservice.fanart.tv",
 		Client:  &http.Client{Timeout: 20 * time.Second},
+		limiter: rate.NewLimiter(requestsPerSecond, 1),
 	}
 }
 
@@ -32,6 +36,9 @@ func (p *FanartTV) Fetch(ctx context.Context, mbid string) ([]byte, string, erro
 	u := fmt.Sprintf("%s/v3/music/%s?api_key=%s", p.BaseURL, mbid, p.APIKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := p.limiter.Wait(ctx); err != nil {
 		return nil, "", err
 	}
 	resp, err := p.Client.Do(req)
@@ -53,13 +60,18 @@ func (p *FanartTV) Fetch(ctx context.Context, mbid string) ([]byte, string, erro
 	if len(body.ArtistThumb) == 0 || body.ArtistThumb[0].URL == "" {
 		return nil, "", nil
 	}
-	return download(ctx, p.Client, body.ArtistThumb[0].URL)
+	return download(ctx, p.limiter, p.Client, body.ArtistThumb[0].URL)
 }
 
 // download fetches imageURL and returns its bytes and a normalized extension.
-func download(ctx context.Context, client *http.Client, imageURL string) ([]byte, string, error) {
+// It waits on limiter before the request so downloads count toward the
+// provider's fair-use rate.
+func download(ctx context.Context, limiter *rate.Limiter, client *http.Client, imageURL string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := limiter.Wait(ctx); err != nil {
 		return nil, "", err
 	}
 	resp, err := client.Do(req)

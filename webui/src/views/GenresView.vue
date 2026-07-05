@@ -15,7 +15,7 @@
 </template>
 
 <style scoped>
-.genres-view { max-width: 1400px; margin: 0 auto; }
+.genres-view { max-width: var(--app-content-max-width); margin: 0 auto; }
 .view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
 .view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 4rem; gap: 1rem; color: var(--app-text-secondary); }

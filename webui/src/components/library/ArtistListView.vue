@@ -31,6 +31,13 @@ function onSelectLetter(offset: number): void {
             <p>No artists found</p>
         </div>
         <div v-else class="list-body">
+            <div class="list-header">
+                <div class="header-row">
+                    <div class="col-avatar"></div>
+                    <div class="col-name">Artist</div>
+                    <div class="col-count">Albums</div>
+                </div>
+            </div>
             <VirtualScroller
                 ref="scroller"
                 :items="items"
@@ -55,10 +62,41 @@ function onSelectLetter(offset: number): void {
 .list-body {
     position: relative;
     height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.list-header {
+    flex-shrink: 0;
+    box-sizing: border-box;
+    padding-right: calc(2.75rem + var(--sb-w, 0px));
+}
+
+.header-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 7rem;
+    align-items: center;
+    gap: 1rem;
+    height: 36px;
+    padding: 0 0.5rem;
+    max-width: var(--app-content-max-width);
+    margin-left: auto;
+    margin-right: auto;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+    border-bottom: 1px solid var(--p-content-border-color);
+}
+
+.header-row .col-count {
+    text-align: right;
 }
 
 .list-scroller {
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     width: 100%;
     scrollbar-gutter: stable;
 }
@@ -73,9 +111,20 @@ function onSelectLetter(offset: number): void {
     background: var(--app-bg, transparent);
 }
 
-.list-body :deep(.artist-row) {
-    /* rail width (1.75rem) + a gap so the last column doesn't touch the letters */
+/* Reserve rail clearance (rail 1.75rem + 1rem gap + scrollbar) on the scroll
+   content so centered rows never slide under the rail. border-box keeps the
+   min-width:100% content wrapper from overflowing once padded. */
+.list-body :deep(.p-virtualscroller-content) {
+    box-sizing: border-box;
     padding-right: calc(2.75rem + var(--sb-w, 0px));
+}
+
+/* Center the rows in the shared content column to match the album/artist grid;
+   the scroller stays full width so its scroll bar + the rail stay flush right. */
+.list-body :deep(.artist-row) {
+    max-width: var(--app-content-max-width);
+    margin-left: auto;
+    margin-right: auto;
 }
 
 .loading {

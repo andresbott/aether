@@ -3,8 +3,8 @@ defineProps<{ title: string; summary?: string }>()
 </script>
 
 <template>
-    <div class="library-scaffold">
-        <header class="library-scaffold-header">
+    <div class="content-scaffold">
+        <header class="content-scaffold-header">
             <div class="scaffold-title">
                 <h1>{{ title }}</h1>
                 <span v-if="summary" class="scaffold-summary">{{ summary }}</span>
@@ -13,26 +13,33 @@ defineProps<{ title: string; summary?: string }>()
                 <slot name="actions" />
             </div>
         </header>
-        <div class="library-scaffold-body">
+        <div class="content-scaffold-body">
             <slot />
         </div>
     </div>
 </template>
 
 <style scoped>
-.library-scaffold {
+.content-scaffold {
     display: flex;
     flex-direction: column;
     height: 100%;
     min-height: 0;
 }
 
-.library-scaffold-header {
+.content-scaffold-header {
     display: flex;
     align-items: baseline;
     gap: 1rem;
     flex-shrink: 0;
-    padding: 0.75rem 1rem;
+    /* Center on the same content column as the list/grid content instead of
+       spanning the full width, so the title sits above the content column. The
+       2rem padding is the side gutter and gives the title a small indent. */
+    max-width: var(--app-content-max-width);
+    width: 100%;
+    margin-inline: auto;
+    box-sizing: border-box;
+    padding: 0.75rem 2rem;
 }
 
 .scaffold-title {
@@ -62,8 +69,11 @@ defineProps<{ title: string; summary?: string }>()
     flex-shrink: 0;
 }
 
-.library-scaffold-body {
+.content-scaffold-body {
     flex: 1;
     min-height: 0;
+    /* Match the header's left gutter so rows line up under the title, but leave
+       the right edge unpadded so the list's scroll bar sits flush right. */
+    padding-left: 2rem;
 }
 </style>

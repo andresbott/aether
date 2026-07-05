@@ -5,7 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+
+	"golang.org/x/time/rate"
 )
 
 func TestFanartTVFetch(t *testing.T) {
@@ -23,6 +26,7 @@ func TestFanartTVFetch(t *testing.T) {
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
 	p.Client = srv.Client()
+	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
 
 	data, ext, err := p.Fetch(context.Background(), "mbid-1")
 	if err != nil {
@@ -67,6 +71,7 @@ func TestTheAudioDBFetch(t *testing.T) {
 	p := NewTheAudioDB("testkey")
 	p.BaseURL = srv.URL
 	p.Client = srv.Client()
+	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
 
 	data, ext, err := p.Fetch(context.Background(), "some-mbid")
 	if err != nil {
@@ -94,10 +99,36 @@ func TestDownloadNon200(t *testing.T) {
 	p := NewTheAudioDB("testkey")
 	p.BaseURL = srv.URL
 	p.Client = srv.Client()
+	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
 
 	_, _, err := p.Fetch(context.Background(), "some-mbid")
 	if err == nil {
 		t.Fatal("expected error when image URL returns 404, got nil")
+	}
+}
+
+// TestProviderThrottleGatesRequest verifies the fair-use throttle is applied
+// before the outbound request: with a limiter that never grants a token, Fetch
+// returns an error and no HTTP request reaches the server.
+func TestProviderThrottleGatesRequest(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	p := NewFanartTV("key")
+	p.BaseURL = srv.URL
+	p.Client = srv.Client()
+	p.limiter = rate.NewLimiter(1, 0) // burst 0 -> Wait can never succeed
+
+	_, _, err := p.Fetch(context.Background(), "mbid-1")
+	if err == nil {
+		t.Fatal("expected the throttle to block the request and return an error")
+	}
+	if n := atomic.LoadInt32(&hits); n != 0 {
+		t.Fatalf("request reached the server despite the throttle: %d hits", n)
 	}
 }
 

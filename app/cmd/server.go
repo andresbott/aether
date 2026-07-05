@@ -106,12 +106,19 @@ func runServer(configFile string) error {
 	dataStore := store.New(db)
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
+	// Build the artist-image fetcher from whatever provider API keys are set.
+	// If none are configured, fetcher stays nil and the task reports a clear
+	// "not configured" message when run (the task is always registered).
+	var providers []artistimage.Provider
+	if cfg.ArtistImages.FanartApiKey != "" {
+		providers = append(providers, artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey))
+	}
+	if cfg.ArtistImages.TheAudioDBApiKey != "" {
+		providers = append(providers, artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey))
+	}
 	var fetcher tasks.Fetcher
-	if cfg.ArtistImages.Enabled {
-		fetcher = artistimage.NewChain(
-			artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey),
-			artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey),
-		)
+	if len(providers) > 0 {
+		fetcher = artistimage.NewChain(providers...)
 	}
 
 	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
@@ -141,12 +148,10 @@ func runServer(configFile string) error {
 	// does NOT auto-trigger the artist-image fetch. Run each on demand.
 	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
 	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
-	if cfg.ArtistImages.Enabled {
-		runner.RegisterTask(
-			tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
-			tasks.FetchArtistImagesTaskName, 1,
-		)
-	}
+	runner.RegisterTask(
+		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
+		tasks.FetchArtistImagesTaskName, 1,
+	)
 	runner.Start()
 
 	scheduleStore, err := taskrunner.NewScheduleStore(db)

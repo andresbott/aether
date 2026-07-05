@@ -242,12 +242,23 @@ const playFromTrack = (index: number) => {
     margin-top: auto;
 }
 
+.track-table :deep(thead th) {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+    background: transparent;
+    border: none;
+    height: 36px;
+}
+
 .track-table :deep(.clickable-row) {
     cursor: pointer;
 }
 
 .track-table :deep(.clickable-row:hover) {
-    background-color: #f9fafb !important;
+    background-color: var(--app-hover) !important;
 }
 
 .album-drag-handle {

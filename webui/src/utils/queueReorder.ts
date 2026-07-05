@@ -1,17 +1,10 @@
 /**
- * The queue index to insert a dropped block before. When there is a following
- * row, use its index. With no following row, the drop is at the end of a list:
- * the history list ends just before the current track (→ currentIndex); the
- * upcoming list ends at the tail of the queue (→ queueLength).
+ * The queue index to insert a dropped block before. In the edit-mode list every
+ * track is a row, so the anchor is the row that follows the drop; when there is
+ * none the block was dropped at the tail (→ queueLength).
  */
-export function computeDropTarget(
-    anchorIndex: number | undefined,
-    isHistory: boolean,
-    currentIndex: number,
-    queueLength: number
-): number {
-    if (anchorIndex !== undefined) return anchorIndex
-    return isHistory ? currentIndex : queueLength
+export function computeDropTarget(anchorIndex: number | undefined, queueLength: number): number {
+    return anchorIndex ?? queueLength
 }
 
 /**

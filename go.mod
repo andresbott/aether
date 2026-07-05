@@ -5,7 +5,7 @@ go 1.25.7
 require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-bumbu/config v0.4.0
-	github.com/go-bumbu/http v0.4.0
+	github.com/go-bumbu/http v0.5.1
 	github.com/go-bumbu/tempo v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
@@ -18,6 +18,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	go.senan.xyz/taglib v0.11.1
 	golang.org/x/sync v0.20.0
+	golang.org/x/time v0.15.0
 	gorm.io/gorm v1.31.1
 )
 

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
-import LibraryScaffold from '@/components/library/LibraryScaffold.vue'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlbumGrid from '@/components/library/AlbumGrid.vue'
 import ArtistListView from '@/components/library/ArtistListView.vue'
@@ -84,7 +84,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-    <LibraryScaffold :title="folderName" :summary="summary">
+    <ContentScaffold :title="folderName" :summary="summary">
         <template #actions>
             <SelectButton
                 v-model="layout"
@@ -112,5 +112,5 @@ const summary = computed(() => {
         <AlbumGrid v-else-if="viewMode === 'albums'" :folderId="folderId" />
         <ArtistListView v-else-if="layout === 'list'" :folderId="folderId" />
         <ArtistGrid v-else :folderId="folderId" />
-    </LibraryScaffold>
+    </ContentScaffold>
 </template>

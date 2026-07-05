@@ -7,6 +7,9 @@ import AdminLayout from '@/layouts/AdminLayout.vue'
 declare module 'vue-router' {
     interface RouteMeta {
         layout?: 'player' | 'admin'
+        // Full-bleed main content view: the view owns its own horizontal gutter
+        // and self-scrolls, so PlayerLayout drops the shell's side padding.
+        flush?: boolean
     }
 }
 

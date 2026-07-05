@@ -18,6 +18,7 @@ export interface Artist {
     id: string
     name: string
     albumCount?: number
+    songCount?: number
     starred?: string
     coverArt?: string
     artistImageUrl?: string

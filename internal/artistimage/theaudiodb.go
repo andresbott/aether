@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type TheAudioDB struct {
 	APIKey  string
 	BaseURL string
 	Client  *http.Client
+	limiter *rate.Limiter
 }
 
 func NewTheAudioDB(apiKey string) *TheAudioDB {
@@ -19,6 +22,7 @@ func NewTheAudioDB(apiKey string) *TheAudioDB {
 		APIKey:  apiKey,
 		BaseURL: "https://www.theaudiodb.com",
 		Client:  &http.Client{Timeout: 20 * time.Second},
+		limiter: rate.NewLimiter(requestsPerSecond, 1),
 	}
 }
 
@@ -31,6 +35,9 @@ func (p *TheAudioDB) Fetch(ctx context.Context, mbid string) ([]byte, string, er
 	u := fmt.Sprintf("%s/api/v1/json/%s/artist-mb.php?i=%s", p.BaseURL, p.APIKey, mbid)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := p.limiter.Wait(ctx); err != nil {
 		return nil, "", err
 	}
 	resp, err := p.Client.Do(req)
@@ -52,5 +59,5 @@ func (p *TheAudioDB) Fetch(ctx context.Context, mbid string) ([]byte, string, er
 	if len(body.Artists) == 0 || body.Artists[0].Thumb == "" {
 		return nil, "", nil
 	}
-	return download(ctx, p.Client, body.Artists[0].Thumb)
+	return download(ctx, p.limiter, p.Client, body.Artists[0].Thumb)
 }
