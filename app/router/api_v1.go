@@ -1,12 +1,16 @@
 package router
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router/handlers"
+	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
+	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/gorilla/mux"
 )
 
@@ -42,6 +46,15 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 			mh := &metadataHandler.Handler{Store: h.store, Reader: h.tagReader}
 			mh.Routes(r)
 		}
+
+		userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
+		ah := &artistsHandler.Handler{
+			Store:   h.store,
+			Assets:  h.assets,
+			Fetcher: h.artistFetcher,
+			Search:  artistimage.NewMusicBrainzSearch(userAgent),
+		}
+		ah.Routes(r)
 	}
 
 	r.PathPrefix("").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

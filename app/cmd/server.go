@@ -181,6 +181,7 @@ func runServer(configFile string) error {
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
+		ArtistFetcher: fetcher,
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {

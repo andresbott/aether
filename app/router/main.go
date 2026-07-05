@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
+	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
@@ -24,6 +25,7 @@ type Cfg struct {
 	Store         *store.Store
 	DataDir       string
 	TagReader     tags.Reader
+	ArtistFetcher tasks.Fetcher
 }
 
 type MainAppHandler struct {
@@ -36,6 +38,8 @@ type MainAppHandler struct {
 	store         *store.Store
 	dataDir       string
 	tagReader     tags.Reader
+	artistFetcher tasks.Fetcher
+	assets        *assetstore.Store
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +58,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,
 		tagReader:     cfg.TagReader,
+		artistFetcher: cfg.ArtistFetcher,
+		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)
@@ -68,8 +74,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		assets := assetstore.New(filepath.Join(app.dataDir, "metadata"))
-		subsonic.Register(app.router, app.store, assets, filepath.Join(app.dataDir, "generated-covers"))
+		subsonic.Register(app.router, app.store, app.assets, filepath.Join(app.dataDir, "generated-covers"))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {
