@@ -285,3 +285,53 @@ func TestSearchArtistsByLibrary(t *testing.T) {
 		t.Fatalf("expected Alpha only, got %+v", got)
 	}
 }
+
+func TestSetArtistMBID(t *testing.T) {
+	s := testStore(t)
+	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist := artists[0]
+
+	if err := s.SetArtistImageFetchedAt(artist.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	newMbid := "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
+	if err := s.SetArtistMBID(artist.ID, newMbid); err != nil {
+		t.Fatalf("SetArtistMBID: %v", err)
+	}
+
+	updated, _, err := s.GetArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.MBArtistID != newMbid {
+		t.Fatalf("expected MBArtistID %q, got %q", newMbid, updated.MBArtistID)
+	}
+	if updated.LastImageFetchAt != nil {
+		t.Fatal("expected LastImageFetchAt to be cleared")
+	}
+}
+
+func TestSetArtistMBIDClear(t *testing.T) {
+	s := testStore(t)
+	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artist := artists[0]
+
+	if err := s.SetArtistMBID(artist.ID, ""); err != nil {
+		t.Fatalf("SetArtistMBID: %v", err)
+	}
+
+	updated, _, err := s.GetArtist(artist.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.MBArtistID != "" {
+		t.Fatalf("expected MBArtistID cleared, got %q", updated.MBArtistID)
+	}
+}

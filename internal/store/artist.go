@@ -101,6 +101,14 @@ func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
 	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
 }
 
+// SetArtistMBID sets the artist's MusicBrainz artist ID (empty string
+// clears it) and always resets LastImageFetchAt to nil, so a changed match
+// is retried on the next fetch attempt instead of hitting the backoff.
+func (s *Store) SetArtistMBID(id uint, mbid string) error {
+	return s.db.Model(&model.Artist{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"mb_artist_id": mbid, "last_image_fetch_at": nil}).Error
+}
+
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {
 	norm := unidecode.Normalize(query)
 	q := s.db.Model(&model.Artist{}).Where("name_norm LIKE ?", "%"+norm+"%")
