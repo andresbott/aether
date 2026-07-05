@@ -1,0 +1,294 @@
+<script setup lang="ts">
+import { computed, ref } from 'vue'
+import InputText from 'primevue/inputtext'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import ArtistCard from '@/components/library/ArtistCard.vue'
+import AlbumCard from '@/components/library/AlbumCard.vue'
+import { useSearch } from '@/composables/useSubsonicQueries'
+import { usePlayer } from '@/composables/usePlayer'
+import { subsonicClient } from '@/lib/api/subsonic'
+import type { Album, Artist, Song } from '@/types/subsonic'
+
+const { playNow } = usePlayer()
+
+const query = ref('')
+
+const searchParams = computed(() => ({
+    query: query.value,
+    artistCount: 24,
+    albumCount: 24,
+    songCount: 50
+}))
+
+const { data: results, isLoading, error } = useSearch(searchParams)
+
+const artists = computed<Artist[]>(() => results.value?.artist || [])
+const albums = computed<Album[]>(() => results.value?.album || [])
+const songs = computed<Song[]>(() => results.value?.song || [])
+
+const hasQuery = computed(() => query.value.trim().length > 0)
+const hasResults = computed(
+    () => artists.value.length > 0 || albums.value.length > 0 || songs.value.length > 0
+)
+
+const summary = computed(() => {
+    if (!hasQuery.value || isLoading.value || error.value) return ''
+    const parts: string[] = []
+    if (artists.value.length > 0) {
+        parts.push(`${artists.value.length} ${artists.value.length === 1 ? 'artist' : 'artists'}`)
+    }
+    if (albums.value.length > 0) {
+        parts.push(`${albums.value.length} ${albums.value.length === 1 ? 'album' : 'albums'}`)
+    }
+    if (songs.value.length > 0) {
+        parts.push(`${songs.value.length} ${songs.value.length === 1 ? 'song' : 'songs'}`)
+    }
+    return parts.join(' • ')
+})
+
+function getCoverUrl(id: string | undefined): string | null {
+    if (!id) return null
+    return subsonicClient.getCoverArtUrl(id, 48)
+}
+
+function formatDuration(seconds?: number): string {
+    if (!seconds) return ''
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+</script>
+
+<template>
+    <ContentScaffold title="Search" :summary="summary">
+        <div class="search-page">
+            <div class="search-input-row">
+                <span class="search-input-wrapper">
+                    <i class="pi pi-search search-icon"></i>
+                    <InputText
+                        v-model="query"
+                        placeholder="Search artists, albums, songs..."
+                        class="search-input"
+                        autofocus
+                    />
+                </span>
+            </div>
+
+            <div class="search-scroll">
+                <div v-if="!hasQuery" class="state-message">
+                    <i class="pi pi-search" style="font-size: 3rem"></i>
+                    <p>Search your library by artist, album, or song</p>
+                </div>
+
+                <div v-else-if="isLoading" class="state-message">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                </div>
+
+                <div v-else-if="error" class="state-message">
+                    <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+                    <p>Could not search</p>
+                </div>
+
+                <div v-else-if="!hasResults" class="state-message">
+                    <i class="pi pi-search" style="font-size: 3rem"></i>
+                    <p>No results found</p>
+                </div>
+
+                <div v-else class="search-content">
+                    <section v-if="artists.length > 0" class="result-section">
+                        <h2 class="section-label">Artists</h2>
+                        <div class="artist-grid">
+                            <ArtistCard v-for="artist in artists" :key="artist.id" :artist="artist" />
+                        </div>
+                    </section>
+
+                    <section v-if="albums.length > 0" class="result-section">
+                        <h2 class="section-label">Albums</h2>
+                        <div class="album-grid">
+                            <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
+                        </div>
+                    </section>
+
+                    <section v-if="songs.length > 0" class="result-section">
+                        <h2 class="section-label">Songs</h2>
+                        <div class="song-list">
+                            <button
+                                v-for="song in songs"
+                                :key="song.id"
+                                type="button"
+                                class="song-row"
+                                @click="playNow(song)"
+                            >
+                                <span class="song-cover">
+                                    <img v-if="getCoverUrl(song.coverArt)" :src="getCoverUrl(song.coverArt)!" alt="" />
+                                    <i v-else class="pi pi-play"></i>
+                                </span>
+                                <span class="song-info">
+                                    <span class="song-title">{{ song.title }}</span>
+                                    <span class="song-artist">{{ song.artist || 'Unknown' }}</span>
+                                </span>
+                                <span class="song-duration">{{ formatDuration(song.duration) }}</span>
+                            </button>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </ContentScaffold>
+</template>
+
+<style scoped>
+.search-page {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.search-input-row {
+    flex-shrink: 0;
+    max-width: var(--app-content-max-width);
+    margin: 0 auto;
+    padding: 1rem 1rem 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.search-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    max-width: 480px;
+}
+
+.search-icon {
+    position: absolute;
+    left: 0.9rem;
+    color: var(--app-text-secondary);
+    pointer-events: none;
+}
+
+.search-input {
+    width: 100%;
+    padding-left: 2.5rem;
+}
+
+.search-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.state-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem;
+    gap: 1rem;
+    color: var(--app-text-secondary);
+    text-align: center;
+}
+
+.search-content {
+    max-width: var(--app-content-max-width);
+    margin: 0 auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+.section-label {
+    margin: 0 0 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+}
+
+.artist-grid,
+.album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 2rem;
+}
+
+.song-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.song-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.5rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 6px;
+    transition: background-color 0.15s;
+}
+
+.song-row:hover {
+    background-color: var(--app-background);
+}
+
+.song-cover {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.song-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.song-cover i {
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.song-info {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.song-title {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--app-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.song-artist {
+    font-size: 0.75rem;
+    color: var(--app-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.song-duration {
+    font-size: 0.75rem;
+    color: var(--app-text-secondary);
+    flex-shrink: 0;
+}
+</style>

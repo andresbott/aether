@@ -2,7 +2,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
-import AppTopbar from '@/components/layout/AppTopbar.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import PlayerControls from '@/components/layout/PlayerControls.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
@@ -23,8 +22,6 @@ onUnmounted(() => {
 
 <template>
     <div class="app-container">
-        <AppTopbar />
-
         <div class="body-row">
             <AppSidebar />
 

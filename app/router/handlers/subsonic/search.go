@@ -36,8 +36,9 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	artistList := make([]map[string]any, 0, len(artists))
 	for _, a := range artists {
 		artistList = append(artistList, map[string]any{
-			"id":   encodeArtistID(a.ID),
-			"name": a.Name,
+			"id":       encodeArtistID(a.ID),
+			"name":     a.Name,
+			"coverArt": encodeArtistID(a.ID),
 		})
 	}
 	albumList := make([]map[string]any, 0, len(albums))

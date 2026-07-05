@@ -17,7 +17,8 @@ interface NavItem {
 }
 
 const primaryItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' }
+    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
+    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search' }
 ]
 
 const { data: musicFolders } = useMusicFolders()
@@ -49,6 +50,16 @@ const streamingItems: NavItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
+// Avatar identity and Logout are placeholders until the auth system lands.
+const bottomItems: NavItem[] = [
+    { label: 'Admin Settings', icon: 'pi pi-cog', route: '/admin', routeName: 'admin-settings' },
+    { label: 'User Settings', icon: 'pi pi-user-edit', route: '/settings', routeName: 'user-settings' }
+]
+
+function logout() {
+    console.info('logout placeholder')
+}
+
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
     if (item.routeName === 'library') {
@@ -73,7 +84,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
         <div class="sidebar-header">
             <template v-if="!collapsed">
                 <div class="header-content">
-                    <h3>Browse</h3>
+                    <h1 class="logo">Aether</h1>
                 </div>
             </template>
             <button
@@ -142,6 +153,31 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
             >
                 <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+        </nav>
+
+        <nav class="sidebar-footer-nav">
+            <button
+                v-for="item in bottomItems"
+                :key="item.routeName"
+                class="nav-item"
+                :class="{ active: isActive(item) }"
+                @click="navigateTo(item)"
+                v-tooltip.right="collapsed ? item.label : undefined"
+            >
+                <i :class="item.icon"></i>
+                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+
+            <div class="nav-separator"></div>
+
+            <button
+                class="nav-item"
+                @click="logout"
+                v-tooltip.right="collapsed ? 'Logout' : undefined"
+            >
+                <i class="pi pi-sign-out"></i>
+                <span v-if="!collapsed" class="nav-label">Logout</span>
             </button>
         </nav>
     </aside>
@@ -260,14 +296,34 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     min-width: 0;
 }
 
-.header-content h3 {
+.logo {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--app-accent);
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    white-space: nowrap;
+}
+
+.sidebar-footer-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--app-border);
 }
 
 .nav-separator {
     margin: 0.75rem 0 0.25rem;
+}
+
+.sidebar-footer-nav .nav-separator {
+    margin: 0.25rem 1.5rem;
+    border-top: 1px solid var(--app-border);
+}
+
+.sidebar.collapsed .sidebar-footer-nav .nav-separator {
+    margin: 0.25rem 0.75rem;
 }
 
 .nav-separator.has-label {

@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/search',
+        name: 'search',
+        component: () => import('@/views/SearchView.vue'),
+        meta: { flush: true }
+    },
+    {
         path: '/library/:folderId?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
