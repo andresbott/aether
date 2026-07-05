@@ -1,17 +1,19 @@
 package subsonic
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/gorilla/mux"
 )
@@ -30,9 +32,9 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 		t.Fatalf("create album: %v", err)
 	}
 
-	cacheDir := filepath.Join(t.TempDir(), "generated-covers")
+	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, cacheDir, "")
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -78,24 +80,20 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	s := testStore(t)
 	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
 
-	// Create a real PNG file on disk and point CoverPath at it.
-	dir := t.TempDir()
-	pngPath := filepath.Join(dir, fmt.Sprintf("%d.png", st.ID))
+	// Store a PNG into the asset store keyed by RadioKey(streamURL).
+	var buf bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	f, err := os.Create(pngPath)
-	if err != nil {
+	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
 	}
-	if err := png.Encode(f, img); err != nil {
-		t.Fatal(err)
-	}
-	_ = f.Close()
-	if err := s.UpdateInternetRadioStationCoverPath(st.ID, pngPath); err != nil {
+	assetDir := t.TempDir()
+	as := assetstore.New(assetDir)
+	if err := as.PutManual(assetstore.KindRadio, RadioKey(st.StreamURL), "png", buf.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, t.TempDir(), dir)
+	Register(r, s, as, t.TempDir())
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -118,7 +116,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, cacheDir, t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -171,5 +169,49 @@ func TestGetCoverArtRadioNotFound(t *testing.T) {
 	}
 	if body.SubsonicResponse.Error.Code != 70 {
 		t.Fatalf("expected code 70, got %d", body.SubsonicResponse.Error.Code)
+	}
+}
+
+func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	// Seed an artist with a known MBArtistID.
+	artist := model.Artist{
+		Name:       "Test Artist",
+		NameNorm:   "test-artist",
+		MBArtistID: "mbid-art",
+	}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+
+	// Put a PNG image into the asset store for this artist.
+	assetDir := t.TempDir()
+	as := assetstore.New(assetDir)
+	if err := as.PutAuto(assetstore.KindArtist, "mbid-art", "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+		t.Fatalf("PutAuto: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, as, t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d", srv.URL, artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "\x89PNG") {
+		t.Errorf("response body does not start with PNG magic bytes; got %q", body[:min(8, len(body))])
 	}
 }

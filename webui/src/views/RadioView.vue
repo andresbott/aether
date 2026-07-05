@@ -12,6 +12,7 @@ import {
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song, InternetRadioStation } from '@/types/subsonic'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import RadioStationDialog from '@/components/library/RadioStationDialog.vue'
 
 const { data: stations, isLoading } = useRadioStations()
@@ -27,6 +28,12 @@ const editing = ref<InternetRadioStation | null>(null)
 const submitting = computed(
     () => createMutation.isPending.value || updateMutation.isPending.value
 )
+
+const summary = computed(() => {
+    const count = stations.value?.length ?? 0
+    if (count === 0) return ''
+    return `${count} ${count === 1 ? 'station' : 'stations'}`
+})
 
 function coverStyle(station: InternetRadioStation) {
     if (!station.coverArt) return {}
@@ -104,50 +111,51 @@ function onDelete(station: InternetRadioStation) {
 </script>
 
 <template>
-    <div class="radio-view">
-        <div class="view-header">
-            <h1>Radio</h1>
+    <ContentScaffold title="Radio" :summary="summary">
+        <template #actions>
             <Button label="Add Station" icon="pi pi-plus" @click="openCreate" />
-        </div>
+        </template>
 
-        <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-        </div>
+        <div class="radio-scroll">
+            <div v-if="isLoading" class="loading">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            </div>
 
-        <div v-else-if="stations && stations.length > 0" class="station-grid">
-            <div
-                v-for="station in stations"
-                :key="station.id"
-                class="station-card"
-                :style="coverStyle(station)"
-                @click="playStation(station)"
-            >
-                <div class="station-name">{{ station.name }}</div>
-                <div class="play-overlay">
-                    <i class="pi pi-play" style="font-size: 1.5rem"></i>
-                </div>
-                <div class="card-actions">
-                    <button
-                        class="card-action-btn"
-                        title="Edit station"
-                        @click.stop="openEdit(station)"
-                    >
-                        <i class="pi pi-pencil"></i>
-                    </button>
-                    <button
-                        class="card-action-btn"
-                        title="Delete station"
-                        @click.stop="onDelete(station)"
-                    >
-                        <i class="pi pi-trash"></i>
-                    </button>
+            <div v-else-if="stations && stations.length > 0" class="station-grid">
+                <div
+                    v-for="station in stations"
+                    :key="station.id"
+                    class="station-card"
+                    :style="coverStyle(station)"
+                    @click="playStation(station)"
+                >
+                    <div class="station-name">{{ station.name }}</div>
+                    <div class="play-overlay">
+                        <i class="pi pi-play" style="font-size: 1.5rem"></i>
+                    </div>
+                    <div class="card-actions">
+                        <button
+                            class="card-action-btn"
+                            title="Edit station"
+                            @click.stop="openEdit(station)"
+                        >
+                            <i class="pi pi-pencil"></i>
+                        </button>
+                        <button
+                            class="card-action-btn"
+                            title="Delete station"
+                            @click.stop="onDelete(station)"
+                        >
+                            <i class="pi pi-trash"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div v-else class="empty-state">
-            <i class="pi pi-wifi" style="font-size: 3rem"></i>
-            <p>No radio stations</p>
+            <div v-else class="empty-state">
+                <i class="pi pi-wifi" style="font-size: 3rem"></i>
+                <p>No radio stations</p>
+            </div>
         </div>
 
         <RadioStationDialog
@@ -158,15 +166,13 @@ function onDelete(station: InternetRadioStation) {
         />
 
         <ConfirmDialog />
-    </div>
+    </ContentScaffold>
 </template>
 
 <style scoped>
-.radio-view { max-width: 1400px; margin: 0 auto; }
-.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
-.view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
+.radio-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }
-.station-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1.5rem; }
+.station-grid { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
 .station-card { position: relative; aspect-ratio: 1; border-radius: 12px; display: flex; align-items: flex-end; padding: 1.25rem; cursor: pointer; transition: transform 0.2s; overflow: hidden; background-color: #1f2937; }
 .station-card:hover { transform: translateY(-2px); }
 .station-card:hover .play-overlay { opacity: 1; }

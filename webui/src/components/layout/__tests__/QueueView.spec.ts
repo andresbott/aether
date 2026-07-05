@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
@@ -9,9 +9,18 @@ const isPlaying = ref(false)
 const playQueueItem = vi.fn()
 const removeFromQueue = vi.fn()
 const togglePlayPause = vi.fn()
+const insertIntoQueue = vi.fn()
 
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ queue, currentIndex, isPlaying, playQueueItem, removeFromQueue, togglePlayPause })
+    usePlayer: () => ({
+        queue,
+        currentIndex,
+        isPlaying,
+        playQueueItem,
+        removeFromQueue,
+        togglePlayPause,
+        insertIntoQueue
+    })
 }))
 
 const openSaveDialog = vi.fn()
@@ -28,8 +37,10 @@ vi.mock('@/composables/useQueueActions', () => ({
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
+    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getAlbum: vi.fn() }
 }))
+
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 const sortableCreate = vi.fn(() => ({ destroy: vi.fn() }))
 vi.mock('sortablejs', () => ({
@@ -49,6 +60,8 @@ vi.mock('@/components/layout/SavePlaylistDialog.vue', () => ({
 }))
 
 import QueueView from '@/components/layout/QueueView.vue'
+import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 const song = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -72,9 +85,11 @@ beforeEach(() => {
     playQueueItem.mockReset()
     removeFromQueue.mockReset()
     togglePlayPause.mockReset()
+    insertIntoQueue.mockReset()
     openSaveDialog.mockReset()
     clearQueue.mockReset()
     sortableCreate.mockClear()
+    ;(subsonicClient.getAlbum as ReturnType<typeof vi.fn>).mockReset()
 })
 
 describe('QueueView', () => {
@@ -131,32 +146,47 @@ describe('QueueView', () => {
         expect(w.find('.queue-row--editing').exists()).toBe(false)
         await w.find('.queue-action-edit').trigger('click')
         expect(w.find('.queue-row--editing').exists()).toBe(true)
-        expect(w.find('.queue-upcoming input[type="checkbox"]').exists()).toBe(true)
+        expect(w.find('.queue-edit-list .delete-button').exists()).toBe(true)
+    })
+
+    it('edit mode renders one flat list containing every track', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(3)
+        // The history/upcoming split and the now-playing strip give way to the
+        // single reorderable list.
+        expect(w.find('.queue-history').exists()).toBe(false)
+        expect(w.find('.queue-upcoming').exists()).toBe(false)
+        expect(w.find('.now-playing-strip').exists()).toBe(false)
     })
 
     it('deletes a track via the per-row delete button in edit mode', async () => {
         const w = mountView('sidebar')
         await w.find('.queue-action-edit').trigger('click')
-        await w.find('.queue-upcoming .delete-button').trigger('click')
+        await w.find('[data-queue-index="2"] .delete-button').trigger('click')
         expect(removeFromQueue).toHaveBeenCalledWith(2)
     })
 
-    it('shows a history drop zone in edit mode when the first track is playing', async () => {
-        currentIndex.value = 0
-        const w = mountView('sidebar')
+    it('renders the current track as a row with a play toggle in edit mode', async () => {
+        const w = mountView('sidebar') // currentIndex = 1
         await w.find('.queue-action-edit').trigger('click')
-        const history = w.find('.queue-history')
-        expect(history.exists()).toBe(true)
-        expect(history.classes()).toContain('queue-list--drop-empty')
+        const currentRow = w.find('[data-queue-index="1"]')
+        expect(currentRow.find('.current-play-toggle').exists()).toBe(true)
+        expect(currentRow.find('input[type="checkbox"]').exists()).toBe(false)
     })
 
-    it('shows an upcoming drop zone in edit mode when the last track is playing', async () => {
-        currentIndex.value = 2
+    it('the current row play toggle toggles playback in edit mode', async () => {
         const w = mountView('sidebar')
         await w.find('.queue-action-edit').trigger('click')
-        const upcoming = w.find('.queue-upcoming')
-        expect(upcoming.exists()).toBe(true)
-        expect(upcoming.classes()).toContain('queue-list--drop-empty')
+        await w.find('[data-queue-index="1"] .current-play-toggle').trigger('click')
+        expect(togglePlayPause).toHaveBeenCalled()
+    })
+
+    it('the current track can be deleted like any other row in edit mode', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('[data-queue-index="1"] .delete-button').trigger('click')
+        expect(removeFromQueue).toHaveBeenCalledWith(1)
     })
 
     it('does not render an empty history list outside edit mode', () => {
@@ -211,9 +241,12 @@ describe('QueueView', () => {
         expect(sortableCreate).not.toHaveBeenCalled()
         await w.find('.queue-action-edit').trigger('click')
         await w.vm.$nextTick()
-        // history (1) + upcoming (1) lists both present → two Sortable instances
-        expect(sortableCreate).toHaveBeenCalledTimes(2)
-        const opts = (sortableCreate.mock.calls[0] as unknown[])[1] as { handle: string; group: string }
+        // One flat edit list → a single Sortable instance.
+        expect(sortableCreate).toHaveBeenCalledTimes(1)
+        const opts = (sortableCreate.mock.calls[0] as unknown[])[1] as {
+            handle: string
+            group: string
+        }
         expect(opts.handle).toBe('.drag-handle')
         expect(opts.group).toBe('queue')
     })
@@ -226,5 +259,77 @@ describe('QueueView', () => {
         await w.vm.$nextTick()
         await w.find('.queue-action-edit').trigger('click') // turn off
         expect(destroy).toHaveBeenCalled()
+    })
+})
+
+describe('QueueView album drop', () => {
+    const getAlbum = subsonicClient.getAlbum as ReturnType<typeof vi.fn>
+
+    const setAlbumPayload = () =>
+        useAlbumDragData().setAlbumDrag({ albumId: 'al1', albumName: 'LP', count: 1 })
+
+    const dataTransfer = (types: string[]) => ({ types, dropEffect: '' })
+
+    it('fetches the album and inserts its songs when dropped on the queue body', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w
+            .find('.queue-body')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(getAlbum).toHaveBeenCalledWith('al1')
+        // jsdom rects are 0 → append; queue has 3 items → index 3
+        expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
+    })
+
+    it('ignores a drop while in edit mode', async () => {
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w
+            .find('.queue-body')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(getAlbum).not.toHaveBeenCalled()
+        expect(insertIntoQueue).not.toHaveBeenCalled()
+    })
+
+    it('ignores a non-album drop', async () => {
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w.find('.queue-body').trigger('drop', { dataTransfer: dataTransfer(['text/plain']) })
+        await flushPromises()
+        expect(insertIntoQueue).not.toHaveBeenCalled()
+    })
+
+    it('accepts an album drop into an empty queue', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
+        queue.value = []
+        setAlbumPayload()
+        const w = mountView('sidebar')
+        await w
+            .find('.queue-empty')
+            .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
+        await flushPromises()
+        expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 0)
+    })
+
+    it('highlights the empty queue as a drop zone as soon as an album drag starts', async () => {
+        queue.value = []
+        useAlbumDragData().clearAlbumDrag()
+        const w = mountView('sidebar')
+        expect(w.find('.queue-empty').classes()).not.toContain('queue-empty--drop-active')
+
+        // A drag starting anywhere sets the shared payload → the empty queue
+        // advertises itself immediately, without the cursor being over it.
+        setAlbumPayload()
+        await w.vm.$nextTick()
+        expect(w.find('.queue-empty').classes()).toContain('queue-empty--drop-active')
+        expect(w.text()).toContain('Drop to add album')
+
+        useAlbumDragData().clearAlbumDrag()
+        await w.vm.$nextTick()
+        expect(w.find('.queue-empty').classes()).not.toContain('queue-empty--drop-active')
     })
 })

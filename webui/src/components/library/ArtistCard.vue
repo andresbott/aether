@@ -9,21 +9,24 @@ const props = defineProps<{
 
 const coverUrl = computed(() => {
     if (!props.artist.coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(props.artist.coverArt, 180)
+    return subsonicClient.getCoverArtUrl(props.artist.coverArt, 200)
 })
 </script>
 
 <template>
     <router-link :to="{ name: 'artist', params: { id: artist.id } }" class="artist-card">
-        <div class="card-avatar">
+        <div class="card-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
-            <div v-else class="avatar-placeholder">
+            <div v-else class="cover-placeholder">
                 <i class="pi pi-user" style="font-size: 2rem"></i>
             </div>
         </div>
-        <div class="card-name">{{ artist.name }}</div>
-        <div v-if="artist.albumCount" class="card-count">
-            <i class="pi pi-disc"></i> {{ artist.albumCount }}
+        <div class="card-info">
+            <div class="card-title">{{ artist.name }}</div>
+            <div class="card-subtitle">
+                <template v-if="artist.albumCount != null">{{ artist.albumCount }} {{ artist.albumCount === 1 ? 'album' : 'albums' }}</template>
+                <template v-else>&nbsp;</template>
+            </div>
         </div>
     </router-link>
 </template>
@@ -32,31 +35,33 @@ const coverUrl = computed(() => {
 .artist-card {
     display: flex;
     flex-direction: column;
-    align-items: center;
     text-decoration: none;
     color: inherit;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
     cursor: pointer;
-    transition: transform 0.2s;
 }
 
 .artist-card:hover {
     transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
-.card-avatar {
-    width: 180px;
-    height: 180px;
-    border-radius: 50%;
+.card-cover {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
     overflow: hidden;
 }
 
-.card-avatar img {
+.card-cover img {
     width: 100%;
     height: 100%;
     object-fit: cover;
 }
 
-.avatar-placeholder {
+.cover-placeholder {
     width: 100%;
     height: 100%;
     display: flex;
@@ -66,18 +71,23 @@ const coverUrl = computed(() => {
     color: rgba(255, 255, 255, 0.8);
 }
 
-.card-name {
-    margin-top: 0.5rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-align: center;
+.card-info {
+    padding: 0.5rem 0.25rem;
 }
 
-.card-count {
+.card-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.card-subtitle {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 </style>

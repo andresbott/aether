@@ -51,15 +51,17 @@ const sortedAlbums = computed(() => {
                 </div>
                 <div class="artist-info">
                     <h1>{{ artist.name }}</h1>
-                    <p v-if="artist.albumCount" class="album-count">
+                    <p v-if="artist.albumCount" class="artist-meta">
                         {{ artist.albumCount }} albums
                     </p>
-                    <Button
-                        :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                        text
-                        rounded
-                        @click="handleStar"
-                    />
+                    <div class="artist-actions">
+                        <Button
+                            :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
+                            text
+                            rounded
+                            @click="handleStar"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -79,7 +81,7 @@ const sortedAlbums = computed(() => {
 
 <style scoped>
 .artist-view {
-    max-width: 1400px;
+    max-width: 1200px;
     margin: 0 auto;
 }
 
@@ -100,15 +102,14 @@ const sortedAlbums = computed(() => {
 .artist-header {
     display: flex;
     gap: 2rem;
-    margin: 1.5rem 0 2.5rem;
-    align-items: center;
+    margin: 1.5rem 0 2rem;
 }
 
 .artist-image {
-    width: 200px;
-    height: 200px;
+    width: 250px;
+    height: 250px;
     flex-shrink: 0;
-    border-radius: 50%;
+    border-radius: 8px;
     overflow: hidden;
 }
 
@@ -128,15 +129,30 @@ const sortedAlbums = computed(() => {
     color: rgba(255, 255, 255, 0.8);
 }
 
+.artist-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .artist-info h1 {
     font-size: 2.5rem;
     font-weight: 700;
     margin: 0;
+    line-height: 1.2;
 }
 
-.album-count {
+.artist-meta {
     color: var(--app-text-secondary);
-    margin: 0.25rem 0 0;
+    font-size: 0.95rem;
+    margin: 0;
+}
+
+.artist-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: auto;
 }
 
 .discography h2 {

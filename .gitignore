@@ -20,9 +20,14 @@ docs/superpowers
 # Env
 .env
 
+# API key secrets (referenced from config.yaml via @<file>)
+FanartApiKey.api.key
+TheAudioDBApiKey.api.key
+
 # SPA embedded files (rebuilt from webui/)
 app/spa/files/ui/*
 !app/spa/files/ui/.gitkeep
 
 # Generated cover art test samples
 internal/covergen/testdata/*.png
+.tokensave

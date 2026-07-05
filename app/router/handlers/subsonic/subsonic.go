@@ -6,18 +6,19 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
 )
 
 type Handler struct {
 	store         *store.Store
+	assets        *assetstore.Store
 	coverCacheDir string
-	radioCoverDir string
 }
 
-func Register(r *mux.Router, s *store.Store, coverCacheDir, radioCoverDir string) {
-	h := &Handler{store: s, coverCacheDir: coverCacheDir, radioCoverDir: radioCoverDir}
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCacheDir string) {
+	h := &Handler{store: s, assets: assets, coverCacheDir: coverCacheDir}
 	sub := r.PathPrefix("/rest").Subrouter()
 
 	sub.Use(func(next http.Handler) http.Handler {
@@ -51,6 +52,7 @@ func Register(r *mux.Router, s *store.Store, coverCacheDir, radioCoverDir string
 
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
+	register("getAlbumList2Index", h.getAlbumList2Index)
 	register("getRandomSongs", h.getRandomSongs)
 	register("getSongsByGenre", h.getSongsByGenre)
 	register("getStarred2", h.getStarred2)

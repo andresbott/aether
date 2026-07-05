@@ -52,7 +52,7 @@ const getCoverUrl = (coverArt?: string): string | null => {
 </template>
 
 <style scoped>
-.podcasts-view { max-width: 1400px; margin: 0 auto; }
+.podcasts-view { max-width: var(--app-content-max-width); margin: 0 auto; }
 .view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
 .view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }

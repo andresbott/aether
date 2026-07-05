@@ -17,3 +17,14 @@ TaskRunner:
   QueueSize: 20
   HistorySize: 50
   TagReadWorkers: 0
+  # Directory for per-execution task logs. Empty -> <DataDir>/task-logs.
+  LogDir: ""
+
+# Artist image fetching. Provide at least one provider API key to enable it.
+# A value starting with "@" is loaded from that file's content (path relative to
+# the working directory); these .key files are gitignored. Leave a key file empty
+# to disable that provider — with both empty, the "fetch-artist-images" task
+# reports a "not configured" message when run.
+ArtistImages:
+  FanartApiKey: "@FanartApiKey.api.key"
+  TheAudioDBApiKey: "@TheAudioDBApiKey.api.key"

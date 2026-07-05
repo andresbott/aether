@@ -162,6 +162,101 @@ func TestGetAlbumListByLibrary(t *testing.T) {
 	}
 }
 
+func TestGetAlbumLetterIndex(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	// alphabeticalByName order: "10 years", "a", "abba", "beta", "zed"
+	db.Create(&model.Album{Name: "Abba", NameNorm: "abba", AlbumArtistNorm: "x"})
+	db.Create(&model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"})
+	db.Create(&model.Album{Name: "Beta", NameNorm: "beta", AlbumArtistNorm: "x"})
+	db.Create(&model.Album{Name: "10 Years", NameNorm: "10 years", AlbumArtistNorm: "x"})
+	db.Create(&model.Album{Name: "Zed", NameNorm: "zed", AlbumArtistNorm: "x"})
+
+	letters, total, err := s.GetAlbumLetterIndex(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 5 {
+		t.Fatalf("expected total 5, got %d", total)
+	}
+	got := map[string][2]int{}
+	for _, l := range letters {
+		got[l.Letter] = [2]int{l.Offset, l.Count}
+	}
+	// "#" bucket: "10 years" at offset 0, count 1
+	if got["#"] != [2]int{0, 1} {
+		t.Fatalf("# bucket = %v, want [0 1]", got["#"])
+	}
+	// "A" bucket: "a","abba" at offset 1, count 2
+	if got["A"] != [2]int{1, 2} {
+		t.Fatalf("A bucket = %v, want [1 2]", got["A"])
+	}
+	// "B" bucket: "beta" at offset 3, count 1
+	if got["B"] != [2]int{3, 1} {
+		t.Fatalf("B bucket = %v, want [3 1]", got["B"])
+	}
+	// "Z" bucket: "zed" at offset 4, count 1
+	if got["Z"] != [2]int{4, 1} {
+		t.Fatalf("Z bucket = %v, want [4 1]", got["Z"])
+	}
+}
+
+func TestGetAlbumLetterIndexByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	lib1 := model.Library{Name: "L1", Path: "/l1"}
+	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	db.Create(&lib1)
+	db.Create(&lib2)
+	a := model.Album{Name: "Apple", NameNorm: "apple", AlbumArtistNorm: "x"}
+	b := model.Album{Name: "Banana", NameNorm: "banana", AlbumArtistNorm: "x"}
+	db.Create(&a)
+	db.Create(&b)
+	db.Create(&model.Track{AlbumID: a.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: b.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+
+	id1 := lib1.ID
+	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{LibraryID: &id1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Fatalf("expected total 1 for lib1, got %d", total)
+	}
+	if len(letters) != 1 || letters[0].Letter != "A" {
+		t.Fatalf("expected only A bucket, got %+v", letters)
+	}
+}
+
+func TestAlbumTrackStats(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	a := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	b := model.Album{Name: "B", NameNorm: "b", AlbumArtistNorm: "x"}
+	db.Create(&a)
+	db.Create(&b)
+	db.Create(&model.Track{AlbumID: a.ID, Filename: "1.mp3", FilePath: "/1.mp3", Duration: 100})
+	db.Create(&model.Track{AlbumID: a.ID, Filename: "2.mp3", FilePath: "/2.mp3", Duration: 200})
+
+	stats, err := s.AlbumTrackStats([]uint{a.ID, b.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats[a.ID].Count != 2 || stats[a.ID].Duration != 300 {
+		t.Fatalf("album A stats = %+v, want count 2 duration 300", stats[a.ID])
+	}
+	if _, ok := stats[b.ID]; ok {
+		t.Fatalf("album B has no tracks; should be absent")
+	}
+	empty, err := s.AlbumTrackStats(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty map for no ids, got %d", len(empty))
+	}
+}
+
 func TestSearchAlbumsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

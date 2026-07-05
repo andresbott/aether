@@ -104,38 +104,3 @@ func TestDeleteInternetRadioStationNotFound(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
-
-func TestUpdateInternetRadioStationCoverPath(t *testing.T) {
-	s := testStore(t)
-	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
-	if err := s.UpdateInternetRadioStationCoverPath(st.ID, "/tmp/covers/1.png"); err != nil {
-		t.Fatal(err)
-	}
-	var loaded model.InternetRadioStation
-	s.DB().First(&loaded, st.ID)
-	if loaded.CoverPath != "/tmp/covers/1.png" {
-		t.Fatalf("expected cover path to be set, got %q", loaded.CoverPath)
-	}
-}
-
-func TestUpdateInternetRadioStationCoverPathClear(t *testing.T) {
-	s := testStore(t)
-	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
-	_ = s.UpdateInternetRadioStationCoverPath(st.ID, "/tmp/covers/1.png")
-	if err := s.UpdateInternetRadioStationCoverPath(st.ID, ""); err != nil {
-		t.Fatal(err)
-	}
-	var loaded model.InternetRadioStation
-	s.DB().First(&loaded, st.ID)
-	if loaded.CoverPath != "" {
-		t.Fatalf("expected cover path cleared, got %q", loaded.CoverPath)
-	}
-}
-
-func TestUpdateInternetRadioStationCoverPathNotFound(t *testing.T) {
-	s := testStore(t)
-	err := s.UpdateInternetRadioStationCoverPath(9999, "/x")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-}

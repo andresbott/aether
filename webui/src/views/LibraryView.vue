@@ -2,15 +2,17 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
-import AlbumCard from '@/components/library/AlbumCard.vue'
-import ArtistCard from '@/components/library/ArtistCard.vue'
-import {
-    useAlbumList,
-    useArtists,
-    useMusicFolders
-} from '@/composables/useSubsonicQueries'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import AlbumListView from '@/components/library/AlbumListView.vue'
+import AlbumGrid from '@/components/library/AlbumGrid.vue'
+import ArtistListView from '@/components/library/ArtistListView.vue'
+import ArtistGrid from '@/components/library/ArtistGrid.vue'
+import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import { useAlbumIndex } from '@/composables/useAlbumIndex'
+import { useArtistTable } from '@/composables/useArtistTable'
 
 type ViewMode = 'albums' | 'artists'
+type Layout = 'grid' | 'list'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,6 +20,10 @@ const router = useRouter()
 const viewOptions = [
     { label: 'Albums', value: 'albums' },
     { label: 'Artists', value: 'artists' }
+]
+const layoutOptions = [
+    { label: 'List', value: 'list', icon: 'pi pi-list' },
+    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
 ]
 
 const folderId = computed<number | undefined>(() => {
@@ -29,17 +35,11 @@ const folderId = computed<number | undefined>(() => {
 })
 
 const { data: folders } = useMusicFolders()
-const folder = computed(() =>
-    folders.value?.find((f) => f.id === folderId.value)
+const folder = computed(() => folders.value?.find((f) => f.id === folderId.value))
+const folderName = computed(() =>
+    folderId.value === undefined ? 'Library' : (folder.value?.name ?? 'Library')
 )
-const folderName = computed(() => {
-    if (folderId.value === undefined) return 'Library'
-    return folder.value?.name ?? 'Library'
-})
-
-const serverDefault = computed<ViewMode>(
-    () => folder.value?.defaultView ?? 'albums'
-)
+const serverDefault = computed<ViewMode>(() => folder.value?.defaultView ?? 'albums')
 
 const hashView = computed<ViewMode | null>(() => {
     const h = route.hash.replace('#', '')
@@ -49,18 +49,56 @@ const hashView = computed<ViewMode | null>(() => {
 const viewMode = computed<ViewMode>({
     get: () => hashView.value ?? serverDefault.value,
     set: (v) => {
-        router.replace({ hash: `#${v}` })
+        router.replace({ hash: `#${v}`, query: route.query })
     }
 })
 
-const { data: albums, isLoading: albumsLoading } = useAlbumList('newest', 50, 0, folderId)
-const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
+const layout = computed<Layout>({
+    get: () => (route.query.view === 'list' ? 'list' : 'grid'),
+    set: (v) => {
+        const query = { ...route.query }
+        if (v === 'list') query.view = 'list'
+        else delete query.view
+        router.replace({ hash: route.hash, query })
+    }
+})
+
+// Header counts — only the active tab's index is fetched (dedups with the body view).
+const { total: albumTotal } = useAlbumIndex(folderId, {
+    enabled: computed(() => viewMode.value === 'albums')
+})
+const { total: artistTotal } = useArtistTable(folderId, {
+    enabled: computed(() => viewMode.value === 'artists')
+})
+
+const summary = computed(() => {
+    if (viewMode.value === 'albums') {
+        return albumTotal.value > 0
+            ? `${albumTotal.value} ${albumTotal.value === 1 ? 'album' : 'albums'}`
+            : ''
+    }
+    return artistTotal.value > 0
+        ? `${artistTotal.value} ${artistTotal.value === 1 ? 'artist' : 'artists'}`
+        : ''
+})
 </script>
 
 <template>
-    <div class="library-view">
-        <div class="library-header">
-            <h1>{{ folderName }}</h1>
+    <ContentScaffold :title="folderName" :summary="summary">
+        <template #actions>
+            <SelectButton
+                v-model="layout"
+                :options="layoutOptions"
+                optionLabel="label"
+                optionValue="value"
+                :allowEmpty="false"
+                dataKey="value"
+                aria-label="Layout"
+            >
+                <template #option="slotProps">
+                    <i :class="slotProps.option.icon"></i>
+                </template>
+            </SelectButton>
             <SelectButton
                 v-model="viewMode"
                 :options="viewOptions"
@@ -68,87 +106,11 @@ const { data: artists, isLoading: artistsLoading } = useArtists(folderId)
                 optionValue="value"
                 :allowEmpty="false"
             />
-        </div>
+        </template>
 
-        <div v-if="viewMode === 'albums'">
-            <div v-if="albumsLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-            </div>
-            <div v-else-if="albums && albums.length > 0" class="album-grid">
-                <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
-            </div>
-            <div v-else class="empty-state">
-                <i class="pi pi-music" style="font-size: 3rem"></i>
-                <p>No albums found</p>
-            </div>
-        </div>
-
-        <div v-else-if="viewMode === 'artists'">
-            <div v-if="artistsLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-            </div>
-            <div v-else-if="artists && artists.length > 0" class="artist-grid">
-                <ArtistCard
-                    v-for="artist in artists"
-                    :key="artist.id"
-                    :artist="artist"
-                />
-            </div>
-            <div v-else class="empty-state">
-                <i class="pi pi-users" style="font-size: 3rem"></i>
-                <p>No artists found</p>
-            </div>
-        </div>
-
-    </div>
+        <AlbumListView v-if="viewMode === 'albums' && layout === 'list'" :folderId="folderId" />
+        <AlbumGrid v-else-if="viewMode === 'albums'" :folderId="folderId" />
+        <ArtistListView v-else-if="layout === 'list'" :folderId="folderId" />
+        <ArtistGrid v-else :folderId="folderId" />
+    </ContentScaffold>
 </template>
-
-<style scoped>
-.library-view {
-    max-width: 1400px;
-    margin: 0 auto;
-}
-
-.library-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 2rem;
-}
-
-.library-header h1 {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0;
-}
-
-.album-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 2rem;
-}
-
-.artist-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 2rem;
-    justify-items: center;
-}
-
-.loading {
-    display: flex;
-    justify-content: center;
-    padding: 3rem;
-    color: var(--app-text-secondary);
-}
-
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 4rem;
-    gap: 1rem;
-    color: var(--app-text-secondary);
-}
-</style>

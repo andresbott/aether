@@ -28,9 +28,23 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
+	ids := make([]uint, 0, len(albums))
+	for i := range albums {
+		ids = append(ids, albums[i].ID)
+	}
+	stats, err := h.store.AlbumTrackStats(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, albumToMap(&al))
+		m := albumToMap(&al)
+		if st, ok := stats[al.ID]; ok {
+			m["songCount"] = st.Count
+			m["duration"] = st.Duration
+		}
+		albumList = append(albumList, m)
 	}
 	writeResponse(w, map[string]any{
 		"albumList2": map[string]any{
@@ -117,6 +131,29 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 			"artist": artists,
 			"album":  albums,
 			"song":   songs,
+		},
+	})
+}
+
+func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
+	filter := &store.AlbumListFilter{LibraryID: paramLibraryID(r)}
+	letters, total, err := h.store.GetAlbumLetterIndex(filter)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	index := make([]map[string]any, 0, len(letters))
+	for _, l := range letters {
+		index = append(index, map[string]any{
+			"name":   l.Letter,
+			"offset": l.Offset,
+			"count":  l.Count,
+		})
+	}
+	writeResponse(w, map[string]any{
+		"albumList2Index": map[string]any{
+			"total": total,
+			"index": index,
 		},
 	})
 }

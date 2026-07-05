@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
@@ -18,6 +19,8 @@ type Cfg struct {
 	Logger        *slog.Logger
 	TaskRunner    *taskrunner.Runner
 	TaskLogGetter taskrunner.TaskLogGetter
+	ScheduleStore *taskrunner.ScheduleStore
+	Scheduler     *taskrunner.Scheduler
 	Store         *store.Store
 	DataDir       string
 	TagReader     tags.Reader
@@ -28,6 +31,8 @@ type MainAppHandler struct {
 	logger        *slog.Logger
 	taskRunner    *taskrunner.Runner
 	taskLogGetter taskrunner.TaskLogGetter
+	scheduleStore *taskrunner.ScheduleStore
+	scheduler     *taskrunner.Scheduler
 	store         *store.Store
 	dataDir       string
 	tagReader     tags.Reader
@@ -44,6 +49,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		logger:        cfg.Logger,
 		taskRunner:    cfg.TaskRunner,
 		taskLogGetter: cfg.TaskLogGetter,
+		scheduleStore: cfg.ScheduleStore,
+		scheduler:     cfg.Scheduler,
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,
 		tagReader:     cfg.TagReader,
@@ -61,7 +68,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		subsonic.Register(app.router, app.store, filepath.Join(app.dataDir, "generated-covers"), filepath.Join(app.dataDir, "radio-covers"))
+		assets := assetstore.New(filepath.Join(app.dataDir, "metadata"))
+		subsonic.Register(app.router, app.store, assets, filepath.Join(app.dataDir, "generated-covers"))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

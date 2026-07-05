@@ -18,6 +18,7 @@ export interface Artist {
     id: string
     name: string
     albumCount?: number
+    songCount?: number
     starred?: string
     coverArt?: string
     artistImageUrl?: string
@@ -91,6 +92,23 @@ export interface SearchResult3 {
 
 export interface AlbumList {
     album: Album[]
+}
+
+export interface AlbumLetter {
+    name: string // "#" or "A".."Z"
+    offset: number
+    count: number
+}
+
+export interface AlbumIndex {
+    total: number
+    index: AlbumLetter[]
+}
+
+export interface ArtistIndex {
+    total: number
+    letters: AlbumLetter[]
+    items: Artist[]
 }
 
 export interface ArtistInfo {

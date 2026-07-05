@@ -5,13 +5,15 @@ const routes: RouteRecordRaw[] = [
     {
         path: '/',
         name: 'home',
-        component: () => import('@/views/HomeView.vue')
+        component: () => import('@/views/HomeView.vue'),
+        meta: { flush: true }
     },
     {
         path: '/library/:folderId?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/album/:id',
@@ -55,7 +57,8 @@ const routes: RouteRecordRaw[] = [
     {
         path: '/radio',
         name: 'radio',
-        component: () => import('@/views/RadioView.vue')
+        component: () => import('@/views/RadioView.vue'),
+        meta: { flush: true }
     },
     {
         path: '/admin',

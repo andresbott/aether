@@ -5,7 +5,10 @@ import type {
     SearchResult3,
     Album,
     AlbumWithSongs,
+    AlbumIndex,
+    AlbumLetter,
     Artist,
+    ArtistIndex,
     Song,
     Playlist,
     MusicFolder,
@@ -128,6 +131,19 @@ class SubsonicClient {
         return response.albumList2?.album || []
     }
 
+    async getAlbumIndex(musicFolderId?: number): Promise<AlbumIndex> {
+        if (!this.isConfigured()) return { total: 0, index: [] }
+        const params: Record<string, string | number | undefined> = {}
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{ albumList2Index?: AlbumIndex }>(
+            'getAlbumList2Index.view',
+            params
+        )
+        return response.albumList2Index ?? { total: 0, index: [] }
+    }
+
     async getAlbum(id: string): Promise<AlbumWithSongs | null> {
         if (!this.isConfigured()) return null
         const response = await this.request<{ album: AlbumWithSongs }>('getAlbum.view', { id })
@@ -143,28 +159,29 @@ class SubsonicClient {
         return response.artist
     }
 
-    async getArtists(musicFolderId?: number): Promise<Artist[]> {
-        if (!this.isConfigured()) return []
+    async getArtistIndex(musicFolderId?: number): Promise<ArtistIndex> {
+        if (!this.isConfigured()) return { total: 0, letters: [], items: [] }
         const params: Record<string, string | number | undefined> = {}
         if (musicFolderId !== undefined) {
             params.musicFolderId = musicFolderId
         }
         const response = await this.request<{
-            artists: {
-                index: Array<{
-                    name: string
-                    artist: Artist[]
-                }>
-            }
+            artists?: { index?: Array<{ name: string; artist?: Artist[] }> }
         }>('getArtists.view', params)
 
-        const allArtists: Artist[] = []
-        response.artists?.index?.forEach((index) => {
-            if (index.artist) {
-                allArtists.push(...index.artist)
-            }
-        })
-        return allArtists
+        const letters: AlbumLetter[] = []
+        const items: Artist[] = []
+        for (const group of response.artists?.index ?? []) {
+            const groupArtists = group.artist ?? []
+            if (groupArtists.length === 0) continue
+            letters.push({ name: group.name, offset: items.length, count: groupArtists.length })
+            items.push(...groupArtists)
+        }
+        return { total: items.length, letters, items }
+    }
+
+    async getArtists(musicFolderId?: number): Promise<Artist[]> {
+        return (await this.getArtistIndex(musicFolderId)).items
     }
 
     async search(params: SearchParams): Promise<SearchResult3> {

@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-bumbu/config"
 )
 
 type AppCfg struct {
-	Server     serverCfg
-	Obs        serverCfg `config:"Observability"`
-	Env        Env
-	DataDir    string
-	Msgs       []Msg
-	TaskRunner TaskRunnerCfg
+	Server       serverCfg
+	Obs          serverCfg `config:"Observability"`
+	Env          Env
+	DataDir      string
+	Msgs         []Msg
+	TaskRunner   TaskRunnerCfg
+	ArtistImages ArtistImagesCfg
 }
 
 type TaskRunnerCfg struct {
@@ -23,6 +25,11 @@ type TaskRunnerCfg struct {
 	HistorySize    int
 	LogDir         string
 	TagReadWorkers int
+}
+
+type ArtistImagesCfg struct {
+	FanartApiKey     string
+	TheAudioDBApiKey string
 }
 
 type Env struct {
@@ -69,6 +76,10 @@ var defaultCfg = AppCfg{
 		HistorySize:    50,
 		TagReadWorkers: 0,
 	},
+	ArtistImages: ArtistImagesCfg{
+		FanartApiKey:     "",
+		TheAudioDBApiKey: "",
+	},
 }
 
 func getAppCfg(file string) (AppCfg, error) {
@@ -99,6 +110,11 @@ func getAppCfg(file string) (AppCfg, error) {
 		return cfg, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 	cfg.DataDir = absPath
+
+	// API keys may be loaded from files (config value "@<path>"); file content
+	// is returned verbatim, so trim surrounding whitespace/newlines.
+	cfg.ArtistImages.FanartApiKey = strings.TrimSpace(cfg.ArtistImages.FanartApiKey)
+	cfg.ArtistImages.TheAudioDBApiKey = strings.TrimSpace(cfg.ArtistImages.TheAudioDBApiKey)
 
 	return cfg, nil
 }

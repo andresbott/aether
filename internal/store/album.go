@@ -1,6 +1,8 @@
 package store
 
 import (
+	"strings"
+
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
 	"gorm.io/gorm"
@@ -101,6 +103,84 @@ func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumLis
 	var albums []model.Album
 	err := q.Limit(size).Offset(offset).Find(&albums).Error
 	return albums, err
+}
+
+// AlbumLetter is one bucket of the alphabetical album index: the first-letter
+// label, the offset of its first album in alphabeticalByName order, and how
+// many albums fall under it.
+type AlbumLetter struct {
+	Letter string // "#" or "A".."Z"
+	Offset int
+	Count  int
+}
+
+// GetAlbumLetterIndex returns per-letter offsets/counts for the alphabeticalByName
+// album ordering (same LibraryID filter and name_norm ASC order as GetAlbumList),
+// plus the total album count. Non-alphabetic first chars bucket under "#".
+func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int, error) {
+	q := s.db.Model(&model.Album{})
+	if filter != nil && filter.LibraryID != nil {
+		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
+
+	type row struct {
+		C string
+		N int
+	}
+	var rows []row
+	if err := q.
+		Select("SUBSTR(name_norm, 1, 1) AS c, COUNT(*) AS n").
+		Group("c").
+		Order("c ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var letters []AlbumLetter
+	byLetter := map[string]int{} // letter -> index in letters
+	running := 0
+	for _, r := range rows {
+		letter := "#"
+		if len(r.C) == 1 && r.C >= "a" && r.C <= "z" {
+			letter = strings.ToUpper(r.C)
+		}
+		if idx, ok := byLetter[letter]; ok {
+			letters[idx].Count += r.N
+		} else {
+			byLetter[letter] = len(letters)
+			letters = append(letters, AlbumLetter{Letter: letter, Offset: running, Count: r.N})
+		}
+		running += r.N
+	}
+	return letters, running, nil
+}
+
+// AlbumTrackStat holds aggregate track figures for one album.
+type AlbumTrackStat struct {
+	AlbumID  uint
+	Count    int
+	Duration int
+}
+
+// AlbumTrackStats returns song count and total duration per album for the given
+// album IDs, in one grouped query. Albums with no tracks are absent from the map.
+func (s *Store) AlbumTrackStats(albumIDs []uint) (map[uint]AlbumTrackStat, error) {
+	out := map[uint]AlbumTrackStat{}
+	if len(albumIDs) == 0 {
+		return out, nil
+	}
+	var rows []AlbumTrackStat
+	if err := s.db.Model(&model.Track{}).
+		Select("album_id AS album_id, COUNT(*) AS count, COALESCE(SUM(duration), 0) AS duration").
+		Where("album_id IN ?", albumIDs).
+		Group("album_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.AlbumID] = r
+	}
+	return out, nil
 }
 
 func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilter) ([]model.Album, error) {

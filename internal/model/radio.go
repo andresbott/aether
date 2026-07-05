@@ -7,7 +7,6 @@ type InternetRadioStation struct {
 	Name        string `gorm:"not null"`
 	StreamURL   string `gorm:"not null"`
 	HomepageURL string
-	CoverPath   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

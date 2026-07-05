@@ -9,12 +9,14 @@ const props = defineProps<{
     queueIndex: number
     editing?: boolean
     selected?: boolean
+    current?: boolean
+    playing?: boolean
 }>()
 
 const emit = defineEmits<{
     play: []
-    select: [payload: { additive: boolean }]
-    toggleCheck: []
+    select: [payload: { additive: boolean; range: boolean }]
+    togglePlay: []
     delete: []
 }>()
 
@@ -35,7 +37,10 @@ const formatDuration = (seconds?: number): string => {
 }
 
 const onRowClick = (event: MouseEvent): void => {
-    emit('select', { additive: event.ctrlKey || event.metaKey })
+    // The current track isn't part of the selectable set (it carries a play
+    // toggle, not a checkbox), so clicking its body does nothing.
+    if (props.current) return
+    emit('select', { additive: event.ctrlKey || event.metaKey, range: event.shiftKey })
 }
 </script>
 
@@ -43,16 +48,36 @@ const onRowClick = (event: MouseEvent): void => {
     <div
         v-if="editing"
         class="queue-row queue-row--editing"
-        :class="{ selected }"
+        :class="{ selected, 'queue-row--current': current }"
         role="option"
         :aria-selected="selected"
         :data-queue-index="queueIndex"
         @click="onRowClick"
     >
         <span class="row-index">
-            <span class="row-checkbox" @click.stop>
-                <input type="checkbox" :checked="selected" @change="emit('toggleCheck')" />
-            </span>
+            <!-- The current track shows a play/pause toggle in place of the
+                 selection checkbox; it isn't selectable. -->
+            <button
+                v-if="current"
+                type="button"
+                class="current-play-toggle"
+                :aria-label="playing ? 'Pause' : 'Play'"
+                @click.stop="emit('togglePlay')"
+            >
+                <i :class="playing ? 'pi pi-pause' : 'pi pi-play'"></i>
+            </button>
+            <!-- Selection indicator only: pointer-events are disabled so a click
+                 falls through to the row handler (preserving ctrl/shift), and it
+                 carries no handler of its own. The row's aria-selected conveys
+                 state, so the box is hidden from assistive tech. -->
+            <input
+                v-else
+                class="row-checkbox"
+                type="checkbox"
+                :checked="selected"
+                tabindex="-1"
+                aria-hidden="true"
+            />
         </span>
         <span class="row-cover">
             <img v-if="coverUrl" :src="coverUrl" alt="" />
@@ -83,6 +108,7 @@ const onRowClick = (event: MouseEvent): void => {
         v-else
         type="button"
         class="queue-row"
+        :data-queue-index="queueIndex"
         @click="emit('play')"
         @mouseenter="hovered = true"
         @mouseleave="hovered = false"
@@ -121,11 +147,14 @@ const onRowClick = (event: MouseEvent): void => {
 }
 
 .queue-row:hover {
-    background-color: var(--app-background);
+    background-color: var(--app-hover);
 }
 
 .queue-row--editing {
     cursor: default;
+    /* SHIFT+click selects a range of rows; suppress the browser's text
+       highlighting that the shift drag would otherwise produce. */
+    user-select: none;
 }
 
 .queue-row--editing.selected {
@@ -141,15 +170,29 @@ const onRowClick = (event: MouseEvent): void => {
 }
 
 .row-checkbox {
-    display: flex;
-    align-items: center;
-}
-
-.row-checkbox input {
     width: 1rem;
     height: 1rem;
+    margin: 0;
     accent-color: var(--app-accent);
+    /* Indicator only — let the click reach the row's select handler. */
+    pointer-events: none;
+}
+
+.current-play-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: none;
     cursor: pointer;
+    color: var(--app-accent);
+    font-size: 0.9rem;
+    transition: transform 0.15s;
+}
+
+.current-play-toggle:hover {
+    transform: scale(1.15);
 }
 
 .track-number {

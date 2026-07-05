@@ -77,3 +77,12 @@ func TestFallbackReader_BothFail(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestMetadataHasMBArtistIDField(t *testing.T) {
+	var m tags.Metadata
+	m.MBArtistID = []string{"a"}
+	m.MBAlbumArtistID = []string{"b"}
+	if m.MBArtistID[0] != "a" || m.MBAlbumArtistID[0] != "b" {
+		t.Fatal("MBArtistID / MBAlbumArtistID fields missing")
+	}
+}

@@ -17,12 +17,21 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 		th := taskHandler.Handler{
 			Runner:        h.taskRunner,
 			TaskLogGetter: h.taskLogGetter,
+			ScheduleStore: h.scheduleStore,
+			Scheduler:     h.scheduler,
 		}
+		// Executions are global. Register these before /tasks/{name} so the
+		// {name} var does not capture the literal "executions".
+		r.Path("/tasks/executions").Methods(http.MethodGet).Handler(th.ListExecutions())
+		r.Path("/tasks/executions/{id}/cancel").Methods(http.MethodPost).Handler(th.CancelExecution())
+		r.Path("/tasks/executions/{id}/logs").Methods(http.MethodGet).Handler(th.GetExecutionLog())
+
 		r.Path("/tasks").Methods(http.MethodGet).Handler(th.ListTasks())
-		r.Path("/tasks/{name}").Methods(http.MethodPost).Handler(th.TriggerTask())
-		r.Path("/tasks/{name}/executions").Methods(http.MethodGet).Handler(th.ListExecutions())
-		r.Path("/tasks/{name}/executions/{id}").Methods(http.MethodDelete).Handler(th.CancelExecution())
-		r.Path("/tasks/{name}/executions/{id}/log").Methods(http.MethodGet).Handler(th.GetExecutionLog())
+		r.Path("/tasks/{name}/trigger").Methods(http.MethodPost).Handler(th.TriggerTask())
+		r.Path("/tasks/{name}").Methods(http.MethodGet).Handler(th.GetTask())
+		r.Path("/tasks/{name}").Methods(http.MethodPut).Handler(th.UpsertTask())
+		r.Path("/tasks/{name}").Methods(http.MethodPatch).Handler(th.PatchTask())
+		r.Path("/tasks/{name}").Methods(http.MethodDelete).Handler(th.DeleteTaskSchedule())
 	}
 
 	if h.store != nil {

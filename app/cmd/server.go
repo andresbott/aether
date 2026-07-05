@@ -17,6 +17,8 @@ import (
 	"github.com/andresbott/aether/app/router"
 	"github.com/andresbott/aether/app/router/handlers"
 	"github.com/andresbott/aether/app/tasks"
+	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
@@ -103,6 +105,22 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
+	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
+	// Build the artist-image fetcher from whatever provider API keys are set.
+	// If none are configured, fetcher stays nil and the task reports a clear
+	// "not configured" message when run (the task is always registered).
+	var providers []artistimage.Provider
+	if cfg.ArtistImages.FanartApiKey != "" {
+		providers = append(providers, artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey))
+	}
+	if cfg.ArtistImages.TheAudioDBApiKey != "" {
+		providers = append(providers, artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey))
+	}
+	var fetcher tasks.Fetcher
+	if len(providers) > 0 {
+		fetcher = artistimage.NewChain(providers...)
+	}
+
 	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
 
 	// Task runner
@@ -126,10 +144,31 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
-	// Register tasks
+	// Register tasks — scan and metadata fetch are independent tasks; a scan
+	// does NOT auto-trigger the artist-image fetch. Run each on demand.
 	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
 	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
+	runner.RegisterTask(
+		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
+		tasks.FetchArtistImagesTaskName, 1,
+	)
 	runner.Start()
+
+	scheduleStore, err := taskrunner.NewScheduleStore(db)
+	if err != nil {
+		return fmt.Errorf("schedule store: %w", err)
+	}
+	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
+		ScheduleStore: scheduleStore,
+		Enqueuer: taskrunner.FuncEnqueuer(func(_ context.Context, name string) error {
+			_, addErr := runner.AddRun(name)
+			return addErr
+		}),
+		Logger: l,
+	})
+	if err != nil {
+		return fmt.Errorf("scheduler: %w", err)
+	}
 
 	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)
 
@@ -137,6 +176,8 @@ func runServer(configFile string) error {
 		Logger:        l,
 		TaskRunner:    runner,
 		TaskLogGetter: taskLogReader,
+		ScheduleStore: scheduleStore,
+		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
@@ -160,11 +201,14 @@ func runServer(configFile string) error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
+	scheduler.Start(rootCtx)
+
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
 	g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
 	g.Go(func() error {
 		<-gctx.Done()
+		scheduler.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return runner.Shutdown(shutdownCtx)

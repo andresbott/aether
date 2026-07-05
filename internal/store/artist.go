@@ -1,19 +1,30 @@
 package store
 
 import (
+	"time"
+
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
 )
 
-func (s *Store) FindOrCreateArtists(names []string) ([]*model.Artist, error) {
+func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Artist, error) {
 	artists := make([]*model.Artist, 0, len(names))
-	for _, name := range names {
+	for i, name := range names {
+		mbid := ""
+		if i < len(mbids) {
+			mbid = mbids[i]
+		}
 		norm := unidecode.Normalize(name)
 		var artist model.Artist
 		err := s.db.Where("name_norm = ?", norm).First(&artist).Error
 		if err != nil {
-			artist = model.Artist{Name: name, NameNorm: norm}
+			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 			if err := s.db.Create(&artist).Error; err != nil {
+				return nil, err
+			}
+		} else if artist.MBArtistID == "" && mbid != "" {
+			artist.MBArtistID = mbid
+			if err := s.db.Model(&artist).Update("mb_artist_id", mbid).Error; err != nil {
 				return nil, err
 			}
 		}
@@ -78,6 +89,16 @@ func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error
 		result[r.ArtistID] = r.Count
 	}
 	return result, nil
+}
+
+func (s *Store) ArtistsWithMBID() ([]model.Artist, error) {
+	var artists []model.Artist
+	err := s.db.Where("mb_artist_id != ''").Find(&artists).Error
+	return artists, err
+}
+
+func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
+	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
 }
 
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {

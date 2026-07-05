@@ -45,7 +45,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	if len(artistNames) == 0 {
 		artistNames = []string{"Unknown Artist"}
 	}
-	artists, err := tx.FindOrCreateArtists(artistNames)
+	artists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 			albumArtistNames = artistNames
 		}
 	}
-	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames)
+	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
 		return err
 	}
@@ -181,4 +181,14 @@ func fileSize(path string) int64 {
 		return 0
 	}
 	return info.Size()
+}
+
+// alignMBIDs returns mbids only when they line up 1:1 with names; otherwise nil.
+// Multi-value splitting can desync the two lists, so we assign MBIDs only in the
+// unambiguous case and fall back to the generated avatar otherwise.
+func alignMBIDs(names, mbids []string) []string {
+	if len(mbids) == len(names) {
+		return mbids
+	}
+	return nil
 }

@@ -29,7 +29,10 @@ onUnmounted(() => {
             <AppSidebar />
 
             <div class="content-area">
-                <main class="main-content">
+                <main
+                    class="main-content"
+                    :class="{ 'main-content--flush': route.meta.flush }"
+                >
                     <RouterView />
                 </main>
                 <QueueSidebar v-if="route.name !== 'home'" />
@@ -93,5 +96,15 @@ onUnmounted(() => {
     .main-content {
         padding: 1rem;
     }
+}
+
+/* Full-bleed routes (those with `meta: { flush: true }`) manage their own
+   horizontal gutter on their header/content, so drop the side padding here and
+   let their internal scroll area reach the content-area edge — putting the
+   scroll bar flush right. Declared last so it also wins inside the media query
+   above. */
+.main-content--flush {
+    padding-left: 0;
+    padding-right: 0;
 }
 </style>

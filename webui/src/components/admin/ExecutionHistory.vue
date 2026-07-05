@@ -1,144 +1,115 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import DataTable from 'primevue/datatable'
+import type { DataTableRowClickEvent } from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
 import Button from 'primevue/button'
-import LogViewer from '@/components/admin/LogViewer.vue'
-import { useCancelExecution } from '@/composables/useTasks'
+import {
+    getStatusSeverity,
+    getStatusLabel,
+    isActiveStatus,
+    EXECUTION_STATUS
+} from '@/composables/useTasks'
 import type { ExecutionInfo } from '@/types/tasks'
 
 const props = defineProps<{
     executions: ExecutionInfo[]
     isLoading: boolean
+    canceling?: boolean
 }>()
 
-const cancelMutation = useCancelExecution()
+const emit = defineEmits<{
+    cancel: [executionId: string]
+    rowClick: [execution: ExecutionInfo]
+}>()
 
-const logDialogVisible = ref(false)
-const selectedExecution = ref<ExecutionInfo | null>(null)
-
-const openLog = (execution: ExecutionInfo) => {
-    selectedExecution.value = execution
-    logDialogVisible.value = true
-}
-
-const cancelExec = (execution: ExecutionInfo) => {
-    cancelMutation.mutate({
-        taskName: execution.task_name,
-        executionId: execution.id
-    })
-}
-
-const statusSeverity = (
-    status: string
-): 'info' | 'warn' | 'success' | 'danger' | 'secondary' => {
-    switch (status) {
-        case 'Queued':
-            return 'info'
-        case 'Running':
-            return 'warn'
-        case 'Completed':
-            return 'success'
-        case 'Failed':
-            return 'danger'
-        case 'Cancelled':
-            return 'secondary'
-        default:
-            return 'secondary'
+const counts = computed(() => {
+    const list = props.executions ?? []
+    const by = (s: string) => list.filter((e) => e.status === s).length
+    return {
+        total: list.length,
+        waiting: by(EXECUTION_STATUS.waiting),
+        running: by(EXECUTION_STATUS.running),
+        complete: by(EXECUTION_STATUS.complete),
+        failed: by(EXECUTION_STATUS.failed)
     }
-}
+})
 
-const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return '-'
-    const d = new Date(dateStr)
-    return d.toLocaleString()
-}
+const formatDate = (s?: string): string => (s ? new Date(s).toLocaleString() : '-')
 
-const computeDuration = (execution: ExecutionInfo): string => {
-    if (!execution.started_at || !execution.ended_at) return '-'
-    const start = new Date(execution.started_at).getTime()
-    const end = new Date(execution.ended_at).getTime()
-    const diffMs = end - start
-    if (diffMs < 1000) return `${diffMs}ms`
-    const secs = Math.floor(diffMs / 1000)
-    if (secs < 60) return `${secs}s`
-    const mins = Math.floor(secs / 60)
-    const remSecs = secs % 60
-    return `${mins}m ${remSecs}s`
+const duration = (e: ExecutionInfo): string => {
+    if (!e.started_at || !e.ended_at) return '-'
+    const ms = new Date(e.ended_at).getTime() - new Date(e.started_at).getTime()
+    if (ms < 0) return '-'
+    if (ms < 1000) return `${ms}ms`
+    const sec = Math.floor(ms / 1000)
+    if (sec < 60) return `${sec}s`
+    const m = Math.floor(sec / 60)
+    const s = sec % 60
+    return s ? `${m}m ${s}s` : `${m}m`
 }
-
-const isActive = (status: string): boolean => {
-    return status === 'Queued' || status === 'Running'
-}
-
-const selectedTaskName = computed(() => selectedExecution.value?.task_name ?? '')
-const selectedExecutionId = computed(() => selectedExecution.value?.id ?? '')
 </script>
 
 <template>
-    <DataTable :value="executions" :loading="isLoading" stripedRows>
-        <template #empty>
-            <div class="empty-table">No executions found</div>
-        </template>
-        <Column field="task_name" header="Task" style="width: 120px" />
-        <Column field="status" header="Status" style="width: 110px">
-            <template #body="{ data }">
-                <Tag :value="data.status" :severity="statusSeverity(data.status)" />
-            </template>
-        </Column>
-        <Column header="Queued" style="width: 180px">
-            <template #body="{ data }">{{ formatDate(data.queued_at) }}</template>
-        </Column>
-        <Column header="Started" style="width: 180px">
-            <template #body="{ data }">{{ formatDate(data.started_at) }}</template>
-        </Column>
-        <Column header="Duration" style="width: 100px">
-            <template #body="{ data }">{{ computeDuration(data) }}</template>
-        </Column>
-        <Column header="Actions" style="width: 140px">
-            <template #body="{ data }">
-                <div class="action-buttons">
+    <div>
+        <p v-if="!isLoading" class="queue-summary">
+            <strong>Total: {{ counts.total }}</strong>
+            <span v-if="counts.total > 0">
+                · Waiting: {{ counts.waiting }} · Running: {{ counts.running }}
+                · Complete: {{ counts.complete }} · Failed: {{ counts.failed }}
+            </span>
+        </p>
+        <DataTable
+            :value="executions"
+            :loading="isLoading"
+            dataKey="id"
+            stripedRows
+            class="queue-table"
+            @rowClick="(e: DataTableRowClickEvent) => emit('rowClick', e.data as ExecutionInfo)"
+        >
+            <template #empty><div class="empty-table">No executions found</div></template>
+            <Column field="task_name" header="Task" style="width: 140px" />
+            <Column header="Queued" style="width: 180px">
+                <template #body="{ data }">{{ formatDate(data.queued_at) }}</template>
+            </Column>
+            <Column header="Duration" style="width: 100px">
+                <template #body="{ data }">{{ duration(data) }}</template>
+            </Column>
+            <Column header="Status" style="width: 110px">
+                <template #body="{ data }">
+                    <Tag :value="getStatusLabel(data.status)" :severity="getStatusSeverity(data.status)" />
+                </template>
+            </Column>
+            <Column header="Actions" style="width: 120px">
+                <template #body="{ data }">
                     <Button
-                        icon="pi pi-file"
-                        text
-                        rounded
-                        size="small"
-                        v-tooltip="'View Log'"
-                        @click="openLog(data)"
-                    />
-                    <Button
-                        v-if="isActive(data.status)"
+                        v-if="isActiveStatus(data.status)"
+                        label="Cancel"
                         icon="pi pi-times"
-                        text
-                        rounded
                         size="small"
-                        severity="danger"
-                        v-tooltip="'Cancel'"
-                        @click="cancelExec(data)"
+                        severity="secondary"
+                        :disabled="canceling"
+                        @click.stop="emit('cancel', data.id)"
                     />
-                </div>
-            </template>
-        </Column>
-    </DataTable>
-
-    <LogViewer
-        v-if="selectedExecution"
-        v-model:visible="logDialogVisible"
-        :taskName="selectedTaskName"
-        :executionId="selectedExecutionId"
-    />
+                </template>
+            </Column>
+        </DataTable>
+    </div>
 </template>
 
 <style scoped>
+.queue-summary {
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
+    margin: 0 0 0.5rem;
+}
+.queue-table :deep(.p-datatable-tbody > tr) {
+    cursor: pointer;
+}
 .empty-table {
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
-}
-
-.action-buttons {
-    display: flex;
-    gap: 0.25rem;
 }
 </style>

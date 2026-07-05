@@ -1,96 +1,192 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
+import TabPanel from 'primevue/tabpanel'
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
 import Button from 'primevue/button'
-import SelectButton from 'primevue/selectbutton'
+import Message from 'primevue/message'
+import { useToast } from 'primevue/usetoast'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
-import { useTasks, useExecutions, useTriggerTask } from '@/composables/useTasks'
+import LogViewer from '@/components/admin/LogViewer.vue'
+import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
+import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS } from '@/composables/useTasks'
+import type { Task } from '@/composables/useTasks'
 import type { ExecutionInfo } from '@/types/tasks'
 
-const { data: tasks, isLoading: tasksLoading } = useTasks()
-const triggerMutation = useTriggerTask()
+const toast = useToast()
+const activeTab = ref('tasks')
 
-const selectedTaskFilter = ref<string>('all')
+const {
+    tasks,
+    executions,
+    triggeringTaskId,
+    tasksQuery,
+    executionsQuery,
+    triggerTask,
+    cancelTaskExecution,
+    cancelMutation,
+    upsertTask,
+    patchTask,
+    deleteTaskSchedule
+} = useTasks()
 
-const taskFilterOptions = computed(() => {
-    const options = [{ label: 'All', value: 'all' }]
-    if (tasks.value) {
-        tasks.value.forEach((t) => {
-            options.push({ label: t.name, value: t.id })
-        })
-    }
-    return options
-})
+const isTaskRunning = (task: Task): boolean =>
+    task.lastExecutionStatus === EXECUTION_STATUS.waiting ||
+    task.lastExecutionStatus === EXECUTION_STATUS.running
 
-const firstTaskId = computed(() => tasks.value?.[0]?.id ?? '')
-
-const { data: executions, isLoading: executionsLoading } = useExecutions(
-    computed(() => (selectedTaskFilter.value === 'all' ? firstTaskId.value : selectedTaskFilter.value))
-)
-
-const filteredExecutions = computed<ExecutionInfo[]>(() => {
-    if (!executions.value) return []
-    if (selectedTaskFilter.value === 'all') return executions.value
-    return executions.value.filter((e) => e.task_name === selectedTaskFilter.value)
-})
-
-const isTaskActive = (taskId: string): boolean => {
-    if (!executions.value) return false
-    return executions.value.some(
-        (e) =>
-            e.task_name === taskId &&
-            (e.status === 'Queued' || e.status === 'Running')
-    )
+const scheduleSummary = (task: Task): string => {
+    if (!task.schedule) return 'Not scheduled'
+    const cron = task.schedule.cron_expression
+    const preset = SCHEDULE_PRESETS.find((p) => p.cron === cron)
+    const label = preset ? preset.label : cron
+    return task.schedule.enabled ? label : `${label} (paused)`
 }
 
-const triggerTask = (taskId: string) => {
-    triggerMutation.mutate(taskId)
+// Schedule dialog
+const scheduleDialogVisible = ref(false)
+const scheduleDialogTask = ref<Task | null>(null)
+const scheduleSaving = ref(false)
+
+const openSchedule = (task: Task) => {
+    scheduleDialogTask.value = task
+    scheduleDialogVisible.value = true
+}
+
+const onScheduleSave = async (payload: { cron_expression: string; enabled: boolean }) => {
+    const task = scheduleDialogTask.value
+    if (!task) return
+    scheduleSaving.value = true
+    try {
+        if (task.schedule) await patchTask(task.id, payload)
+        else await upsertTask(task.id, payload)
+        scheduleDialogVisible.value = false
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
+    } finally {
+        scheduleSaving.value = false
+    }
+}
+
+const onScheduleRemove = async () => {
+    const task = scheduleDialogTask.value
+    if (!task?.schedule) return
+    scheduleSaving.value = true
+    try {
+        await deleteTaskSchedule(task.id)
+        scheduleDialogVisible.value = false
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed to remove schedule', detail: (e as Error).message, life: 5000 })
+    } finally {
+        scheduleSaving.value = false
+    }
+}
+
+// Log dialog
+const logDialogVisible = ref(false)
+const logExecutionId = ref('')
+const openLog = (execution: ExecutionInfo) => {
+    logExecutionId.value = execution.id
+    logDialogVisible.value = true
 }
 </script>
 
 <template>
     <div class="tasks-view">
-        <section class="section">
-            <h2>Tasks</h2>
-            <div v-if="tasksLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
-            </div>
-            <div v-else-if="tasks && tasks.length > 0" class="task-cards">
-                <div v-for="task in tasks" :key="task.id" class="task-card">
-                    <div class="task-info">
-                        <h3>{{ task.name }}</h3>
-                        <p v-if="task.description">{{ task.description }}</p>
-                    </div>
-                    <Button
-                        label="Run"
-                        icon="pi pi-play"
-                        :disabled="isTaskActive(task.id) || triggerMutation.isPending.value"
-                        :loading="triggerMutation.isPending.value"
-                        @click="triggerTask(task.id)"
-                    />
-                </div>
-            </div>
-            <div v-else class="empty-state">
-                <p>No tasks registered</p>
-            </div>
-        </section>
+        <div class="header">
+            <h1>Tasks</h1>
+            <p>Manage and monitor background tasks and their execution queue</p>
+        </div>
 
-        <section class="section">
-            <div class="section-header">
-                <h2>Execution History</h2>
-                <SelectButton
-                    v-if="taskFilterOptions.length > 2"
-                    v-model="selectedTaskFilter"
-                    :options="taskFilterOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    :allowEmpty="false"
-                />
-            </div>
-            <ExecutionHistory
-                :executions="filteredExecutions"
-                :isLoading="executionsLoading"
-            />
-        </section>
+        <Message
+            v-if="tasksQuery.isError.value || executionsQuery.isError.value"
+            severity="error"
+            :closable="false"
+            class="mb-3"
+        >
+            {{
+                tasksQuery.error.value?.message ||
+                executionsQuery.error.value?.message ||
+                'Failed to load tasks'
+            }}
+        </Message>
+
+        <Tabs v-model:value="activeTab">
+            <TabList>
+                <Tab value="tasks">Tasks</Tab>
+                <Tab value="queue">Queue</Tab>
+            </TabList>
+            <TabPanels>
+                <TabPanel value="tasks">
+                    <DataTable
+                        :value="tasks"
+                        :loading="tasksQuery.isLoading.value"
+                        dataKey="id"
+                        stripedRows
+                    >
+                        <template #empty><div class="empty-table">No tasks registered</div></template>
+                        <Column header="Name">
+                            <template #body="{ data }">
+                                <span class="task-name">{{ data.name }}</span>
+                                <p v-if="data.description" class="task-desc">{{ data.description }}</p>
+                            </template>
+                        </Column>
+                        <Column header="Schedule" style="width: 10rem">
+                            <template #body="{ data }">
+                                <span class="schedule-summary">{{ scheduleSummary(data) }}</span>
+                            </template>
+                        </Column>
+                        <Column style="width: 4rem">
+                            <template #body="{ data }">
+                                <Button
+                                    icon="pi pi-calendar"
+                                    text
+                                    rounded
+                                    size="small"
+                                    :aria-label="data.schedule ? 'Edit schedule' : 'Schedule'"
+                                    @click.stop="openSchedule(data)"
+                                />
+                            </template>
+                        </Column>
+                        <Column header="Actions" style="width: 9rem">
+                            <template #body="{ data }">
+                                <Button
+                                    :label="isTaskRunning(data) ? 'Running' : 'Run'"
+                                    :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
+                                    size="small"
+                                    :loading="triggeringTaskId === data.id || isTaskRunning(data)"
+                                    :disabled="triggeringTaskId !== null || isTaskRunning(data)"
+                                    @click.stop="triggerTask(data)"
+                                />
+                            </template>
+                        </Column>
+                    </DataTable>
+                </TabPanel>
+
+                <TabPanel value="queue">
+                    <ExecutionHistory
+                        :executions="executions"
+                        :isLoading="executionsQuery.isLoading.value"
+                        :canceling="cancelMutation.isPending.value"
+                        @cancel="cancelTaskExecution"
+                        @row-click="openLog"
+                    />
+                </TabPanel>
+            </TabPanels>
+        </Tabs>
+
+        <ScheduleDialog
+            v-model:visible="scheduleDialogVisible"
+            :task="scheduleDialogTask"
+            :saving="scheduleSaving"
+            @save="onScheduleSave"
+            @remove="onScheduleRemove"
+        />
+
+        <LogViewer v-model:visible="logDialogVisible" :executionId="logExecutionId" />
     </div>
 </template>
 
@@ -101,62 +197,33 @@ const triggerTask = (taskId: string) => {
     padding: 2rem;
     overflow-y: auto;
 }
-
-.section {
-    margin-bottom: 2.5rem;
+.header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 0.25rem;
 }
-
-.section h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-}
-
-.section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-}
-
-.loading {
-    display: flex;
-    justify-content: center;
-    padding: 2rem;
+.header p {
     color: var(--app-text-secondary);
+    margin: 0 0 1.5rem;
 }
-
-.task-cards {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.task-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.25rem;
-    background-color: var(--app-surface);
-    border: 1px solid var(--app-border);
-    border-radius: 8px;
-}
-
-.task-info h3 {
-    margin: 0;
-    font-size: 1rem;
+.task-name {
     font-weight: 600;
 }
-
-.task-info p {
+.task-desc {
     margin: 0.25rem 0 0;
     font-size: 0.85rem;
     color: var(--app-text-secondary);
 }
-
-.empty-state {
+.schedule-summary {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+.empty-table {
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
+}
+.mb-3 {
+    margin-bottom: 1rem;
 }
 </style>

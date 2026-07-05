@@ -9,6 +9,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "musicFolderDefaultView",
 				"versions": []int{1},
 			},
+			{
+				"name":     "albumList2Index",
+				"versions": []int{1},
+			},
 		},
 	})
 }

@@ -10,10 +10,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
@@ -46,12 +45,15 @@ func decodeRadio(t *testing.T, resp *http.Response) radioEnvelope {
 	return body
 }
 
-func newRadioServer(t *testing.T, s *store.Store) (*httptest.Server, string) {
+// newRadioServer creates a test server wired to an in-memory asset store and
+// returns both the server and the asset store so tests can verify cover
+// storage via h.assets.Get(assetstore.KindRadio, RadioKey(streamURL)).
+func newRadioServer(t *testing.T, s *store.Store) (*httptest.Server, *assetstore.Store) {
 	t.Helper()
-	radioDir := t.TempDir()
+	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, t.TempDir(), radioDir)
-	return httptest.NewServer(r), radioDir
+	Register(r, s, as, t.TempDir())
+	return httptest.NewServer(r), as
 }
 
 func buildMultipart(t *testing.T, fields map[string]string, coverFile []byte, coverName string) (*bytes.Buffer, string) {
@@ -86,6 +88,17 @@ func pngBytes(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func TestRadioKeyStable(t *testing.T) {
+	k1 := RadioKey("http://a/stream")
+	k2 := RadioKey("http://a/stream")
+	if k1 != k2 {
+		t.Fatal("RadioKey not stable")
+	}
+	if RadioKey("http://a") == RadioKey("http://b") {
+		t.Fatal("RadioKey should differ by URL")
+	}
 }
 
 func TestGetInternetRadioStations(t *testing.T) {
@@ -346,12 +359,13 @@ func TestGetInternetRadioStationsIncludesCoverArt(t *testing.T) {
 
 func TestCreateInternetRadioStationMultipartWithCover(t *testing.T) {
 	s := testStore(t)
-	srv, coverDir := newRadioServer(t, s)
+	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
+	const streamURL = "http://r1"
 	body, contentType := buildMultipart(t, map[string]string{
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, pngBytes(t), "c.png")
 	resp, err := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
 	if err != nil {
@@ -362,25 +376,21 @@ func TestCreateInternetRadioStationMultipartWithCover(t *testing.T) {
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
 	}
-	var st model.InternetRadioStation
-	s.DB().First(&st)
-	expected := filepath.Join(coverDir, fmt.Sprintf("%d.png", st.ID))
-	if _, err := os.Stat(expected); err != nil {
-		t.Fatalf("expected cover file at %s: %v", expected, err)
-	}
-	if st.CoverPath != expected {
-		t.Fatalf("CoverPath = %q, want %q", st.CoverPath, expected)
+	// Cover must be retrievable via the asset store keyed by RadioKey(streamURL).
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); !ok {
+		t.Fatalf("expected cover in asset store for RadioKey(%q)", streamURL)
 	}
 }
 
 func TestCreateInternetRadioStationMultipartWithoutCover(t *testing.T) {
 	s := testStore(t)
-	srv, coverDir := newRadioServer(t, s)
+	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
+	const streamURL = "http://r1"
 	body, contentType := buildMultipart(t, map[string]string{
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, nil, "")
 	resp, err := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
 	if err != nil {
@@ -391,9 +401,9 @@ func TestCreateInternetRadioStationMultipartWithoutCover(t *testing.T) {
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
 	}
-	entries, _ := os.ReadDir(coverDir)
-	if len(entries) != 0 {
-		t.Fatalf("expected no cover files, got %d", len(entries))
+	// No cover should be stored.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); ok {
+		t.Fatal("expected no cover in asset store when none uploaded")
 	}
 }
 
@@ -439,28 +449,31 @@ func TestCreateInternetRadioStationMultipartBadType(t *testing.T) {
 
 func TestUpdateInternetRadioStationMultipartReplaceCover(t *testing.T) {
 	s := testStore(t)
-	srv, coverDir := newRadioServer(t, s)
+	srv, as := newRadioServer(t, s)
 	defer srv.Close()
+
+	const streamURL = "http://r1"
 
 	// Seed: create with a cover.
 	body, contentType := buildMultipart(t, map[string]string{
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
 	_ = resp.Body.Close()
 	var st model.InternetRadioStation
 	s.DB().First(&st)
-	original := st.CoverPath
-	if _, err := os.Stat(original); err != nil {
-		t.Fatalf("seed cover missing: %v", err)
+
+	// Verify cover exists after create.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); !ok {
+		t.Fatal("seed cover missing from asset store")
 	}
 
-	// Update with a new PNG.
+	// Update with a new PNG (same stream URL).
 	body2, ct2 := buildMultipart(t, map[string]string{
 		"id":        fmt.Sprintf("rs-%d", st.ID),
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, pngBytes(t), "c.png")
 	resp2, err := http.Post(srv.URL+"/rest/updateInternetRadioStation.view", ct2, body2)
 	if err != nil {
@@ -471,25 +484,21 @@ func TestUpdateInternetRadioStationMultipartReplaceCover(t *testing.T) {
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
 	}
-	s.DB().First(&st, st.ID)
-	if st.CoverPath == "" {
-		t.Fatal("expected CoverPath to still be set")
-	}
-	// Same extension → single file overwrite (via temp+rename).
-	entries, _ := os.ReadDir(coverDir)
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 cover file (same ext overwrite), got %d", len(entries))
+	// Cover must still be retrievable after update.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); !ok {
+		t.Fatal("expected cover in asset store after update")
 	}
 }
 
 func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 	s := testStore(t)
-	srv, coverDir := newRadioServer(t, s)
+	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
+	const streamURL = "http://r1"
 	body, contentType := buildMultipart(t, map[string]string{
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
 	_ = resp.Body.Close()
@@ -499,7 +508,7 @@ func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 	body2, ct2 := buildMultipart(t, map[string]string{
 		"id":         fmt.Sprintf("rs-%d", st.ID),
 		"name":       "R1",
-		"streamUrl":  "http://r1",
+		"streamUrl":  streamURL,
 		"coverClear": "true",
 	}, nil, "")
 	resp2, err := http.Post(srv.URL+"/rest/updateInternetRadioStation.view", ct2, body2)
@@ -511,24 +520,73 @@ func TestUpdateInternetRadioStationMultipartCoverClear(t *testing.T) {
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
 	}
-	s.DB().First(&st, st.ID)
-	if st.CoverPath != "" {
-		t.Fatalf("expected CoverPath cleared, got %q", st.CoverPath)
+	// Cover must be gone after clear.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); ok {
+		t.Fatal("expected cover to be cleared from asset store")
 	}
-	entries, _ := os.ReadDir(coverDir)
-	if len(entries) != 0 {
-		t.Fatalf("expected 0 cover files, got %d", len(entries))
+}
+
+func TestUpdateInternetRadioStationRekeysCoverOnURLChange(t *testing.T) {
+	s := testStore(t)
+	srv, as := newRadioServer(t, s)
+	defer srv.Close()
+
+	const oldURL = "http://old-stream"
+	const newURL = "http://new-stream"
+
+	// Create station with a cover.
+	body, contentType := buildMultipart(t, map[string]string{
+		"name":      "ReKey FM",
+		"streamUrl": oldURL,
+	}, pngBytes(t), "c.png")
+	resp, err := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	var st model.InternetRadioStation
+	s.DB().First(&st)
+
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(oldURL)); !ok {
+		t.Fatal("seed cover missing from asset store under old key")
+	}
+
+	// Update with new URL and NO new cover — cover must be re-keyed.
+	body2, ct2 := buildMultipart(t, map[string]string{
+		"id":        fmt.Sprintf("rs-%d", st.ID),
+		"name":      "ReKey FM",
+		"streamUrl": newURL,
+	}, nil, "")
+	resp2, err := http.Post(srv.URL+"/rest/updateInternetRadioStation.view", ct2, body2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	env := decodeRadio(t, resp2)
+	if env.SubsonicResponse.Status != "ok" {
+		t.Fatalf("update failed: %+v", env.SubsonicResponse)
+	}
+
+	// Cover must be retrievable under new key.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(newURL)); !ok {
+		t.Fatal("cover not found under new key after URL change")
+	}
+	// Cover must be gone under old key.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(oldURL)); ok {
+		t.Fatal("cover still present under old key after URL change")
 	}
 }
 
 func TestDeleteInternetRadioStationRemovesCover(t *testing.T) {
 	s := testStore(t)
-	srv, coverDir := newRadioServer(t, s)
+	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
+	const streamURL = "http://r1"
 	body, contentType := buildMultipart(t, map[string]string{
 		"name":      "R1",
-		"streamUrl": "http://r1",
+		"streamUrl": streamURL,
 	}, pngBytes(t), "c.png")
 	resp, _ := http.Post(srv.URL+"/rest/createInternetRadioStation.view", contentType, body)
 	_ = resp.Body.Close()
@@ -544,8 +602,8 @@ func TestDeleteInternetRadioStationRemovesCover(t *testing.T) {
 	if env.SubsonicResponse.Status != "ok" {
 		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
 	}
-	entries, _ := os.ReadDir(coverDir)
-	if len(entries) != 0 {
-		t.Fatalf("expected 0 cover files after delete, got %d", len(entries))
+	// Cover must be removed from asset store after delete.
+	if _, ok := as.Get(assetstore.KindRadio, RadioKey(streamURL)); ok {
+		t.Fatal("expected cover to be deleted from asset store after station delete")
 	}
 }

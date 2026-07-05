@@ -43,13 +43,9 @@ describe('reorderQueue', () => {
 
 describe('computeDropTarget', () => {
     it('uses the anchor index when a following row exists', () => {
-        expect(computeDropTarget(3, false, 5, 10)).toBe(3)
-        expect(computeDropTarget(3, true, 5, 10)).toBe(3)
+        expect(computeDropTarget(3, 10)).toBe(3)
     })
-    it('falls back to currentIndex at the end of the history list', () => {
-        expect(computeDropTarget(undefined, true, 5, 10)).toBe(5)
-    })
-    it('falls back to queue length at the end of the upcoming list', () => {
-        expect(computeDropTarget(undefined, false, 5, 10)).toBe(10)
+    it('falls back to the queue length when dropped at the end', () => {
+        expect(computeDropTarget(undefined, 10)).toBe(10)
     })
 })
