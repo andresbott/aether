@@ -195,7 +195,8 @@ shared header row into a small presentational component both compose.
 | Library (album/artist × list/grid) | `/library` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
 | Album detail (`AlbumView`) | `/album/:id` | ❌ predates it — `max-width:1200px`, own header, not flush |
-| Artist / Playlists / Genres / Podcasts / Settings | various | ❌ default padded `main-content`, own headers |
+| Artist detail (`ArtistView`) | `/artist/:id` | ✅ `ContentScaffold` |
+| Playlists / Genres / Podcasts / Settings | various | ❌ default padded `main-content`, own headers |
 
 The ❌ views are not broken — they use the default padded shell. Migrate them to this
 pattern opportunistically when you're already working in them; don't do a blanket sweep.
