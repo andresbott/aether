@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
@@ -212,6 +213,39 @@ func TestSetMBID_FetchFailureStillSavesMbid(t *testing.T) {
 	}
 	if got.FetchError == nil {
 		t.Fatal("expected fetchError to be populated")
+	}
+}
+
+func TestSetMBID_NoImageFoundSetsFetchError(t *testing.T) {
+	fetcher := &fakeFetcher{}
+	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
+	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+
+	body, _ := json.Marshal(map[string]string{"mbid": "5b11f4ce-a62d-471e-81fc-a69a8278c7da"})
+	req := httptest.NewRequest(http.MethodPut, "/artists/"+strconv.FormatUint(uint64(id), 10)+"/mbid", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		MBArtistID   string  `json:"mbArtistId"`
+		ImageFetched bool    `json:"imageFetched"`
+		FetchError   *string `json:"fetchError"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ImageFetched {
+		t.Fatalf("expected image not fetched: %+v", got)
+	}
+	if got.FetchError == nil || !strings.Contains(*got.FetchError, "no image found") {
+		t.Fatalf("expected fetchError mentioning 'no image found', got %+v", got)
 	}
 }
 

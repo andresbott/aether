@@ -162,6 +162,9 @@ func (h *Handler) setMBID(w http.ResponseWriter, r *http.Request) {
 			if ferr != nil {
 				msg := ferr.Error()
 				resp.FetchError = &msg
+			} else if !stored {
+				msg := "no image found for this artist"
+				resp.FetchError = &msg
 			}
 		}
 	}
