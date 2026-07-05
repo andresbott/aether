@@ -106,6 +106,12 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Force revalidation on every request. Without this, browsers may
+	// heuristically cache a response (e.g. the generated-avatar fallback
+	// served before an artist has a fetched image) and keep serving it from
+	// cache after the underlying file changes, since the URL is unchanged.
+	w.Header().Set("Cache-Control", "no-cache")
+
 	if meta.coverPath != "" {
 		if _, err := os.Stat(meta.coverPath); err == nil {
 			http.ServeFile(w, r, meta.coverPath)

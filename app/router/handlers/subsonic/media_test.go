@@ -148,6 +148,36 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 	}
 }
 
+// TestGetCoverArtSetsNoCacheHeader guards against a real bug: getCoverArt
+// responses had no cache-control header, so browsers could heuristically
+// cache the generated-avatar fallback (served before an artist has a fetched
+// image) and keep serving it from cache after the real image is later
+// fetched and stored, since the URL doesn't change.
+func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q", got, "no-cache")
+	}
+}
+
 func TestGetCoverArtRadioNotFound(t *testing.T) {
 	s := testStore(t)
 	srv := newTestServer(t, s)
