@@ -25,7 +25,8 @@ const routes: RouteRecordRaw[] = [
         path: '/artist/:id',
         name: 'artist',
         component: () => import('@/views/ArtistView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/playlists',
