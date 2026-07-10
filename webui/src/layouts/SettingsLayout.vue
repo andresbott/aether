@@ -6,7 +6,8 @@ import { useUiStore } from '@/store/uiStore'
 interface SettingsNavItem {
     label: string
     icon: string
-    route: string
+    route?: string
+    action?: () => void
 }
 interface SettingsNavGroup {
     label: string
@@ -17,10 +18,18 @@ const route = useRoute()
 const router = useRouter()
 const uiStore = useUiStore()
 
+// Placeholder until the auth system lands.
+function logout() {
+    console.info('logout placeholder')
+}
+
 const groups: SettingsNavGroup[] = [
     {
         label: 'Account',
-        items: [{ label: 'Profile', icon: 'pi pi-user', route: '/settings/profile' }]
+        items: [
+            { label: 'Profile', icon: 'pi pi-user', route: '/settings/profile' },
+            { label: 'Logout', icon: 'pi pi-sign-out', action: logout }
+        ]
     },
     {
         label: 'Administration',
@@ -34,8 +43,12 @@ const groups: SettingsNavGroup[] = [
 
 const collapsed = computed(() => uiStore.settingsSidebarCollapsed)
 
-const isActive = (item: SettingsNavItem): boolean => route.path.startsWith(item.route)
-const navigateTo = (item: SettingsNavItem) => router.push(item.route)
+const isActive = (item: SettingsNavItem): boolean =>
+    item.route ? route.path.startsWith(item.route) : false
+const onNavItem = (item: SettingsNavItem) => {
+    if (item.action) item.action()
+    else if (item.route) router.push(item.route)
+}
 const goBack = () => router.push('/')
 
 onMounted(() => {
@@ -70,11 +83,11 @@ onUnmounted(() => {
                     <div v-else-if="gi > 0" class="nav-separator"></div>
                     <button
                         v-for="item in group.items"
-                        :key="item.route"
+                        :key="item.label"
                         class="nav-item"
                         :class="{ active: isActive(item) }"
                         type="button"
-                        @click="navigateTo(item)"
+                        @click="onNavItem(item)"
                         v-tooltip.right="collapsed ? item.label : undefined"
                     >
                         <i :class="item.icon"></i>

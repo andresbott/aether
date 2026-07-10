@@ -24,9 +24,10 @@ describe('AppSidebar footer nav', () => {
         const labels = mountSidebar()
             .findAll('.sidebar-footer-nav .nav-item')
             .map((b) => b.text())
-        expect(labels).toContain('Settings')
+        expect(labels).toEqual(['Settings'])
         expect(labels).not.toContain('Admin Settings')
         expect(labels).not.toContain('User Settings')
+        expect(labels).not.toContain('Logout')
     })
 
     it('navigates to /settings when Settings is clicked', async () => {

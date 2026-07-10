@@ -46,6 +46,7 @@ describe('SettingsLayout', () => {
         expect(text).toContain('Libraries')
         expect(text).toContain('Tasks')
         expect(text).toContain('Metadata Editor')
+        expect(text).toContain('Logout')
     })
 
     it('highlights the entry matching the current route', () => {
@@ -77,5 +78,15 @@ describe('SettingsLayout', () => {
     it('checks the screen width on mount to auto-collapse on narrow screens', () => {
         mountLayout()
         expect(checkScreenWidth).toHaveBeenCalled()
+    })
+
+    it('runs the logout placeholder from the Account area without navigating', async () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+        const w = mountLayout()
+        const logout = w.findAll('.sidebar-nav .nav-item').find((b) => b.text() === 'Logout')!
+        await logout.trigger('click')
+        expect(info).toHaveBeenCalled()
+        expect(push).not.toHaveBeenCalled()
+        info.mockRestore()
     })
 })

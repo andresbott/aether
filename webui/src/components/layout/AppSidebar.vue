@@ -50,14 +50,9 @@ const streamingItems: NavItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
-// Logout is a placeholder until the auth system lands.
 const bottomItems: NavItem[] = [
     { label: 'Settings', icon: 'pi pi-cog', route: '/settings', routeName: 'settings' }
 ]
-
-function logout() {
-    console.info('logout placeholder')
-}
 
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
@@ -166,17 +161,6 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
             >
                 <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
-            </button>
-
-            <div class="nav-separator"></div>
-
-            <button
-                class="nav-item"
-                @click="logout"
-                v-tooltip.right="collapsed ? 'Logout' : undefined"
-            >
-                <i class="pi pi-sign-out"></i>
-                <span v-if="!collapsed" class="nav-label">Logout</span>
             </button>
         </nav>
     </aside>
