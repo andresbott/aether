@@ -98,8 +98,19 @@ const routes: RouteRecordRaw[] = [
     },
     {
         path: '/settings',
-        name: 'settings',
-        component: () => import('@/views/SettingsView.vue')
+        component: () => import('@/views/settings/SettingsView.vue'),
+        meta: { layout: 'settings' },
+        children: [
+            {
+                path: '',
+                redirect: '/settings/profile'
+            },
+            {
+                path: 'profile',
+                name: 'settings-profile',
+                component: () => import('@/views/settings/ProfileView.vue')
+            }
+        ]
     }
 ]
 
