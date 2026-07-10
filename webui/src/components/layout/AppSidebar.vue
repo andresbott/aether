@@ -50,10 +50,9 @@ const streamingItems: NavItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
-// Avatar identity and Logout are placeholders until the auth system lands.
+// Logout is a placeholder until the auth system lands.
 const bottomItems: NavItem[] = [
-    { label: 'Admin Settings', icon: 'pi pi-cog', route: '/admin', routeName: 'admin-settings' },
-    { label: 'User Settings', icon: 'pi pi-user-edit', route: '/settings', routeName: 'user-settings' }
+    { label: 'Settings', icon: 'pi pi-cog', route: '/settings', routeName: 'settings' }
 ]
 
 function logout() {
