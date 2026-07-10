@@ -68,35 +68,6 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/admin',
-        component: () => import('@/views/AdminView.vue'),
-        meta: { layout: 'admin' },
-        children: [
-            {
-                path: '',
-                redirect: '/admin/libraries'
-            },
-            {
-                path: 'libraries',
-                name: 'admin-libraries',
-                component: () => import('@/views/admin/AdminLibrariesView.vue'),
-                meta: { layout: 'admin' }
-            },
-            {
-                path: 'tasks',
-                name: 'admin-tasks',
-                component: () => import('@/views/admin/AdminTasksView.vue'),
-                meta: { layout: 'admin' }
-            },
-            {
-                path: 'metadata',
-                name: 'admin-metadata',
-                component: () => import('@/views/admin/MetadataEditorView.vue'),
-                meta: { layout: 'admin' }
-            }
-        ]
-    },
-    {
         path: '/settings',
         component: () => import('@/views/settings/SettingsView.vue'),
         meta: { layout: 'settings' },
@@ -109,6 +80,21 @@ const routes: RouteRecordRaw[] = [
                 path: 'profile',
                 name: 'settings-profile',
                 component: () => import('@/views/settings/ProfileView.vue')
+            },
+            {
+                path: 'libraries',
+                name: 'settings-libraries',
+                component: () => import('@/views/settings/LibrariesView.vue')
+            },
+            {
+                path: 'tasks',
+                name: 'settings-tasks',
+                component: () => import('@/views/settings/TasksView.vue')
+            },
+            {
+                path: 'metadata',
+                name: 'settings-metadata',
+                component: () => import('@/views/settings/MetadataEditorView.vue')
             }
         ]
     }

@@ -33,10 +33,10 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
     }
 })
 
-import AdminTasksView from '@/views/admin/AdminTasksView.vue'
+import TasksView from '@/views/settings/TasksView.vue'
 
 const mountView = () =>
-    mount(AdminTasksView, {
+    mount(TasksView, {
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
@@ -44,7 +44,7 @@ const mountView = () =>
         }
     })
 
-describe('AdminTasksView', () => {
+describe('TasksView', () => {
     it('renders Tasks and Queue tabs', () => {
         const w = mountView()
         expect(w.text()).toContain('Tasks')
