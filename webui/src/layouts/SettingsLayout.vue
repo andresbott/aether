@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 
@@ -37,6 +37,15 @@ const collapsed = computed(() => uiStore.settingsSidebarCollapsed)
 const isActive = (item: SettingsNavItem): boolean => route.path.startsWith(item.route)
 const navigateTo = (item: SettingsNavItem) => router.push(item.route)
 const goBack = () => router.push('/')
+
+onMounted(() => {
+    uiStore.checkScreenWidth()
+    window.addEventListener('resize', uiStore.checkScreenWidth)
+})
+
+onUnmounted(() => {
+    window.removeEventListener('resize', uiStore.checkScreenWidth)
+})
 </script>
 
 <template>

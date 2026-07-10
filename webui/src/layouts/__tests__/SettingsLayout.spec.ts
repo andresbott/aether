@@ -13,8 +13,9 @@ const settingsSidebarCollapsed = ref(false)
 const toggleSettingsSidebar = vi.fn(() => {
     settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
 })
+const checkScreenWidth = vi.fn()
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => reactive({ settingsSidebarCollapsed, toggleSettingsSidebar })
+    useUiStore: () => reactive({ settingsSidebarCollapsed, toggleSettingsSidebar, checkScreenWidth })
 }))
 
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
@@ -64,5 +65,11 @@ describe('SettingsLayout', () => {
         const back = w.findAll('.sidebar-footer-nav .nav-item').find((b) => b.text().includes('Back'))!
         await back.trigger('click')
         expect(push).toHaveBeenCalledWith('/')
+    })
+
+    it('checks the screen width on mount to auto-collapse on narrow screens', () => {
+        checkScreenWidth.mockClear()
+        mountLayout()
+        expect(checkScreenWidth).toHaveBeenCalled()
     })
 })

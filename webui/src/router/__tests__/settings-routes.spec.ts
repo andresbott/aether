@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import router from '@/router'
 
 describe('settings routes', () => {
@@ -14,7 +14,9 @@ describe('settings routes', () => {
     })
 
     it('no longer matches any /admin route', () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
         expect(router.resolve('/admin').matched.length).toBe(0)
         expect(router.resolve('/admin/libraries').matched.length).toBe(0)
+        warnSpy.mockRestore()
     })
 })
