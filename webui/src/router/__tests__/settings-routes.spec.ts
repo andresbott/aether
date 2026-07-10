@@ -13,6 +13,10 @@ describe('settings routes', () => {
         expect(router.resolve('/settings/libraries').meta.layout).toBe('settings')
     })
 
+    it('registers a named "settings" parent route', () => {
+        expect(router.hasRoute('settings')).toBe(true)
+    })
+
     it('no longer matches any /admin route', () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
         expect(router.resolve('/admin').matched.length).toBe(0)

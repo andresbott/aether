@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { reactive, ref, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 
@@ -29,6 +29,14 @@ const mountLayout = () =>
     })
 
 describe('SettingsLayout', () => {
+    beforeEach(() => {
+        route.path = '/settings/profile'
+        settingsSidebarCollapsed.value = false
+        push.mockClear()
+        toggleSettingsSidebar.mockClear()
+        checkScreenWidth.mockClear()
+    })
+
     it('renders both topic groups and every entry', () => {
         const w = mountLayout()
         const text = w.text()
@@ -45,19 +53,18 @@ describe('SettingsLayout', () => {
         const w = mountLayout()
         const tasks = w.findAll('.sidebar-nav .nav-item').find((b) => b.text() === 'Tasks')!
         expect(tasks.classes()).toContain('active')
-        route.path = '/settings/profile'
     })
 
     it('toggles the sidebar via the store and hides labels when collapsed', async () => {
-        settingsSidebarCollapsed.value = false
         const w = mountLayout()
+        expect(w.find('.settings-sidebar').classes()).not.toContain('collapsed')
+        expect(w.find('.nav-section-label').exists()).toBe(true)
         await w.find('.collapse-btn').trigger('click')
         expect(toggleSettingsSidebar).toHaveBeenCalled()
         await nextTick()
         expect(w.find('.settings-sidebar').classes()).toContain('collapsed')
         expect(w.find('.nav-section-label').exists()).toBe(false)
         expect(w.find('.nav-label').exists()).toBe(false)
-        settingsSidebarCollapsed.value = false
     })
 
     it('navigates back to the player from the footer button', async () => {
@@ -68,7 +75,6 @@ describe('SettingsLayout', () => {
     })
 
     it('checks the screen width on mount to auto-collapse on narrow screens', () => {
-        checkScreenWidth.mockClear()
         mountLayout()
         expect(checkScreenWidth).toHaveBeenCalled()
     })

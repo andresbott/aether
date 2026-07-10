@@ -158,7 +158,7 @@ const onRowClick = (event: MouseEvent): void => {
 }
 
 .queue-row--editing.selected {
-    background-color: #eef2ff;
+    background-color: var(--app-accent-soft);
 }
 
 .row-index {

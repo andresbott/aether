@@ -475,7 +475,7 @@ onMounted(() => scrollCurrentIntoView('center'))
 
 .queue-empty--drop-active {
     border-color: var(--app-accent);
-    background-color: #eef2ff;
+    background-color: var(--app-accent-soft);
     color: var(--app-accent);
 }
 

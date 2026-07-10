@@ -6,6 +6,9 @@
     --app-text-secondary: #6b7280;
     --app-accent: #6366f1;
     --app-accent-hover: #4f46e5;
+    /* Soft accent tint for active/selected/current rows and their hover. */
+    --app-accent-soft: #eef2ff;
+    --app-accent-soft-hover: #e0e7ff;
     /* Row hover tint — translucent so it reads on both the white surface
        (sidebar) and the grey app background (full Now Playing view). */
     --app-hover: rgba(0, 0, 0, 0.04);

@@ -208,13 +208,13 @@ onUnmounted(() => {
 }
 
 .nav-item.active {
-    background-color: #eef2ff;
+    background-color: var(--app-accent-soft);
     color: var(--app-accent);
     box-shadow: inset -3px 0 0 var(--app-accent);
 }
 
 .nav-item.active:hover {
-    background-color: #e0e7ff;
+    background-color: var(--app-accent-soft-hover);
 }
 
 .nav-item i {
