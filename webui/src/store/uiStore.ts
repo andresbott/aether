@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
     const sidebarCollapsed = ref(false)
+    const settingsSidebarCollapsed = ref(false)
 
     const toggleSidebar = () => {
         sidebarCollapsed.value = !sidebarCollapsed.value
@@ -16,17 +17,29 @@ export const useUiStore = defineStore('ui', () => {
         sidebarCollapsed.value = false
     }
 
+    const toggleSettingsSidebar = () => {
+        settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
+    }
+
+    const collapseSettingsSidebar = () => {
+        settingsSidebarCollapsed.value = true
+    }
+
     const checkScreenWidth = () => {
         if (window.innerWidth < 768) {
             collapseSidebar()
+            collapseSettingsSidebar()
         }
     }
 
     return {
         sidebarCollapsed,
+        settingsSidebarCollapsed,
         toggleSidebar,
         collapseSidebar,
         expandSidebar,
+        toggleSettingsSidebar,
+        collapseSettingsSidebar,
         checkScreenWidth
     }
 })
