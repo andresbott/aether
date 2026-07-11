@@ -92,6 +92,11 @@ function lifeSpan(c: MusicBrainzCandidate): string {
         header="Match MusicBrainz artist"
         :style="{ width: '34rem' }"
     >
+        <Message severity="warn" :closable="false" class="deprecation-note">
+            Deprecated — prefer the Metadata Editor (Settings → Metadata Editor),
+            which writes the MusicBrainz ID into the file tags.
+        </Message>
+
         <div v-if="pendingMbid" class="current-match">
             <span class="current-match-label">Linked:</span>
             <a
@@ -150,6 +155,9 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 </template>
 
 <style scoped>
+.deprecation-note {
+    margin-bottom: 0.75rem;
+}
 .current-match {
     display: flex;
     align-items: center;

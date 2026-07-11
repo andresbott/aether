@@ -91,6 +91,13 @@ describe('ArtistEditDialog', () => {
         )
     })
 
+    it('shows a deprecation note pointing at the metadata editor', async () => {
+        const w = mountDialog()
+        await flushPromises()
+        expect(w.text()).toContain('Deprecated')
+        expect(w.text()).toContain('Metadata Editor')
+    })
+
     it('shows the current match and stages a clear when the x is clicked', async () => {
         getArtistMBIDMock.mockResolvedValue('existing-mbid')
         const w = mountDialog()
