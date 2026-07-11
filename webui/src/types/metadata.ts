@@ -17,6 +17,8 @@ export interface Track {
     album: string
     year: number
     compilation: boolean
+    mb_artist_ids: string[]
+    mb_album_artist_ids: string[]
     error?: string
 }
 
@@ -34,6 +36,8 @@ export interface PatchFields {
     album_artists?: string[]
     year?: number
     compilation?: boolean
+    artist_mbids?: Record<string, string>
+    album_artist_mbids?: Record<string, string>
 }
 
 export interface UpdateTracksRequest {

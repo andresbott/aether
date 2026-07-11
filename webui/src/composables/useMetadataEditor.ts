@@ -137,3 +137,43 @@ export interface EditValues {
     year: number
     compilation: boolean
 }
+
+export interface ArtistMbidRow {
+    name: string
+    mbid: string
+    mixed: boolean
+}
+
+/**
+ * Collapse a track selection into one row per distinct artist name, carrying
+ * that name's shared MusicBrainz ID. `mixed` is true when selected tracks
+ * disagree on the ID for that name (in which case `mbid` is '').
+ * `nameField`/`idField` are aligned positionally within each track.
+ */
+export function distinctArtistMbids(
+    tracks: Track[],
+    nameField: 'artists' | 'album_artists',
+    idField: 'mb_artist_ids' | 'mb_album_artist_ids'
+): ArtistMbidRow[] {
+    const order: string[] = []
+    const seen = new Map<string, Set<string>>()
+    for (const t of tracks) {
+        const names = t[nameField]
+        const ids = t[idField]
+        names.forEach((name, i) => {
+            const id = ids[i] ?? ''
+            if (!seen.has(name)) {
+                seen.set(name, new Set())
+                order.push(name)
+            }
+            seen.get(name)!.add(id)
+        })
+    }
+    return order.map((name) => {
+        const ids = seen.get(name)!
+        if (ids.size === 1) {
+            return { name, mbid: [...ids][0], mixed: false }
+        }
+        return { name, mbid: '', mixed: true }
+    })
+}
