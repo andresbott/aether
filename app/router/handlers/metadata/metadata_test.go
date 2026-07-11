@@ -279,6 +279,62 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	}
 }
 
+func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst1 := filepath.Join(root, "t1.flac")
+	dst2 := filepath.Join(root, "t2.flac")
+	copyTestFile(t, fx, dst1)
+	copyTestFile(t, fx, dst2)
+	if err := taglibWrite(dst1, map[string][]string{"ARTIST": {"Daft Punk"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := taglibWrite(dst2, map[string][]string{"ARTIST": {"Daft Punk", "Pharrell"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: tags.TaglibReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["t1.flac", "t2.flac"],
+		"fields": { "artist_mbids": {"Daft Punk": "id-dp", "Pharrell": "id-ph"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got1, err := taglibReadTags(dst1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got1["MUSICBRAINZ_ARTISTID"]) != 1 || got1["MUSICBRAINZ_ARTISTID"][0] != "id-dp" {
+		t.Fatalf("t1 MUSICBRAINZ_ARTISTID unexpected: %v", got1["MUSICBRAINZ_ARTISTID"])
+	}
+
+	got2, err := taglibReadTags(dst2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2["MUSICBRAINZ_ARTISTID"]) != 2 || got2["MUSICBRAINZ_ARTISTID"][0] != "id-dp" || got2["MUSICBRAINZ_ARTISTID"][1] != "id-ph" {
+		t.Fatalf("t2 MUSICBRAINZ_ARTISTID unexpected: %v", got2["MUSICBRAINZ_ARTISTID"])
+	}
+}
+
 func TestUpdateTracks_MalformedJSON(t *testing.T) {
 	_, r, _ := newTestHandler(t, t.TempDir())
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString("{bad json"))

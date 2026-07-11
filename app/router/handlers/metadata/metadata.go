@@ -101,15 +101,17 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 }
 
 type trackDTO struct {
-	Path         string   `json:"path"`
-	Name         string   `json:"name"`
-	Title        string   `json:"title"`
-	Artists      []string `json:"artists"`
-	AlbumArtists []string `json:"album_artists"`
-	Album        string   `json:"album"`
-	Year         int      `json:"year"`
-	Compilation  bool     `json:"compilation"`
-	Error        string   `json:"error,omitempty"`
+	Path             string   `json:"path"`
+	Name             string   `json:"name"`
+	Title            string   `json:"title"`
+	Artists          []string `json:"artists"`
+	AlbumArtists     []string `json:"album_artists"`
+	Album            string   `json:"album"`
+	Year             int      `json:"year"`
+	Compilation      bool     `json:"compilation"`
+	MBArtistIDs      []string `json:"mb_artist_ids"`
+	MBAlbumArtistIDs []string `json:"mb_album_artist_ids"`
+	Error            string   `json:"error,omitempty"`
 }
 
 func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
@@ -126,15 +128,17 @@ func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 	out := make([]trackDTO, 0, len(rows))
 	for _, t := range rows {
 		out = append(out, trackDTO{
-			Path:         t.Path,
-			Name:         t.Name,
-			Title:        t.Title,
-			Artists:      t.Artists,
-			AlbumArtists: t.AlbumArtists,
-			Album:        t.Album,
-			Year:         t.Year,
-			Compilation:  t.Compilation,
-			Error:        t.Error,
+			Path:             t.Path,
+			Name:             t.Name,
+			Title:            t.Title,
+			Artists:          t.Artists,
+			AlbumArtists:     t.AlbumArtists,
+			Album:            t.Album,
+			Year:             t.Year,
+			Compilation:      t.Compilation,
+			MBArtistIDs:      t.MBArtistIDs,
+			MBAlbumArtistIDs: t.MBAlbumArtistIDs,
+			Error:            t.Error,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tracks": out})
@@ -147,12 +151,14 @@ type updateRequest struct {
 }
 
 type fields struct {
-	Title        *string   `json:"title,omitempty"`
-	Album        *string   `json:"album,omitempty"`
-	Artists      *[]string `json:"artists,omitempty"`
-	AlbumArtists *[]string `json:"album_artists,omitempty"`
-	Year         *int      `json:"year,omitempty"`
-	Compilation  *bool     `json:"compilation,omitempty"`
+	Title            *string            `json:"title,omitempty"`
+	Album            *string            `json:"album,omitempty"`
+	Artists          *[]string          `json:"artists,omitempty"`
+	AlbumArtists     *[]string          `json:"album_artists,omitempty"`
+	Year             *int               `json:"year,omitempty"`
+	Compilation      *bool              `json:"compilation,omitempty"`
+	ArtistMBIDs      *map[string]string `json:"artist_mbids,omitempty"`
+	AlbumArtistMBIDs *map[string]string `json:"album_artist_mbids,omitempty"`
 }
 
 type updateResult struct {
@@ -181,13 +187,16 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	patch := metadataedit.Patch{
-		Title:        body.Fields.Title,
-		Album:        body.Fields.Album,
-		Artists:      body.Fields.Artists,
-		AlbumArtists: body.Fields.AlbumArtists,
-		Year:         body.Fields.Year,
-		Compilation:  body.Fields.Compilation,
+		Title:           body.Fields.Title,
+		Album:           body.Fields.Album,
+		Artists:         body.Fields.Artists,
+		AlbumArtists:    body.Fields.AlbumArtists,
+		Year:            body.Fields.Year,
+		Compilation:     body.Fields.Compilation,
+		ArtistMBID:      body.Fields.ArtistMBIDs,
+		AlbumArtistMBID: body.Fields.AlbumArtistMBIDs,
 	}
+	needMB := body.Fields.ArtistMBIDs != nil || body.Fields.AlbumArtistMBIDs != nil
 	cfg := metadataedit.LibraryCfg{
 		MultiValueArtist:      libModel.MultiValueArtist,
 		MultiValueAlbumArtist: libModel.MultiValueAlbumArtist,
@@ -206,7 +215,21 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	results := make([]updateResult, 0, len(resolved))
 	anyOK := false
 	for i, abs := range resolved {
-		if err := metadataedit.WriteMetadata(abs, patch, cfg, metadataedit.CurrentTags{}); err != nil {
+		var cur metadataedit.CurrentTags
+		if needMB {
+			meta, rerr := h.Reader.Read(abs)
+			if rerr != nil {
+				results = append(results, updateResult{Path: body.Paths[i], OK: false, Error: rerr.Error()})
+				continue
+			}
+			cur = metadataedit.CurrentTags{
+				Artists:          meta.Artist,
+				ArtistMBIDs:      meta.MBArtistID,
+				AlbumArtists:     meta.AlbumArtist,
+				AlbumArtistMBIDs: meta.MBAlbumArtistID,
+			}
+		}
+		if err := metadataedit.WriteMetadata(abs, patch, cfg, cur); err != nil {
 			results = append(results, updateResult{Path: body.Paths[i], OK: false, Error: err.Error()})
 			continue
 		}
