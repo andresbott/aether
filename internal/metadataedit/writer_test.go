@@ -15,7 +15,7 @@ func TestBuildTagMap_AppliesOnlyProvidedFields(t *testing.T) {
 	patch := metadataedit.Patch{
 		Title: strPtr("Hello"),
 	}
-	got, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{})
+	got, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestBuildTagMap_AppliesOnlyProvidedFields(t *testing.T) {
 
 func TestBuildTagMap_MultiValueDefault_WritesArray(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A", "B"}}
-	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: ""})
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: ""}, metadataedit.CurrentTags{})
 	want := map[string][]string{"ARTIST": {"A", "B"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
@@ -36,7 +36,7 @@ func TestBuildTagMap_MultiValueDefault_WritesArray(t *testing.T) {
 
 func TestBuildTagMap_MultiValueMulti_WritesArray(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A", "B"}}
-	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "multi"})
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "multi"}, metadataedit.CurrentTags{})
 	want := map[string][]string{"ARTIST": {"A", "B"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
@@ -45,7 +45,7 @@ func TestBuildTagMap_MultiValueMulti_WritesArray(t *testing.T) {
 
 func TestBuildTagMap_Delim_JoinsWithSeparator(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A", "B"}}
-	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "delim ; "})
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "delim ; "}, metadataedit.CurrentTags{})
 	want := map[string][]string{"ARTIST": {"A; B"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
@@ -54,7 +54,7 @@ func TestBuildTagMap_Delim_JoinsWithSeparator(t *testing.T) {
 
 func TestBuildTagMap_None_KeepsFirstOnly(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A", "B", "C"}}
-	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "none"})
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "none"}, metadataedit.CurrentTags{})
 	want := map[string][]string{"ARTIST": {"A"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
@@ -73,7 +73,7 @@ func TestBuildTagMap_AllFields(t *testing.T) {
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{
 		MultiValueArtist:      "multi",
 		MultiValueAlbumArtist: "none",
-	})
+	}, metadataedit.CurrentTags{})
 	want := map[string][]string{
 		"TITLE":       {"T"},
 		"ALBUM":       {"Al"},
@@ -89,7 +89,7 @@ func TestBuildTagMap_AllFields(t *testing.T) {
 
 func TestBuildTagMap_CompilationFalseWritesZero(t *testing.T) {
 	patch := metadataedit.Patch{Compilation: boolPtr(false)}
-	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{})
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
 	want := map[string][]string{"COMPILATION": {"0"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
@@ -98,9 +98,64 @@ func TestBuildTagMap_CompilationFalseWritesZero(t *testing.T) {
 
 func TestBuildTagMap_RejectsInvalidDelim(t *testing.T) {
 	patch := metadataedit.Patch{Artists: &[]string{"A"}}
-	_, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "bogus"})
+	_, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueArtist: "bogus"}, metadataedit.CurrentTags{})
 	if err == nil {
 		t.Fatal("expected error on invalid multi-value mode")
+	}
+}
+
+func TestBuildTagMap_ArtistMBID_AlignsByCurrentNames(t *testing.T) {
+	m := map[string]string{"Daft Punk": "id-dp", "Pharrell": "id-ph"}
+	patch := metadataedit.Patch{ArtistMBID: &m}
+	cur := metadataedit.CurrentTags{
+		Artists:     []string{"Daft Punk", "Pharrell"},
+		ArtistMBIDs: []string{"", ""},
+	}
+	got, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, cur)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{"MUSICBRAINZ_ARTISTID": {"id-dp", "id-ph"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_ArtistMBID_KeepsUntouchedNames(t *testing.T) {
+	// Only "Pharrell" is in the map; "Daft Punk" keeps its current id.
+	m := map[string]string{"Pharrell": "id-ph"}
+	patch := metadataedit.Patch{ArtistMBID: &m}
+	cur := metadataedit.CurrentTags{
+		Artists:     []string{"Daft Punk", "Pharrell"},
+		ArtistMBIDs: []string{"id-dp-old", ""},
+	}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, cur)
+	want := map[string][]string{"MUSICBRAINZ_ARTISTID": {"id-dp-old", "id-ph"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_ArtistMBID_ClearAllWritesEmpty(t *testing.T) {
+	m := map[string]string{"Solo": ""}
+	patch := metadataedit.Patch{ArtistMBID: &m}
+	cur := metadataedit.CurrentTags{Artists: []string{"Solo"}, ArtistMBIDs: []string{"id-old"}}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, cur)
+	want := map[string][]string{"MUSICBRAINZ_ARTISTID": {}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_AlbumArtistMBID_BypassesNonePolicy(t *testing.T) {
+	m := map[string]string{"A": "id-a", "B": "id-b"}
+	patch := metadataedit.Patch{AlbumArtistMBID: &m}
+	cur := metadataedit.CurrentTags{AlbumArtists: []string{"A", "B"}, AlbumArtistMBIDs: []string{"", ""}}
+	// "none" would normally keep only the first value; MB IDs must ignore it.
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueAlbumArtist: "none"}, cur)
+	want := map[string][]string{"MUSICBRAINZ_ALBUMARTISTID": {"id-a", "id-b"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }
 
@@ -122,7 +177,7 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	}
 	cfg := metadataedit.LibraryCfg{MultiValueArtist: "multi", MultiValueAlbumArtist: "multi"}
 
-	if err := metadataedit.WriteMetadata(dst, patch, cfg); err != nil {
+	if err := metadataedit.WriteMetadata(dst, patch, cfg, metadataedit.CurrentTags{}); err != nil {
 		t.Fatalf("WriteMetadata: %v", err)
 	}
 
@@ -152,7 +207,7 @@ func TestWriteMetadata_EmptyPatchIsNoOp(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "copy.flac")
 	copyFileForWriter(t, src, dst)
 
-	if err := metadataedit.WriteMetadata(dst, metadataedit.Patch{}, metadataedit.LibraryCfg{}); err != nil {
+	if err := metadataedit.WriteMetadata(dst, metadataedit.Patch{}, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{}); err != nil {
 		t.Fatalf("unexpected error on empty patch: %v", err)
 	}
 }

@@ -40,7 +40,7 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	touch(t, filepath.Join(root, "notes.txt"))
 
 	reader := stubReader{byPath: map[string]tags.Metadata{
-		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020},
+		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020, MBArtistID: []string{"id-a"}},
 		filepath.Join(root, "album", "02.mp3"):  {Title: "Two", Artist: []string{"A"}, Album: "X", Year: 2020},
 	}}
 	got, err := metadataedit.ListTracks(root, root, reader)
@@ -55,6 +55,9 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	}
 	if got[0].Title != "One" || got[1].Title != "Two" {
 		t.Fatalf("titles mismatch: %+v", got)
+	}
+	if len(got[0].MBArtistIDs) != 1 || got[0].MBArtistIDs[0] != "id-a" {
+		t.Fatalf("MBArtistIDs not surfaced: %+v", got[0].MBArtistIDs)
 	}
 	if got[0].Error != "" {
 		t.Fatalf("unexpected error on row 0: %q", got[0].Error)

@@ -206,7 +206,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	results := make([]updateResult, 0, len(resolved))
 	anyOK := false
 	for i, abs := range resolved {
-		if err := metadataedit.WriteMetadata(abs, patch, cfg); err != nil {
+		if err := metadataedit.WriteMetadata(abs, patch, cfg, metadataedit.CurrentTags{}); err != nil {
 			results = append(results, updateResult{Path: body.Paths[i], OK: false, Error: err.Error()})
 			continue
 		}
