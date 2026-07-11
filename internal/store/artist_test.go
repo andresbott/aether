@@ -335,3 +335,50 @@ func TestSetArtistMBIDClear(t *testing.T) {
 		t.Fatalf("expected MBArtistID cleared, got %q", updated.MBArtistID)
 	}
 }
+
+func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
+	s := testStore(t)
+	// Create with an initial MBID and a set image-fetch timestamp.
+	err := s.Transaction(func(tx *store.Store) error {
+		_, e := tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-old"})
+		return e
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := s.SetArtistImageFetchedAt(mustArtistID(t, s, "Muse"), now); err != nil {
+		t.Fatal(err)
+	}
+	// Rescan finds the same artist with a corrected MBID.
+	var got []*model.Artist
+	err = s.Transaction(func(tx *store.Store) error {
+		var e error
+		got, e = tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-new"})
+		return e
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].MBArtistID != "mbid-new" {
+		t.Fatalf("expected overwrite to mbid-new, got %q", got[0].MBArtistID)
+	}
+	if got[0].LastImageFetchAt != nil {
+		t.Fatalf("expected LastImageFetchAt reset to nil, got %v", got[0].LastImageFetchAt)
+	}
+}
+
+func mustArtistID(t *testing.T, s *store.Store, name string) uint {
+	t.Helper()
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range artists {
+		if a.Name == name {
+			return a.ID
+		}
+	}
+	t.Fatalf("artist %q not found", name)
+	return 0
+}

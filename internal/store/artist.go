@@ -22,9 +22,16 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 			if err := s.db.Create(&artist).Error; err != nil {
 				return nil, err
 			}
-		} else if artist.MBArtistID == "" && mbid != "" {
+		} else if mbid != "" && artist.MBArtistID != mbid {
+			// Tag is source of truth: overwrite a differing (or previously
+			// empty) MBID and reset the image-fetch timestamp so the artist
+			// image is refetched for the corrected match.
 			artist.MBArtistID = mbid
-			if err := s.db.Model(&artist).Update("mb_artist_id", mbid).Error; err != nil {
+			artist.LastImageFetchAt = nil
+			if err := s.db.Model(&artist).Updates(map[string]interface{}{
+				"mb_artist_id":        mbid,
+				"last_image_fetch_at": nil,
+			}).Error; err != nil {
 				return nil, err
 			}
 		}
