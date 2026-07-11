@@ -25,12 +25,21 @@ const paste = ref('')
 
 const pasteValid = computed(() => MBID_RE.test(paste.value.trim()))
 
+let lastSearched = ''
+function runSearch(q: string) {
+    lastSearched = q
+    search(q)
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 function scheduleSearch() {
     if (debounceTimer) clearTimeout(debounceTimer)
-    debounceTimer = setTimeout(() => search(query.value), 400)
+    debounceTimer = setTimeout(() => runSearch(query.value), 400)
 }
-watch(query, scheduleSearch)
+watch(query, () => {
+    if (query.value === lastSearched) return
+    scheduleSearch()
+})
 
 watch(
     () => props.visible,
@@ -38,7 +47,7 @@ watch(
         if (!visible) return
         query.value = props.artistName
         paste.value = ''
-        search(query.value)
+        runSearch(query.value)
     },
     { immediate: true }
 )
