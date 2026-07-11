@@ -345,3 +345,40 @@ func TestUpdateTracks_MalformedJSON(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// A single request may not both rename an artist field and set its MusicBrainz
+// IDs: the MB-ID map is keyed by the current names, so writing new names in the
+// same request would produce a positionally-misaligned tag. The handler rejects
+// the whole request so a corrupt tag is never written; the user saves them
+// separately.
+func TestUpdateTracks_RejectsArtistRenameWithMBID(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "artists": ["New Name"], "artist_mbids": {"Old Name": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateTracks_RejectsAlbumArtistRenameWithMBID(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "album_artists": ["New"], "album_artist_mbids": {"Old": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

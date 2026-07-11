@@ -177,6 +177,20 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "validation_error", "library_id and paths are required")
 		return
 	}
+	// MB-ID maps are keyed by the current artist names; changing the name field
+	// in the same request would write a positionally-misaligned MB-ID tag.
+	// Reject so a corrupt tag is never written — the two edits must be saved
+	// separately.
+	if body.Fields.Artists != nil && body.Fields.ArtistMBIDs != nil {
+		writeErr(w, http.StatusBadRequest, "validation_error",
+			"cannot change artist names and set artist MusicBrainz IDs in the same request; save them separately")
+		return
+	}
+	if body.Fields.AlbumArtists != nil && body.Fields.AlbumArtistMBIDs != nil {
+		writeErr(w, http.StatusBadRequest, "validation_error",
+			"cannot change album-artist names and set album-artist MusicBrainz IDs in the same request; save them separately")
+		return
+	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
