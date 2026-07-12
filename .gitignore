@@ -13,6 +13,8 @@ webui/dist/
 docs/superpowers
 .playwright-mcp
 *.iml
+.scout
+node_modules
 
 # Build
 /dist/

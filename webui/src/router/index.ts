@@ -9,6 +9,12 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/search',
+        name: 'search',
+        component: () => import('@/views/SearchView.vue'),
+        meta: { flush: true }
+    },
+    {
         path: '/library/:folderId?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
@@ -25,7 +31,8 @@ const routes: RouteRecordRaw[] = [
         path: '/artist/:id',
         name: 'artist',
         component: () => import('@/views/ArtistView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/playlists',
@@ -61,38 +68,41 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/admin',
-        component: () => import('@/views/AdminView.vue'),
-        meta: { layout: 'admin' },
+        path: '/settings',
+        name: 'settings',
+        component: () => import('@/views/settings/SettingsView.vue'),
+        meta: { layout: 'settings' },
         children: [
             {
                 path: '',
-                redirect: '/admin/libraries'
+                redirect: '/settings/profile'
+            },
+            {
+                path: 'profile',
+                name: 'settings-profile',
+                component: () => import('@/views/settings/ProfileView.vue')
             },
             {
                 path: 'libraries',
-                name: 'admin-libraries',
-                component: () => import('@/views/admin/AdminLibrariesView.vue'),
-                meta: { layout: 'admin' }
+                name: 'settings-libraries',
+                component: () => import('@/views/settings/LibrariesView.vue')
             },
             {
                 path: 'tasks',
-                name: 'admin-tasks',
-                component: () => import('@/views/admin/AdminTasksView.vue'),
-                meta: { layout: 'admin' }
+                name: 'settings-tasks',
+                component: () => import('@/views/settings/TasksView.vue')
             },
             {
                 path: 'metadata',
-                name: 'admin-metadata',
-                component: () => import('@/views/admin/MetadataEditorView.vue'),
-                meta: { layout: 'admin' }
+                name: 'settings-metadata',
+                component: () => import('@/views/settings/MetadataEditorView.vue')
+            },
+            {
+                path: 'radio',
+                name: 'settings-radio',
+                component: () => import('@/views/settings/RadioStationsView.vue')
             }
         ]
-    },
-    {
-        path: '/settings',
-        name: 'settings',
-        component: () => import('@/views/SettingsView.vue')
     }
 ]
 

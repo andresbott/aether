@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
@@ -49,7 +50,13 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			writeError(w, 70, "album not found")
 			return coverMeta{}, false
 		}
-		return coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}, true
+		meta := coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}
+		// A cover saved to aether's managed store (metadata editor "save to DB"
+		// target) takes precedence over the folder file and embedded art.
+		if p, ok := h.assets.Get(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)); ok {
+			meta.coverPath = p
+		}
+		return meta, true
 	case "track":
 		song, err := h.store.GetSong(id)
 		if err != nil {
@@ -105,6 +112,12 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+
+	// Force revalidation on every request. Without this, browsers may
+	// heuristically cache a response (e.g. the generated-avatar fallback
+	// served before an artist has a fetched image) and keep serving it from
+	// cache after the underlying file changes, since the URL is unchanged.
+	w.Header().Set("Cache-Control", "no-cache")
 
 	if meta.coverPath != "" {
 		if _, err := os.Stat(meta.coverPath); err == nil {

@@ -7,7 +7,7 @@ import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import QueueRow from '@/components/layout/QueueRow.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
-import { useQueueEdit } from '@/composables/useQueueEdit'
+import { useQueueEdit, type RowClickModifiers } from '@/composables/useQueueEdit'
 import { useQueueDrop } from '@/composables/useQueueDrop'
 import { computeDropTarget } from '@/utils/queueReorder'
 import { buildMultiDragImage } from '@/utils/queueDragImage'
@@ -22,6 +22,7 @@ const {
     editMode,
     toggleEditMode,
     isSelected,
+    selectedIndices,
     onRowClick: onEditRowClick,
     selectionForDrag,
     clearSelection
@@ -43,7 +44,7 @@ const {
     onDragOver: onQueueDragOver,
     onDragLeave: onQueueDragLeave,
     onDrop: onQueueDrop
-} = useQueueDrop({ bodyRef: queueBodyRef, isEditing: () => editMode.value })
+} = useQueueDrop({ bodyRef: queueBodyRef, onInsert: clearSelection })
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
@@ -92,9 +93,32 @@ const onPlayRow = (index: number): void => {
     player.playQueueItem(index)
 }
 
-const onDeleteRow = (index: number): void => {
-    player.removeFromQueue(index)
+const removeIndices = (indices: number[]): void => {
+    if (indices.length === 0) return
+    if (indices.length > 1) player.removeManyFromQueue(indices)
+    else player.removeFromQueue(indices[0])
     clearSelection()
+}
+
+// Delete button: if the row is part of a multi-selection, drop the whole
+// selection; otherwise just that row (same semantics as selectionForDrag).
+const onDeleteRow = (index: number): void => removeIndices(selectionForDrag(index))
+
+// Delete/Backspace on the focused edit list: drop the whole current selection.
+const deleteSelected = (): void => removeIndices([...selectedIndices.value].sort((a, b) => a - b))
+
+const onEditListKeydown = (e: KeyboardEvent): void => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return
+    if (selectedIndices.value.size === 0) return
+    e.preventDefault()
+    deleteSelected()
+}
+
+// Focus the list on selection so Delete works right after a click. Every row is
+// selectable in edit mode (including the now-playing one), so no index is excluded.
+const onSelectRow = (index: number, payload: RowClickModifiers): void => {
+    onEditRowClick(index, payload)
+    editListRef.value?.focus()
 }
 
 // When a multi-selection is dragged, lift the other selected rows out of the
@@ -279,7 +303,15 @@ onMounted(() => scrollCurrentIntoView('center'))
             </div>
             <!-- Edit mode: one flat reorderable list of every track, the
                  now-playing one rendered as a row with a play toggle. -->
-            <div v-if="editMode" ref="editListRef" class="queue-edit-list">
+            <div
+                v-if="editMode"
+                ref="editListRef"
+                class="queue-edit-list"
+                role="listbox"
+                aria-multiselectable="true"
+                tabindex="0"
+                @keydown="onEditListKeydown"
+            >
                 <QueueRow
                     v-for="row in editRows"
                     :key="row.id + ':' + row.queueIndex"
@@ -288,9 +320,7 @@ onMounted(() => scrollCurrentIntoView('center'))
                     editing
                     :selected="isSelected(row.queueIndex)"
                     :current="row.queueIndex === player.currentIndex.value"
-                    :playing="player.isPlaying.value"
-                    @select="(p) => onEditRowClick(row.queueIndex, p, player.currentIndex.value)"
-                    @toggle-play="player.togglePlayPause"
+                    @select="(p) => onSelectRow(row.queueIndex, p)"
                     @delete="onDeleteRow(row.queueIndex)"
                 />
             </div>
@@ -475,7 +505,7 @@ onMounted(() => scrollCurrentIntoView('center'))
 
 .queue-empty--drop-active {
     border-color: var(--app-accent);
-    background-color: #eef2ff;
+    background-color: var(--app-accent-soft);
     color: var(--app-accent);
 }
 
@@ -510,6 +540,15 @@ onMounted(() => scrollCurrentIntoView('center'))
     border-radius: 0.55rem;
     font-size: 0.7rem;
     font-weight: 700;
+}
+
+/* The edit list is a focusable listbox (so Delete/Backspace can act on the
+   selection); keep the focus ring subtle since the selected-row highlight
+   already conveys what will be removed. */
+.queue-edit-list:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: -2px;
+    border-radius: 6px;
 }
 
 /* Already-played tracks are faded. */

@@ -135,3 +135,66 @@ func TestFetchTaskStoresImageAndSkipsExisting(t *testing.T) {
 		t.Fatalf("expected no extra fetch, got %d", f.calls)
 	}
 }
+
+func TestFetchAndStoreArtistImage_Success(t *testing.T) {
+	st := newTestStore(t)
+	var artist *model.Artist
+	_ = st.Transaction(func(tx *store.Store) error {
+		artists, e := tx.FindOrCreateArtists([]string{"A"}, []string{"mbid-a"})
+		artist = artists[0]
+		return e
+	})
+	as := assetstore.New(t.TempDir())
+	f := &fakeFetcher{data: []byte("IMG"), ext: "jpg"}
+
+	stored, err := FetchAndStoreArtistImage(context.Background(), st, as, f, *artist)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !stored {
+		t.Fatal("expected image to be stored")
+	}
+	if _, ok := as.Get(assetstore.KindArtist, "mbid-a"); !ok {
+		t.Fatal("image not persisted in asset store")
+	}
+}
+
+func TestFetchAndStoreArtistImage_NoImageFound(t *testing.T) {
+	st := newTestStore(t)
+	var artist *model.Artist
+	_ = st.Transaction(func(tx *store.Store) error {
+		artists, e := tx.FindOrCreateArtists([]string{"B"}, []string{"mbid-b"})
+		artist = artists[0]
+		return e
+	})
+	as := assetstore.New(t.TempDir())
+	f := &fakeFetcher{} // nil data -> provider found nothing
+
+	stored, err := FetchAndStoreArtistImage(context.Background(), st, as, f, *artist)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stored {
+		t.Fatal("expected no image to be stored")
+	}
+}
+
+func TestFetchAndStoreArtistImage_FetchError(t *testing.T) {
+	st := newTestStore(t)
+	var artist *model.Artist
+	_ = st.Transaction(func(tx *store.Store) error {
+		artists, e := tx.FindOrCreateArtists([]string{"C"}, []string{"mbid-c"})
+		artist = artists[0]
+		return e
+	})
+	as := assetstore.New(t.TempDir())
+	f := &errFetcher{err: errors.New("provider down")}
+
+	stored, err := FetchAndStoreArtistImage(context.Background(), st, as, f, *artist)
+	if err == nil {
+		t.Fatal("expected error to propagate")
+	}
+	if stored {
+		t.Fatal("expected stored=false on error")
+	}
+}

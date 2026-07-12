@@ -321,6 +321,38 @@ export function usePlayer() {
         updatePreload()
     }
 
+    const removeManyFromQueue = (indices: number[]): void => {
+        if (indices.length === 0) return
+        const toRemove = new Set(indices)
+        const current = queue.value[currentIndex.value] ?? null
+        const currentRemoved = toRemove.has(currentIndex.value)
+        // How many kept tracks precede the current one — the slot the next
+        // surviving track falls into when the current track itself is removed.
+        const keptBeforeCurrent = queue.value
+            .slice(0, currentIndex.value)
+            .reduce((n, _, i) => (toRemove.has(i) ? n : n + 1), 0)
+        const next = queue.value.filter((_, i) => !toRemove.has(i))
+
+        if (next.length === 0) {
+            clearQueue()
+            return
+        }
+
+        queue.value = next
+        if (currentRemoved) {
+            // The playing track is gone: advance to whatever fell into its slot
+            // (or the new last track) and keep playback going if it was.
+            const wasPlaying = isPlaying.value
+            loadTrack(Math.min(keptBeforeCurrent, next.length - 1))
+            if (wasPlaying) play()
+        } else if (current) {
+            // Keep pointing at the still-playing track.
+            const idx = next.indexOf(current)
+            if (idx !== -1) currentIndex.value = idx
+            updatePreload()
+        }
+    }
+
     const moveInQueue = (fromIndices: number[], targetIndex: number): void => {
         if (fromIndices.length === 0) return
         const current = queue.value[currentIndex.value] ?? null
@@ -391,6 +423,7 @@ export function usePlayer() {
         playNow,
         playAlbum,
         removeFromQueue,
+        removeManyFromQueue,
         moveInQueue,
         insertIntoQueue,
         clearQueue,

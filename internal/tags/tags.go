@@ -26,10 +26,11 @@ type Metadata struct {
 	DiscSubtitle    string
 	Duration        time.Duration
 	Bitrate         int
-	MBRecordingID   string
-	MBReleaseID     string
-	MBArtistID      []string
-	MBAlbumArtistID []string
+	MBRecordingID    string
+	MBReleaseID      string
+	MBReleaseGroupID string
+	MBArtistID       []string
+	MBAlbumArtistID  []string
 	Lyrics          string
 	Compilation     bool
 	ReleaseType     string

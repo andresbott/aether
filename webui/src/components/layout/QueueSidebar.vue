@@ -177,12 +177,12 @@ const startResize = (event: MouseEvent) => {
 }
 
 .collapsed-item.current {
-    background-color: #eef2ff;
+    background-color: var(--app-accent-soft);
     box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .collapsed-item.current:hover {
-    background-color: #e0e7ff;
+    background-color: var(--app-accent-soft-hover);
 }
 
 .collapsed-cover {

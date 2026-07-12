@@ -40,8 +40,8 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	touch(t, filepath.Join(root, "notes.txt"))
 
 	reader := stubReader{byPath: map[string]tags.Metadata{
-		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020},
-		filepath.Join(root, "album", "02.mp3"):  {Title: "Two", Artist: []string{"A"}, Album: "X", Year: 2020},
+		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 1, DiscSubtitle: "CD 1", MBArtistID: []string{"id-a"}, MBReleaseID: "rel-1", MBReleaseGroupID: "rg-1"},
+		filepath.Join(root, "album", "02.mp3"):  {Title: "Two", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 2, DiscSubtitle: "CD 2"},
 	}}
 	got, err := metadataedit.ListTracks(root, root, reader)
 	if err != nil {
@@ -55,6 +55,18 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	}
 	if got[0].Title != "One" || got[1].Title != "Two" {
 		t.Fatalf("titles mismatch: %+v", got)
+	}
+	if len(got[0].MBArtistIDs) != 1 || got[0].MBArtistIDs[0] != "id-a" {
+		t.Fatalf("MBArtistIDs not surfaced: %+v", got[0].MBArtistIDs)
+	}
+	if got[0].MBReleaseID != "rel-1" || got[0].MBReleaseGroupID != "rg-1" {
+		t.Fatalf("release IDs not surfaced on row 0: %+v", got[0])
+	}
+	if got[0].DiscNumber != 1 || got[0].DiscSubtitle != "CD 1" {
+		t.Fatalf("disc fields not surfaced on row 0: %+v", got[0])
+	}
+	if got[1].DiscNumber != 2 || got[1].DiscSubtitle != "CD 2" {
+		t.Fatalf("disc fields not surfaced on row 1: %+v", got[1])
 	}
 	if got[0].Error != "" {
 		t.Fatalf("unexpected error on row 0: %q", got[0].Error)

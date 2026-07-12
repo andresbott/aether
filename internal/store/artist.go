@@ -22,9 +22,16 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 			if err := s.db.Create(&artist).Error; err != nil {
 				return nil, err
 			}
-		} else if artist.MBArtistID == "" && mbid != "" {
+		} else if mbid != "" && artist.MBArtistID != mbid {
+			// Tag is source of truth: overwrite a differing (or previously
+			// empty) MBID and reset the image-fetch timestamp so the artist
+			// image is refetched for the corrected match.
 			artist.MBArtistID = mbid
-			if err := s.db.Model(&artist).Update("mb_artist_id", mbid).Error; err != nil {
+			artist.LastImageFetchAt = nil
+			if err := s.db.Model(&artist).Updates(map[string]interface{}{
+				"mb_artist_id":        mbid,
+				"last_image_fetch_at": nil,
+			}).Error; err != nil {
 				return nil, err
 			}
 		}
@@ -99,6 +106,14 @@ func (s *Store) ArtistsWithMBID() ([]model.Artist, error) {
 
 func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
 	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
+}
+
+// SetArtistMBID sets the artist's MusicBrainz artist ID (empty string
+// clears it) and always resets LastImageFetchAt to nil, so a changed match
+// is retried on the next fetch attempt instead of hitting the backoff.
+func (s *Store) SetArtistMBID(id uint, mbid string) error {
+	return s.db.Model(&model.Artist{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"mb_artist_id": mbid, "last_image_fetch_at": nil}).Error
 }
 
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {

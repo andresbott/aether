@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/tempo"
 )
@@ -25,6 +26,37 @@ type Fetcher interface {
 	Fetch(ctx context.Context, mbid string) ([]byte, string, error)
 }
 
+// FetchAndStoreArtistImage attempts to fetch a's image via f, storing it in
+// as on success, and always stamps a.LastImageFetchAt afterwards. It reports
+// whether an image was stored. Callers decide their own skip/backoff policy
+// before calling this — it always attempts the fetch.
+func FetchAndStoreArtistImage(ctx context.Context, s *store.Store, as *assetstore.Store, f Fetcher, a model.Artist) (bool, error) {
+	data, ext, ferr := f.Fetch(ctx, a.MBArtistID)
+	now := time.Now()
+	if ferr != nil {
+		if uerr := s.SetArtistImageFetchedAt(a.ID, now); uerr != nil {
+			return false, fmt.Errorf("stamp fetch time: %w", uerr)
+		}
+		return false, ferr
+	}
+	if len(data) == 0 {
+		if uerr := s.SetArtistImageFetchedAt(a.ID, now); uerr != nil {
+			return false, fmt.Errorf("stamp fetch time: %w", uerr)
+		}
+		return false, nil
+	}
+	storeErr := as.PutAuto(assetstore.KindArtist, a.MBArtistID, ext, data)
+	if uerr := s.SetArtistImageFetchedAt(a.ID, now); uerr != nil {
+		return false, fmt.Errorf("stamp fetch time: %w", uerr)
+	}
+	if storeErr != nil {
+		return false, fmt.Errorf("store image: %w", storeErr)
+	}
+	return true, nil
+}
+
+// NewFetchArtistImagesTaskFn iterates artists with a MusicBrainz ID and
+// fetches a missing image for each, applying skip/backoff before attempting.
 func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher, logger *slog.Logger, backoff time.Duration) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		// No provider configured: report a clear, actionable message. The
@@ -50,23 +82,14 @@ func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher,
 				skipped++
 				continue
 			}
-			data, ext, ferr := f.Fetch(ctx, a.MBArtistID)
+			ok, ferr := FetchAndStoreArtistImage(ctx, s, as, f, a)
 			if ferr != nil {
 				// Surface fetch failures in the task log instead of swallowing
 				// them — otherwise the task looks like it did nothing.
 				tempo.Error(ctx, fmt.Sprintf("fetch image for %q (%s): %v", a.Name, a.MBArtistID, ferr))
 				failed++
-			} else if len(data) > 0 {
-				if perr := as.PutAuto(assetstore.KindArtist, a.MBArtistID, ext, data); perr != nil {
-					tempo.Error(ctx, fmt.Sprintf("store image for %q: %v", a.Name, perr))
-					failed++
-				} else {
-					stored++
-				}
-			}
-			now := time.Now()
-			if uerr := s.SetArtistImageFetchedAt(a.ID, now); uerr != nil {
-				tempo.Error(ctx, fmt.Sprintf("stamp fetch time for %q: %v", a.Name, uerr))
+			} else if ok {
+				stored++
 			}
 		}
 		_ = logger

@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
-import DataTable from 'primevue/datatable'
-import Column from 'primevue/column'
+import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
+import { useSongsDrag } from '@/composables/useSongsDrag'
+import { useRowSelection } from '@/composables/useRowSelection'
 import { subsonicClient } from '@/lib/api/subsonic'
+import type { Song } from '@/types/subsonic'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const player = usePlayer()
 const toggleStar = useToggleStar()
 const albumDrag = useAlbumDrag()
+const songsDrag = useSongsDrag()
+const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
 
 const onAlbumDragStart = (event: DragEvent): void => {
     if (album.value) albumDrag.start(event, album.value, coverUrl.value)
@@ -30,13 +34,6 @@ const coverUrl = computed(() => {
     if (!album.value?.coverArt || !subsonicClient.isConfigured()) return null
     return subsonicClient.getCoverArtUrl(album.value.coverArt, 250)
 })
-
-const formatDuration = (seconds?: number): string => {
-    if (!seconds) return ''
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-}
 
 const totalDuration = computed(() => {
     if (!album.value?.duration) return ''
@@ -56,11 +53,54 @@ const addToQueue = () => {
     }
 }
 
-const playFromTrack = (index: number) => {
-    if (album.value?.song) {
-        player.playAlbum(album.value.song, index)
+const playFromIndex = (index: number): void => {
+    if (index >= 0 && index < orderedSongs.value.length) {
+        player.playAlbum(orderedSongs.value, index)
     }
 }
+
+const discs = computed(() => {
+    const songs = album.value?.song ?? []
+    const groups = new Map<number, Song[]>()
+    for (const s of songs) {
+        const d = s.discNumber ?? 1
+        if (!groups.has(d)) groups.set(d, [])
+        groups.get(d)!.push(s)
+    }
+    return [...groups.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([discNumber, discSongs]) => ({ discNumber, songs: discSongs }))
+})
+
+const hasMultipleDiscs = computed(() => discs.value.length > 1)
+
+// Flat track list ordered by disc; selection indices refer to positions in it.
+const orderedSongs = computed(() => discs.value.flatMap((disc) => disc.songs))
+
+// Disc groups carrying each row's flat index, so the template can render disc
+// headers while every row keeps its position in `orderedSongs`.
+const discGroups = computed(() => {
+    let i = 0
+    return discs.value.map((disc) => ({
+        discNumber: disc.discNumber,
+        rows: disc.songs.map((song) => ({ song, index: i++ }))
+    }))
+})
+
+// A drag from a selected row carries the whole selection; from an unselected row
+// it carries just that row. The songs are resolved from the flat list.
+const onRowDragStart = (event: DragEvent, index: number): void => {
+    const songs = selectionForDrag(index)
+        .map((i) => orderedSongs.value[i])
+        .filter((s): s is Song => s !== undefined)
+    songsDrag.start(event, songs, event.currentTarget as HTMLElement)
+}
+
+// Discard the selection when navigating to a different album.
+watch(
+    () => props.id,
+    () => clearSelection()
+)
 </script>
 
 <template>
@@ -127,23 +167,30 @@ const playFromTrack = (index: number) => {
                 </div>
             </div>
 
-            <DataTable
-                v-if="album.song && album.song.length > 0"
-                :value="album.song"
-                stripedRows
-                @row-click="(e) => playFromTrack(e.index)"
-                class="track-table"
-                :rowClass="() => 'clickable-row'"
-            >
-                <Column field="track" header="#" style="width: 60px" />
-                <Column field="title" header="Title" />
-                <Column field="artist" header="Artist" />
-                <Column header="Duration" style="width: 80px">
-                    <template #body="{ data }">
-                        {{ formatDuration(data.duration) }}
-                    </template>
-                </Column>
-            </DataTable>
+            <div v-if="orderedSongs.length > 0" class="track-list">
+                <div class="track-list-header">
+                    <span class="col-index">#</span>
+                    <span class="col-title">Title</span>
+                    <span class="col-artist">Artist</span>
+                    <span class="col-duration">Duration</span>
+                </div>
+                <template v-for="group in discGroups" :key="group.discNumber">
+                    <div v-if="hasMultipleDiscs" class="disc-header">
+                        Disc {{ group.discNumber }}
+                    </div>
+                    <AlbumTrackRow
+                        v-for="row in group.rows"
+                        :key="row.song.id"
+                        :song="row.song"
+                        :index="row.index"
+                        :selected="isSelected(row.index)"
+                        @select="(p) => onRowClick(row.index, p)"
+                        @play="playFromIndex(row.index)"
+                        @dragstart="(e) => onRowDragStart(e, row.index)"
+                        @dragend="songsDrag.end"
+                    />
+                </template>
+            </div>
         </div>
     </div>
 </template>
@@ -242,23 +289,43 @@ const playFromTrack = (index: number) => {
     margin-top: auto;
 }
 
-.track-table :deep(thead th) {
+.track-list {
+    /* Shared grid template so the header and every row (a child component) align.
+       Custom properties inherit through the DOM regardless of scoped styles. */
+    --album-track-cols: 2.5rem minmax(0, 2fr) minmax(0, 1fr) 4.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--album-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--app-text-secondary);
-    background: transparent;
-    border: none;
-    height: 36px;
 }
 
-.track-table :deep(.clickable-row) {
-    cursor: pointer;
+.track-list-header .col-index,
+.track-list-header .col-duration {
+    text-align: right;
 }
 
-.track-table :deep(.clickable-row:hover) {
-    background-color: var(--app-hover) !important;
+.disc-header {
+    background: var(--app-accent);
+    color: #fff;
+    text-align: center;
+    padding: 0.7rem 1rem;
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .album-drag-handle {

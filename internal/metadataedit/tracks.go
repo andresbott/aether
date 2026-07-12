@@ -14,15 +14,21 @@ import (
 // Error is non-empty when the tag read failed; the remaining fields are zero
 // values in that case.
 type Track struct {
-	Path         string
-	Name         string
-	Title        string
-	Artists      []string
-	AlbumArtists []string
-	Album        string
-	Year         int
-	Compilation  bool
-	Error        string
+	Path             string
+	Name             string
+	Title            string
+	Artists          []string
+	AlbumArtists     []string
+	Album            string
+	Year             int
+	DiscNumber       int
+	DiscSubtitle     string
+	Compilation      bool
+	MBArtistIDs      []string
+	MBAlbumArtistIDs []string
+	MBReleaseID      string
+	MBReleaseGroupID string
+	Error            string
 }
 
 // ListTracks walks absDir recursively, calling reader.Read on every file for
@@ -46,10 +52,12 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 			return nil
 		}
 		row := Track{
-			Name:         d.Name(),
-			Path:         toForwardRel(cleanRoot, path),
-			Artists:      []string{},
-			AlbumArtists: []string{},
+			Name:             d.Name(),
+			Path:             toForwardRel(cleanRoot, path),
+			Artists:          []string{},
+			AlbumArtists:     []string{},
+			MBArtistIDs:      []string{},
+			MBAlbumArtistIDs: []string{},
 		}
 		meta, rerr := reader.Read(path)
 		if rerr != nil {
@@ -64,8 +72,18 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 		if meta.AlbumArtist != nil {
 			row.AlbumArtists = meta.AlbumArtist
 		}
+		if meta.MBArtistID != nil {
+			row.MBArtistIDs = meta.MBArtistID
+		}
+		if meta.MBAlbumArtistID != nil {
+			row.MBAlbumArtistIDs = meta.MBAlbumArtistID
+		}
 		row.Album = meta.Album
+		row.MBReleaseID = meta.MBReleaseID
+		row.MBReleaseGroupID = meta.MBReleaseGroupID
 		row.Year = meta.Year
+		row.DiscNumber = meta.DiscNumber
+		row.DiscSubtitle = meta.DiscSubtitle
 		row.Compilation = meta.Compilation
 		out = append(out, row)
 		return nil

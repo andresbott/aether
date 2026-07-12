@@ -279,9 +279,150 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	}
 }
 
+func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst := filepath.Join(root, "a.flac")
+	copyTestFile(t, fx, dst)
+	_ = taglibWrite(dst, map[string][]string{"ALBUM": {"Keep"}})
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "mb_release_id": "rel-uuid", "mb_release_group_id": "rg-uuid" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := taglibReadTags(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["MUSICBRAINZ_ALBUMID"][0] != "rel-uuid" {
+		t.Fatalf("release id unexpected: %v", got["MUSICBRAINZ_ALBUMID"])
+	}
+	if got["MUSICBRAINZ_RELEASEGROUPID"][0] != "rg-uuid" {
+		t.Fatalf("release-group id unexpected: %v", got["MUSICBRAINZ_RELEASEGROUPID"])
+	}
+	// Album name must be left intact when only IDs are sent.
+	if got["ALBUM"][0] != "Keep" {
+		t.Fatalf("album should be preserved, got %v", got["ALBUM"])
+	}
+}
+
+func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst1 := filepath.Join(root, "t1.flac")
+	dst2 := filepath.Join(root, "t2.flac")
+	copyTestFile(t, fx, dst1)
+	copyTestFile(t, fx, dst2)
+	if err := taglibWrite(dst1, map[string][]string{"ARTIST": {"Daft Punk"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := taglibWrite(dst2, map[string][]string{"ARTIST": {"Daft Punk", "Pharrell"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: tags.TaglibReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["t1.flac", "t2.flac"],
+		"fields": { "artist_mbids": {"Daft Punk": "id-dp", "Pharrell": "id-ph"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got1, err := taglibReadTags(dst1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got1["MUSICBRAINZ_ARTISTID"]) != 1 || got1["MUSICBRAINZ_ARTISTID"][0] != "id-dp" {
+		t.Fatalf("t1 MUSICBRAINZ_ARTISTID unexpected: %v", got1["MUSICBRAINZ_ARTISTID"])
+	}
+
+	got2, err := taglibReadTags(dst2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got2["MUSICBRAINZ_ARTISTID"]) != 2 || got2["MUSICBRAINZ_ARTISTID"][0] != "id-dp" || got2["MUSICBRAINZ_ARTISTID"][1] != "id-ph" {
+		t.Fatalf("t2 MUSICBRAINZ_ARTISTID unexpected: %v", got2["MUSICBRAINZ_ARTISTID"])
+	}
+}
+
 func TestUpdateTracks_MalformedJSON(t *testing.T) {
 	_, r, _ := newTestHandler(t, t.TempDir())
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString("{bad json"))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// A single request may not both rename an artist field and set its MusicBrainz
+// IDs: the MB-ID map is keyed by the current names, so writing new names in the
+// same request would produce a positionally-misaligned tag. The handler rejects
+// the whole request so a corrupt tag is never written; the user saves them
+// separately.
+func TestUpdateTracks_RejectsArtistRenameWithMBID(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "artists": ["New Name"], "artist_mbids": {"Old Name": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateTracks_RejectsAlbumArtistRenameWithMBID(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "album_artists": ["New"], "album_artist_mbids": {"Old": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

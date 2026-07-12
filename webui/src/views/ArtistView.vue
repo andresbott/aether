@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
+import ArtistEditDialog from '@/components/library/ArtistEditDialog.vue'
 import { useArtist, useToggleStar } from '@/composables/useSubsonicQueries'
 import { subsonicClient } from '@/lib/api/subsonic'
 
@@ -17,9 +19,19 @@ const handleStar = () => {
 
 const { data: artist, isLoading, error } = useArtist(props.id)
 
+const editDialogVisible = ref(false)
+const cacheBust = ref(0)
+
 const coverUrl = computed(() => {
     if (!artist.value?.coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(artist.value.coverArt, 250)
+    const base = subsonicClient.getCoverArtUrl(artist.value.coverArt, 250)
+    return cacheBust.value > 0 ? `${base}&_cb=${cacheBust.value}` : base
+})
+
+const summary = computed(() => {
+    const n = artist.value?.albumCount ?? 0
+    if (n === 0) return ''
+    return `${n} ${n === 1 ? 'album' : 'albums'}`
 })
 
 const sortedAlbums = computed(() => {
@@ -30,7 +42,9 @@ const sortedAlbums = computed(() => {
 
 <template>
     <div class="artist-view">
-        <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        <div class="back-row">
+            <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        </div>
 
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
@@ -41,48 +55,70 @@ const sortedAlbums = computed(() => {
             <p>{{ error.message }}</p>
         </div>
 
-        <div v-else-if="artist" class="artist-content">
-            <div class="artist-header">
-                <div class="artist-image">
-                    <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
-                    <div v-else class="image-placeholder">
-                        <i class="pi pi-user" style="font-size: 3rem"></i>
+        <ContentScaffold v-else-if="artist" :title="artist.name" :summary="summary">
+            <template #actions>
+                <Button
+                    :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
+                    text
+                    rounded
+                    title="Toggle star"
+                    @click="handleStar"
+                />
+                <Button
+                    icon="pi pi-pencil"
+                    text
+                    rounded
+                    title="Edit MusicBrainz match"
+                    @click="editDialogVisible = true"
+                />
+            </template>
+
+            <div class="artist-scroll">
+                <div class="artist-body">
+                    <div class="artist-hero">
+                        <div class="artist-image">
+                            <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
+                            <div v-else class="image-placeholder">
+                                <i class="pi pi-user" style="font-size: 3rem"></i>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div class="artist-info">
-                    <h1>{{ artist.name }}</h1>
-                    <p v-if="artist.albumCount" class="artist-meta">
-                        {{ artist.albumCount }} albums
-                    </p>
-                    <div class="artist-actions">
-                        <Button
-                            :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                            text
-                            rounded
-                            @click="handleStar"
-                        />
-                    </div>
+
+                    <section v-if="sortedAlbums.length > 0" class="discography">
+                        <h2>Albums</h2>
+                        <div class="album-grid">
+                            <AlbumCard
+                                v-for="album in sortedAlbums"
+                                :key="album.id"
+                                :album="album"
+                            />
+                        </div>
+                    </section>
                 </div>
             </div>
+        </ContentScaffold>
 
-            <section v-if="sortedAlbums.length > 0" class="discography">
-                <h2>Albums</h2>
-                <div class="album-grid">
-                    <AlbumCard
-                        v-for="album in sortedAlbums"
-                        :key="album.id"
-                        :album="album"
-                    />
-                </div>
-            </section>
-        </div>
+        <ArtistEditDialog
+            v-if="artist"
+            v-model:visible="editDialogVisible"
+            :artist-id="artist.id"
+            :artist-name="artist.name"
+            @saved="cacheBust++"
+        />
     </div>
 </template>
 
 <style scoped>
 .artist-view {
-    max-width: 1200px;
-    margin: 0 auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.back-row {
+    flex-shrink: 0;
+    padding: 0.5rem 2rem 0;
 }
 
 .loading,
@@ -99,10 +135,22 @@ const sortedAlbums = computed(() => {
     color: #ef4444;
 }
 
-.artist-header {
+.artist-scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.artist-body {
+    max-width: var(--app-content-max-width);
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.artist-hero {
     display: flex;
     gap: 2rem;
-    margin: 1.5rem 0 2rem;
+    margin-bottom: 2rem;
 }
 
 .artist-image {
@@ -127,32 +175,6 @@ const sortedAlbums = computed(() => {
     justify-content: center;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: rgba(255, 255, 255, 0.8);
-}
-
-.artist-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.artist-info h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0;
-    line-height: 1.2;
-}
-
-.artist-meta {
-    color: var(--app-text-secondary);
-    font-size: 0.95rem;
-    margin: 0;
-}
-
-.artist-actions {
-    display: flex;
-    gap: 1rem;
-    margin-top: auto;
 }
 
 .discography h2 {

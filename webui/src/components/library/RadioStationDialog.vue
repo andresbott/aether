@@ -18,13 +18,16 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    (e: 'submit', input: {
-        name: string
-        streamUrl: string
-        homepageUrl?: string
-        coverFile?: File
-        coverClear?: boolean
-    }): void
+    (
+        e: 'submit',
+        input: {
+            name: string
+            streamUrl: string
+            homepageUrl?: string
+            coverFile?: File
+            coverClear?: boolean
+        }
+    ): void
     (e: 'cancel'): void
 }>()
 
@@ -141,6 +144,10 @@ function onCancel() {
         :header="isEditMode ? 'Edit Station' : 'Add Station'"
         :style="{ width: '32rem' }"
     >
+        <Message severity="warn" :closable="false" class="deprecation-note">
+            Deprecated — use Settings → Radio Stations to add or edit stations.
+        </Message>
+
         <div class="form-grid">
             <label>Name</label>
             <InputText v-model="form.name" placeholder="e.g. BBC Radio 1" @keyup.enter="onSubmit" />
@@ -153,11 +160,7 @@ function onCancel() {
             />
 
             <label>Homepage URL</label>
-            <InputText
-                v-model="form.homepageUrl"
-                placeholder="optional"
-                @keyup.enter="onSubmit"
-            />
+            <InputText v-model="form.homepageUrl" placeholder="optional" @keyup.enter="onSubmit" />
 
             <label>Cover</label>
             <div class="cover-row">
@@ -183,11 +186,7 @@ function onCancel() {
                         label="Remove cover"
                         @click="onRemoveCover"
                     />
-                    <Message
-                        v-if="sizeError"
-                        severity="error"
-                        :closable="false"
-                    >
+                    <Message v-if="sizeError" severity="error" :closable="false">
                         {{ sizeError }}
                     </Message>
                     <small v-if="coverClear" class="cleared-note">
@@ -210,6 +209,9 @@ function onCancel() {
 </template>
 
 <style scoped>
+.deprecation-note {
+    margin-bottom: 0.75rem;
+}
 .form-grid {
     display: grid;
     grid-template-columns: 8rem 1fr;
