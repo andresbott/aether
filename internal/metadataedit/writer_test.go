@@ -68,6 +68,8 @@ func TestBuildTagMap_AllFields(t *testing.T) {
 		Artists:      &[]string{"a1", "a2"},
 		AlbumArtists: &[]string{"aa"},
 		Year:         intPtr(2001),
+		DiscNumber:   intPtr(2),
+		DiscSubtitle: strPtr("CD 2"),
 		Compilation:  boolPtr(true),
 	}
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{
@@ -75,15 +77,38 @@ func TestBuildTagMap_AllFields(t *testing.T) {
 		MultiValueAlbumArtist: "none",
 	}, metadataedit.CurrentTags{})
 	want := map[string][]string{
-		"TITLE":       {"T"},
-		"ALBUM":       {"Al"},
-		"ARTIST":      {"a1", "a2"},
-		"ALBUMARTIST": {"aa"},
-		"DATE":        {"2001"},
-		"COMPILATION": {"1"},
+		"TITLE":        {"T"},
+		"ALBUM":        {"Al"},
+		"ARTIST":       {"a1", "a2"},
+		"ALBUMARTIST":  {"aa"},
+		"DATE":         {"2001"},
+		"DISCNUMBER":   {"2"},
+		"DISCSUBTITLE": {"CD 2"},
+		"COMPILATION":  {"1"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_DiscFieldsOnly(t *testing.T) {
+	patch := metadataedit.Patch{DiscNumber: intPtr(1), DiscSubtitle: strPtr("Original Score")}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	want := map[string][]string{"DISCNUMBER": {"1"}, "DISCSUBTITLE": {"Original Score"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_OmitsUnsetDiscFields(t *testing.T) {
+	// A patch touching only the title must not emit any disc keys.
+	patch := metadataedit.Patch{Title: strPtr("x")}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	if _, ok := got["DISCNUMBER"]; ok {
+		t.Fatalf("unexpected DISCNUMBER in %v", got)
+	}
+	if _, ok := got["DISCSUBTITLE"]; ok {
+		t.Fatalf("unexpected DISCSUBTITLE in %v", got)
 	}
 }
 
@@ -159,6 +184,33 @@ func TestBuildTagMap_AlbumArtistMBID_BypassesNonePolicy(t *testing.T) {
 	}
 }
 
+func TestBuildTagMap_ReleaseIDs_ScalarNoAlignment(t *testing.T) {
+	patch := metadataedit.Patch{
+		MBReleaseID:      strPtr("rel-id"),
+		MBReleaseGroupID: strPtr("rg-id"),
+	}
+	got, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		"MUSICBRAINZ_ALBUMID":        {"rel-id"},
+		"MUSICBRAINZ_RELEASEGROUPID": {"rg-id"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_ReleaseID_ClearWritesEmptyValue(t *testing.T) {
+	patch := metadataedit.Patch{MBReleaseID: strPtr("")}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	want := map[string][]string{"MUSICBRAINZ_ALBUMID": {""}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
 func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	src := "testdata/empty.flac"
 	if _, err := os.Stat(src); err != nil {
@@ -173,7 +225,11 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 		Artists:      &[]string{"First", "Second"},
 		AlbumArtists: &[]string{"Various"},
 		Year:         intPtr(1999),
-		Compilation:  boolPtr(true),
+		DiscNumber:   intPtr(2),
+		DiscSubtitle:     strPtr("Disc Two"),
+		Compilation:      boolPtr(true),
+		MBReleaseID:      strPtr("rel-uuid"),
+		MBReleaseGroupID: strPtr("rg-uuid"),
 	}
 	cfg := metadataedit.LibraryCfg{MultiValueArtist: "multi", MultiValueAlbumArtist: "multi"}
 
@@ -196,6 +252,18 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	}
 	if got["DATE"][0] != "1999" {
 		t.Fatalf("year round-trip failed: %v", got["DATE"])
+	}
+	if got["DISCNUMBER"][0] != "2" {
+		t.Fatalf("disc number round-trip failed: %v", got["DISCNUMBER"])
+	}
+	if got["DISCSUBTITLE"][0] != "Disc Two" {
+		t.Fatalf("disc subtitle round-trip failed: %v", got["DISCSUBTITLE"])
+	}
+	if got["MUSICBRAINZ_ALBUMID"][0] != "rel-uuid" {
+		t.Fatalf("release id round-trip failed: %v", got["MUSICBRAINZ_ALBUMID"])
+	}
+	if got["MUSICBRAINZ_RELEASEGROUPID"][0] != "rg-uuid" {
+		t.Fatalf("release-group id round-trip failed: %v", got["MUSICBRAINZ_RELEASEGROUPID"])
 	}
 }
 

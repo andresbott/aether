@@ -7,6 +7,7 @@ describe('settings routes', () => {
         expect(router.resolve('/settings/libraries').name).toBe('settings-libraries')
         expect(router.resolve('/settings/tasks').name).toBe('settings-tasks')
         expect(router.resolve('/settings/metadata').name).toBe('settings-metadata')
+        expect(router.resolve('/settings/radio').name).toBe('settings-radio')
     })
 
     it('applies the settings layout to settings routes', () => {

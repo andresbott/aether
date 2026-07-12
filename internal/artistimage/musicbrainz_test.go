@@ -60,6 +60,88 @@ func TestMusicBrainzSearchParsesResults(t *testing.T) {
 	}
 }
 
+func TestMusicBrainzSearchReleaseParsesResults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/ws/2/release") {
+			t.Errorf("expected release endpoint, got %q", r.URL.Path)
+		}
+		if !strings.Contains(r.URL.RawQuery, "query=OK+Computer") {
+			t.Errorf("expected query in request, got %q", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"releases": [
+				{
+					"id": "rel-uuid",
+					"title": "OK Computer",
+					"disambiguation": "remaster",
+					"date": "1997-05-21",
+					"country": "GB",
+					"track-count": 12,
+					"score": 100,
+					"artist-credit": [
+						{"name": "Radiohead", "joinphrase": " feat. "},
+						{"name": "Someone", "joinphrase": ""}
+					],
+					"release-group": {"id": "rg-uuid"}
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
+	m.BaseURL = srv.URL
+	m.Client = srv.Client()
+	m.limiter = rate.NewLimiter(rate.Inf, 1)
+
+	results, err := m.SearchRelease(context.Background(), "OK Computer", 10)
+	if err != nil {
+		t.Fatalf("SearchRelease: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	got := results[0]
+	want := ReleaseCandidate{
+		ReleaseMBID:      "rel-uuid",
+		ReleaseGroupMBID: "rg-uuid",
+		Title:            "OK Computer",
+		Artist:           "Radiohead feat. Someone",
+		Date:             "1997-05-21",
+		Country:          "GB",
+		TrackCount:       12,
+		Disambiguation:   "remaster",
+		Score:            100,
+	}
+	if got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestMusicBrainzSearchReleaseEmptyQuery(t *testing.T) {
+	m := NewMusicBrainzSearch("Aether/test")
+	results, err := m.SearchRelease(context.Background(), "", 10)
+	if err != nil || results != nil {
+		t.Fatalf("expected nil, nil for empty query, got %v, %v", results, err)
+	}
+}
+
+func TestMusicBrainzSearchReleaseUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	m := NewMusicBrainzSearch("Aether/test")
+	m.BaseURL = srv.URL
+	m.Client = srv.Client()
+	m.limiter = rate.NewLimiter(rate.Inf, 1)
+
+	if _, err := m.SearchRelease(context.Background(), "OK Computer", 10); err == nil {
+		t.Fatal("expected an error for a non-200 upstream response")
+	}
+}
+
 func TestMusicBrainzSearchEmptyQuery(t *testing.T) {
 	m := NewMusicBrainzSearch("Aether/test")
 	results, err := m.Search(context.Background(), "", 10)

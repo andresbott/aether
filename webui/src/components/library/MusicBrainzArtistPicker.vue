@@ -16,14 +16,23 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    (e: 'select', mbid: string): void
+    // A confirmed selection: the MBID plus the artist name to write. `name` is
+    // omitted when only an ID was entered (a bare MBID carries no name), so the
+    // caller leaves the existing artist name untouched.
+    (e: 'select', mbid: string, name?: string): void
 }>()
 
 const { results, loading: searching, error: searchError, search } = useMusicBrainzSearch()
-const query = ref('')
-const paste = ref('')
 
-const pasteValid = computed(() => MBID_RE.test(paste.value.trim()))
+// One combined box: an artist name triggers a search, a pasted MBID is detected
+// and staged directly.
+const query = ref('')
+// The staged choice, applied only on OK. `name: ''` means "ID only, keep name".
+const selected = ref<{ name: string; mbid: string } | null>(null)
+
+const isMbidQuery = computed(() => MBID_RE.test(query.value.trim()))
+const selectedMbid = computed(() => selected.value?.mbid ?? '')
+const canConfirm = computed(() => selected.value !== null)
 
 let lastSearched = ''
 function runSearch(q: string) {
@@ -36,7 +45,15 @@ function scheduleSearch() {
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => runSearch(query.value), 400)
 }
+
 watch(query, () => {
+    if (isMbidQuery.value) {
+        // A pasted/typed MBID is a complete choice on its own (no name).
+        selected.value = { name: '', mbid: query.value.trim() }
+        return
+    }
+    // Editing the name query invalidates any previously picked result.
+    selected.value = null
     if (query.value === lastSearched) return
     scheduleSearch()
 })
@@ -46,21 +63,26 @@ watch(
     (visible) => {
         if (!visible) return
         query.value = props.artistName
-        paste.value = ''
+        selected.value = null
         runSearch(query.value)
     },
     { immediate: true }
 )
 
-function choose(mbid: string) {
-    emit('select', mbid)
+function pick(c: MusicBrainzCandidate) {
+    selected.value = { name: c.name, mbid: c.mbid }
+}
+function confirm() {
+    if (!selected.value) return
+    emit('select', selected.value.mbid, selected.value.name || undefined)
     emit('update:visible', false)
 }
-function applyPaste() {
-    if (pasteValid.value) choose(paste.value.trim())
+function cancel() {
+    emit('update:visible', false)
 }
 function clearMatch() {
-    choose('')
+    emit('select', '')
+    emit('update:visible', false)
 }
 function lifeSpan(c: MusicBrainzCandidate): string {
     if (!c.lifeSpanBegin && !c.lifeSpanEnd) return ''
@@ -84,19 +106,28 @@ function lifeSpan(c: MusicBrainzCandidate): string {
             </button>
         </div>
 
-        <InputText v-model="query" placeholder="Search MusicBrainz for an artist" class="picker-input" />
+        <InputText
+            v-model="query"
+            data-test="mbid-query"
+            placeholder="Search by artist name, or paste a MusicBrainz ID"
+            class="picker-input"
+        />
 
         <Message v-if="searchError" severity="error" :closable="false">{{ searchError }}</Message>
 
-        <div class="results">
+        <Message v-if="isMbidQuery" severity="info" :closable="false">
+            MusicBrainz ID detected — click OK to apply it (the artist name is left unchanged).
+        </Message>
+
+        <div v-else class="results">
             <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
             <ul v-else-if="results.length > 0" class="result-list">
                 <li
                     v-for="c in results"
                     :key="c.mbid"
                     class="result-row"
-                    :class="{ selected: c.mbid === currentMbid }"
-                    @click="choose(c.mbid)"
+                    :class="{ selected: c.mbid === selectedMbid }"
+                    @click="pick(c)"
                 >
                     <div class="result-name">
                         {{ c.name }}
@@ -111,20 +142,15 @@ function lifeSpan(c: MusicBrainzCandidate): string {
             <p v-else class="no-results">No matches</p>
         </div>
 
-        <div class="paste-row">
-            <InputText
-                v-model="paste"
-                data-test="mbid-paste"
-                placeholder="…or paste an MBID"
-                class="picker-input"
-            />
+        <template #footer>
+            <Button label="Cancel" text @click="cancel" />
             <Button
-                label="Apply"
-                data-test="mbid-apply"
-                :disabled="!pasteValid"
-                @click="applyPaste"
+                label="OK"
+                data-test="mbid-confirm"
+                :disabled="!canConfirm"
+                @click="confirm"
             />
-        </div>
+        </template>
     </Dialog>
 </template>
 
@@ -144,5 +170,4 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 .result-type { font-size: 0.75rem; font-weight: 400; color: var(--app-text-secondary); border: 1px solid var(--app-border, #e5e7eb); border-radius: 4px; padding: 0 0.35rem; }
 .result-meta { font-size: 0.8rem; color: var(--app-text-secondary); display: flex; gap: 0.5rem; }
 .no-results { text-align: center; color: var(--app-text-secondary); padding: 1.5rem 0; }
-.paste-row { display: flex; gap: 0.5rem; align-items: center; }
 </style>

@@ -6,10 +6,7 @@ import Button from 'primevue/button'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import { useLibraries } from '@/composables/useLibraries'
-import {
-    useTracks,
-    useUpdateTracks
-} from '@/composables/useMetadataEditor'
+import { useTracks, useUpdateTracks } from '@/composables/useMetadataEditor'
 import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
@@ -32,7 +29,8 @@ const currentLibraryLabel = computed(() => {
 
 const currentFolderLabel = computed(() => {
     if (selectedLibraryId.value === null) return 'No folder selected'
-    if (selectedPath.value === null || selectedPath.value === '') return currentLibraryLabel.value ?? 'Library root'
+    if (selectedPath.value === null || selectedPath.value === '')
+        return currentLibraryLabel.value ?? 'Library root'
     const parts = selectedPath.value.split('/')
     return `${currentLibraryLabel.value} / ${parts.join(' / ')}`
 })
@@ -92,12 +90,18 @@ function save(fields: PatchFields) {
                 <EditPanel
                     :selection="selection"
                     :isSaving="updateMutation.isPending.value"
+                    :libraryId="selectedLibraryId"
                     @save="save"
                 />
             </SplitterPanel>
         </Splitter>
 
-        <Dialog v-model:visible="dialogVisible" header="Select folder" modal :style="{ width: '40rem' }">
+        <Dialog
+            v-model:visible="dialogVisible"
+            header="Select folder"
+            modal
+            :style="{ width: '40rem' }"
+        >
             <div class="dialog-content">
                 <div class="dialog-library">
                     <label>Library</label>
@@ -111,10 +115,7 @@ function save(fields: PatchFields) {
                         class="w-full"
                     />
                 </div>
-                <FolderTree
-                    :libraryId="selectedLibraryId"
-                    @select="onFolderSelect"
-                />
+                <FolderTree :libraryId="selectedLibraryId" @select="onFolderSelect" />
             </div>
         </Dialog>
     </div>

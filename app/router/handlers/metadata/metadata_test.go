@@ -279,6 +279,54 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	}
 }
 
+func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst := filepath.Join(root, "a.flac")
+	copyTestFile(t, fx, dst)
+	_ = taglibWrite(dst, map[string][]string{"ALBUM": {"Keep"}})
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "mb_release_id": "rel-uuid", "mb_release_group_id": "rg-uuid" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := taglibReadTags(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["MUSICBRAINZ_ALBUMID"][0] != "rel-uuid" {
+		t.Fatalf("release id unexpected: %v", got["MUSICBRAINZ_ALBUMID"])
+	}
+	if got["MUSICBRAINZ_RELEASEGROUPID"][0] != "rg-uuid" {
+		t.Fatalf("release-group id unexpected: %v", got["MUSICBRAINZ_RELEASEGROUPID"])
+	}
+	// Album name must be left intact when only IDs are sent.
+	if got["ALBUM"][0] != "Keep" {
+		t.Fatalf("album should be preserved, got %v", got["ALBUM"])
+	}
+}
+
 func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	root := t.TempDir()
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"

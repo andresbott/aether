@@ -78,6 +78,12 @@ describe('RadioView', () => {
         expect(w.find('.empty-state').exists()).toBe(true)
     })
 
+    it('shows a deprecation banner pointing at the Settings radio editor', () => {
+        const w = mountView()
+        expect(w.text()).toContain('Deprecated')
+        expect(w.text()).toContain('Radio Stations')
+    })
+
     it('opens the create dialog from the header Add button', async () => {
         const w = mountView()
         expect(w.findComponent(DialogStub).props('visible')).toBe(false)

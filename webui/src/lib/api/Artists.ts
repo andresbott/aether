@@ -1,5 +1,9 @@
 import { apiClient } from '@/lib/api/client'
-import type { MusicBrainzCandidate, SetArtistMBIDResponse } from '@/types/artists'
+import type {
+    MusicBrainzCandidate,
+    MusicBrainzReleaseCandidate,
+    SetArtistMBIDResponse
+} from '@/types/artists'
 
 export function parseArtistNumericId(subsonicId: string): number {
     const n = Number(subsonicId.split('-').pop())
@@ -13,6 +17,16 @@ export async function searchMusicBrainzArtists(query: string): Promise<MusicBrai
     const { data } = await apiClient.get<MusicBrainzCandidate[]>('/musicbrainz/search', {
         params: { q: query }
     })
+    return data
+}
+
+export async function searchMusicBrainzReleases(
+    query: string
+): Promise<MusicBrainzReleaseCandidate[]> {
+    const { data } = await apiClient.get<MusicBrainzReleaseCandidate[]>(
+        '/musicbrainz/search/releases',
+        { params: { q: query } }
+    )
     return data
 }
 

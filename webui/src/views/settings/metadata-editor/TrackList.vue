@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -17,14 +17,106 @@ const emit = defineEmits<{
 
 const rows = computed(() => props.tracks)
 
-function selectionChanged(value: Track[]) {
-    // PrimeVue emits the full selection on row checkbox toggles; strip error rows
-    // (which we render but don't want treated as selectable).
-    emit(
-        'update:selection',
-        value.filter((t) => !t.error)
-    )
+// Selection mirrors the Now Playing queue (see useQueueEdit): a plain click
+// selects just that row, Ctrl/Cmd click toggles a row, and Shift click extends a
+// range from the anchor, unioned onto the committed base selection. The checkbox
+// column (and its header select-all) toggles additively. We drive all of this
+// ourselves rather than through PrimeVue's built-in row selection, because
+// PrimeVue's Shift range *replaces* the whole selection instead of extending it
+// onto what was already selected.
+const anchorIndex = ref<number | null>(null)
+// The selection a Shift range is unioned onto. Committed by plain/Ctrl clicks and
+// checkbox toggles; left untouched by Shift so a range re-drags off one pivot.
+let baseSelection: Track[] = []
+
+const selectable = (t: Track): boolean => !t.error
+
+function isRowSelected(t: Track): boolean {
+    return props.selection.some((s) => s.path === t.path)
 }
+
+function rowClass(t: Track): string {
+    if (t.error) return 'row-error'
+    return isRowSelected(t) ? 'row-selected' : ''
+}
+
+function dedupe(tracks: Track[]): Track[] {
+    const seen = new Set<string>()
+    const out: Track[] = []
+    for (const t of tracks) {
+        if (!seen.has(t.path)) {
+            seen.add(t.path)
+            out.push(t)
+        }
+    }
+    return out
+}
+
+function commit(sel: Track[], anchor: number | null): void {
+    baseSelection = sel
+    anchorIndex.value = anchor
+    emit('update:selection', sel)
+}
+
+function rangeBetween(a: number, b: number): Track[] {
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    const out: Track[] = []
+    for (let i = lo; i <= hi; i++) {
+        const t = rows.value[i]
+        if (t && selectable(t)) out.push(t)
+    }
+    return out
+}
+
+interface RowClickEvent {
+    originalEvent: Event
+    data: Track
+    index: number
+}
+
+function onRowClick(event: RowClickEvent): void {
+    const track = event.data
+    if (!selectable(track)) return
+    const { ctrlKey, metaKey, shiftKey } = event.originalEvent as MouseEvent
+
+    if (shiftKey && anchorIndex.value !== null) {
+        // Shift extends the range onto the base; the anchor/base stay put so the
+        // range can be re-dragged off the same pivot.
+        emit(
+            'update:selection',
+            dedupe([...baseSelection, ...rangeBetween(anchorIndex.value, event.index)])
+        )
+        return
+    }
+    if (ctrlKey || metaKey) {
+        const next = isRowSelected(track)
+            ? props.selection.filter((t) => t.path !== track.path)
+            : [...props.selection, track]
+        commit(next, event.index)
+        return
+    }
+    commit([track], event.index)
+}
+
+// Checkbox toggles and the header select-all arrive through PrimeVue's
+// update:selection. Treat them as an additive commit: strip error rows and move
+// the anchor to the toggled row so a following Shift extends from it.
+function onCheckboxSelection(value: Track[]): void {
+    const next = value.filter(selectable)
+    const before = new Set(props.selection.map((t) => t.path))
+    const after = new Set(next.map((t) => t.path))
+    const changed =
+        next.find((t) => !before.has(t.path)) ?? props.selection.find((t) => !after.has(t.path))
+    const anchor = changed ? rows.value.findIndex((t) => t.path === changed.path) : anchorIndex.value
+    commit(next, anchor)
+}
+
+// A new folder (or reload) resets the pivot; the parent clears the selection.
+watch(rows, () => {
+    anchorIndex.value = null
+    baseSelection = []
+})
 </script>
 
 <template>
@@ -49,10 +141,10 @@ function selectionChanged(value: Track[]) {
         <DataTable
             :value="rows"
             :selection="selection"
-            selectionMode="multiple"
             dataKey="path"
-            @update:selection="selectionChanged"
-            :rowClass="(t: Track) => (t.error ? 'row-error' : '')"
+            :rowClass="rowClass"
+            @row-click="onRowClick"
+            @update:selection="onCheckboxSelection"
         >
             <Column selectionMode="multiple" style="width: 3rem" />
             <Column field="path" header="Path" />
@@ -98,8 +190,15 @@ function selectionChanged(value: Track[]) {
     text-align: center;
     color: var(--app-text-secondary);
 }
+:deep(tbody tr) {
+    cursor: pointer;
+}
+:deep(tr.row-selected) {
+    background-color: var(--app-accent-soft);
+}
 :deep(.row-error) {
     opacity: 0.5;
+    cursor: default;
 }
 .err {
     color: var(--p-red-600, #dc2626);

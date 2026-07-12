@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
@@ -49,7 +50,13 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			writeError(w, 70, "album not found")
 			return coverMeta{}, false
 		}
-		return coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}, true
+		meta := coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}
+		// A cover saved to aether's managed store (metadata editor "save to DB"
+		// target) takes precedence over the folder file and embedded art.
+		if p, ok := h.assets.Get(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)); ok {
+			meta.coverPath = p
+		}
+		return meta, true
 	case "track":
 		song, err := h.store.GetSong(id)
 		if err != nil {

@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { diffInitialValues, distinctArtistMbids } from '@/composables/useMetadataEditor'
+import {
+    diffInitialValues,
+    distinctArtistMbids,
+    mergeUpdateResults,
+    partitionFields
+} from '@/composables/useMetadataEditor'
 import type { Track } from '@/types/metadata'
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
@@ -10,9 +15,13 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     album_artists: [],
     album: '',
     year: 0,
+    disc_number: 0,
+    disc_subtitle: '',
     compilation: false,
     mb_artist_ids: [],
     mb_album_artist_ids: [],
+    mb_release_id: '',
+    mb_release_group_id: '',
     ...over
 })
 
@@ -32,6 +41,32 @@ describe('diffInitialValues', () => {
         const v = diffInitialValues([a, b])
         expect(v.title.shared).toBe(false)
         expect(v.album).toEqual({ shared: true, value: 'X' })
+    })
+
+    it('prefills disc number and subtitle when shared, marks them mixed when they differ', () => {
+        const a = mkTrack({ disc_number: 2, disc_subtitle: 'CD 2' })
+        const b = mkTrack({ path: 'b.mp3', disc_number: 2, disc_subtitle: 'CD 2' })
+        const shared = diffInitialValues([a, b])
+        expect(shared.disc_number).toEqual({ shared: true, value: 2 })
+        expect(shared.disc_subtitle).toEqual({ shared: true, value: 'CD 2' })
+
+        const c = mkTrack({ path: 'c.mp3', disc_number: 1, disc_subtitle: 'CD 1' })
+        const mixed = diffInitialValues([a, c])
+        expect(mixed.disc_number).toEqual({ shared: false, value: 0 })
+        expect(mixed.disc_subtitle).toEqual({ shared: false, value: '' })
+    })
+
+    it('prefills album MusicBrainz IDs when shared, marks them mixed when they differ', () => {
+        const a = mkTrack({ mb_release_id: 'rel-1', mb_release_group_id: 'rg-1' })
+        const b = mkTrack({ path: 'b.mp3', mb_release_id: 'rel-1', mb_release_group_id: 'rg-1' })
+        const shared = diffInitialValues([a, b])
+        expect(shared.mb_release_id).toEqual({ shared: true, value: 'rel-1' })
+        expect(shared.mb_release_group_id).toEqual({ shared: true, value: 'rg-1' })
+
+        const c = mkTrack({ path: 'c.mp3', mb_release_id: 'rel-2', mb_release_group_id: 'rg-1' })
+        const mixed = diffInitialValues([a, c])
+        expect(mixed.mb_release_id).toEqual({ shared: false, value: '' })
+        expect(mixed.mb_release_group_id).toEqual({ shared: true, value: 'rg-1' })
     })
 
     it('compares artist arrays by value, not reference', () => {
@@ -68,6 +103,59 @@ describe('distinctArtistMbids', () => {
             { name: 'X', mbid: 'id-x', mixed: false },
             { name: 'Y', mbid: '', mixed: false }
         ])
+    })
+})
+
+describe('partitionFields', () => {
+    it('returns null when a names field and its MBID map are not both present', () => {
+        expect(partitionFields({ artists: ['A'] })).toBeNull()
+        expect(partitionFields({ artist_mbids: { A: 'x' } })).toBeNull()
+        // cross pairs (artist names + album-artist MBIDs) do not conflict
+        expect(partitionFields({ artists: ['A'], album_artist_mbids: { B: 'y' } })).toBeNull()
+    })
+
+    it('splits names from MBIDs when a conflicting pair is present', () => {
+        expect(
+            partitionFields({ album: 'Al', artists: ['A'], artist_mbids: { A: 'x' } })
+        ).toEqual({
+            names: { album: 'Al', artists: ['A'] },
+            mbids: { artist_mbids: { A: 'x' } }
+        })
+    })
+
+    it('splits the album-artist pair too, carrying both MBID maps', () => {
+        const parts = partitionFields({
+            album_artists: ['B'],
+            artist_mbids: { A: 'x' },
+            album_artist_mbids: { B: 'y' }
+        })
+        expect(parts).toEqual({
+            names: { album_artists: ['B'] },
+            mbids: { artist_mbids: { A: 'x' }, album_artist_mbids: { B: 'y' } }
+        })
+    })
+})
+
+describe('mergeUpdateResults', () => {
+    it('marks a path failed if either step failed and concatenates errors', () => {
+        const first = [
+            { path: 'a', ok: true },
+            { path: 'b', ok: false, error: 'e1' }
+        ]
+        const second = [
+            { path: 'a', ok: false, error: 'e2' },
+            { path: 'b', ok: true }
+        ]
+        expect(mergeUpdateResults(first, second)).toEqual([
+            { path: 'a', ok: false, error: 'e2' },
+            { path: 'b', ok: false, error: 'e1' }
+        ])
+    })
+
+    it('keeps a path ok only when both steps succeed', () => {
+        expect(
+            mergeUpdateResults([{ path: 'a', ok: true }], [{ path: 'a', ok: true }])
+        ).toEqual([{ path: 'a', ok: true, error: undefined }])
     })
 })
 

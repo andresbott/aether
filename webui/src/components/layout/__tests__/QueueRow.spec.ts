@@ -44,43 +44,41 @@ describe('QueueRow', () => {
         expect((on.find('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(true)
     })
 
-    it('clicking the checkbox emits select via the row handler, not a separate action', async () => {
+    it('clicking the checkbox cell toggles selection additively without a modifier key', async () => {
         const w = mountRow({ editing: true })
-        await w.find('input[type="checkbox"]').trigger('click')
+        await w.find('.row-index--checkbox').trigger('click')
+        // Exactly one select — the row's own plain-select handler is suppressed.
         expect(w.emitted('select')).toHaveLength(1)
-        expect(w.emitted('select')![0]).toEqual([{ additive: false, range: false }])
-    })
-
-    it('ctrl-clicking the checkbox passes the additive modifier through the row handler', async () => {
-        const w = mountRow({ editing: true })
-        await w.find('input[type="checkbox"]').trigger('click', { ctrlKey: true })
         expect(w.emitted('select')![0]).toEqual([{ additive: true, range: false }])
     })
 
-    it('the current row shows a play/pause toggle instead of a checkbox', () => {
+    it('the checkbox cell stays additive regardless of modifier keys', async () => {
+        const w = mountRow({ editing: true })
+        await w.find('.row-index--checkbox').trigger('click', { shiftKey: true, ctrlKey: true })
+        expect(w.emitted('select')![0]).toEqual([{ additive: true, range: false }])
+    })
+
+    it('the now-playing row shows a checkbox and no play toggle in edit mode', () => {
         const w = mountRow({ editing: true, current: true })
-        expect(w.find('input[type="checkbox"]').exists()).toBe(false)
-        expect(w.find('.current-play-toggle').exists()).toBe(true)
+        expect(w.find('input[type="checkbox"]').exists()).toBe(true)
+        expect(w.find('.current-play-toggle').exists()).toBe(false)
     })
 
-    it('the current row play toggle reflects the playing state', () => {
-        const paused = mountRow({ editing: true, current: true, playing: false })
-        expect(paused.find('.current-play-toggle .pi-play').exists()).toBe(true)
-        const playing = mountRow({ editing: true, current: true, playing: true })
-        expect(playing.find('.current-play-toggle .pi-pause').exists()).toBe(true)
-    })
-
-    it('clicking the current row play toggle emits togglePlay without selecting', async () => {
+    it('the now-playing row is selectable via its checkbox cell', async () => {
         const w = mountRow({ editing: true, current: true })
-        await w.find('.current-play-toggle').trigger('click')
-        expect(w.emitted('togglePlay')).toHaveLength(1)
-        expect(w.emitted('select')).toBeUndefined()
+        await w.find('.row-index--checkbox').trigger('click')
+        expect(w.emitted('select')![0]).toEqual([{ additive: true, range: false }])
     })
 
-    it('the current row body click does not select it', async () => {
+    it('the now-playing row body click selects it like any other row', async () => {
         const w = mountRow({ editing: true, current: true })
         await w.find('[role="option"]').trigger('click')
-        expect(w.emitted('select')).toBeUndefined()
+        expect(w.emitted('select')![0]).toEqual([{ additive: false, range: false }])
+    })
+
+    it('the now-playing row carries the current-row accent class', () => {
+        const w = mountRow({ editing: true, current: true })
+        expect(w.find('[role="option"]').classes()).toContain('queue-row--current')
     })
 
     it('the current row keeps the drag handle and delete for full parity', () => {

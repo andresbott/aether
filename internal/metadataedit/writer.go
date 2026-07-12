@@ -28,16 +28,24 @@ type Patch struct {
 	Artists         *[]string
 	AlbumArtists    *[]string
 	Year            *int
+	DiscNumber      *int
+	DiscSubtitle    *string
 	Compilation     *bool
 	ArtistMBID      *map[string]string // artist name -> MBID ("" clears)
 	AlbumArtistMBID *map[string]string // album-artist name -> MBID ("" clears)
+	// Album MusicBrainz IDs are single-valued scalars (one album per file), so
+	// unlike the artist maps they need no positional alignment. "" clears.
+	MBReleaseID      *string
+	MBReleaseGroupID *string
 }
 
 // Empty reports whether the patch would write nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Album == nil && p.Artists == nil &&
-		p.AlbumArtists == nil && p.Year == nil && p.Compilation == nil &&
-		p.ArtistMBID == nil && p.AlbumArtistMBID == nil
+		p.AlbumArtists == nil && p.Year == nil && p.DiscNumber == nil &&
+		p.DiscSubtitle == nil && p.Compilation == nil &&
+		p.ArtistMBID == nil && p.AlbumArtistMBID == nil &&
+		p.MBReleaseID == nil && p.MBReleaseGroupID == nil
 }
 
 // mergeMBIDs builds an MB-ID list aligned to names: a name present in
@@ -97,6 +105,12 @@ func BuildTagMap(p Patch, cfg LibraryCfg, cur CurrentTags) (map[string][]string,
 	if p.Year != nil {
 		out[taglib.Date] = []string{strconv.Itoa(*p.Year)}
 	}
+	if p.DiscNumber != nil {
+		out[taglib.DiscNumber] = []string{strconv.Itoa(*p.DiscNumber)}
+	}
+	if p.DiscSubtitle != nil {
+		out[taglib.DiscSubtitle] = []string{*p.DiscSubtitle}
+	}
 	if p.Compilation != nil {
 		if *p.Compilation {
 			out[taglib.Compilation] = []string{"1"}
@@ -109,6 +123,12 @@ func BuildTagMap(p Patch, cfg LibraryCfg, cur CurrentTags) (map[string][]string,
 	}
 	if p.AlbumArtistMBID != nil {
 		out[taglib.MusicBrainzAlbumArtistID] = mergeMBIDs(cur.AlbumArtists, cur.AlbumArtistMBIDs, *p.AlbumArtistMBID)
+	}
+	if p.MBReleaseID != nil {
+		out[taglib.MusicBrainzAlbumID] = []string{*p.MBReleaseID}
+	}
+	if p.MBReleaseGroupID != nil {
+		out[taglib.MusicBrainzReleaseGroupID] = []string{*p.MBReleaseGroupID}
 	}
 	return out, nil
 }

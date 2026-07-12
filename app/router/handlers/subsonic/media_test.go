@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -229,6 +230,45 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d", srv.URL, artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "\x89PNG") {
+		t.Errorf("response body does not start with PNG magic bytes; got %q", body[:min(8, len(body))])
+	}
+}
+
+func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+
+	// A cover saved to aether's managed store for this album.
+	assetDir := t.TempDir()
+	as := assetstore.New(assetDir)
+	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+		t.Fatalf("PutManual: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, as, t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d", srv.URL, album.ID))
 	if err != nil {
 		t.Fatal(err)
 	}

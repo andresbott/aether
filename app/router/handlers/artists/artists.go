@@ -17,10 +17,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// Searcher searches MusicBrainz for artists by name. Satisfied by
+// Searcher searches MusicBrainz for artists and releases by name. Satisfied by
 // *artistimage.MusicBrainzSearch.
 type Searcher interface {
 	Search(ctx context.Context, query string, limit int) ([]artistimage.Candidate, error)
+	SearchRelease(ctx context.Context, query string, limit int) ([]artistimage.ReleaseCandidate, error)
 }
 
 type Handler struct {
@@ -32,6 +33,7 @@ type Handler struct {
 
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/musicbrainz/search").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainz)
+	r.Path("/musicbrainz/search/releases").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainzReleases)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
 }
@@ -67,25 +69,49 @@ func mapStoreError(err error) (status int, code string) {
 	return http.StatusInternalServerError, "internal"
 }
 
-func (h *Handler) searchMusicBrainz(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
+// parseSearchParams reads and validates the shared MusicBrainz search query
+// params (q required, limit optional positive int capped at 25 defaulting to
+// 10). It writes the error response itself and returns ok=false on failure.
+func parseSearchParams(w http.ResponseWriter, r *http.Request) (q string, limit int, ok bool) {
+	q = strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
 		writeError(w, http.StatusBadRequest, "validation_error", "q is required")
-		return
+		return "", 0, false
 	}
-	limit := 10
+	limit = 10
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
 			writeError(w, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
-			return
+			return "", 0, false
 		}
 		if n > 25 {
 			n = 25
 		}
 		limit = n
 	}
+	return q, limit, true
+}
+
+func (h *Handler) searchMusicBrainz(w http.ResponseWriter, r *http.Request) {
+	q, limit, ok := parseSearchParams(w, r)
+	if !ok {
+		return
+	}
 	results, err := h.Search.Search(r.Context(), q, limit)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz search failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+func (h *Handler) searchMusicBrainzReleases(w http.ResponseWriter, r *http.Request) {
+	q, limit, ok := parseSearchParams(w, r)
+	if !ok {
+		return
+	}
+	results, err := h.Search.SearchRelease(r.Context(), q, limit)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz search failed: "+err.Error())
 		return

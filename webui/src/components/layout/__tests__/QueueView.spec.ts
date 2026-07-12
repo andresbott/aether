@@ -8,6 +8,7 @@ const currentIndex = ref(0)
 const isPlaying = ref(false)
 const playQueueItem = vi.fn()
 const removeFromQueue = vi.fn()
+const removeManyFromQueue = vi.fn()
 const togglePlayPause = vi.fn()
 const insertIntoQueue = vi.fn()
 
@@ -18,6 +19,7 @@ vi.mock('@/composables/usePlayer', () => ({
         isPlaying,
         playQueueItem,
         removeFromQueue,
+        removeManyFromQueue,
         togglePlayPause,
         insertIntoQueue
     })
@@ -84,6 +86,7 @@ beforeEach(() => {
     isPlaying.value = false
     playQueueItem.mockReset()
     removeFromQueue.mockReset()
+    removeManyFromQueue.mockReset()
     togglePlayPause.mockReset()
     insertIntoQueue.mockReset()
     openSaveDialog.mockReset()
@@ -167,19 +170,13 @@ describe('QueueView', () => {
         expect(removeFromQueue).toHaveBeenCalledWith(2)
     })
 
-    it('renders the current track as a row with a play toggle in edit mode', async () => {
+    it('renders the now-playing track as a selectable checkbox row in edit mode', async () => {
         const w = mountView('sidebar') // currentIndex = 1
         await w.find('.queue-action-edit').trigger('click')
         const currentRow = w.find('[data-queue-index="1"]')
-        expect(currentRow.find('.current-play-toggle').exists()).toBe(true)
-        expect(currentRow.find('input[type="checkbox"]').exists()).toBe(false)
-    })
-
-    it('the current row play toggle toggles playback in edit mode', async () => {
-        const w = mountView('sidebar')
-        await w.find('.queue-action-edit').trigger('click')
-        await w.find('[data-queue-index="1"] .current-play-toggle').trigger('click')
-        expect(togglePlayPause).toHaveBeenCalled()
+        expect(currentRow.find('input[type="checkbox"]').exists()).toBe(true)
+        expect(currentRow.find('.current-play-toggle').exists()).toBe(false)
+        expect(currentRow.classes()).toContain('queue-row--current')
     })
 
     it('the current track can be deleted like any other row in edit mode', async () => {
@@ -187,6 +184,79 @@ describe('QueueView', () => {
         await w.find('.queue-action-edit').trigger('click')
         await w.find('[data-queue-index="1"] .delete-button').trigger('click')
         expect(removeFromQueue).toHaveBeenCalledWith(1)
+    })
+
+    // currentIndex is 1, so rows 0 and 2 are the selectable ones.
+    const selectRowsZeroAndTwo = async (w: ReturnType<typeof mountView>) => {
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('[data-queue-index="0"]').trigger('click')
+        await w.find('[data-queue-index="2"]').trigger('click', { ctrlKey: true })
+    }
+
+    it('deletes every selected track when clicking delete on a selected row', async () => {
+        const w = mountView('sidebar')
+        await selectRowsZeroAndTwo(w)
+        await w.find('[data-queue-index="2"] .delete-button').trigger('click')
+        expect(removeManyFromQueue).toHaveBeenCalledWith([0, 2])
+        expect(removeFromQueue).not.toHaveBeenCalled()
+    })
+
+    it('deletes only the clicked row when it is not part of the selection', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('[data-queue-index="0"]').trigger('click') // select row 0 only
+        await w.find('[data-queue-index="2"] .delete-button').trigger('click')
+        expect(removeFromQueue).toHaveBeenCalledWith(2)
+        expect(removeManyFromQueue).not.toHaveBeenCalled()
+    })
+
+    it('plain checkbox clicks build a multi-selection that Delete removes', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        // No modifier keys — each checkbox-cell click adds to the selection.
+        await w.find('[data-queue-index="0"] .row-index--checkbox').trigger('click')
+        await w.find('[data-queue-index="2"] .row-index--checkbox').trigger('click')
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Delete' })
+        expect(removeManyFromQueue).toHaveBeenCalledWith([0, 2])
+    })
+
+    it('the now-playing row can be selected via its checkbox and bulk-deleted', async () => {
+        const w = mountView('sidebar') // currentIndex = 1 is now playing
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('[data-queue-index="1"] .row-index--checkbox').trigger('click')
+        await w.find('[data-queue-index="2"] .row-index--checkbox').trigger('click')
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Delete' })
+        expect(removeManyFromQueue).toHaveBeenCalledWith([1, 2])
+    })
+
+    it('the Delete key removes every selected track', async () => {
+        const w = mountView('sidebar')
+        await selectRowsZeroAndTwo(w)
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Delete' })
+        expect(removeManyFromQueue).toHaveBeenCalledWith([0, 2])
+    })
+
+    it('the Backspace key removes every selected track', async () => {
+        const w = mountView('sidebar')
+        await selectRowsZeroAndTwo(w)
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Backspace' })
+        expect(removeManyFromQueue).toHaveBeenCalledWith([0, 2])
+    })
+
+    it('a Delete keypress with nothing selected does nothing', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Delete' })
+        expect(removeFromQueue).not.toHaveBeenCalled()
+        expect(removeManyFromQueue).not.toHaveBeenCalled()
+    })
+
+    it('exposes the edit list as a focusable listbox', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-action-edit').trigger('click')
+        const list = w.find('.queue-edit-list')
+        expect(list.attributes('role')).toBe('listbox')
+        expect(list.attributes('tabindex')).toBe('0')
     })
 
     it('does not render an empty history list outside edit mode', () => {
@@ -283,16 +353,24 @@ describe('QueueView album drop', () => {
         expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
     })
 
-    it('ignores a drop while in edit mode', async () => {
+    it('inserts a dropped album and clears the selection while in edit mode', async () => {
+        getAlbum.mockResolvedValue({ id: 'al1', name: 'LP', song: [{ id: 'X', title: 'X' }] })
         setAlbumPayload()
         const w = mountView('sidebar')
         await w.find('.queue-action-edit').trigger('click')
+        // Select a row so we can prove the drop clears the selection.
+        await w.find('[data-queue-index="0"]').trigger('click')
+        expect(w.find('[data-queue-index="0"]').classes()).toContain('selected')
         await w
             .find('.queue-body')
             .trigger('drop', { dataTransfer: dataTransfer([ALBUM_DRAG_MIME]) })
         await flushPromises()
-        expect(getAlbum).not.toHaveBeenCalled()
-        expect(insertIntoQueue).not.toHaveBeenCalled()
+        await w.vm.$nextTick()
+        expect(getAlbum).toHaveBeenCalledWith('al1')
+        // jsdom rects are 0 → append; queue has 3 items → index 3
+        expect(insertIntoQueue).toHaveBeenCalledWith([{ id: 'X', title: 'X' }], 3)
+        // The drop cleared the prior selection.
+        expect(w.find('[data-queue-index="0"]').classes()).not.toContain('selected')
     })
 
     it('ignores a non-album drop', async () => {

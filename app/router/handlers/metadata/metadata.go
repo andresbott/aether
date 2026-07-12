@@ -1,11 +1,14 @@
 package metadata
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
 
+	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
@@ -13,11 +16,21 @@ import (
 	"gorm.io/gorm"
 )
 
-// Handler serves the metadata editor API. It depends only on the library
-// portion of the store plus a tags.Reader for on-demand per-file reads.
+// CoverArtClient looks up and downloads album covers from the Cover Art
+// Archive. Satisfied by *coverart.Client.
+type CoverArtClient interface {
+	List(ctx context.Context, releaseMBID, releaseGroupMBID string) ([]coverart.CoverImage, error)
+	DownloadImage(ctx context.Context, imageURL string) ([]byte, string, error)
+}
+
+// Handler serves the metadata editor API. It depends on the library portion of
+// the store, a tags.Reader for on-demand per-file reads, and (for cover-art
+// management) the asset store and a Cover Art Archive client.
 type Handler struct {
-	Store  *store.Store
-	Reader tags.Reader
+	Store    *store.Store
+	Reader   tags.Reader
+	Assets   *assetstore.Store
+	CoverArt CoverArtClient
 }
 
 type apiError struct {
@@ -31,6 +44,11 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)
+	r.Path("/metadata/cover").Methods(http.MethodGet).HandlerFunc(h.currentCover)
+	r.Path("/metadata/cover").Methods(http.MethodPost).HandlerFunc(h.applyCover)
+	r.Path("/metadata/cover").Methods(http.MethodDelete).HandlerFunc(h.deleteCover)
+	r.Path("/metadata/cover/info").Methods(http.MethodGet).HandlerFunc(h.coverInfo)
+	r.Path("/metadata/cover/candidates").Methods(http.MethodGet).HandlerFunc(h.coverCandidates)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -108,9 +126,13 @@ type trackDTO struct {
 	AlbumArtists     []string `json:"album_artists"`
 	Album            string   `json:"album"`
 	Year             int      `json:"year"`
+	DiscNumber       int      `json:"disc_number"`
+	DiscSubtitle     string   `json:"disc_subtitle"`
 	Compilation      bool     `json:"compilation"`
 	MBArtistIDs      []string `json:"mb_artist_ids"`
 	MBAlbumArtistIDs []string `json:"mb_album_artist_ids"`
+	MBReleaseID      string   `json:"mb_release_id"`
+	MBReleaseGroupID string   `json:"mb_release_group_id"`
 	Error            string   `json:"error,omitempty"`
 }
 
@@ -135,9 +157,13 @@ func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 			AlbumArtists:     t.AlbumArtists,
 			Album:            t.Album,
 			Year:             t.Year,
+			DiscNumber:       t.DiscNumber,
+			DiscSubtitle:     t.DiscSubtitle,
 			Compilation:      t.Compilation,
 			MBArtistIDs:      t.MBArtistIDs,
 			MBAlbumArtistIDs: t.MBAlbumArtistIDs,
+			MBReleaseID:      t.MBReleaseID,
+			MBReleaseGroupID: t.MBReleaseGroupID,
 			Error:            t.Error,
 		})
 	}
@@ -156,9 +182,13 @@ type fields struct {
 	Artists          *[]string          `json:"artists,omitempty"`
 	AlbumArtists     *[]string          `json:"album_artists,omitempty"`
 	Year             *int               `json:"year,omitempty"`
+	DiscNumber       *int               `json:"disc_number,omitempty"`
+	DiscSubtitle     *string            `json:"disc_subtitle,omitempty"`
 	Compilation      *bool              `json:"compilation,omitempty"`
 	ArtistMBIDs      *map[string]string `json:"artist_mbids,omitempty"`
 	AlbumArtistMBIDs *map[string]string `json:"album_artist_mbids,omitempty"`
+	MBReleaseID      *string            `json:"mb_release_id,omitempty"`
+	MBReleaseGroupID *string            `json:"mb_release_group_id,omitempty"`
 }
 
 type updateResult struct {
@@ -206,9 +236,15 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		Artists:         body.Fields.Artists,
 		AlbumArtists:    body.Fields.AlbumArtists,
 		Year:            body.Fields.Year,
+		DiscNumber:      body.Fields.DiscNumber,
+		DiscSubtitle:    body.Fields.DiscSubtitle,
 		Compilation:     body.Fields.Compilation,
 		ArtistMBID:      body.Fields.ArtistMBIDs,
 		AlbumArtistMBID: body.Fields.AlbumArtistMBIDs,
+		// Album MB IDs are scalars with no positional coupling to the album
+		// name, so they need no rename-vs-ID rejection rule.
+		MBReleaseID:      body.Fields.MBReleaseID,
+		MBReleaseGroupID: body.Fields.MBReleaseGroupID,
 	}
 	needMB := body.Fields.ArtistMBIDs != nil || body.Fields.AlbumArtistMBIDs != nil
 	cfg := metadataedit.LibraryCfg{

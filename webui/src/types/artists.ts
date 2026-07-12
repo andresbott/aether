@@ -8,6 +8,18 @@ export interface MusicBrainzCandidate {
     score: number
 }
 
+export interface MusicBrainzReleaseCandidate {
+    releaseMbid: string
+    releaseGroupMbid: string
+    title: string
+    artist: string
+    date: string
+    country: string
+    trackCount: number
+    disambiguation: string
+    score: number
+}
+
 export interface SetArtistMBIDResponse {
     mbArtistId: string
     imageFetched: boolean

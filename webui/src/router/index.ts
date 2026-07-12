@@ -96,6 +96,11 @@ const routes: RouteRecordRaw[] = [
                 path: 'metadata',
                 name: 'settings-metadata',
                 component: () => import('@/views/settings/MetadataEditorView.vue')
+            },
+            {
+                path: 'radio',
+                name: 'settings-radio',
+                component: () => import('@/views/settings/RadioStationsView.vue')
             }
         ]
     }

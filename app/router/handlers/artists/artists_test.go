@@ -23,12 +23,17 @@ import (
 )
 
 type fakeSearcher struct {
-	results []artistimage.Candidate
-	err     error
+	results        []artistimage.Candidate
+	releaseResults []artistimage.ReleaseCandidate
+	err            error
 }
 
 func (f *fakeSearcher) Search(_ context.Context, _ string, _ int) ([]artistimage.Candidate, error) {
 	return f.results, f.err
+}
+
+func (f *fakeSearcher) SearchRelease(_ context.Context, _ string, _ int) ([]artistimage.ReleaseCandidate, error) {
+	return f.releaseResults, f.err
 }
 
 type fakeFetcher struct {
@@ -94,6 +99,49 @@ func TestSearchMusicBrainz_UpstreamError(t *testing.T) {
 	search := &fakeSearcher{err: errors.New("upstream down")}
 	_, r := newTestHandler(t, search, nil)
 	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/search?q=Nirvana", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSearchMusicBrainzReleases_ReturnsResults(t *testing.T) {
+	search := &fakeSearcher{releaseResults: []artistimage.ReleaseCandidate{
+		{ReleaseMBID: "rel-1", ReleaseGroupMBID: "rg-1", Title: "OK Computer", Score: 100},
+	}}
+	_, r := newTestHandler(t, search, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/search/releases?q=OK+Computer", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []artistimage.ReleaseCandidate
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Title != "OK Computer" || got[0].ReleaseGroupMBID != "rg-1" {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestSearchMusicBrainzReleases_BlankQuery(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/search/releases?q=", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestSearchMusicBrainzReleases_UpstreamError(t *testing.T) {
+	search := &fakeSearcher{err: errors.New("upstream down")}
+	_, r := newTestHandler(t, search, nil)
+	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/search/releases?q=OK+Computer", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {

@@ -46,6 +46,7 @@ describe('SettingsLayout', () => {
         expect(text).toContain('Libraries')
         expect(text).toContain('Tasks')
         expect(text).toContain('Metadata Editor')
+        expect(text).toContain('Radio Stations')
         expect(text).toContain('Logout')
     })
 

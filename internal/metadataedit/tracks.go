@@ -21,9 +21,13 @@ type Track struct {
 	AlbumArtists     []string
 	Album            string
 	Year             int
+	DiscNumber       int
+	DiscSubtitle     string
 	Compilation      bool
 	MBArtistIDs      []string
 	MBAlbumArtistIDs []string
+	MBReleaseID      string
+	MBReleaseGroupID string
 	Error            string
 }
 
@@ -75,7 +79,11 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 			row.MBAlbumArtistIDs = meta.MBAlbumArtistID
 		}
 		row.Album = meta.Album
+		row.MBReleaseID = meta.MBReleaseID
+		row.MBReleaseGroupID = meta.MBReleaseGroupID
 		row.Year = meta.Year
+		row.DiscNumber = meta.DiscNumber
+		row.DiscSubtitle = meta.DiscSubtitle
 		row.Compilation = meta.Compilation
 		out = append(out, row)
 		return nil
