@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import { usePlaylists, useCreatePlaylist } from '@/composables/useSubsonicQueries'
 import { subsonicClient } from '@/lib/api/subsonic'
 
@@ -13,6 +14,12 @@ const createPlaylist = useCreatePlaylist()
 
 const showCreateDialog = ref(false)
 const newPlaylistName = ref('')
+
+const summary = computed(() => {
+    const count = playlists.value?.length ?? 0
+    if (count === 0) return ''
+    return `${count} ${count === 1 ? 'playlist' : 'playlists'}`
+})
 
 const getCoverUrl = (coverArt?: string): string | null => {
     if (!coverArt || !subsonicClient.isConfigured()) return null
@@ -38,39 +45,40 @@ const openPlaylist = (id: string) => {
 </script>
 
 <template>
-    <div class="playlists-view">
-        <div class="view-header">
-            <h1>Playlists</h1>
+    <ContentScaffold title="Playlists" :summary="summary">
+        <template #actions>
             <Button label="Create Playlist" icon="pi pi-plus" @click="showCreateDialog = true" />
-        </div>
+        </template>
 
-        <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-        </div>
+        <div class="playlists-scroll">
+            <div v-if="isLoading" class="loading">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            </div>
 
-        <div v-else-if="playlists && playlists.length > 0" class="playlist-grid">
-            <div
-                v-for="pl in playlists"
-                :key="pl.id"
-                class="playlist-card"
-                @click="openPlaylist(pl.id)"
-            >
-                <div class="playlist-cover">
-                    <img v-if="getCoverUrl(pl.coverArt)" :src="getCoverUrl(pl.coverArt)!" alt="" />
-                    <div v-else class="cover-placeholder">
-                        <i class="pi pi-list" style="font-size: 2rem"></i>
+            <div v-else-if="playlists && playlists.length > 0" class="playlist-grid">
+                <div
+                    v-for="pl in playlists"
+                    :key="pl.id"
+                    class="playlist-card"
+                    @click="openPlaylist(pl.id)"
+                >
+                    <div class="playlist-cover">
+                        <img v-if="getCoverUrl(pl.coverArt)" :src="getCoverUrl(pl.coverArt)!" alt="" />
+                        <div v-else class="cover-placeholder">
+                            <i class="pi pi-list" style="font-size: 2rem"></i>
+                        </div>
+                    </div>
+                    <div class="playlist-info">
+                        <div class="playlist-name">{{ pl.name }}</div>
+                        <div class="playlist-meta">{{ pl.songCount }} songs</div>
                     </div>
                 </div>
-                <div class="playlist-info">
-                    <div class="playlist-name">{{ pl.name }}</div>
-                    <div class="playlist-meta">{{ pl.songCount }} songs</div>
-                </div>
             </div>
-        </div>
 
-        <div v-else class="empty-state">
-            <i class="pi pi-list" style="font-size: 3rem"></i>
-            <p>No playlists</p>
+            <div v-else class="empty-state">
+                <i class="pi pi-list" style="font-size: 3rem"></i>
+                <p>No playlists</p>
+            </div>
         </div>
 
         <Dialog
@@ -96,15 +104,13 @@ const openPlaylist = (id: string) => {
                 />
             </template>
         </Dialog>
-    </div>
+    </ContentScaffold>
 </template>
 
 <style scoped>
-.playlists-view { max-width: var(--app-content-max-width); margin: 0 auto; }
-.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
-.view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
+.playlists-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }
-.playlist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
+.playlist-grid { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
 .playlist-card { cursor: pointer; transition: transform 0.2s; }
 .playlist-card:hover { transform: translateY(-2px); }
 .playlist-cover { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; }

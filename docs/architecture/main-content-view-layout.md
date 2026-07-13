@@ -193,13 +193,19 @@ shared header row into a small presentational component both compose.
 | --- | --- | --- |
 | Now Playing (`QueueView` full) | `/` | ✅ origin of the pattern (manual header) |
 | Library (album/artist × list/grid) | `/library` | ✅ `ContentScaffold` |
+| Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
-| Album detail (`AlbumView`) | `/album/:id` | ❌ predates it — `max-width:1200px`, own header, not flush |
+| Album detail (`AlbumView`) | `/album/:id` | ✅ `ContentScaffold` (cover in body hero) |
 | Artist detail (`ArtistView`) | `/artist/:id` | ✅ `ContentScaffold` |
-| Playlists / Genres / Podcasts / Settings | various | ❌ default padded `main-content`, own headers |
+| Playlists (`PlaylistsView`) | `/playlists` | ✅ `ContentScaffold` |
+| Playlist detail (`PlaylistDetailView`) | `/playlist/:id` | ✅ `ContentScaffold` |
+| Genres (`GenresView`) | `/genres` | ✅ `ContentScaffold` (stub body) |
+| Podcasts (`PodcastsView`) | `/podcasts` | ✅ `ContentScaffold` |
+| Podcast channel (`PodcastChannelView`) | `/podcast/:id` | ✅ `ContentScaffold` (cover in body hero) |
+| Settings sub-views | `/settings/*` | ❌ separate `SettingsLayout`, own headers |
 
-The ❌ views are not broken — they use the default padded shell. Migrate them to this
-pattern opportunistically when you're already working in them; don't do a blanket sweep.
+Settings sub-views intentionally use `SettingsLayout`, not this pattern. All other main
+content views now conform; keep new ones on `ContentScaffold`.
 
 ---
 
