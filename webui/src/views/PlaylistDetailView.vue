@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
@@ -23,6 +24,15 @@ const deletePlaylist = useDeletePlaylist()
 
 const showRenameDialog = ref(false)
 const newName = ref('')
+
+const summary = computed(() => {
+    if (!playlist.value) return ''
+    const parts: string[] = []
+    const n = playlist.value.songCount ?? playlist.value.entry?.length ?? 0
+    if (n > 0) parts.push(`${n} ${n === 1 ? 'song' : 'songs'}`)
+    if (playlist.value.duration) parts.push(`${Math.floor(playlist.value.duration / 60)} min`)
+    return parts.join(' • ')
+})
 
 const formatDuration = (seconds?: number): string => {
     if (!seconds) return ''
@@ -69,7 +79,9 @@ const handleDelete = () => {
 
 <template>
     <div class="playlist-detail-view">
-        <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        <div class="back-row">
+            <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        </div>
 
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
@@ -80,59 +92,54 @@ const handleDelete = () => {
             <p>{{ error.message }}</p>
         </div>
 
-        <div v-else-if="playlist" class="playlist-content">
-            <div class="playlist-header">
-                <div class="playlist-info">
-                    <h1>{{ playlist.name }}</h1>
-                    <p class="playlist-meta">
-                        <span>{{ playlist.songCount }} songs</span>
-                        <span v-if="playlist.duration">{{ Math.floor(playlist.duration / 60) }} min</span>
-                    </p>
-                </div>
-                <div class="playlist-actions">
-                    <Button label="Play" icon="pi pi-play" @click="playAll" />
-                    <Button icon="pi pi-pencil" text rounded @click="openRename" />
-                    <Button icon="pi pi-trash" text rounded severity="danger" @click="handleDelete" />
+        <ContentScaffold v-else-if="playlist" :title="playlist.name" :summary="summary">
+            <template #actions>
+                <Button label="Play" icon="pi pi-play" @click="playAll" />
+                <Button icon="pi pi-pencil" text rounded @click="openRename" />
+                <Button icon="pi pi-trash" text rounded severity="danger" @click="handleDelete" />
+            </template>
+
+            <div class="playlist-scroll">
+                <div class="playlist-body">
+                    <DataTable
+                        v-if="playlist.entry && playlist.entry.length > 0"
+                        :value="playlist.entry"
+                        stripedRows
+                        @row-click="(e: any) => playFromTrack(e.index)"
+                        class="track-table"
+                        :rowClass="() => 'clickable-row'"
+                    >
+                        <Column header="#" style="width: 60px">
+                            <template #body="{ index }">{{ index + 1 }}</template>
+                        </Column>
+                        <Column field="title" header="Title" />
+                        <Column field="artist" header="Artist" />
+                        <Column field="album" header="Album" />
+                        <Column header="Duration" style="width: 80px">
+                            <template #body="{ data }">
+                                {{ formatDuration(data.duration) }}
+                            </template>
+                        </Column>
+                        <Column style="width: 60px">
+                            <template #body="{ index }">
+                                <Button
+                                    icon="pi pi-times"
+                                    text
+                                    rounded
+                                    size="small"
+                                    severity="danger"
+                                    @click.stop="removeTrack(index)"
+                                />
+                            </template>
+                        </Column>
+                    </DataTable>
+
+                    <div v-else class="empty-tracks">
+                        <p>This playlist is empty</p>
+                    </div>
                 </div>
             </div>
-
-            <DataTable
-                v-if="playlist.entry && playlist.entry.length > 0"
-                :value="playlist.entry"
-                stripedRows
-                @row-click="(e: any) => playFromTrack(e.index)"
-                class="track-table"
-                :rowClass="() => 'clickable-row'"
-            >
-                <Column header="#" style="width: 60px">
-                    <template #body="{ index }">{{ index + 1 }}</template>
-                </Column>
-                <Column field="title" header="Title" />
-                <Column field="artist" header="Artist" />
-                <Column field="album" header="Album" />
-                <Column header="Duration" style="width: 80px">
-                    <template #body="{ data }">
-                        {{ formatDuration(data.duration) }}
-                    </template>
-                </Column>
-                <Column style="width: 60px">
-                    <template #body="{ index }">
-                        <Button
-                            icon="pi pi-times"
-                            text
-                            rounded
-                            size="small"
-                            severity="danger"
-                            @click.stop="removeTrack(index)"
-                        />
-                    </template>
-                </Column>
-            </DataTable>
-
-            <div v-else class="empty-tracks">
-                <p>This playlist is empty</p>
-            </div>
-        </div>
+        </ContentScaffold>
 
         <Dialog
             v-model:visible="showRenameDialog"
@@ -154,14 +161,12 @@ const handleDelete = () => {
 </template>
 
 <style scoped>
-.playlist-detail-view { max-width: 1200px; margin: 0 auto; }
+.playlist-detail-view { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.back-row { flex-shrink: 0; padding: 0.5rem 2rem 0; }
 .loading, .error { display: flex; flex-direction: column; align-items: center; padding: 3rem; gap: 1rem; color: var(--app-text-secondary); }
 .error { color: #ef4444; }
-.playlist-header { display: flex; align-items: center; justify-content: space-between; margin: 1.5rem 0 2rem; }
-.playlist-info h1 { font-size: 2rem; font-weight: 700; margin: 0; }
-.playlist-meta { display: flex; gap: 0.75rem; color: var(--app-text-secondary); margin: 0.25rem 0 0; }
-.playlist-meta span:not(:last-child)::after { content: '\00b7'; margin-left: 0.75rem; }
-.playlist-actions { display: flex; gap: 0.5rem; align-items: center; }
+.playlist-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
+.playlist-body { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; }
 .track-table :deep(.clickable-row) { cursor: pointer; }
 .track-table :deep(.clickable-row:hover) { background-color: #f9fafb !important; }
 .empty-tracks { padding: 3rem; text-align: center; color: var(--app-text-secondary); }

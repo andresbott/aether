@@ -25,7 +25,8 @@ const routes: RouteRecordRaw[] = [
         path: '/album/:id',
         name: 'album',
         component: () => import('@/views/AlbumView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/artist/:id',
@@ -37,29 +38,34 @@ const routes: RouteRecordRaw[] = [
     {
         path: '/playlists',
         name: 'playlists',
-        component: () => import('@/views/PlaylistsView.vue')
+        component: () => import('@/views/PlaylistsView.vue'),
+        meta: { flush: true }
     },
     {
         path: '/playlist/:id',
         name: 'playlist-detail',
         component: () => import('@/views/PlaylistDetailView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/genres',
         name: 'genres',
-        component: () => import('@/views/GenresView.vue')
+        component: () => import('@/views/GenresView.vue'),
+        meta: { flush: true }
     },
     {
         path: '/podcasts',
         name: 'podcasts',
-        component: () => import('@/views/PodcastsView.vue')
+        component: () => import('@/views/PodcastsView.vue'),
+        meta: { flush: true }
     },
     {
         path: '/podcast/:id',
         name: 'podcast-channel',
         component: () => import('@/views/PodcastChannelView.vue'),
-        props: true
+        props: true,
+        meta: { flush: true }
     },
     {
         path: '/radio',

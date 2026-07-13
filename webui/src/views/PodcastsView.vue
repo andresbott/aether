@@ -1,9 +1,17 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Button from 'primevue/button'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import { usePodcasts } from '@/composables/useSubsonicQueries'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const { data: channels, isLoading } = usePodcasts(true)
+
+const summary = computed(() => {
+    const count = channels.value?.length ?? 0
+    if (count === 0) return ''
+    return `${count} ${count === 1 ? 'podcast' : 'podcasts'}`
+})
 
 const getCoverUrl = (coverArt?: string): string | null => {
     if (!coverArt || !subsonicClient.isConfigured()) return null
@@ -12,51 +20,50 @@ const getCoverUrl = (coverArt?: string): string | null => {
 </script>
 
 <template>
-    <div class="podcasts-view">
-        <div class="view-header">
-            <h1>Podcasts</h1>
+    <ContentScaffold title="Podcasts" :summary="summary">
+        <template #actions>
             <Button label="Subscribe" icon="pi pi-plus" disabled />
-        </div>
+        </template>
 
-        <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
-        </div>
+        <div class="podcasts-scroll">
+            <div v-if="isLoading" class="loading">
+                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            </div>
 
-        <div v-else-if="channels && channels.length > 0" class="channel-grid">
-            <router-link
-                v-for="ch in channels"
-                :key="ch.id"
-                :to="{ name: 'podcast-channel', params: { id: ch.id } }"
-                class="channel-card"
-            >
-                <div class="channel-cover">
-                    <img v-if="getCoverUrl(ch.coverArt)" :src="getCoverUrl(ch.coverArt)!" alt="" />
-                    <div v-else class="cover-placeholder">
-                        <i class="pi pi-microphone" style="font-size: 2rem"></i>
+            <div v-else-if="channels && channels.length > 0" class="channel-grid">
+                <router-link
+                    v-for="ch in channels"
+                    :key="ch.id"
+                    :to="{ name: 'podcast-channel', params: { id: ch.id } }"
+                    class="channel-card"
+                >
+                    <div class="channel-cover">
+                        <img v-if="getCoverUrl(ch.coverArt)" :src="getCoverUrl(ch.coverArt)!" alt="" />
+                        <div v-else class="cover-placeholder">
+                            <i class="pi pi-microphone" style="font-size: 2rem"></i>
+                        </div>
                     </div>
-                </div>
-                <div class="channel-info">
-                    <div class="channel-title">{{ ch.title }}</div>
-                    <div v-if="ch.episode" class="channel-meta">
-                        {{ ch.episode.length }} episodes
+                    <div class="channel-info">
+                        <div class="channel-title">{{ ch.title }}</div>
+                        <div v-if="ch.episode" class="channel-meta">
+                            {{ ch.episode.length }} episodes
+                        </div>
                     </div>
-                </div>
-            </router-link>
-        </div>
+                </router-link>
+            </div>
 
-        <div v-else class="empty-state">
-            <i class="pi pi-microphone" style="font-size: 3rem"></i>
-            <p>No podcasts</p>
+            <div v-else class="empty-state">
+                <i class="pi pi-microphone" style="font-size: 3rem"></i>
+                <p>No podcasts</p>
+            </div>
         </div>
-    </div>
+    </ContentScaffold>
 </template>
 
 <style scoped>
-.podcasts-view { max-width: var(--app-content-max-width); margin: 0 auto; }
-.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
-.view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
+.podcasts-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }
-.channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
+.channel-grid { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
 .channel-card { display: flex; flex-direction: column; text-decoration: none; color: inherit; transition: transform 0.2s; }
 .channel-card:hover { transform: translateY(-2px); }
 .channel-cover { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; }

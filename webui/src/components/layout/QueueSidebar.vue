@@ -3,10 +3,12 @@ import { ref, computed } from 'vue'
 import QueueView from '@/components/layout/QueueView.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
+import { useQueueDragExpand } from '@/composables/useQueueDragExpand'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
 const { sidebarCollapsed, sidebarWidth, toggleSidebar, setSidebarWidth } = useQueueSidebar()
+const { onDragEnter } = useQueueDragExpand()
 
 const isResizing = ref(false)
 
@@ -56,6 +58,7 @@ const startResize = (event: MouseEvent) => {
         class="queue-sidebar"
         :class="{ resizing: isResizing, collapsed: sidebarCollapsed }"
         :style="sidebarCollapsed ? undefined : { width: sidebarWidth + 'px' }"
+        @dragenter="onDragEnter"
     >
         <div v-if="!sidebarCollapsed" class="resize-handle" @mousedown="startResize"></div>
 

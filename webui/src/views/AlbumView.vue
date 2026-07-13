@@ -2,6 +2,7 @@
 import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
@@ -39,6 +40,15 @@ const totalDuration = computed(() => {
     if (!album.value?.duration) return ''
     const mins = Math.floor(album.value.duration / 60)
     return `${mins} min`
+})
+
+const summary = computed(() => {
+    if (!album.value) return ''
+    const parts: string[] = []
+    const n = album.value.songCount ?? album.value.song?.length ?? 0
+    if (n > 0) parts.push(`${n} ${n === 1 ? 'song' : 'songs'}`)
+    if (totalDuration.value) parts.push(totalDuration.value)
+    return parts.join(' • ')
 })
 
 const playAlbum = () => {
@@ -105,7 +115,9 @@ watch(
 
 <template>
     <div class="album-view">
-        <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        <div class="back-row">
+            <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
+        </div>
 
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
@@ -116,89 +128,96 @@ watch(
             <p>{{ error.message }}</p>
         </div>
 
-        <div v-else-if="album" class="album-content">
-            <div class="album-header">
-                <div class="album-cover">
-                    <img v-if="coverUrl" :src="coverUrl" :alt="album.name" />
-                    <div v-else class="cover-placeholder">
-                        <i class="pi pi-music" style="font-size: 3rem"></i>
-                    </div>
-                </div>
-                <div class="album-info">
-                    <h1>{{ album.name }}</h1>
-                    <router-link
-                        v-if="album.artistId"
-                        :to="{ name: 'artist', params: { id: album.artistId } }"
-                        class="artist-link"
-                    >
-                        {{ album.artist }}
-                    </router-link>
-                    <p v-else class="artist-name">{{ album.artist }}</p>
-                    <p class="album-meta">
-                        <span v-if="album.year">{{ album.year }}</span>
-                        <span v-if="album.songCount">{{ album.songCount }} songs</span>
-                        <span v-if="totalDuration">{{ totalDuration }}</span>
-                    </p>
-                    <div class="album-actions">
-                        <Button label="Play" icon="pi pi-play" @click="playAlbum" />
-                        <Button
-                            label="Add to Queue"
-                            icon="pi pi-plus"
-                            severity="secondary"
-                            text
-                            @click="addToQueue"
-                        />
-                        <Button
-                            :icon="album?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                            text
-                            rounded
-                            @click="handleStar"
-                        />
-                        <span
-                            class="album-drag-handle"
-                            draggable="true"
-                            v-tooltip.bottom="'Drag album to queue'"
-                            @dragstart="onAlbumDragStart"
-                            @dragend="albumDrag.end"
-                        >
-                            <i class="pi pi-bars"></i>
-                        </span>
-                    </div>
-                </div>
-            </div>
+        <ContentScaffold v-else-if="album" :title="album.name" :summary="summary">
+            <template #actions>
+                <Button label="Play" icon="pi pi-play" @click="playAlbum" />
+                <Button
+                    label="Add to Queue"
+                    icon="pi pi-plus"
+                    severity="secondary"
+                    text
+                    @click="addToQueue"
+                />
+                <Button
+                    :icon="album?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
+                    text
+                    rounded
+                    @click="handleStar"
+                />
+                <span
+                    class="album-drag-handle"
+                    draggable="true"
+                    v-tooltip.bottom="'Drag album to queue'"
+                    @dragstart="onAlbumDragStart"
+                    @dragend="albumDrag.end"
+                >
+                    <i class="pi pi-bars"></i>
+                </span>
+            </template>
 
-            <div v-if="orderedSongs.length > 0" class="track-list">
-                <div class="track-list-header">
-                    <span class="col-index">#</span>
-                    <span class="col-title">Title</span>
-                    <span class="col-artist">Artist</span>
-                    <span class="col-duration">Duration</span>
-                </div>
-                <template v-for="group in discGroups" :key="group.discNumber">
-                    <div v-if="hasMultipleDiscs" class="disc-header">
-                        Disc {{ group.discNumber }}
+            <div class="album-scroll">
+                <div class="album-body">
+                    <div class="album-hero">
+                        <div class="album-cover">
+                            <img v-if="coverUrl" :src="coverUrl" :alt="album.name" />
+                            <div v-else class="cover-placeholder">
+                                <i class="pi pi-music" style="font-size: 3rem"></i>
+                            </div>
+                        </div>
+                        <div class="album-info">
+                            <router-link
+                                v-if="album.artistId"
+                                :to="{ name: 'artist', params: { id: album.artistId } }"
+                                class="artist-link"
+                            >
+                                {{ album.artist }}
+                            </router-link>
+                            <p v-else class="artist-name">{{ album.artist }}</p>
+                            <p v-if="album.year" class="album-meta">{{ album.year }}</p>
+                        </div>
                     </div>
-                    <AlbumTrackRow
-                        v-for="row in group.rows"
-                        :key="row.song.id"
-                        :song="row.song"
-                        :index="row.index"
-                        :selected="isSelected(row.index)"
-                        @select="(p) => onRowClick(row.index, p)"
-                        @play="playFromIndex(row.index)"
-                        @dragstart="(e) => onRowDragStart(e, row.index)"
-                        @dragend="songsDrag.end"
-                    />
-                </template>
+
+                    <div v-if="orderedSongs.length > 0" class="track-list">
+                        <div class="track-list-header">
+                            <span class="col-index">#</span>
+                            <span class="col-title">Title</span>
+                            <span class="col-artist">Artist</span>
+                            <span class="col-duration">Duration</span>
+                        </div>
+                        <template v-for="group in discGroups" :key="group.discNumber">
+                            <div v-if="hasMultipleDiscs" class="disc-header">
+                                Disc {{ group.discNumber }}
+                            </div>
+                            <AlbumTrackRow
+                                v-for="row in group.rows"
+                                :key="row.song.id"
+                                :song="row.song"
+                                :index="row.index"
+                                :selected="isSelected(row.index)"
+                                @select="(p) => onRowClick(row.index, p)"
+                                @play="playFromIndex(row.index)"
+                                @dragstart="(e) => onRowDragStart(e, row.index)"
+                                @dragend="songsDrag.end"
+                            />
+                        </template>
+                    </div>
+                </div>
             </div>
-        </div>
+        </ContentScaffold>
     </div>
 </template>
 
 <style scoped>
 .album-view {
-    max-width: 1200px;
-    margin: 0 auto;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.back-row {
+    flex-shrink: 0;
+    padding: 0.5rem 2rem 0;
 }
 
 .loading,
@@ -215,10 +234,22 @@ watch(
     color: #ef4444;
 }
 
-.album-header {
+.album-scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
+
+.album-body {
+    max-width: var(--app-content-max-width);
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.album-hero {
     display: flex;
     gap: 2rem;
-    margin: 1.5rem 0 2rem;
+    margin-bottom: 2rem;
 }
 
 .album-cover {
@@ -252,13 +283,6 @@ watch(
     gap: 0.5rem;
 }
 
-.album-info h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    margin: 0;
-    line-height: 1.2;
-}
-
 .artist-link {
     font-size: 1.25rem;
     color: var(--app-accent);
@@ -271,22 +295,9 @@ watch(
 }
 
 .album-meta {
-    display: flex;
-    gap: 0.75rem;
     color: var(--app-text-secondary);
     font-size: 0.95rem;
     margin: 0;
-}
-
-.album-meta span:not(:last-child)::after {
-    content: '\00b7';
-    margin-left: 0.75rem;
-}
-
-.album-actions {
-    display: flex;
-    gap: 1rem;
-    margin-top: auto;
 }
 
 .track-list {

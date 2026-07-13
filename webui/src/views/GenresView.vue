@@ -1,22 +1,23 @@
 <script setup lang="ts">
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 </script>
 
 <template>
-    <div class="genres-view">
-        <div class="view-header">
-            <h1>Genres</h1>
+    <ContentScaffold title="Genres">
+        <div class="genres-scroll">
+            <div class="empty-state">
+                <i class="pi pi-tags" style="font-size: 3rem"></i>
+                <p>Genres view coming soon</p>
+            </div>
         </div>
-
-        <div class="empty-state">
-            <i class="pi pi-tags" style="font-size: 3rem"></i>
-            <p>Genres view coming soon</p>
-        </div>
-    </div>
+    </ContentScaffold>
 </template>
 
 <style scoped>
-.genres-view { max-width: var(--app-content-max-width); margin: 0 auto; }
-.view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; }
-.view-header h1 { font-size: 2rem; font-weight: 700; margin: 0; }
+.genres-scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+}
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 4rem; gap: 1rem; color: var(--app-text-secondary); }
 </style>
