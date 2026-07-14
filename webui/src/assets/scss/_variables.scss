@@ -28,14 +28,16 @@
     --app-player-dim: #6f7b88;
     /* Scrubber / volume rail. */
     --app-player-track: rgba(255, 255, 255, 0.18);
-    --app-sidebar-width: 280px;
+    --app-sidebar-width: 240px;
     --app-sidebar-collapsed-width: 70px;
-    --app-player-height: 64px;
+    --app-player-height: 116px;
+    /* Small radius scale for cards/inputs — Dense Pro uses tight 6–10px corners. */
+    --app-radius: 8px;
     /* Shared max width of the centered main-content column. The scaffold header
        and every body/view center on this same column so titles line up over
        their rows — keep them all bound to this token. See
        docs/architecture/main-content-view-layout.md. */
-    --app-content-max-width: 1400px;
+    --app-content-max-width: 1320px;
 }
 
 /* Dark mode overrides. Only the colour tokens change; dimensions are inherited
