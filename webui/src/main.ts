@@ -10,6 +10,7 @@ import StyleClass from 'primevue/styleclass'
 import Ripple from 'primevue/ripple'
 
 import CustomTheme from './theme'
+import { useTheme } from './composables/useTheme'
 import 'primeflex/primeflex.css'
 import 'primeicons/primeicons.css'
 import './assets/scss/_main.scss'
@@ -22,7 +23,9 @@ subsonicClient.initWithDefaults()
 
 const app = createApp(App)
 
-document.documentElement.classList.remove('dark-mode')
+// Follow the OS light/dark preference by default; toggles the `.dark-mode`
+// class PrimeVue watches (see darkModeSelector below).
+useTheme()
 
 app.directive('focus', {
     mounted(el: HTMLElement) {

@@ -21,8 +21,9 @@ const props = withDefaults(
         minColWidth?: number
         gap?: number
         pageSize?: number
+        showRail?: boolean
     }>(),
-    { minColWidth: 200, gap: 32, pageSize: 100 }
+    { minColWidth: 200, gap: 32, pageSize: 100, showRail: true }
 )
 
 const emit = defineEmits<{ (e: 'lazyLoad', first: number, last: number): void }>()
@@ -148,7 +149,7 @@ watch(
                 </div>
             </template>
         </VirtualScroller>
-        <AlphabetRail :letters="letters" @select="onSelect" />
+        <AlphabetRail v-if="showRail" :letters="letters" @select="onSelect" />
     </div>
 </template>
 

@@ -3,25 +3,16 @@ import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 
+const route = { query: {} as Record<string, string> }
+const replace = vi.fn()
+vi.mock('vue-router', () => ({
+    useRoute: () => route,
+    useRouter: () => ({ replace })
+}))
+
 const stations = ref<Array<{ id: string; name: string; streamUrl: string }>>([])
-
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useRadioStations: () => ({ data: stations, isLoading: ref(false) }),
-    useCreateRadioStation: () => ({ isPending: ref(false), mutate: vi.fn() }),
-    useUpdateRadioStation: () => ({ isPending: ref(false), mutate: vi.fn() }),
-    useDeleteRadioStation: () => ({ isPending: ref(false), mutate: vi.fn() })
-}))
-
-vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playNow: vi.fn() })
-}))
-
-vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { getCoverArtUrl: (id: string) => `/cover/${id}` }
-}))
-
-vi.mock('primevue/useconfirm', () => ({
-    useConfirm: () => ({ require: vi.fn() })
+    useRadioStations: () => ({ data: stations, isLoading: ref(false) })
 }))
 
 // Stub the scaffold so the test asserts what RadioView passes to it (its own
@@ -32,13 +23,11 @@ const ScaffoldStub = {
     props: ['title', 'summary'],
     template: '<div><slot name="actions" /><slot /></div>'
 }
-const DialogStub = {
-    name: 'RadioStationDialog',
-    props: ['visible', 'station', 'submitting'],
-    template: '<div class="dialog-stub" />'
-}
+const GridStub = { name: 'RadioStationGrid', template: '<div class="radio-grid-stub" />' }
+const ListStub = { name: 'RadioStationListView', template: '<div class="radio-list-stub" />' }
 
 import RadioView from '@/views/RadioView.vue'
+import SelectButton from 'primevue/selectbutton'
 
 const mountView = () =>
     mount(RadioView, {
@@ -46,13 +35,15 @@ const mountView = () =>
             plugins: [PrimeVue],
             stubs: {
                 ContentScaffold: ScaffoldStub,
-                RadioStationDialog: DialogStub,
-                ConfirmDialog: true
+                RadioStationGrid: GridStub,
+                RadioStationListView: ListStub
             }
         }
     })
 
 beforeEach(() => {
+    replace.mockReset()
+    route.query = {}
     stations.value = []
 })
 
@@ -72,26 +63,27 @@ describe('RadioView', () => {
         expect(mountView().findComponent(ScaffoldStub).props('summary')).toBe('1 station')
     })
 
-    it('passes an empty summary and shows the empty state when there are no stations', () => {
-        const w = mountView()
-        expect(w.findComponent(ScaffoldStub).props('summary')).toBe('')
-        expect(w.find('.empty-state').exists()).toBe(true)
+    it('passes an empty summary when there are no stations', () => {
+        expect(mountView().findComponent(ScaffoldStub).props('summary')).toBe('')
     })
 
-    it('shows a deprecation banner pointing at the Settings radio editor', () => {
+    it('renders the grid by default', () => {
         const w = mountView()
-        expect(w.text()).toContain('Deprecated')
-        expect(w.text()).toContain('Radio Stations')
+        expect(w.findComponent(GridStub).exists()).toBe(true)
+        expect(w.findComponent(ListStub).exists()).toBe(false)
     })
 
-    it('opens the create dialog from the header Add button', async () => {
+    it('renders the list when the layout query is list', () => {
+        route.query = { view: 'list' }
         const w = mountView()
-        expect(w.findComponent(DialogStub).props('visible')).toBe(false)
-        const addBtn = w
-            .findAll('button')
-            .find((b) => b.text().includes('Add Station'))
-        expect(addBtn).toBeTruthy()
-        await addBtn!.trigger('click')
-        expect(w.findComponent(DialogStub).props('visible')).toBe(true)
+        expect(w.findComponent(ListStub).exists()).toBe(true)
+        expect(w.findComponent(GridStub).exists()).toBe(false)
+    })
+
+    it('toggling the layout updates the route query', async () => {
+        const w = mountView()
+        w.findComponent(SelectButton).vm.$emit('update:modelValue', 'list')
+        await w.vm.$nextTick()
+        expect(replace).toHaveBeenCalledWith({ query: { view: 'list' } })
     })
 })

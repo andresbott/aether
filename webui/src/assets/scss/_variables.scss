@@ -23,3 +23,19 @@
        docs/architecture/main-content-view-layout.md. */
     --app-content-max-width: 1400px;
 }
+
+/* Dark mode overrides. Only the colour tokens change; dimensions and the
+   already-dark player tokens are inherited from :root. Values track the
+   preset's dark surface palette (see src/theme.js). */
+.dark-mode {
+    --app-background: #10141b;
+    --app-surface: #1a202c;
+    --app-border: #333a47;
+    --app-text-primary: #e2e8f0;
+    --app-text-secondary: #94a3b8;
+    --app-accent: #818cf8;
+    --app-accent-hover: #a5b4fc;
+    --app-accent-soft: #272c35;
+    --app-accent-soft-hover: #333a47;
+    --app-hover: rgba(255, 255, 255, 0.06);
+}

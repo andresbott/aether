@@ -12,3 +12,21 @@ if (typeof ResizeObserver === 'undefined') {
         disconnect() {}
     }
 }
+
+// jsdom does not implement matchMedia; stub it so useTheme()'s initTheme()
+// can query prefers-color-scheme without throwing.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+    window.matchMedia = (query: string) =>
+        ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addEventListener() {},
+            removeEventListener() {},
+            addListener() {},
+            removeListener() {},
+            dispatchEvent() {
+                return false
+            }
+        }) as MediaQueryList
+}

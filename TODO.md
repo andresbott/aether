@@ -97,3 +97,7 @@ Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not
 ## Frontend Layout — Library scaffold follow-up
 
 - [ ] Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared `LibraryScaffold` component introduced by the library-scaffold work (spec: `docs/superpowers/specs/2026-07-02-library-scaffold-and-artist-list-design.md`). That work extracted QueueView's fixed-header + flush-right-scroll pattern into a generic `LibraryScaffold` (fixed header with title/summary + `#actions` slot, `flex:1;min-height:0` body slot) and adopted it across the library album/artist × list/cover views. QueueView still carries its own bespoke copy of that layout (`.queue-view` / `.queue-view-header` / `.queue-body`). **Deferred from that effort** because QueueView had active uncommitted WIP and its own drag/sortable complexity, so refactoring it then would have entangled unrelated changes. Follow-up: have `QueueView` render `LibraryScaffold` (title/summary; `#actions` = its edit/save/clear buttons; body = the history/current/upcoming or edit list), deleting the duplicated layout CSS. Once it has this second consumer, consider moving `LibraryScaffold` out of `components/library/` to a neutral home (e.g. `components/layout/`) and renaming it accordingly.
+
+
+juckebox funcionality ( use the wbe ui only to controll the audio)
+relay => like juckebox, but loading songs from another instance
