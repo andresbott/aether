@@ -1,19 +1,33 @@
 :root {
-    --app-background: #f8f9fa;
-    --app-surface: #ffffff;
-    --app-border: #e5e7eb;
-    --app-text-primary: #1f2937;
-    --app-text-secondary: #6b7280;
-    --app-accent: #6366f1;
-    --app-accent-hover: #4f46e5;
+    --app-background: #e7eaee;
+    --app-surface: #f4f6f8;
+    /* Elevated cards / raised panels — the third layer above surface.
+       Dense Pro is a 3-layer system: canvas (background) → panel (surface)
+       → card (surface-2). */
+    --app-surface-2: #ffffff;
+    --app-border: #dde2e8;
+    --app-text-primary: #1b2430;
+    --app-text-secondary: #67727f;
+    --app-accent: #0e9bb5;
+    --app-accent-hover: #0b8299;
     /* Soft accent tint for active/selected/current rows and their hover. */
-    --app-accent-soft: #eef2ff;
-    --app-accent-soft-hover: #e0e7ff;
+    --app-accent-soft: rgba(14, 155, 181, 0.12);
+    --app-accent-soft-hover: rgba(14, 155, 181, 0.2);
     /* Row hover tint — translucent so it reads on both the white surface
        (sidebar) and the grey app background (full Now Playing view). */
-    --app-hover: rgba(0, 0, 0, 0.04);
-    --app-player-bg: #1a2942;
-    --app-player-text: #e2e8f0;
+    --app-hover: rgba(20, 120, 150, 0.07);
+    /* Dark navigation rail — dark slate in BOTH themes (consumed in Step 3). */
+    --app-nav-bg: #1b2430;
+    --app-nav-text: #d3dae2;
+    --app-nav-text-dim: #7b8794;
+    /* Logo/brand accent — cyan in both themes. */
+    --app-nav-brand: #2fd3ef;
+    --app-player-bg: #141b24;
+    --app-player-text: #d3dae2;
+    /* Muted controls in the player bar (consumed in Step 4). */
+    --app-player-dim: #6f7b88;
+    /* Scrubber / volume rail. */
+    --app-player-track: rgba(255, 255, 255, 0.18);
     --app-sidebar-width: 280px;
     --app-sidebar-collapsed-width: 70px;
     --app-player-height: 64px;
@@ -24,18 +38,25 @@
     --app-content-max-width: 1400px;
 }
 
-/* Dark mode overrides. Only the colour tokens change; dimensions and the
-   already-dark player tokens are inherited from :root. Values track the
-   preset's dark surface palette (see src/theme.js). */
+/* Dark mode overrides. Only the colour tokens change; dimensions are inherited
+   from :root. Values track the Dense Pro dark surface palette. */
 .dark-mode {
-    --app-background: #10141b;
-    --app-surface: #1a202c;
-    --app-border: #333a47;
-    --app-text-primary: #e2e8f0;
-    --app-text-secondary: #94a3b8;
-    --app-accent: #818cf8;
-    --app-accent-hover: #a5b4fc;
-    --app-accent-soft: #272c35;
-    --app-accent-soft-hover: #333a47;
-    --app-hover: rgba(255, 255, 255, 0.06);
+    --app-background: #0d1117;
+    --app-surface: #141b24;
+    --app-surface-2: #1a222e;
+    --app-border: #232d3a;
+    --app-text-primary: #d7dee6;
+    --app-text-secondary: #7b8794;
+    --app-accent: #2fd3ef;
+    --app-accent-hover: #57e0f7;
+    --app-accent-soft: rgba(47, 211, 239, 0.16);
+    --app-accent-soft-hover: rgba(47, 211, 239, 0.24);
+    --app-hover: rgba(47, 211, 239, 0.09);
+    --app-nav-bg: #0a0e13;
+    --app-nav-text: #d7dee6;
+    --app-nav-text-dim: #6a7681;
+    --app-player-bg: #080b10;
+    --app-player-text: #d7dee6;
+    --app-player-dim: #6a7681;
+    --app-player-track: rgba(255, 255, 255, 0.14);
 }
