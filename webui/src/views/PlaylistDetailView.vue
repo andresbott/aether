@@ -1,18 +1,21 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Dialog from 'primevue/dialog'
-import InputText from 'primevue/inputtext'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import TrackEditList from '@/components/layout/TrackEditList.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
-    useDeletePlaylist
+    useDeletePlaylist,
+    useReplacePlaylistTracks
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+import { reorderQueue } from '@/utils/queueReorder'
+import type { Song } from '@/types/subsonic'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -21,16 +24,25 @@ const player = usePlayer()
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
 const updatePlaylist = useUpdatePlaylist()
 const deletePlaylist = useDeletePlaylist()
+const replaceTracks = useReplacePlaylistTracks()
 
-const showRenameDialog = ref(false)
-const newName = ref('')
+// Inline rename state.
+const renaming = ref(false)
+const renameValue = ref('')
+
+// Batched edit state: a local working copy of the entries.
+const editMode = ref(false)
+const working = ref<Song[]>([])
 
 const summary = computed(() => {
     if (!playlist.value) return ''
     const parts: string[] = []
-    const n = playlist.value.songCount ?? playlist.value.entry?.length ?? 0
+    const n = editMode.value
+        ? working.value.length
+        : (playlist.value.songCount ?? playlist.value.entry?.length ?? 0)
     if (n > 0) parts.push(`${n} ${n === 1 ? 'song' : 'songs'}`)
-    if (playlist.value.duration) parts.push(`${Math.floor(playlist.value.duration / 60)} min`)
+    if (!editMode.value && playlist.value.duration)
+        parts.push(`${Math.floor(playlist.value.duration / 60)} min`)
     return parts.join(' • ')
 })
 
@@ -41,40 +53,60 @@ const formatDuration = (seconds?: number): string => {
     return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
-const playAll = () => {
-    if (playlist.value?.entry) {
-        player.playAlbum(playlist.value.entry)
-    }
+const playAll = (): void => {
+    if (playlist.value?.entry) player.playAlbum(playlist.value.entry)
 }
 
-const playFromTrack = (index: number) => {
-    if (playlist.value?.entry) {
-        player.playAlbum(playlist.value.entry, index)
-    }
+const playFromTrack = (index: number): void => {
+    if (playlist.value?.entry) player.playAlbum(playlist.value.entry, index)
 }
 
-const removeTrack = (index: number) => {
-    updatePlaylist.mutate({ playlistId: props.id, songIndexesToRemove: [index] })
+// --- Inline rename ---
+const openRename = (): void => {
+    renameValue.value = playlist.value?.name ?? ''
+    renaming.value = true
 }
-
-const openRename = () => {
-    newName.value = playlist.value?.name || ''
-    showRenameDialog.value = true
+const cancelRename = (): void => {
+    renaming.value = false
 }
-
-const handleRename = () => {
-    if (!newName.value.trim()) return
+const submitRename = (): void => {
+    const name = renameValue.value.trim()
+    if (!name) return
     updatePlaylist.mutate(
-        { playlistId: props.id, name: newName.value.trim() },
-        { onSuccess: () => { showRenameDialog.value = false } }
+        { playlistId: props.id, name },
+        { onSuccess: () => (renaming.value = false) }
     )
 }
 
-const handleDelete = () => {
-    deletePlaylist.mutate(props.id, {
-        onSuccess: () => router.push({ name: 'playlists' })
-    })
+// --- Batched track edit ---
+const enterEdit = (): void => {
+    working.value = [...(playlist.value?.entry ?? [])]
+    editMode.value = true
 }
+const cancelEdit = (): void => {
+    editMode.value = false
+    working.value = []
+}
+const onReorder = (indices: number[], target: number): void => {
+    working.value = reorderQueue(working.value, indices, target)
+}
+const onDelete = (indices: number[]): void => {
+    const drop = new Set(indices)
+    working.value = working.value.filter((_, i) => !drop.has(i))
+}
+const saveEdit = (): void => {
+    replaceTracks.mutate(
+        { playlistId: props.id, songIds: working.value.map((s) => s.id) },
+        { onSuccess: () => cancelEdit() }
+    )
+}
+
+const handleDelete = (): void => {
+    deletePlaylist.mutate(props.id, { onSuccess: () => router.push({ name: 'playlists' }) })
+}
+
+// Leaving edit mode / switching playlists drops any working copy.
+watch(() => props.id, cancelEdit)
 </script>
 
 <template>
@@ -92,17 +124,76 @@ const handleDelete = () => {
             <p>{{ error.message }}</p>
         </div>
 
-        <ContentScaffold v-else-if="playlist" :title="playlist.name" :summary="summary">
+        <ContentScaffold v-else-if="playlist" :title="renaming ? '' : playlist.name" :summary="summary">
+            <template #title-actions>
+                <span v-if="renaming" class="rename-input">
+                    <InputText
+                        v-model="renameValue"
+                        autofocus
+                        @keyup.enter="submitRename"
+                        @keyup.esc="cancelRename"
+                    />
+                    <Button icon="pi pi-check" text rounded size="small" @click="submitRename" />
+                    <Button icon="pi pi-times" text rounded size="small" @click="cancelRename" />
+                </span>
+                <Button
+                    v-else
+                    class="rename-toggle"
+                    icon="pi pi-pencil"
+                    text
+                    rounded
+                    size="small"
+                    v-tooltip.bottom="'Rename playlist'"
+                    @click="openRename"
+                />
+            </template>
+
             <template #actions>
-                <Button label="Play" icon="pi pi-play" @click="playAll" />
-                <Button icon="pi pi-pencil" text rounded @click="openRename" />
-                <Button icon="pi pi-trash" text rounded severity="danger" @click="handleDelete" />
+                <template v-if="editMode">
+                    <Button
+                        class="edit-save"
+                        label="Save"
+                        icon="pi pi-check"
+                        :loading="replaceTracks.isPending.value"
+                        @click="saveEdit"
+                    />
+                    <Button class="edit-cancel" label="Cancel" text severity="secondary" @click="cancelEdit" />
+                </template>
+                <template v-else>
+                    <Button class="play-all" label="Play" icon="pi pi-play" @click="playAll" />
+                    <Button
+                        class="edit-toggle"
+                        icon="pi pi-list"
+                        text
+                        rounded
+                        :disabled="!playlist.entry || playlist.entry.length === 0"
+                        v-tooltip.bottom="'Edit tracks'"
+                        @click="enterEdit"
+                    />
+                    <Button
+                        icon="pi pi-trash"
+                        text
+                        rounded
+                        severity="danger"
+                        v-tooltip.bottom="'Delete playlist'"
+                        @click="handleDelete"
+                    />
+                </template>
             </template>
 
             <div class="playlist-scroll">
                 <div class="playlist-body">
+                    <TrackEditList
+                        v-if="editMode"
+                        :songs="working"
+                        delete-label="Remove from playlist"
+                        group="playlist"
+                        @reorder="onReorder"
+                        @delete="onDelete"
+                    />
+
                     <DataTable
-                        v-if="playlist.entry && playlist.entry.length > 0"
+                        v-else-if="playlist.entry && playlist.entry.length > 0"
                         :value="playlist.entry"
                         stripedRows
                         @row-click="(e: any) => playFromTrack(e.index)"
@@ -116,21 +207,7 @@ const handleDelete = () => {
                         <Column field="artist" header="Artist" />
                         <Column field="album" header="Album" />
                         <Column header="Duration" style="width: 80px">
-                            <template #body="{ data }">
-                                {{ formatDuration(data.duration) }}
-                            </template>
-                        </Column>
-                        <Column style="width: 60px">
-                            <template #body="{ index }">
-                                <Button
-                                    icon="pi pi-times"
-                                    text
-                                    rounded
-                                    size="small"
-                                    severity="danger"
-                                    @click.stop="removeTrack(index)"
-                                />
-                            </template>
+                            <template #body="{ data }">{{ formatDuration(data.duration) }}</template>
                         </Column>
                     </DataTable>
 
@@ -140,23 +217,6 @@ const handleDelete = () => {
                 </div>
             </div>
         </ContentScaffold>
-
-        <Dialog
-            v-model:visible="showRenameDialog"
-            header="Rename Playlist"
-            :modal="true"
-            :style="{ width: '400px' }"
-        >
-            <InputText
-                v-model="newName"
-                class="w-full"
-                @keyup.enter="handleRename"
-            />
-            <template #footer>
-                <Button label="Cancel" text @click="showRenameDialog = false" />
-                <Button label="Save" @click="handleRename" />
-            </template>
-        </Dialog>
     </div>
 </template>
 
@@ -167,6 +227,7 @@ const handleDelete = () => {
 .error { color: #ef4444; }
 .playlist-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .playlist-body { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; }
+.rename-input { display: inline-flex; align-items: center; gap: 0.25rem; }
 .track-table :deep(.clickable-row) { cursor: pointer; }
 .track-table :deep(.clickable-row:hover) { background-color: var(--app-hover) !important; }
 .empty-tracks { padding: 3rem; text-align: center; color: var(--app-text-secondary); }
