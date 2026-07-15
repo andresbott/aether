@@ -36,7 +36,7 @@ vi.mock('@/composables/useSongsDrag', () => ({
 
 const playAlbum = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playAlbum, addMultipleToQueue: vi.fn() })
+    usePlayer: () => ({ playAlbum, addMultipleToQueue: vi.fn(), currentTrack: ref(null) })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -106,7 +106,8 @@ describe('AlbumView disc grouping', () => {
         expect(header.exists()).toBe(true)
         expect(header.text()).toContain('Title')
         expect(header.text()).toContain('Artist')
-        expect(header.text()).toContain('Duration')
+        // The duration column header is a clock icon (labelled for a11y).
+        expect(header.find('.pi-clock').exists()).toBe(true)
     })
 
     it('renders no disc header for a single-disc album', () => {

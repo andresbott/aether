@@ -31,6 +31,8 @@ const handleStar = () => {
 
 const { data: album, isLoading, error } = useAlbum(props.id)
 
+const currentTrackId = computed(() => player.currentTrack.value?.id)
+
 const coverUrl = computed(() => {
     if (!album.value?.coverArt || !subsonicClient.isConfigured()) return null
     return subsonicClient.getCoverArtUrl(album.value.coverArt, 250)
@@ -182,7 +184,9 @@ watch(
                             <span class="col-index">#</span>
                             <span class="col-title">Title</span>
                             <span class="col-artist">Artist</span>
-                            <span class="col-duration">Duration</span>
+                            <span class="col-duration" aria-label="Duration">
+                                <i class="pi pi-clock"></i>
+                            </span>
                         </div>
                         <template v-for="group in discGroups" :key="group.discNumber">
                             <div v-if="hasMultipleDiscs" class="disc-header">
@@ -194,6 +198,7 @@ watch(
                                 :song="row.song"
                                 :index="row.index"
                                 :selected="isSelected(row.index)"
+                                :playing="row.song.id === currentTrackId"
                                 @select="(p) => onRowClick(row.index, p)"
                                 @play="playFromIndex(row.index)"
                                 @dragstart="(e) => onRowDragStart(e, row.index)"
@@ -303,7 +308,7 @@ watch(
 .track-list {
     /* Shared grid template so the header and every row (a child component) align.
        Custom properties inherit through the DOM regardless of scoped styles. */
-    --album-track-cols: 2.5rem minmax(0, 2fr) minmax(0, 1fr) 4.5rem;
+    --album-track-cols: 38px minmax(0, 2.4fr) minmax(0, 1.4fr) 62px;
     display: flex;
     flex-direction: column;
 }

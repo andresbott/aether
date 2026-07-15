@@ -6,6 +6,7 @@ const props = defineProps<{
     song: Song
     index: number
     selected?: boolean
+    playing?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,7 +35,7 @@ const onClick = (event: MouseEvent): void => {
 <template>
     <div
         class="album-track-row"
-        :class="{ selected, striped: index % 2 === 1 }"
+        :class="{ selected, playing, striped: index % 2 === 1 }"
         role="option"
         :aria-selected="selected"
         :data-track-index="index"
@@ -44,7 +45,10 @@ const onClick = (event: MouseEvent): void => {
         @dragstart="emit('dragstart', $event)"
         @dragend="emit('dragend')"
     >
-        <span class="col-index track-number">{{ trackNumber }}</span>
+        <span class="col-index track-number">
+            <i v-if="playing" class="pi pi-volume-up playing-icon"></i>
+            <template v-else>{{ trackNumber }}</template>
+        </span>
         <!-- .row-title is read by the multi-song drag image builder. -->
         <span class="col-title row-title">{{ song.title }}</span>
         <span class="col-artist">{{ song.artist || 'Unknown' }}</span>
@@ -59,7 +63,10 @@ const onClick = (event: MouseEvent): void => {
     align-items: center;
     column-gap: 0.75rem;
     width: 100%;
-    padding: 0.7rem 0.5rem;
+    /* Match the Library list view's row height (AlbumListView VirtualScroller
+       itemSize) so album tracks and library rows line up at the same height. */
+    min-height: 56px;
+    padding: 0 0.5rem;
     box-sizing: border-box;
     cursor: pointer;
     transition: background-color 0.15s;
@@ -88,6 +95,23 @@ const onClick = (event: MouseEvent): void => {
     background-color: var(--app-accent-soft-hover);
 }
 
+/* Currently-playing track: accent-soft row with cyan index + title, and a
+   volume glyph in place of the number. */
+.album-track-row.playing,
+.album-track-row.playing.striped {
+    background-color: var(--app-accent-soft);
+}
+
+.album-track-row.playing:hover {
+    background-color: var(--app-accent-soft-hover);
+}
+
+.album-track-row.playing .track-number,
+.album-track-row.playing .playing-icon,
+.album-track-row.playing .col-title {
+    color: var(--app-accent);
+}
+
 .col-index {
     text-align: right;
 }
@@ -96,6 +120,7 @@ const onClick = (event: MouseEvent): void => {
     font-size: 0.85rem;
     color: var(--app-text-secondary);
     font-weight: 500;
+    font-variant-numeric: tabular-nums;
 }
 
 .col-title,
@@ -121,5 +146,6 @@ const onClick = (event: MouseEvent): void => {
     text-align: right;
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 </style>
