@@ -76,14 +76,19 @@ const onCardDragStart = (event: DragEvent): void => {
     flex-direction: column;
     text-decoration: none;
     color: inherit;
-    border-radius: 8px;
-    transition: transform 0.2s, box-shadow 0.2s;
+    /* Transparent border reserved so the hover border never shifts layout. */
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 0.5rem;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
     cursor: pointer;
 }
 
+/* Border + accent tint wrap the whole card (cover + text) on hover. */
 .album-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .card-cover {
@@ -91,31 +96,7 @@ const onCardDragStart = (event: DragEvent): void => {
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
-}
-
-/* Simple play icon spanning the height of both text lines, revealed on hover. */
-.card-play {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    background: none;
-    padding: 0 0.15rem;
-    line-height: 1;
-    color: var(--app-text-secondary);
-    font-size: 2rem;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
-}
-
-.album-card:hover .card-play {
-    opacity: 1;
-}
-
-.card-play:hover {
-    color: var(--app-accent);
+    background: var(--app-bg-subtle);
 }
 
 .card-cover img {
@@ -138,7 +119,7 @@ const onCardDragStart = (event: DragEvent): void => {
     display: flex;
     align-items: stretch;
     gap: 0.5rem;
-    padding: 0.5rem 0.25rem;
+    padding: 0.5rem 0.15rem 0.1rem;
 }
 
 .card-text {
@@ -164,9 +145,29 @@ const onCardDragStart = (event: DragEvent): void => {
     text-overflow: ellipsis;
 }
 
-.card-year {
-    font-size: 0.75rem;
+/* Inline play icon spanning the height of both text lines, revealed on hover. */
+.card-play {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
     color: var(--app-text-secondary);
+    font-size: 2rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.album-card:hover .card-play {
+    opacity: 1;
+}
+
+.card-play:hover {
+    color: var(--app-accent);
 }
 
 .album-card.placeholder {

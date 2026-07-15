@@ -74,11 +74,13 @@ function measureWidth(): void {
 }
 
 // Refine the (font-based, width-independent) info height from a real row so rows never overlap.
+// Cards whose caption overlays the cover (e.g. albums) have no info below the square, so the
+// measured height equals the column width — clamp to 0 rather than keeping the estimate.
 function measureInfoHeight(): void {
     const rowEl = gridRoot.value?.querySelector('.grid-row') as HTMLElement | null
     if (!rowEl || columnWidth.value <= 0) return
     const info = rowEl.getBoundingClientRect().height - columnWidth.value
-    if (info > 0) infoHeight.value = info
+    infoHeight.value = Math.max(0, info)
 }
 
 function onLazyLoad(e: VirtualScrollerLazyEvent): void {

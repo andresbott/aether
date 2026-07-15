@@ -80,7 +80,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 <div class="header-content">
                     <div class="brand">
                         <span class="brand-mark">◈</span>
-                        <h1 class="logo">Aether</h1>
+                        <h1 class="logo">A<span class="logo-accent">e</span>ther</h1>
                     </div>
                 </div>
             </template>
@@ -302,6 +302,10 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     color: var(--app-nav-brand);
     margin: 0;
     white-space: nowrap;
+}
+
+.logo-accent {
+    color: #d81b60;
 }
 
 .sidebar-footer-nav {

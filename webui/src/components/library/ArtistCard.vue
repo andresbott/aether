@@ -37,15 +37,19 @@ const coverUrl = computed(() => {
     flex-direction: column;
     text-decoration: none;
     color: inherit;
-    border-radius: 8px;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
+    /* Transparent border reserved so the hover border never shifts layout. */
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 0.5rem;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
     cursor: pointer;
 }
 
+/* Border + accent tint wrap the whole card (cover + text) on hover. */
 .artist-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .card-cover {
@@ -53,6 +57,7 @@ const coverUrl = computed(() => {
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
+    background: var(--app-bg-subtle);
 }
 
 .card-cover img {
@@ -72,7 +77,7 @@ const coverUrl = computed(() => {
 }
 
 .card-info {
-    padding: 0.5rem 0.25rem;
+    padding: 0.5rem 0.15rem 0.1rem;
 }
 
 .card-title {
