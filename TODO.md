@@ -82,7 +82,7 @@ Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not
 
 - [x] `PlayerControls` is `position: fixed` (not a flex row inside `App.vue`'s shell), so the bottom of `.main-content` sits *under* the player. Any content scrolled to the bottom is partially obscured. Fix candidates: give `.app-container` a `padding-bottom: var(--app-player-height)`, or restructure `PlayerControls` into the column flex
 - [x] `.nav-item.active` in `AppSidebar.vue` uses a hard-coded `#eef2ff` background instead of a `var(--app-*)` token — odd one out vs. the rest of the file (now uses `--app-accent-soft`)
-- [ ] `.view-placeholder` styles look orphaned — confirmed: now in `PlayerLayout.vue` and unused in its template; safe to remove
+- [x] `.view-placeholder` styles look orphaned — removed the unused CSS from `PlayerLayout.vue`
 - [x] Clicking a row in the expanded `QueueSidebar` currently navigates to the song detail view — it should instead play that song (jump the queue to that track and start playback) and stay on the current page. The song-detail view should only be reached from the "Now Playing" surface, not by clicking queue entries
 - [x] Make songs in the `QueueSidebar` sortable via drag and drop — reorder tracks within the current queue by dragging
 - [x] Clicking a track row in the album view should not start playback — only the explicit play control on the row should play the song
@@ -105,4 +105,7 @@ relay => like juckebox, but loading songs from another instance
 in song list, copy the spotify song selections, where on hover you get a checkbox on the side of teh duration
 also in thea lbum view => make the album cover drag and drop
 improve the hero view of the album with details and actions
-add a play button to the botom right in grid view of album / radio player
+add a play button to the botom right in grid view of album / radio player — DONE (hover play button on album & radio cards)
+metadata editor for identifying songs
+improve crud and views of playlists ( check if plyalist is part of OS api)
+better genre handling

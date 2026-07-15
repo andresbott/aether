@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { InternetRadioStation } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useSongsDrag } from '@/composables/useSongsDrag'
+import { usePlayer } from '@/composables/usePlayer'
 import { stationToSong } from '@/utils/radioSong'
 
 const props = defineProps<{
@@ -10,6 +11,12 @@ const props = defineProps<{
 }>()
 
 const songsDrag = useSongsDrag()
+const player = usePlayer()
+
+const onPlay = (event: Event): void => {
+    event.stopPropagation()
+    if (props.station) player.playNow(stationToSong(props.station))
+}
 
 const coverUrl = computed(() => {
     const art = props.station?.coverArt
@@ -42,6 +49,9 @@ const onCardDragStart = (event: DragEvent): void => {
             <div v-else class="cover-placeholder">
                 <i class="pi pi-wifi" style="font-size: 2rem"></i>
             </div>
+            <button class="card-play" type="button" aria-label="Play station" @click="onPlay">
+                <i class="pi pi-play"></i>
+            </button>
         </div>
         <div class="card-info">
             <div class="card-title">{{ station.name }}</div>
@@ -71,10 +81,43 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-cover {
+    position: relative;
     width: 100%;
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
+}
+
+/* Hover play affordance, bottom-right of the cover. */
+.card-play {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    padding-left: 2px;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.15s, transform 0.15s, background-color 0.15s;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+.radio-card:hover .card-play {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.card-play:hover {
+    background: var(--app-accent-hover);
 }
 
 .card-cover img {

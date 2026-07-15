@@ -3,12 +3,24 @@ import { computed } from 'vue'
 import type { Album } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
+import { usePlayer } from '@/composables/usePlayer'
 
 const props = defineProps<{
     album?: Album
 }>()
 
 const albumDrag = useAlbumDrag()
+const player = usePlayer()
+
+// Play from the card without navigating: album summaries carry no tracks, so
+// fetch the full album first, then queue it.
+const onPlay = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!props.album) return
+    const full = await subsonicClient.getAlbum(props.album.id)
+    if (full?.song?.length) player.playAlbum(full.song)
+}
 
 const coverUrl = computed(() => {
     const art = props.album?.coverArt
@@ -42,6 +54,9 @@ const onCardDragStart = (event: DragEvent): void => {
             <div v-else class="cover-placeholder">
                 <i class="pi pi-music" style="font-size: 2rem"></i>
             </div>
+            <button class="card-play" type="button" aria-label="Play album" @click="onPlay">
+                <i class="pi pi-play"></i>
+            </button>
         </div>
         <div class="card-info">
             <div class="card-title">{{ album.name }}</div>
@@ -68,10 +83,43 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-cover {
+    position: relative;
     width: 100%;
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
+}
+
+/* Hover play affordance, bottom-right of the cover. */
+.card-play {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: var(--app-accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    padding-left: 2px;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.15s, transform 0.15s, background-color 0.15s;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+.album-card:hover .card-play {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.card-play:hover {
+    background: var(--app-accent-hover);
 }
 
 .card-cover img {
