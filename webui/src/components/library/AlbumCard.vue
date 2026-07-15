@@ -37,8 +37,10 @@ const onCardDragStart = (event: DragEvent): void => {
     <div v-if="!album" class="album-card placeholder" aria-hidden="true">
         <div class="card-cover"></div>
         <div class="card-info">
-            <div class="card-title"></div>
-            <div class="card-subtitle"></div>
+            <div class="card-text">
+                <div class="card-title"></div>
+                <div class="card-subtitle"></div>
+            </div>
         </div>
     </div>
     <router-link
@@ -54,25 +56,27 @@ const onCardDragStart = (event: DragEvent): void => {
             <div v-else class="cover-placeholder">
                 <i class="pi pi-music" style="font-size: 2rem"></i>
             </div>
+        </div>
+        <div class="card-info">
+            <div class="card-text">
+                <div class="card-title">{{ album.name }}</div>
+                <div class="card-subtitle">{{ album.artist }}</div>
+            </div>
             <button class="card-play" type="button" aria-label="Play album" @click="onPlay">
                 <i class="pi pi-play"></i>
             </button>
-        </div>
-        <div class="card-info">
-            <div class="card-title">{{ album.name }}</div>
-            <div class="card-subtitle">{{ album.artist }}</div>
         </div>
     </router-link>
 </template>
 
 <style scoped>
 .album-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     text-decoration: none;
     color: inherit;
     border-radius: 8px;
-    overflow: hidden;
     transition: transform 0.2s, box-shadow 0.2s;
     cursor: pointer;
 }
@@ -83,43 +87,35 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-cover {
-    position: relative;
     width: 100%;
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
 }
 
-/* Hover play affordance, bottom-right of the cover. */
+/* Simple play icon spanning the height of both text lines, revealed on hover. */
 .card-play {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
-    width: 40px;
-    height: 40px;
-    border: none;
-    border-radius: 50%;
-    background: var(--app-accent);
-    color: #fff;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.95rem;
-    padding-left: 2px;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
+    color: var(--app-text-secondary);
+    font-size: 2rem;
     cursor: pointer;
     opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 0.15s, transform 0.15s, background-color 0.15s;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+    transition: opacity 0.15s, color 0.15s;
 }
 
 .album-card:hover .card-play {
     opacity: 1;
-    transform: translateY(0);
 }
 
 .card-play:hover {
-    background: var(--app-accent-hover);
+    color: var(--app-accent);
 }
 
 .card-cover img {
@@ -139,7 +135,17 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-info {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
     padding: 0.5rem 0.25rem;
+}
+
+.card-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .card-title {

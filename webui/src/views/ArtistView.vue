@@ -36,7 +36,13 @@ const summary = computed(() => {
 
 const sortedAlbums = computed(() => {
     if (!artist.value?.album) return []
-    return [...artist.value.album].sort((a, b) => (b.year || 0) - (a.year || 0))
+    // getArtist doesn't always populate each album's `artist` field, which would
+    // leave the card subtitle blank (one-line cards). Fall back to this artist's
+    // name so the cards match the library grid (album name + artist, two lines).
+    const artistName = artist.value.name
+    return [...artist.value.album]
+        .map((a) => ({ ...a, artist: a.artist || artistName }))
+        .sort((a, b) => (b.year || 0) - (a.year || 0))
 })
 </script>
 
