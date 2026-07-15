@@ -164,7 +164,7 @@ function releaseMeta(c: MusicBrainzReleaseCandidate): string {
 .result-list { list-style: none; margin: 0; padding: 0; }
 .result-row { padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; }
 .result-row:hover { background: var(--app-bg-subtle, #f3f4f6); }
-.result-row.selected { background: var(--app-primary-subtle, #e0e7ff); }
+.result-row.selected { background: var(--app-accent-soft); }
 .result-name { font-weight: 500; display: flex; align-items: center; gap: 0.5rem; }
 .result-artist { font-size: 0.8rem; font-weight: 400; color: var(--app-text-secondary); }
 .result-meta { font-size: 0.8rem; color: var(--app-text-secondary); display: flex; gap: 0.5rem; }

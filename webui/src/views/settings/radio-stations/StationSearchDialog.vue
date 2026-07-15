@@ -166,7 +166,7 @@ function hideBrokenImage(e: Event) {
     background: var(--app-bg-subtle, #f3f4f6);
 }
 .result-row.selected {
-    background: var(--app-primary-subtle, #e0e7ff);
+    background: var(--app-accent-soft);
 }
 .result-favicon {
     width: 2rem;

@@ -229,8 +229,8 @@ function cancel() {
     background: var(--app-bg-subtle, #f3f4f6);
 }
 .cover-row.selected {
-    border-color: var(--app-primary, #6366f1);
-    background: var(--app-primary-subtle, #e0e7ff);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
 }
 .cover-thumb {
     width: 4rem;
@@ -258,7 +258,7 @@ function cancel() {
 }
 .cover-check {
     margin-left: auto;
-    color: var(--app-primary, #6366f1);
+    color: var(--app-accent);
 }
 .no-results {
     text-align: center;

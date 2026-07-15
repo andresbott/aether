@@ -168,6 +168,6 @@ const handleDelete = () => {
 .playlist-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .playlist-body { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; }
 .track-table :deep(.clickable-row) { cursor: pointer; }
-.track-table :deep(.clickable-row:hover) { background-color: #f9fafb !important; }
+.track-table :deep(.clickable-row:hover) { background-color: var(--app-hover) !important; }
 .empty-tracks { padding: 3rem; text-align: center; color: var(--app-text-secondary); }
 </style>

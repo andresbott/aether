@@ -212,7 +212,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
     background: var(--app-bg-subtle, #f3f4f6);
 }
 .result-row.selected {
-    background: var(--app-primary-subtle, #e0e7ff);
+    background: var(--app-accent-soft);
 }
 .result-name {
     font-weight: 500;

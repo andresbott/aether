@@ -3,9 +3,31 @@ import { computed } from 'vue'
 import Slider from 'primevue/slider'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
+import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
 const { sidebarCollapsed, toggleSidebar } = useQueueSidebar()
+const toggleStar = useToggleStar()
+
+const currentTrack = computed(() => player.currentTrack.value)
+
+const nowCoverUrl = computed(() => {
+    const art = currentTrack.value?.coverArt
+    if (!art || !subsonicClient.isConfigured()) return null
+    return subsonicClient.getCoverArtUrl(art, 96)
+})
+
+const isStarred = computed(() => !!currentTrack.value?.starred)
+
+const toggleLike = (): void => {
+    const track = currentTrack.value
+    if (!track) return
+    toggleStar.mutate({ id: track.id, starred: isStarred.value })
+    // Optimistic local flip so the heart updates immediately (currentTrack isn't
+    // query-backed, so it wouldn't otherwise reflect the change until reload).
+    track.starred = isStarred.value ? undefined : new Date().toISOString()
+}
 
 const formatTime = (seconds: number): string => {
     if (!seconds || !isFinite(seconds)) return '0:00'
@@ -40,9 +62,29 @@ const volumePercent = computed({
 
 <template>
     <div class="player-controls">
-        <!-- Spacer: balances the right cluster so the center column stays truly
-             centered. Reserved for now-playing info (cover/title) in a later step. -->
-        <div class="player-left"></div>
+        <!-- Now playing: cover + title/artist + like. Also balances the right
+             cluster so the center column stays truly centered. -->
+        <div class="player-left">
+            <template v-if="currentTrack">
+                <div class="now-cover">
+                    <img v-if="nowCoverUrl" :src="nowCoverUrl" alt="" />
+                    <i v-else class="pi pi-music"></i>
+                </div>
+                <div class="now-text">
+                    <div class="now-title">{{ currentTrack.title }}</div>
+                    <div class="now-artist">{{ currentTrack.artist || 'Unknown' }}</div>
+                </div>
+                <button
+                    class="now-like"
+                    :class="{ liked: isStarred }"
+                    type="button"
+                    :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
+                    @click="toggleLike"
+                >
+                    <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                </button>
+            </template>
+        </div>
 
         <div class="player-center">
             <div class="playback-buttons">
@@ -128,6 +170,81 @@ const volumePercent = computed({
 
 .player-left {
     flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.now-cover {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    border-radius: 5px;
+    overflow: hidden;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.now-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.now-cover i {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1.1rem;
+}
+
+.now-text {
+    min-width: 0;
+    max-width: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.now-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--app-player-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.now-artist {
+    font-size: 0.75rem;
+    color: var(--app-player-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.now-like {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--app-player-dim);
+    font-size: 1rem;
+    padding: 0.4rem;
+    border-radius: 50%;
+    transition: color 0.2s, background-color 0.2s;
+}
+
+.now-like:hover {
+    color: var(--app-player-text);
+    background-color: rgba(255, 255, 255, 0.07);
+}
+
+.now-like.liked {
+    color: var(--app-accent);
 }
 
 .player-center {
@@ -243,6 +360,21 @@ const volumePercent = computed({
     border-radius: 99px;
 }
 
+/* Enlarge the click/seek target vertically without changing the thin rail's
+   look. .p-slider is position:relative, so this transparent pseudo extends the
+   hit area ~11px above and below; clicks on it still register on .p-slider
+   (pseudo-elements share the element's hit target), and for a horizontal slider
+   only the X position feeds the seek — so tapping anywhere on the taller strip
+   scrubs to that point. */
+.progress-slider :deep(.p-slider)::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -11px;
+    bottom: -11px;
+}
+
 .progress-slider :deep(.p-slider-range) {
     background: var(--app-accent);
     border-radius: 99px;
@@ -289,6 +421,16 @@ const volumePercent = computed({
     height: 5px;
     background: var(--app-player-track);
     border-radius: 99px;
+}
+
+/* Same enlarged click target as the progress bar — thin rail, taller hit strip. */
+.volume-slider :deep(.p-slider)::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -11px;
+    bottom: -11px;
 }
 
 .volume-slider :deep(.p-slider-range) {

@@ -5,6 +5,9 @@
        Dense Pro is a 3-layer system: canvas (background) → panel (surface)
        → card (surface-2). */
     --app-surface-2: #ffffff;
+    /* Subtle filled background for chips, hover rows and inset inputs — one step
+       off the surface (consumed by dialogs/pickers). */
+    --app-bg-subtle: #e9ecf0;
     --app-border: #dde2e8;
     --app-text-primary: #1b2430;
     --app-text-secondary: #67727f;
@@ -46,6 +49,7 @@
     --app-background: #0d1117;
     --app-surface: #141b24;
     --app-surface-2: #1a222e;
+    --app-bg-subtle: #1c2632;
     --app-border: #232d3a;
     --app-text-primary: #d7dee6;
     --app-text-secondary: #7b8794;
