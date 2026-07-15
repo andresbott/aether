@@ -82,18 +82,21 @@ const volumePercent = computed({
 
             <div class="progress-row">
                 <span class="time-label">{{ formatTime(player.currentTime.value) }}</span>
-                <Slider
-                    :modelValue="progressPercent"
-                    @update:modelValue="onProgressChange"
-                    class="progress-slider"
-                />
+                <div class="progress-slider">
+                    <Slider
+                        :modelValue="progressPercent"
+                        @update:modelValue="onProgressChange"
+                    />
+                </div>
                 <span class="time-label">{{ formatTime(player.duration.value) }}</span>
             </div>
         </div>
 
         <div class="player-right">
             <i :class="volumeIcon" class="volume-icon"></i>
-            <Slider v-model="volumePercent" class="volume-slider" />
+            <div class="volume-slider">
+                <Slider v-model="volumePercent" />
+            </div>
             <button
                 class="control-btn queue-toggle"
                 :class="{ active: !sidebarCollapsed }"
@@ -226,13 +229,14 @@ const volumePercent = computed({
     font-variant-numeric: tabular-nums;
 }
 
+/* Each Slider is wrapped in its own div so :deep() can reach PrimeVue's inner
+   elements reliably. The visible knob is the handle's ::before dot, so it must be
+   coloured too. PrimeVue centres the handle with top:50% + margin-block-start of
+   -handleHeight/2 (from its token), so a resized knob needs its margins reset. */
 .progress-slider {
     flex: 1;
 }
 
-/* Sliders styled to match the mock: thin rounded rail, cyan fill, round knob.
-   PrimeVue centers the handle via top:50% + negative block/inline margins sized
-   from the handle token, so a resized knob must override those margins. */
 .progress-slider :deep(.p-slider) {
     height: 6px;
     background: var(--app-player-track);
@@ -254,12 +258,22 @@ const volumePercent = computed({
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
+.progress-slider :deep(.p-slider-handle)::before {
+    width: 14px;
+    height: 14px;
+    background: var(--app-accent);
+}
+
 .player-right {
     flex: 1;
     display: flex;
     align-items: center;
     gap: 0.75rem;
     justify-content: flex-end;
+}
+
+.queue-toggle {
+    margin-left: 0.5rem;
 }
 
 .volume-icon {
@@ -285,10 +299,6 @@ const volumePercent = computed({
 /* Mock volume has no visible knob; keep it draggable but invisible. */
 .volume-slider :deep(.p-slider-handle) {
     opacity: 0;
-}
-
-.queue-toggle {
-    margin-left: 0.5rem;
 }
 
 @media (max-width: 768px) {

@@ -479,6 +479,18 @@ onMounted(() => scrollCurrentIntoView('center'))
     color: var(--app-text-secondary);
 }
 
+/* Sidebar queue: the count/duration reads as a cyan pill badge (mockup's
+   .queue-count). The full Now Playing header keeps the plain secondary summary
+   to stay consistent with the shared ContentScaffold header. */
+.queue-view--sidebar .queue-info {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--app-accent);
+    background: var(--app-accent-soft);
+    padding: 2px 9px;
+    border-radius: 99px;
+}
+
 .header-actions {
     display: flex;
     align-items: center;
@@ -572,8 +584,8 @@ onMounted(() => scrollCurrentIntoView('center'))
     align-items: center;
     gap: 1rem;
     padding: 0.75rem 0.5rem;
-    border-top: 1px solid var(--app-border);
-    border-bottom: 1px solid var(--app-border);
+    background-color: var(--app-accent-soft);
+    box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 /* Left column aligns with QueueRow's .row-index so the current song's play
@@ -651,7 +663,7 @@ onMounted(() => scrollCurrentIntoView('center'))
 .strip-title {
     font-size: 1.05rem;
     font-weight: 600;
-    color: var(--app-text-primary);
+    color: var(--app-accent);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
