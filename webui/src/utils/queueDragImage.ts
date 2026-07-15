@@ -94,7 +94,7 @@ export function buildMultiDragImage(dragEl: HTMLElement, count: number): HTMLEle
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--app-accent, #6366f1)',
+        background: 'var(--app-accent, #0e9bb5)',
         color: '#ffffff',
         borderRadius: '10px',
         fontSize: '0.7rem',

@@ -154,7 +154,7 @@ const onRowClick = (event: MouseEvent): void => {
 /* The now-playing row is selectable like any other in edit mode; a thin accent
    bar on its left edge is the only hint of which track is playing. */
 .queue-row--editing.queue-row--current {
-    box-shadow: inset 2px 0 0 var(--app-accent);
+    box-shadow: inset 3px 0 0 var(--app-accent);
 }
 
 .row-index {

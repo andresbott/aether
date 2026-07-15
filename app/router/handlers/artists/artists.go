@@ -12,6 +12,7 @@ import (
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -179,20 +180,27 @@ func (h *Handler) setMBID(w http.ResponseWriter, r *http.Request) {
 
 	resp := setMBIDResponse{MBArtistID: in.MBID}
 	if in.MBID != "" {
-		if h.Fetcher == nil {
-			msg := "artist image fetching is not configured"
-			resp.FetchError = &msg
-		} else {
-			stored, ferr := tasks.FetchAndStoreArtistImage(r.Context(), h.Store, h.Assets, h.Fetcher, *artist)
-			resp.ImageFetched = stored
-			if ferr != nil {
-				msg := ferr.Error()
-				resp.FetchError = &msg
-			} else if !stored {
-				msg := "no image found for this artist"
-				resp.FetchError = &msg
-			}
-		}
+		resp.ImageFetched, resp.FetchError = h.fetchArtistImage(r.Context(), *artist)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// fetchArtistImage fetches and stores the artist image, returning whether an
+// image was stored and a human-readable error message when the fetch could not
+// complete.
+func (h *Handler) fetchArtistImage(ctx context.Context, artist model.Artist) (bool, *string) {
+	if h.Fetcher == nil {
+		msg := "artist image fetching is not configured"
+		return false, &msg
+	}
+	stored, ferr := tasks.FetchAndStoreArtistImage(ctx, h.Store, h.Assets, h.Fetcher, artist)
+	if ferr != nil {
+		msg := ferr.Error()
+		return stored, &msg
+	}
+	if !stored {
+		msg := "no image found for this artist"
+		return stored, &msg
+	}
+	return stored, nil
 }

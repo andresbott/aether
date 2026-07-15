@@ -13,6 +13,16 @@ if (typeof ResizeObserver === 'undefined') {
     }
 }
 
+// jsdom does not implement HTMLMediaElement playback methods; stub them so
+// usePlayer()'s play/pause/load calls don't spew "Not implemented" errors.
+if (typeof window !== 'undefined' && typeof window.HTMLMediaElement !== 'undefined') {
+    window.HTMLMediaElement.prototype.play = function () {
+        return Promise.resolve()
+    }
+    window.HTMLMediaElement.prototype.pause = function () {}
+    window.HTMLMediaElement.prototype.load = function () {}
+}
+
 // jsdom does not implement matchMedia; stub it so useTheme()'s initTheme()
 // can query prefers-color-scheme without throwing.
 if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {

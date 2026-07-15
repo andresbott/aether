@@ -74,21 +74,6 @@ onUnmounted(() => {
     padding: 1rem 2rem;
 }
 
-.view-placeholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 50vh;
-    color: var(--app-text-secondary);
-}
-
-.view-placeholder h1 {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-    color: var(--app-text-primary);
-}
-
 @media (max-width: 768px) {
     .main-content {
         padding: 1rem;

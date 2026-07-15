@@ -809,13 +809,13 @@ async function persistStagedRemovals(): Promise<boolean> {
     background: var(--app-bg-subtle, #f3f4f6);
 }
 .cover-row.pending .cover-thumb {
-    border: 2px solid var(--app-primary, #6366f1);
+    border: 2px solid var(--app-accent);
 }
 .cover-row-note {
     font-size: 0.8rem;
 }
 .cover-row.pending .cover-row-note {
-    color: var(--app-primary, #6366f1);
+    color: var(--app-accent);
 }
 .cover-placeholder {
     width: 3rem;

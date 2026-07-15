@@ -3,12 +3,24 @@ import { computed } from 'vue'
 import type { Album } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
+import { usePlayer } from '@/composables/usePlayer'
 
 const props = defineProps<{
     album?: Album
 }>()
 
 const albumDrag = useAlbumDrag()
+const player = usePlayer()
+
+// Play from the card without navigating: album summaries carry no tracks, so
+// fetch the full album first, then queue it.
+const onPlay = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!props.album) return
+    const full = await subsonicClient.getAlbum(props.album.id)
+    if (full?.song?.length) player.playAlbum(full.song)
+}
 
 const coverUrl = computed(() => {
     const art = props.album?.coverArt
@@ -25,8 +37,10 @@ const onCardDragStart = (event: DragEvent): void => {
     <div v-if="!album" class="album-card placeholder" aria-hidden="true">
         <div class="card-cover"></div>
         <div class="card-info">
-            <div class="card-title"></div>
-            <div class="card-subtitle"></div>
+            <div class="card-text">
+                <div class="card-title"></div>
+                <div class="card-subtitle"></div>
+            </div>
         </div>
     </div>
     <router-link
@@ -44,27 +58,37 @@ const onCardDragStart = (event: DragEvent): void => {
             </div>
         </div>
         <div class="card-info">
-            <div class="card-title">{{ album.name }}</div>
-            <div class="card-subtitle">{{ album.artist }}</div>
+            <div class="card-text">
+                <div class="card-title">{{ album.name }}</div>
+                <div class="card-subtitle">{{ album.artist }}</div>
+            </div>
+            <button class="card-play" type="button" aria-label="Play album" @click="onPlay">
+                <i class="pi pi-play"></i>
+            </button>
         </div>
     </router-link>
 </template>
 
 <style scoped>
 .album-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     text-decoration: none;
     color: inherit;
-    border-radius: 8px;
-    overflow: hidden;
-    transition: transform 0.2s, box-shadow 0.2s;
+    /* Transparent border reserved so the hover border never shifts layout. */
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 0.5rem;
+    transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
     cursor: pointer;
 }
 
+/* Border + accent tint wrap the whole card (cover + text) on hover. */
 .album-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .card-cover {
@@ -72,6 +96,7 @@ const onCardDragStart = (event: DragEvent): void => {
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
+    background: var(--app-bg-subtle);
 }
 
 .card-cover img {
@@ -91,7 +116,17 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-info {
-    padding: 0.5rem 0.25rem;
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.5rem 0.15rem 0.1rem;
+}
+
+.card-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .card-title {
@@ -110,9 +145,29 @@ const onCardDragStart = (event: DragEvent): void => {
     text-overflow: ellipsis;
 }
 
-.card-year {
-    font-size: 0.75rem;
+/* Inline play icon spanning the height of both text lines, revealed on hover. */
+.card-play {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
     color: var(--app-text-secondary);
+    font-size: 2rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.album-card:hover .card-play {
+    opacity: 1;
+}
+
+.card-play:hover {
+    color: var(--app-accent);
 }
 
 .album-card.placeholder {

@@ -128,7 +128,7 @@ onUnmounted(() => {
 .settings-sidebar {
     width: var(--app-sidebar-width);
     height: 100%;
-    background-color: var(--app-surface);
+    background-color: var(--app-nav-bg);
     border-right: 1px solid var(--app-border);
     display: flex;
     flex-direction: column;
@@ -159,8 +159,9 @@ onUnmounted(() => {
 .settings-title {
     flex: 1;
     font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--app-accent);
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--app-nav-brand);
     margin: 0;
     white-space: nowrap;
 }
@@ -173,7 +174,7 @@ onUnmounted(() => {
     height: 2rem;
     border: none;
     background: transparent;
-    color: var(--app-text-secondary);
+    color: var(--app-nav-text-dim);
     cursor: pointer;
     border-radius: 50%;
     flex-shrink: 0;
@@ -181,8 +182,8 @@ onUnmounted(() => {
 }
 
 .collapse-btn:hover {
-    background-color: var(--app-background);
-    color: var(--app-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--app-nav-text);
 }
 
 .sidebar-nav {
@@ -198,13 +199,14 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem 1.5rem;
+    padding: 0.55rem 1rem;
     border: none;
+    border-radius: 0;
     background: none;
     cursor: pointer;
-    color: var(--app-text-secondary);
-    font-size: 0.9rem;
-    font-weight: 500;
+    color: var(--app-nav-text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
     transition: background-color 0.2s, color 0.2s;
     white-space: nowrap;
     text-align: left;
@@ -213,18 +215,18 @@ onUnmounted(() => {
 
 .settings-sidebar.collapsed .nav-item {
     justify-content: center;
-    padding: 0.75rem;
+    padding: 0.55rem;
 }
 
 .nav-item:hover {
-    background-color: var(--app-background);
-    color: var(--app-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--app-nav-text);
 }
 
 .nav-item.active {
     background-color: var(--app-accent-soft);
     color: var(--app-accent);
-    box-shadow: inset -3px 0 0 var(--app-accent);
+    box-shadow: inset -4px 0 0 var(--app-accent);
 }
 
 .nav-item.active:hover {
@@ -238,18 +240,18 @@ onUnmounted(() => {
 
 .nav-section-label {
     display: block;
-    padding: 0 1.5rem;
+    padding: 0 1rem;
     margin: 0.75rem 0 0.25rem;
     font-size: 0.7rem;
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--app-text-secondary);
+    color: var(--app-nav-text-dim);
 }
 
 .nav-separator {
-    margin: 0.75rem 0.75rem 0.25rem;
-    border-top: 1px solid var(--app-border);
+    margin: 0.75rem 1rem 0.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sidebar-footer-nav {
@@ -258,7 +260,7 @@ onUnmounted(() => {
     gap: 0.25rem;
     flex-shrink: 0;
     padding: 0.75rem 0;
-    border-top: 1px solid var(--app-border);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .settings-content {

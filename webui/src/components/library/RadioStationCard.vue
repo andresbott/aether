@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { InternetRadioStation } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useSongsDrag } from '@/composables/useSongsDrag'
+import { usePlayer } from '@/composables/usePlayer'
 import { stationToSong } from '@/utils/radioSong'
 
 const props = defineProps<{
@@ -10,6 +11,12 @@ const props = defineProps<{
 }>()
 
 const songsDrag = useSongsDrag()
+const player = usePlayer()
+
+const onPlay = (event: Event): void => {
+    event.stopPropagation()
+    if (props.station) player.playNow(stationToSong(props.station))
+}
 
 const coverUrl = computed(() => {
     const art = props.station?.coverArt
@@ -26,8 +33,10 @@ const onCardDragStart = (event: DragEvent): void => {
     <div v-if="!station" class="radio-card placeholder" aria-hidden="true">
         <div class="card-cover"></div>
         <div class="card-info">
-            <div class="card-title"></div>
-            <div class="card-subtitle"></div>
+            <div class="card-text">
+                <div class="card-title"></div>
+                <div class="card-subtitle"></div>
+            </div>
         </div>
     </div>
     <div
@@ -44,23 +53,28 @@ const onCardDragStart = (event: DragEvent): void => {
             </div>
         </div>
         <div class="card-info">
-            <div class="card-title">{{ station.name }}</div>
-            <div class="card-subtitle">
-                <template v-if="station.homepageUrl">{{ station.homepageUrl }}</template>
-                <template v-else>&nbsp;</template>
+            <div class="card-text">
+                <div class="card-title">{{ station.name }}</div>
+                <div class="card-subtitle">
+                    <template v-if="station.homepageUrl">{{ station.homepageUrl }}</template>
+                    <template v-else>&nbsp;</template>
+                </div>
             </div>
+            <button class="card-play" type="button" aria-label="Play station" @click="onPlay">
+                <i class="pi pi-play"></i>
+            </button>
         </div>
     </div>
 </template>
 
 <style scoped>
 .radio-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     text-decoration: none;
     color: inherit;
     border-radius: 8px;
-    overflow: hidden;
     transition: transform 0.2s, box-shadow 0.2s;
     cursor: grab;
 }
@@ -75,6 +89,31 @@ const onCardDragStart = (event: DragEvent): void => {
     aspect-ratio: 1;
     border-radius: 8px;
     overflow: hidden;
+}
+
+/* Simple play icon spanning the height of both text lines, revealed on hover. */
+.card-play {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
+    color: var(--app-text-secondary);
+    font-size: 2rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.radio-card:hover .card-play {
+    opacity: 1;
+}
+
+.card-play:hover {
+    color: var(--app-accent);
 }
 
 .card-cover img {
@@ -94,7 +133,17 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 .card-info {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5rem;
     padding: 0.5rem 0.25rem;
+}
+
+.card-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .card-title {

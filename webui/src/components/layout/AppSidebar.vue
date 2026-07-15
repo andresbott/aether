@@ -78,7 +78,10 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
         <div class="sidebar-header">
             <template v-if="!collapsed">
                 <div class="header-content">
-                    <h1 class="logo">Aether</h1>
+                    <div class="brand">
+                        <span class="brand-mark">◈</span>
+                        <h1 class="logo">A<span class="logo-accent">e</span>ther</h1>
+                    </div>
                 </div>
             </template>
             <button
@@ -170,7 +173,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .sidebar {
     width: var(--app-sidebar-width);
     height: 100%;
-    background-color: var(--app-surface);
+    background-color: var(--app-nav-bg);
     border-right: 1px solid var(--app-border);
     display: flex;
     flex-direction: column;
@@ -186,7 +189,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .sidebar-nav {
     display: flex;
     flex-direction: column;
-    padding: 0 0 0.75rem;
+    padding: 1.5rem 0 0.75rem;
     gap: 0.25rem;
     flex: 1;
     overflow-y: auto;
@@ -196,13 +199,14 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.75rem 1.5rem;
+    padding: 0.55rem 1rem;
     border: none;
+    border-radius: 0;
     background: none;
     cursor: pointer;
-    color: var(--app-text-secondary);
-    font-size: 0.9rem;
-    font-weight: 500;
+    color: var(--app-nav-text-dim);
+    font-size: 0.85rem;
+    font-weight: 600;
     transition: background-color 0.2s, color 0.2s;
     white-space: nowrap;
     text-align: left;
@@ -211,18 +215,18 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 .sidebar.collapsed .nav-item {
     justify-content: center;
-    padding: 0.75rem;
+    padding: 0.55rem;
 }
 
 .nav-item:hover {
-    background-color: var(--app-background);
-    color: var(--app-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--app-nav-text);
 }
 
 .nav-item.active {
     background-color: var(--app-accent-soft);
     color: var(--app-accent);
-    box-shadow: inset -3px 0 0 var(--app-accent);
+    box-shadow: inset -4px 0 0 var(--app-accent);
 }
 
 .nav-item.active:hover {
@@ -243,7 +247,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+    padding: 1.25rem 0.5rem 0.75rem 1rem;
     min-height: 3rem;
     box-sizing: border-box;
     flex-shrink: 0;
@@ -262,7 +266,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     height: 2rem;
     border: none;
     background: transparent;
-    color: var(--app-text-secondary);
+    color: var(--app-nav-text-dim);
     cursor: pointer;
     border-radius: 50%;
     flex-shrink: 0;
@@ -270,8 +274,8 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 }
 
 .collapse-btn:hover {
-    background-color: var(--app-background);
-    color: var(--app-text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    color: var(--app-nav-text);
 }
 
 .header-content {
@@ -279,12 +283,29 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     min-width: 0;
 }
 
-.logo {
-    font-size: 1.25rem;
-    font-weight: 700;
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+}
+
+.brand-mark {
     color: var(--app-accent);
+    font-size: 1.625rem;
+    line-height: 1;
+}
+
+.logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--app-nav-brand);
     margin: 0;
     white-space: nowrap;
+}
+
+.logo-accent {
+    color: #d81b60;
 }
 
 .sidebar-footer-nav {
@@ -293,7 +314,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     gap: 0.25rem;
     flex-shrink: 0;
     padding: 0.75rem 0;
-    border-top: 1px solid var(--app-border);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .nav-separator {
@@ -301,8 +322,8 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 }
 
 .sidebar-footer-nav .nav-separator {
-    margin: 0.25rem 1.5rem;
-    border-top: 1px solid var(--app-border);
+    margin: 0.25rem 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sidebar.collapsed .sidebar-footer-nav .nav-separator {
@@ -310,7 +331,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 }
 
 .nav-separator.has-label {
-    padding-left: 1.5rem;
+    padding-left: 1rem;
 }
 
 .nav-section-label {
@@ -319,7 +340,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--app-text-secondary);
+    color: var(--app-nav-text-dim);
 }
 
 @media (max-width: 768px) {

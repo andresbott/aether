@@ -4,17 +4,17 @@ import Aura from '@primeuix/themes/aura'
 const CustomTheme = definePreset(Aura, {
     semantic: {
         primary: {
-            50: '#f0f4ff',
-            100: '#e0e7ff',
-            200: '#c7d2fe',
-            300: '#a5b4fc',
-            400: '#818cf8',
-            500: '#6366f1',
-            600: '#4f46e5',
-            700: '#4338ca',
-            800: '#3730a3',
-            900: '#312e81',
-            950: '#1e1b4b'
+            50: '#ecfbff',
+            100: '#cff4fb',
+            200: '#a5e9f5',
+            300: '#6ddbec',
+            400: '#2fd3ef',
+            500: '#12b3d1',
+            600: '#0e9bb5',
+            700: '#0b8299',
+            800: '#0c6a7d',
+            900: '#0f5766',
+            950: '#073843'
         },
         colorScheme: {
             light: {

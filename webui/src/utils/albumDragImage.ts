@@ -86,7 +86,7 @@ export function buildAlbumDragImage(data: AlbumDragImageData): HTMLElement {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--app-accent, #6366f1)',
+        background: 'var(--app-accent, #0e9bb5)',
         color: '#ffffff',
         borderRadius: '11px',
         fontSize: '0.72rem',

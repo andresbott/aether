@@ -46,7 +46,14 @@ const rows = computed(() => chunkRows(props.items, columns.value))
 const rowStyle = computed(() => ({
     display: 'grid',
     gridTemplateColumns: `repeat(${columns.value}, minmax(0, 1fr))`,
-    gap: `${props.gap}px`
+    gap: `${props.gap}px`,
+    // VirtualScroller lays rows out in normal flow and only uses itemSize for the
+    // scroll spacer/offset, so rows would otherwise stack flush (no vertical gap).
+    // A bottom margin of `gap` gives the vertical spacing AND makes each row's flow
+    // height equal itemSize (columnWidth + infoHeight + gap), avoiding scroll drift.
+    // getBoundingClientRect (used to measure info height) excludes margins, so this
+    // doesn't feed back into the sizing.
+    marginBottom: `${props.gap}px`
 }))
 
 let lastRowRange: { first: number; last: number } | null = null
@@ -67,11 +74,13 @@ function measureWidth(): void {
 }
 
 // Refine the (font-based, width-independent) info height from a real row so rows never overlap.
+// Cards whose caption overlays the cover (e.g. albums) have no info below the square, so the
+// measured height equals the column width — clamp to 0 rather than keeping the estimate.
 function measureInfoHeight(): void {
     const rowEl = gridRoot.value?.querySelector('.grid-row') as HTMLElement | null
     if (!rowEl || columnWidth.value <= 0) return
     const info = rowEl.getBoundingClientRect().height - columnWidth.value
-    if (info > 0) infoHeight.value = info
+    infoHeight.value = Math.max(0, info)
 }
 
 function onLazyLoad(e: VirtualScrollerLazyEvent): void {

@@ -19,10 +19,10 @@
 
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.)
 - [ ] Transcoding — identify formats browsers can't play natively and add FFmpeg transcoding
-- [ ] setRating persistence — add rating column to tracks/albums when needed
-- [ ] `star` / `unstar` Subsonic endpoints — accept `id` query params that can be album, artist, or track IDs; split by entity type, then upsert/delete a star record (user + item + `starred_at` timestamp) per entity
+- [ ] setRating persistence — add rating column to tracks/albums when needed (handler exists in annotation.go but no rating column yet, so not persisted)
+- [x] `star` / `unstar` Subsonic endpoints — accept `id` query params that can be album, artist, or track IDs; split by entity type, then upsert/delete a star record (user + item + `starred_at` timestamp) per entity
 - [ ] `getStarred` — folder-based starred list; JOIN each entity table with its star junction table filtered by `user_id`, return nested artist/album/track response
-- [ ] `getStarred2` — tag-based starred list; same JOIN pattern ordered by `starred_at DESC`, return flattened artist/album/track lists
+- [x] `getStarred2` — tag-based starred list; same JOIN pattern ordered by `starred_at DESC`, return flattened artist/album/track lists
 - [ ] getArtistInfo / getAlbumInfo — external metadata (MusicBrainz bios, similar artists)
 - [ ] getTopSongs / getSimilarSongs — requires external data or play history analysis
 - [ ] Podcasts, Radio, Bookmarks, Sharing, Chat, Jukebox — not in scope for this pass
@@ -30,22 +30,23 @@
 ## Frontend — Wire SPA to Subsonic API
 
 ### Phase 1: Make existing views work
-- [ ] Auto-connect without credentials (backend has no auth)
-- [ ] Library view — albums and artists fetch and display correctly
-- [ ] Album view — shows cover, metadata, track list; play/queue works
-- [ ] Artist view — shows artist info and discography
-- [ ] Playlists view — lists playlists from API
-- [ ] Player — streaming playback works end-to-end
-- [ ] Home view — shows now playing or sensible empty state
+- [x] Auto-connect without credentials (backend has no auth)
+- [x] Library view — albums and artists fetch and display correctly
+- [x] Album view — shows cover, metadata, track list; play/queue works
+- [x] Artist view — shows artist info and discography
+- [x] Playlists view — lists playlists from API
+- [x] Player — streaming playback works end-to-end
+- [x] Home view — shows now playing or sensible empty state
 
 ### Phase 2: Fill in missing features
-- [ ] Search UI — add search bar that uses the existing search composable
-- [ ] Playlist create/edit — create new playlists, add/remove songs
-- [ ] Song view — display track detail from queue
-- [ ] Favorites/starring:
-  - Star/unstar toggle on album detail, artist view, and track rows (album view and queue)
-  - Starred indicator on album grid cards in library view
-  - Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
+- [x] Search UI — add search bar that uses the existing search composable
+- [x] Playlist create/edit — create new playlists, add/remove songs
+- [x] Song view — display track detail from queue
+- [ ] Favorites/starring: (partial — album detail & artist view toggles done; player now-playing has a like)
+  - [x] Star/unstar toggle on album detail and artist view
+  - [ ] Star/unstar toggle on track rows (album view and queue)
+  - [ ] Starred indicator on album grid cards in library view
+  - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
 - [ ] Songs tab in Library — fetch and display all songs
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
 
@@ -67,6 +68,7 @@
 - [ ] Favorites schema — three junction tables (`album_stars`, `artist_stars`, `track_stars`), each with composite PK `(user_id, item_id)`, a `starred_at` timestamp, and cascade deletes on user/item removal; replace the current single `starred_items` table if one exists
 - [ ] Cleanup orphaned `playlist_tracks`, `album_stars`, `artist_stars`, `track_stars`, and `play_histories` when tracks/albums/artists are deleted during scan cleanup
 - [ ] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors
+- [ ] `store.GetArtist` doesn't reliably populate each album's `Artists` — it combines `Preload("Artists")` with a manual `Joins("JOIN album_artists ...")` on the same many-to-many, which can return empty `Artists` (GORM gotcha). Result: `getArtist`'s album children omit `artist`/`artistId`, leaving the artist page's album-card subtitle blank (worked around in `ArtistView.vue` by falling back to the artist name). Fix the query so `Artists` preloads cleanly — e.g. filter album IDs via a subquery instead of a manual JOIN, then Preload.
 - [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
 - [ ] Album cover on the library grid can show another album's image after metadata edits + rescan (works correctly on the album detail view). Root causes:
     - `internal/scanner/reconcile.go:92-97` only sets `album.CoverPath` when empty; it's never re-evaluated. Re-tagged tracks leaving their old album don't repoint or clear the stale path, and two albums sharing a directory can end up pointing at the same `cover.jpg`.
@@ -79,19 +81,19 @@
 
 Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not introduced by that work. To review:
 
-- [ ] `PlayerControls` is `position: fixed` (not a flex row inside `App.vue`'s shell), so the bottom of `.main-content` sits *under* the player. Any content scrolled to the bottom is partially obscured. Fix candidates: give `.app-container` a `padding-bottom: var(--app-player-height)`, or restructure `PlayerControls` into the column flex
-- [ ] `.nav-item.active` in `AppSidebar.vue` uses a hard-coded `#eef2ff` background instead of a `var(--app-*)` token — odd one out vs. the rest of the file
-- [ ] `.view-placeholder` styles in `App.vue` look orphaned (the class isn't used in `App.vue`'s template) — verify whether any view actually consumes them, then either remove or move into the consuming view
-- [ ] Clicking a row in the expanded `QueueSidebar` currently navigates to the song detail view — it should instead play that song (jump the queue to that track and start playback) and stay on the current page. The song-detail view should only be reached from the "Now Playing" surface, not by clicking queue entries
-- [ ] Make songs in the `QueueSidebar` sortable via drag and drop — reorder tracks within the current queue by dragging
-- [ ] Clicking a track row in the album view should not start playback — only the explicit play control on the row should play the song
-- [ ] Album view should support multi-disc albums — group tracks by disc number (CD1, CD2, etc.) with per-disc headers
-- [ ] Dark mode support — add a theme toggle and dark color tokens; audit hard-coded colors (e.g. `#eef2ff`, `#e0e7ff`) and migrate them to CSS variables
+- [x] `PlayerControls` is `position: fixed` (not a flex row inside `App.vue`'s shell), so the bottom of `.main-content` sits *under* the player. Any content scrolled to the bottom is partially obscured. Fix candidates: give `.app-container` a `padding-bottom: var(--app-player-height)`, or restructure `PlayerControls` into the column flex
+- [x] `.nav-item.active` in `AppSidebar.vue` uses a hard-coded `#eef2ff` background instead of a `var(--app-*)` token — odd one out vs. the rest of the file (now uses `--app-accent-soft`)
+- [x] `.view-placeholder` styles look orphaned — removed the unused CSS from `PlayerLayout.vue`
+- [x] Clicking a row in the expanded `QueueSidebar` currently navigates to the song detail view — it should instead play that song (jump the queue to that track and start playback) and stay on the current page. The song-detail view should only be reached from the "Now Playing" surface, not by clicking queue entries
+- [x] Make songs in the `QueueSidebar` sortable via drag and drop — reorder tracks within the current queue by dragging
+- [x] Clicking a track row in the album view should not start playback — only the explicit play control on the row should play the song
+- [x] Album view should support multi-disc albums — group tracks by disc number (CD1, CD2, etc.) with per-disc headers
+- [x] Dark mode support — add a theme toggle and dark color tokens; audit hard-coded colors (e.g. `#eef2ff`, `#e0e7ff`) and migrate them to CSS variables
 - [ ] Improve execution history and runtime task management — surface long-running jobs (scans, imports, transcodes) with progress, status, and cancel controls; persist recent run history for inspection
 - [ ] Mute support in the player — clicking the volume icon toggles mute (preserving the previous volume level to restore on unmute)
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
-- [ ] "Now Playing" view should combine the current track detail (cover, metadata, lyrics, etc.) with a list view of the full queue below it — single landing page instead of separate song-detail + queue-sidebar split
-- [ ] Rework `RadioView.vue` to match the album grid style used in `LibraryView.vue` — reuse the `AlbumCard` layout (square cover tile, title/subtitle below, hover lift) for radio stations so the library and radio views feel consistent
+- [x] "Now Playing" view should combine the current track detail (cover, metadata, lyrics, etc.) with a list view of the full queue below it — single landing page instead of separate song-detail + queue-sidebar split (QueueView full variant: SongDetail card + history/current/upcoming)
+- [x] Rework `RadioView.vue` to match the album grid style used in `LibraryView.vue` — reuse the `AlbumCard` layout (square cover tile, title/subtitle below, hover lift) for radio stations so the library and radio views feel consistent (RadioStationCard + RadioStationGrid)
 - [ ] Create an app icon / logo — favicon, PWA icons (various sizes), and a wordmark for the topbar
 
 ## Frontend Layout — Library scaffold follow-up
@@ -101,3 +103,13 @@ Surfaced by reviews of the topbar refactor (2026-04-26) but pre-existing — not
 
 juckebox funcionality ( use the wbe ui only to controll the audio)
 relay => like juckebox, but loading songs from another instance
+in song list, copy the spotify song selections, where on hover you get a checkbox on the side of teh duration
+also in thea lbum view => make the album cover drag and drop
+improve the hero view of the album with details and actions
+add a play button to the botom right in grid view of album / radio player — DONE (hover play button on album & radio cards)
+metadata editor for identifying songs
+improve crud and views of playlists ( check if plyalist is part of OS api)
+better genre handling
+improve icon theme
+remove podcast placeholder
+custom icons for libraries
