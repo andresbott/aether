@@ -4,11 +4,12 @@ import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
 const playlist = ref<any>(null)
+const replaceIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
     usePlaylist: () => ({ data: playlist, isLoading: ref(false), error: ref(null) }),
     useUpdatePlaylist: () => ({ mutate: updateMutate, isPending: ref(false) }),
     useDeletePlaylist: () => ({ mutate: vi.fn() }),
-    useReplacePlaylistTracks: () => ({ mutate: replaceMutate, isPending: ref(false) })
+    useReplacePlaylistTracks: () => ({ mutate: replaceMutate, isPending: replaceIsPending })
 }))
 const updateMutate = vi.fn()
 const replaceMutate = vi.fn()
@@ -37,6 +38,7 @@ beforeEach(() => {
     updateMutate.mockReset()
     replaceMutate.mockReset()
     playAlbum.mockReset()
+    replaceIsPending.value = false
 })
 
 describe('PlaylistDetailView', () => {
@@ -99,5 +101,27 @@ describe('PlaylistDetailView', () => {
         const w = mountView()
         await w.find('.play-all').trigger('click')
         expect(playAlbum).toHaveBeenCalledWith(playlist.value.entry)
+    })
+
+    it('Cancel is disabled while a save is pending', async () => {
+        const w = mountView()
+        await w.find('.edit-toggle').trigger('click')
+        replaceIsPending.value = true
+        await w.vm.$nextTick()
+        expect(w.find('.edit-cancel').attributes('disabled')).toBeDefined()
+    })
+
+    it('changing the playlist id resets an in-progress rename', async () => {
+        const w = mountView()
+        await w.find('.rename-toggle').trigger('click')
+        await w.find('.rename-input input').setValue('Stale Draft')
+        expect(w.find('.rename-input').exists()).toBe(true)
+
+        playlist.value = { id: 'pl2', name: 'Other Mix', songCount: 1, entry: [song('9')] }
+        await w.setProps({ id: 'pl2' })
+
+        expect(w.find('.rename-input').exists()).toBe(false)
+        expect(w.find('.rename-toggle').exists()).toBe(true)
+        expect(updateMutate).not.toHaveBeenCalled()
     })
 })

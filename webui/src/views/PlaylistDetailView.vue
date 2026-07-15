@@ -105,8 +105,12 @@ const handleDelete = (): void => {
     deletePlaylist.mutate(props.id, { onSuccess: () => router.push({ name: 'playlists' }) })
 }
 
-// Leaving edit mode / switching playlists drops any working copy.
-watch(() => props.id, cancelEdit)
+// Leaving edit mode / switching playlists drops any working copy and rename draft.
+const resetOnIdChange = (): void => {
+    cancelEdit()
+    cancelRename()
+}
+watch(() => props.id, resetOnIdChange)
 </script>
 
 <template>
@@ -157,7 +161,14 @@ watch(() => props.id, cancelEdit)
                         :loading="replaceTracks.isPending.value"
                         @click="saveEdit"
                     />
-                    <Button class="edit-cancel" label="Cancel" text severity="secondary" @click="cancelEdit" />
+                    <Button
+                        class="edit-cancel"
+                        label="Cancel"
+                        text
+                        severity="secondary"
+                        :disabled="replaceTracks.isPending.value"
+                        @click="cancelEdit"
+                    />
                 </template>
                 <template v-else>
                     <Button class="play-all" label="Play" icon="pi pi-play" @click="playAll" />
