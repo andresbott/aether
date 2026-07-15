@@ -40,7 +40,11 @@ const volumePercent = computed({
 
 <template>
     <div class="player-controls">
-        <div class="player-left">
+        <!-- Spacer: balances the right cluster so the center column stays truly
+             centered. Reserved for now-playing info (cover/title) in a later step. -->
+        <div class="player-left"></div>
+
+        <div class="player-center">
             <div class="playback-buttons">
                 <button
                     class="control-btn"
@@ -75,9 +79,7 @@ const volumePercent = computed({
                     <span v-if="player.repeat.value === 'one'" class="repeat-badge">1</span>
                 </button>
             </div>
-        </div>
 
-        <div class="player-center">
             <div class="progress-row">
                 <span class="time-label">{{ formatTime(player.currentTime.value) }}</span>
                 <Slider
@@ -114,24 +116,23 @@ const volumePercent = computed({
     color: var(--app-player-text);
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 4.5rem;
-    padding: 0 1.5rem;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 0 22px;
     z-index: 100;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .player-left {
-    display: flex;
-    align-items: center;
+    flex: 1;
 }
 
 .player-center {
+    flex: 0 1 560px;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    width: 520px;
-    max-width: 100%;
+    gap: 11px;
 }
 
 .playback-buttons {
@@ -141,19 +142,24 @@ const volumePercent = computed({
 }
 
 .control-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
     background: none;
     border: none;
-    color: rgba(226, 232, 240, 0.7);
+    color: var(--app-player-dim);
     cursor: pointer;
-    padding: 0.5rem;
     border-radius: 50%;
-    transition: color 0.2s;
+    transition: color 0.2s, background-color 0.2s;
     position: relative;
-    font-size: 1rem;
+    font-size: 1.1rem;
 }
 
 .control-btn:hover {
-    color: #ffffff;
+    color: var(--app-player-text);
+    background-color: rgba(255, 255, 255, 0.07);
 }
 
 .control-btn:disabled {
@@ -166,8 +172,8 @@ const volumePercent = computed({
 }
 
 .play-btn {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
     border-radius: 50%;
     background-color: var(--app-accent);
     border: none;
@@ -176,12 +182,17 @@ const volumePercent = computed({
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.2rem;
+    font-size: 1.125rem;
+    box-shadow: 0 3px 10px rgba(14, 155, 181, 0.3);
     transition: background-color 0.2s;
 }
 
 .play-btn:hover {
     background-color: var(--app-accent-hover);
+}
+
+:global(.dark-mode) .play-btn {
+    box-shadow: 0 3px 12px rgba(47, 211, 239, 0.3);
 }
 
 .repeat-badge {
@@ -209,28 +220,71 @@ const volumePercent = computed({
 
 .time-label {
     font-size: 0.75rem;
-    color: rgba(226, 232, 240, 0.6);
+    color: var(--app-player-dim);
     min-width: 36px;
     text-align: center;
+    font-variant-numeric: tabular-nums;
 }
 
 .progress-slider {
     flex: 1;
 }
 
+/* Sliders styled to match the mock: thin rounded rail, cyan fill, round knob.
+   PrimeVue centers the handle via top:50% + negative block/inline margins sized
+   from the handle token, so a resized knob must override those margins. */
+.progress-slider :deep(.p-slider) {
+    height: 6px;
+    background: var(--app-player-track);
+    border-radius: 99px;
+}
+
+.progress-slider :deep(.p-slider-range) {
+    background: var(--app-accent);
+    border-radius: 99px;
+}
+
+.progress-slider :deep(.p-slider-handle) {
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
+    margin-left: -7px;
+    background: var(--app-accent);
+    border: none;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
 .player-right {
+    flex: 1;
     display: flex;
     align-items: center;
     gap: 0.75rem;
+    justify-content: flex-end;
 }
 
 .volume-icon {
     font-size: 1rem;
-    color: rgba(226, 232, 240, 0.7);
+    color: var(--app-player-dim);
 }
 
 .volume-slider {
-    width: 100px;
+    width: 90px;
+}
+
+.volume-slider :deep(.p-slider) {
+    height: 5px;
+    background: var(--app-player-track);
+    border-radius: 99px;
+}
+
+.volume-slider :deep(.p-slider-range) {
+    background: var(--app-player-dim);
+    border-radius: 99px;
+}
+
+/* Mock volume has no visible knob; keep it draggable but invisible. */
+.volume-slider :deep(.p-slider-handle) {
+    opacity: 0;
 }
 
 .queue-toggle {

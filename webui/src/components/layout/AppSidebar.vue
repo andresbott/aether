@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
-import NavIcon from './NavIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,8 +17,8 @@ interface NavItem {
 }
 
 const primaryItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'now-playing', route: '/', routeName: 'home' },
-    { label: 'Search', icon: 'search', route: '/search', routeName: 'search' }
+    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
+    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search' }
 ]
 
 const { data: musicFolders } = useMusicFolders()
@@ -27,13 +26,13 @@ const { data: musicFolders } = useMusicFolders()
 const folderItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
     if (folders.length <= 1) {
-        return [{ label: 'Library', icon: 'music', route: '/library', routeName: 'library' }]
+        return [{ label: 'Library', icon: 'pi pi-headphones', route: '/library', routeName: 'library' }]
     }
     return [
-        { label: 'All Music', icon: 'music', route: '/library', routeName: 'library' },
+        { label: 'All Music', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
         ...folders.map((folder) => ({
             label: folder.name,
-            icon: 'folder',
+            icon: 'pi pi-folder',
             route: `/library/${folder.id}`,
             routeName: 'library',
             folderId: folder.id
@@ -42,17 +41,17 @@ const folderItems = computed<NavItem[]>(() => {
 })
 
 const libraryExtras: NavItem[] = [
-    { label: 'Playlists', icon: 'list', route: '/playlists', routeName: 'playlists' },
-    { label: 'Genres', icon: 'tag', route: '/genres', routeName: 'genres' }
+    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
+    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
 ]
 
 const streamingItems: NavItem[] = [
-    { label: 'Podcasts', icon: 'mic', route: '/podcasts', routeName: 'podcasts' },
-    { label: 'Radio', icon: 'radio', route: '/radio', routeName: 'radio' }
+    { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
+    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
 const bottomItems: NavItem[] = [
-    { label: 'Settings', icon: 'settings', route: '/settings', routeName: 'settings' }
+    { label: 'Settings', icon: 'pi pi-cog', route: '/settings', routeName: 'settings' }
 ]
 
 const isActive = (item: NavItem): boolean => {
@@ -105,7 +104,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <NavIcon :name="item.icon" />
+                <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
@@ -121,7 +120,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <NavIcon :name="item.icon" />
+                <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
@@ -133,7 +132,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <NavIcon :name="item.icon" />
+                <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
@@ -149,7 +148,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <NavIcon :name="item.icon" />
+                <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
         </nav>
@@ -163,7 +162,7 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <NavIcon :name="item.icon" />
+                <i :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
         </nav>
@@ -237,6 +236,11 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
 .nav-item.sub-item {
     padding-left: 2.5rem;
     font-size: 0.85rem;
+}
+
+.nav-item i {
+    font-size: 1.1rem;
+    flex-shrink: 0;
 }
 
 .sidebar-header {
