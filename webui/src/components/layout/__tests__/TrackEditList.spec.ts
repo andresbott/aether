@@ -65,6 +65,14 @@ describe('TrackEditList', () => {
         expect(w.emitted('delete')).toBeUndefined()
     })
 
+    it('a shift-click range spanning the currentIndex row includes it in the selection', async () => {
+        const w = mountList({ currentIndex: 1 })
+        await w.find('[data-queue-index="0"]').trigger('click')
+        await w.find('[data-queue-index="2"]').trigger('click', { shiftKey: true })
+        await w.find('.queue-edit-list').trigger('keydown', { key: 'Delete' })
+        expect(w.emitted('delete')?.[0]).toEqual([[0, 1, 2]])
+    })
+
     it('creates a Sortable with the given group and drag handle when mounted', async () => {
         mountList({ group: 'playlist' })
         await Promise.resolve()

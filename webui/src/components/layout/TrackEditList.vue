@@ -33,7 +33,7 @@ let dragImageEl: HTMLElement | null = null
 const rows = computed(() => props.songs.map((song, i) => ({ ...song, index: i })))
 
 const onSelectRow = (index: number, payload: RowClickModifiers): void => {
-    onRowClick(index, payload, props.currentIndex)
+    onRowClick(index, payload)
     listRef.value?.focus()
 }
 
