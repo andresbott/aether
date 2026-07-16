@@ -11,6 +11,7 @@ vi.mock('@/lib/api/subsonic', () => ({
     }
 }))
 
+import { RouterLinkStub } from '@vue/test-utils'
 import RadioStationRow from '@/components/library/RadioStationRow.vue'
 import type { InternetRadioStation } from '@/types/subsonic'
 
@@ -22,7 +23,11 @@ const station: InternetRadioStation = {
     coverArt: 'ca1'
 }
 
-const mountRow = (s?: InternetRadioStation) => mount(RadioStationRow, { props: { station: s } })
+const mountRow = (s?: InternetRadioStation) =>
+    mount(RadioStationRow, {
+        props: { station: s },
+        global: { stubs: { RouterLink: RouterLinkStub } }
+    })
 
 describe('RadioStationRow', () => {
     it('renders avatar (size 80), name and homepage', () => {
@@ -32,11 +37,12 @@ describe('RadioStationRow', () => {
         expect(w.find('.col-homepage').text()).toBe('http://jazzfm.example')
     })
 
-    it('does not play the station on click', async () => {
+    it('links to the station detail route', () => {
         const w = mountRow(station)
-        await w.find('.radio-row').trigger('click')
-        // Clicking is a no-op; a station enters the queue only via drag.
-        expect(start).not.toHaveBeenCalled()
+        expect(w.findComponent(RouterLinkStub).props('to')).toEqual({
+            name: 'radio-station-detail',
+            params: { id: 's1' }
+        })
     })
 
     it('starts a songs drag carrying the station as a single song', async () => {
