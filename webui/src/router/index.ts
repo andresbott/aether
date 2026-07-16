@@ -74,6 +74,20 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/radio/new',
+        name: 'radio-station-new',
+        component: () => import('@/views/RadioStationDetailView.vue'),
+        props: { create: true },
+        meta: { flush: true }
+    },
+    {
+        path: '/radio/:id',
+        name: 'radio-station-detail',
+        component: () => import('@/views/RadioStationDetailView.vue'),
+        props: true,
+        meta: { flush: true }
+    },
+    {
         path: '/settings',
         component: () => import('@/views/settings/SettingsView.vue'),
         meta: { layout: 'settings' },
