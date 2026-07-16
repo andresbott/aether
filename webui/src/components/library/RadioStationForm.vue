@@ -53,12 +53,23 @@ function resetCoverState() {
     sizeError.value = null
 }
 
-// Seed the form from the station (edit), the prefill (create-from-Discover), or
-// blanks. Snapshot the baseline afterward so `dirty` reflects user edits only.
+// Seed the text fields from the station (edit) or the prefill (create-from-Discover),
+// keyed on the TEXT identity rather than the prefill object reference. Note this
+// MUST be a multi-source array of individual getters (not one getter returning an
+// array) — Vue only compares each source elementwise with `hasChanged` in that
+// form; a single getter returning a fresh array every time would always compare
+// as "changed" by reference and re-fire on every prefill reassignment. This way a
+// later reassignment of `prefill` that only folds in a favicon cover (see the
+// cover watcher below) does not re-seed and clobber in-progress user edits.
+// Snapshot the baseline afterward so `dirty` reflects user edits only.
 watch(
-    () => [props.station, props.prefill],
+    [
+        () => props.station?.id ?? null,
+        () => props.prefill?.name,
+        () => props.prefill?.streamUrl,
+        () => props.prefill?.homepageUrl
+    ],
     () => {
-        resetCoverState()
         if (props.station) {
             form.value = {
                 name: props.station.name,
@@ -66,15 +77,10 @@ watch(
                 homepageUrl: props.station.homepageUrl ?? ''
             }
         } else if (props.prefill) {
-            const init = props.prefill
             form.value = {
-                name: init.name,
-                streamUrl: init.streamUrl,
-                homepageUrl: init.homepageUrl ?? ''
-            }
-            if (init.coverFile) {
-                selectedFile.value = init.coverFile
-                previewUrl.value = URL.createObjectURL(init.coverFile)
+                name: props.prefill.name,
+                streamUrl: props.prefill.streamUrl,
+                homepageUrl: props.prefill.homepageUrl ?? ''
             }
         } else {
             form.value = emptyForm()
@@ -82,6 +88,45 @@ watch(
         baseline.value = { ...form.value }
     },
     { immediate: true }
+)
+
+// Reset the cover picker whenever the station/prefill IDENTITY changes (switching
+// between edit and create-from-Discover, moving to a different station, or going
+// blank), keyed the same way as the text-seed watcher above — NOT on the prefill
+// object reference or its `coverFile` directly. This way, folding a fetched
+// favicon into the *same* prefill (which reassigns the whole prefill object, see
+// the watcher below) does not run through here and wipe cover edits. Same
+// multi-source-array caveat as above applies.
+watch(
+    [
+        () => props.station?.id ?? null,
+        () => props.prefill?.name,
+        () => props.prefill?.streamUrl,
+        () => props.prefill?.homepageUrl
+    ],
+    () => {
+        resetCoverState()
+        if (!props.station && props.prefill?.coverFile) {
+            selectedFile.value = props.prefill.coverFile
+            previewUrl.value = URL.createObjectURL(props.prefill.coverFile)
+        }
+    },
+    { immediate: true }
+)
+
+// Fold in a favicon cover that resolves asynchronously after the initial seed
+// (RadioStationDetailView reassigns `prefill` once `fetchRadioFavicon` resolves),
+// without touching `form`/`baseline`. Skip if the user already picked their own
+// file or staged a clear during the fetch window.
+watch(
+    () => props.prefill?.coverFile,
+    (coverFile) => {
+        if (!coverFile) return
+        if (selectedFile.value !== null || coverClear.value) return
+        if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+        selectedFile.value = coverFile
+        previewUrl.value = URL.createObjectURL(coverFile)
+    }
 )
 
 const hasExistingCover = computed(

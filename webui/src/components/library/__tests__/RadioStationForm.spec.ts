@@ -115,4 +115,22 @@ describe('RadioStationForm', () => {
         expect(last(w).input.coverClear).toBe(true)
         expect(last(w).dirty).toBe(true)
     })
+
+    it('does not revert in-progress edits when the prefill later gains a favicon cover', async () => {
+        const textOnlyPrefill: RadioStationPrefill = {
+            name: 'Radio Paradise',
+            streamUrl: 'http://rp/stream',
+            homepageUrl: 'https://radioparadise.com'
+        }
+        const w = mountForm({ station: null, prefill: textOnlyPrefill })
+
+        await w.find('input.field-name').setValue('My Custom Name')
+
+        const file = new File(['x'], 'favicon.png', { type: 'image/png' })
+        await w.setProps({ prefill: { ...textOnlyPrefill, coverFile: file } })
+
+        const p = last(w)
+        expect(p.input.name).toBe('My Custom Name')
+        expect(p.input.coverFile).toBe(file)
+    })
 })
