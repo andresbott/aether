@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import StationSearchDialog from '@/views/settings/radio-stations/StationSearchDialog.vue'
+import StationSearchDialog from '@/components/library/StationSearchDialog.vue'
 import type { RadioBrowserStation } from '@/types/radiobrowser'
 
 const searchSpy = vi.hoisted(() => vi.fn())

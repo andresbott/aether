@@ -16,7 +16,7 @@ import type { RadioBrowserStation, RadioStationPrefill } from '@/types/radiobrow
 import { fetchRadioFavicon } from '@/lib/api/RadioBrowser'
 import StationList from './radio-stations/StationList.vue'
 import StationEditPanel from './radio-stations/StationEditPanel.vue'
-import StationSearchDialog from './radio-stations/StationSearchDialog.vue'
+import StationSearchDialog from '@/components/library/StationSearchDialog.vue'
 
 const { data: stations, isLoading } = useRadioStations()
 const createMutation = useCreateRadioStation()
