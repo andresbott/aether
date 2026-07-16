@@ -5,9 +5,10 @@ import PrimeVue from 'primevue/config'
 
 const route = { query: {} as Record<string, string> }
 const replace = vi.fn()
+const push = vi.fn()
 vi.mock('vue-router', () => ({
     useRoute: () => route,
-    useRouter: () => ({ replace })
+    useRouter: () => ({ replace, push })
 }))
 
 const stations = ref<Array<{ id: string; name: string; streamUrl: string }>>([])
@@ -25,6 +26,12 @@ const ScaffoldStub = {
 }
 const GridStub = { name: 'RadioStationGrid', template: '<div class="radio-grid-stub" />' }
 const ListStub = { name: 'RadioStationListView', template: '<div class="radio-list-stub" />' }
+const SearchDialogStub = {
+    name: 'StationSearchDialog',
+    props: ['visible'],
+    emits: ['update:visible', 'select'],
+    template: '<div class="search-dialog-stub" />'
+}
 
 import RadioView from '@/views/RadioView.vue'
 import SelectButton from 'primevue/selectbutton'
@@ -36,13 +43,20 @@ const mountView = () =>
             stubs: {
                 ContentScaffold: ScaffoldStub,
                 RadioStationGrid: GridStub,
-                RadioStationListView: ListStub
+                RadioStationListView: ListStub,
+                StationSearchDialog: SearchDialogStub,
+                Button: {
+                    props: ['label'],
+                    inheritAttrs: false,
+                    template: '<button :class="$attrs.class" @click="$emit(\'click\')">{{ label }}</button>'
+                }
             }
         }
     })
 
 beforeEach(() => {
     replace.mockReset()
+    push.mockReset()
     route.query = {}
     stations.value = []
 })
@@ -85,5 +99,37 @@ describe('RadioView', () => {
         w.findComponent(SelectButton).vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
         expect(replace).toHaveBeenCalledWith({ query: { view: 'list' } })
+    })
+
+    it('renders Discover and Add Station buttons in the header', () => {
+        const w = mountView()
+        expect(w.find('.discover-station').exists()).toBe(true)
+        expect(w.find('.add-station').exists()).toBe(true)
+    })
+
+    it('Add Station navigates to the create route', async () => {
+        const w = mountView()
+        await w.find('.add-station').trigger('click')
+        expect(push).toHaveBeenCalledWith({ name: 'radio-station-new' })
+    })
+
+    it('picking a station from Discover navigates to create with query prefill', async () => {
+        const w = mountView()
+        w.findComponent(SearchDialogStub).vm.$emit('select', {
+            name: 'Radio Paradise',
+            streamUrl: 'http://rp/stream',
+            homepage: 'http://rp.com',
+            favicon: 'http://rp.com/fav.png'
+        })
+        await w.vm.$nextTick()
+        expect(push).toHaveBeenCalledWith({
+            name: 'radio-station-new',
+            query: {
+                name: 'Radio Paradise',
+                streamUrl: 'http://rp/stream',
+                homepage: 'http://rp.com',
+                favicon: 'http://rp.com/fav.png'
+            }
+        })
     })
 })
