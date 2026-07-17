@@ -31,8 +31,11 @@ affordance. This is the registry of that behavior; the implementation lives in
     `.edit-action-cancel`, `.edit-action-delete`.
 - **Confirm-first ordering** is a single global rule in
   `webui/src/assets/scss/_main.scss` (`.p-confirmdialog .p-dialog-footer { display: flex;
-  flex-direction: row-reverse }`). It is visual-only — keyboard focus still reaches Cancel first, the safer
-  default for a destructive action — and applies to every confirm dialog app-wide.
+  flex-direction: row-reverse; justify-content: flex-start }` — the theme right-aligns the
+  footer with `flex-end`, which under `row-reverse` would pack the reversed pair left, so
+  `flex-start` keeps the group flush right). It is visual-only — keyboard focus still reaches
+  Cancel first, the safer default for a destructive action — and applies to every confirm
+  dialog app-wide.
 
 ## How views adapt
 

@@ -74,4 +74,8 @@ a:hover {
 .p-confirmdialog .p-dialog-footer {
     display: flex;
     flex-direction: row-reverse;
+    /* The theme right-aligns the footer with justify-content: flex-end; under
+       row-reverse that would pack the reversed pair to the LEFT. flex-start
+       points right in a reversed row, so it keeps the group flush right. */
+    justify-content: flex-start;
 }
