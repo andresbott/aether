@@ -145,6 +145,19 @@ describe('RadioStationDetailView', () => {
         )
     })
 
+    it('edit mode: Cancel reverts in-progress edits and exits edit mode', async () => {
+        const w = mountView({ id: 's1' })
+        await w.find('.edit-action-edit').trigger('click')
+        await editInputs(w)[0].setValue('Changed Name')
+        await w.find('.edit-action-cancel').trigger('click')
+        expect(updateMutate).not.toHaveBeenCalled()
+        expect(w.find('.edit-action-save').exists()).toBe(false)
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+        // Re-entering edit mode shows the reverted value.
+        await w.find('.edit-action-edit').trigger('click')
+        expect((editInputs(w)[0].element as HTMLInputElement).value).toBe('Jazz FM')
+    })
+
     it('edit mode: Delete (confirmed) removes the station and returns to /radio', async () => {
         const w = mountView({ id: 's1' })
         await w.find('.edit-action-edit').trigger('click')
