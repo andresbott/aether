@@ -69,6 +69,8 @@ const metaDirty = computed(
     () => editName.value !== baseName.value || editComment.value !== baseComment.value
 )
 
+const valid = computed(() => editName.value.trim().length > 0)
+
 // --- Staged cover editing (persisted behind Save, alongside identity/track edits) ---
 const selectedCoverFile = ref<File | null>(null)
 const coverClear = ref(false)
@@ -255,7 +257,7 @@ onUnmounted(() => {
             <template #actions>
                 <EditActionBar
                     v-model:editing="editing"
-                    :save-disabled="savePending"
+                    :save-disabled="savePending || !valid"
                     :saving="savePending"
                     delete-header="Delete playlist?"
                     :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"

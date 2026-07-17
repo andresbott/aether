@@ -74,4 +74,12 @@ describe('EditActionBar', () => {
         expect(requireFn).toHaveBeenCalledWith(expect.objectContaining({ header: 'Delete X?', message: 'Gone.' }))
         expect(w.emitted('delete')).toHaveLength(1)
     })
+
+    it('does not emit delete when the confirmation is dismissed', async () => {
+        requireFn.mockImplementationOnce(() => {})
+        const w = mountBar({ editing: true })
+        await w.find('.edit-action-delete').trigger('click')
+        expect(requireFn).toHaveBeenCalled()
+        expect(w.emitted('delete')).toBeUndefined()
+    })
 })

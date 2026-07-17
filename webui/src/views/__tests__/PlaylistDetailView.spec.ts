@@ -165,6 +165,13 @@ describe('PlaylistDetailView', () => {
         expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
     })
 
+    it('Save is disabled when the name is empty', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await nameInput(w).setValue('   ')
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
+    })
+
     it('Play queues the current on-screen list', async () => {
         const w = mountView()
         await w.find('.play-all').trigger('click')
