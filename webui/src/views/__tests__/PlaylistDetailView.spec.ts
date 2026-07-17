@@ -2,26 +2,49 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
+import FileUpload from 'primevue/fileupload'
 
 const playlist = ref<any>(null)
 const replaceIsPending = ref(false)
+const coverIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
     usePlaylist: () => ({ data: playlist, isLoading: ref(false), error: ref(null) }),
     useUpdatePlaylist: () => ({ mutate: updateMutate, isPending: ref(false) }),
-    useDeletePlaylist: () => ({ mutate: vi.fn() }),
+    useUpdatePlaylistCover: () => ({ mutate: coverMutate, isPending: coverIsPending }),
+    useDeletePlaylist: () => ({ mutate: deleteMutate }),
     useReplacePlaylistTracks: () => ({ mutate: replaceMutate, isPending: replaceIsPending })
 }))
 const updateMutate = vi.fn()
-const replaceMutate = vi.fn()
+// Invokes onSuccess so the component can re-baseline (clear dirty) after a save.
+const replaceMutate = vi.fn((_payload: unknown, opts?: { onSuccess?: () => void }) =>
+    opts?.onSuccess?.()
+)
+const coverMutate = vi.fn((_payload: unknown, opts?: { onSuccess?: () => void }) =>
+    opts?.onSuccess?.()
+)
+const deleteMutate = vi.fn((_id: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.())
 
 const playAlbum = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum }) }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
+    subsonicClient: {
+        isConfigured: () => true,
+        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`
+    }
 }))
 vi.mock('sortablejs', () => ({ default: { create: () => ({ destroy: vi.fn() }) } }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ back: vi.fn(), push: vi.fn() }) }))
+
+// Auto-accept the delete confirmation.
+vi.mock('primevue/useconfirm', () => ({
+    useConfirm: () => ({ require: (opts: { accept: () => void }) => opts.accept() })
+}))
+
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ back: vi.fn(), push }),
+    onBeforeRouteLeave: vi.fn()
+}))
 
 import PlaylistDetailView from '@/views/PlaylistDetailView.vue'
 
@@ -30,98 +53,217 @@ const song = (id: string) => ({ id, title: `Song ${id}`, artist: 'A', album: 'Al
 const mountView = () =>
     mount(PlaylistDetailView, {
         props: { id: 'pl1' },
-        global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+        global: {
+            plugins: [PrimeVue],
+            directives: { tooltip: {} },
+            stubs: { ConfirmDialog: true }
+        }
     })
 
+const enterEdit = async (w: ReturnType<typeof mountView>) => {
+    await w.find('.edit-action-edit').trigger('click')
+}
+// The Name field is the first <input> inside the hero's edit column
+// (Description is a <textarea>, the cover picker lives in the flip back face).
+const nameInput = (w: ReturnType<typeof mountView>) => w.find('.edit-only input')
+
 beforeEach(() => {
-    playlist.value = { id: 'pl1', name: 'My Mix', songCount: 3, entry: [song('1'), song('2'), song('3')] }
+    playlist.value = {
+        id: 'pl1',
+        name: 'My Mix',
+        songCount: 3,
+        entry: [song('1'), song('2'), song('3')]
+    }
     updateMutate.mockReset()
-    replaceMutate.mockReset()
+    replaceMutate.mockClear()
+    coverMutate.mockClear()
+    deleteMutate.mockClear()
     playAlbum.mockReset()
+    push.mockClear()
     replaceIsPending.value = false
+    coverIsPending.value = false
+    // jsdom doesn't implement object URLs — stub them for the cover preview.
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock')
+    global.URL.revokeObjectURL = vi.fn()
 })
 
 describe('PlaylistDetailView', () => {
-    it('shows the playlist name and an inline rename control beside the title', () => {
+    it('shows only the back button in the header and the playlist name in the hero', () => {
         const w = mountView()
-        expect(w.find('.scaffold-title h1').text()).toBe('My Mix')
-        expect(w.find('.rename-toggle').exists()).toBe(true)
+        expect(w.find('.scaffold-title h1').exists()).toBe(false)
+        expect(w.find('.scaffold-back').exists()).toBe(true)
+        expect(w.find('.hero-name').text()).toBe('My Mix')
     })
 
-    it('inline rename submits the new name', async () => {
+    it('view mode shows Play + pencil and no Save; edit mode shows Save/Cancel and hides Play', async () => {
         const w = mountView()
-        await w.find('.rename-toggle').trigger('click')
-        const input = w.find('.rename-input input')
-        await input.setValue('Road Trip')
-        await input.trigger('keyup.enter')
+        expect(w.find('.play-all').exists()).toBe(true)
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+        expect(w.find('.edit-action-save').exists()).toBe(false)
+
+        await enterEdit(w)
+        expect(w.find('.hero-header').classes()).toContain('editing')
+        expect(w.find('.edit-action-save').exists()).toBe(true)
+        expect(w.find('.edit-action-cancel').exists()).toBe(true)
+        expect(w.find('.edit-action-delete').exists()).toBe(true)
+        expect(w.find('.play-all').exists()).toBe(false)
+    })
+
+    it('editing the name and saving persists it and exits edit mode', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await nameInput(w).setValue('Road Trip')
+        await w.find('.edit-action-save').trigger('click')
         expect(updateMutate).toHaveBeenCalledWith(
             expect.objectContaining({ playlistId: 'pl1', name: 'Road Trip' }),
             expect.anything()
         )
+        // Saving leaves edit mode.
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
+        expect(w.find('.play-all').exists()).toBe(true)
     })
 
-    it('entering edit mode shows the TrackEditList and Save/Cancel', async () => {
+    it('Cancel discards the in-progress name edit and exits edit mode', async () => {
         const w = mountView()
-        expect(w.find('.queue-edit-list').exists()).toBe(false)
-        await w.find('.edit-toggle').trigger('click')
+        await enterEdit(w)
+        await nameInput(w).setValue('Throwaway')
+        await w.find('.edit-action-cancel').trigger('click')
+        expect(updateMutate).not.toHaveBeenCalled()
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
+        await enterEdit(w)
+        expect((nameInput(w).element as HTMLInputElement).value).toBe('My Mix')
+    })
+
+    it('always renders the editable track list and never a read-only table', () => {
+        const w = mountView()
         expect(w.find('.queue-edit-list').exists()).toBe(true)
-        expect(w.find('.edit-save').exists()).toBe(true)
-        expect(w.find('.edit-cancel').exists()).toBe(true)
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(3)
+        expect(w.find('.track-table').exists()).toBe(false)
+        expect(w.find('.p-datatable').exists()).toBe(false)
     })
 
-    it('deleting in edit mode is local until Save', async () => {
+    it('Save persists the working track order and exits edit mode', async () => {
         const w = mountView()
-        await w.find('.edit-toggle').trigger('click')
-        await w.find('[data-queue-index="1"] .delete-button').trigger('click')
-        expect(replaceMutate).not.toHaveBeenCalled()
-        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(2)
-    })
-
-    it('Save persists the working order via replacePlaylistTracks', async () => {
-        const w = mountView()
-        await w.find('.edit-toggle').trigger('click')
         await w.find('[data-queue-index="0"] .delete-button').trigger('click')
-        await w.find('.edit-save').trigger('click')
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(2)
+
+        await enterEdit(w)
+        await w.find('.edit-action-save').trigger('click')
         expect(replaceMutate).toHaveBeenCalledWith(
             expect.objectContaining({ playlistId: 'pl1', songIds: ['2', '3'] }),
             expect.anything()
         )
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
     })
 
-    it('Cancel discards local edits and leaves edit mode', async () => {
+    it('Save is disabled while a save is pending', async () => {
         const w = mountView()
-        await w.find('.edit-toggle').trigger('click')
         await w.find('[data-queue-index="0"] .delete-button').trigger('click')
-        await w.find('.edit-cancel').trigger('click')
-        expect(w.find('.queue-edit-list').exists()).toBe(false)
-        expect(replaceMutate).not.toHaveBeenCalled()
-    })
-
-    it('Play queues all entries', async () => {
-        const w = mountView()
-        await w.find('.play-all').trigger('click')
-        expect(playAlbum).toHaveBeenCalledWith(playlist.value.entry)
-    })
-
-    it('Cancel is disabled while a save is pending', async () => {
-        const w = mountView()
-        await w.find('.edit-toggle').trigger('click')
+        await enterEdit(w)
         replaceIsPending.value = true
         await w.vm.$nextTick()
-        expect(w.find('.edit-cancel').attributes('disabled')).toBeDefined()
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
     })
 
-    it('changing the playlist id resets an in-progress rename', async () => {
+    it('Play queues the current on-screen list', async () => {
         const w = mountView()
-        await w.find('.rename-toggle').trigger('click')
-        await w.find('.rename-input input').setValue('Stale Draft')
-        expect(w.find('.rename-input').exists()).toBe(true)
+        await w.find('.play-all').trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith([song('1'), song('2'), song('3')])
+    })
+
+    it('Play reflects local edits before saving', async () => {
+        const w = mountView()
+        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
+        await w.find('.play-all').trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith([song('2'), song('3')])
+    })
+
+    it('warns via beforeunload only when there are unsaved changes', async () => {
+        const w = mountView()
+
+        const clean = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(clean)
+        expect(clean.defaultPrevented).toBe(false)
+
+        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
+
+        const dirty = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(dirty)
+        expect(dirty.defaultPrevented).toBe(true)
+    })
+
+    it('renders a hero with the cover image and the owner in the meta row', () => {
+        playlist.value = {
+            id: 'pl1',
+            name: 'My Mix',
+            owner: 'admin',
+            coverArt: 'pl1',
+            songCount: 3,
+            entry: [song('1'), song('2'), song('3')]
+        }
+        const w = mountView()
+        expect(w.find('.hero-header').exists()).toBe(true)
+        expect(w.find('.flip-front img').attributes('src')).toBe('/cover/pl1?size=250')
+        expect(w.find('.meta-row').text()).toContain('admin')
+    })
+
+    it('staging a cover shows a local preview', async () => {
+        const w = mountView()
+        const file = new File(['x'], 'c.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        expect(w.find('.flip-front img').attributes('src')).toContain('blob:')
+    })
+
+    it('Save uploads a staged cover via updatePlaylistCover', async () => {
+        const w = mountView()
+        const file = new File(['x'], 'c.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+
+        await enterEdit(w)
+        await w.find('.edit-action-save').trigger('click')
+        expect(coverMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', coverFile: file }),
+            expect.anything()
+        )
+    })
+
+    it('Remove stages a cover clear that Save commits', async () => {
+        const w = mountView()
+        await w.find('.cover-remove').trigger('click')
+        // Placeholder shown while a clear is staged; note explains the pending reset.
+        expect(w.find('.flip-front img').exists()).toBe(false)
+        expect(w.find('.cleared-note').exists()).toBe(true)
+
+        await enterEdit(w)
+        await w.find('.edit-action-save').trigger('click')
+        expect(coverMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', coverClear: true }),
+            expect.anything()
+        )
+    })
+
+    it('Delete asks for confirmation, then deletes and navigates to /playlists', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await w.find('.edit-action-delete').trigger('click')
+        expect(deleteMutate).toHaveBeenCalledWith('pl1', expect.anything())
+        expect(push).toHaveBeenCalledWith({ name: 'playlists' })
+    })
+
+    it('changing the playlist id reseeds the list and drops an in-progress name edit', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await nameInput(w).setValue('Stale Draft')
 
         playlist.value = { id: 'pl2', name: 'Other Mix', songCount: 1, entry: [song('9')] }
         await w.setProps({ id: 'pl2' })
 
-        expect(w.find('.rename-input').exists()).toBe(false)
-        expect(w.find('.rename-toggle').exists()).toBe(true)
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(1)
         expect(updateMutate).not.toHaveBeenCalled()
+        await enterEdit(w)
+        expect((nameInput(w).element as HTMLInputElement).value).toBe('Other Mix')
     })
 })
