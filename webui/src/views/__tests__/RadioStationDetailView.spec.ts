@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
+import PrimeVue from 'primevue/config'
 import type { InternetRadioStation } from '@/types/subsonic'
 
 const stations = ref<InternetRadioStation[]>([])
@@ -13,6 +14,12 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
     useCreateRadioStation: () => ({ mutate: createMutate, isPending: ref(false) }),
     useUpdateRadioStation: () => ({ mutate: updateMutate, isPending: ref(false) }),
     useDeleteRadioStation: () => ({ mutate: deleteMutate, isPending: ref(false) })
+}))
+
+vi.mock('@/lib/api/subsonic', () => ({
+    subsonicClient: {
+        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`
+    }
 }))
 
 const playNow = vi.fn()
@@ -36,28 +43,14 @@ vi.mock('vue-router', () => ({
     onBeforeRouteLeave: vi.fn()
 }))
 
-// Stub the form so the test drives `change` directly; stub the scaffold to expose
-// title/summary/actions; stub ConfirmDialog and Button.
-const FormStub = {
-    name: 'RadioStationForm',
-    props: ['station', 'prefill'],
-    template: '<div class="form-stub" />'
-}
 const ScaffoldStub = {
     name: 'ContentScaffold',
     props: ['title', 'summary'],
     template: '<div><slot name="actions" /><slot /></div>'
 }
 const stubs = {
-    RadioStationForm: FormStub,
     ContentScaffold: ScaffoldStub,
-    ConfirmDialog: { template: '<div />' },
-    Button: {
-        props: ['label', 'disabled'],
-        inheritAttrs: false,
-        template:
-            '<button :class="$attrs.class" :disabled="disabled" @click="$emit(\'click\')">{{ label }}</button>'
-    }
+    ConfirmDialog: { template: '<div />' }
 }
 
 import RadioStationDetailView from '@/views/RadioStationDetailView.vue'
@@ -70,15 +63,15 @@ const station: InternetRadioStation = {
     coverArt: 'ca1'
 }
 
-const emitChange = (w: ReturnType<typeof mount>, valid: boolean, dirty = true) =>
-    w.findComponent(FormStub).vm.$emit('change', {
-        input: { name: 'Jazz FM', streamUrl: 'http://stream/jazz' },
-        valid,
-        dirty
+const mountView = (props: Record<string, unknown>) =>
+    mount(RadioStationDetailView, {
+        props,
+        global: { plugins: [PrimeVue], stubs, directives: { tooltip: {} } }
     })
 
-const mountView = (props: Record<string, unknown>) =>
-    mount(RadioStationDetailView, { props, global: { stubs, directives: { tooltip: {} } } })
+// name / streamUrl / homepage inputs in the hero's edit column (the cover picker
+// lives in the flip back face, not in .edit-only).
+const editInputs = (w: ReturnType<typeof mountView>) => w.findAll('.edit-only input')
 
 beforeEach(() => {
     stations.value = [station]
@@ -90,23 +83,28 @@ beforeEach(() => {
     playNow.mockClear()
     push.mockClear()
     fetchRadioFavicon.mockClear()
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock')
+    global.URL.revokeObjectURL = vi.fn()
 })
 
 describe('RadioStationDetailView', () => {
-    it('create mode: titles "Add station" and has a disabled Create until valid', async () => {
+    it('create mode: has a disabled Save until valid', async () => {
         const w = mountView({ create: true })
         expect(w.findComponent(ScaffoldStub).props('title')).toBe('Add station')
-        expect(w.find('.create-station').attributes('disabled')).toBeDefined()
-        emitChange(w, true)
-        await w.vm.$nextTick()
-        expect(w.find('.create-station').attributes('disabled')).toBeUndefined()
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
+
+        const inputs = editInputs(w)
+        await inputs[0].setValue('Jazz FM')
+        await inputs[1].setValue('http://stream/jazz')
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeUndefined()
     })
 
-    it('create mode: Create calls the create mutation and returns to /radio', async () => {
+    it('create mode: Save calls the create mutation and returns to /radio', async () => {
         const w = mountView({ create: true })
-        emitChange(w, true)
-        await w.vm.$nextTick()
-        await w.find('.create-station').trigger('click')
+        const inputs = editInputs(w)
+        await inputs[0].setValue('Jazz FM')
+        await inputs[1].setValue('http://stream/jazz')
+        await w.find('.edit-action-save').trigger('click')
         expect(createMutate).toHaveBeenCalledWith(
             expect.objectContaining({ name: 'Jazz FM', streamUrl: 'http://stream/jazz' }),
             expect.anything()
@@ -114,27 +112,33 @@ describe('RadioStationDetailView', () => {
         expect(push).toHaveBeenCalledWith({ name: 'radio' })
     })
 
-    it('create mode: seeds the form prefill from query params', () => {
-        route.query = { name: 'RP', streamUrl: 'http://rp', homepage: 'http://rp.com' }
+    it('create mode: has no Delete button', () => {
         const w = mountView({ create: true })
-        expect(w.findComponent(FormStub).props('prefill')).toMatchObject({
-            name: 'RP',
-            streamUrl: 'http://rp',
-            homepageUrl: 'http://rp.com'
-        })
+        expect(w.find('.edit-action-delete').exists()).toBe(false)
     })
 
-    it('edit mode: shows the station name and resolves it from the list', () => {
+    it('create mode: seeds the form from query params', () => {
+        route.query = { name: 'RP', streamUrl: 'http://rp', homepage: 'http://rp.com' }
+        const w = mountView({ create: true })
+        const inputs = editInputs(w)
+        expect((inputs[0].element as HTMLInputElement).value).toBe('RP')
+        expect((inputs[1].element as HTMLInputElement).value).toBe('http://rp')
+        expect((inputs[2].element as HTMLInputElement).value).toBe('http://rp.com')
+    })
+
+    it('existing station opens read-only with Play + pencil', () => {
         const w = mountView({ id: 's1' })
-        expect(w.findComponent(ScaffoldStub).props('title')).toBe('Jazz FM')
-        expect(w.findComponent(FormStub).props('station')).toMatchObject({ id: 's1' })
+        expect(w.findComponent(ScaffoldStub).props('title')).toBe('')
+        expect(w.find('.hero-name').text()).toBe('Jazz FM')
+        expect(w.find('.play-station').exists()).toBe(true)
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+        expect(w.find('.edit-action-save').exists()).toBe(false)
     })
 
     it('edit mode: Save calls the update mutation with the id', async () => {
         const w = mountView({ id: 's1' })
-        emitChange(w, true)
-        await w.vm.$nextTick()
-        await w.find('.save-station').trigger('click')
+        await w.find('.edit-action-edit').trigger('click')
+        await w.find('.edit-action-save').trigger('click')
         expect(updateMutate).toHaveBeenCalledWith(
             expect.objectContaining({ id: 's1', name: 'Jazz FM' }),
             expect.anything()
@@ -143,12 +147,13 @@ describe('RadioStationDetailView', () => {
 
     it('edit mode: Delete (confirmed) removes the station and returns to /radio', async () => {
         const w = mountView({ id: 's1' })
-        await w.find('.delete-station').trigger('click')
+        await w.find('.edit-action-edit').trigger('click')
+        await w.find('.edit-action-delete').trigger('click')
         expect(deleteMutate).toHaveBeenCalledWith('s1', expect.anything())
         expect(push).toHaveBeenCalledWith({ name: 'radio' })
     })
 
-    it('edit mode: Play enqueues the station', async () => {
+    it('read mode: Play enqueues the station', async () => {
         const w = mountView({ id: 's1' })
         await w.find('.play-station').trigger('click')
         expect(playNow).toHaveBeenCalledWith({ id: 's1' })
