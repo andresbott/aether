@@ -147,6 +147,21 @@ describe('ArtistView', () => {
         )
     })
 
+    it('Cancel discards a staged cover without uploading and exits edit mode', async () => {
+        artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, coverArt: 'ar-1' }
+        const w = mountView()
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        expect(w.find('.flip-front img').attributes('src')).toContain('blob:')
+
+        await w.find('.edit-action-edit').trigger('click')
+        await w.find('.edit-action-cancel').trigger('click')
+        expect(coverMutate).not.toHaveBeenCalled()
+        // Staged preview is discarded — the hero reverts to the persisted cover URL.
+        expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
+    })
+
     it('rejects an oversize file: shows an error and does not upload', async () => {
         artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, coverArt: 'ar-1' }
         const w = mountView()
