@@ -25,4 +25,16 @@ describe('ContentScaffold', () => {
         })
         expect(w.find('.scaffold-actions .act-probe').exists()).toBe(true)
     })
+
+    it('shows no back button by default', () => {
+        const w = mount(ContentScaffold, { props: { title: 'X' } })
+        expect(w.find('.scaffold-back').exists()).toBe(false)
+    })
+
+    it('emits back when the back button is clicked', async () => {
+        const w = mount(ContentScaffold, { props: { title: 'X', showBack: true } })
+        expect(w.find('.scaffold-back').exists()).toBe(true)
+        await w.find('.scaffold-back').trigger('click')
+        expect(w.emitted('back')).toHaveLength(1)
+    })
 })

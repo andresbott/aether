@@ -105,14 +105,17 @@ onMounted(() => scrollCurrentIntoView('center'))
                 <h3>{{ title }}</h3>
                 <span v-if="trackCount > 0" class="queue-info">{{ summary }}</span>
             </div>
+            <!-- Buttons follow the shared header-action convention (plain
+                 text+rounded, default size/severity — see EditActionBar and the
+                 ContentScaffold views); the sidebar variant keeps the compact
+                 small size to fit its tighter header. -->
             <div class="header-actions">
                 <Button
                     class="queue-action-edit"
                     icon="pi pi-pencil"
                     text
                     rounded
-                    size="small"
-                    :severity="editMode ? 'primary' : 'secondary'"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :class="{ 'is-active': editMode }"
                     :aria-pressed="editMode"
                     :disabled="trackCount === 0"
@@ -124,19 +127,17 @@ onMounted(() => scrollCurrentIntoView('center'))
                     icon="pi pi-save"
                     text
                     rounded
-                    size="small"
-                    severity="secondary"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :disabled="trackCount === 0"
                     v-tooltip.bottom="'Save as playlist'"
                     @click="openSaveDialog"
                 />
                 <Button
                     class="queue-action-clear"
-                    icon="pi pi-trash"
+                    icon="pi pi-eraser"
                     text
                     rounded
-                    size="small"
-                    severity="secondary"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :disabled="trackCount === 0"
                     v-tooltip.bottom="'Clear queue'"
                     @click="clearQueue"
@@ -360,6 +361,17 @@ onMounted(() => scrollCurrentIntoView('center'))
     align-items: center;
     gap: 0.25rem;
     flex-shrink: 0;
+}
+
+/* Match the ContentScaffold .scaffold-actions spacing in the full view. */
+.queue-view--full .header-actions {
+    gap: 0.5rem;
+}
+
+/* The pencil is a toggle (unlike the one-shot header actions elsewhere), so
+   edit mode gets a soft accent fill to read as "pressed". */
+.header-actions .queue-action-edit.is-active {
+    background: var(--app-accent-soft);
 }
 
 .queue-empty {

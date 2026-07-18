@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
-import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useToast } from 'primevue/usetoast'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
+import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import {
@@ -132,6 +132,10 @@ const summary = computed(() => {
 
 const playAll = (): void => {
     if (working.value.length) player.playAlbum(working.value)
+}
+
+const queueAll = (): void => {
+    if (working.value.length) player.addMultipleToQueue(working.value)
 }
 
 // --- Cover picker ---
@@ -285,17 +289,7 @@ onUnmounted(() => {
                     @save="saveEdit"
                     @cancel="cancelEdit"
                     @delete="handleDelete"
-                >
-                    <template #read-actions>
-                        <Button
-                            class="play-all"
-                            label="Play"
-                            icon="pi pi-play"
-                            :disabled="working.length === 0"
-                            @click="playAll"
-                        />
-                    </template>
-                </EditActionBar>
+                />
             </template>
 
             <div class="playlist-scroll">
@@ -333,6 +327,14 @@ onUnmounted(() => {
                             <small v-if="coverClear" class="cleared-note">
                                 Cover will be reset on save.
                             </small>
+                        </template>
+                        <template #actions>
+                            <HeroActions
+                                :play-disabled="working.length === 0"
+                                can-queue
+                                @play="playAll"
+                                @queue="queueAll"
+                            />
                         </template>
                     </HeroHeader>
 

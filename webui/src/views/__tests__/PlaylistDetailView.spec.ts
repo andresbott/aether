@@ -39,7 +39,8 @@ const replaceAsync = vi.fn(() => Promise.resolve())
 const coverAsync = vi.fn(() => Promise.resolve())
 
 const playAlbum = vi.fn()
-vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum }) }))
+const addMultipleToQueue = vi.fn()
+vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum, addMultipleToQueue }) }))
 
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
@@ -97,6 +98,7 @@ beforeEach(() => {
     coverAsync.mockReset().mockImplementation(() => Promise.resolve())
     toastAdd.mockClear()
     playAlbum.mockReset()
+    addMultipleToQueue.mockClear()
     push.mockClear()
     replaceIsPending.value = false
     coverIsPending.value = false
@@ -115,7 +117,7 @@ describe('PlaylistDetailView', () => {
 
     it('view mode shows Play + pencil and no Save; edit mode shows Save/Cancel and hides Play', async () => {
         const w = mountView()
-        expect(w.find('.play-all').exists()).toBe(true)
+        expect(w.find('.hero-action-play').exists()).toBe(true)
         expect(w.find('.edit-action-edit').exists()).toBe(true)
         expect(w.find('.edit-action-save').exists()).toBe(false)
 
@@ -124,7 +126,7 @@ describe('PlaylistDetailView', () => {
         expect(w.find('.edit-action-save').exists()).toBe(true)
         expect(w.find('.edit-action-cancel').exists()).toBe(true)
         expect(w.find('.edit-action-delete').exists()).toBe(true)
-        expect(w.find('.play-all').exists()).toBe(false)
+        expect(w.find('.hero-action-play').exists()).toBe(false)
     })
 
     it('editing the name and saving persists it and exits edit mode', async () => {
@@ -138,7 +140,7 @@ describe('PlaylistDetailView', () => {
         )
         // Saving leaves edit mode.
         expect(w.find('.hero-header').classes()).not.toContain('editing')
-        expect(w.find('.play-all').exists()).toBe(true)
+        expect(w.find('.hero-action-play').exists()).toBe(true)
     })
 
     it('Cancel discards the in-progress name edit and exits edit mode', async () => {
@@ -192,15 +194,21 @@ describe('PlaylistDetailView', () => {
 
     it('Play queues the current on-screen list', async () => {
         const w = mountView()
-        await w.find('.play-all').trigger('click')
+        await w.find('.hero-action-play').trigger('click')
         expect(playAlbum).toHaveBeenCalledWith([song('1'), song('2'), song('3')])
     })
 
     it('Play reflects local edits before saving', async () => {
         const w = mountView()
         await w.find('[data-queue-index="0"] .delete-button').trigger('click')
-        await w.find('.play-all').trigger('click')
+        await w.find('.hero-action-play').trigger('click')
         expect(playAlbum).toHaveBeenCalledWith([song('2'), song('3')])
+    })
+
+    it('Add to queue enqueues the current on-screen list', async () => {
+        const w = mountView()
+        await w.find('.hero-action-queue').trigger('click')
+        expect(addMultipleToQueue).toHaveBeenCalledWith([song('1'), song('2'), song('3')])
     })
 
     it('warns via beforeunload only when there are unsaved changes', async () => {

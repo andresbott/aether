@@ -55,8 +55,8 @@ const play = async (event: Event, id: string): Promise<void> => {
 .list-header .col-count { text-align: right; }
 .playlist-row { height: 56px; text-decoration: none; color: inherit; border-radius: 6px; }
 .playlist-row:hover { background: var(--app-hover); }
-.col-cover { width: 40px; height: 40px; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: rgba(255, 255, 255, 0.85); }
-.col-cover img { width: 100%; height: 100%; object-fit: cover; }
+.playlist-row .col-cover { width: 40px; height: 40px; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: rgba(255, 255, 255, 0.85); }
+.playlist-row .col-cover img { width: 100%; height: 100%; object-fit: cover; }
 .col-name { min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .col-count { text-align: right; color: var(--app-text-secondary); font-size: 0.85rem; }
 .col-play { display: flex; justify-content: center; }

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#04 · Slide-in edit drawer</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-04 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-04 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+        .hero-04 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-04 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+        .hero-04 .meta-row { margin-top: 0.15rem; }
+
+        /* Slide-in drawer anchored to the demo-view. */
+        .drawer-wrap { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
+        .drawer-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); opacity: 0; transition: opacity 0.2s; }
+        .drawer-wrap.open { pointer-events: auto; }
+        .drawer-wrap.open .drawer-backdrop { opacity: 1; }
+        .drawer-panel {
+            position: absolute; top: 0; right: 0; bottom: 0;
+            width: min(380px, 85%);
+            background: var(--app-surface-2);
+            border-left: 1px solid var(--app-border);
+            box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+            transform: translateX(100%); transition: transform 0.25s ease;
+            display: flex; flex-direction: column;
+            overflow-y: auto;
+        }
+        .drawer-wrap.open .drawer-panel { transform: translateX(0); }
+        .drawer-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--app-border); }
+        .drawer-head h3 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+        .drawer-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; flex: 1; }
+        .drawer-foot { display: flex; gap: 0.5rem; padding: 1rem 1.25rem; border-top: 1px solid var(--app-border); }
+        .drawer-cover { display: flex; gap: 0.85rem; align-items: center; }
+        .drawer-cover .cover { width: 76px; height: 76px; }
+        .drawer-cover .cover-actions { display: flex; flex-direction: column; gap: 0.4rem; }
+        .drawer-field { display: flex; flex-direction: column; gap: 0.3rem; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#04 · Slide-in edit drawer</h1>
+            <p>The hero stays read-only; a single Edit button slides a right-hand drawer over a dimming backdrop, holding the full edit form with Save / Cancel.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — full form in drawer</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- Header-driven edit: the Edit trigger opens the drawer from the scaffold. -->
+                        <button class="btn btn-outline" data-open="pl4-drawer"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-04">
+                    <div class="cover"><img src="https://picsum.photos/seed/late-night-playlist/300" alt=""></div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <h2 class="hero-name">Late Night Drives</h2>
+                        <p class="hero-desc">Hazy synths and slow guitars for the long way home.</p>
+                        <div class="meta-row">
+                            <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+
+                <!-- Edit drawer -->
+                <div class="drawer-wrap" id="pl4-drawer">
+                    <div class="drawer-backdrop" data-close="pl4-drawer"></div>
+                    <aside class="drawer-panel">
+                        <div class="drawer-head">
+                            <h3>Edit playlist</h3>
+                            <button class="icon-btn" title="Close" data-close="pl4-drawer"><i class="pi pi-times"></i></button>
+                        </div>
+                        <div class="drawer-body">
+                            <div class="drawer-cover">
+                                <div class="cover"><img src="https://picsum.photos/seed/late-night-playlist/300" alt=""></div>
+                                <div class="cover-actions">
+                                    <button class="btn btn-outline" data-toast="Choose a cover…"><i class="pi pi-upload"></i> Upload</button>
+                                    <button class="btn btn-text" data-toast="Cover removed"><i class="pi pi-trash"></i> Remove</button>
+                                </div>
+                            </div>
+                            <label class="drawer-field">
+                                <span class="field-label">Name</span>
+                                <input class="field-input" value="Late Night Drives">
+                            </label>
+                            <label class="drawer-field">
+                                <span class="field-label">Description</span>
+                                <textarea class="field-input">Hazy synths and slow guitars for the long way home.</textarea>
+                            </label>
+                            <div class="drawer-field">
+                                <span class="field-label">Visibility</span>
+                                <div class="chips">
+                                    <span class="chip accent" data-toast="Set to Private"><i class="pi pi-lock"></i> Private</span>
+                                    <span class="chip" data-toast="Set to Public"><i class="pi pi-globe"></i> Public</span>
+                                </div>
+                            </div>
+                            <div class="drawer-field">
+                                <span class="field-label">Tags</span>
+                                <div class="chips">
+                                    <span class="chip">Chill <i class="pi pi-times" data-toast="Tag removed"></i></span>
+                                    <span class="chip">Synthwave <i class="pi pi-times" data-toast="Tag removed"></i></span>
+                                    <span class="chip">Night <i class="pi pi-times" data-toast="Tag removed"></i></span>
+                                    <span class="chip accent" data-toast="Add tag…"><i class="pi pi-plus"></i> Add</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="drawer-foot">
+                            <button class="btn" data-close="pl4-drawer" data-toast="Saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn btn-outline" data-close="pl4-drawer">Cancel</button>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — same drawer, name locked</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <!-- Header-driven edit: the Edit trigger opens the drawer from the scaffold. -->
+                        <button class="btn btn-outline" data-open="ar4-drawer"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-04">
+                    <div class="cover"><img src="https://picsum.photos/seed/aurora-vale-artist/300" alt=""></div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <h2 class="hero-name">Aurora Vale</h2>
+                        <p class="hero-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+
+                <!-- Edit drawer -->
+                <div class="drawer-wrap" id="ar4-drawer">
+                    <div class="drawer-backdrop" data-close="ar4-drawer"></div>
+                    <aside class="drawer-panel">
+                        <div class="drawer-head">
+                            <h3>Edit artist</h3>
+                            <button class="icon-btn" title="Close" data-close="ar4-drawer"><i class="pi pi-times"></i></button>
+                        </div>
+                        <div class="drawer-body">
+                            <div class="drawer-cover">
+                                <div class="cover"><img src="https://picsum.photos/seed/aurora-vale-artist/300" alt=""></div>
+                                <div class="cover-actions">
+                                    <button class="btn btn-outline" data-toast="Choose an image…"><i class="pi pi-upload"></i> Upload</button>
+                                    <button class="btn btn-text" data-toast="Image removed"><i class="pi pi-trash"></i> Remove</button>
+                                </div>
+                            </div>
+                            <!-- Artist name is not user-editable: no Name field in the form. -->
+                            <p style="margin:0; font-size:0.85rem; color:var(--app-text-secondary)">Name is managed by the MusicBrainz match and can't be edited here.</p>
+                            <label class="drawer-field">
+                                <span class="field-label">Bio</span>
+                                <textarea class="field-input">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</textarea>
+                            </label>
+                            <div class="drawer-field">
+                                <span class="field-label">Genres</span>
+                                <div class="chips">
+                                    <span class="chip">Dream Pop <i class="pi pi-times" data-toast="Genre removed"></i></span>
+                                    <span class="chip">Ambient <i class="pi pi-times" data-toast="Genre removed"></i></span>
+                                    <span class="chip">Shoegaze <i class="pi pi-times" data-toast="Genre removed"></i></span>
+                                    <span class="chip accent" data-toast="Add genre…"><i class="pi pi-plus"></i> Add</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="drawer-foot">
+                            <button class="btn" data-close="ar4-drawer" data-toast="Saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn btn-outline" data-close="ar4-drawer">Cancel</button>
+                        </div>
+                    </aside>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

@@ -14,9 +14,10 @@ import (
 )
 
 const (
-	KindArtist = "artist"
-	KindRadio  = "radio"
-	KindAlbum  = "album"
+	KindArtist   = "artist"
+	KindRadio    = "radio"
+	KindAlbum    = "album"
+	KindPlaylist = "playlist"
 )
 
 type Store struct {

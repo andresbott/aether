@@ -13,6 +13,7 @@ import CustomTheme from './theme'
 import { useTheme } from './composables/useTheme'
 import 'primeflex/primeflex.css'
 import 'primeicons/primeicons.css'
+import '@fontsource-variable/inter'
 import './assets/scss/_main.scss'
 
 import App from './App.vue'

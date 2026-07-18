@@ -40,13 +40,22 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 	for _, e := range exts {
 		names[e.Name] = e.Versions
 	}
-	if len(exts) != 2 {
-		t.Fatalf("expected 2 extensions, got %d: %+v", len(exts), exts)
+	if len(exts) != 5 {
+		t.Fatalf("expected 5 extensions, got %d: %+v", len(exts), exts)
 	}
 	if v, ok := names["musicFolderDefaultView"]; !ok || len(v) != 1 || v[0] != 1 {
 		t.Fatalf("musicFolderDefaultView versions = %v", v)
 	}
 	if v, ok := names["albumList2Index"]; !ok || len(v) != 1 || v[0] != 1 {
 		t.Fatalf("albumList2Index versions = %v", v)
+	}
+	if v, ok := names["internetRadioCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
+		t.Fatalf("internetRadioCoverArt versions = %v", v)
+	}
+	if v, ok := names["playlistCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
+		t.Fatalf("playlistCoverArt versions = %v", v)
+	}
+	if v, ok := names["artistCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
+		t.Fatalf("artistCoverArt versions = %v", v)
 	}
 }

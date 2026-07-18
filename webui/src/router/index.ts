@@ -55,19 +55,6 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/podcasts',
-        name: 'podcasts',
-        component: () => import('@/views/PodcastsView.vue'),
-        meta: { flush: true }
-    },
-    {
-        path: '/podcast/:id',
-        name: 'podcast-channel',
-        component: () => import('@/views/PodcastChannelView.vue'),
-        props: true,
-        meta: { flush: true }
-    },
-    {
         path: '/radio',
         name: 'radio',
         component: () => import('@/views/RadioView.vue'),

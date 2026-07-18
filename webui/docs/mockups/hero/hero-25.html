@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#25 · Overlapping metadata card</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        /* Layered depth: a surface-2 card rides up over the bottom of the cover. */
+        .hero-25 { display: flex; gap: 2.5rem; align-items: flex-start; margin-bottom: 2.75rem; }
+        .hero-25 .cover-wrap { flex-shrink: 0; }
+        .hero-25 .cover { width: 240px; height: 240px; }
+        .hero-25 .cover-edit {
+            position: absolute; inset: auto 0 0 0; padding: 0.55rem;
+            display: none; gap: 0.4rem; justify-content: center;
+            background: linear-gradient(transparent, rgba(0,0,0,0.6));
+        }
+        .hero-25.editing .cover-edit { display: flex; }
+        .hero-25 .cover-edit .ov-btn {
+            padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.6);
+            background: rgba(0,0,0,0.35); color: #fff; font: inherit; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+        }
+
+        .hero-25 .info-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        /* The card overlaps the cover's lower edge and casts a shadow. */
+        .hero-25 .meta-card {
+            background: var(--app-surface-2);
+            border: 1px solid var(--app-border);
+            border-radius: 14px;
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+            padding: 1.4rem 1.5rem;
+            margin-top: 3.5rem;
+            margin-left: -3rem;
+            display: flex; flex-direction: column; gap: 0.7rem;
+        }
+        .hero-25 .hero-name { margin: 0; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-25 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 48ch; }
+        .hero-25 .card-actions { display: flex; gap: 0.4rem; margin-top: 0.3rem; }
+
+        /* Flip card face: read-only vs form. */
+        .hero-25 .edit-only { display: none; }
+        .hero-25.editing .read-only { display: none; }
+        .hero-25.editing .edit-only { display: flex; }
+        .hero-25 .form-face { flex-direction: column; gap: 0.75rem; }
+        .hero-25 .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+        .hero-25 .save-bar { gap: 0.5rem; margin-top: 0.2rem; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#25 · Overlapping metadata card</h1>
+            <p>A raised surface card overlaps the bottom of the cover for layered depth; its “Edit” button flips the card’s face into an inline form with Save / Cancel.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — rename enabled</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- Hero-driven edit (Edit button on the overlapping card); scaffold stays generic. Delete is a destructive management action. -->
+                        <button class="icon-btn danger" title="Delete playlist"><i class="pi pi-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-25" id="pl25">
+                    <div class="cover-wrap">
+                        <div class="cover">
+                            <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                            <div class="cover-edit">
+                                <button class="ov-btn" data-toast="Choose a cover…"><i class="pi pi-upload"></i> Upload</button>
+                                <button class="ov-btn" data-toast="Cover removed"><i class="pi pi-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-col">
+                        <div class="meta-card">
+                            <!-- Read-only face -->
+                            <span class="eyebrow read-only">Playlist</span>
+                            <h2 class="hero-name read-only">Late Night Drives</h2>
+                            <p class="hero-desc read-only">Hazy synths and slow guitars for the long way home.</p>
+                            <div class="meta-row read-only">
+                                <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                            </div>
+                            <div class="chips read-only">
+                                <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                            </div>
+                            <div class="card-actions read-only">
+                                <button class="btn-outline btn" data-edit-toggle="#pl25"><i class="pi pi-pencil"></i> Edit</button>
+                                <button class="icon-btn danger" title="Delete" data-toast="Delete playlist?"><i class="pi pi-trash"></i></button>
+                            </div>
+
+                            <!-- Form face -->
+                            <div class="edit-only form-face">
+                                <span class="eyebrow">Edit playlist</span>
+                                <label class="form-field">
+                                    <span class="field-label">Name</span>
+                                    <input class="field-input" value="Late Night Drives">
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Description</span>
+                                    <textarea class="field-input">Hazy synths and slow guitars for the long way home.</textarea>
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Tags</span>
+                                    <input class="field-input" value="Chill, Synthwave, Night">
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Cover</span>
+                                    <button class="btn-outline btn" data-toast="Choose a cover…"><i class="pi pi-cloud-upload"></i> Upload image</button>
+                                </label>
+                                <div class="save-bar card-actions">
+                                    <button class="btn" data-edit-toggle="#pl25" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                                    <button class="btn-outline btn" data-edit-toggle="#pl25">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — no rename, adds star</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <!-- Hero-driven edit (Edit button on the overlapping card); scaffold stays generic. MusicBrainz match edit is allowed (not a rename). -->
+                        <button class="icon-btn" title="Edit MusicBrainz match"><i class="pi pi-pencil"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-25" id="ar25">
+                    <div class="cover-wrap">
+                        <div class="cover">
+                            <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                            <div class="cover-edit">
+                                <button class="ov-btn" data-toast="Choose an image…"><i class="pi pi-upload"></i> Upload</button>
+                                <button class="ov-btn" data-toast="Image removed"><i class="pi pi-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-col">
+                        <div class="meta-card">
+                            <!-- Read-only face -->
+                            <span class="eyebrow read-only">Artist</span>
+                            <h2 class="hero-name read-only">Aurora Vale</h2>
+                            <p class="hero-desc read-only">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                            <div class="meta-row read-only">
+                                <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                            </div>
+                            <div class="chips read-only">
+                                <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                            </div>
+                            <div class="card-actions read-only">
+                                <button class="btn-outline btn" data-edit-toggle="#ar25"><i class="pi pi-pencil"></i> Edit</button>
+                                <button class="icon-btn is-active" title="Starred" data-toast="Removed from favourites"><i class="pi pi-star-fill"></i></button>
+                            </div>
+
+                            <!-- Form face — artist name is NOT editable -->
+                            <div class="edit-only form-face">
+                                <span class="eyebrow">Edit artist</span>
+                                <label class="form-field">
+                                    <span class="field-label">Bio</span>
+                                    <textarea class="field-input">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</textarea>
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Genres</span>
+                                    <input class="field-input" value="Dream Pop, Ambient, Shoegaze">
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Image</span>
+                                    <button class="btn-outline btn" data-toast="Choose an image…"><i class="pi pi-cloud-upload"></i> Upload image</button>
+                                </label>
+                                <div class="save-bar card-actions">
+                                    <button class="btn" data-edit-toggle="#ar25" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                                    <button class="btn-outline btn" data-edit-toggle="#ar25">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

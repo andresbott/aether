@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
-import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
+import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
+import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
+import type { Song } from '@/types/subsonic'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
 
@@ -135,6 +137,38 @@ const sortedAlbums = computed(() => {
         .map((a) => ({ ...a, artist: a.artist || artistName }))
         .sort((a, b) => (b.year || 0) - (a.year || 0))
 })
+
+const player = usePlayer()
+const gathering = ref(false)
+
+// getArtist returns albums without their songs, so gather each album's songs on
+// demand before playing/queuing the whole discography.
+async function gatherSongs(): Promise<Song[]> {
+    const results = await Promise.all(sortedAlbums.value.map((a) => subsonicClient.getAlbum(a.id)))
+    return results.flatMap((al) => al?.song ?? [])
+}
+
+const onPlay = async (): Promise<void> => {
+    if (gathering.value) return
+    gathering.value = true
+    try {
+        const songs = await gatherSongs()
+        if (songs.length) player.playAlbum(songs)
+    } finally {
+        gathering.value = false
+    }
+}
+
+const onQueue = async (): Promise<void> => {
+    if (gathering.value) return
+    gathering.value = true
+    try {
+        const songs = await gatherSongs()
+        if (songs.length) player.addMultipleToQueue(songs)
+    } finally {
+        gathering.value = false
+    }
+}
 </script>
 
 <template>
@@ -158,17 +192,7 @@ const sortedAlbums = computed(() => {
                     :dirty="dirty"
                     @save="saveEdit"
                     @cancel="cancelEdit"
-                >
-                    <template #read-actions>
-                        <Button
-                            :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                            text
-                            rounded
-                            title="Toggle star"
-                            @click="handleStar"
-                        />
-                    </template>
-                </EditActionBar>
+                />
             </template>
 
             <div class="artist-scroll">
@@ -193,6 +217,17 @@ const sortedAlbums = computed(() => {
                                     >{{ part }}</span
                                 >
                             </div>
+                        </template>
+                        <template #actions>
+                            <HeroActions
+                                can-queue
+                                can-star
+                                :starred="!!artist.starred"
+                                :busy="gathering"
+                                @play="onPlay"
+                                @queue="onQueue"
+                                @star="handleStar"
+                            />
                         </template>
                     </HeroHeader>
 

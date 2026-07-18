@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#07 · Kebab overflow menu</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-07 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-07 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+        .hero-07 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-07 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+        .hero-07 .meta-row { margin-top: 0.15rem; }
+
+        /* Overflow menu anchored to the top-right of the demo-view. */
+        .menu-wrap { position: absolute; inset: 0; z-index: 20; pointer-events: none; }
+        .menu-backdrop { position: absolute; inset: 0; }
+        .menu-wrap.open { pointer-events: auto; }
+        .menu-panel {
+            position: absolute; top: 3.4rem; right: 1.5rem;
+            min-width: 190px;
+            background: var(--app-surface-2);
+            border: 1px solid var(--app-border);
+            border-radius: 10px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+            padding: 0.35rem;
+            transform-origin: top right;
+            transform: scale(0.95); opacity: 0;
+            transition: transform 0.15s ease, opacity 0.15s ease;
+        }
+        .menu-wrap.open .menu-panel { transform: scale(1); opacity: 1; }
+        .menu-item {
+            display: flex; align-items: center; gap: 0.6rem; width: 100%;
+            padding: 0.5rem 0.7rem; border: none; background: transparent;
+            color: var(--app-text-primary); font: inherit; font-size: 0.85rem;
+            border-radius: 6px; cursor: pointer; text-align: left;
+        }
+        .menu-item:hover { background: var(--app-hover); }
+        .menu-item .pi { font-size: 0.9rem; width: 1rem; color: var(--app-text-secondary); }
+        .menu-item.danger { color: var(--app-danger); }
+        .menu-item.danger .pi { color: var(--app-danger); }
+        .menu-sep { height: 1px; background: var(--app-border); margin: 0.35rem 0.3rem; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#07 · Kebab overflow menu</h1>
+            <p>A very clean hero with no inline chrome; a single ⋯ button opens a compact dropdown of every edit action, anchored to the top-right.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — Rename / cover / delete in menu</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- Header-driven edit: the kebab trigger opens the overflow menu from the scaffold. -->
+                        <button class="icon-btn" title="More" data-open="pl7-menu"><i class="pi pi-ellipsis-v"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-07">
+                    <div class="cover"><img src="https://picsum.photos/seed/late-night-playlist/300" alt=""></div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <h2 class="hero-name">Late Night Drives</h2>
+                        <p class="hero-desc">Hazy synths and slow guitars for the long way home.</p>
+                        <div class="meta-row">
+                            <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+
+                <!-- Overflow menu -->
+                <div class="menu-wrap" id="pl7-menu">
+                    <div class="menu-backdrop" data-close="pl7-menu"></div>
+                    <div class="menu-panel">
+                        <button class="menu-item" data-close="pl7-menu" data-toast="Rename…"><i class="pi pi-pencil"></i> Rename</button>
+                        <button class="menu-item" data-close="pl7-menu" data-toast="Choose a cover…"><i class="pi pi-camera"></i> Change cover</button>
+                        <button class="menu-item" data-close="pl7-menu" data-toast="Cover removed"><i class="pi pi-image"></i> Remove cover</button>
+                        <button class="menu-item" data-close="pl7-menu" data-toast="Edit details…"><i class="pi pi-list"></i> Edit details</button>
+                        <div class="menu-sep"></div>
+                        <button class="menu-item danger" data-close="pl7-menu" data-toast="Playlist deleted"><i class="pi pi-trash"></i> Delete</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — image / MusicBrainz / star in menu</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <!-- Header-driven edit: the kebab trigger opens the overflow menu from the scaffold. -->
+                        <button class="icon-btn" title="More" data-open="ar7-menu"><i class="pi pi-ellipsis-v"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-07">
+                    <div class="cover"><img src="https://picsum.photos/seed/aurora-vale-artist/300" alt=""></div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <!-- Artist name is not user-editable: no Rename entry in the menu. -->
+                        <h2 class="hero-name">Aurora Vale</h2>
+                        <p class="hero-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+
+                <!-- Overflow menu -->
+                <div class="menu-wrap" id="ar7-menu">
+                    <div class="menu-backdrop" data-close="ar7-menu"></div>
+                    <div class="menu-panel">
+                        <button class="menu-item" data-close="ar7-menu" data-toast="Choose an image…"><i class="pi pi-camera"></i> Change image</button>
+                        <button class="menu-item" data-close="ar7-menu" data-toast="Image removed"><i class="pi pi-image"></i> Remove image</button>
+                        <button class="menu-item" data-close="ar7-menu" data-toast="Edit MusicBrainz…"><i class="pi pi-pencil"></i> Edit MusicBrainz</button>
+                        <div class="menu-sep"></div>
+                        <button class="menu-item" data-close="ar7-menu" data-toast="Star toggled"><i class="pi pi-star"></i> Toggle star</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

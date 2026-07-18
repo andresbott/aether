@@ -155,36 +155,6 @@ export interface QueueItem extends Song {
     queueId: string
 }
 
-export interface PodcastChannel {
-    id: string
-    url: string
-    title: string
-    description?: string
-    coverArt?: string
-    originalImageUrl?: string
-    status: 'new' | 'downloading' | 'completed' | 'error' | 'deleted' | 'skipped'
-    errorMessage?: string
-    episode?: PodcastEpisode[]
-}
-
-export interface PodcastEpisode {
-    id: string
-    streamId: string
-    channelId: string
-    title: string
-    description?: string
-    publishDate?: string
-    status: 'new' | 'downloading' | 'completed' | 'error' | 'deleted' | 'skipped'
-    duration?: number
-    bitRate?: number
-    size?: number
-    contentType?: string
-    suffix?: string
-    coverArt?: string
-    year?: number
-    genre?: string
-}
-
 export interface InternetRadioStation {
     id: string
     name: string

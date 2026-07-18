@@ -29,8 +29,16 @@ const ScaffoldStub = {
     props: ['title', 'summary'],
     template: '<div><slot name="actions" /><slot /></div>'
 }
-const ArtistCardStub = { name: 'ArtistCard', props: ['artist'], template: '<div class="artist-card-stub">{{ artist.name }}</div>' }
-const AlbumCardStub = { name: 'AlbumCard', props: ['album'], template: '<div class="album-card-stub">{{ album.name }}</div>' }
+const ArtistCardStub = {
+    name: 'ArtistCard',
+    props: ['artist'],
+    template: '<div class="artist-card-stub">{{ artist.name }}</div>'
+}
+const AlbumCardStub = {
+    name: 'AlbumCard',
+    props: ['album'],
+    template: '<div class="album-card-stub">{{ album.name }}</div>'
+}
 
 import SearchView from '@/views/SearchView.vue'
 

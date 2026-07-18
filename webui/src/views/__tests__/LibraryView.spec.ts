@@ -14,16 +14,43 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
     useMusicFolders: () => ({ data: ref([{ id: 1, name: 'Main' }]) })
 }))
 vi.mock('@/composables/useAlbumIndex', () => ({
-    useAlbumIndex: () => ({ total: ref(1240), letters: ref([]), isLoading: ref(false), error: ref(null) })
+    useAlbumIndex: () => ({
+        total: ref(1240),
+        letters: ref([]),
+        isLoading: ref(false),
+        error: ref(null)
+    })
 }))
 vi.mock('@/composables/useArtistTable', () => ({
-    useArtistTable: () => ({ total: ref(87), letters: ref([]), items: ref([]), isLoading: ref(false), error: ref(null) })
+    useArtistTable: () => ({
+        total: ref(87),
+        letters: ref([]),
+        items: ref([]),
+        isLoading: ref(false),
+        error: ref(null)
+    })
 }))
 
-const AlbumListStub = { name: 'AlbumListView', props: ['folderId'], template: '<div class="album-list-stub" />' }
-const AlbumGridStub = { name: 'AlbumGrid', props: ['folderId'], template: '<div class="album-grid-stub" />' }
-const ArtistListStub = { name: 'ArtistListView', props: ['folderId'], template: '<div class="artist-list-stub" />' }
-const ArtistGridStub = { name: 'ArtistGrid', props: ['folderId'], template: '<div class="artist-grid-stub" />' }
+const AlbumListStub = {
+    name: 'AlbumListView',
+    props: ['folderId'],
+    template: '<div class="album-list-stub" />'
+}
+const AlbumGridStub = {
+    name: 'AlbumGrid',
+    props: ['folderId'],
+    template: '<div class="album-grid-stub" />'
+}
+const ArtistListStub = {
+    name: 'ArtistListView',
+    props: ['folderId'],
+    template: '<div class="artist-list-stub" />'
+}
+const ArtistGridStub = {
+    name: 'ArtistGrid',
+    props: ['folderId'],
+    template: '<div class="artist-grid-stub" />'
+}
 
 import LibraryView from '@/views/LibraryView.vue'
 import SelectButton from 'primevue/selectbutton'
@@ -92,7 +119,10 @@ describe('LibraryView', () => {
         w.findAllComponents(SelectButton)[0].vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
         expect(replace).toHaveBeenCalledWith(
-            expect.objectContaining({ hash: '#albums', query: expect.objectContaining({ view: 'list' }) })
+            expect.objectContaining({
+                hash: '#albums',
+                query: expect.objectContaining({ view: 'list' })
+            })
         )
     })
 })

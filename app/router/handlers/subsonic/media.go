@@ -74,8 +74,16 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			return coverMeta{}, false
 		}
 		meta := coverMeta{seed: artist.NameNorm}
+		// A cover keyed by MusicBrainz ID (auto-fetched or a manual upload made
+		// while the artist was matched) takes precedence; fall back to the DB-ID
+		// slot used for manual uploads on unmatched artists.
 		if artist.MBArtistID != "" {
 			if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+				meta.coverPath = p
+			}
+		}
+		if meta.coverPath == "" {
+			if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
 				meta.coverPath = p
 			}
 		}
@@ -88,6 +96,20 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 		}
 		meta := coverMeta{seed: station.Name}
 		if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
+			meta.coverPath = p
+		}
+		return meta, true
+	case "playlist":
+		pl, err := h.store.GetPlaylist(id)
+		if err != nil {
+			writeError(w, 70, "playlist not found")
+			return coverMeta{}, false
+		}
+		// A manually uploaded cover (see updatePlaylist) takes precedence;
+		// otherwise fall through to the name-seeded generated cover (same
+		// mechanism as artists/radio).
+		meta := coverMeta{seed: pl.Name}
+		if p, ok := h.assets.Get(assetstore.KindPlaylist, strconv.FormatUint(uint64(pl.ID), 10)); ok {
 			meta.coverPath = p
 		}
 		return meta, true

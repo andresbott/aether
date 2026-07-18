@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import FileUpload from 'primevue/fileupload'
 import Message from 'primevue/message'
@@ -24,8 +24,23 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
-        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`
+        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`,
+        getAlbum: (id: string) =>
+            Promise.resolve(
+                (
+                    {
+                        a1: { id: 'a1', song: [{ id: 's1' }, { id: 's2' }] },
+                        a2: { id: 'a2', song: [{ id: 's3' }] }
+                    } as Record<string, unknown>
+                )[id] ?? null
+            )
     }
+}))
+
+const playAlbum = vi.fn()
+const addMultipleToQueue = vi.fn()
+vi.mock('@/composables/usePlayer', () => ({
+    usePlayer: () => ({ playAlbum, addMultipleToQueue })
 }))
 
 vi.mock('vue-router', () => ({
@@ -51,7 +66,7 @@ const mountView = () =>
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
-            stubs: { ContentScaffold: ScaffoldStub, ConfirmDialog: true }
+            stubs: { ContentScaffold: ScaffoldStub, ConfirmDialog: true, RouterLink: true }
         }
     })
 
@@ -65,6 +80,8 @@ beforeEach(() => {
     error.value = null
     toggleStarMutate.mockClear()
     coverMutate.mockClear()
+    playAlbum.mockClear()
+    addMultipleToQueue.mockClear()
     coverIsPending.value = false
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
@@ -102,9 +119,46 @@ describe('ArtistView', () => {
     it('toggles star on click', async () => {
         artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, starred: undefined }
         const w = mountView()
-        const starBtn = w.findAll('button').find((b) => b.attributes('title') === 'Toggle star')
-        await starBtn!.trigger('click')
+        await w.find('.hero-action-star').trigger('click')
         expect(toggleStarMutate).toHaveBeenCalledWith({ id: 'ar-1', starred: false })
+    })
+
+    it('Play gathers each album\'s songs then plays them in order', async () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Nirvana',
+            album: [
+                { id: 'a1', name: 'A1' },
+                { id: 'a2', name: 'A2' }
+            ]
+        }
+        const w = mountView()
+        await w.find('.hero-action-play').trigger('click')
+        await flushPromises()
+        expect(playAlbum).toHaveBeenCalledWith([{ id: 's1' }, { id: 's2' }, { id: 's3' }])
+    })
+
+    it('Add to queue gathers songs then enqueues them', async () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'Nirvana',
+            album: [
+                { id: 'a1', name: 'A1' },
+                { id: 'a2', name: 'A2' }
+            ]
+        }
+        const w = mountView()
+        await w.find('.hero-action-queue').trigger('click')
+        await flushPromises()
+        expect(addMultipleToQueue).toHaveBeenCalledWith([{ id: 's1' }, { id: 's2' }, { id: 's3' }])
+    })
+
+    it('hides the hero actions in edit mode', async () => {
+        artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, coverArt: 'ar-1' }
+        const w = mountView()
+        expect(w.find('.hero-action-star').exists()).toBe(true)
+        await enterEdit(w)
+        expect(w.find('.hero-action-star').exists()).toBe(false)
     })
 
     it('renders the hero image and the flip-back cover controls', () => {

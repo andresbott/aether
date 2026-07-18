@@ -71,7 +71,14 @@ const handleCreate = () => {
                     <i :class="slotProps.option.icon"></i>
                 </template>
             </SelectButton>
-            <Button label="Create Playlist" icon="pi pi-plus" @click="showCreateDialog = true" />
+            <Button
+                icon="pi pi-plus"
+                text
+                rounded
+                v-tooltip.bottom="'Create playlist'"
+                aria-label="Create playlist"
+                @click="showCreateDialog = true"
+            />
         </template>
 
         <div class="playlists-scroll">

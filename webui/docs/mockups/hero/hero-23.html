@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#23 · Confirm-on-blur rename</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-23 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-23 .cover { cursor: pointer; }
+        .hero-23 .cover:hover .cover-cam { opacity: 1; }
+        .hero-23 .cover-cam {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center; gap: 0.4rem;
+            background: rgba(0,0,0,0.45); color: #fff;
+            border: none; font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+            opacity: 0; transition: opacity 0.18s;
+        }
+        .hero-23 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.6rem; justify-content: center; }
+        .hero-23 .title-line { display: flex; align-items: center; gap: 0.4rem; }
+        .hero-23 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-23 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+
+        /* Rename micro-interaction: swap heading for an input row while editing. */
+        .hero-23 .name-edit { display: none; flex-direction: column; gap: 0.3rem; }
+        .hero-23 .name-block.editing .name-read { display: none; }
+        .hero-23 .name-block.editing .name-edit { display: flex; }
+        .hero-23 .name-row { display: flex; align-items: center; gap: 0.4rem; }
+        .hero-23 .name-row .field-input { font-size: 1.6rem; font-weight: 800; padding: 0.35rem 0.6rem; }
+        .hero-23 .name-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+        .hero-23 .esc-hint { font-size: 0.75rem; color: var(--app-text-secondary); }
+        .hero-23 .esc-hint kbd {
+            font: inherit; font-size: 0.7rem; padding: 0.05rem 0.35rem;
+            border: 1px solid var(--app-border); border-radius: 4px; background: var(--app-bg-subtle);
+        }
+        .hero-23 .char-count { font-size: 0.75rem; color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
+
+        /* Artist name is locked — MusicBrainz-managed. */
+        .hero-23 .lock-note {
+            display: inline-flex; align-items: center; gap: 0.35rem;
+            font-size: 0.75rem; color: var(--app-text-secondary);
+        }
+        .hero-23 .lock-note .pi { font-size: 0.75rem; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#23 · Confirm-on-blur rename</h1>
+            <p>A rich rename micro-interaction: the title becomes an input with confirm/cancel, a live character counter and an Esc hint. Artist names stay locked to MusicBrainz.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — rename enabled</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <button class="icon-btn danger" title="Delete playlist"><i class="pi pi-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-23">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                        <button class="cover-cam" data-toast="Choose a new cover…"><i class="pi pi-camera"></i> Change</button>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <div class="name-block" id="pl23-name">
+                            <div class="name-read title-line">
+                                <h2 class="hero-name">Late Night Drives</h2>
+                                <button class="icon-btn accent" title="Rename" data-edit-toggle="#pl23-name"><i class="pi pi-pencil"></i></button>
+                            </div>
+                            <div class="name-edit">
+                                <div class="name-row">
+                                    <input class="field-input" value="Late Night Drives" maxlength="60">
+                                    <button class="icon-btn accent" title="Confirm" data-edit-toggle="#pl23-name" data-toast="Renamed"><i class="pi pi-check"></i></button>
+                                    <button class="icon-btn" title="Cancel" data-edit-toggle="#pl23-name"><i class="pi pi-times"></i></button>
+                                </div>
+                                <div class="name-foot">
+                                    <span class="esc-hint">Press <kbd>Esc</kbd> to cancel</span>
+                                    <span class="char-count">17 / 60</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="hero-desc">Hazy synths and slow guitars for the long way home.</p>
+                        <div class="meta-row">
+                            <span>by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — no rename, adds star</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <button class="icon-btn" title="Edit MusicBrainz match"><i class="pi pi-pencil"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-23">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                        <button class="cover-cam" data-toast="Choose a new image…"><i class="pi pi-camera"></i> Change</button>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <!-- Artist name is not editable: plain static heading with a lock note. -->
+                        <div class="title-line">
+                            <h2 class="hero-name">Aurora Vale</h2>
+                        </div>
+                        <span class="lock-note"><i class="pi pi-lock"></i> Managed via MusicBrainz</span>
+                        <p class="hero-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

@@ -11,7 +11,6 @@ import type {
     Playlist,
     SearchParams,
     SubsonicCredentials,
-    PodcastChannel,
     InternetRadioStation
 } from '@/types/subsonic'
 
@@ -25,10 +24,6 @@ export const queryKeys = {
     search: (query: string) => ['subsonic', 'search', query] as const,
     playlists: ['subsonic', 'playlists'] as const,
     playlist: (id: string) => ['subsonic', 'playlist', id] as const,
-    podcasts: (includeEpisodes: boolean) =>
-        ['subsonic', 'podcasts', includeEpisodes] as const,
-    podcastChannel: (id: string) => ['subsonic', 'podcastChannel', id] as const,
-    newestPodcasts: (count: number) => ['subsonic', 'newestPodcasts', count] as const,
     radioStations: ['subsonic', 'radioStations'] as const,
     randomSongs: (size: number, musicFolderId?: number) =>
         ['subsonic', 'randomSongs', size, musicFolderId] as const
@@ -103,38 +98,6 @@ export function usePlaylist(id: string) {
     })
 }
 
-export function usePodcasts(
-    includeEpisodes: boolean | Ref<boolean> | ComputedRef<boolean> = true
-) {
-    return useQuery({
-        queryKey: computed(() => queryKeys.podcasts(unref(includeEpisodes))),
-        queryFn: () => subsonicClient.getPodcasts(unref(includeEpisodes)),
-        staleTime: 5 * 60 * 1000
-    })
-}
-
-export function usePodcastChannel(
-    id: string,
-    options?: Omit<UseQueryOptions<PodcastChannel | null>, 'queryKey' | 'queryFn'>
-) {
-    return useQuery({
-        queryKey: queryKeys.podcastChannel(id),
-        queryFn: () => subsonicClient.getPodcastChannel(id),
-        staleTime: 5 * 60 * 1000,
-        ...options
-    })
-}
-
-export function useNewestPodcasts(
-    count: number | Ref<number> | ComputedRef<number> = 20
-) {
-    return useQuery({
-        queryKey: computed(() => queryKeys.newestPodcasts(unref(count))),
-        queryFn: () => subsonicClient.getNewestPodcasts(unref(count)),
-        staleTime: 2 * 60 * 1000
-    })
-}
-
 export function useRadioStations() {
     return useQuery({
         queryKey: queryKeys.radioStations,
@@ -187,11 +150,42 @@ export function useUpdatePlaylist() {
     })
 }
 
+export function useUpdateArtistCover() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { artistId: string; coverFile?: File; coverClear?: boolean }) =>
+            subsonicClient.updateArtistCover(
+                params.artistId,
+                params.coverFile,
+                params.coverClear
+            ),
+        onSuccess: (_data, params) => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.artist(params.artistId) })
+        }
+    })
+}
+
 export function useReplacePlaylistTracks() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (params: { playlistId: string; songIds: string[] }) =>
             subsonicClient.replacePlaylistTracks(params.playlistId, params.songIds),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+        }
+    })
+}
+
+export function useUpdatePlaylistCover() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { playlistId: string; coverFile?: File; coverClear?: boolean }) =>
+            subsonicClient.updatePlaylistCover(
+                params.playlistId,
+                params.coverFile,
+                params.coverClear
+            ),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
             queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })

@@ -61,7 +61,7 @@ watch(logText, async () => {
 }
 .log-content pre {
     margin: 0;
-    font-family: 'Fira Code', 'Consolas', 'Courier New', monospace;
+    font-family: var(--font-mono, monospace);
     font-size: 0.8rem;
     line-height: 1.6;
     color: #cdd6f4;
