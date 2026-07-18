@@ -5,6 +5,7 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import ConfirmDialog from 'primevue/confirmdialog'
+import { useToast } from 'primevue/usetoast'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
@@ -26,6 +27,7 @@ const MAX_COVER_BYTES = 5 * 1024 * 1024
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const player = usePlayer()
+const toast = useToast()
 
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
 const updatePlaylist = useUpdatePlaylist()
@@ -160,46 +162,64 @@ const onDelete = (indices: number[]): void => {
     const drop = new Set(indices)
     working.value = working.value.filter((_, i) => !drop.has(i))
 }
-const saveEdit = (): void => {
+const saveEdit = async (): Promise<void> => {
     if (!dirty.value) {
         editing.value = false
         return
     }
+    const tasks: Promise<unknown>[] = []
     if (metaDirty.value) {
-        updatePlaylist.mutate(
-            { playlistId: props.id, name: editName.value.trim(), comment: editComment.value },
-            {
-                onSuccess: () => {
+        tasks.push(
+            updatePlaylist
+                .mutateAsync({
+                    playlistId: props.id,
+                    name: editName.value.trim(),
+                    comment: editComment.value
+                })
+                .then(() => {
                     baseName.value = editName.value
                     baseComment.value = editComment.value
-                }
-            }
+                })
         )
     }
     if (tracksDirty.value) {
-        replaceTracks.mutate(
-            { playlistId: props.id, songIds: working.value.map((s) => s.id) },
-            // Re-baseline immediately so the button disables without waiting for
-            // the invalidated query to refetch.
-            { onSuccess: () => (savedIds.value = working.value.map((s) => s.id)) }
+        tasks.push(
+            replaceTracks
+                .mutateAsync({ playlistId: props.id, songIds: working.value.map((s) => s.id) })
+                .then(() => {
+                    // Re-baseline immediately so the button disables without waiting
+                    // for the invalidated query to refetch.
+                    savedIds.value = working.value.map((s) => s.id)
+                })
         )
     }
     if (coverDirty.value) {
-        updateCover.mutate(
-            {
-                playlistId: props.id,
-                coverFile: selectedCoverFile.value ?? undefined,
-                coverClear: coverClear.value || undefined
-            },
-            {
-                onSuccess: () => {
+        tasks.push(
+            updateCover
+                .mutateAsync({
+                    playlistId: props.id,
+                    coverFile: selectedCoverFile.value ?? undefined,
+                    coverClear: coverClear.value || undefined
+                })
+                .then(() => {
                     resetCoverStaging()
                     coverCacheBust.value = Date.now()
-                }
-            }
+                })
         )
     }
-    editing.value = false
+    try {
+        await Promise.all(tasks)
+        editing.value = false
+    } catch {
+        // Stay in edit mode so the user can retry; successful slices were already
+        // re-baselined above, so a retry only re-fires the still-dirty ones.
+        toast.add({
+            severity: 'error',
+            summary: 'Save failed',
+            detail: 'Some changes could not be saved. Please try again.',
+            life: 4000
+        })
+    }
 }
 
 // Discard staged name/description/cover edits and leave edit mode.

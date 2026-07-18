@@ -1,18 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import FileUpload from 'primevue/fileupload'
+
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 const playlist = ref<any>(null)
 const replaceIsPending = ref(false)
 const coverIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
     usePlaylist: () => ({ data: playlist, isLoading: ref(false), error: ref(null) }),
-    useUpdatePlaylist: () => ({ mutate: updateMutate, isPending: ref(false) }),
-    useUpdatePlaylistCover: () => ({ mutate: coverMutate, isPending: coverIsPending }),
+    useUpdatePlaylist: () => ({ mutate: updateMutate, mutateAsync: updateAsync, isPending: ref(false) }),
+    useUpdatePlaylistCover: () => ({
+        mutate: coverMutate,
+        mutateAsync: coverAsync,
+        isPending: coverIsPending
+    }),
     useDeletePlaylist: () => ({ mutate: deleteMutate }),
-    useReplacePlaylistTracks: () => ({ mutate: replaceMutate, isPending: replaceIsPending })
+    useReplacePlaylistTracks: () => ({
+        mutate: replaceMutate,
+        mutateAsync: replaceAsync,
+        isPending: replaceIsPending
+    })
 }))
 const updateMutate = vi.fn()
 // Invokes onSuccess so the component can re-baseline (clear dirty) after a save.
@@ -23,6 +33,9 @@ const coverMutate = vi.fn((_payload: unknown, opts?: { onSuccess?: () => void })
     opts?.onSuccess?.()
 )
 const deleteMutate = vi.fn((_id: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.())
+const updateAsync = vi.fn(() => Promise.resolve())
+const replaceAsync = vi.fn(() => Promise.resolve())
+const coverAsync = vi.fn(() => Promise.resolve())
 
 const playAlbum = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum }) }))
@@ -78,6 +91,9 @@ beforeEach(() => {
     replaceMutate.mockClear()
     coverMutate.mockClear()
     deleteMutate.mockClear()
+    updateAsync.mockReset().mockImplementation(() => Promise.resolve())
+    replaceAsync.mockReset().mockImplementation(() => Promise.resolve())
+    coverAsync.mockReset().mockImplementation(() => Promise.resolve())
     playAlbum.mockReset()
     push.mockClear()
     replaceIsPending.value = false
@@ -114,9 +130,9 @@ describe('PlaylistDetailView', () => {
         await enterEdit(w)
         await nameInput(w).setValue('Road Trip')
         await w.find('.edit-action-save').trigger('click')
-        expect(updateMutate).toHaveBeenCalledWith(
-            expect.objectContaining({ playlistId: 'pl1', name: 'Road Trip' }),
-            expect.anything()
+        await flushPromises()
+        expect(updateAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', name: 'Road Trip' })
         )
         // Saving leaves edit mode.
         expect(w.find('.hero-header').classes()).not.toContain('editing')
@@ -149,9 +165,9 @@ describe('PlaylistDetailView', () => {
 
         await enterEdit(w)
         await w.find('.edit-action-save').trigger('click')
-        expect(replaceMutate).toHaveBeenCalledWith(
-            expect.objectContaining({ playlistId: 'pl1', songIds: ['2', '3'] }),
-            expect.anything()
+        await flushPromises()
+        expect(replaceAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', songIds: ['2', '3'] })
         )
         expect(w.find('.hero-header').classes()).not.toContain('editing')
     })
@@ -230,9 +246,9 @@ describe('PlaylistDetailView', () => {
 
         await enterEdit(w)
         await w.find('.edit-action-save').trigger('click')
-        expect(coverMutate).toHaveBeenCalledWith(
-            expect.objectContaining({ playlistId: 'pl1', coverFile: file }),
-            expect.anything()
+        await flushPromises()
+        expect(coverAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', coverFile: file })
         )
     })
 
@@ -245,10 +261,21 @@ describe('PlaylistDetailView', () => {
 
         await enterEdit(w)
         await w.find('.edit-action-save').trigger('click')
-        expect(coverMutate).toHaveBeenCalledWith(
-            expect.objectContaining({ playlistId: 'pl1', coverClear: true }),
-            expect.anything()
+        await flushPromises()
+        expect(coverAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', coverClear: true })
         )
+    })
+
+    it('keeps edit mode open when a save fails', async () => {
+        updateAsync.mockRejectedValueOnce(new Error('boom'))
+        const w = mountView()
+        await enterEdit(w)
+        await nameInput(w).setValue('New Name')
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(w.find('.hero-header').classes()).toContain('editing')
+        expect(w.find('.edit-action-save').exists()).toBe(true)
     })
 
     it('Delete asks for confirmation, then deletes and navigates to /playlists', async () => {
