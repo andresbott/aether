@@ -26,7 +26,9 @@ const playNow = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playNow }) }))
 vi.mock('@/utils/radioSong', () => ({ stationToSong: (s: InternetRadioStation) => ({ id: s.id }) }))
 
-const { fetchRadioFavicon } = vi.hoisted(() => ({ fetchRadioFavicon: vi.fn(async () => null) }))
+const { fetchRadioFavicon } = vi.hoisted(() => ({
+    fetchRadioFavicon: vi.fn(async (_url: string): Promise<File | null> => null)
+}))
 vi.mock('@/lib/api/RadioBrowser', () => ({ fetchRadioFavicon }))
 
 // Auto-accept the delete confirmation.
@@ -36,9 +38,7 @@ vi.mock('primevue/useconfirm', () => ({
 
 const push = vi.fn()
 const back = vi.fn()
-const route = { query: {} as Record<string, string> }
 vi.mock('vue-router', () => ({
-    useRoute: () => route,
     useRouter: () => ({ push, back }),
     onBeforeRouteLeave: vi.fn()
 }))
@@ -48,9 +48,16 @@ const ScaffoldStub = {
     props: ['title', 'summary'],
     template: '<div><slot name="actions" /><slot /></div>'
 }
+const SearchDialogStub = {
+    name: 'StationSearchDialog',
+    props: ['visible'],
+    emits: ['update:visible', 'select'],
+    template: '<div class="search-dialog-stub" />'
+}
 const stubs = {
     ContentScaffold: ScaffoldStub,
-    ConfirmDialog: { template: '<div />' }
+    ConfirmDialog: { template: '<div />' },
+    StationSearchDialog: SearchDialogStub
 }
 
 import RadioStationDetailView from '@/views/RadioStationDetailView.vue'
@@ -76,7 +83,6 @@ const editInputs = (w: ReturnType<typeof mountView>) => w.findAll('.edit-only in
 beforeEach(() => {
     stations.value = [station]
     isLoading.value = false
-    route.query = {}
     createMutate.mockClear()
     updateMutate.mockClear()
     deleteMutate.mockClear()
@@ -117,20 +123,70 @@ describe('RadioStationDetailView', () => {
         expect(w.find('.edit-action-delete').exists()).toBe(false)
     })
 
-    it('create mode: seeds the form from query params', () => {
-        route.query = { name: 'RP', streamUrl: 'http://rp', homepage: 'http://rp.com' }
+    it('create mode: Discover opens the station search dialog', async () => {
         const w = mountView({ create: true })
+        expect(w.findComponent(SearchDialogStub).props('visible')).toBe(false)
+        await w.find('.discover-station').trigger('click')
+        expect(w.findComponent(SearchDialogStub).props('visible')).toBe(true)
+    })
+
+    it('existing station: has no Discover button', () => {
+        const w = mountView({ id: 's1' })
+        expect(w.find('.discover-station').exists()).toBe(false)
+    })
+
+    it('create mode: picking a discovered station overwrites the form', async () => {
+        const w = mountView({ create: true })
+        await editInputs(w)[0].setValue('My draft name')
+        w.findComponent(SearchDialogStub).vm.$emit('select', {
+            name: 'Radio Paradise',
+            streamUrl: 'http://rp/stream',
+            homepage: 'http://rp.com',
+            favicon: ''
+        })
+        await w.vm.$nextTick()
         const inputs = editInputs(w)
-        expect((inputs[0].element as HTMLInputElement).value).toBe('RP')
-        expect((inputs[1].element as HTMLInputElement).value).toBe('http://rp')
+        expect((inputs[0].element as HTMLInputElement).value).toBe('Radio Paradise')
+        expect((inputs[1].element as HTMLInputElement).value).toBe('http://rp/stream')
         expect((inputs[2].element as HTMLInputElement).value).toBe('http://rp.com')
+    })
+
+    it('create mode: stages the fetched favicon as the cover', async () => {
+        const cover = new File(['x'], 'fav.png', { type: 'image/png' })
+        fetchRadioFavicon.mockResolvedValueOnce(cover)
+        const w = mountView({ create: true })
+        w.findComponent(SearchDialogStub).vm.$emit('select', {
+            name: 'RP',
+            streamUrl: 'http://rp/stream',
+            homepage: '',
+            favicon: 'http://rp.com/fav.png'
+        })
+        expect(fetchRadioFavicon).toHaveBeenCalledWith('http://rp.com/fav.png')
+        await vi.waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledWith(cover))
+    })
+
+    it('create mode: a discovered fill counts as unsaved changes (Esc verifies)', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        const w = mountView({ create: true })
+        w.findComponent(SearchDialogStub).vm.$emit('select', {
+            name: 'RP',
+            streamUrl: 'http://rp',
+            homepage: '',
+            favicon: ''
+        })
+        await w.vm.$nextTick()
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(confirmSpy).toHaveBeenCalled()
+        expect(push).not.toHaveBeenCalled()
+        confirmSpy.mockRestore()
+        w.unmount()
     })
 
     it('existing station opens read-only with Play + pencil', () => {
         const w = mountView({ id: 's1' })
         expect(w.findComponent(ScaffoldStub).props('title')).toBe('')
         expect(w.find('.hero-name').text()).toBe('Jazz FM')
-        expect(w.find('.play-station').exists()).toBe(true)
+        expect(w.find('.hero-action-play').exists()).toBe(true)
         expect(w.find('.edit-action-edit').exists()).toBe(true)
         expect(w.find('.edit-action-save').exists()).toBe(false)
     })
@@ -168,7 +224,7 @@ describe('RadioStationDetailView', () => {
 
     it('read mode: Play enqueues the station', async () => {
         const w = mountView({ id: 's1' })
-        await w.find('.play-station').trigger('click')
+        await w.find('.hero-action-play').trigger('click')
         expect(playNow).toHaveBeenCalledWith({ id: 's1' })
     })
 
@@ -177,5 +233,10 @@ describe('RadioStationDetailView', () => {
         isLoading.value = false
         const w = mountView({ id: 'missing' })
         expect(w.text()).toContain('not found')
+    })
+
+    it('create mode: has no hero play action', () => {
+        const w = mountView({ create: true })
+        expect(w.find('.hero-action-play').exists()).toBe(false)
     })
 })

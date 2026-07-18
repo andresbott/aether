@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import ConfirmDialog from 'primevue/confirmdialog'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
+import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
+import StationSearchDialog from '@/components/library/StationSearchDialog.vue'
 import {
     useRadioStations,
     useCreateRadioStation,
@@ -18,12 +20,11 @@ import { stationToSong } from '@/utils/radioSong'
 import { fetchRadioFavicon } from '@/lib/api/RadioBrowser'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { InternetRadioStation } from '@/types/subsonic'
-import type { RadioStationPrefill } from '@/types/radiobrowser'
+import type { RadioBrowserStation } from '@/types/radiobrowser'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
 
 const props = defineProps<{ id?: string; create?: boolean }>()
-const route = useRoute()
 const router = useRouter()
 const player = usePlayer()
 
@@ -37,29 +38,6 @@ const station = computed<InternetRadioStation | null>(() =>
     props.create ? null : (stations.value?.find((s) => s.id === props.id) ?? null)
 )
 const notFound = computed(() => !props.create && !isLoading.value && !station.value)
-
-// Create-mode prefill from Discover query params; fetch the favicon lazily.
-const prefill = ref<RadioStationPrefill | null>(null)
-if (props.create) {
-    const q = route.query
-    const name = typeof q.name === 'string' ? q.name : ''
-    const streamUrl = typeof q.streamUrl === 'string' ? q.streamUrl : ''
-    const homepage = typeof q.homepage === 'string' ? q.homepage : undefined
-    if (name || streamUrl) {
-        prefill.value = { name, streamUrl, homepageUrl: homepage }
-    }
-}
-onMounted(async () => {
-    if (!props.create || !prefill.value) return
-    const q = route.query
-    const favicon = typeof q.favicon === 'string' ? q.favicon : ''
-    if (!favicon) return
-    const base = prefill.value
-    const cover = await fetchRadioFavicon(favicon)
-    if (cover && prefill.value?.streamUrl === base.streamUrl) {
-        prefill.value = { ...base, coverFile: cover }
-    }
-})
 
 // --- Form state (lifted from the former RadioStationForm) ---
 interface FormState {
@@ -89,21 +67,10 @@ function resetCoverState() {
     sizeError.value = null
 }
 
-// Seed the text fields from the station (edit) or the prefill (create-from-Discover),
-// keyed on the TEXT identity rather than the prefill object reference. Note this MUST be
-// a multi-source array of individual getters — Vue only compares each source elementwise
-// with `hasChanged` in that form; a single getter returning a fresh array every time
-// would always compare as "changed" and re-fire on every prefill reassignment. This way a
-// later reassignment of `prefill` that only folds in a favicon cover does not re-seed and
-// clobber in-progress user edits. Snapshot the baseline afterward so `dirty` reflects user
-// edits only.
+// Seed the form from the station when its identity changes (edit mode); create mode
+// starts empty. Snapshot the baseline afterward so `dirty` reflects user edits only.
 watch(
-    [
-        () => station.value?.id ?? null,
-        () => prefill.value?.name,
-        () => prefill.value?.streamUrl,
-        () => prefill.value?.homepageUrl
-    ],
+    () => station.value?.id ?? null,
     () => {
         if (station.value) {
             form.value = {
@@ -111,52 +78,13 @@ watch(
                 streamUrl: station.value.streamUrl,
                 homepageUrl: station.value.homepageUrl ?? ''
             }
-        } else if (prefill.value) {
-            form.value = {
-                name: prefill.value.name,
-                streamUrl: prefill.value.streamUrl,
-                homepageUrl: prefill.value.homepageUrl ?? ''
-            }
         } else {
             form.value = emptyForm()
         }
         baseline.value = { ...form.value }
-    },
-    { immediate: true }
-)
-
-// Reset the cover picker whenever the station/prefill IDENTITY changes, keyed the same way
-// as the text-seed watcher — NOT on the prefill object reference or its `coverFile`. This
-// way folding a fetched favicon into the *same* prefill does not wipe cover edits.
-watch(
-    [
-        () => station.value?.id ?? null,
-        () => prefill.value?.name,
-        () => prefill.value?.streamUrl,
-        () => prefill.value?.homepageUrl
-    ],
-    () => {
         resetCoverState()
-        if (!station.value && prefill.value?.coverFile) {
-            selectedFile.value = prefill.value.coverFile
-            previewUrl.value = URL.createObjectURL(prefill.value.coverFile)
-        }
     },
     { immediate: true }
-)
-
-// Fold in a favicon cover that resolves asynchronously after the initial seed, without
-// touching `form`/`baseline`. Skip if the user already picked their own file or staged a
-// clear during the fetch window.
-watch(
-    () => prefill.value?.coverFile,
-    (coverFile) => {
-        if (!coverFile) return
-        if (selectedFile.value !== null || coverClear.value) return
-        if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-        selectedFile.value = coverFile
-        previewUrl.value = URL.createObjectURL(coverFile)
-    }
 )
 
 const hasExistingCover = computed(
@@ -214,6 +142,32 @@ function onRemoveCover() {
     previewUrl.value = null
     selectedFile.value = null
     coverClear.value = true
+}
+
+// Discover: search radio-browser.info and fill the form from the picked station.
+// Picking is an explicit choice, so it overwrites the whole form and any staged
+// cover. The baseline stays at the empty form — a discovered fill counts as
+// unsaved changes, same as typing the values by hand.
+const searchVisible = ref(false)
+
+function onDiscoverSelect(s: RadioBrowserStation) {
+    form.value = {
+        name: s.name,
+        streamUrl: s.streamUrl,
+        homepageUrl: s.homepage ?? ''
+    }
+    resetCoverState()
+    if (!s.favicon) return
+    const seededStreamUrl = s.streamUrl
+    fetchRadioFavicon(s.favicon).then((cover) => {
+        // Skip when superseded during the fetch: re-discovered / stream URL
+        // edited / user staged their own cover or a clear.
+        if (!cover) return
+        if (form.value.streamUrl !== seededStreamUrl) return
+        if (selectedFile.value !== null || coverClear.value) return
+        selectedFile.value = cover
+        previewUrl.value = URL.createObjectURL(cover)
+    })
 }
 
 // After a successful create/save/delete, suppress the unsaved-changes guard.
@@ -317,6 +271,16 @@ onUnmounted(() => {
 
         <ContentScaffold v-else :title="title" show-back @back="router.back()">
             <template #actions>
+                <Button
+                    v-if="create"
+                    class="discover-station"
+                    icon="pi pi-globe"
+                    text
+                    rounded
+                    v-tooltip.bottom="'Discover'"
+                    aria-label="Discover"
+                    @click="searchVisible = true"
+                />
                 <EditActionBar
                     v-model:editing="editing"
                     :can-delete="!create"
@@ -329,16 +293,7 @@ onUnmounted(() => {
                     @save="onSubmit"
                     @cancel="onCancel"
                     @delete="onDelete"
-                >
-                    <template #read-actions>
-                        <Button
-                            class="play-station"
-                            label="Play"
-                            icon="pi pi-play"
-                            @click="onPlay"
-                        />
-                    </template>
-                </EditActionBar>
+                />
             </template>
 
             <div class="detail-scroll">
@@ -381,12 +336,20 @@ onUnmounted(() => {
                                 <InputText v-model="form.homepageUrl" placeholder="optional" />
                             </label>
                         </template>
+                        <template #actions>
+                            <HeroActions @play="onPlay" />
+                        </template>
                     </HeroHeader>
                 </div>
             </div>
         </ContentScaffold>
 
         <ConfirmDialog />
+        <StationSearchDialog
+            v-if="create"
+            v-model:visible="searchVisible"
+            @select="onDiscoverSelect"
+        />
     </div>
 </template>
 
