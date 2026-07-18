@@ -254,6 +254,10 @@ function onSubmit() {
 }
 function onCancel() {
     if (props.create) {
+        // Cancelling create leaves the page. Suppress the route-leave guard's
+        // unsaved-changes prompt: cancelling is already an explicit discard (and Esc
+        // has verified via EditActionBar), so a second confirm would be redundant.
+        submittedClean.value = true
         router.push({ name: 'radio' })
         return
     }
@@ -319,6 +323,7 @@ onUnmounted(() => {
                     :save-disabled="!valid"
                     :saving="submitting"
                     :save-tooltip="create ? 'Create' : 'Save'"
+                    :dirty="dirty"
                     delete-header="Delete station?"
                     :delete-message="`Delete station &quot;${station?.name}&quot;? This cannot be undone.`"
                     @save="onSubmit"

@@ -9,6 +9,7 @@ const props = withDefaults(
         saveDisabled?: boolean
         saving?: boolean
         canDelete?: boolean
+        dirty?: boolean
         deleteHeader?: string
         deleteMessage?: string
         saveIcon?: string
@@ -18,6 +19,7 @@ const props = withDefaults(
         saveDisabled: false,
         saving: false,
         canDelete: true,
+        dirty: false,
         deleteHeader: 'Delete?',
         deleteMessage: 'This cannot be undone.',
         saveIcon: 'pi pi-check',
@@ -48,10 +50,13 @@ function confirmDelete(): void {
 
 // Esc exits edit mode (same as Cancel: discard staged edits + leave). The listener
 // is only active while editing. If a confirm dialog is open, let it own Escape
-// (dismiss the dialog) rather than also exiting edit mode.
+// (dismiss the dialog) rather than also exiting edit mode. Esc is easy to fumble, so
+// when there are unsaved changes it verifies before discarding — mirroring the views'
+// navigation guard.
 function onKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return
     if (document.querySelector('.p-confirmdialog')) return
+    if (props.dirty && !window.confirm('You have unsaved changes. Discard them?')) return
     emit('cancel')
 }
 

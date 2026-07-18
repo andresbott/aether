@@ -155,6 +155,7 @@ const sortedAlbums = computed(() => {
                     :can-delete="false"
                     :save-disabled="!dirty"
                     :saving="updateCover.isPending.value"
+                    :dirty="dirty"
                     @save="saveEdit"
                     @cancel="cancelEdit"
                 >

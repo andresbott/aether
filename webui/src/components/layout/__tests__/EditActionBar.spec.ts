@@ -44,10 +44,33 @@ describe('EditActionBar', () => {
         expect(order).toEqual(['edit-action-delete', 'edit-action-save', 'edit-action-cancel'])
     })
 
-    it('Escape emits cancel while editing', async () => {
+    it('Escape emits cancel while editing (not dirty: no confirmation)', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
         const w = mountBar({ editing: true })
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(confirmSpy).not.toHaveBeenCalled()
         expect(w.emitted('cancel')).toHaveLength(1)
+        confirmSpy.mockRestore()
+        w.unmount()
+    })
+
+    it('Escape verifies unsaved changes when dirty and cancels only if confirmed', () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+        const w = mountBar({ editing: true, dirty: true })
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(confirmSpy).toHaveBeenCalledTimes(1)
+        expect(w.emitted('cancel')).toHaveLength(1)
+        confirmSpy.mockRestore()
+        w.unmount()
+    })
+
+    it('Escape does not cancel when the unsaved-changes prompt is dismissed', () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+        const w = mountBar({ editing: true, dirty: true })
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(confirmSpy).toHaveBeenCalledTimes(1)
+        expect(w.emitted('cancel')).toBeUndefined()
+        confirmSpy.mockRestore()
         w.unmount()
     })
 

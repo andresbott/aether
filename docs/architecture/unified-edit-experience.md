@@ -19,8 +19,12 @@ affordance. This is the registry of that behavior; the implementation lives in
   - **Cancel** — `pi pi-times`, tooltip "Cancel".
 - **Delete** opens a confirmation dialog ordered **confirm | cancel** (confirm on the
   left, styled danger). Confirming performs the delete; cancelling closes the dialog.
-- **Esc** exits edit mode (identical to Cancel: discard staged edits and leave). While the
-  delete confirmation dialog is open, Esc dismisses the dialog instead of exiting edit mode.
+- **Esc** exits edit mode (discard staged edits and leave). Because Esc is easy to fumble,
+  it **verifies unsaved changes first**: when the view is `dirty` it shows a
+  `window.confirm` and only exits if confirmed (the Cancel button, being a deliberate click,
+  discards immediately without a prompt). While the delete confirmation dialog is open, Esc
+  dismisses the dialog instead of exiting edit mode. The bar takes the view's `dirty` state
+  via the `dirty` prop.
 
 ## Single sources of truth
 

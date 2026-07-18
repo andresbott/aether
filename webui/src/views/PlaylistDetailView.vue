@@ -279,6 +279,7 @@ onUnmounted(() => {
                     v-model:editing="editing"
                     :save-disabled="savePending || !valid"
                     :saving="savePending"
+                    :dirty="dirty"
                     delete-header="Delete playlist?"
                     :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"
                     @save="saveEdit"
