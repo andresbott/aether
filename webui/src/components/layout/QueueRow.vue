@@ -10,7 +10,6 @@ const props = defineProps<{
     editing?: boolean
     selected?: boolean
     current?: boolean
-    deleteLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -89,7 +88,7 @@ const onRowClick = (event: MouseEvent): void => {
                 size="small"
                 severity="secondary"
                 class="delete-button"
-                v-tooltip.left="deleteLabel ?? 'Remove from queue'"
+                v-tooltip.left="'Delete from queue'"
                 @click.stop="emit('delete')"
             />
         </span>

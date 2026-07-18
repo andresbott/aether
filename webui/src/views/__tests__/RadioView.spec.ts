@@ -5,10 +5,9 @@ import PrimeVue from 'primevue/config'
 
 const route = { query: {} as Record<string, string> }
 const replace = vi.fn()
-const push = vi.fn()
 vi.mock('vue-router', () => ({
     useRoute: () => route,
-    useRouter: () => ({ replace, push })
+    useRouter: () => ({ replace })
 }))
 
 const stations = ref<Array<{ id: string; name: string; streamUrl: string }>>([])
@@ -26,6 +25,7 @@ const ScaffoldStub = {
 }
 const GridStub = { name: 'RadioStationGrid', template: '<div class="radio-grid-stub" />' }
 const ListStub = { name: 'RadioStationListView', template: '<div class="radio-list-stub" />' }
+
 import RadioView from '@/views/RadioView.vue'
 import SelectButton from 'primevue/selectbutton'
 
@@ -33,24 +33,16 @@ const mountView = () =>
     mount(RadioView, {
         global: {
             plugins: [PrimeVue],
-            directives: { tooltip: {} },
             stubs: {
                 ContentScaffold: ScaffoldStub,
                 RadioStationGrid: GridStub,
-                RadioStationListView: ListStub,
-                Button: {
-                    props: ['label'],
-                    inheritAttrs: false,
-                    template:
-                        '<button :class="$attrs.class" @click="$emit(\'click\')">{{ label }}</button>'
-                }
+                RadioStationListView: ListStub
             }
         }
     })
 
 beforeEach(() => {
     replace.mockReset()
-    push.mockReset()
     route.query = {}
     stations.value = []
 })
@@ -93,17 +85,5 @@ describe('RadioView', () => {
         w.findComponent(SelectButton).vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
         expect(replace).toHaveBeenCalledWith({ query: { view: 'list' } })
-    })
-
-    it('renders an add icon button and no Discover button', () => {
-        const w = mountView()
-        expect(w.find('.add-station').exists()).toBe(true)
-        expect(w.find('.discover-station').exists()).toBe(false)
-    })
-
-    it('the add button navigates to the create route', async () => {
-        const w = mountView()
-        await w.find('.add-station').trigger('click')
-        expect(push).toHaveBeenCalledWith({ name: 'radio-station-new' })
     })
 })

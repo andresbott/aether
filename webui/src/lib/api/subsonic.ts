@@ -352,18 +352,6 @@ class SubsonicClient {
         }
     }
 
-    async replacePlaylistTracks(playlistId: string, songIds: string[]): Promise<void> {
-        if (!this.isConfigured()) return
-        const url = new URL(this.buildUrl('createPlaylist.view', { playlistId }))
-        songIds.forEach((id) => url.searchParams.append('songId', id))
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
-        if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
-        }
-    }
-
     async deletePlaylist(id: string): Promise<void> {
         if (!this.isConfigured()) return
         await this.request('deletePlaylist.view', { id })

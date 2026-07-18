@@ -25,10 +25,9 @@ const onRowDragStart = (event: DragEvent): void => {
         <div class="col-avatar"></div>
         <div class="col-name"></div>
     </div>
-    <RouterLink
+    <div
         v-else
         class="radio-row"
-        :to="{ name: 'radio-station-detail', params: { id: station.id } }"
         draggable="true"
         @dragstart="onRowDragStart"
         @dragend="songsDrag.end"
@@ -39,7 +38,7 @@ const onRowDragStart = (event: DragEvent): void => {
         </div>
         <div class="col-name">{{ station.name }}</div>
         <div class="col-homepage">{{ station.homepageUrl }}</div>
-    </RouterLink>
+    </div>
 </template>
 
 <style scoped>

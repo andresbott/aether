@@ -10,11 +10,7 @@ vi.mock('@/lib/api/subsonic', () => ({
         getCoverArtUrl: (art: string, size: number) => `cover:${art}:${size}`
     }
 }))
-const playNow = vi.fn()
-vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playNow }) }))
-vi.mock('@/utils/radioSong', () => ({ stationToSong: (s: any) => ({ id: s.id, title: s.name, streamUrl: s.streamUrl }) }))
 
-import { RouterLinkStub } from '@vue/test-utils'
 import RadioStationCard from '@/components/library/RadioStationCard.vue'
 import type { InternetRadioStation } from '@/types/subsonic'
 
@@ -26,11 +22,7 @@ const station: InternetRadioStation = {
     coverArt: 'ca1'
 }
 
-const mountCard = (s?: InternetRadioStation) =>
-    mount(RadioStationCard, {
-        props: { station: s },
-        global: { stubs: { RouterLink: RouterLinkStub } }
-    })
+const mountCard = (s?: InternetRadioStation) => mount(RadioStationCard, { props: { station: s } })
 
 describe('RadioStationCard', () => {
     it('renders the cover, name and homepage subtitle', () => {
@@ -40,18 +32,12 @@ describe('RadioStationCard', () => {
         expect(w.find('.card-subtitle').text()).toBe('http://jazzfm.example')
     })
 
-    it('links to the station detail route', () => {
+    it('does not play the station on click', async () => {
         const w = mountCard(station)
-        expect(w.findComponent(RouterLinkStub).props('to')).toEqual({
-            name: 'radio-station-detail',
-            params: { id: 's1' }
-        })
-    })
-
-    it('the play button plays the station without navigating', async () => {
-        const w = mountCard(station)
-        await w.find('.card-play').trigger('click')
-        expect(playNow).toHaveBeenCalledTimes(1)
+        await w.find('.radio-card').trigger('click')
+        // Nothing to assert on a player — clicking is a no-op; the station is
+        // added to the queue only by dragging it there.
+        expect(start).not.toHaveBeenCalled()
     })
 
     it('starts a songs drag carrying the station as a single song', async () => {

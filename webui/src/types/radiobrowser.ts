@@ -13,3 +13,12 @@ export interface RadioBrowserStation {
     votes: number
     uuid: string
 }
+
+// Initial values used to seed the Add Station form when importing a station
+// from radio-browser. coverFile, when present, is the fetched favicon.
+export interface RadioStationPrefill {
+    name: string
+    streamUrl: string
+    homepageUrl?: string
+    coverFile?: File
+}

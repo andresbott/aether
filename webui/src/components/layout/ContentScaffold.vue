@@ -7,7 +7,6 @@ defineProps<{ title: string; summary?: string }>()
         <header class="content-scaffold-header">
             <div class="scaffold-title">
                 <h1>{{ title }}</h1>
-                <slot name="title-actions" />
                 <span v-if="summary" class="scaffold-summary">{{ summary }}</span>
             </div>
             <div class="scaffold-actions">

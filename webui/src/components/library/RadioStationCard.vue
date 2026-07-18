@@ -14,7 +14,6 @@ const songsDrag = useSongsDrag()
 const player = usePlayer()
 
 const onPlay = (event: Event): void => {
-    event.preventDefault()
     event.stopPropagation()
     if (props.station) player.playNow(stationToSong(props.station))
 }
@@ -40,10 +39,9 @@ const onCardDragStart = (event: DragEvent): void => {
             </div>
         </div>
     </div>
-    <RouterLink
+    <div
         v-else
         class="radio-card"
-        :to="{ name: 'radio-station-detail', params: { id: station.id } }"
         draggable="true"
         @dragstart="onCardDragStart"
         @dragend="songsDrag.end"
@@ -66,7 +64,7 @@ const onCardDragStart = (event: DragEvent): void => {
                 <i class="pi pi-play"></i>
             </button>
         </div>
-    </RouterLink>
+    </div>
 </template>
 
 <style scoped>

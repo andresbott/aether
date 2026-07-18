@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
-import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import RadioStationListView from '@/components/library/RadioStationListView.vue'
 import RadioStationGrid from '@/components/library/RadioStationGrid.vue'
@@ -35,10 +34,6 @@ const summary = computed(() => {
     if (count === 0) return ''
     return `${count} ${count === 1 ? 'station' : 'stations'}`
 })
-
-function openAdd() {
-    router.push({ name: 'radio-station-new' })
-}
 </script>
 
 <template>
@@ -57,15 +52,6 @@ function openAdd() {
                     <i :class="slotProps.option.icon"></i>
                 </template>
             </SelectButton>
-            <Button
-                class="add-station"
-                icon="pi pi-plus"
-                text
-                rounded
-                v-tooltip.bottom="'Add station'"
-                aria-label="Add station"
-                @click="openAdd"
-            />
         </template>
 
         <RadioStationListView v-if="layout === 'list'" />

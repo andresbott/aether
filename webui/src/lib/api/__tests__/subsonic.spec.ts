@@ -63,18 +63,3 @@ describe('subsonicClient.getArtistIndex', () => {
         expect(artists.map((a) => a.id)).toEqual(['ar1', 'ar2', 'ar3'])
     })
 })
-
-describe('subsonicClient.replacePlaylistTracks', () => {
-    beforeEach(() => subsonicClient.initWithDefaults())
-    afterEach(() => vi.unstubAllGlobals())
-
-    it('posts the full ordered song set to createPlaylist with the playlistId', async () => {
-        const fetchMock = mockFetchOnce({})
-        await subsonicClient.replacePlaylistTracks('pl-7', ['s1', 's2', 's3'])
-        const url = fetchMock.mock.calls[0][0] as string
-        expect(url).toContain('/rest/createPlaylist.view')
-        expect(url).toContain('playlistId=pl-7')
-        const params = new URL(url).searchParams
-        expect(params.getAll('songId')).toEqual(['s1', 's2', 's3'])
-    })
-})
