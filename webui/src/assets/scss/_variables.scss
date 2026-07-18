@@ -1,4 +1,8 @@
 :root {
+    /* Unified typography — Inter is bundled via @fontsource-variable/inter (no
+       CDN). The fallbacks match docs/mockups/hero/_shared.css. */
+    --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
     --app-background: #e7eaee;
     --app-surface: #f4f6f8;
     /* Elevated cards / raised panels — the third layer above surface.

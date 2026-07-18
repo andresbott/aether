@@ -17,9 +17,10 @@ const album = {
 // Mutable ref so individual tests can swap in a multi-disc album.
 const albumData = ref<unknown>(markRaw(album))
 
+const toggleStarMutate = vi.fn()
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useAlbum: () => ({ data: albumData, isLoading: ref(false), error: ref(null) }),
-    useToggleStar: () => ({ mutate: vi.fn() })
+    useToggleStar: () => ({ mutate: toggleStarMutate })
 }))
 
 const start = vi.fn()
@@ -35,8 +36,9 @@ vi.mock('@/composables/useSongsDrag', () => ({
 }))
 
 const playAlbum = vi.fn()
+const addMultipleToQueue = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playAlbum, addMultipleToQueue: vi.fn(), currentTrack: ref(null) })
+    usePlayer: () => ({ playAlbum, addMultipleToQueue, currentTrack: ref(null) })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -65,6 +67,8 @@ const mountView = () =>
 beforeEach(() => {
     albumData.value = markRaw(album)
     playAlbum.mockClear()
+    addMultipleToQueue.mockClear()
+    toggleStarMutate.mockClear()
     songsStart.mockClear()
     songsEnd.mockClear()
 })
@@ -164,5 +168,32 @@ describe('AlbumView song selection and drag', () => {
         const w = mountView()
         await w.findAll('.album-track-row')[0].trigger('dragend')
         expect(songsEnd).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('AlbumView hero actions', () => {
+    it('Play in the hero plays the album', async () => {
+        const w = mountView()
+        await w.find('.hero-action-play').trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith(album.song)
+    })
+
+    it('Add to queue in the hero enqueues the album songs', async () => {
+        const w = mountView()
+        await w.find('.hero-action-queue').trigger('click')
+        expect(addMultipleToQueue).toHaveBeenCalledWith(album.song)
+    })
+
+    it('Star in the hero toggles the album star', async () => {
+        const w = mountView()
+        await w.find('.hero-action-star').trigger('click')
+        expect(toggleStarMutate).toHaveBeenCalledWith({ id: 'al1', starred: false })
+    })
+
+    it('keeps only the drag handle in the scaffold actions', () => {
+        const w = mountView()
+        expect(w.find('.album-drag-handle').exists()).toBe(true)
+        // Hero owns play/queue/star now; they render inside the HeroHeader.
+        expect(w.find('.hero-header .hero-action-play').exists()).toBe(true)
     })
 })

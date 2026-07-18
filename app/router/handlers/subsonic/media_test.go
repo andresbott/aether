@@ -149,6 +149,49 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 	}
 }
 
+// TestGetCoverArtPlaylistFallbackGenerated verifies a playlist (which has no
+// artwork of its own) falls through to the name-seeded generated cover, the
+// same mechanism used for artists and radio stations without an image.
+func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
+	s := testStore(t)
+	pl, err := s.CreatePlaylist("Road Trip Mix", "admin", false, nil)
+	if err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+
+	cacheDir := t.TempDir()
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=pl-%d&size=256", srv.URL, pl.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if _, err := png.Decode(resp.Body); err != nil {
+		t.Errorf("response body is not a valid PNG: %v", err)
+	}
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "_256.png") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected generated-cover cache file in %s, got: %v", cacheDir, entries)
+	}
+}
+
 // TestGetCoverArtSetsNoCacheHeader guards against a real bug: getCoverArt
 // responses had no cache-control header, so browsers could heuristically
 // cache the generated-avatar fallback (served before an artist has a fetched

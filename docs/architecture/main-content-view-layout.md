@@ -16,6 +16,10 @@ album/artist views and the radio view now follow it. New views should too.
 - `webui/src/components/library/AlbumListView.vue` — the list body + alphabet rail.
 - `webui/src/views/RadioView.vue` — the minimal case (scaffold + one action + a grid).
 - `webui/src/components/layout/QueueView.vue` — Now Playing; mirrors the header manually.
+- `webui/src/components/layout/EditActionBar.vue` — the uniform edit affordance for
+  editable detail views; see [`unified-edit-experience.md`](unified-edit-experience.md).
+- `webui/src/components/layout/HeroActions.vue` — the uniform read-mode play/queue/star
+  affordance rendered in the hero; see [`unified-play-experience.md`](unified-play-experience.md).
 
 **Source specs/plans (the "why"):**
 - `docs/superpowers/specs/2026-07-02-library-scaffold-and-artist-list-design.md`

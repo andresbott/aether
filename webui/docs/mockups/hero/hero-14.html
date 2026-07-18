@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#14 · Title-row icon toolbar</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-14 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-14 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.6rem; justify-content: center; }
+        .hero-14 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-14 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+
+        /* Always-visible icon toolbar sitting under the name. */
+        .hero-14 .toolbar {
+            display: flex; align-items: center; gap: 0.15rem;
+            padding: 0.15rem 0;
+            border-bottom: 1px solid var(--app-border);
+            margin-bottom: 0.15rem;
+        }
+        .hero-14 .toolbar .icon-btn { width: 34px; height: 34px; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#14 · Title-row icon toolbar</h1>
+            <p>A compact, always-visible icon toolbar sits under the name — rename/cover/star/share/more for playlists, minus rename for artists — each button carrying a tooltip.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — rename enabled</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <button class="icon-btn danger" title="Delete playlist" data-toast="Playlist deleted"><i class="pi pi-trash"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-14">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <h2 class="hero-name">Late Night Drives</h2>
+                        <div class="toolbar">
+                            <button class="icon-btn accent" title="Rename" data-toast="Rename…"><i class="pi pi-pencil"></i></button>
+                            <button class="icon-btn" title="Change cover" data-toast="Choose a cover…"><i class="pi pi-camera"></i></button>
+                            <button class="icon-btn" title="Star" data-toast="Added to favourites"><i class="pi pi-star"></i></button>
+                            <button class="icon-btn" title="Share" data-toast="Link copied"><i class="pi pi-upload"></i></button>
+                            <button class="icon-btn" title="More" data-toast="More options…"><i class="pi pi-ellipsis-h"></i></button>
+                        </div>
+                        <p class="hero-desc">Hazy synths and slow guitars for the long way home.</p>
+                        <div class="meta-row">
+                            <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — no rename, adds star</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred" data-toast="Removed from favourites"><i class="pi pi-star-fill"></i></button>
+                        <button class="icon-btn" title="Edit MusicBrainz match" data-toast="Open MusicBrainz editor…"><i class="pi pi-pencil"></i></button>
+                    </div>
+                </div>
+
+                <div class="hero hero-14">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <h2 class="hero-name">Aurora Vale</h2>
+                        <div class="toolbar">
+                            <!-- No rename for artists. -->
+                            <button class="icon-btn" title="Change image" data-toast="Choose an image…"><i class="pi pi-camera"></i></button>
+                            <button class="icon-btn is-active" title="Unstar" data-toast="Removed from favourites"><i class="pi pi-star-fill"></i></button>
+                            <button class="icon-btn" title="Share" data-toast="Link copied"><i class="pi pi-upload"></i></button>
+                            <button class="icon-btn" title="More" data-toast="More options…"><i class="pi pi-ellipsis-h"></i></button>
+                        </div>
+                        <p class="hero-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+                        <div class="chips">
+                            <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

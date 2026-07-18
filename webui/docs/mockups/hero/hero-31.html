@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#31 · Edit-mode + cover flip</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-31 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-31 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+        .hero-31 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-31 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+        .hero-31 .meta-row { margin-top: 0.15rem; }
+
+        /* Flip cover (from #13). Editing the cover happens on its back face. */
+        .hero-31 .flip { background: transparent; overflow: visible; perspective: 1000px; }
+        .hero-31 .flip-inner {
+            position: relative; width: 100%; height: 100%;
+            transform-style: preserve-3d; transition: transform 0.5s;
+        }
+        .hero-31 .flip.flipped .flip-inner { transform: rotateY(180deg); }
+        .hero-31 .flip-face {
+            position: absolute; inset: 0; backface-visibility: hidden;
+            border-radius: var(--app-radius); overflow: hidden;
+        }
+        .hero-31 .flip-front img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .hero-31 .flip-back {
+            transform: rotateY(180deg);
+            background: var(--app-surface-2); border: 1px solid var(--app-border);
+            display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+            gap: 0.5rem; padding: 1rem;
+        }
+        .hero-31 .flip-back .field-label { text-align: center; margin-bottom: 0.25rem; }
+
+        /* Edit-mode field swap (from #2), toggled by .editing on the hero root. */
+        .hero-31 .edit-only { display: none; }
+        .hero-31.editing .read-only { display: none; }
+        .hero-31.editing .edit-only { display: flex; }
+        .hero-31 .form-field { flex-direction: column; gap: 0.3rem; }
+        .hero-31 .save-bar { gap: 0.5rem; margin-top: 0.3rem; align-items: center; }
+        .hero-31 .delete-pl { margin-left: auto; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All variations</a>
+        <div class="mock-titleblock">
+            <h1>#31 · Edit-mode + cover flip</h1>
+            <p>A mix of #02 and #13: one header “Edit” button enters edit mode — the text fields become inputs (Save / Cancel) AND the cover flips in 3D to reveal its upload / URL / remove controls on the back face.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — Edit flips the cover + opens the form</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- One Edit button drives BOTH hooks: flip the cover + enter edit mode. -->
+                        <button class="btn-outline btn" data-edit-toggle="#pl31" data-flip="#coverPl31"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-31" id="pl31">
+                    <div class="cover flip" id="coverPl31">
+                        <div class="flip-inner">
+                            <div class="flip-face flip-front">
+                                <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                            </div>
+                            <div class="flip-face flip-back">
+                                <span class="field-label">Cover art</span>
+                                <button class="btn-outline btn" data-toast="Choose a cover…"><i class="pi pi-upload"></i> Upload</button>
+                                <button class="btn-outline btn" data-toast="Paste an image URL…"><i class="pi pi-image"></i> From URL</button>
+                                <button class="btn-text btn" data-toast="Cover removed"><i class="pi pi-trash"></i> Remove</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <h2 class="hero-name read-only">Late Night Drives</h2>
+                        <label class="form-field edit-only">
+                            <span class="field-label">Name</span>
+                            <input class="field-input" value="Late Night Drives" maxlength="60">
+                        </label>
+
+                        <p class="hero-desc read-only">Hazy synths and slow guitars for the long way home.</p>
+                        <label class="form-field edit-only">
+                            <span class="field-label">Description</span>
+                            <textarea class="field-input">Hazy synths and slow guitars for the long way home.</textarea>
+                        </label>
+
+                        <div class="meta-row">
+                            <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+                        <div class="chips read-only">
+                            <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                        </div>
+
+                        <div class="save-bar edit-only">
+                            <button class="btn" data-edit-toggle="#pl31" data-flip="#coverPl31" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn-outline btn" data-edit-toggle="#pl31" data-flip="#coverPl31">Cancel</button>
+                            <button class="btn btn-danger delete-pl" data-toast="Playlist deleted"><i class="pi pi-trash"></i> Delete playlist</button>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — same flow, name locked</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred" data-toast="Removed from favourites"><i class="pi pi-star-fill"></i></button>
+                        <button class="btn-outline btn" data-edit-toggle="#ar31" data-flip="#coverAr31"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-31" id="ar31">
+                    <div class="cover flip" id="coverAr31">
+                        <div class="flip-inner">
+                            <div class="flip-face flip-front">
+                                <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                            </div>
+                            <div class="flip-face flip-back">
+                                <span class="field-label">Artist image</span>
+                                <button class="btn-outline btn" data-toast="Choose an image…"><i class="pi pi-upload"></i> Upload</button>
+                                <button class="btn-outline btn" data-toast="Paste an image URL…"><i class="pi pi-image"></i> From URL</button>
+                                <button class="btn-text btn" data-toast="Image removed"><i class="pi pi-trash"></i> Remove</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <!-- Artist name is not user-editable: it stays a static heading in both states. -->
+                        <h2 class="hero-name">Aurora Vale</h2>
+
+                        <p class="hero-desc read-only">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <label class="form-field edit-only">
+                            <span class="field-label">Bio</span>
+                            <textarea class="field-input">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</textarea>
+                        </label>
+
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+                        <div class="chips read-only">
+                            <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                        </div>
+
+                        <div class="save-bar edit-only">
+                            <button class="btn" data-edit-toggle="#ar31" data-flip="#coverAr31" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn-outline btn" data-edit-toggle="#ar31" data-flip="#coverAr31">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

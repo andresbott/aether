@@ -1,16 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import Sortable from 'sortablejs'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import Button from 'primevue/button'
 import SongDetail from '@/components/library/SongDetail.vue'
 import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import QueueRow from '@/components/layout/QueueRow.vue'
+import TrackEditList from '@/components/layout/TrackEditList.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
-import { useQueueEdit, type RowClickModifiers } from '@/composables/useQueueEdit'
+import { useQueueEdit } from '@/composables/useQueueEdit'
 import { useQueueDrop } from '@/composables/useQueueDrop'
-import { computeDropTarget } from '@/utils/queueReorder'
-import { buildMultiDragImage } from '@/utils/queueDragImage'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const props = defineProps<{ variant: 'full' | 'sidebar' }>()
@@ -18,23 +16,10 @@ const props = defineProps<{ variant: 'full' | 'sidebar' }>()
 const player = usePlayer()
 const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } =
     useQueueActions()
-const {
-    editMode,
-    toggleEditMode,
-    isSelected,
-    selectedIndices,
-    onRowClick: onEditRowClick,
-    selectionForDrag,
-    clearSelection
-} = useQueueEdit()
+const { editMode, toggleEditMode } = useQueueEdit()
 
 const currentBlockRef = ref<HTMLElement | null>(null)
-const editListRef = ref<HTMLElement | null>(null)
-let sortables: Sortable[] = []
-// Rows hidden during a multi-drag (the non-grabbed selected ones) and the
-// off-screen custom drag image; both are torn down when the drag ends.
-let hiddenRows: HTMLElement[] = []
-let dragImageEl: HTMLElement | null = null
+const editListRef = ref<InstanceType<typeof TrackEditList> | null>(null)
 
 const queueBodyRef = ref<HTMLElement | null>(null)
 const {
@@ -44,7 +29,7 @@ const {
     onDragOver: onQueueDragOver,
     onDragLeave: onQueueDragLeave,
     onDrop: onQueueDrop
-} = useQueueDrop({ bodyRef: queueBodyRef, onInsert: clearSelection })
+} = useQueueDrop({ bodyRef: queueBodyRef, onInsert: () => editListRef.value?.clearSelection() })
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
 const trackCount = computed(() => player.queue.value.length)
@@ -76,10 +61,6 @@ const upcomingRows = computed(() =>
         .map((song, i) => ({ ...song, queueIndex: player.currentIndex.value + 1 + i }))
 )
 
-// Edit mode flattens the queue into one reorderable list (the now-playing track
-// included, as a row), so every track carries its real queue index.
-const editRows = computed(() => player.queue.value.map((song, i) => ({ ...song, queueIndex: i })))
-
 const currentSong = computed(() => player.queue.value[player.currentIndex.value] ?? null)
 const currentPosition = computed(() => player.currentIndex.value + 1)
 
@@ -97,117 +78,11 @@ const removeIndices = (indices: number[]): void => {
     if (indices.length === 0) return
     if (indices.length > 1) player.removeManyFromQueue(indices)
     else player.removeFromQueue(indices[0])
-    clearSelection()
 }
 
-// Delete button: if the row is part of a multi-selection, drop the whole
-// selection; otherwise just that row (same semantics as selectionForDrag).
-const onDeleteRow = (index: number): void => removeIndices(selectionForDrag(index))
-
-// Delete/Backspace on the focused edit list: drop the whole current selection.
-const deleteSelected = (): void => removeIndices([...selectedIndices.value].sort((a, b) => a - b))
-
-const onEditListKeydown = (e: KeyboardEvent): void => {
-    if (e.key !== 'Delete' && e.key !== 'Backspace') return
-    if (selectedIndices.value.size === 0) return
-    e.preventDefault()
-    deleteSelected()
+const onReorder = (indices: number[], target: number): void => {
+    player.moveInQueue(indices, target)
 }
-
-// Focus the list on selection so Delete works right after a click. Every row is
-// selectable in edit mode (including the now-playing one), so no index is excluded.
-const onSelectRow = (index: number, payload: RowClickModifiers): void => {
-    onEditRowClick(index, payload)
-    editListRef.value?.focus()
-}
-
-// When a multi-selection is dragged, lift the other selected rows out of the
-// list (imperatively, to avoid a Vue re-render mid-drag fighting SortableJS)
-// and show a stacked drag image under the cursor.
-const handleSortStart = (evt: Sortable.SortableEvent): void => {
-    const item = evt.item as HTMLElement
-    const ids = selectionForDrag(Number(item.dataset.queueIndex))
-    if (ids.length <= 1) return
-    const selected = new Set(ids)
-    const list = editListRef.value
-    if (!list) return
-    for (const child of Array.from(list.children)) {
-        const el = child as HTMLElement
-        if (el !== item && selected.has(Number(el.dataset.queueIndex))) {
-            el.style.display = 'none'
-            hiddenRows.push(el)
-        }
-    }
-}
-
-const setDragData = (dataTransfer: DataTransfer | null, dragEl: HTMLElement): void => {
-    if (!dataTransfer) return
-    const ids = selectionForDrag(Number(dragEl.dataset.queueIndex))
-    if (ids.length <= 1) return
-    const img = buildMultiDragImage(dragEl, ids.length)
-    document.body.appendChild(img)
-    dragImageEl = img
-    dataTransfer.setDragImage(img, 24, 24)
-}
-
-const cleanupMultiDrag = (): void => {
-    hiddenRows.forEach((el) => {
-        el.style.display = ''
-    })
-    hiddenRows = []
-    if (dragImageEl) {
-        dragImageEl.remove()
-        dragImageEl = null
-    }
-}
-
-const handleSortEnd = (evt: Sortable.SortableEvent): void => {
-    cleanupMultiDrag()
-    const item = evt.item as HTMLElement
-    const draggedIndex = Number(item.dataset.queueIndex)
-    // The row that ends up right after the dropped item is the anchor to insert
-    // before; none → append at the end.
-    const toList = evt.to as HTMLElement
-    const after = toList.children[(evt.newIndex ?? 0) + 1] as HTMLElement | undefined
-    const anchorRaw = after?.dataset.queueIndex
-    const anchorIndex = anchorRaw !== undefined ? Number(anchorRaw) : undefined
-    const targetIndex = computeDropTarget(anchorIndex, player.queue.value.length)
-
-    // Revert SortableJS's DOM mutation so Vue can re-render cleanly from state.
-    const fromList = evt.from as HTMLElement
-    const reference = fromList.children[evt.oldIndex ?? 0] ?? null
-    fromList.insertBefore(item, reference)
-
-    if (Number.isNaN(draggedIndex)) return
-    player.moveInQueue(selectionForDrag(draggedIndex), targetIndex)
-    clearSelection()
-}
-
-const destroySortables = (): void => {
-    cleanupMultiDrag()
-    sortables.forEach((s) => s.destroy())
-    sortables = []
-}
-
-const createSortables = (): void => {
-    destroySortables()
-    const options: Sortable.Options = {
-        group: 'queue',
-        handle: '.drag-handle',
-        animation: 150,
-        onStart: handleSortStart,
-        setData: setDragData,
-        onEnd: handleSortEnd
-    }
-    if (editListRef.value) sortables.push(Sortable.create(editListRef.value, options))
-}
-
-watch(editMode, (on) => {
-    if (on) nextTick(createSortables)
-    else destroySortables()
-})
-
-onUnmounted(destroySortables)
 
 const scrollCurrentIntoView = (block: ScrollLogicalPosition): void => {
     nextTick(() => {
@@ -230,14 +105,17 @@ onMounted(() => scrollCurrentIntoView('center'))
                 <h3>{{ title }}</h3>
                 <span v-if="trackCount > 0" class="queue-info">{{ summary }}</span>
             </div>
+            <!-- Buttons follow the shared header-action convention (plain
+                 text+rounded, default size/severity — see EditActionBar and the
+                 ContentScaffold views); the sidebar variant keeps the compact
+                 small size to fit its tighter header. -->
             <div class="header-actions">
                 <Button
                     class="queue-action-edit"
                     icon="pi pi-pencil"
                     text
                     rounded
-                    size="small"
-                    :severity="editMode ? 'primary' : 'secondary'"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :class="{ 'is-active': editMode }"
                     :aria-pressed="editMode"
                     :disabled="trackCount === 0"
@@ -249,19 +127,17 @@ onMounted(() => scrollCurrentIntoView('center'))
                     icon="pi pi-save"
                     text
                     rounded
-                    size="small"
-                    severity="secondary"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :disabled="trackCount === 0"
                     v-tooltip.bottom="'Save as playlist'"
                     @click="openSaveDialog"
                 />
                 <Button
                     class="queue-action-clear"
-                    icon="pi pi-trash"
+                    icon="pi pi-eraser"
                     text
                     rounded
-                    size="small"
-                    severity="secondary"
+                    :size="variant === 'sidebar' ? 'small' : undefined"
                     :disabled="trackCount === 0"
                     v-tooltip.bottom="'Clear queue'"
                     @click="clearQueue"
@@ -303,27 +179,16 @@ onMounted(() => scrollCurrentIntoView('center'))
             </div>
             <!-- Edit mode: one flat reorderable list of every track, the
                  now-playing one rendered as a row with a play toggle. -->
-            <div
+            <TrackEditList
                 v-if="editMode"
                 ref="editListRef"
-                class="queue-edit-list"
-                role="listbox"
-                aria-multiselectable="true"
-                tabindex="0"
-                @keydown="onEditListKeydown"
-            >
-                <QueueRow
-                    v-for="row in editRows"
-                    :key="row.id + ':' + row.queueIndex"
-                    :song="row"
-                    :queue-index="row.queueIndex"
-                    editing
-                    :selected="isSelected(row.queueIndex)"
-                    :current="row.queueIndex === player.currentIndex.value"
-                    @select="(p) => onSelectRow(row.queueIndex, p)"
-                    @delete="onDeleteRow(row.queueIndex)"
-                />
-            </div>
+                :songs="player.queue.value"
+                :current-index="player.currentIndex.value"
+                delete-label="Remove from queue"
+                group="queue"
+                @reorder="onReorder"
+                @delete="removeIndices"
+            />
 
             <!-- View mode: faded history, the now-playing card/strip, upcoming. -->
             <template v-else>
@@ -498,6 +363,17 @@ onMounted(() => scrollCurrentIntoView('center'))
     flex-shrink: 0;
 }
 
+/* Match the ContentScaffold .scaffold-actions spacing in the full view. */
+.queue-view--full .header-actions {
+    gap: 0.5rem;
+}
+
+/* The pencil is a toggle (unlike the one-shot header actions elsewhere), so
+   edit mode gets a soft accent fill to read as "pressed". */
+.header-actions .queue-action-edit.is-active {
+    background: var(--app-accent-soft);
+}
+
 .queue-empty {
     display: flex;
     flex-direction: column;
@@ -552,15 +428,6 @@ onMounted(() => scrollCurrentIntoView('center'))
     border-radius: 0.55rem;
     font-size: 0.7rem;
     font-weight: 700;
-}
-
-/* The edit list is a focusable listbox (so Delete/Backspace can act on the
-   selection); keep the focus ring subtle since the selected-row highlight
-   already conveys what will be removed. */
-.queue-edit-list:focus-visible {
-    outline: 2px solid var(--app-accent);
-    outline-offset: -2px;
-    border-radius: 6px;
 }
 
 /* Already-played tracks are faded. */

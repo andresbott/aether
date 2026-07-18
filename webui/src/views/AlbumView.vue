@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import HeroHeader from '@/components/layout/HeroHeader.vue'
+import HeroActions from '@/components/layout/HeroActions.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
@@ -117,10 +118,6 @@ watch(
 
 <template>
     <div class="album-view">
-        <div class="back-row">
-            <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
-        </div>
-
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         </div>
@@ -130,22 +127,8 @@ watch(
             <p>{{ error.message }}</p>
         </div>
 
-        <ContentScaffold v-else-if="album" :title="album.name" :summary="summary">
+        <ContentScaffold v-else-if="album" title="" show-back @back="router.back()">
             <template #actions>
-                <Button label="Play" icon="pi pi-play" @click="playAlbum" />
-                <Button
-                    label="Add to Queue"
-                    icon="pi pi-plus"
-                    severity="secondary"
-                    text
-                    @click="addToQueue"
-                />
-                <Button
-                    :icon="album?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                    text
-                    rounded
-                    @click="handleStar"
-                />
                 <span
                     class="album-drag-handle"
                     draggable="true"
@@ -159,14 +142,15 @@ watch(
 
             <div class="album-scroll">
                 <div class="album-body">
-                    <div class="album-hero">
-                        <div class="album-cover">
-                            <img v-if="coverUrl" :src="coverUrl" :alt="album.name" />
-                            <div v-else class="cover-placeholder">
-                                <i class="pi pi-music" style="font-size: 3rem"></i>
-                            </div>
-                        </div>
-                        <div class="album-info">
+                    <HeroHeader
+                        eyebrow="Album"
+                        cover-placeholder-icon="pi pi-music"
+                        :cover-url="coverUrl"
+                        :cover-editable="false"
+                        :editing="false"
+                    >
+                        <template #read>
+                            <h2 class="hero-name">{{ album.name }}</h2>
                             <router-link
                                 v-if="album.artistId"
                                 :to="{ name: 'artist', params: { id: album.artistId } }"
@@ -175,9 +159,25 @@ watch(
                                 {{ album.artist }}
                             </router-link>
                             <p v-else class="artist-name">{{ album.artist }}</p>
-                            <p v-if="album.year" class="album-meta">{{ album.year }}</p>
-                        </div>
-                    </div>
+                            <div class="meta-row">
+                                <span v-if="album.year">{{ album.year }}</span>
+                                <span v-if="summary" :class="{ dot: !!album.year }">{{
+                                    summary
+                                }}</span>
+                            </div>
+                        </template>
+                        <template #actions>
+                            <HeroActions
+                                :play-disabled="!album.song?.length"
+                                can-queue
+                                can-star
+                                :starred="!!album.starred"
+                                @play="playAlbum"
+                                @queue="addToQueue"
+                                @star="handleStar"
+                            />
+                        </template>
+                    </HeroHeader>
 
                     <div v-if="orderedSongs.length > 0" class="track-list">
                         <div class="track-list-header">
@@ -220,11 +220,6 @@ watch(
     min-height: 0;
 }
 
-.back-row {
-    flex-shrink: 0;
-    padding: 0.5rem 2rem 0;
-}
-
 .loading,
 .error {
     display: flex;
@@ -251,43 +246,6 @@ watch(
     padding: 1rem;
 }
 
-.album-hero {
-    display: flex;
-    gap: 2rem;
-    margin-bottom: 2rem;
-}
-
-.album-cover {
-    width: 250px;
-    height: 250px;
-    flex-shrink: 0;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.album-cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.cover-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: rgba(255, 255, 255, 0.8);
-}
-
-.album-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
 .artist-link {
     font-size: 1.25rem;
     color: var(--app-accent);
@@ -296,12 +254,6 @@ watch(
 .artist-name {
     font-size: 1.25rem;
     color: var(--app-text-secondary);
-    margin: 0;
-}
-
-.album-meta {
-    color: var(--app-text-secondary);
-    font-size: 0.95rem;
     margin: 0;
 }
 

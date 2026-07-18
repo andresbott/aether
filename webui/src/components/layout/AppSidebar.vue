@@ -46,7 +46,6 @@ const libraryExtras: NavItem[] = [
 ]
 
 const streamingItems: NavItem[] = [
-    { label: 'Podcasts', icon: 'pi pi-microphone', route: '/podcasts', routeName: 'podcasts' },
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
@@ -174,6 +173,14 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     width: var(--app-sidebar-width);
     height: 100%;
     background-color: var(--app-nav-bg);
+    /* Depth: a deeper tone at the top easing into an accent-tinted glow at the
+       bottom, layered over the base nav colour (accent adapts to the theme). */
+    background-image: linear-gradient(
+        180deg,
+        rgba(0, 0, 0, 0.14) 0%,
+        transparent 62%,
+        color-mix(in srgb, var(--app-accent) 10%, transparent) 100%
+    );
     border-right: 1px solid var(--app-border);
     display: flex;
     flex-direction: column;
@@ -314,7 +321,6 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     gap: 0.25rem;
     flex-shrink: 0;
     padding: 0.75rem 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .nav-separator {

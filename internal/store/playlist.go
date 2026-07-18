@@ -1,9 +1,12 @@
 package store
 
-import "github.com/andresbott/aether/internal/model"
+import (
+	"github.com/andresbott/aether/internal/model"
+	"gorm.io/gorm"
+)
 
-func (s *Store) CreatePlaylist(name, owner string, trackIDs []uint) (*model.Playlist, error) {
-	pl := model.Playlist{Name: name, Owner: owner}
+func (s *Store) CreatePlaylist(name, owner string, public bool, trackIDs []uint) (*model.Playlist, error) {
+	pl := model.Playlist{Name: name, Owner: owner, Public: public}
 	if err := s.db.Create(&pl).Error; err != nil {
 		return nil, err
 	}
@@ -80,11 +83,40 @@ func (s *Store) GetPlaylistDuration(playlistID uint) (int, error) {
 	return total, err
 }
 
-func (s *Store) UpdatePlaylist(id uint, name, comment string) error {
-	return s.db.Model(&model.Playlist{}).Where("id = ?", id).Updates(map[string]any{
-		"name":    name,
-		"comment": comment,
-	}).Error
+// UpdatePlaylist applies a partial update: only the non-nil fields are written.
+// A no-op (all nil) returns nil without touching the row.
+func (s *Store) UpdatePlaylist(id uint, name, comment *string, public *bool) error {
+	fields := map[string]any{}
+	if name != nil {
+		fields["name"] = *name
+	}
+	if comment != nil {
+		fields["comment"] = *comment
+	}
+	if public != nil {
+		fields["public"] = *public
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return s.db.Model(&model.Playlist{}).Where("id = ?", id).Updates(fields).Error
+}
+
+// SetPlaylistTracks replaces the entire ordered track set of a playlist with the
+// given track IDs (used by createPlaylist's update-by-id path per the spec).
+func (s *Store) SetPlaylistTracks(playlistID uint, trackIDs []uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("playlist_id = ?", playlistID).Delete(&model.PlaylistTrack{}).Error; err != nil {
+			return err
+		}
+		for i, tid := range trackIDs {
+			pt := model.PlaylistTrack{PlaylistID: playlistID, TrackID: tid, SortOrder: i}
+			if err := tx.Create(&pt).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) DeletePlaylist(id uint) error {

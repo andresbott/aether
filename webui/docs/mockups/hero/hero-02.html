@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#02 · Edit-mode toggle</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-02 { display: flex; gap: 2rem; margin-bottom: 2.5rem; }
+        .hero-02 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+        .hero-02 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-02 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+        .hero-02 .meta-row { margin-top: 0.15rem; }
+
+        /* Cover gets an upload affordance only while editing. */
+        .hero-02 .cover-edit {
+            position: absolute; inset: auto 0 0 0; padding: 0.6rem;
+            display: flex; gap: 0.4rem; justify-content: center;
+            background: linear-gradient(transparent, rgba(0,0,0,0.6));
+            transform: translateY(100%); transition: transform 0.2s;
+        }
+        .hero-02.editing .cover-edit { transform: translateY(0); }
+        .hero-02 .cover-edit .ov-btn {
+            padding: 0.35rem 0.6rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.6);
+            background: rgba(0,0,0,0.35); color: #fff; font: inherit; font-size: 0.75rem; font-weight: 600; cursor: pointer;
+        }
+
+        /* Read-only vs editing field swap. */
+        .hero-02 .edit-only { display: none; }
+        .hero-02.editing .read-only { display: none; }
+        .hero-02.editing .edit-only { display: flex; }
+        .hero-02 .form-field { flex-direction: column; gap: 0.3rem; }
+        .hero-02 .save-bar { gap: 0.5rem; margin-top: 0.3rem; align-items: center; }
+        .hero-02 .delete-pl { margin-left: auto; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#02 · Edit-mode toggle</h1>
+            <p>One “Edit” button flips the entire hero from read-only into an inline form (name + description become inputs, the cover gains upload controls). A Save / Cancel bar commits or discards.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — full field editing</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- Header-driven edit: the Edit trigger belongs in the scaffold for this variation. -->
+                        <button class="btn-outline btn" data-edit-toggle="#pl2"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-02" id="pl2">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                        <div class="cover-edit">
+                            <button class="ov-btn" data-toast="Choose a cover…"><i class="pi pi-upload"></i> Upload</button>
+                            <button class="ov-btn" data-toast="Cover removed"><i class="pi pi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Playlist</span>
+                        <h2 class="hero-name read-only">Late Night Drives</h2>
+                        <label class="form-field edit-only" style="display:none">
+                            <span class="field-label">Name</span>
+                            <input class="field-input" value="Late Night Drives">
+                        </label>
+
+                        <p class="hero-desc read-only">Hazy synths and slow guitars for the long way home.</p>
+                        <label class="form-field edit-only" style="display:none">
+                            <span class="field-label">Description</span>
+                            <textarea class="field-input">Hazy synths and slow guitars for the long way home.</textarea>
+                        </label>
+
+                        <div class="meta-row">
+                            <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                        </div>
+
+                        <div class="save-bar edit-only" style="display:none">
+                            <button class="btn" data-edit-toggle="#pl2" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn-outline btn" data-edit-toggle="#pl2">Cancel</button>
+                            <!-- Delete is a destructive playlist action, surfaced inside edit mode and pushed apart from Save/Cancel. -->
+                            <button class="btn btn-danger delete-pl" data-toast="Playlist deleted"><i class="pi pi-trash"></i> Delete playlist</button>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — same flow, name locked</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <!-- Header-driven edit: the Edit trigger belongs in the scaffold for this variation. -->
+                        <button class="btn-outline btn" data-edit-toggle="#ar2"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-02" id="ar2">
+                    <div class="cover">
+                        <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                        <div class="cover-edit">
+                            <button class="ov-btn" data-toast="Choose an image…"><i class="pi pi-upload"></i> Upload</button>
+                            <button class="ov-btn" data-toast="Image removed"><i class="pi pi-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="hero-info">
+                        <span class="eyebrow">Artist</span>
+                        <!-- Artist name is not user-editable: no input variant. -->
+                        <h2 class="hero-name">Aurora Vale</h2>
+
+                        <p class="hero-desc read-only">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                        <label class="form-field edit-only" style="display:none">
+                            <span class="field-label">Bio</span>
+                            <textarea class="field-input">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</textarea>
+                        </label>
+
+                        <div class="meta-row">
+                            <span>6 albums</span><span class="dot">74 songs</span><span class="dot">Formed 2011</span><span class="dot">Reykjavík, IS</span>
+                        </div>
+
+                        <div class="save-bar edit-only" style="display:none">
+                            <button class="btn" data-edit-toggle="#ar2" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                            <button class="btn-outline btn" data-edit-toggle="#ar2">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

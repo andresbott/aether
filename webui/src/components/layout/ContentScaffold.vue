@@ -1,12 +1,25 @@
 <script setup lang="ts">
-defineProps<{ title: string; summary?: string }>()
+import Button from 'primevue/button'
+
+defineProps<{ title: string; summary?: string; showBack?: boolean }>()
+defineEmits<{ (e: 'back'): void }>()
 </script>
 
 <template>
     <div class="content-scaffold">
         <header class="content-scaffold-header">
+            <Button
+                v-if="showBack"
+                class="scaffold-back"
+                icon="pi pi-arrow-left"
+                text
+                rounded
+                aria-label="Back"
+                @click="$emit('back')"
+            />
             <div class="scaffold-title">
-                <h1>{{ title }}</h1>
+                <h1 v-if="title">{{ title }}</h1>
+                <slot name="title-actions" />
                 <span v-if="summary" class="scaffold-summary">{{ summary }}</span>
             </div>
             <div class="scaffold-actions">
@@ -40,6 +53,12 @@ defineProps<{ title: string; summary?: string }>()
     margin-inline: auto;
     box-sizing: border-box;
     padding: 0.75rem 2rem;
+    border-bottom: 1px solid var(--app-border);
+}
+
+.scaffold-back {
+    flex-shrink: 0;
+    align-self: center;
 }
 
 .scaffold-title {

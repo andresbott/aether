@@ -3,20 +3,38 @@ import { mount } from '@vue/test-utils'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 
 describe('ContentScaffold', () => {
-    it('renders title, summary, actions slot and body slot', () => {
-        const w = mount(ContentScaffold, {
-            props: { title: 'Main', summary: '1,240 albums' },
-            slots: { actions: '<button class="act">A</button>', default: '<div class="body">B</div>' }
-        })
-        expect(w.find('.scaffold-title h1').text()).toBe('Main')
-        expect(w.find('.scaffold-summary').text()).toBe('1,240 albums')
-        expect(w.find('.scaffold-actions .act').exists()).toBe(true)
-        expect(w.find('.content-scaffold-body .body').text()).toBe('B')
+    it('renders the title and summary', () => {
+        const w = mount(ContentScaffold, { props: { title: 'Playlists', summary: '3 playlists' } })
+        expect(w.find('.scaffold-title h1').text()).toBe('Playlists')
+        expect(w.find('.scaffold-summary').text()).toBe('3 playlists')
     })
 
-    it('omits the summary element when summary is not provided', () => {
-        const w = mount(ContentScaffold, { props: { title: 'Main' } })
-        expect(w.find('.scaffold-title h1').text()).toBe('Main')
-        expect(w.find('.scaffold-summary').exists()).toBe(false)
+    it('renders a #title-actions slot beside the title', () => {
+        const w = mount(ContentScaffold, {
+            props: { title: 'My Mix' },
+            slots: { 'title-actions': '<button class="rename-probe">edit</button>' }
+        })
+        const title = w.find('.scaffold-title')
+        expect(title.find('.rename-probe').exists()).toBe(true)
+    })
+
+    it('renders the #actions slot', () => {
+        const w = mount(ContentScaffold, {
+            props: { title: 'X' },
+            slots: { actions: '<button class="act-probe">go</button>' }
+        })
+        expect(w.find('.scaffold-actions .act-probe').exists()).toBe(true)
+    })
+
+    it('shows no back button by default', () => {
+        const w = mount(ContentScaffold, { props: { title: 'X' } })
+        expect(w.find('.scaffold-back').exists()).toBe(false)
+    })
+
+    it('emits back when the back button is clicked', async () => {
+        const w = mount(ContentScaffold, { props: { title: 'X', showBack: true } })
+        expect(w.find('.scaffold-back').exists()).toBe(true)
+        await w.find('.scaffold-back').trigger('click')
+        expect(w.emitted('back')).toHaveLength(1)
     })
 })

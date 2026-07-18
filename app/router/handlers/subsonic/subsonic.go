@@ -50,6 +50,9 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCach
 	register("getSong", h.getSong)
 	register("getGenres", h.getGenres)
 
+	// Artists (cover-art extension; no standard updateArtist endpoint exists)
+	register("updateArtist", h.updateArtist)
+
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
 	register("getAlbumList2Index", h.getAlbumList2Index)
@@ -136,6 +139,18 @@ func paramInt(r *http.Request, key string, defaultVal int) int {
 
 func paramStrSlice(r *http.Request, key string) []string {
 	return r.URL.Query()[key]
+}
+
+// paramBoolPtr parses an optional boolean query parameter. It returns nil when
+// the key is absent, true for "true"/"1", and false otherwise — letting callers
+// distinguish "not provided" from an explicit value.
+func paramBoolPtr(r *http.Request, key string) *bool {
+	if !r.URL.Query().Has(key) {
+		return nil
+	}
+	v := r.URL.Query().Get(key)
+	b := v == "true" || v == "1"
+	return &b
 }
 
 // paramLibraryID parses the optional musicFolderId query parameter.

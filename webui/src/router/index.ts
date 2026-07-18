@@ -55,22 +55,23 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/podcasts',
-        name: 'podcasts',
-        component: () => import('@/views/PodcastsView.vue'),
-        meta: { flush: true }
-    },
-    {
-        path: '/podcast/:id',
-        name: 'podcast-channel',
-        component: () => import('@/views/PodcastChannelView.vue'),
-        props: true,
-        meta: { flush: true }
-    },
-    {
         path: '/radio',
         name: 'radio',
         component: () => import('@/views/RadioView.vue'),
+        meta: { flush: true }
+    },
+    {
+        path: '/radio/new',
+        name: 'radio-station-new',
+        component: () => import('@/views/RadioStationDetailView.vue'),
+        props: { create: true },
+        meta: { flush: true }
+    },
+    {
+        path: '/radio/:id',
+        name: 'radio-station-detail',
+        component: () => import('@/views/RadioStationDetailView.vue'),
+        props: true,
         meta: { flush: true }
     },
     {
@@ -102,11 +103,6 @@ const routes: RouteRecordRaw[] = [
                 path: 'metadata',
                 name: 'settings-metadata',
                 component: () => import('@/views/settings/MetadataEditorView.vue')
-            },
-            {
-                path: 'radio',
-                name: 'settings-radio',
-                component: () => import('@/views/settings/RadioStationsView.vue')
             }
         ]
     }

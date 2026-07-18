@@ -36,8 +36,7 @@ const groups: SettingsNavGroup[] = [
         items: [
             { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },
             { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' },
-            { label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/settings/metadata' },
-            { label: 'Radio Stations', icon: 'pi pi-wifi', route: '/settings/radio' }
+            { label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/settings/metadata' }
         ]
     }
 ]

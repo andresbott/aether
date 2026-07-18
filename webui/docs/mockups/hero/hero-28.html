@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>#28 · Live-preview edit</title>
+    <link rel="stylesheet" href="https://unpkg.com/primeicons/primeicons.css">
+    <link rel="stylesheet" href="_shared.css">
+    <style>
+        .hero-28 { margin-bottom: 2.5rem; }
+
+        /* Read-only: normal single hero. */
+        .hero-28 .read-hero { display: flex; gap: 2rem; }
+        .hero-28.editing .read-hero { display: none; }
+        .hero-28 .hero-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.6rem; justify-content: center; }
+        .hero-28 .hero-name { margin: 0; font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-28 .hero-desc { margin: 0; color: var(--app-text-secondary); max-width: 46ch; }
+
+        /* Editing: two-column split — form left, live preview right. */
+        .hero-28 .split { display: none; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: start; }
+        .hero-28.editing .split { display: grid; }
+        .hero-28 .form-col { display: flex; flex-direction: column; gap: 0.9rem; }
+        .hero-28 .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+        .hero-28 .save-bar { display: flex; gap: 0.5rem; margin-top: 0.3rem; }
+
+        .hero-28 .preview-col {
+            background: var(--app-surface-2);
+            border: 1px solid var(--app-border);
+            border-radius: 12px;
+            padding: 1.4rem;
+            position: sticky; top: 1rem;
+        }
+        .hero-28 .preview-label {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--app-accent); margin-bottom: 1rem;
+        }
+        .hero-28 .preview-label .pi { font-size: 0.7rem; }
+        .hero-28 .pv-hero { display: flex; gap: 1.25rem; align-items: center; }
+        .hero-28 .pv-hero .cover { width: 120px; height: 120px; }
+        .hero-28 .pv-name { margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+        .hero-28 .pv-desc { margin: 0.35rem 0 0; color: var(--app-text-secondary); font-size: 0.85rem; }
+        .hero-28 .pv-info { min-width: 0; }
+    </style>
+</head>
+<body>
+    <header class="mock-topbar">
+        <a class="mock-back" href="index.html"><i class="pi pi-th-large"></i> All 30</a>
+        <div class="mock-titleblock">
+            <h1>#28 · Live-preview edit</h1>
+            <p>Entering edit mode splits the hero into a form on the left and a live hero preview on the right, so changes are seen exactly as they will render.</p>
+        </div>
+        <button class="theme-toggle" id="themeToggle"></button>
+    </header>
+
+    <div class="demo-grid">
+        <!-- ============================ PLAYLIST ============================ -->
+        <div>
+            <p class="demo-label">Playlist context — rename enabled</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Playlists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn" title="Sort tracks" data-toast="Sort tracks"><i class="pi pi-sort-alt"></i></button>
+                        <!-- Header-driven edit: the Edit trigger toggles the split live-preview. -->
+                        <button class="btn-outline btn" data-edit-toggle="#pl28"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-28" id="pl28">
+                    <!-- Read-only single hero -->
+                    <div class="read-hero">
+                        <div class="cover">
+                            <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                        </div>
+                        <div class="hero-info">
+                            <span class="eyebrow">Playlist</span>
+                            <h2 class="hero-name">Late Night Drives</h2>
+                            <p class="hero-desc">Hazy synths and slow guitars for the long way home.</p>
+                            <div class="meta-row">
+                                <span>8 songs • 31 min</span><span class="dot">by andres</span><span class="dot">Updated 2 days ago</span><span class="dot">Private</span>
+                            </div>
+                            <div class="chips">
+                                <span class="chip">Chill</span><span class="chip">Synthwave</span><span class="chip">Night</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Editing split -->
+                    <div class="split">
+                        <div class="form-col">
+                            <label class="form-field">
+                                <span class="field-label">Cover</span>
+                                <button class="btn-outline btn" data-toast="Choose a cover…"><i class="pi pi-cloud-upload"></i> Upload image</button>
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Name</span>
+                                <input class="field-input" value="Late Night Drives">
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Description</span>
+                                <textarea class="field-input">Hazy synths and slow guitars for the long way home.</textarea>
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Tags</span>
+                                <input class="field-input" value="Chill, Synthwave, Night">
+                            </label>
+                            <div class="save-bar">
+                                <button class="btn" data-edit-toggle="#pl28" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                                <button class="btn-outline btn" data-edit-toggle="#pl28">Cancel</button>
+                            </div>
+                        </div>
+                        <div class="preview-col">
+                            <span class="preview-label"><i class="pi pi-eye"></i> Live preview</span>
+                            <div class="pv-hero">
+                                <div class="cover">
+                                    <img src="https://picsum.photos/seed/late-night-playlist/300" alt="">
+                                </div>
+                                <div class="pv-info">
+                                    <span class="eyebrow">Playlist</span>
+                                    <h3 class="pv-name">Late Night Drives</h3>
+                                    <p class="pv-desc">Hazy synths and slow guitars for the long way home.</p>
+                                    <div class="meta-row" style="margin-top:0.5rem">
+                                        <span>by andres</span><span class="dot">Private</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Songs</h2>
+                <div class="track-list" data-render="songs"></div>
+            </section>
+        </div>
+
+        <!-- ============================= ARTIST ============================= -->
+        <div>
+            <p class="demo-label">Artist context — no rename, adds star</p>
+            <section class="demo-view">
+                <div class="scaffold-head">
+                    <div class="toolbar-nav">
+                        <button class="icon-btn" title="Back"><i class="pi pi-arrow-left"></i></button>
+                        <span class="toolbar-crumb">Artists</span>
+                    </div>
+                    <div class="scaffold-actions">
+                        <button class="btn"><i class="pi pi-play"></i> Play</button>
+                        <button class="icon-btn" title="Shuffle"><i class="pi pi-refresh"></i></button>
+                        <span class="act-divider"></span>
+                        <div class="view-seg" data-tabgroup>
+                            <button class="seg is-active" title="Grid view" data-tab="#albums-grid"><i class="pi pi-th-large"></i></button>
+                            <button class="seg" title="List view" data-tab="#albums-list"><i class="pi pi-bars"></i></button>
+                        </div>
+                        <span class="act-divider"></span>
+                        <button class="icon-btn is-active" title="Starred"><i class="pi pi-star-fill"></i></button>
+                        <!-- Header-driven edit: the Edit trigger toggles the split live-preview. -->
+                        <button class="btn-outline btn" data-edit-toggle="#ar28"><i class="pi pi-pencil"></i> Edit</button>
+                    </div>
+                </div>
+
+                <div class="hero hero-28" id="ar28">
+                    <!-- Read-only single hero -->
+                    <div class="read-hero">
+                        <div class="cover">
+                            <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                        </div>
+                        <div class="hero-info">
+                            <span class="eyebrow">Artist</span>
+                            <h2 class="hero-name">Aurora Vale</h2>
+                            <p class="hero-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                            <div class="meta-row">
+                                <span>6 albums</span><span class="dot">74 songs</span><span class="dot">1.2M plays</span><span class="dot">Reykjavík, IS</span>
+                            </div>
+                            <div class="chips">
+                                <span class="chip">Dream Pop</span><span class="chip">Ambient</span><span class="chip">Shoegaze</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Editing split -->
+                    <div class="split">
+                        <div class="form-col">
+                            <label class="form-field">
+                                <span class="field-label">Image</span>
+                                <button class="btn-outline btn" data-toast="Choose an image…"><i class="pi pi-cloud-upload"></i> Upload image</button>
+                            </label>
+                            <!-- Artist name is NOT editable: no Name field -->
+                            <label class="form-field">
+                                <span class="field-label">Bio</span>
+                                <textarea class="field-input">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</textarea>
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Genres</span>
+                                <input class="field-input" value="Dream Pop, Ambient, Shoegaze">
+                            </label>
+                            <div class="save-bar">
+                                <button class="btn" data-edit-toggle="#ar28" data-toast="Changes saved"><i class="pi pi-check"></i> Save</button>
+                                <button class="btn-outline btn" data-edit-toggle="#ar28">Cancel</button>
+                            </div>
+                        </div>
+                        <div class="preview-col">
+                            <span class="preview-label"><i class="pi pi-eye"></i> Live preview</span>
+                            <div class="pv-hero">
+                                <div class="cover">
+                                    <img src="https://picsum.photos/seed/aurora-vale-artist/300" alt="">
+                                </div>
+                                <div class="pv-info">
+                                    <span class="eyebrow">Artist</span>
+                                    <h3 class="pv-name">Aurora Vale</h3>
+                                    <p class="pv-desc">Cavernous, reverb-soaked soundscapes drifting between ambient and dream pop.</p>
+                                    <div class="meta-row" style="margin-top:0.5rem">
+                                        <span>6 albums</span><span class="dot">74 songs</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h2 class="section-heading">Albums</h2>
+                <div class="album-grid" data-render="albums"></div>
+            </section>
+        </div>
+    </div>
+
+    <script src="_shared.js"></script>
+</body>
+</html>

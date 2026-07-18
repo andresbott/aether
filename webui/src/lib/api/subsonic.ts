@@ -12,7 +12,6 @@ import type {
     Song,
     Playlist,
     MusicFolder,
-    PodcastChannel,
     InternetRadioStation
 } from '@/types/subsonic'
 
@@ -210,35 +209,6 @@ class SubsonicClient {
         return response.playlist
     }
 
-    async getPodcasts(includeEpisodes = true): Promise<PodcastChannel[]> {
-        if (!this.isConfigured()) return []
-        const response = await this.request<{ podcasts: { channel: PodcastChannel[] } }>(
-            'getPodcasts.view',
-            { includeEpisodes }
-        )
-        return response.podcasts?.channel || []
-    }
-
-    async getPodcastChannel(id: string): Promise<PodcastChannel | null> {
-        if (!this.isConfigured()) return null
-        const response = await this.request<{ podcasts: { channel: PodcastChannel[] } }>(
-            'getPodcasts.view',
-            { includeEpisodes: true, id }
-        )
-        if (response.podcasts?.channel && response.podcasts.channel.length > 0) {
-            return response.podcasts.channel[0]
-        }
-        return null
-    }
-
-    async getNewestPodcasts(count = 20): Promise<PodcastChannel[]> {
-        if (!this.isConfigured()) return []
-        const response = await this.request<{
-            newestPodcasts: { episode: PodcastChannel[] }
-        }>('getNewestPodcasts.view', { count })
-        return response.newestPodcasts?.episode || []
-    }
-
     async getInternetRadioStations(): Promise<InternetRadioStation[]> {
         if (!this.isConfigured()) return []
         const response = await this.request<{
@@ -344,6 +314,46 @@ class SubsonicClient {
         if (options.songIndexesToRemove) {
             options.songIndexesToRemove.forEach(idx => url.searchParams.append('songIndexToRemove', String(idx)))
         }
+        const response = await fetch(url.toString())
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+        const data = await response.json()
+        if (data['subsonic-response'].status === 'failed') {
+            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+        }
+    }
+
+    async updatePlaylistCover(
+        playlistId: string,
+        coverFile?: File,
+        coverClear?: boolean
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('updatePlaylist.view')
+        const body = new FormData()
+        body.append('playlistId', playlistId)
+        if (coverFile) body.append('coverFile', coverFile)
+        if (coverClear) body.append('coverClear', 'true')
+        await this.submitMultipart(url, body)
+    }
+
+    async updateArtistCover(
+        artistId: string,
+        coverFile?: File,
+        coverClear?: boolean
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('updateArtist.view')
+        const body = new FormData()
+        body.append('id', artistId)
+        if (coverFile) body.append('coverFile', coverFile)
+        if (coverClear) body.append('coverClear', 'true')
+        await this.submitMultipart(url, body)
+    }
+
+    async replacePlaylistTracks(playlistId: string, songIds: string[]): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = new URL(this.buildUrl('createPlaylist.view', { playlistId }))
+        songIds.forEach((id) => url.searchParams.append('songId', id))
         const response = await fetch(url.toString())
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data = await response.json()
