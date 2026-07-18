@@ -4,7 +4,8 @@ import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import FileUpload from 'primevue/fileupload'
 
-vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
+const { toastAdd } = vi.hoisted(() => ({ toastAdd: vi.fn() }))
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 
 const playlist = ref<any>(null)
 const replaceIsPending = ref(false)
@@ -94,6 +95,7 @@ beforeEach(() => {
     updateAsync.mockReset().mockImplementation(() => Promise.resolve())
     replaceAsync.mockReset().mockImplementation(() => Promise.resolve())
     coverAsync.mockReset().mockImplementation(() => Promise.resolve())
+    toastAdd.mockClear()
     playAlbum.mockReset()
     push.mockClear()
     replaceIsPending.value = false
@@ -276,6 +278,7 @@ describe('PlaylistDetailView', () => {
         await flushPromises()
         expect(w.find('.hero-header').classes()).toContain('editing')
         expect(w.find('.edit-action-save').exists()).toBe(true)
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }))
     })
 
     it('Delete asks for confirmation, then deletes and navigates to /playlists', async () => {

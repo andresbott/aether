@@ -210,14 +210,14 @@ const saveEdit = async (): Promise<void> => {
     try {
         await Promise.all(tasks)
         editing.value = false
-    } catch {
+    } catch (err) {
         // Stay in edit mode so the user can retry; successful slices were already
         // re-baselined above, so a retry only re-fires the still-dirty ones.
         toast.add({
             severity: 'error',
             summary: 'Save failed',
-            detail: 'Some changes could not be saved. Please try again.',
-            life: 4000
+            detail: (err as Error)?.message || 'Some changes could not be saved. Please try again.',
+            life: 5000
         })
     }
 }
