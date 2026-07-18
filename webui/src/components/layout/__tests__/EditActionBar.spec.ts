@@ -81,14 +81,17 @@ describe('EditActionBar', () => {
         w.unmount()
     })
 
-    it('Escape does not exit edit mode while a confirm dialog is open', () => {
+    it('Escape does not exit edit mode while any modal dialog is open', () => {
+        const confirmSpy = vi.spyOn(window, 'confirm')
         const w = mountBar({ editing: true })
         const dialog = document.createElement('div')
-        dialog.className = 'p-confirmdialog'
+        dialog.className = 'p-dialog'
         document.body.appendChild(dialog)
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(confirmSpy).not.toHaveBeenCalled()
         expect(w.emitted('cancel')).toBeUndefined()
         document.body.removeChild(dialog)
+        confirmSpy.mockRestore()
         w.unmount()
     })
 

@@ -149,6 +149,7 @@ function onRemoveCover() {
 // cover. The baseline stays at the empty form — a discovered fill counts as
 // unsaved changes, same as typing the values by hand.
 const searchVisible = ref(false)
+let unmounted = false
 
 function onDiscoverSelect(s: RadioBrowserStation) {
     form.value = {
@@ -161,8 +162,9 @@ function onDiscoverSelect(s: RadioBrowserStation) {
     const seededStreamUrl = s.streamUrl
     fetchRadioFavicon(s.favicon).then((cover) => {
         // Skip when superseded during the fetch: re-discovered / stream URL
-        // edited / user staged their own cover or a clear.
+        // edited / user staged their own cover or a clear / unmounted.
         if (!cover) return
+        if (unmounted) return
         if (form.value.streamUrl !== seededStreamUrl) return
         if (selectedFile.value !== null || coverClear.value) return
         selectedFile.value = cover
@@ -253,6 +255,7 @@ const onBeforeUnload = (e: BeforeUnloadEvent): void => {
 }
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onUnmounted(() => {
+    unmounted = true
     window.removeEventListener('beforeunload', onBeforeUnload)
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
 })

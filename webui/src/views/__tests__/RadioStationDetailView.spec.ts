@@ -165,6 +165,30 @@ describe('RadioStationDetailView', () => {
         await vi.waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledWith(cover))
     })
 
+    it('create mode: favicon fetch superseded by stream URL edit does not stage cover', async () => {
+        let resolve: (value: File | null) => void
+        fetchRadioFavicon.mockReturnValueOnce(
+            new Promise((r) => {
+                resolve = r
+            })
+        )
+        const cover = new File(['x'], 'fav.png', { type: 'image/png' })
+        const w = mountView({ create: true })
+        w.findComponent(SearchDialogStub).vm.$emit('select', {
+            name: 'RP',
+            streamUrl: 'http://rp/stream',
+            homepage: '',
+            favicon: 'http://rp.com/fav.png'
+        })
+        // Change stream URL before the fetch resolves: supersedes the fill.
+        await editInputs(w)[1].setValue('http://other/stream')
+        resolve!(cover)
+        await w.vm.$nextTick()
+        await w.vm.$nextTick()
+        expect(URL.createObjectURL).not.toHaveBeenCalledWith(cover)
+        w.unmount()
+    })
+
     it('create mode: a discovered fill counts as unsaved changes (Esc verifies)', async () => {
         const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
         const w = mountView({ create: true })

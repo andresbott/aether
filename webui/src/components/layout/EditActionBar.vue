@@ -49,13 +49,13 @@ function confirmDelete(): void {
 }
 
 // Esc exits edit mode (same as Cancel: discard staged edits + leave). The listener
-// is only active while editing. If a confirm dialog is open, let it own Escape
-// (dismiss the dialog) rather than also exiting edit mode. Esc is easy to fumble, so
-// when there are unsaved changes it verifies before discarding — mirroring the views'
-// navigation guard.
+// is only active while editing. If any modal dialog is open (ConfirmDialog, Dialog,
+// etc.), let it own Escape (dismiss the dialog) rather than also exiting edit mode.
+// Esc is easy to fumble, so when there are unsaved changes it verifies before
+// discarding — mirroring the views' navigation guard.
 function onKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Escape') return
-    if (document.querySelector('.p-confirmdialog')) return
+    if (document.querySelector('.p-dialog')) return
     if (props.dirty && !window.confirm('You have unsaved changes. Discard them?')) return
     emit('cancel')
 }
