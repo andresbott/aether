@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import RadioStationListView from '@/components/library/RadioStationListView.vue'
 import RadioStationGrid from '@/components/library/RadioStationGrid.vue'
-import StationSearchDialog from '@/components/library/StationSearchDialog.vue'
 import { useRadioStations } from '@/composables/useSubsonicQueries'
-import type { RadioBrowserStation } from '@/types/radiobrowser'
 
 type Layout = 'grid' | 'list'
 
@@ -38,20 +36,8 @@ const summary = computed(() => {
     return `${count} ${count === 1 ? 'station' : 'stations'}`
 })
 
-const searchVisible = ref(false)
-
 function openAdd() {
     router.push({ name: 'radio-station-new' })
-}
-
-function onDiscoverSelect(station: RadioBrowserStation) {
-    const query: Record<string, string> = {
-        name: station.name,
-        streamUrl: station.streamUrl
-    }
-    if (station.homepage) query.homepage = station.homepage
-    if (station.favicon) query.favicon = station.favicon
-    router.push({ name: 'radio-station-new', query })
 }
 </script>
 
@@ -72,23 +58,17 @@ function onDiscoverSelect(station: RadioBrowserStation) {
                 </template>
             </SelectButton>
             <Button
-                class="discover-station"
-                label="Discover"
-                icon="pi pi-globe"
-                outlined
-                @click="searchVisible = true"
-            />
-            <Button
                 class="add-station"
-                label="Add Station"
                 icon="pi pi-plus"
+                text
+                rounded
+                v-tooltip.bottom="'Add station'"
+                aria-label="Add station"
                 @click="openAdd"
             />
         </template>
 
         <RadioStationListView v-if="layout === 'list'" />
         <RadioStationGrid v-else />
-
-        <StationSearchDialog v-model:visible="searchVisible" @select="onDiscoverSelect" />
     </ContentScaffold>
 </template>
