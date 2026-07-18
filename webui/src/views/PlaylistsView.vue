@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
+import SelectButton from 'primevue/selectbutton'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import PlaylistCard from '@/components/library/PlaylistCard.vue'
+import PlaylistListView from '@/components/library/PlaylistListView.vue'
 import { usePlaylists, useCreatePlaylist } from '@/composables/useSubsonicQueries'
-import { subsonicClient } from '@/lib/api/subsonic'
 
+type Layout = 'grid' | 'list'
+
+const route = useRoute()
 const router = useRouter()
 const { data: playlists, isLoading } = usePlaylists()
 const createPlaylist = useCreatePlaylist()
@@ -15,16 +20,26 @@ const createPlaylist = useCreatePlaylist()
 const showCreateDialog = ref(false)
 const newPlaylistName = ref('')
 
+const layoutOptions = [
+    { label: 'List', value: 'list', icon: 'pi pi-list' },
+    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
+]
+
+const layout = computed<Layout>({
+    get: () => (route.query.view === 'list' ? 'list' : 'grid'),
+    set: (v) => {
+        const query = { ...route.query }
+        if (v === 'list') query.view = 'list'
+        else delete query.view
+        router.replace({ query })
+    }
+})
+
 const summary = computed(() => {
     const count = playlists.value?.length ?? 0
     if (count === 0) return ''
     return `${count} ${count === 1 ? 'playlist' : 'playlists'}`
 })
-
-const getCoverUrl = (coverArt?: string): string | null => {
-    if (!coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(coverArt, 200)
-}
 
 const handleCreate = () => {
     if (!newPlaylistName.value.trim()) return
@@ -38,15 +53,24 @@ const handleCreate = () => {
         }
     )
 }
-
-const openPlaylist = (id: string) => {
-    router.push({ name: 'playlist-detail', params: { id } })
-}
 </script>
 
 <template>
     <ContentScaffold title="Playlists" :summary="summary">
         <template #actions>
+            <SelectButton
+                v-model="layout"
+                :options="layoutOptions"
+                optionLabel="label"
+                optionValue="value"
+                :allowEmpty="false"
+                dataKey="value"
+                aria-label="Layout"
+            >
+                <template #option="slotProps">
+                    <i :class="slotProps.option.icon"></i>
+                </template>
+            </SelectButton>
             <Button label="Create Playlist" icon="pi pi-plus" @click="showCreateDialog = true" />
         </template>
 
@@ -55,25 +79,12 @@ const openPlaylist = (id: string) => {
                 <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
             </div>
 
-            <div v-else-if="playlists && playlists.length > 0" class="playlist-grid">
-                <div
-                    v-for="pl in playlists"
-                    :key="pl.id"
-                    class="playlist-card"
-                    @click="openPlaylist(pl.id)"
-                >
-                    <div class="playlist-cover">
-                        <img v-if="getCoverUrl(pl.coverArt)" :src="getCoverUrl(pl.coverArt)!" alt="" />
-                        <div v-else class="cover-placeholder">
-                            <i class="pi pi-list" style="font-size: 2rem"></i>
-                        </div>
-                    </div>
-                    <div class="playlist-info">
-                        <div class="playlist-name">{{ pl.name }}</div>
-                        <div class="playlist-meta">{{ pl.songCount }} songs</div>
-                    </div>
+            <template v-else-if="playlists && playlists.length > 0">
+                <PlaylistListView v-if="layout === 'list'" :playlists="playlists" />
+                <div v-else class="playlist-grid">
+                    <PlaylistCard v-for="pl in playlists" :key="pl.id" :playlist="pl" />
                 </div>
-            </div>
+            </template>
 
             <div v-else class="empty-state">
                 <i class="pi pi-list" style="font-size: 3rem"></i>
@@ -97,11 +108,7 @@ const openPlaylist = (id: string) => {
             </div>
             <template #footer>
                 <Button label="Cancel" text @click="showCreateDialog = false" />
-                <Button
-                    label="Create"
-                    :loading="createPlaylist.isPending.value"
-                    @click="handleCreate"
-                />
+                <Button label="Create" :loading="createPlaylist.isPending.value" @click="handleCreate" />
             </template>
         </Dialog>
     </ContentScaffold>
@@ -111,14 +118,6 @@ const openPlaylist = (id: string) => {
 .playlists-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }
 .playlist-grid { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
-.playlist-card { cursor: pointer; transition: transform 0.2s; }
-.playlist-card:hover { transform: translateY(-2px); }
-.playlist-cover { width: 100%; aspect-ratio: 1; border-radius: 8px; overflow: hidden; }
-.playlist-cover img { width: 100%; height: 100%; object-fit: cover; }
-.cover-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: rgba(255, 255, 255, 0.8); }
-.playlist-info { padding: 0.5rem 0.25rem; }
-.playlist-name { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.playlist-meta { font-size: 0.8rem; color: var(--app-text-secondary); }
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 4rem; gap: 1rem; color: var(--app-text-secondary); }
 .create-form { padding: 1rem 0; }
 </style>

@@ -187,6 +187,18 @@ export function useUpdatePlaylist() {
     })
 }
 
+export function useReplacePlaylistTracks() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { playlistId: string; songIds: string[] }) =>
+            subsonicClient.replacePlaylistTracks(params.playlistId, params.songIds),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+        }
+    })
+}
+
 export function useDeletePlaylist() {
     const queryClient = useQueryClient()
     return useMutation({

@@ -1,37 +1,128 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import HeroHeader from '@/components/layout/HeroHeader.vue'
+import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
-import ArtistEditDialog from '@/components/library/ArtistEditDialog.vue'
-import { useArtist, useToggleStar } from '@/composables/useSubsonicQueries'
+import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
 import { subsonicClient } from '@/lib/api/subsonic'
+
+const MAX_COVER_BYTES = 5 * 1024 * 1024
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
 const toggleStar = useToggleStar()
+const updateCover = useUpdateArtistCover()
+
+const { data: artist, isLoading, error } = useArtist(props.id)
+
+const editing = ref(false)
+const cacheBust = ref(0)
+const selectedFile = ref<File | null>(null)
+const previewUrl = ref<string | null>(null)
+const coverClear = ref(false)
+const coverSizeError = ref<string | null>(null)
+
+const dirty = computed(() => selectedFile.value !== null || coverClear.value)
 
 const handleStar = () => {
     if (!artist.value) return
     toggleStar.mutate({ id: artist.value.id, starred: !!artist.value.starred })
 }
 
-const { data: artist, isLoading, error } = useArtist(props.id)
+function resetCoverStaging(): void {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = false
+    coverSizeError.value = null
+}
 
-const editDialogVisible = ref(false)
-const cacheBust = ref(0)
+// Artist edit = cover only. Changes are staged locally and applied on Save.
+const onCoverSelect = (file: File): void => {
+    if (file.size > MAX_COVER_BYTES) {
+        coverSizeError.value = `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — max is 5 MB`
+        return
+    }
+    coverSizeError.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    selectedFile.value = file
+    previewUrl.value = URL.createObjectURL(file)
+    coverClear.value = false
+}
+
+const onRemoveCover = (): void => {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = true
+    coverSizeError.value = null
+}
+
+const saveEdit = (): void => {
+    if (!dirty.value) {
+        editing.value = false
+        return
+    }
+    updateCover.mutate(
+        {
+            artistId: props.id,
+            coverFile: selectedFile.value ?? undefined,
+            coverClear: coverClear.value || undefined
+        },
+        {
+            onSuccess: () => {
+                resetCoverStaging()
+                cacheBust.value++
+                editing.value = false
+            }
+        }
+    )
+}
+
+const cancelEdit = (): void => {
+    resetCoverStaging()
+    editing.value = false
+}
 
 const coverUrl = computed(() => {
+    if (previewUrl.value) return previewUrl.value
+    if (coverClear.value) return null
     if (!artist.value?.coverArt || !subsonicClient.isConfigured()) return null
     const base = subsonicClient.getCoverArtUrl(artist.value.coverArt, 250)
     return cacheBust.value > 0 ? `${base}&_cb=${cacheBust.value}` : base
 })
 
-const summary = computed(() => {
-    const n = artist.value?.albumCount ?? 0
-    if (n === 0) return ''
-    return `${n} ${n === 1 ? 'album' : 'albums'}`
+// Unsaved-changes guards (mirror Playlist/Radio detail views).
+onBeforeRouteLeave(() => {
+    if (dirty.value) {
+        return window.confirm('You have unsaved changes. Leave without saving?')
+    }
+})
+const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (!dirty.value) return
+    e.preventDefault()
+    e.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => {
+    window.removeEventListener('beforeunload', onBeforeUnload)
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
+
+const heroMeta = computed(() => {
+    if (!artist.value) return []
+    const parts: string[] = []
+    const albums = artist.value.albumCount ?? artist.value.album?.length ?? 0
+    const songs =
+        artist.value.songCount ??
+        artist.value.album?.reduce((n, a) => n + (a.songCount ?? 0), 0) ??
+        0
+    if (albums) parts.push(`${albums} ${albums === 1 ? 'album' : 'albums'}`)
+    if (songs) parts.push(`${songs} ${songs === 1 ? 'song' : 'songs'}`)
+    return parts
 })
 
 const sortedAlbums = computed(() => {
@@ -48,10 +139,6 @@ const sortedAlbums = computed(() => {
 
 <template>
     <div class="artist-view">
-        <div class="back-row">
-            <Button icon="pi pi-arrow-left" text rounded @click="router.back()" />
-        </div>
-
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         </div>
@@ -61,34 +148,53 @@ const sortedAlbums = computed(() => {
             <p>{{ error.message }}</p>
         </div>
 
-        <ContentScaffold v-else-if="artist" :title="artist.name" :summary="summary">
+        <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">
             <template #actions>
-                <Button
-                    :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
-                    text
-                    rounded
-                    title="Toggle star"
-                    @click="handleStar"
-                />
-                <Button
-                    icon="pi pi-pencil"
-                    text
-                    rounded
-                    title="Edit MusicBrainz match"
-                    @click="editDialogVisible = true"
-                />
+                <EditActionBar
+                    v-model:editing="editing"
+                    :can-delete="false"
+                    :save-disabled="!dirty"
+                    :saving="updateCover.isPending.value"
+                    :dirty="dirty"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                >
+                    <template #read-actions>
+                        <Button
+                            :icon="artist?.starred ? 'pi pi-star-fill' : 'pi pi-star'"
+                            text
+                            rounded
+                            title="Toggle star"
+                            @click="handleStar"
+                        />
+                    </template>
+                </EditActionBar>
             </template>
 
             <div class="artist-scroll">
                 <div class="artist-body">
-                    <div class="artist-hero">
-                        <div class="artist-image">
-                            <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
-                            <div v-else class="image-placeholder">
-                                <i class="pi pi-user" style="font-size: 3rem"></i>
+                    <HeroHeader
+                        eyebrow="Artist"
+                        cover-placeholder-icon="pi pi-user"
+                        cover-back-label="Artist image"
+                        :cover-url="coverUrl"
+                        :cover-size-error="coverSizeError"
+                        v-model:editing="editing"
+                        @cover-select="onCoverSelect"
+                        @cover-remove="onRemoveCover"
+                    >
+                        <template #read>
+                            <h2 class="hero-name">{{ artist.name }}</h2>
+                            <div v-if="heroMeta.length" class="meta-row">
+                                <span
+                                    v-for="(part, i) in heroMeta"
+                                    :key="part"
+                                    :class="{ dot: i > 0 }"
+                                    >{{ part }}</span
+                                >
                             </div>
-                        </div>
-                    </div>
+                        </template>
+                    </HeroHeader>
 
                     <section v-if="sortedAlbums.length > 0" class="discography">
                         <h2>Albums</h2>
@@ -103,14 +209,6 @@ const sortedAlbums = computed(() => {
                 </div>
             </div>
         </ContentScaffold>
-
-        <ArtistEditDialog
-            v-if="artist"
-            v-model:visible="editDialogVisible"
-            :artist-id="artist.id"
-            :artist-name="artist.name"
-            @saved="cacheBust++"
-        />
     </div>
 </template>
 
@@ -120,11 +218,6 @@ const sortedAlbums = computed(() => {
     display: flex;
     flex-direction: column;
     min-height: 0;
-}
-
-.back-row {
-    flex-shrink: 0;
-    padding: 0.5rem 2rem 0;
 }
 
 .loading,
@@ -151,36 +244,6 @@ const sortedAlbums = computed(() => {
     max-width: var(--app-content-max-width);
     margin: 0 auto;
     padding: 1rem;
-}
-
-.artist-hero {
-    display: flex;
-    gap: 2rem;
-    margin-bottom: 2rem;
-}
-
-.artist-image {
-    width: 250px;
-    height: 250px;
-    flex-shrink: 0;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-.artist-image img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.image-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: rgba(255, 255, 255, 0.8);
 }
 
 .discography h2 {

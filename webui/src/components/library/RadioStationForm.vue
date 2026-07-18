@@ -1,34 +1,30 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import Dialog from 'primevue/dialog'
-import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
+import Button from 'primevue/button'
 import FileUpload from 'primevue/fileupload'
 import Message from 'primevue/message'
 import type { InternetRadioStation } from '@/types/subsonic'
+import type { RadioStationPrefill } from '@/types/radiobrowser'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
 
 const props = defineProps<{
-    visible: boolean
     station: InternetRadioStation | null
-    submitting: boolean
+    prefill?: RadioStationPrefill | null
 }>()
 
+interface StationInput {
+    name: string
+    streamUrl: string
+    homepageUrl?: string
+    coverFile?: File
+    coverClear?: boolean
+}
+
 const emit = defineEmits<{
-    (e: 'update:visible', v: boolean): void
-    (
-        e: 'submit',
-        input: {
-            name: string
-            streamUrl: string
-            homepageUrl?: string
-            coverFile?: File
-            coverClear?: boolean
-        }
-    ): void
-    (e: 'cancel'): void
+    (e: 'change', payload: { input: StationInput; valid: boolean; dirty: boolean }): void
 }>()
 
 interface FormState {
@@ -36,16 +32,18 @@ interface FormState {
     streamUrl: string
     homepageUrl: string
 }
-
 function emptyForm(): FormState {
     return { name: '', streamUrl: '', homepageUrl: '' }
 }
 
 const form = ref<FormState>(emptyForm())
+const baseline = ref<FormState>(emptyForm())
 const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
 const sizeError = ref<string | null>(null)
+
+const isEditMode = computed(() => props.station !== null)
 
 function resetCoverState() {
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -55,33 +53,85 @@ function resetCoverState() {
     sizeError.value = null
 }
 
+// Seed the text fields from the station (edit) or the prefill (create-from-Discover),
+// keyed on the TEXT identity rather than the prefill object reference. Note this
+// MUST be a multi-source array of individual getters (not one getter returning an
+// array) — Vue only compares each source elementwise with `hasChanged` in that
+// form; a single getter returning a fresh array every time would always compare
+// as "changed" by reference and re-fire on every prefill reassignment. This way a
+// later reassignment of `prefill` that only folds in a favicon cover (see the
+// cover watcher below) does not re-seed and clobber in-progress user edits.
+// Snapshot the baseline afterward so `dirty` reflects user edits only.
 watch(
-    () => [props.visible, props.station],
+    [
+        () => props.station?.id ?? null,
+        () => props.prefill?.name,
+        () => props.prefill?.streamUrl,
+        () => props.prefill?.homepageUrl
+    ],
     () => {
-        if (!props.visible) {
-            resetCoverState()
-            return
-        }
-        resetCoverState()
         if (props.station) {
             form.value = {
                 name: props.station.name,
                 streamUrl: props.station.streamUrl,
                 homepageUrl: props.station.homepageUrl ?? ''
             }
+        } else if (props.prefill) {
+            form.value = {
+                name: props.prefill.name,
+                streamUrl: props.prefill.streamUrl,
+                homepageUrl: props.prefill.homepageUrl ?? ''
+            }
         } else {
             form.value = emptyForm()
+        }
+        baseline.value = { ...form.value }
+    },
+    { immediate: true }
+)
+
+// Reset the cover picker whenever the station/prefill IDENTITY changes (switching
+// between edit and create-from-Discover, moving to a different station, or going
+// blank), keyed the same way as the text-seed watcher above — NOT on the prefill
+// object reference or its `coverFile` directly. This way, folding a fetched
+// favicon into the *same* prefill (which reassigns the whole prefill object, see
+// the watcher below) does not run through here and wipe cover edits. Same
+// multi-source-array caveat as above applies.
+watch(
+    [
+        () => props.station?.id ?? null,
+        () => props.prefill?.name,
+        () => props.prefill?.streamUrl,
+        () => props.prefill?.homepageUrl
+    ],
+    () => {
+        resetCoverState()
+        if (!props.station && props.prefill?.coverFile) {
+            selectedFile.value = props.prefill.coverFile
+            previewUrl.value = URL.createObjectURL(props.prefill.coverFile)
         }
     },
     { immediate: true }
 )
 
-const isEditMode = computed(() => props.station !== null)
+// Fold in a favicon cover that resolves asynchronously after the initial seed
+// (RadioStationDetailView reassigns `prefill` once `fetchRadioFavicon` resolves),
+// without touching `form`/`baseline`. Skip if the user already picked their own
+// file or staged a clear during the fetch window.
+watch(
+    () => props.prefill?.coverFile,
+    (coverFile) => {
+        if (!coverFile) return
+        if (selectedFile.value !== null || coverClear.value) return
+        if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+        selectedFile.value = coverFile
+        previewUrl.value = URL.createObjectURL(coverFile)
+    }
+)
 
 const hasExistingCover = computed(
     () => isEditMode.value && !!props.station?.coverArt && !coverClear.value
 )
-
 const displayedCoverUrl = computed(() => {
     if (previewUrl.value) return previewUrl.value
     if (hasExistingCover.value && props.station?.coverArt) {
@@ -90,11 +140,37 @@ const displayedCoverUrl = computed(() => {
     return null
 })
 
-const canSubmit = computed(
+const valid = computed(
     () =>
         form.value.name.trim().length > 0 &&
         form.value.streamUrl.trim().length > 0 &&
         sizeError.value === null
+)
+
+const dirty = computed(
+    () =>
+        form.value.name !== baseline.value.name ||
+        form.value.streamUrl !== baseline.value.streamUrl ||
+        form.value.homepageUrl !== baseline.value.homepageUrl ||
+        selectedFile.value !== null ||
+        coverClear.value
+)
+
+const input = computed<StationInput>(() => {
+    const homepage = form.value.homepageUrl.trim()
+    return {
+        name: form.value.name.trim(),
+        streamUrl: form.value.streamUrl.trim(),
+        homepageUrl: homepage === '' ? undefined : homepage,
+        coverFile: selectedFile.value ?? undefined,
+        coverClear: coverClear.value || undefined
+    }
+})
+
+watch(
+    [input, valid, dirty],
+    () => emit('change', { input: input.value, valid: valid.value, dirty: dirty.value }),
+    { immediate: true }
 )
 
 function onFileSelect(event: { files: File[] }) {
@@ -117,51 +193,30 @@ function onRemoveCover() {
     selectedFile.value = null
     coverClear.value = true
 }
-
-function onSubmit() {
-    if (!canSubmit.value) return
-    const homepage = form.value.homepageUrl.trim()
-    emit('submit', {
-        name: form.value.name.trim(),
-        streamUrl: form.value.streamUrl.trim(),
-        homepageUrl: homepage === '' ? undefined : homepage,
-        coverFile: selectedFile.value ?? undefined,
-        coverClear: coverClear.value || undefined
-    })
-}
-
-function onCancel() {
-    emit('cancel')
-    emit('update:visible', false)
-}
 </script>
 
 <template>
-    <Dialog
-        :visible="visible"
-        @update:visible="emit('update:visible', $event)"
-        modal
-        :header="isEditMode ? 'Edit Station' : 'Add Station'"
-        :style="{ width: '32rem' }"
-    >
-        <Message severity="warn" :closable="false" class="deprecation-note">
-            Deprecated — use Settings → Radio Stations to add or edit stations.
-        </Message>
-
-        <div class="form-grid">
+    <div class="radio-station-form">
+        <div class="field-row">
             <label>Name</label>
-            <InputText v-model="form.name" placeholder="e.g. BBC Radio 1" @keyup.enter="onSubmit" />
+            <InputText class="field-name" v-model="form.name" placeholder="e.g. BBC Radio 1" />
+        </div>
 
+        <div class="field-row">
             <label>Stream URL</label>
             <InputText
+                class="field-stream-url"
                 v-model="form.streamUrl"
                 placeholder="http://example.com/stream"
-                @keyup.enter="onSubmit"
             />
+        </div>
 
+        <div class="field-row">
             <label>Homepage URL</label>
-            <InputText v-model="form.homepageUrl" placeholder="optional" @keyup.enter="onSubmit" />
+            <InputText class="field-homepage" v-model="form.homepageUrl" placeholder="optional" />
+        </div>
 
+        <div class="field-block">
             <label>Cover</label>
             <div class="cover-row">
                 <div class="cover-preview">
@@ -195,32 +250,34 @@ function onCancel() {
                 </div>
             </div>
         </div>
-
-        <template #footer>
-            <Button label="Cancel" text @click="onCancel" />
-            <Button
-                :label="isEditMode ? 'Save' : 'Create'"
-                :loading="submitting"
-                :disabled="!canSubmit"
-                @click="onSubmit"
-            />
-        </template>
-    </Dialog>
+    </div>
 </template>
 
 <style scoped>
-.deprecation-note {
-    margin-bottom: 0.75rem;
+.radio-station-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
 }
-.form-grid {
+.field-row {
     display: grid;
     grid-template-columns: 8rem 1fr;
-    gap: 0.75rem 1rem;
-    align-items: start;
+    align-items: center;
+    gap: 0.5rem;
 }
-.form-grid label {
-    font-weight: 500;
-    padding-top: 0.5rem;
+.field-block {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    align-items: start;
+    gap: 0.5rem;
+}
+.field-row label,
+.field-block label {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+.field-row :deep(.p-inputtext) {
+    width: 100%;
 }
 .cover-row {
     display: flex;
