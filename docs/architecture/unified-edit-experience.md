@@ -9,11 +9,14 @@ affordance. This is the registry of that behavior; the implementation lives in
 - **Read mode:** the view's own header actions (Play, Star, Add to Queue, …) plus a
   **pencil** icon button (`pi pi-pencil`, no text, tooltip "Edit"). Clicking it enters
   edit mode.
-- **Edit mode:** three **icon-only** buttons with tooltips, and the read-mode actions are
-  hidden:
+- **Edit mode:** three **icon-only** buttons with tooltips, in the order **Delete, Save,
+  Cancel** (left to right), and the read-mode actions are hidden. Delete is deliberately
+  placed far left — the pencil is the rightmost read-mode button, so entering edit mode must
+  not drop the destructive action under the cursor; Cancel (the safe action) takes that
+  rightmost spot instead:
+  - **Delete** — `pi pi-trash`, `severity="danger"`, tooltip "Delete".
   - **Save** — `pi pi-check`, tooltip "Save" (or "Create" when creating a new item).
   - **Cancel** — `pi pi-times`, tooltip "Cancel".
-  - **Delete** — `pi pi-trash`, `severity="danger"`, tooltip "Delete".
 - **Delete** opens a confirmation dialog ordered **confirm | cancel** (confirm on the
   left, styled danger). Confirming performs the delete; cancelling closes the dialog.
 

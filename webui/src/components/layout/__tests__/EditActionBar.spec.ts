@@ -34,6 +34,16 @@ describe('EditActionBar', () => {
         expect(w.find('.edit-action-save').exists()).toBe(false)
     })
 
+    it('edit mode: renders buttons in order Delete, Save, Cancel', () => {
+        // Delete must sit far left so it is not under the cursor (the pencil is the
+        // rightmost read-mode button); Cancel takes the rightmost spot.
+        const w = mountBar({ editing: true })
+        const order = w
+            .findAll('button')
+            .map((b) => b.classes().find((c) => c.startsWith('edit-action-')))
+        expect(order).toEqual(['edit-action-delete', 'edit-action-save', 'edit-action-cancel'])
+    })
+
     it('pencil emits update:editing true', async () => {
         const w = mountBar({ editing: false })
         await w.find('.edit-action-edit').trigger('click')

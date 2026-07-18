@@ -59,6 +59,19 @@ function confirmDelete(): void {
         />
     </template>
     <template v-else>
+        <!-- Order: Delete, Save, Cancel. Delete sits far left so it is NOT under the
+             cursor when entering edit mode (the pencil is the rightmost read-mode
+             button); Cancel, the safe action, takes that spot instead. -->
+        <Button
+            v-if="canDelete"
+            class="edit-action-delete"
+            icon="pi pi-trash"
+            text
+            rounded
+            severity="danger"
+            v-tooltip.bottom="'Delete'"
+            @click="confirmDelete"
+        />
         <Button
             class="edit-action-save"
             :icon="saveIcon"
@@ -76,16 +89,6 @@ function confirmDelete(): void {
             rounded
             v-tooltip.bottom="'Cancel'"
             @click="emit('cancel')"
-        />
-        <Button
-            v-if="canDelete"
-            class="edit-action-delete"
-            icon="pi pi-trash"
-            text
-            rounded
-            severity="danger"
-            v-tooltip.bottom="'Delete'"
-            @click="confirmDelete"
         />
     </template>
 </template>
