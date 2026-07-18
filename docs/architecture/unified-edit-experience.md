@@ -19,6 +19,8 @@ affordance. This is the registry of that behavior; the implementation lives in
   - **Cancel** — `pi pi-times`, tooltip "Cancel".
 - **Delete** opens a confirmation dialog ordered **confirm | cancel** (confirm on the
   left, styled danger). Confirming performs the delete; cancelling closes the dialog.
+- **Esc** exits edit mode (identical to Cancel: discard staged edits and leave). While the
+  delete confirmation dialog is open, Esc dismisses the dialog instead of exiting edit mode.
 
 ## Single sources of truth
 

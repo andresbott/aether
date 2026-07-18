@@ -44,6 +44,39 @@ describe('EditActionBar', () => {
         expect(order).toEqual(['edit-action-delete', 'edit-action-save', 'edit-action-cancel'])
     })
 
+    it('Escape emits cancel while editing', async () => {
+        const w = mountBar({ editing: true })
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(w.emitted('cancel')).toHaveLength(1)
+        w.unmount()
+    })
+
+    it('Escape does nothing in read mode', () => {
+        const w = mountBar({ editing: false })
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(w.emitted('cancel')).toBeUndefined()
+        w.unmount()
+    })
+
+    it('Escape does not exit edit mode while a confirm dialog is open', () => {
+        const w = mountBar({ editing: true })
+        const dialog = document.createElement('div')
+        dialog.className = 'p-confirmdialog'
+        document.body.appendChild(dialog)
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(w.emitted('cancel')).toBeUndefined()
+        document.body.removeChild(dialog)
+        w.unmount()
+    })
+
+    it('detaches the Escape listener when leaving edit mode', async () => {
+        const w = mountBar({ editing: true })
+        await w.setProps({ editing: false })
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        expect(w.emitted('cancel')).toBeUndefined()
+        w.unmount()
+    })
+
     it('pencil emits update:editing true', async () => {
         const w = mountBar({ editing: false })
         await w.find('.edit-action-edit').trigger('click')

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Button from 'primevue/button'
+import { watch, onBeforeUnmount } from 'vue'
 import { useConfirm } from 'primevue/useconfirm'
 
 const props = withDefaults(
@@ -44,6 +45,26 @@ function confirmDelete(): void {
         accept: () => emit('delete')
     })
 }
+
+// Esc exits edit mode (same as Cancel: discard staged edits + leave). The listener
+// is only active while editing. If a confirm dialog is open, let it own Escape
+// (dismiss the dialog) rather than also exiting edit mode.
+function onKeydown(e: KeyboardEvent): void {
+    if (e.key !== 'Escape') return
+    if (document.querySelector('.p-confirmdialog')) return
+    emit('cancel')
+}
+
+watch(
+    () => props.editing,
+    (editing) => {
+        if (editing) document.addEventListener('keydown', onKeydown)
+        else document.removeEventListener('keydown', onKeydown)
+    },
+    { immediate: true }
+)
+
+onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
