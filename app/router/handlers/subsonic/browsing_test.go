@@ -86,7 +86,7 @@ func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	// Explicitly insert a library with empty DefaultView to simulate legacy rows.
-	db.Exec("INSERT INTO libraries (name, path, default_view) VALUES (?, ?, ?)", "Legacy", "/l", "")
+	db.Exec("INSERT INTO libraries (name, path, default_view, hide_artists) VALUES (?, ?, ?, ?)", "Legacy", "/l", "", false)
 
 	srv := newTestServer(t, s)
 	defer srv.Close()

@@ -46,7 +46,7 @@ func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 	if filter != nil && filter.LibraryID != nil {
 		// Check if this specific library is hidden
 		var lib model.Library
-		if err := s.db.First(&lib, *filter.LibraryID).Error; err == nil && !lib.ShowArtists {
+		if err := s.db.First(&lib, *filter.LibraryID).Error; err == nil && lib.HideArtists {
 			// Return empty result for hidden libraries
 			return []model.Artist{}, nil
 		}
@@ -142,13 +142,13 @@ func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFil
 }
 
 // excludeHiddenArtists drops artists whose entire library presence (as track
-// artist or album artist) sits in libraries with show_artists = false. An
+// artist or album artist) sits in libraries with hide_artists = true. An
 // artist with at least one track in a visible library — or none anywhere —
 // stays visible. No-op when no library is hidden.
 func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	var hidden []uint
 	if err := s.db.Model(&model.Library{}).
-		Where("show_artists = ?", false).
+		Where("hide_artists = ?", true).
 		Pluck("id", &hidden).Error; err != nil || len(hidden) == 0 {
 		return q
 	}

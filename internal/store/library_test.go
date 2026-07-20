@@ -155,9 +155,9 @@ func TestDeleteLibraryCascade(t *testing.T) {
 	}
 }
 
-func TestCreateLibraryFalseBoolsRoundTrip(t *testing.T) {
+func TestCreateLibraryHideArtistsRoundTrip(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Main", Path: "/a", FollowSymlinks: false, ShowArtists: false}
+	lib := &model.Library{Name: "Main", Path: "/a", HideArtists: true}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,10 @@ func TestCreateLibraryFalseBoolsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.FollowSymlinks || got.ShowArtists {
-		t.Fatalf("expected both bools false after create, got follow=%v show=%v", got.FollowSymlinks, got.ShowArtists)
+	if !got.HideArtists {
+		t.Fatal("expected HideArtists to persist on create")
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps to be set on create, got created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
 	}
 }

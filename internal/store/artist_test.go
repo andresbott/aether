@@ -403,8 +403,8 @@ func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file 
 
 func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 	s := testStore(t)
-	vis := &model.Library{Name: "Vis", Path: "/vis", ShowArtists: true}
-	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	vis := &model.Library{Name: "Vis", Path: "/vis"}
+	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}
@@ -425,8 +425,8 @@ func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 
 func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
 	s := testStore(t)
-	vis := &model.Library{Name: "Vis", Path: "/vis", ShowArtists: true}
-	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	vis := &model.Library{Name: "Vis", Path: "/vis"}
+	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
 
 func TestGetArtistsFilterByHiddenLibraryIsEmpty(t *testing.T) {
 	s := testStore(t)
-	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
 	if err := s.CreateLibrary(hid); err != nil {
 		t.Fatal(err)
 	}
