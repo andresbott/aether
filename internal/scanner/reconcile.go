@@ -3,6 +3,7 @@ package scanner
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,7 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 		if err := s.store.Transaction(func(tx *store.Store) error {
 			return s.reconcileTrack(tx, tr, scanStart, &stats)
 		}); err != nil {
+			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
 			continue
 		}
 		stats.Processed++

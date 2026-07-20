@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -182,7 +183,7 @@ func (multiTagReader) Read(absPath string) (tags.Metadata, error) {
 		AlbumArtist: []string{"Artist A"},
 		Album:       "Album",
 		Genre:       []string{"Rock", "Jazz"},
-		Duration:    180,
+		Duration:    180 * time.Second,
 	}, nil
 }
 
