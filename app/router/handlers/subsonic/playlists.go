@@ -223,7 +223,7 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 // fields. Mirrors updateRadioMultipart in radio.go.
 func (h *Handler) updatePlaylistMultipart(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil {
+	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		writeError(w, 0, "invalid multipart body")
 		return
 	}

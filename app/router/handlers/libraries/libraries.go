@@ -190,10 +190,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
-	hideArtists := false
-	if in.ShowArtists != nil && !*in.ShowArtists {
-		hideArtists = true
-	}
+	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
 	lib := &model.Library{
 		Name:            in.Name,
 		Path:            abs,

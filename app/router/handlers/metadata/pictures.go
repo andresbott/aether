@@ -260,7 +260,7 @@ type applyPictureResult struct {
 // ("image_url").
 func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
-	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil {
+	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		writeErr(w, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
@@ -390,7 +390,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 		}
 	case "folder":
 		if name := folderPictureName(abs, pt); name != "" {
-			if rerr := os.Remove(filepath.Join(abs, name)); rerr != nil {
+			if rerr := os.Remove(filepath.Join(abs, name)); rerr != nil { //nolint:gosec // G703: abs is validated by ResolveInLibrary (rejects traversal); name is a bare filename from the folder listing
 				writeErr(w, http.StatusInternalServerError, "internal", rerr.Error())
 				return
 			}
