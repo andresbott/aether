@@ -333,3 +333,26 @@ func TestCreateLibraryShowArtistsOmitted(t *testing.T) {
 		t.Fatalf("expected show_artists=true (default) in response, got %v", got["show_artists"])
 	}
 }
+
+func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	dir := t.TempDir()
+	lib := &model.Library{Name: "Main", Path: dir, HideArtists: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"Updated","path":"` + dir + `"}`
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	v, ok := got["show_artists"].(bool)
+	if !ok || v {
+		t.Fatalf("expected show_artists=false (hidden state preserved on omitted key), got %v", got["show_artists"])
+	}
+}
