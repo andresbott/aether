@@ -109,6 +109,7 @@ func encodeExcludePatterns(patterns []string) (string, error) {
 }
 
 func (h *Handler) Routes(r *mux.Router) {
+	r.Path("/libraries/browse").Methods(http.MethodGet).HandlerFunc(h.browse)
 	r.Path("/libraries").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/libraries").Methods(http.MethodPost).HandlerFunc(h.create)
 	r.Path("/libraries/{id:[0-9]+}").Methods(http.MethodGet).HandlerFunc(h.get)
