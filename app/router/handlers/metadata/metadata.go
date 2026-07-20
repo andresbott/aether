@@ -31,6 +31,15 @@ type Handler struct {
 	Reader   tags.Reader
 	Assets   *assetstore.Store
 	CoverArt CoverArtClient
+	// Identifier is optional: nil disables the identify endpoint and is
+	// reported through /metadata/capabilities.
+	Identifier IdentifyService
+	// RawTagReader reads a file's complete tag map; nil defaults to
+	// taglib.ReadTags. Overridable for tests.
+	RawTagReader func(absPath string) (map[string][]string, error)
+	// UnsupportedReader lists a file's hidden-frame descriptors; nil defaults
+	// to taglib.ReadUnsupported. Overridable for tests.
+	UnsupportedReader func(absPath string) ([]string, error)
 }
 
 type apiError struct {
@@ -41,14 +50,17 @@ type apiError struct {
 // Routes mounts the handler under an already-subrouted mux.Router.
 // Endpoints live beneath /metadata/.
 func (h *Handler) Routes(r *mux.Router) {
+	r.Path("/metadata/capabilities").Methods(http.MethodGet).HandlerFunc(h.capabilities)
+	r.Path("/metadata/identify").Methods(http.MethodPost).HandlerFunc(h.identify)
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
+	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)
-	r.Path("/metadata/cover").Methods(http.MethodGet).HandlerFunc(h.currentCover)
-	r.Path("/metadata/cover").Methods(http.MethodPost).HandlerFunc(h.applyCover)
-	r.Path("/metadata/cover").Methods(http.MethodDelete).HandlerFunc(h.deleteCover)
-	r.Path("/metadata/cover/info").Methods(http.MethodGet).HandlerFunc(h.coverInfo)
-	r.Path("/metadata/cover/candidates").Methods(http.MethodGet).HandlerFunc(h.coverCandidates)
+	r.Path("/metadata/pictures").Methods(http.MethodGet).HandlerFunc(h.pictures)
+	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
+	r.Path("/metadata/pictures").Methods(http.MethodDelete).HandlerFunc(h.deletePicture)
+	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
+	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -84,6 +96,7 @@ func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPa
 		Path:                  libModel.Path,
 		MultiValueArtist:      libModel.MultiValueArtist,
 		MultiValueAlbumArtist: libModel.MultiValueAlbumArtist,
+		MultiValueGenre:       libModel.MultiValueGenre,
 	}, abs, 0, nil
 }
 
@@ -92,6 +105,7 @@ type librarySummary struct {
 	Path                  string
 	MultiValueArtist      string
 	MultiValueAlbumArtist string
+	MultiValueGenre       string
 }
 
 type folderDTO struct {
@@ -125,12 +139,15 @@ type trackDTO struct {
 	Artists          []string `json:"artists"`
 	AlbumArtists     []string `json:"album_artists"`
 	Album            string   `json:"album"`
+	Genres           []string `json:"genres"`
 	Year             int      `json:"year"`
+	TrackNumber      int      `json:"track_number"`
 	DiscNumber       int      `json:"disc_number"`
 	DiscSubtitle     string   `json:"disc_subtitle"`
 	Compilation      bool     `json:"compilation"`
 	MBArtistIDs      []string `json:"mb_artist_ids"`
 	MBAlbumArtistIDs []string `json:"mb_album_artist_ids"`
+	MBRecordingID    string   `json:"mb_recording_id"`
 	MBReleaseID      string   `json:"mb_release_id"`
 	MBReleaseGroupID string   `json:"mb_release_group_id"`
 	Error            string   `json:"error,omitempty"`
@@ -156,12 +173,15 @@ func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 			Artists:          t.Artists,
 			AlbumArtists:     t.AlbumArtists,
 			Album:            t.Album,
+			Genres:           t.Genres,
 			Year:             t.Year,
+			TrackNumber:      t.TrackNumber,
 			DiscNumber:       t.DiscNumber,
 			DiscSubtitle:     t.DiscSubtitle,
 			Compilation:      t.Compilation,
 			MBArtistIDs:      t.MBArtistIDs,
 			MBAlbumArtistIDs: t.MBAlbumArtistIDs,
+			MBRecordingID:    t.MBRecordingID,
 			MBReleaseID:      t.MBReleaseID,
 			MBReleaseGroupID: t.MBReleaseGroupID,
 			Error:            t.Error,
@@ -181,14 +201,24 @@ type fields struct {
 	Album            *string            `json:"album,omitempty"`
 	Artists          *[]string          `json:"artists,omitempty"`
 	AlbumArtists     *[]string          `json:"album_artists,omitempty"`
+	Genres           *[]string          `json:"genres,omitempty"`
 	Year             *int               `json:"year,omitempty"`
+	TrackNumber      *int               `json:"track_number,omitempty"`
 	DiscNumber       *int               `json:"disc_number,omitempty"`
 	DiscSubtitle     *string            `json:"disc_subtitle,omitempty"`
 	Compilation      *bool              `json:"compilation,omitempty"`
 	ArtistMBIDs      *map[string]string `json:"artist_mbids,omitempty"`
 	AlbumArtistMBIDs *map[string]string `json:"album_artist_mbids,omitempty"`
+	MBRecordingID    *string            `json:"mb_recording_id,omitempty"`
 	MBReleaseID      *string            `json:"mb_release_id,omitempty"`
 	MBReleaseGroupID *string            `json:"mb_release_group_id,omitempty"`
+	// RawTags are free-form key -> values edits from the raw editor; an empty
+	// value list deletes the key. Managed keys are rejected.
+	RawTags *map[string][]string `json:"raw_tags,omitempty"`
+	// RemoveUnsupported lists hidden-frame descriptors to delete, as returned
+	// by the raw-tags endpoint's `unsupported` field. Descriptors a file does
+	// not carry are ignored.
+	RemoveUnsupported *[]string `json:"remove_unsupported,omitempty"`
 }
 
 type updateResult struct {
@@ -197,28 +227,52 @@ type updateResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
-	var body updateRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
-		return
-	}
+// validateUpdateRequest returns a validation error message ("" = valid).
+func validateUpdateRequest(body updateRequest) string {
 	if body.LibraryID == 0 || len(body.Paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "validation_error", "library_id and paths are required")
-		return
+		return "library_id and paths are required"
 	}
 	// MB-ID maps are keyed by the current artist names; changing the name field
 	// in the same request would write a positionally-misaligned MB-ID tag.
 	// Reject so a corrupt tag is never written — the two edits must be saved
 	// separately.
 	if body.Fields.Artists != nil && body.Fields.ArtistMBIDs != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error",
-			"cannot change artist names and set artist MusicBrainz IDs in the same request; save them separately")
-		return
+		return "cannot change artist names and set artist MusicBrainz IDs in the same request; save them separately"
 	}
 	if body.Fields.AlbumArtists != nil && body.Fields.AlbumArtistMBIDs != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error",
-			"cannot change album-artist names and set album-artist MusicBrainz IDs in the same request; save them separately")
+		return "cannot change album-artist names and set album-artist MusicBrainz IDs in the same request; save them separately"
+	}
+	// The raw editor must not touch keys the structured editor owns — its
+	// edits would bypass the per-field patch logic (MB-ID alignment,
+	// multi-value policies) and silently corrupt those tags.
+	if body.Fields.RawTags != nil {
+		for key := range *body.Fields.RawTags {
+			if metadataedit.IsManagedTag(key) {
+				return "tag " + key + " is managed by the metadata editor; edit it through the form fields"
+			}
+		}
+	}
+	// Embedded cover art lives in unsupported data too (APIC/covr/...) but is
+	// managed through the cover endpoints; refuse to delete it as a hidden
+	// frame.
+	if body.Fields.RemoveUnsupported != nil {
+		for _, d := range *body.Fields.RemoveUnsupported {
+			if metadataedit.IsCoverDescriptor(d) {
+				return "frame " + d + " is embedded cover art; manage it through the cover editor"
+			}
+		}
+	}
+	return ""
+}
+
+func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
+	var body updateRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		return
+	}
+	if msg := validateUpdateRequest(body); msg != "" {
+		writeErr(w, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
@@ -235,21 +289,27 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		Album:           body.Fields.Album,
 		Artists:         body.Fields.Artists,
 		AlbumArtists:    body.Fields.AlbumArtists,
+		Genres:          body.Fields.Genres,
 		Year:            body.Fields.Year,
+		TrackNumber:     body.Fields.TrackNumber,
 		DiscNumber:      body.Fields.DiscNumber,
 		DiscSubtitle:    body.Fields.DiscSubtitle,
 		Compilation:     body.Fields.Compilation,
 		ArtistMBID:      body.Fields.ArtistMBIDs,
 		AlbumArtistMBID: body.Fields.AlbumArtistMBIDs,
-		// Album MB IDs are scalars with no positional coupling to the album
-		// name, so they need no rename-vs-ID rejection rule.
-		MBReleaseID:      body.Fields.MBReleaseID,
-		MBReleaseGroupID: body.Fields.MBReleaseGroupID,
+		// Recording/album MB IDs are scalars with no positional coupling to
+		// artist names, so they need no rename-vs-ID rejection rule.
+		MBRecordingID:     body.Fields.MBRecordingID,
+		MBReleaseID:       body.Fields.MBReleaseID,
+		MBReleaseGroupID:  body.Fields.MBReleaseGroupID,
+		Raw:               body.Fields.RawTags,
+		RemoveUnsupported: body.Fields.RemoveUnsupported,
 	}
 	needMB := body.Fields.ArtistMBIDs != nil || body.Fields.AlbumArtistMBIDs != nil
 	cfg := metadataedit.LibraryCfg{
 		MultiValueArtist:      libModel.MultiValueArtist,
 		MultiValueAlbumArtist: libModel.MultiValueAlbumArtist,
+		MultiValueGenre:       libModel.MultiValueGenre,
 	}
 
 	resolved := make([]string, 0, len(body.Paths))

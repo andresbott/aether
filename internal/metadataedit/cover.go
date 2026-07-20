@@ -1,55 +1,22 @@
 package metadataedit
 
-import (
-	"fmt"
-	"os"
-	"path/filepath"
+// Front-cover conveniences over the typed picture helpers in pictures.go.
 
-	"go.senan.xyz/taglib"
-)
-
-// WriteEmbeddedCover writes data as the embedded front-cover image of the audio
-// file at path, replacing any existing embedded picture. Passing empty data
-// clears the embedded cover.
+// WriteEmbeddedCover writes data as the embedded front-cover image of the
+// audio file at path, replacing any existing front cover. Passing empty data
+// removes the front cover(s).
 func WriteEmbeddedCover(path string, data []byte) error {
-	if err := taglib.WriteImage(path, data); err != nil {
-		return fmt.Errorf("write embedded cover: %w", err)
+	if len(data) == 0 {
+		return DeleteEmbeddedPicture(path, "Front Cover")
 	}
-	return nil
+	return WriteEmbeddedPicture(path, "Front Cover", data, "")
 }
 
-// WriteFolderCover writes data to dir as cover.<ext> (jpg or png), replacing any
-// existing cover.jpg/cover.png, and returns the written file's absolute path.
-// The write is atomic (temp file + rename) so a served cover is never partial.
+// WriteFolderCover writes data to dir as cover.<ext> (jpg or png), replacing
+// any existing cover.jpg/cover.png, and returns the written file's absolute
+// path.
 func WriteFolderCover(dir, ext string, data []byte) (string, error) {
-	ext = normCoverExt(ext)
-	// Remove the sibling variant so we never leave both cover.jpg and cover.png.
-	for _, e := range []string{"jpg", "png"} {
-		if e != ext {
-			_ = os.Remove(filepath.Join(dir, "cover."+e))
-		}
-	}
-	final := filepath.Join(dir, "cover."+ext)
-
-	tmp, err := os.CreateTemp(dir, "cover-*.tmp")
-	if err != nil {
-		return "", fmt.Errorf("write folder cover: temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("write folder cover: write: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("write folder cover: close: %w", err)
-	}
-	if err := os.Rename(tmpName, final); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("write folder cover: rename: %w", err)
-	}
-	return final, nil
+	return WriteFolderPicture(dir, "cover", ext, data)
 }
 
 func normCoverExt(ext string) string {

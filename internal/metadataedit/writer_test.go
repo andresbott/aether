@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/andresbott/aether/internal/metadataedit"
@@ -86,6 +87,41 @@ func TestBuildTagMap_AllFields(t *testing.T) {
 		"DISCSUBTITLE": {"CD 2"},
 		"COMPILATION":  {"1"},
 	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_GenresUseGenrePolicy(t *testing.T) {
+	patch := metadataedit.Patch{Genres: &[]string{"Rock", "Jazz"}}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueGenre: "delim ; "}, metadataedit.CurrentTags{})
+	want := map[string][]string{"GENRE": {"Rock; Jazz"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_GenresEmptyListClears(t *testing.T) {
+	patch := metadataedit.Patch{Genres: &[]string{}}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	want := map[string][]string{"GENRE": {}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_GenresRejectInvalidMode(t *testing.T) {
+	patch := metadataedit.Patch{Genres: &[]string{"Rock"}}
+	_, err := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{MultiValueGenre: "bogus"}, metadataedit.CurrentTags{})
+	if err == nil {
+		t.Fatal("expected error on invalid genre multi-value mode")
+	}
+}
+
+func TestBuildTagMap_TrackNumber(t *testing.T) {
+	patch := metadataedit.Patch{TrackNumber: intPtr(7)}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	want := map[string][]string{"TRACKNUMBER": {"7"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -186,6 +222,7 @@ func TestBuildTagMap_AlbumArtistMBID_BypassesNonePolicy(t *testing.T) {
 
 func TestBuildTagMap_ReleaseIDs_ScalarNoAlignment(t *testing.T) {
 	patch := metadataedit.Patch{
+		MBRecordingID:    strPtr("rec-id"),
 		MBReleaseID:      strPtr("rel-id"),
 		MBReleaseGroupID: strPtr("rg-id"),
 	}
@@ -194,9 +231,52 @@ func TestBuildTagMap_ReleaseIDs_ScalarNoAlignment(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string][]string{
+		"MUSICBRAINZ_TRACKID":        {"rec-id"},
 		"MUSICBRAINZ_ALBUMID":        {"rel-id"},
 		"MUSICBRAINZ_RELEASEGROUPID": {"rg-id"},
 	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_RawWritesAndDeletes(t *testing.T) {
+	raw := map[string][]string{
+		"custom_field":          {"one", "two"},
+		"REPLAYGAIN_TRACK_GAIN": {},
+	}
+	got, err := metadataedit.BuildTagMap(
+		metadataedit.Patch{Raw: &raw}, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		// Keys are normalized to upper case; empty slice deletes the key.
+		"CUSTOM_FIELD":          {"one", "two"},
+		"REPLAYGAIN_TRACK_GAIN": {},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_RawRejectsManagedKey(t *testing.T) {
+	for _, key := range []string{"TITLE", "artist", "Musicbrainz_TrackID"} {
+		raw := map[string][]string{key: {"x"}}
+		_, err := metadataedit.BuildTagMap(
+			metadataedit.Patch{Raw: &raw}, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{},
+		)
+		if err == nil {
+			t.Errorf("expected error for managed key %q", key)
+		}
+	}
+}
+
+func TestBuildTagMap_RecordingID_ClearWritesEmptyValue(t *testing.T) {
+	patch := metadataedit.Patch{MBRecordingID: strPtr("")}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{})
+	want := map[string][]string{"MUSICBRAINZ_TRACKID": {""}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
@@ -228,6 +308,7 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 		DiscNumber:   intPtr(2),
 		DiscSubtitle:     strPtr("Disc Two"),
 		Compilation:      boolPtr(true),
+		MBRecordingID:    strPtr("rec-uuid"),
 		MBReleaseID:      strPtr("rel-uuid"),
 		MBReleaseGroupID: strPtr("rg-uuid"),
 	}
@@ -259,11 +340,97 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	if got["DISCSUBTITLE"][0] != "Disc Two" {
 		t.Fatalf("disc subtitle round-trip failed: %v", got["DISCSUBTITLE"])
 	}
+	if got["MUSICBRAINZ_TRACKID"][0] != "rec-uuid" {
+		t.Fatalf("recording id round-trip failed: %v", got["MUSICBRAINZ_TRACKID"])
+	}
 	if got["MUSICBRAINZ_ALBUMID"][0] != "rel-uuid" {
 		t.Fatalf("release id round-trip failed: %v", got["MUSICBRAINZ_ALBUMID"])
 	}
 	if got["MUSICBRAINZ_RELEASEGROUPID"][0] != "rg-uuid" {
 		t.Fatalf("release-group id round-trip failed: %v", got["MUSICBRAINZ_RELEASEGROUPID"])
+	}
+}
+
+func TestWriteMetadata_RemoveUnsupportedFrames(t *testing.T) {
+	// hidden.mp3 carries PRIV and GEOB frames, invisible to the tag map.
+	src := "testdata/hidden.mp3"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	dst := filepath.Join(t.TempDir(), "copy.mp3")
+	copyFileForWriter(t, src, dst)
+
+	before, err := taglib.ReadUnsupported(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) < 2 {
+		t.Fatalf("fixture should carry hidden frames, got %v", before)
+	}
+
+	// Remove one frame and write a title in the same patch.
+	var priv []string
+	for _, d := range before {
+		if strings.HasPrefix(d, "PRIV") {
+			priv = append(priv, d)
+		}
+	}
+	if len(priv) == 0 {
+		t.Fatalf("fixture should carry a PRIV frame, got %v", before)
+	}
+	patch := metadataedit.Patch{Title: strPtr("Cleaned"), RemoveUnsupported: &priv}
+	if err := metadataedit.WriteMetadata(dst, patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+
+	after, err := taglib.ReadUnsupported(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range after {
+		if strings.HasPrefix(d, "PRIV") {
+			t.Fatalf("PRIV frame survived removal: %v", after)
+		}
+	}
+	if len(after) != len(before)-len(priv) {
+		t.Fatalf("only PRIV should be gone: before %v after %v", before, after)
+	}
+	got, err := taglib.ReadTags(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["TITLE"][0] != "Cleaned" {
+		t.Fatalf("title write alongside removal failed: %v", got["TITLE"])
+	}
+}
+
+func TestWriteMetadata_RemoveUnsupportedOnly(t *testing.T) {
+	// A patch with only hidden-frame removals (no tag map keys) must still
+	// apply and not be treated as empty.
+	src := "testdata/hidden.mp3"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	dst := filepath.Join(t.TempDir(), "copy.mp3")
+	copyFileForWriter(t, src, dst)
+
+	before, err := taglib.ReadUnsupported(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := metadataedit.Patch{RemoveUnsupported: &before}
+	if patch.Empty() {
+		t.Fatal("patch with removals must not report Empty")
+	}
+	if err := metadataedit.WriteMetadata(dst, patch, metadataedit.LibraryCfg{}, metadataedit.CurrentTags{}); err != nil {
+		t.Fatalf("WriteMetadata: %v", err)
+	}
+	after, err := taglib.ReadUnsupported(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("expected no hidden frames left, got %v", after)
 	}
 }
 

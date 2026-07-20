@@ -25,6 +25,7 @@ import (
 type fakeSearcher struct {
 	results        []artistimage.Candidate
 	releaseResults []artistimage.ReleaseCandidate
+	genres         []string
 	err            error
 }
 
@@ -34,6 +35,10 @@ func (f *fakeSearcher) Search(_ context.Context, _ string, _ int) ([]artistimage
 
 func (f *fakeSearcher) SearchRelease(_ context.Context, _ string, _ int) ([]artistimage.ReleaseCandidate, error) {
 	return f.releaseResults, f.err
+}
+
+func (f *fakeSearcher) ReleaseGroupGenres(_ context.Context, _ string) ([]string, error) {
+	return f.genres, f.err
 }
 
 type fakeFetcher struct {
@@ -99,6 +104,63 @@ func TestSearchMusicBrainz_UpstreamError(t *testing.T) {
 	search := &fakeSearcher{err: errors.New("upstream down")}
 	_, r := newTestHandler(t, search, nil)
 	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/search?q=Nirvana", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReleaseGroupGenres_ReturnsGenres(t *testing.T) {
+	search := &fakeSearcher{genres: []string{"alternative rock", "art rock"}}
+	_, r := newTestHandler(t, search, nil)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/musicbrainz/release-groups/0b6b4884-f8f0-3f47-a992-3730c2a477c9/genres", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "alternative rock" {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestReleaseGroupGenres_EmptyIsJSONArray(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/musicbrainz/release-groups/0b6b4884-f8f0-3f47-a992-3730c2a477c9/genres", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != "[]" {
+		t.Fatalf("expected [], got %q", body)
+	}
+}
+
+func TestReleaseGroupGenres_InvalidMBID(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/musicbrainz/release-groups/not-a-uuid/genres", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestReleaseGroupGenres_UpstreamError(t *testing.T) {
+	search := &fakeSearcher{err: errors.New("upstream down")}
+	_, r := newTestHandler(t, search, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/musicbrainz/release-groups/0b6b4884-f8f0-3f47-a992-3730c2a477c9/genres", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {

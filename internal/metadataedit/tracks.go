@@ -20,12 +20,15 @@ type Track struct {
 	Artists          []string
 	AlbumArtists     []string
 	Album            string
+	Genres           []string
 	Year             int
+	TrackNumber      int
 	DiscNumber       int
 	DiscSubtitle     string
 	Compilation      bool
 	MBArtistIDs      []string
 	MBAlbumArtistIDs []string
+	MBRecordingID    string
 	MBReleaseID      string
 	MBReleaseGroupID string
 	Error            string
@@ -56,6 +59,7 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 			Path:             toForwardRel(cleanRoot, path),
 			Artists:          []string{},
 			AlbumArtists:     []string{},
+			Genres:           []string{},
 			MBArtistIDs:      []string{},
 			MBAlbumArtistIDs: []string{},
 		}
@@ -78,7 +82,12 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 		if meta.MBAlbumArtistID != nil {
 			row.MBAlbumArtistIDs = meta.MBAlbumArtistID
 		}
+		if meta.Genre != nil {
+			row.Genres = meta.Genre
+		}
 		row.Album = meta.Album
+		row.TrackNumber = meta.TrackNumber
+		row.MBRecordingID = meta.MBRecordingID
 		row.MBReleaseID = meta.MBReleaseID
 		row.MBReleaseGroupID = meta.MBReleaseGroupID
 		row.Year = meta.Year

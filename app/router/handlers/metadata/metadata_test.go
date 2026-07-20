@@ -327,6 +327,49 @@ func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
 	}
 }
 
+func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst := filepath.Join(root, "a.flac")
+	copyTestFile(t, fx, dst)
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root, MultiValueGenre: "multi"}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "genres": ["Rock", "Jazz"], "track_number": 7 }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := taglibReadTags(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["GENRE"]) != 2 || got["GENRE"][0] != "Rock" || got["GENRE"][1] != "Jazz" {
+		t.Fatalf("genres unexpected: %v", got["GENRE"])
+	}
+	if got["TRACKNUMBER"][0] != "7" {
+		t.Fatalf("track number unexpected: %v", got["TRACKNUMBER"])
+	}
+}
+
 func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	root := t.TempDir()
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"

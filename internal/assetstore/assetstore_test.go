@@ -64,6 +64,70 @@ func TestInvalidKeyRejected(t *testing.T) {
 	}
 }
 
+func TestNamedEntriesCoexist(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "1", "jpg", []byte("front"))
+	if err := s.PutManualNamed(KindAlbum, "1", "back", "png", []byte("back")); err != nil {
+		t.Fatalf("PutManualNamed: %v", err)
+	}
+	if p, ok := s.Get(KindAlbum, "1"); !ok || filepath.Base(p) != "cover.jpg" {
+		t.Fatalf("front cover: ok=%v path=%q", ok, p)
+	}
+	p, ok := s.GetNamed(KindAlbum, "1", "back")
+	if !ok || filepath.Base(p) != "back.png" {
+		t.Fatalf("back: ok=%v path=%q", ok, p)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "back" {
+		t.Fatalf("bad contents %q", b)
+	}
+}
+
+func TestNamedGetNoPrefixConfusion(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManualNamed(KindAlbum, "1", "back", "jpg", []byte("x"))
+	if _, ok := s.GetNamed(KindAlbum, "1", "b"); ok {
+		t.Fatal("entry name must match exactly, not by prefix")
+	}
+	if _, ok := s.GetNamed(KindAlbum, "1", "backdrop"); ok {
+		t.Fatal("entry name must match exactly")
+	}
+}
+
+func TestDeleteNamedLeavesOtherEntries(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "1", "jpg", []byte("front"))
+	_ = s.PutAuto(KindAlbum, "1", "jpg", []byte("front-auto"))
+	_ = s.PutManualNamed(KindAlbum, "1", "back", "jpg", []byte("back"))
+	if err := s.DeleteNamed(KindAlbum, "1", "cover"); err != nil {
+		t.Fatalf("DeleteNamed: %v", err)
+	}
+	if _, ok := s.Get(KindAlbum, "1"); ok {
+		t.Fatal("cover (manual and auto) should be gone")
+	}
+	if _, ok := s.GetNamed(KindAlbum, "1", "back"); !ok {
+		t.Fatal("back entry must survive deleting the cover entry")
+	}
+	// idempotent, also on a missing entity dir
+	if err := s.DeleteNamed(KindAlbum, "1", "cover"); err != nil {
+		t.Fatalf("second DeleteNamed: %v", err)
+	}
+	if err := s.DeleteNamed(KindAlbum, "nope", "cover"); err != nil {
+		t.Fatalf("DeleteNamed on missing entity: %v", err)
+	}
+}
+
+func TestNamedRejectsUnsafeNames(t *testing.T) {
+	s := New(t.TempDir())
+	for _, name := range []string{"a.b", "cover.auto", "", "../x"} {
+		if err := s.PutManualNamed(KindAlbum, "1", name, "jpg", []byte("x")); err == nil {
+			t.Fatalf("expected error for name %q", name)
+		}
+		if _, ok := s.GetNamed(KindAlbum, "1", name); ok {
+			t.Fatalf("expected ok=false for name %q", name)
+		}
+	}
+}
+
 func TestDelete(t *testing.T) {
 	s := New(t.TempDir())
 	_ = s.PutManual(KindRadio, "h", "png", []byte("x"))

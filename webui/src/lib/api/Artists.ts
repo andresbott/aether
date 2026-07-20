@@ -30,6 +30,15 @@ export async function searchMusicBrainzReleases(
     return data
 }
 
+// getReleaseGroupGenres looks up the genres of a MusicBrainz release group,
+// ordered by vote count descending.
+export async function getReleaseGroupGenres(mbid: string): Promise<string[]> {
+    const { data } = await apiClient.get<string[]>(
+        `/musicbrainz/release-groups/${mbid}/genres`
+    )
+    return data
+}
+
 export async function getArtistMBID(numericId: number): Promise<string> {
     const { data } = await apiClient.get<{ mbArtistId: string }>(`/artists/${numericId}/mbid`)
     return data.mbArtistId

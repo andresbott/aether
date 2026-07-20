@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -60,6 +61,63 @@ func TestMusicBrainzSearchParsesResults(t *testing.T) {
 	}
 }
 
+func TestMusicBrainzReleaseGroupGenres(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/ws/2/release-group/rg-uuid") {
+			t.Errorf("expected release-group endpoint, got %q", r.URL.Path)
+		}
+		if !strings.Contains(r.URL.RawQuery, "inc=genres") {
+			t.Errorf("expected inc=genres in request, got %q", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"genres": [
+				{"name": "art rock", "count": 5},
+				{"name": "alternative rock", "count": 12},
+				{"name": "electronic", "count": 2}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
+	m.BaseURL = srv.URL
+	m.Client = srv.Client()
+	m.limiter = rate.NewLimiter(rate.Inf, 1)
+
+	got, err := m.ReleaseGroupGenres(context.Background(), "rg-uuid")
+	if err != nil {
+		t.Fatalf("ReleaseGroupGenres: %v", err)
+	}
+	want := []string{"alternative rock", "art rock", "electronic"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestMusicBrainzReleaseGroupGenresEmptyMBID(t *testing.T) {
+	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
+	got, err := m.ReleaseGroupGenres(context.Background(), "")
+	if err != nil || got != nil {
+		t.Fatalf("expected nil/nil on empty mbid, got %v, %v", got, err)
+	}
+}
+
+func TestMusicBrainzReleaseGroupGenresUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
+	m.BaseURL = srv.URL
+	m.Client = srv.Client()
+	m.limiter = rate.NewLimiter(rate.Inf, 1)
+
+	if _, err := m.ReleaseGroupGenres(context.Background(), "rg-uuid"); err == nil {
+		t.Fatal("expected error on upstream failure")
+	}
+}
+
 func TestMusicBrainzSearchReleaseParsesResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/ws/2/release") {
@@ -79,8 +137,8 @@ func TestMusicBrainzSearchReleaseParsesResults(t *testing.T) {
 					"track-count": 12,
 					"score": 100,
 					"artist-credit": [
-						{"name": "Radiohead", "joinphrase": " feat. "},
-						{"name": "Someone", "joinphrase": ""}
+						{"name": "Radiohead", "joinphrase": " feat. ", "artist": {"id": "radiohead-uuid"}},
+						{"name": "Someone", "joinphrase": "", "artist": {"id": "someone-uuid"}}
 					],
 					"release-group": {"id": "rg-uuid"}
 				}
@@ -107,13 +165,17 @@ func TestMusicBrainzSearchReleaseParsesResults(t *testing.T) {
 		ReleaseGroupMBID: "rg-uuid",
 		Title:            "OK Computer",
 		Artist:           "Radiohead feat. Someone",
-		Date:             "1997-05-21",
-		Country:          "GB",
-		TrackCount:       12,
-		Disambiguation:   "remaster",
-		Score:            100,
+		Artists: []ReleaseArtistCredit{
+			{Name: "Radiohead", MBID: "radiohead-uuid"},
+			{Name: "Someone", MBID: "someone-uuid"},
+		},
+		Date:           "1997-05-21",
+		Country:        "GB",
+		TrackCount:     12,
+		Disambiguation: "remaster",
+		Score:          100,
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 }

@@ -54,10 +54,11 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 
 		if h.tagReader != nil {
 			mh := &metadataHandler.Handler{
-				Store:    h.store,
-				Reader:   h.tagReader,
-				Assets:   h.assets,
-				CoverArt: coverart.New(userAgent),
+				Store:      h.store,
+				Reader:     h.tagReader,
+				Assets:     h.assets,
+				CoverArt:   coverart.New(userAgent),
+				Identifier: h.identifier,
 			}
 			mh.Routes(r)
 		}
