@@ -6,6 +6,7 @@ export interface Library {
     path: string
     exclude_patterns: string[]
     follow_symlinks: boolean
+    show_artists: boolean
     default_view: LibraryDefaultView
     last_scan_started_at: string | null
     created_at: string
@@ -19,6 +20,7 @@ export interface LibraryInput {
     path: string
     exclude_patterns: string[]
     follow_symlinks: boolean
+    show_artists: boolean
     default_view: LibraryDefaultView
 }
 

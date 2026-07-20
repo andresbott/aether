@@ -27,6 +27,7 @@ function sampleLibrary(): Library {
         path: '/srv/music',
         exclude_patterns: [],
         follow_symlinks: true,
+        show_artists: true,
         default_view: 'artists',
         last_scan_started_at: null,
         created_at: '',
@@ -40,6 +41,7 @@ const sampleInput: LibraryInput = {
     path: '/srv/music',
     exclude_patterns: [],
     follow_symlinks: true,
+    show_artists: true,
     default_view: 'artists'
 }
 

@@ -26,6 +26,7 @@ interface FormState {
     path: string
     excludesText: string
     follow_symlinks: boolean
+    show_artists: boolean
     default_view: 'albums' | 'artists'
 }
 
@@ -35,6 +36,7 @@ function emptyForm(): FormState {
         path: '',
         excludesText: '',
         follow_symlinks: true,
+        show_artists: true,
         default_view: 'albums'
     }
 }
@@ -53,6 +55,7 @@ watch(
                 path: lib.path,
                 excludesText: (lib.exclude_patterns ?? []).join('\n'),
                 follow_symlinks: lib.follow_symlinks,
+                show_artists: lib.show_artists,
                 default_view: lib.default_view
             }
             initialPath.value = lib.path
@@ -77,6 +80,7 @@ function buildInput(): LibraryInput {
         path: form.value.path.trim(),
         exclude_patterns: excludes,
         follow_symlinks: form.value.follow_symlinks,
+        show_artists: form.value.show_artists,
         default_view: form.value.default_view
     }
 }
@@ -118,6 +122,9 @@ const defaultViewOptions = [
 
             <label>Follow symlinks</label>
             <InputSwitch v-model="form.follow_symlinks" />
+
+            <label>Show artists</label>
+            <InputSwitch v-model="form.show_artists" />
 
             <label>Default view</label>
             <Dropdown
