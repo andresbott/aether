@@ -1,0 +1,395 @@
+<script setup lang="ts">
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import VirtualScroller from 'primevue/virtualscroller'
+import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
+import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import HeroHeader from '@/components/layout/HeroHeader.vue'
+import HeroActions from '@/components/layout/HeroActions.vue'
+import EditActionBar from '@/components/layout/EditActionBar.vue'
+import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import { useGenres, useUpdateGenreCover } from '@/composables/useSubsonicQueries'
+import { useGenreSongsTable, GENRE_SONG_PAGE_SIZE } from '@/composables/useGenreSongsTable'
+import { usePlayer } from '@/composables/usePlayer'
+import { useSongsDrag } from '@/composables/useSongsDrag'
+import { useRowSelection } from '@/composables/useRowSelection'
+import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
+import { subsonicClient } from '@/lib/api/subsonic'
+import type { Song } from '@/types/subsonic'
+
+const MAX_COVER_BYTES = 5 * 1024 * 1024
+const GATHER_PAGE_SIZE = 500
+
+const props = defineProps<{ name: string }>()
+const router = useRouter()
+const player = usePlayer()
+const updateCover = useUpdateGenreCover()
+const songsDrag = useSongsDrag()
+const scrollbarWidth = useScrollbarWidth()
+const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const { data: genres, isLoading, error } = useGenres()
+const genre = computed(() => genres.value?.find((g) => g.value === props.name))
+const songTotal = computed(() => genre.value?.songCount ?? 0)
+
+const { items, ensureRange } = useGenreSongsTable(
+    computed(() => props.name),
+    songTotal
+)
+
+const currentTrackId = computed(() => player.currentTrack.value?.id)
+
+// --- Cover editing (mirrors ArtistView: staged locally, applied on Save) ---
+const editing = ref(false)
+const cacheBust = ref(0)
+const selectedFile = ref<File | null>(null)
+const previewUrl = ref<string | null>(null)
+const coverClear = ref(false)
+const coverSizeError = ref<string | null>(null)
+
+const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+
+function resetCoverStaging(): void {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = false
+    coverSizeError.value = null
+}
+
+const onCoverSelect = (file: File): void => {
+    if (file.size > MAX_COVER_BYTES) {
+        coverSizeError.value = `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — max is 5 MB`
+        return
+    }
+    coverSizeError.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    selectedFile.value = file
+    previewUrl.value = URL.createObjectURL(file)
+    coverClear.value = false
+}
+
+const onRemoveCover = (): void => {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = true
+    coverSizeError.value = null
+}
+
+const saveEdit = (): void => {
+    if (!dirty.value || !genre.value?.coverArt) {
+        editing.value = false
+        return
+    }
+    updateCover.mutate(
+        {
+            genreId: genre.value.coverArt,
+            coverFile: selectedFile.value ?? undefined,
+            coverClear: coverClear.value || undefined
+        },
+        {
+            onSuccess: () => {
+                resetCoverStaging()
+                cacheBust.value++
+                editing.value = false
+            }
+        }
+    )
+}
+
+const cancelEdit = (): void => {
+    resetCoverStaging()
+    editing.value = false
+}
+
+const coverUrl = computed(() => {
+    if (previewUrl.value) return previewUrl.value
+    if (coverClear.value) return null
+    if (!genre.value?.coverArt || !subsonicClient.isConfigured()) return null
+    const base = subsonicClient.getCoverArtUrl(genre.value.coverArt, 250)
+    return cacheBust.value > 0 ? `${base}&_cb=${cacheBust.value}` : base
+})
+
+// Unsaved-changes guards (mirror Artist/Playlist/Radio detail views).
+onBeforeRouteLeave(() => {
+    if (dirty.value) {
+        return window.confirm('You have unsaved changes. Leave without saving?')
+    }
+})
+const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (!dirty.value) return
+    e.preventDefault()
+    e.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => {
+    window.removeEventListener('beforeunload', onBeforeUnload)
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
+
+// --- Hero meta + play/queue ---
+const heroMeta = computed(() => {
+    if (!genre.value) return []
+    const parts: string[] = []
+    const { albumCount, songCount } = genre.value
+    if (albumCount) parts.push(`${albumCount} ${albumCount === 1 ? 'album' : 'albums'}`)
+    if (songCount) parts.push(`${songCount} ${songCount === 1 ? 'song' : 'songs'}`)
+    return parts
+})
+
+const gathering = ref(false)
+
+// The lazy table only holds the pages scrolled into view, so gather the full
+// song list on demand before playing/queuing the whole genre.
+async function gatherSongs(): Promise<Song[]> {
+    const songs: Song[] = []
+    for (let offset = 0; ; offset += GATHER_PAGE_SIZE) {
+        const page = await subsonicClient.getSongsByGenre(props.name, GATHER_PAGE_SIZE, offset)
+        songs.push(...page)
+        if (page.length < GATHER_PAGE_SIZE) break
+    }
+    return songs
+}
+
+const onPlay = async (): Promise<void> => {
+    if (gathering.value) return
+    gathering.value = true
+    try {
+        const songs = await gatherSongs()
+        if (songs.length) player.playAlbum(songs)
+    } finally {
+        gathering.value = false
+    }
+}
+
+const onQueue = async (): Promise<void> => {
+    if (gathering.value) return
+    gathering.value = true
+    try {
+        const songs = await gatherSongs()
+        if (songs.length) player.addMultipleToQueue(songs)
+    } finally {
+        gathering.value = false
+    }
+}
+
+// --- Song list interactions ---
+function onLazyLoad(event: VirtualScrollerLazyEvent): void {
+    void ensureRange(event.first, event.last)
+}
+
+const playFromIndex = (index: number): void => {
+    // Play the loaded songs only — a genre's full list may not be fetched yet.
+    const loaded = items.value.filter((s): s is Song => s !== undefined)
+    const song = items.value[index]
+    if (!song) return
+    const loadedIndex = loaded.findIndex((s) => s.id === song.id)
+    if (loadedIndex >= 0) player.playAlbum(loaded, loadedIndex)
+}
+
+// A drag from a selected row carries the whole selection; from an unselected
+// row it carries just that row.
+const onRowDragStart = (event: DragEvent, index: number): void => {
+    const songs = selectionForDrag(index)
+        .map((i) => items.value[i])
+        .filter((s): s is Song => s !== undefined)
+    songsDrag.start(event, songs, event.currentTarget as HTMLElement)
+}
+
+// Discard the selection when navigating to a different genre.
+watch(
+    () => props.name,
+    () => clearSelection()
+)
+</script>
+
+<template>
+    <div class="genre-view">
+        <div v-if="isLoading" class="loading">
+            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+        </div>
+
+        <div v-else-if="error" class="error">
+            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <p>{{ error.message }}</p>
+        </div>
+
+        <div v-else-if="!genre" class="error">
+            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <p>Genre not found</p>
+        </div>
+
+        <ContentScaffold v-else title="" show-back @back="router.back()">
+            <template #actions>
+                <EditActionBar
+                    v-model:editing="editing"
+                    :can-delete="false"
+                    :save-disabled="!dirty"
+                    :saving="updateCover.isPending.value"
+                    :dirty="dirty"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                />
+            </template>
+
+            <div class="genre-body" :style="{ '--sb-w': scrollbarWidth + 'px' }">
+                <div class="genre-hero">
+                    <HeroHeader
+                        eyebrow="Genre"
+                        cover-placeholder-icon="pi pi-tags"
+                        cover-back-label="Genre image"
+                        :cover-url="coverUrl"
+                        :cover-size-error="coverSizeError"
+                        v-model:editing="editing"
+                        @cover-select="onCoverSelect"
+                        @cover-remove="onRemoveCover"
+                    >
+                        <template #read>
+                            <h2 class="hero-name">{{ genre.value }}</h2>
+                            <div v-if="heroMeta.length" class="meta-row">
+                                <span
+                                    v-for="(part, i) in heroMeta"
+                                    :key="part"
+                                    :class="{ dot: i > 0 }"
+                                    >{{ part }}</span
+                                >
+                            </div>
+                        </template>
+                        <template #actions>
+                            <HeroActions
+                                :play-disabled="songTotal === 0"
+                                can-queue
+                                :busy="gathering"
+                                @play="onPlay"
+                                @queue="onQueue"
+                            />
+                        </template>
+                    </HeroHeader>
+                </div>
+
+                <div v-if="songTotal > 0" class="track-list">
+                    <div class="track-list-header">
+                        <span class="col-cover"></span>
+                        <span class="col-title">Title</span>
+                        <span class="col-artist">Artist</span>
+                        <span class="col-album">Album</span>
+                        <span class="col-duration" aria-label="Duration">
+                            <i class="pi pi-clock"></i>
+                        </span>
+                    </div>
+                    <VirtualScroller
+                        :items="items"
+                        :itemSize="56"
+                        lazy
+                        :numToleratedItems="10"
+                        class="track-scroller"
+                        @lazy-load="onLazyLoad"
+                    >
+                        <template #item="{ item, options }">
+                            <GenreTrackRow
+                                :song="item"
+                                :index="options.index"
+                                :selected="isSelected(options.index)"
+                                :playing="item?.id === currentTrackId"
+                                @select="(p) => onRowClick(options.index, p)"
+                                @play="playFromIndex(options.index)"
+                                @dragstart="(e) => onRowDragStart(e, options.index)"
+                                @dragend="songsDrag.end"
+                            />
+                        </template>
+                    </VirtualScroller>
+                </div>
+            </div>
+        </ContentScaffold>
+    </div>
+</template>
+
+<style scoped>
+.genre-view {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.loading,
+.error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3rem;
+    gap: 1rem;
+    color: var(--app-text-secondary);
+}
+
+.error {
+    color: #ef4444;
+}
+
+/* Hero + header stay fixed; only the track list scrolls (virtualized). */
+.genre-body {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.genre-hero {
+    flex-shrink: 0;
+    max-width: var(--app-content-max-width);
+    margin: 0 auto;
+    padding: 1rem 1rem 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.track-list {
+    /* Shared grid template so the header and every row align. Custom properties
+       inherit through the DOM regardless of scoped styles. */
+    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 62px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--genre-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+    max-width: var(--app-content-max-width);
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    box-sizing: border-box;
+    padding-right: calc(0.5rem + var(--sb-w, 0px));
+}
+
+.track-list-header .col-duration {
+    text-align: right;
+}
+
+.track-scroller {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    scrollbar-gutter: stable;
+}
+
+/* Center the rows in the shared content column; the scroller stays full width
+   so its scroll bar stays flush right. */
+.track-list :deep(.genre-track-row) {
+    max-width: var(--app-content-max-width);
+    margin-left: auto;
+    margin-right: auto;
+}
+</style>

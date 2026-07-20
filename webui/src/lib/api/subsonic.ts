@@ -12,6 +12,7 @@ import type {
     Song,
     Playlist,
     MusicFolder,
+    Genre,
     InternetRadioStation
 } from '@/types/subsonic'
 
@@ -181,6 +182,35 @@ class SubsonicClient {
 
     async getArtists(musicFolderId?: number): Promise<Artist[]> {
         return (await this.getArtistIndex(musicFolderId)).items
+    }
+
+    async getGenres(): Promise<Genre[]> {
+        if (!this.isConfigured()) return []
+        const response = await this.request<{ genres: { genre: Genre[] } }>('getGenres.view')
+        return response.genres?.genre || []
+    }
+
+    async getSongsByGenre(genre: string, count = 100, offset = 0): Promise<Song[]> {
+        if (!this.isConfigured()) return []
+        const response = await this.request<{ songsByGenre: { song: Song[] } }>(
+            'getSongsByGenre.view',
+            { genre, count, offset }
+        )
+        return response.songsByGenre?.song || []
+    }
+
+    async updateGenreCover(
+        genreId: string,
+        coverFile?: File,
+        coverClear?: boolean
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('updateGenre.view')
+        const body = new FormData()
+        body.append('id', genreId)
+        if (coverFile) body.append('coverFile', coverFile)
+        if (coverClear) body.append('coverClear', 'true')
+        await this.submitMultipart(url, body)
     }
 
     async search(params: SearchParams): Promise<SearchResult3> {

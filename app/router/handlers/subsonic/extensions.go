@@ -29,6 +29,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "artistCoverArt",
 				"versions": []int{1},
 			},
+			{
+				"name":     "genreCoverArt",
+				"versions": []int{1},
+			},
 		},
 	})
 }
