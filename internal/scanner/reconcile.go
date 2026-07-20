@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
@@ -18,7 +19,7 @@ type reconcileStats struct {
 	Updated   int
 }
 
-func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart time.Time, mv MultiValueConfig) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart time.Time) (reconcileStats, error) {
 	var stats reconcileStats
 
 	for _, tr := range results {
@@ -27,7 +28,7 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 		}
 
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, tr, scanStart, mv, &stats)
+			return s.reconcileTrack(tx, tr, scanStart, &stats)
 		}); err != nil {
 			continue
 		}
@@ -37,11 +38,12 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.Time, mv MultiValueConfig, stats *reconcileStats) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
 	meta := tr.meta
 
-	// Resolve artists
-	artistNames := ApplyMultiValue(mv.ArtistMode, mv.ArtistDelim, firstStr(meta.Artist), meta.Artist)
+	// Resolve artists — tag values are taken as-is; multi-value frames come
+	// through the reader as separate list entries already.
+	artistNames := nonEmpty(meta.Artist)
 	if len(artistNames) == 0 {
 		artistNames = []string{"Unknown Artist"}
 	}
@@ -51,7 +53,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	}
 
 	// Resolve album artists
-	albumArtistNames := ApplyMultiValue(mv.AlbumArtistMode, mv.AlbumArtistDelim, firstStr(meta.AlbumArtist), meta.AlbumArtist)
+	albumArtistNames := nonEmpty(meta.AlbumArtist)
 	if len(albumArtistNames) == 0 {
 		if meta.Compilation {
 			albumArtistNames = []string{"Various Artists"}
@@ -65,7 +67,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	}
 
 	// Resolve genres
-	genreNames := ApplyMultiValue(mv.GenreMode, mv.GenreDelim, firstStr(meta.Genre), meta.Genre)
+	genreNames := nonEmpty(meta.Genre)
 	genres, err := tx.FindOrCreateGenres(genreNames)
 	if err != nil {
 		return err
@@ -168,11 +170,15 @@ func detectCoverInDir(dir string) string {
 	return ""
 }
 
-func firstStr(ss []string) string {
-	if len(ss) > 0 {
-		return ss[0]
+// nonEmpty drops blank entries from a tag value list.
+func nonEmpty(ss []string) []string {
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
 	}
-	return ""
+	return out
 }
 
 func fileSize(path string) int64 {
