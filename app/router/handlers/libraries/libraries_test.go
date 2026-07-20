@@ -85,7 +85,7 @@ func itoa(n uint) string {
 func TestCreateLibraryOK(t *testing.T) {
 	_, _, r := newTestHandler(t)
 	dir := t.TempDir()
-	body := `{"name":"Main","path":"` + dir + `","exclude_patterns":["^\\..*"],"follow_symlinks":true,"multi_value_genre":"none","multi_value_artist":"multi","multi_value_album_artist":"none"}`
+	body := `{"name":"Main","path":"` + dir + `","exclude_patterns":["^\\..*"],"follow_symlinks":true}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

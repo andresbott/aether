@@ -19,20 +19,17 @@ type Handler struct {
 }
 
 type libraryDTO struct {
-	ID                    uint       `json:"id"`
-	Name                  string     `json:"name"`
-	Path                  string     `json:"path"`
-	ExcludePatterns       []string   `json:"exclude_patterns"`
-	FollowSymlinks        bool       `json:"follow_symlinks"`
-	MultiValueGenre       string     `json:"multi_value_genre"`
-	MultiValueArtist      string     `json:"multi_value_artist"`
-	MultiValueAlbumArtist string     `json:"multi_value_album_artist"`
-	DefaultView           string     `json:"default_view"`
-	LastScanStartedAt     *time.Time `json:"last_scan_started_at"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
-	TrackCount            int64      `json:"track_count"`
-	PathChanged           bool       `json:"path_changed,omitempty"`
+	ID                uint       `json:"id"`
+	Name              string     `json:"name"`
+	Path              string     `json:"path"`
+	ExcludePatterns   []string   `json:"exclude_patterns"`
+	FollowSymlinks    bool       `json:"follow_symlinks"`
+	DefaultView       string     `json:"default_view"`
+	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	TrackCount        int64      `json:"track_count"`
+	PathChanged       bool       `json:"path_changed,omitempty"`
 }
 
 type apiError struct {
@@ -70,19 +67,16 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		dv = "albums"
 	}
 	return libraryDTO{
-		ID:                    lib.ID,
-		Name:                  lib.Name,
-		Path:                  lib.Path,
-		ExcludePatterns:       patterns,
-		FollowSymlinks:        lib.FollowSymlinks,
-		MultiValueGenre:       lib.MultiValueGenre,
-		MultiValueArtist:      lib.MultiValueArtist,
-		MultiValueAlbumArtist: lib.MultiValueAlbumArtist,
-		DefaultView:           dv,
-		LastScanStartedAt:     lib.LastScanStartedAt,
-		CreatedAt:             lib.CreatedAt,
-		UpdatedAt:             lib.UpdatedAt,
-		TrackCount:            count,
+		ID:                lib.ID,
+		Name:              lib.Name,
+		Path:              lib.Path,
+		ExcludePatterns:   patterns,
+		FollowSymlinks:    lib.FollowSymlinks,
+		DefaultView:       dv,
+		LastScanStartedAt: lib.LastScanStartedAt,
+		CreatedAt:         lib.CreatedAt,
+		UpdatedAt:         lib.UpdatedAt,
+		TrackCount:        count,
 	}, nil
 }
 
@@ -173,12 +167,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	for _, mv := range []string{in.MultiValueGenre, in.MultiValueArtist, in.MultiValueAlbumArtist} {
-		if err := validateMultiValue(mv); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-	}
 	if err := validateDefaultView(in.DefaultView); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
@@ -194,14 +182,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		dv = "albums"
 	}
 	lib := &model.Library{
-		Name:                  in.Name,
-		Path:                  abs,
-		ExcludePatterns:       excludes,
-		FollowSymlinks:        in.FollowSymlinks,
-		MultiValueGenre:       in.MultiValueGenre,
-		MultiValueArtist:      in.MultiValueArtist,
-		MultiValueAlbumArtist: in.MultiValueAlbumArtist,
-		DefaultView:           dv,
+		Name:            in.Name,
+		Path:            abs,
+		ExcludePatterns: excludes,
+		FollowSymlinks:  in.FollowSymlinks,
+		DefaultView:     dv,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -247,12 +232,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	for _, mv := range []string{in.MultiValueGenre, in.MultiValueArtist, in.MultiValueAlbumArtist} {
-		if err := validateMultiValue(mv); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-	}
 	if err := validateDefaultView(in.DefaultView); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
@@ -269,9 +248,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing.Path = abs
 	existing.ExcludePatterns = excludes
 	existing.FollowSymlinks = in.FollowSymlinks
-	existing.MultiValueGenre = in.MultiValueGenre
-	existing.MultiValueArtist = in.MultiValueArtist
-	existing.MultiValueAlbumArtist = in.MultiValueAlbumArtist
 	dv := in.DefaultView
 	if dv == "" {
 		dv = "albums"
