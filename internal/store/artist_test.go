@@ -382,3 +382,82 @@ func mustArtistID(t *testing.T, s *store.Store, name string) uint {
 	t.Fatalf("artist %q not found", name)
 	return 0
 }
+
+// seedArtistTrack creates an artist with one track in the given library.
+func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file string) *model.Artist {
+	t.Helper()
+	artists, err := s.FindOrCreateArtists([]string{artistName}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	album, err := s.FindOrCreateAlbum("Album of "+artistName, artistName, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	track := &model.Track{AlbumID: album.ID, LibraryID: libID, Title: file, FilePath: file, Filename: file}
+	if err := s.UpsertTrack(track, artists, nil); err != nil {
+		t.Fatal(err)
+	}
+	return artists[0]
+}
+
+func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
+	s := testStore(t)
+	vis := &model.Library{Name: "Vis", Path: "/vis", ShowArtists: true}
+	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	if err := s.CreateLibrary(vis); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateLibrary(hid); err != nil {
+		t.Fatal(err)
+	}
+	seedArtistTrack(t, s, vis.ID, "Visible Artist", "/vis/a.mp3")
+	seedArtistTrack(t, s, hid.ID, "Hidden Artist", "/hid/b.mp3")
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 1 || artists[0].Name != "Visible Artist" {
+		t.Fatalf("expected only Visible Artist, got %+v", artists)
+	}
+}
+
+func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
+	s := testStore(t)
+	vis := &model.Library{Name: "Vis", Path: "/vis", ShowArtists: true}
+	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	if err := s.CreateLibrary(vis); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateLibrary(hid); err != nil {
+		t.Fatal(err)
+	}
+	seedArtistTrack(t, s, vis.ID, "Shared Artist", "/vis/a.mp3")
+	seedArtistTrack(t, s, hid.ID, "Shared Artist", "/hid/b.mp3")
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 1 || artists[0].Name != "Shared Artist" {
+		t.Fatalf("expected Shared Artist to stay visible, got %+v", artists)
+	}
+}
+
+func TestGetArtistsFilterByHiddenLibraryIsEmpty(t *testing.T) {
+	s := testStore(t)
+	hid := &model.Library{Name: "Hid", Path: "/hid", ShowArtists: false}
+	if err := s.CreateLibrary(hid); err != nil {
+		t.Fatal(err)
+	}
+	seedArtistTrack(t, s, hid.ID, "Hidden Artist", "/hid/b.mp3")
+
+	artists, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &hid.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 0 {
+		t.Fatalf("expected empty index for hidden library, got %+v", artists)
+	}
+}

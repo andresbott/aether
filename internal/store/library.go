@@ -21,7 +21,18 @@ func (s *Store) GetLibrary(id uint) (model.Library, error) {
 }
 
 func (s *Store) CreateLibrary(lib *model.Library) error {
-	return s.db.Create(lib).Error
+	// Workaround for GORM v2 bool zero-value handling with default tags:
+	// GORM omits false bool values when the tag has default:true, letting the DB
+	// default take over. Use a map to force the value through.
+	showArtists := lib.ShowArtists
+	if err := s.db.Create(lib).Error; err != nil {
+		return err
+	}
+	// If ShowArtists was explicitly false, update it after creation
+	if !showArtists {
+		return s.db.Model(lib).Update("show_artists", false).Error
+	}
+	return nil
 }
 
 func (s *Store) UpdateLibrary(lib *model.Library) error {
