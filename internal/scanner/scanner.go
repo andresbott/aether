@@ -85,8 +85,6 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 		return fmt.Errorf("library %q: %w", lib.Name, err)
 	}
 
-	mv := buildMultiValueConfig(lib)
-
 	walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
 	if err != nil {
 		return err
@@ -155,7 +153,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 		return ctx.Err()
 	}
 
-	rec, err := s.reconcile(ctx, tagResults, scanStart, mv)
+	rec, err := s.reconcile(ctx, tagResults, scanStart)
 	if err != nil {
 		return err
 	}
@@ -206,13 +204,3 @@ func compileExcludes(jsonPatterns string) ([]*regexp.Regexp, error) {
 	return out, nil
 }
 
-func buildMultiValueConfig(lib *model.Library) MultiValueConfig {
-	gMode, gDelim := ParseMultiValueMode(lib.MultiValueGenre)
-	aMode, aDelim := ParseMultiValueMode(lib.MultiValueArtist)
-	aaMode, aaDelim := ParseMultiValueMode(lib.MultiValueAlbumArtist)
-	return MultiValueConfig{
-		GenreMode: gMode, GenreDelim: gDelim,
-		ArtistMode: aMode, ArtistDelim: aDelim,
-		AlbumArtistMode: aaMode, AlbumArtistDelim: aaDelim,
-	}
-}

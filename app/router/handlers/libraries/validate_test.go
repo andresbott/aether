@@ -43,24 +43,6 @@ func TestValidateName(t *testing.T) {
 	}
 }
 
-func TestValidateMultiValueGrammar(t *testing.T) {
-	cases := []struct {
-		in string
-		ok bool
-	}{
-		{"", true}, {"none", true}, {"multi", true},
-		{"delim ;", true}, {"delim |", true},
-		{"delim", false}, {"weird", false},
-	}
-	for _, c := range cases {
-		err := validateMultiValue(c.in)
-		gotOK := err == nil
-		if gotOK != c.ok {
-			t.Errorf("%q: expected ok=%v, got err=%v", c.in, c.ok, err)
-		}
-	}
-}
-
 func TestValidateDefaultView(t *testing.T) {
 	cases := []struct {
 		in string

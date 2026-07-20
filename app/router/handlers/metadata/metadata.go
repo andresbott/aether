@@ -92,20 +92,14 @@ func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPa
 		return nil, "", http.StatusBadRequest, rerr
 	}
 	return &librarySummary{
-		ID:                    libModel.ID,
-		Path:                  libModel.Path,
-		MultiValueArtist:      libModel.MultiValueArtist,
-		MultiValueAlbumArtist: libModel.MultiValueAlbumArtist,
-		MultiValueGenre:       libModel.MultiValueGenre,
+		ID:   libModel.ID,
+		Path: libModel.Path,
 	}, abs, 0, nil
 }
 
 type librarySummary struct {
-	ID                    uint
-	Path                  string
-	MultiValueArtist      string
-	MultiValueAlbumArtist string
-	MultiValueGenre       string
+	ID   uint
+	Path string
 }
 
 type folderDTO struct {
@@ -306,11 +300,6 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		RemoveUnsupported: body.Fields.RemoveUnsupported,
 	}
 	needMB := body.Fields.ArtistMBIDs != nil || body.Fields.AlbumArtistMBIDs != nil
-	cfg := metadataedit.LibraryCfg{
-		MultiValueArtist:      libModel.MultiValueArtist,
-		MultiValueAlbumArtist: libModel.MultiValueAlbumArtist,
-		MultiValueGenre:       libModel.MultiValueGenre,
-	}
 
 	resolved := make([]string, 0, len(body.Paths))
 	for _, p := range body.Paths {
@@ -339,7 +328,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 				AlbumArtistMBIDs: meta.MBAlbumArtistID,
 			}
 		}
-		if err := metadataedit.WriteMetadata(abs, patch, cfg, cur); err != nil {
+		if err := metadataedit.WriteMetadata(abs, patch, cur); err != nil {
 			results = append(results, updateResult{Path: body.Paths[i], OK: false, Error: err.Error()})
 			continue
 		}

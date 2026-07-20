@@ -339,7 +339,7 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	_ = model.Migrate(db)
 	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root, MultiValueGenre: "multi"}
+	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
 	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()

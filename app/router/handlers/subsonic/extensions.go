@@ -10,6 +10,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"versions": []int{1},
 			},
 			{
+				"name":     "musicFolderShowArtists",
+				"versions": []int{1},
+			},
+			{
 				"name":     "albumList2Index",
 				"versions": []int{1},
 			},

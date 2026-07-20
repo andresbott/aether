@@ -5,6 +5,7 @@ import (
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
+	"gorm.io/gorm"
 )
 
 func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Artist, error) {
@@ -43,11 +44,20 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 	q := s.db.Model(&model.Artist{})
 	if filter != nil && filter.LibraryID != nil {
+		// Check if this specific library is hidden
+		var lib model.Library
+		if err := s.db.First(&lib, *filter.LibraryID).Error; err == nil && lib.HideArtists {
+			// Return empty result for hidden libraries
+			return []model.Artist{}, nil
+		}
 		q = q.
 			Distinct().
 			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
 			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
 			Where("tracks.library_id = ?", *filter.LibraryID)
+	} else {
+		// No library filter: exclude artists that ONLY appear in hidden libraries
+		q = s.excludeHiddenArtists(q)
 	}
 	var artists []model.Artist
 	err := q.Order("name_norm ASC").Find(&artists).Error
@@ -129,4 +139,33 @@ func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFil
 	var artists []model.Artist
 	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&artists).Error
 	return artists, err
+}
+
+// excludeHiddenArtists drops artists whose entire library presence (as track
+// artist or album artist) sits in libraries with hide_artists = true. An
+// artist with at least one track in a visible library stays visible.
+// No-op when no library is hidden.
+func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
+	var hidden []uint
+	if err := s.db.Model(&model.Library{}).
+		Where("hide_artists = ?", true).
+		Pluck("id", &hidden).Error; err != nil || len(hidden) == 0 {
+		return q
+	}
+	// Artist is visible if it has at least one track in a visible library.
+	// We exclude artists that ONLY have tracks in hidden libraries.
+	// Check both track_artists (direct artist-track links) and album_artists
+	// (artist → album → tracks).
+	visiblePresence := `
+		(EXISTS (
+			SELECT 1 FROM track_artists ta
+			JOIN tracks t ON ta.track_id = t.id
+			WHERE ta.artist_id = artists.id AND t.library_id NOT IN (?)
+		) OR EXISTS (
+			SELECT 1 FROM album_artists aa
+			JOIN tracks t ON aa.album_id = t.album_id
+			WHERE aa.artist_id = artists.id AND t.library_id NOT IN (?)
+		))
+	`
+	return q.Where(visiblePresence, hidden, hidden)
 }

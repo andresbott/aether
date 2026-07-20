@@ -41,13 +41,18 @@ const folderName = computed(() =>
 )
 const serverDefault = computed<ViewMode>(() => folder.value?.defaultView ?? 'albums')
 
+const artistsTabVisible = computed(() => {
+    if (folderId.value === undefined) return true
+    return folder.value?.showArtists !== false
+})
+
 const hashView = computed<ViewMode | null>(() => {
     const h = route.hash.replace('#', '')
     return h === 'albums' || h === 'artists' ? h : null
 })
 
 const viewMode = computed<ViewMode>({
-    get: () => hashView.value ?? serverDefault.value,
+    get: () => (artistsTabVisible.value ? (hashView.value ?? serverDefault.value) : 'albums'),
     set: (v) => {
         router.replace({ hash: `#${v}`, query: route.query })
     }
@@ -100,6 +105,7 @@ const summary = computed(() => {
                 </template>
             </SelectButton>
             <SelectButton
+                v-if="artistsTabVisible"
                 v-model="viewMode"
                 :options="viewOptions"
                 optionLabel="label"

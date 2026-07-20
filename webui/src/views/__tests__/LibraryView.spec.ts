@@ -10,8 +10,11 @@ vi.mock('vue-router', () => ({
     useRouter: () => ({ replace })
 }))
 
+const foldersRef = ref<Array<{ id: number; name: string; showArtists?: boolean }>>([
+    { id: 1, name: 'Main' }
+])
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useMusicFolders: () => ({ data: ref([{ id: 1, name: 'Main' }]) })
+    useMusicFolders: () => ({ data: foldersRef })
 }))
 vi.mock('@/composables/useAlbumIndex', () => ({
     useAlbumIndex: () => ({
@@ -72,6 +75,7 @@ beforeEach(() => {
     replace.mockReset()
     route.hash = '#albums'
     route.query = {}
+    foldersRef.value = [{ id: 1, name: 'Main' }]
 })
 
 describe('LibraryView', () => {
@@ -124,5 +128,21 @@ describe('LibraryView', () => {
                 query: expect.objectContaining({ view: 'list' })
             })
         )
+    })
+
+    it('hides the Artists tab and forces albums when the folder has showArtists=false', () => {
+        foldersRef.value = [{ id: 1, name: 'Main', showArtists: false }]
+        route.hash = '#artists'
+        const w = mountView()
+        expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
+        expect(w.findComponent(ArtistGridStub).exists()).toBe(false)
+        // Only the layout toggle remains.
+        expect(w.findAllComponents(SelectButton).length).toBe(1)
+    })
+
+    it('keeps the Artists tab when showArtists is true or unset', () => {
+        foldersRef.value = [{ id: 1, name: 'Main', showArtists: true }]
+        const w = mountView()
+        expect(w.findAllComponents(SelectButton).length).toBe(2)
     })
 })

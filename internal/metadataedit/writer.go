@@ -86,17 +86,11 @@ func mergeMBIDs(names, currentIDs []string, overrides map[string]string) []strin
 	return out
 }
 
-// LibraryCfg carries the per-library multi-value settings that affect tag
-// serialization.
-type LibraryCfg struct {
-	MultiValueArtist      string
-	MultiValueAlbumArtist string
-	MultiValueGenre       string
-}
-
 // BuildTagMap turns a Patch into the tag map expected by taglib.WriteTags.
 // Only fields explicitly set in the Patch appear in the result.
-func BuildTagMap(p Patch, cfg LibraryCfg, cur CurrentTags) (map[string][]string, error) {
+// Multi-value fields (artists, album artists, genres) are always written as
+// separate values (taglib emits multiple frames where the format allows).
+func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 	out := map[string][]string{}
 	if p.Title != nil {
 		out[taglib.Title] = []string{*p.Title}
@@ -105,25 +99,13 @@ func BuildTagMap(p Patch, cfg LibraryCfg, cur CurrentTags) (map[string][]string,
 		out[taglib.Album] = []string{*p.Album}
 	}
 	if p.Artists != nil {
-		vals, err := serializeMulti(*p.Artists, cfg.MultiValueArtist)
-		if err != nil {
-			return nil, fmt.Errorf("artists: %w", err)
-		}
-		out[taglib.Artist] = vals
+		out[taglib.Artist] = *p.Artists
 	}
 	if p.AlbumArtists != nil {
-		vals, err := serializeMulti(*p.AlbumArtists, cfg.MultiValueAlbumArtist)
-		if err != nil {
-			return nil, fmt.Errorf("album_artists: %w", err)
-		}
-		out[taglib.AlbumArtist] = vals
+		out[taglib.AlbumArtist] = *p.AlbumArtists
 	}
 	if p.Genres != nil {
-		vals, err := serializeMulti(*p.Genres, cfg.MultiValueGenre)
-		if err != nil {
-			return nil, fmt.Errorf("genres: %w", err)
-		}
-		out[taglib.Genre] = vals
+		out[taglib.Genre] = *p.Genres
 	}
 	if p.Year != nil {
 		out[taglib.Date] = []string{strconv.Itoa(*p.Year)}
@@ -172,41 +154,17 @@ func BuildTagMap(p Patch, cfg LibraryCfg, cur CurrentTags) (map[string][]string,
 	return out, nil
 }
 
-// serializeMulti applies the library's multi-value policy to a list.
-//
-// Modes mirror the library config:
-//   - "" or "multi": return the list as-is (taglib emits multiple frames
-//     where the format allows, otherwise a single joined string).
-//   - "delim <sep>": join with <sep> into one value.
-//   - "none": keep only the first element.
-func serializeMulti(vals []string, mode string) ([]string, error) {
-	switch {
-	case mode == "" || mode == "multi":
-		return vals, nil
-	case mode == "none":
-		if len(vals) == 0 {
-			return []string{}, nil
-		}
-		return []string{vals[0]}, nil
-	case strings.HasPrefix(mode, "delim "):
-		sep := strings.TrimPrefix(mode, "delim ")
-		return []string{strings.Join(vals, sep)}, nil
-	default:
-		return nil, fmt.Errorf("unknown multi-value mode %q", mode)
-	}
-}
-
-// WriteMetadata applies the given patch to the file at path, using cfg to
-// decide how multi-value fields are serialized. Absent fields in the patch
-// are left alone (taglib.WriteTags with no Clear option is additive per-key).
-// An empty patch is a no-op.
-func WriteMetadata(path string, patch Patch, cfg LibraryCfg, cur CurrentTags) error {
+// WriteMetadata applies the given patch to the file at path. Multi-value
+// fields are always written as separate frames (where the format allows).
+// Absent fields in the patch are left alone (taglib.WriteTags with no Clear
+// option is additive per-key). An empty patch is a no-op.
+func WriteMetadata(path string, patch Patch, cur CurrentTags) error {
 	if patch.Empty() {
 		return nil
 	}
 	// Build (and thereby validate) the tag map before mutating anything, so
 	// an invalid patch never half-applies.
-	tagMap, err := BuildTagMap(patch, cfg, cur)
+	tagMap, err := BuildTagMap(patch, cur)
 	if err != nil {
 		return err
 	}
