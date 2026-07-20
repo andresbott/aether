@@ -6,9 +6,6 @@ export interface Library {
     path: string
     exclude_patterns: string[]
     follow_symlinks: boolean
-    multi_value_genre: string
-    multi_value_artist: string
-    multi_value_album_artist: string
     default_view: LibraryDefaultView
     last_scan_started_at: string | null
     created_at: string
@@ -22,9 +19,6 @@ export interface LibraryInput {
     path: string
     exclude_patterns: string[]
     follow_symlinks: boolean
-    multi_value_genre: string
-    multi_value_artist: string
-    multi_value_album_artist: string
     default_view: LibraryDefaultView
 }
 

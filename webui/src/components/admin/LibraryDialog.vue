@@ -21,23 +21,11 @@ const emit = defineEmits<{
     (e: 'cancel'): void
 }>()
 
-const mvOptions = [
-    { label: 'None', value: 'none' },
-    { label: 'Multi (separate tag fields)', value: 'multi' },
-    { label: 'Delim (split single tag)', value: 'delim' }
-]
-
 interface FormState {
     name: string
     path: string
     excludesText: string
     follow_symlinks: boolean
-    genreMode: string
-    genreDelim: string
-    artistMode: string
-    artistDelim: string
-    albumArtistMode: string
-    albumArtistDelim: string
     default_view: 'albums' | 'artists'
 }
 
@@ -47,29 +35,8 @@ function emptyForm(): FormState {
         path: '',
         excludesText: '',
         follow_symlinks: true,
-        genreMode: 'none',
-        genreDelim: '',
-        artistMode: 'none',
-        artistDelim: '',
-        albumArtistMode: 'none',
-        albumArtistDelim: '',
         default_view: 'albums'
     }
-}
-
-function parseMV(raw: string): { mode: string; delim: string } {
-    const r = (raw ?? '').trim()
-    if (r.startsWith('delim ')) {
-        return { mode: 'delim', delim: r.slice('delim '.length) }
-    }
-    if (r === 'multi') return { mode: 'multi', delim: '' }
-    return { mode: 'none', delim: '' }
-}
-
-function buildMV(mode: string, delim: string): string {
-    if (mode === 'delim') return `delim ${delim}`
-    if (mode === 'multi') return 'multi'
-    return 'none'
 }
 
 const form = ref<FormState>(emptyForm())
@@ -81,17 +48,11 @@ watch(
         if (!props.visible) return
         if (props.library) {
             const lib = props.library
-            const g = parseMV(lib.multi_value_genre)
-            const a = parseMV(lib.multi_value_artist)
-            const aa = parseMV(lib.multi_value_album_artist)
             form.value = {
                 name: lib.name,
                 path: lib.path,
                 excludesText: (lib.exclude_patterns ?? []).join('\n'),
                 follow_symlinks: lib.follow_symlinks,
-                genreMode: g.mode, genreDelim: g.delim,
-                artistMode: a.mode, artistDelim: a.delim,
-                albumArtistMode: aa.mode, albumArtistDelim: aa.delim,
                 default_view: lib.default_view
             }
             initialPath.value = lib.path
@@ -116,9 +77,6 @@ function buildInput(): LibraryInput {
         path: form.value.path.trim(),
         exclude_patterns: excludes,
         follow_symlinks: form.value.follow_symlinks,
-        multi_value_genre: buildMV(form.value.genreMode, form.value.genreDelim),
-        multi_value_artist: buildMV(form.value.artistMode, form.value.artistDelim),
-        multi_value_album_artist: buildMV(form.value.albumArtistMode, form.value.albumArtistDelim),
         default_view: form.value.default_view
     }
 }
@@ -175,51 +133,6 @@ const defaultViewOptions = [
                 rows="4"
                 placeholder="One Go regex per line"
             />
-
-            <label>Genre tags</label>
-            <div class="mv-row">
-                <Dropdown
-                    v-model="form.genreMode"
-                    :options="mvOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                />
-                <InputText
-                    v-if="form.genreMode === 'delim'"
-                    v-model="form.genreDelim"
-                    placeholder="separator (e.g. ;)"
-                />
-            </div>
-
-            <label>Artist tags</label>
-            <div class="mv-row">
-                <Dropdown
-                    v-model="form.artistMode"
-                    :options="mvOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                />
-                <InputText
-                    v-if="form.artistMode === 'delim'"
-                    v-model="form.artistDelim"
-                    placeholder="separator"
-                />
-            </div>
-
-            <label>Album-artist tags</label>
-            <div class="mv-row">
-                <Dropdown
-                    v-model="form.albumArtistMode"
-                    :options="mvOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                />
-                <InputText
-                    v-if="form.albumArtistMode === 'delim'"
-                    v-model="form.albumArtistDelim"
-                    placeholder="separator"
-                />
-            </div>
         </div>
 
         <template #footer>
@@ -245,13 +158,5 @@ const defaultViewOptions = [
 }
 .form-grid > .p-message {
     grid-column: 2 / 3;
-}
-.mv-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-}
-.mv-row .p-dropdown {
-    min-width: 12rem;
 }
 </style>
