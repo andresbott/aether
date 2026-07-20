@@ -154,3 +154,18 @@ func TestDeleteLibraryCascade(t *testing.T) {
 			libCount, trackCount, albumCount, artistCount, starCount)
 	}
 }
+
+func TestCreateLibraryFalseBoolsRoundTrip(t *testing.T) {
+	s := testStore(t)
+	lib := &model.Library{Name: "Main", Path: "/a", FollowSymlinks: false, ShowArtists: false}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetLibrary(lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FollowSymlinks || got.ShowArtists {
+		t.Fatalf("expected both bools false after create, got follow=%v show=%v", got.FollowSymlinks, got.ShowArtists)
+	}
+}
