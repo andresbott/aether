@@ -24,6 +24,7 @@ type libraryDTO struct {
 	Path              string     `json:"path"`
 	ExcludePatterns   []string   `json:"exclude_patterns"`
 	FollowSymlinks    bool       `json:"follow_symlinks"`
+	ShowArtists       *bool      `json:"show_artists"`
 	DefaultView       string     `json:"default_view"`
 	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
 	CreatedAt         time.Time  `json:"created_at"`
@@ -66,12 +67,17 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if dv == "" {
 		dv = "albums"
 	}
+	// Convert HideArtists (internal, inverted bool) to ShowArtists (API, positive bool).
+	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
+	// HideArtists=true means artists are hidden, so ShowArtists=false.
+	showArtists := !lib.HideArtists
 	return libraryDTO{
 		ID:                lib.ID,
 		Name:              lib.Name,
 		Path:              lib.Path,
 		ExcludePatterns:   patterns,
 		FollowSymlinks:    lib.FollowSymlinks,
+		ShowArtists:       &showArtists,
 		DefaultView:       dv,
 		LastScanStartedAt: lib.LastScanStartedAt,
 		CreatedAt:         lib.CreatedAt,
@@ -181,11 +187,18 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if dv == "" {
 		dv = "albums"
 	}
+	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
+	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
+	hideArtists := false
+	if in.ShowArtists != nil && !*in.ShowArtists {
+		hideArtists = true
+	}
 	lib := &model.Library{
 		Name:            in.Name,
 		Path:            abs,
 		ExcludePatterns: excludes,
 		FollowSymlinks:  in.FollowSymlinks,
+		HideArtists:     hideArtists,
 		DefaultView:     dv,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
@@ -248,6 +261,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing.Path = abs
 	existing.ExcludePatterns = excludes
 	existing.FollowSymlinks = in.FollowSymlinks
+	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
+	if in.ShowArtists != nil {
+		existing.HideArtists = !*in.ShowArtists
+	}
 	dv := in.DefaultView
 	if dv == "" {
 		dv = "albums"

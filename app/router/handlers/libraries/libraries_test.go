@@ -295,3 +295,41 @@ func TestUpdateLibraryDefaultView(t *testing.T) {
 		t.Fatalf("expected default_view=artists, got %v", got["default_view"])
 	}
 }
+
+func TestCreateLibraryShowArtistsRoundTrip(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"Main","path":"` + dir + `","follow_symlinks":true,"show_artists":false}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	v, ok := got["show_artists"].(bool)
+	if !ok || v {
+		t.Fatalf("expected show_artists=false in response, got %v", got["show_artists"])
+	}
+}
+
+func TestCreateLibraryShowArtistsOmitted(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"Main","path":"` + dir + `","follow_symlinks":true}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	v, ok := got["show_artists"].(bool)
+	if !ok || !v {
+		t.Fatalf("expected show_artists=true (default) in response, got %v", got["show_artists"])
+	}
+}
