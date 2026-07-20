@@ -34,6 +34,7 @@ Routes are defined in `webui/src/router/index.ts`. There are two categories:
 | `PlaylistsView` | `/playlists` | List of playlists |
 | `PlaylistDetailView` | `/playlist/:id` | Single playlist detail |
 | `GenresView` | `/genres` | Browse by genre |
+| `GenreDetailView` | `/genre/:name` | Single genre detail (hero + paged song list) |
 | `RadioView` | `/radio` | List of radio stations |
 | `RadioStationDetailView` | `/radio/:id`, `/radio/new` | Station detail + create form (same component, `create` prop) |
 

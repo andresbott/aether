@@ -18,6 +18,7 @@ const (
 	KindRadio    = "radio"
 	KindAlbum    = "album"
 	KindPlaylist = "playlist"
+	KindGenre    = "genre"
 )
 
 type Store struct {
