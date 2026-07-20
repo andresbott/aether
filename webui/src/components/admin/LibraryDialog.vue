@@ -7,6 +7,7 @@ import InputSwitch from 'primevue/inputswitch'
 import Textarea from 'primevue/textarea'
 import Dropdown from 'primevue/dropdown'
 import Message from 'primevue/message'
+import FolderPickerDialog from './FolderPickerDialog.vue'
 import type { Library, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
@@ -43,6 +44,7 @@ function emptyForm(): FormState {
 
 const form = ref<FormState>(emptyForm())
 const initialPath = ref('')
+const pickerVisible = ref(false)
 
 watch(
     () => [props.visible, props.library],
@@ -113,7 +115,15 @@ const defaultViewOptions = [
             <InputText v-model="form.name" placeholder="e.g. Main" />
 
             <label>Path</label>
-            <InputText v-model="form.path" placeholder="/srv/music" />
+            <div class="path-row">
+                <InputText v-model="form.path" placeholder="/srv/music" />
+                <Button
+                    icon="pi pi-folder-open"
+                    outlined
+                    aria-label="Browse server folders"
+                    @click="pickerVisible = true"
+                />
+            </div>
 
             <Message v-if="pathChanged" severity="warn" :closable="false">
                 Changing the path will wipe existing tracks under the old path.
@@ -150,6 +160,11 @@ const defaultViewOptions = [
                 @click="onSubmit"
             />
         </template>
+
+        <FolderPickerDialog
+            v-model:visible="pickerVisible"
+            @select="form.path = $event"
+        />
     </Dialog>
 </template>
 
@@ -165,5 +180,12 @@ const defaultViewOptions = [
 }
 .form-grid > .p-message {
     grid-column: 2 / 3;
+}
+.path-row {
+    display: flex;
+    gap: 0.5rem;
+}
+.path-row .p-inputtext {
+    flex: 1;
 }
 </style>

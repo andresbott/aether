@@ -2,7 +2,8 @@ import { apiClient } from '@/lib/api/client'
 import type {
     Library,
     LibraryInput,
-    ListLibrariesResponse
+    ListLibrariesResponse,
+    BrowseResponse
 } from '@/types/libraries'
 
 export async function listLibraries(): Promise<Library[]> {
@@ -27,4 +28,11 @@ export async function updateLibrary(id: number, input: LibraryInput): Promise<Li
 
 export async function deleteLibrary(id: number): Promise<void> {
     await apiClient.delete(`/libraries/${id}`)
+}
+
+export async function browseFolders(path?: string): Promise<BrowseResponse> {
+    const { data } = await apiClient.get<BrowseResponse>('/libraries/browse', {
+        params: path ? { path } : {}
+    })
+    return data
 }

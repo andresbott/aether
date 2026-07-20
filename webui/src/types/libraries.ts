@@ -32,3 +32,14 @@ export interface ApiError {
     error: string
     code: 'validation_error' | 'not_found' | 'conflict' | 'internal'
 }
+
+export interface BrowseFolder {
+    name: string
+    path: string
+    has_subfolders: boolean
+}
+
+export interface BrowseResponse {
+    path: string
+    folders: BrowseFolder[]
+}
