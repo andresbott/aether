@@ -143,8 +143,8 @@ func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFil
 
 // excludeHiddenArtists drops artists whose entire library presence (as track
 // artist or album artist) sits in libraries with hide_artists = true. An
-// artist with at least one track in a visible library — or none anywhere —
-// stays visible. No-op when no library is hidden.
+// artist with at least one track in a visible library stays visible.
+// No-op when no library is hidden.
 func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	var hidden []uint
 	if err := s.db.Model(&model.Library{}).
