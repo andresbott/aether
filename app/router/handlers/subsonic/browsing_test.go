@@ -37,8 +37,8 @@ func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 func TestGetMusicFoldersFromDB(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Zulu", Path: "/z", DefaultView: "artists"})
-	db.Create(&model.Library{Name: "Alpha", Path: "/a", DefaultView: "albums"})
+	db.Create(&model.Library{Name: "Zulu", Path: "/z", DefaultView: "artists", HideArtists: true})
+	db.Create(&model.Library{Name: "Alpha", Path: "/a", DefaultView: "albums", HideArtists: false})
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
@@ -59,6 +59,7 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 					ID          uint   `json:"id"`
 					Name        string `json:"name"`
 					DefaultView string `json:"defaultView"`
+					ShowArtists bool   `json:"showArtists"`
 				} `json:"musicFolder"`
 			} `json:"musicFolders"`
 		} `json:"subsonic-response"`
@@ -79,6 +80,12 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 	}
 	if folders[1].DefaultView != "artists" {
 		t.Fatalf("Zulu: expected defaultView=artists, got %q", folders[1].DefaultView)
+	}
+	if !folders[0].ShowArtists {
+		t.Fatalf("Alpha: expected showArtists=true, got false")
+	}
+	if folders[1].ShowArtists {
+		t.Fatalf("Zulu: expected showArtists=false, got true")
 	}
 }
 

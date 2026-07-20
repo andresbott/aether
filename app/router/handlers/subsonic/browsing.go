@@ -27,6 +27,7 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 			"id":          lib.ID,
 			"name":        lib.Name,
 			"defaultView": dv,
+			"showArtists": !lib.HideArtists,
 		})
 	}
 	writeResponse(w, map[string]any{
