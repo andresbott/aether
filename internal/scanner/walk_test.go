@@ -62,6 +62,59 @@ func TestWalkExcludePattern(t *testing.T) {
 	}
 }
 
+func TestWalkFollowsSymlinks(t *testing.T) {
+	realDir := t.TempDir()
+	libDir := t.TempDir()
+	createTestFiles(t, realDir, []string{
+		"linked-album/01.mp3",
+		"linked-album/02.flac",
+		"single.mp3",
+	})
+	createTestFiles(t, libDir, []string{"local/03.ogg"})
+	// Directory symlink: its audio files must be collected.
+	if err := os.Symlink(filepath.Join(realDir, "linked-album"), filepath.Join(libDir, "album-link")); err != nil {
+		t.Fatal(err)
+	}
+	// File symlink: reported as an audio file itself.
+	if err := os.Symlink(filepath.Join(realDir, "single.mp3"), filepath.Join(libDir, "single-link.mp3")); err != nil {
+		t.Fatal(err)
+	}
+	// Broken symlink: skipped without error.
+	if err := os.Symlink(filepath.Join(realDir, "missing"), filepath.Join(libDir, "broken.mp3")); err != nil {
+		t.Fatal(err)
+	}
+	// Cycle: a symlink back to the library root must not recurse forever.
+	if err := os.Symlink(libDir, filepath.Join(libDir, "self-link")); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("expected 4 audio files (2 linked-album + 1 file link + 1 local), got %d: %+v", len(results), results)
+	}
+}
+
+func TestWalkNoFollowSymlinks(t *testing.T) {
+	realDir := t.TempDir()
+	libDir := t.TempDir()
+	createTestFiles(t, realDir, []string{"linked-album/01.mp3"})
+	createTestFiles(t, libDir, []string{"local/02.ogg"})
+	if err := os.Symlink(filepath.Join(realDir, "linked-album"), filepath.Join(libDir, "album-link")); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 audio file (symlink not followed), got %d", len(results))
+	}
+}
+
 func TestWalkMultipleLibraries(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()

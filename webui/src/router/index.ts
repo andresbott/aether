@@ -55,6 +55,13 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/genre/:name',
+        name: 'genre-detail',
+        component: () => import('@/views/GenreDetailView.vue'),
+        props: true,
+        meta: { flush: true }
+    },
+    {
         path: '/radio',
         name: 'radio',
         component: () => import('@/views/RadioView.vue'),

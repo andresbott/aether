@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 
+	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	"github.com/andresbott/aether/app/spa"
 	"github.com/andresbott/aether/app/tasks"
@@ -26,6 +27,9 @@ type Cfg struct {
 	DataDir       string
 	TagReader     tags.Reader
 	ArtistFetcher tasks.Fetcher
+	// Identifier is optional: nil disables audio identification in the
+	// metadata editor.
+	Identifier metadataHandler.IdentifyService
 }
 
 type MainAppHandler struct {
@@ -40,6 +44,7 @@ type MainAppHandler struct {
 	tagReader     tags.Reader
 	artistFetcher tasks.Fetcher
 	assets        *assetstore.Store
+	identifier    metadataHandler.IdentifyService
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +65,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		tagReader:     cfg.TagReader,
 		artistFetcher: cfg.ArtistFetcher,
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
+		identifier:    cfg.Identifier,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

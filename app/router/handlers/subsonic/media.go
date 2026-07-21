@@ -11,6 +11,7 @@ import (
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
+	"github.com/andresbott/aether/internal/model"
 	"go.senan.xyz/taglib"
 )
 
@@ -37,6 +38,25 @@ type coverMeta struct {
 	coverPath string
 	albumID   uint
 	seed      string
+}
+
+// artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
+// (auto-fetched or a manual upload made while the artist was matched) takes
+// precedence; fall back to the DB-ID slot used for manual uploads on unmatched
+// artists.
+func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
+	meta := coverMeta{seed: artist.NameNorm}
+	if artist.MBArtistID != "" {
+		if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+			meta.coverPath = p
+		}
+	}
+	if meta.coverPath == "" {
+		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+			meta.coverPath = p
+		}
+	}
+	return meta
 }
 
 // resolveCoverMeta looks up cover metadata for the given item type and ID.
@@ -73,21 +93,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			writeError(w, 70, "artist not found")
 			return coverMeta{}, false
 		}
-		meta := coverMeta{seed: artist.NameNorm}
-		// A cover keyed by MusicBrainz ID (auto-fetched or a manual upload made
-		// while the artist was matched) takes precedence; fall back to the DB-ID
-		// slot used for manual uploads on unmatched artists.
-		if artist.MBArtistID != "" {
-			if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
-				meta.coverPath = p
-			}
-		}
-		if meta.coverPath == "" {
-			if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
-				meta.coverPath = p
-			}
-		}
-		return meta, true
+		return h.artistCoverMeta(artist), true
 	case "radio":
 		station, err := h.store.GetInternetRadioStation(id)
 		if err != nil {
@@ -110,6 +116,21 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 		// mechanism as artists/radio).
 		meta := coverMeta{seed: pl.Name}
 		if p, ok := h.assets.Get(assetstore.KindPlaylist, strconv.FormatUint(uint64(pl.ID), 10)); ok {
+			meta.coverPath = p
+		}
+		return meta, true
+	case "genre":
+		genre, err := h.store.GetGenre(id)
+		if err != nil {
+			writeError(w, 70, "genre not found")
+			return coverMeta{}, false
+		}
+		// A manually uploaded cover (see updateGenre) takes precedence; otherwise
+		// fall through to the name-seeded generated cover (same mechanism as
+		// artists/radio/playlists). Keyed by DB ID — genre names may contain
+		// characters the assetstore key regexp rejects.
+		meta := coverMeta{seed: genre.Name}
+		if p, ok := h.assets.Get(assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10)); ok {
 			meta.coverPath = p
 		}
 		return meta, true

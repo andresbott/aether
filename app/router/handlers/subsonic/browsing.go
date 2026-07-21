@@ -27,6 +27,7 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 			"id":          lib.ID,
 			"name":        lib.Name,
 			"defaultView": dv,
+			"showArtists": !lib.HideArtists,
 		})
 	}
 	writeResponse(w, map[string]any{
@@ -174,6 +175,8 @@ func (h *Handler) getGenres(w http.ResponseWriter, r *http.Request) {
 			"value":      g.Name,
 			"songCount":  g.SongCount,
 			"albumCount": g.AlbumCount,
+			// OpenSubsonic "genreCoverArt" extension: a cover-art id per genre.
+			"coverArt": encodeGenreID(g.ID),
 		})
 	}
 	writeResponse(w, map[string]any{

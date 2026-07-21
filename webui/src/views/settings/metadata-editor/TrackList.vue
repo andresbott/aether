@@ -2,17 +2,17 @@
 import { computed, ref, watch } from 'vue'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Button from 'primevue/button'
 import type { Track } from '@/types/metadata'
 
 const props = defineProps<{
     tracks: Track[]
     isLoading: boolean
     selection: Track[]
+    // Paths of tracks with staged (unsaved) session edits; shown as a marker.
+    stagedPaths?: ReadonlySet<string>
 }>()
 const emit = defineEmits<{
     (e: 'update:selection', sel: Track[]): void
-    (e: 'reload'): void
 }>()
 
 const rows = computed(() => props.tracks)
@@ -117,27 +117,46 @@ watch(rows, () => {
     anchorIndex.value = null
     baseSelection = []
 })
+
+// Arrow keys move a single-row selection up/down (skipping error rows). Only
+// active with exactly one selected track — with a multi-selection the "move"
+// intent is ambiguous, so keys are left alone.
+function onKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    if (props.selection.length !== 1) return
+    const current = rows.value.findIndex((t) => t.path === props.selection[0].path)
+    if (current === -1) return
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    for (let i = current + step; i >= 0 && i < rows.value.length; i += step) {
+        const t = rows.value[i]
+        if (!selectable(t)) continue
+        event.preventDefault()
+        commit([t], i)
+        scrollRowIntoView(i)
+        return
+    }
+    // At the edge of the list: swallow the key so the page doesn't scroll.
+    event.preventDefault()
+}
+
+function scrollRowIntoView(index: number): void {
+    const row = wrapperEl.value?.querySelectorAll('tbody tr')[index]
+    row?.scrollIntoView({ block: 'nearest' })
+}
+
+const wrapperEl = ref<HTMLElement | null>(null)
 </script>
 
 <template>
     <div class="track-list">
-        <div class="track-list-header">
-            <span class="count">{{ rows.length }} files</span>
-            <Button
-                icon="pi pi-refresh"
-                text
-                rounded
-                aria-label="Reload"
-                @click="emit('reload')"
-            />
-        </div>
-
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
         </div>
         <div v-else-if="rows.length === 0" class="empty">No audio files in this folder.</div>
 
-        <div v-else class="table-wrapper">
+        <!-- tabindex makes the wrapper focusable: clicking a row focuses it, so
+             arrow keys can then move a single-row selection. -->
+        <div v-else class="table-wrapper" ref="wrapperEl" tabindex="0" @keydown="onKeydown">
         <DataTable
             :value="rows"
             :selection="selection"
@@ -147,6 +166,16 @@ watch(rows, () => {
             @update:selection="onCheckboxSelection"
         >
             <Column selectionMode="multiple" style="width: 3rem" />
+            <Column style="width: 1.5rem">
+                <template #body="{ data }">
+                    <i
+                        v-if="stagedPaths?.has((data as Track).path)"
+                        class="pi pi-circle-fill staged-dot"
+                        v-tooltip.right="'Unsaved changes'"
+                        data-test="staged-marker"
+                    ></i>
+                </template>
+            </Column>
             <Column field="path" header="Path" />
             <Column header="" style="width: 10rem">
                 <template #body="{ data }">
@@ -173,16 +202,7 @@ watch(rows, () => {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
-}
-.track-list-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-.count {
-    font-size: 0.85rem;
-    color: var(--app-text-secondary);
+    outline: none;
 }
 .loading,
 .empty {
@@ -203,5 +223,13 @@ watch(rows, () => {
 .err {
     color: var(--p-red-600, #dc2626);
     font-size: 0.8rem;
+}
+.staged-dot {
+    color: var(--app-staged);
+    font-size: 0.5rem;
+    vertical-align: middle;
+}
+:deep(tr:has(.staged-dot)) {
+    background-color: var(--app-staged-soft);
 }
 </style>

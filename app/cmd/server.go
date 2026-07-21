@@ -19,11 +19,14 @@ import (
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
+	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/andresbott/aether/libs/fpcalc"
 	"github.com/glebarez/sqlite"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -144,6 +147,22 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
+	// Audio identification is optional: it needs the fpcalc binary
+	// (Chromaprint) on the host and an AcoustID application key.
+	acoustIDAppKey := metainfo.AcoustIDAppKey(metainfo.Version)
+	var identifier *identify.Identifier
+	switch {
+	case acoustIDAppKey == "":
+		l.Info("no AcoustID application key for this version — audio identification disabled",
+			slog.String("component", "startup"))
+	case !fpcalc.Available(""):
+		l.Info("fpcalc binary not found in PATH — audio identification disabled",
+			slog.String("component", "startup"))
+	default:
+		userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
+		identifier = identify.New(fpcalc.New(""), acoustid.New(acoustIDAppKey, userAgent))
+	}
+
 	// Register tasks — scan and metadata fetch are independent tasks; a scan
 	// does NOT auto-trigger the artist-image fetch. Run each on demand.
 	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
@@ -182,6 +201,9 @@ func runServer(configFile string) error {
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
+	}
+	if identifier != nil {
+		routerCfg.Identifier = identifier
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {
@@ -245,7 +267,6 @@ func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component 
 	}
 	return nil
 }
-
 
 func initDataDir(path string) error {
 	absPath, err := filepath.Abs(path)

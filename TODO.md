@@ -21,21 +21,21 @@
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.)
 - [ ] Transcoding — identify formats browsers can't play natively and add FFmpeg transcoding
 - [ ] setRating persistence — add rating column to tracks/albums when needed (handler exists in annotation.go but no rating column yet, so not persisted)
-- [ ] `getStarred` — folder-based starred list; JOIN each entity table with its star junction table filtered by `user_id`, return nested artist/album/track response
+- [x] ~~`getStarred` — folder-based starred list~~ — done as `getStarred2` (`lists.go:108`, backed by `store.GetStarred` with library filter); single-user so no `user_id` yet
 - [ ] getArtistInfo / getAlbumInfo — external metadata (MusicBrainz bios, similar artists)
 - [ ] getTopSongs / getSimilarSongs — requires external data or play history analysis
-- [ ] Podcasts, Radio, Bookmarks, Sharing, Chat, Jukebox — not in scope for this pass
+- [ ] Podcasts, Bookmarks, Sharing, Chat, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
 
 ## Backend — Performance
 
-- [ ] `getPlaylists` N+1 queries — each playlist triggers separate count and duration queries; consider a single annotated query
+- [ ] `getPlaylists` N+1 queries — each playlist triggers separate count and duration queries; consider a single annotated query (still present: `playlists.go:25-26`)
 - [ ] `albumToMap` missing `songCount`/`duration` when tracks are not preloaded — album list endpoints don't preload tracks, so these fields are absent in list responses
 - [ ] cover art is extacted from the file on the fly, it might perform better if we extract at scannnig
 
 ## Backend — Data Integrity & Scanning
 
 - [ ] Favorites schema — three junction tables (`album_stars`, `artist_stars`, `track_stars`), each with composite PK `(user_id, item_id)`, a `starred_at` timestamp, and cascade deletes on user/item removal; replace the current single `starred_items` table if one exists
-- [ ] Cleanup orphaned `playlist_tracks`, `album_stars`, `artist_stars`, `track_stars`, and `play_histories` when tracks/albums/artists are deleted during scan cleanup
+- [x] ~~Cleanup orphaned `playlist_tracks`, star rows, and `play_histories` when tracks/albums/artists are deleted during scan cleanup~~ — done in `DeleteOrphanedAggregates` (`internal/store/scan_helpers.go:54`), covered by tests (uses the single `starred_items` table, not per-entity star tables)
 - [ ] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors
 - [ ] `store.GetArtist` doesn't reliably populate each album's `Artists` — it combines `Preload("Artists")` with a manual `Joins("JOIN album_artists ...")` on the same many-to-many, which can return empty `Artists` (GORM gotcha). Result: `getArtist`'s album children omit `artist`/`artistId`, leaving the artist page's album-card subtitle blank (worked around in `ArtistView.vue` by falling back to the artist name). Fix the query so `Artists` preloads cleanly — e.g. filter album IDs via a subquery instead of a manual JOIN, then Preload.
 - [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
@@ -43,7 +43,7 @@
     - `internal/scanner/reconcile.go:92-97` only sets `album.CoverPath` when empty; it's never re-evaluated. Re-tagged tracks leaving their old album don't repoint or clear the stale path, and two albums sharing a directory can end up pointing at the same `cover.jpg`.
     - Embedded-cover lookup `internal/store/track.go:113` (`GetCoverTrackPath`) returns the *first* track with `has_embedded_cover=true`, with no ordering — which track wins is unstable across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums.
-    - No `Cache-Control`/ETag on `getCoverArt` responses; browser keeps serving the stale body until mtime or URL changes.
+    - ~~No `Cache-Control`/ETag on `getCoverArt` responses~~ (partially addressed: `Cache-Control: no-cache` is now set on every `getCoverArt` response, `media.go:142`; no ETag yet).
   Fix options: clear `album.CoverPath` at the start of each reconcile pass and redetect; or drop `CoverPath` entirely and resolve per-request from a current track's directory. Pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`). Add a stable ETag (album `updated_at`) so edits immediately invalidate client caches.
 
 ## Frontend — Music Browsing & Features
@@ -54,17 +54,18 @@
   - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
 - [ ] Songs tab in Library — fetch and display all songs
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
+      (partial: Library now has an Artists tab with grid and virtualized list views + alphabet rail — `ArtistGrid`/`ArtistListView` — but it's still rows of artists that navigate to `ArtistView`, not the grouped artist-header + albums layout)
 - [ ] Spotify-style hover selection in song list — on row hover, show a checkbox next to the duration for multi-select
 - [ ] Album cover drag and drop in the album view
-- [ ] Improve the hero view of the album with details and actions
-- [ ] Improve CRUD and views of playlists (check if playlist is part of the OpenSubsonic API)
+- [x] ~~Improve the hero view of the album with details and actions~~ — `HeroHeader` + `HeroActions` (play/queue/star) now used on `AlbumView` and `ArtistView`
+- [x] ~~Improve CRUD and views of playlists (check if playlist is part of the OpenSubsonic API)~~ — full playlist CRUD implemented under `/rest/` (get/create/update/delete + cover upload) with reworked `PlaylistsView`/`PlaylistDetailView` (inline rename, batched track edit; see `2026-07-15-playlist-ui-rework` plan)
 - [ ] Better genre handling
-- [ ] Remove podcast placeholder
+- [x] ~~Remove podcast placeholder~~ — no podcast references remain anywhere in `webui/src`
 - [ ] Custom icons for libraries
 
 ## Frontend — Player & Controls
 
-- [ ] Improve execution history and runtime task management — surface long-running jobs (scans, imports, transcodes) with progress, status, and cancel controls; persist recent run history for inspection
+- [x] ~~Improve execution history and runtime task management~~ — done: `ExecutionHistory.vue` shows status/cancel per run, backend persists executions with list/cancel/logs endpoints (`/api/v1/tasks/executions`, `taskrunner` persistence)
 - [ ] Mute support in the player — clicking the volume icon toggles mute (preserving the previous volume level to restore on unmute)
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] Jukebox functionality — use the web UI only to control the audio
@@ -74,16 +75,16 @@
 
 - [ ] Create an app icon / logo — favicon, PWA icons (various sizes), and a wordmark for the topbar
 - [ ] Improve icon theme
-- [ ] Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared `LibraryScaffold` component introduced by the library-scaffold work (spec: `docs/superpowers/specs/2026-07-02-library-scaffold-and-artist-list-design.md`). 
-      That work extracted QueueView's fixed-header + flush-right-scroll pattern into a generic `LibraryScaffold` (fixed header with title/summary + `#actions` slot, `flex:1;min-height:0` body slot) and adopted it across the library album/artist × list/cover views. QueueView still carries its own bespoke copy of that layout (`.queue-view` / `.queue-view-header` / `.queue-body`). **Deferred from that effort** because QueueView had active uncommitted WIP and its own drag/sortable complexity, so refactoring it then would have entangled unrelated changes. Follow-up: have `QueueView` render `LibraryScaffold` (title/summary; `#actions` = its edit/save/clear buttons; body = the history/current/upcoming or edit list), deleting the duplicated layout CSS. Once it has this second consumer, consider moving `LibraryScaffold` out of `components/library/` to a neutral home (e.g. `components/layout/`) and renaming it accordingly.
+- [ ] Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared scaffold component (spec: `docs/superpowers/specs/2026-07-02-library-scaffold-and-artist-list-design.md`).
+      (partial: the scaffold half is done — `LibraryScaffold` became `ContentScaffold` in `components/layout/` and is the canonical content header per `docs/architecture/main-content-view-layout.md`. QueueView still carries its bespoke `.queue-view-header` copy that mirrors ContentScaffold's styles; the refactor of QueueView itself remains.)
 
 ## Metadata & External Integrations
 
-- [ ] Metadata editor for identifying songs
-- [ ] Tag editor ↔ MusicBrainz/DB sync — let the metadata/tag editor pull MusicBrainz data into the DB and write tags back, in particular populate/correct the `MusicBrainz Artist Id` that drives artist-image fetching (see `docs/superpowers/specs/2026-06-30-durable-artist-image-store-design.md`)
+- [x] ~~Metadata editor for identifying songs~~ — done: metadata editor at `/settings/metadata` with MusicBrainz identify flow (`identify.go`, `IdentifyReviewDialog.vue`, `useEditSession` staged overlays)
+- [x] ~~Tag editor ↔ MusicBrainz/DB sync~~ — done: identify flow writes MusicBrainz IDs (artist/album-artist/release/recording) into tags, `MusicBrainzArtistPicker`/`MusicBrainzAlbumPicker` + `SetArtistMBID` correct the artist MBID that drives image fetching (see `2026-07-11-metadata-editor-musicbrainz-ids` and `2026-07-05-artist-musicbrainz-match` plans)
 - [ ] Last.fm scrobbling — explore Last.fm API integration for external scrobbling
 - [ ] DLNA / UPnP endpoint — expose the library as a DLNA MediaServer so devices on the LAN (TVs, receivers, stock media players) can browse and stream without the Subsonic client
 
 
 
-Radio stations Grid do not share style => verify that all grid items use the same component
+~~Radio stations Grid do not share style => verify that all grid items use the same component~~ — done: `RadioStationGrid`, `AlbumGrid`, and `ArtistGrid` all render through the shared `VirtualCardGrid`

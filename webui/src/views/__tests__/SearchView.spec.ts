@@ -1,16 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ref } from 'vue'
+import { ref, unref, type Ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import type { Artist, Album, Song } from '@/types/subsonic'
+import type { SearchParams } from '@/types/subsonic'
+
+const route = { query: {} as Record<string, string> }
+const replace = vi.fn()
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRoute: () => route,
+    useRouter: () => ({ replace, push })
+}))
 
 const searchResult = ref<{ artist?: Artist[]; album?: Album[]; song?: Song[] }>({})
 const isLoading = ref(false)
 const searchError = ref<Error | null>(null)
 const playNow = vi.fn()
+let lastSearchParams: Ref<SearchParams> | null = null
 
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useSearch: () => ({ data: searchResult, isLoading, error: searchError })
+    useSearch: (params: Ref<SearchParams>) => {
+        lastSearchParams = params
+        return { data: searchResult, isLoading, error: searchError }
+    }
 }))
 
 vi.mock('@/composables/usePlayer', () => ({
@@ -21,9 +34,10 @@ vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: { getCoverArtUrl: (id: string) => `/cover/${id}` }
 }))
 
-// Stub the scaffold and the cards so this spec asserts what SearchView passes to
-// them (its own responsibility) rather than their internal markup — ContentScaffold
-// and AlbumCard already have their own specs; ArtistCard needs a router-link stub too.
+// Stub the scaffold and the cards/rows so this spec asserts what SearchView passes
+// to them (its own responsibility) rather than their internal markup — ContentScaffold
+// and AlbumCard already have their own specs; the card/row components need
+// router-link stubs too. Slots are rendered so header actions stay clickable.
 const ScaffoldStub = {
     name: 'ContentScaffold',
     props: ['title', 'summary'],
@@ -39,6 +53,16 @@ const AlbumCardStub = {
     props: ['album'],
     template: '<div class="album-card-stub">{{ album.name }}</div>'
 }
+const ArtistRowStub = {
+    name: 'ArtistRow',
+    props: ['artist'],
+    template: '<div class="artist-row-stub">{{ artist.name }}</div>'
+}
+const AlbumRowStub = {
+    name: 'AlbumRow',
+    props: ['album'],
+    template: '<div class="album-row-stub">{{ album.name }}</div>'
+}
 
 import SearchView from '@/views/SearchView.vue'
 
@@ -49,20 +73,44 @@ const mountView = () =>
             stubs: {
                 ContentScaffold: ScaffoldStub,
                 ArtistCard: ArtistCardStub,
-                AlbumCard: AlbumCardStub
+                AlbumCard: AlbumCardStub,
+                ArtistRow: ArtistRowStub,
+                AlbumRow: AlbumRowStub
             }
         }
     })
 
 async function typeQuery(w: ReturnType<typeof mountView>, text: string) {
-    await w.find('input').setValue(text)
+    await w.find('input[placeholder]').setValue(text)
 }
 
+async function setFilter(
+    w: ReturnType<typeof mountView>,
+    inputId: string,
+    checked: boolean
+) {
+    const box = w.find(`#${inputId}`)
+    await box.setValue(checked)
+}
+
+const sampleResults = () => ({
+    artist: [{ id: 'ar1', name: 'Pink Floyd' }],
+    album: [
+        { id: 'al1', name: 'The Wall' },
+        { id: 'al2', name: 'Animals' }
+    ],
+    song: [{ id: 's1', title: 'Time', artist: 'Pink Floyd' }]
+})
+
 beforeEach(() => {
+    route.query = {}
+    replace.mockClear()
+    push.mockClear()
     searchResult.value = {}
     isLoading.value = false
     searchError.value = null
     playNow.mockClear()
+    lastSearchParams = null
 })
 
 describe('SearchView', () => {
@@ -95,14 +143,7 @@ describe('SearchView', () => {
     })
 
     it('renders grouped results and a pluralized summary', async () => {
-        searchResult.value = {
-            artist: [{ id: 'ar1', name: 'Pink Floyd' }],
-            album: [
-                { id: 'al1', name: 'The Wall' },
-                { id: 'al2', name: 'Animals' }
-            ],
-            song: [{ id: 's1', title: 'Time', artist: 'Pink Floyd' }]
-        }
+        searchResult.value = sampleResults()
         const w = mountView()
         await typeQuery(w, 'floyd')
         expect(w.findComponent(ScaffoldStub).props('summary')).toBe('1 artist • 2 albums • 1 song')
@@ -119,5 +160,43 @@ describe('SearchView', () => {
         await typeQuery(w, 'floyd')
         await w.find('.song-row').trigger('click')
         expect(playNow).toHaveBeenCalledWith(song)
+    })
+
+    it('renders rows instead of cards when the list layout is selected', async () => {
+        route.query = { view: 'list' }
+        searchResult.value = sampleResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        expect(w.findAll('.artist-row-stub')).toHaveLength(1)
+        expect(w.findAll('.album-row-stub')).toHaveLength(2)
+        expect(w.findAll('.artist-card-stub')).toHaveLength(0)
+        expect(w.findAll('.album-card-stub')).toHaveLength(0)
+        // Songs stay a list in both layouts.
+        expect(w.findAll('.song-row')).toHaveLength(1)
+    })
+
+    it('zeroes the count param and hides the section when a type is unchecked', async () => {
+        searchResult.value = sampleResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setFilter(w, 'search-albums', false)
+        expect(unref(lastSearchParams!).albumCount).toBe(0)
+        expect(unref(lastSearchParams!).artistCount).toBeGreaterThan(0)
+        expect(w.findAll('.album-card-stub')).toHaveLength(0)
+        expect(w.findAll('.artist-card-stub')).toHaveLength(1)
+        expect(w.findComponent(ScaffoldStub).props('summary')).toBe('1 artist • 1 song')
+    })
+
+    it('shows a prompt and disables the query when every type is unchecked', async () => {
+        searchResult.value = sampleResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setFilter(w, 'search-artists', false)
+        await setFilter(w, 'search-albums', false)
+        await setFilter(w, 'search-songs', false)
+        expect(unref(lastSearchParams!).query).toBe('')
+        expect(w.text()).toContain('Select at least one type to search')
+        expect(w.findAll('.artist-card-stub')).toHaveLength(0)
+        expect(w.findAll('.song-row')).toHaveLength(0)
     })
 })

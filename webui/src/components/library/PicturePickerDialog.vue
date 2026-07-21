@@ -3,25 +3,30 @@ import { ref, computed, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
-import RadioButton from 'primevue/radiobutton'
 import { useCoverArtSearch } from '@/composables/useCoverArtSearch'
-import type { CoverCandidate, CoverTarget, StagedCover } from '@/types/metadata'
+import {
+    PICTURE_SLOT_LABELS,
+    candidateMatchesType,
+    pictureTypeLabel,
+    sortCandidatesForType
+} from '@/lib/pictureTypes'
+import type { CoverCandidate, PictureSlot, StagedPictureSource } from '@/types/metadata'
 
 const props = defineProps<{
     visible: boolean
-    albumName: string
+    // The picture type + storage slot this picker fills — chosen before the
+    // dialog opens, shown in the header. (`slot` is reserved in Vue templates,
+    // hence pictureSlot.)
+    pictureType: string
+    pictureSlot: PictureSlot
     releaseMbid: string
     releaseGroupMbid: string
-    libraryId: number
-    // Selected track paths (library-relative). Cover is resolved to the album
-    // via these; embedded writes target exactly these tracks.
-    paths: string[]
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    // Emitted when the user confirms a choice. The cover is NOT persisted here;
+    // Emitted when the user confirms a choice. The image is NOT persisted here;
     // the parent stages it and writes it on Save.
-    (e: 'select', cover: StagedCover): void
+    (e: 'select', source: StagedPictureSource): void
 }>()
 
 const { candidates, loading: searching, error: searchError, search } = useCoverArtSearch()
@@ -29,28 +34,42 @@ const { candidates, loading: searching, error: searchError, search } = useCoverA
 const selectedCandidate = ref<CoverCandidate | null>(null)
 const uploadFile = ref<File | null>(null)
 const uploadPreview = ref<string | null>(null)
-const target = ref<CoverTarget>('db')
+// The dialog never searches on open; the user triggers it explicitly.
+const searched = ref(false)
 
-const hasSelection = computed(() => props.paths.length > 0)
+const header = computed(
+    () =>
+        `Change ${pictureTypeLabel(props.pictureType).toLowerCase()} — ` +
+        PICTURE_SLOT_LABELS[props.pictureSlot]
+)
+const canSearch = computed(
+    () => props.releaseMbid.trim() !== '' || props.releaseGroupMbid.trim() !== ''
+)
 const hasSource = computed(() => selectedCandidate.value !== null || uploadFile.value !== null)
-const embeddedDisabled = computed(() => !hasSelection.value)
-const canConfirm = computed(() => hasSource.value && hasSelection.value)
+// Candidates depicting the requested type sort first.
+const sortedCandidates = computed(() =>
+    sortCandidatesForType(candidates.value, props.pictureType)
+)
 
 function resetState() {
     selectedCandidate.value = null
     clearUpload()
-    target.value = 'db'
+    searched.value = false
+    candidates.value = []
 }
 
 watch(
     () => props.visible,
     (visible) => {
-        if (!visible) return
-        resetState()
-        search(props.releaseMbid, props.releaseGroupMbid)
+        if (visible) resetState()
     },
     { immediate: true }
 )
+
+function runSearch() {
+    searched.value = true
+    search(props.releaseMbid, props.releaseGroupMbid)
+}
 
 function pickCandidate(c: CoverCandidate) {
     selectedCandidate.value = c
@@ -84,9 +103,8 @@ function clearUpload() {
 }
 
 function confirmSelection() {
-    if (!canConfirm.value) return
+    if (!hasSource.value) return
     emit('select', {
-        target: target.value,
         file: uploadFile.value,
         imageUrl: uploadFile.value ? null : (selectedCandidate.value?.imageUrl ?? null)
     })
@@ -103,20 +121,30 @@ function cancel() {
         :visible="visible"
         @update:visible="emit('update:visible', $event)"
         modal
-        header="Change album cover"
+        :header="header"
         :style="{ width: '48rem' }"
     >
-        <p v-if="!hasSelection" class="hint">Select one or more tracks to save a cover.</p>
-
         <section class="picker-section">
             <h4>From Cover Art Archive</h4>
+            <Button
+                label="Search Cover Art Archive"
+                icon="pi pi-search"
+                size="small"
+                outlined
+                data-test="picture-search"
+                :disabled="!canSearch"
+                :loading="searching"
+                v-tooltip.right="
+                    canSearch ? '' : 'Set a release or release-group MusicBrainz ID to search'
+                "
+                @click="runSearch"
+            />
             <Message v-if="searchError" severity="error" :closable="false">{{
                 searchError
             }}</Message>
-            <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
-            <ul v-else-if="candidates.length > 0" class="cover-list">
+            <ul v-if="!searching && sortedCandidates.length > 0" class="cover-list">
                 <li
-                    v-for="c in candidates"
+                    v-for="c in sortedCandidates"
                     :key="c.id"
                     class="cover-row"
                     :class="{ selected: selectedCandidate?.id === c.id }"
@@ -124,13 +152,24 @@ function cancel() {
                 >
                     <img class="cover-thumb" :src="c.thumbUrl" :alt="coverDescription(c)" />
                     <div class="cover-info">
-                        <span class="cover-desc">{{ coverDescription(c) }}</span>
+                        <span class="cover-desc">
+                            {{ coverDescription(c) }}
+                            <span
+                                v-if="candidateMatchesType(c, pictureType)"
+                                class="type-match"
+                                data-test="type-match"
+                            >
+                                matches {{ pictureTypeLabel(pictureType).toLowerCase() }}
+                            </span>
+                        </span>
                         <span v-if="c.comment" class="cover-comment">{{ c.comment }}</span>
                     </div>
                     <i v-if="selectedCandidate?.id === c.id" class="pi pi-check cover-check"></i>
                 </li>
             </ul>
-            <p v-else class="no-results">No covers found for this release.</p>
+            <p v-else-if="searched && !searching && !searchError" class="no-results">
+                No images found for this release.
+            </p>
         </section>
 
         <section class="picker-section">
@@ -138,7 +177,7 @@ function cancel() {
             <input
                 type="file"
                 accept="image/png,image/jpeg"
-                data-test="cover-upload"
+                data-test="picture-upload"
                 @change="onFileChange"
             />
             <div v-if="uploadPreview" class="upload-preview">
@@ -146,39 +185,12 @@ function cancel() {
             </div>
         </section>
 
-        <section class="picker-section">
-            <h4>Save to</h4>
-            <div class="target-option">
-                <RadioButton v-model="target" inputId="cover-target-db" value="db" />
-                <label for="cover-target-db">
-                    aether store <small>— keeps your music files untouched</small>
-                </label>
-            </div>
-            <div class="target-option">
-                <RadioButton v-model="target" inputId="cover-target-folder" value="folder" />
-                <label for="cover-target-folder">
-                    Album folder <small>— writes cover.jpg / cover.png</small>
-                </label>
-            </div>
-            <div class="target-option">
-                <RadioButton
-                    v-model="target"
-                    inputId="cover-target-embedded"
-                    value="embedded"
-                    :disabled="embeddedDisabled"
-                />
-                <label for="cover-target-embedded" :class="{ disabled: embeddedDisabled }">
-                    Embed in tags <small>— applies to {{ paths.length }} selected track(s)</small>
-                </label>
-            </div>
-        </section>
-
         <template #footer>
             <Button label="Cancel" text @click="cancel" />
             <Button
                 label="Select"
-                data-test="cover-select"
-                :disabled="!canConfirm"
+                data-test="picture-select"
+                :disabled="!hasSource"
                 @click="confirmSelection"
             />
         </template>
@@ -186,11 +198,6 @@ function cancel() {
 </template>
 
 <style scoped>
-.hint {
-    color: var(--app-text-secondary);
-    font-size: 0.9rem;
-    margin: 0 0 0.75rem;
-}
 .picker-section {
     margin-bottom: 1rem;
 }
@@ -200,15 +207,9 @@ function cancel() {
     font-weight: 600;
     color: var(--app-text-secondary);
 }
-.searching {
-    display: flex;
-    justify-content: center;
-    padding: 1.5rem;
-    color: var(--app-text-secondary);
-}
 .cover-list {
     list-style: none;
-    margin: 0;
+    margin: 0.75rem 0 0;
     padding: 0;
     max-height: 24rem;
     overflow-y: auto;
@@ -249,6 +250,16 @@ function cancel() {
 .cover-desc {
     font-weight: 500;
 }
+.type-match {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--app-accent);
+    border: 1px solid var(--app-accent);
+    border-radius: 999px;
+    padding: 0.05rem 0.45rem;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
 .cover-comment {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
@@ -264,6 +275,7 @@ function cancel() {
     text-align: center;
     color: var(--app-text-secondary);
     padding: 1rem 0;
+    margin: 0.5rem 0 0;
 }
 .upload-preview {
     margin-top: 0.5rem;
@@ -272,21 +284,5 @@ function cancel() {
     max-width: 6rem;
     max-height: 6rem;
     border-radius: 6px;
-}
-.target-option {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.4rem;
-}
-.target-option label {
-    cursor: pointer;
-}
-.target-option label.disabled {
-    color: var(--app-text-secondary);
-    cursor: not-allowed;
-}
-.target-option small {
-    color: var(--app-text-secondary);
 }
 </style>

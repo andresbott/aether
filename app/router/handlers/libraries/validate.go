@@ -43,21 +43,6 @@ func validateExcludePatterns(patterns []string) error {
 	return nil
 }
 
-func validateMultiValue(s string) error {
-	s = strings.TrimSpace(s)
-	switch {
-	case s == "" || s == "none" || s == "multi":
-		return nil
-	case strings.HasPrefix(s, "delim "):
-		if strings.TrimPrefix(s, "delim ") == "" {
-			return fmt.Errorf("delim mode requires a separator")
-		}
-		return nil
-	default:
-		return fmt.Errorf("invalid multi-value grammar: %q", s)
-	}
-}
-
 func validateName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {

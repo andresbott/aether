@@ -2,9 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as MetadataApi from '@/lib/api/Metadata'
 import type {
-    CoverTarget,
     Folder,
+    IdentifyRequest,
+    MetadataCapabilities,
     PatchFields,
+    PictureSlot,
     Track,
     UpdateResult,
     UpdateTracksRequest
@@ -71,18 +73,24 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
     return [...byPath.values()]
 }
 
+// updateTracksPartitioned performs one logical tracks update, transparently
+// splitting it into the two sequential PUTs the server requires when a patch
+// both renames artists and sets their MB IDs. Shared by useUpdateTracks and
+// the edit-session save (which needs the raw call without per-batch toasts).
+export async function updateTracksPartitioned(body: UpdateTracksRequest): Promise<UpdateResult[]> {
+    const parts = partitionFields(body.fields)
+    if (!parts) return MetadataApi.updateTracks(body)
+    const first = await MetadataApi.updateTracks({ ...body, fields: parts.names })
+    if (!first.some((r) => r.ok)) return first
+    const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
+    return mergeUpdateResults(first, second)
+}
+
 export function useUpdateTracks() {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: async (body: UpdateTracksRequest) => {
-            const parts = partitionFields(body.fields)
-            if (!parts) return MetadataApi.updateTracks(body)
-            const first = await MetadataApi.updateTracks({ ...body, fields: parts.names })
-            if (!first.some((r) => r.ok)) return first
-            const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
-            return mergeUpdateResults(first, second)
-        },
+        mutationFn: updateTracksPartitioned,
         onSuccess: (results, req) => {
             qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
             const ok = results.filter((r) => r.ok).length
@@ -116,19 +124,41 @@ export function useUpdateTracks() {
     })
 }
 
-export function useApplyCover() {
-    const qc = useQueryClient()
+// useRawTags loads the complete tag maps of the given paths for the raw
+// editor. Only enabled while the raw view is open.
+export function useRawTags(
+    libraryId: () => number | null,
+    paths: () => string[],
+    enabled: () => boolean
+) {
+    return useQuery({
+        queryKey: ['metadata', 'raw', libraryId, paths] as any,
+        queryFn: () => MetadataApi.getRawTags(libraryId() as number, paths()),
+        enabled: () => enabled() && libraryId() !== null && paths().length > 0,
+        staleTime: 15_000
+    })
+}
+
+// useMetadataCapabilities reports which optional editor features the server
+// supports (currently: fingerprint identification). Static per server run.
+export function useMetadataCapabilities() {
+    return useQuery<MetadataCapabilities>({
+        queryKey: ['metadata', 'capabilities'],
+        queryFn: MetadataApi.getMetadataCapabilities,
+        staleTime: Infinity
+    })
+}
+
+// useIdentifyTracks resolves files to MusicBrainz recording candidates by
+// acoustic fingerprint. Identification writes nothing, so no invalidation.
+export function useIdentifyTracks() {
     const toast = useToast()
     return useMutation({
-        mutationFn: (form: FormData) => MetadataApi.applyCover(form),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
-            toast.add({ severity: 'success', summary: 'Cover saved', life: 3000 })
-        },
+        mutationFn: (body: IdentifyRequest) => MetadataApi.identifyTracks(body),
         onError: (err: any) => {
             toast.add({
                 severity: 'error',
-                summary: 'Failed to save cover',
+                summary: 'Failed to identify tracks',
                 detail: err?.response?.data?.error ?? err.message,
                 life: 5000
             })
@@ -136,24 +166,45 @@ export function useApplyCover() {
     })
 }
 
-export function useDeleteCover() {
+export function useApplyPicture() {
+    const qc = useQueryClient()
+    const toast = useToast()
+    return useMutation({
+        mutationFn: (form: FormData) => MetadataApi.applyPicture(form),
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
+            toast.add({ severity: 'success', summary: 'Picture saved', life: 3000 })
+        },
+        onError: (err: any) => {
+            toast.add({
+                severity: 'error',
+                summary: 'Failed to save picture',
+                detail: err?.response?.data?.error ?? err.message,
+                life: 5000
+            })
+        }
+    })
+}
+
+export function useDeletePicture() {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
         mutationFn: (v: {
             libraryId: number
             path: string
-            source: CoverTarget
+            type: string
+            slot: PictureSlot
             paths?: string[]
-        }) => MetadataApi.deleteCover(v.libraryId, v.path, v.source, v.paths),
+        }) => MetadataApi.deletePicture(v.libraryId, v.path, v.type, v.slot, v.paths),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
-            toast.add({ severity: 'success', summary: 'Cover removed', life: 3000 })
+            toast.add({ severity: 'success', summary: 'Picture removed', life: 3000 })
         },
         onError: (err: any) => {
             toast.add({
                 severity: 'error',
-                summary: 'Failed to remove cover',
+                summary: 'Failed to remove picture',
                 detail: err?.response?.data?.error ?? err.message,
                 life: 5000
             })
@@ -171,11 +222,14 @@ export interface FieldDiff<T> {
 export interface InitialValues {
     title: FieldDiff<string>
     album: FieldDiff<string>
+    mb_recording_id: FieldDiff<string>
     mb_release_id: FieldDiff<string>
     mb_release_group_id: FieldDiff<string>
     artists: FieldDiff<string[]>
     album_artists: FieldDiff<string[]>
+    genres: FieldDiff<string[]>
     year: FieldDiff<number>
+    track_number: FieldDiff<number>
     disc_number: FieldDiff<number>
     disc_subtitle: FieldDiff<string>
     compilation: FieldDiff<boolean>
@@ -188,7 +242,13 @@ export interface InitialValues {
  */
 export function diffInitialValues(tracks: Track[]): InitialValues {
     const scalar = <
-        K extends 'title' | 'album' | 'disc_subtitle' | 'mb_release_id' | 'mb_release_group_id'
+        K extends
+            | 'title'
+            | 'album'
+            | 'disc_subtitle'
+            | 'mb_recording_id'
+            | 'mb_release_id'
+            | 'mb_release_group_id'
     >(
         key: K
     ): FieldDiff<string> => {
@@ -197,7 +257,7 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
         const all = tracks.every((t) => t[key] === v)
         return all ? { shared: true, value: v } : { shared: false, value: '' }
     }
-    const num = (key: 'year' | 'disc_number'): FieldDiff<number> => {
+    const num = (key: 'year' | 'track_number' | 'disc_number'): FieldDiff<number> => {
         if (tracks.length === 0) return { shared: true, value: 0 }
         const v = tracks[0][key]
         const all = tracks.every((t) => t[key] === v)
@@ -209,7 +269,7 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
         const all = tracks.every((t) => t[key] === v)
         return all ? { shared: true, value: v } : { shared: false, value: false }
     }
-    const arr = (key: 'artists' | 'album_artists'): FieldDiff<string[]> => {
+    const arr = (key: 'artists' | 'album_artists' | 'genres'): FieldDiff<string[]> => {
         if (tracks.length === 0) return { shared: true, value: [] }
         const first = tracks[0][key]
         const all = tracks.every(
@@ -220,11 +280,14 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
     return {
         title: scalar('title'),
         album: scalar('album'),
+        mb_recording_id: scalar('mb_recording_id'),
         mb_release_id: scalar('mb_release_id'),
         mb_release_group_id: scalar('mb_release_group_id'),
         artists: arr('artists'),
         album_artists: arr('album_artists'),
+        genres: arr('genres'),
         year: num('year'),
+        track_number: num('track_number'),
         disc_number: num('disc_number'),
         disc_subtitle: scalar('disc_subtitle'),
         compilation: bool('compilation')
@@ -238,7 +301,9 @@ export interface EditValues {
     mb_release_group_id: string
     artists: string[]
     album_artists: string[]
+    genres: string[]
     year: number
+    track_number: number
     disc_number: number
     disc_subtitle: string
     compilation: boolean

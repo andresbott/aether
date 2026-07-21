@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,15 +29,23 @@ type Candidate struct {
 // caller can set MUSICBRAINZ_ALBUMID and MUSICBRAINZ_RELEASEGROUPID from a
 // single pick.
 type ReleaseCandidate struct {
-	ReleaseMBID      string `json:"releaseMbid"`
-	ReleaseGroupMBID string `json:"releaseGroupMbid"`
-	Title            string `json:"title"`
-	Artist           string `json:"artist"`
-	Date             string `json:"date"`
-	Country          string `json:"country"`
-	TrackCount       int    `json:"trackCount"`
-	Disambiguation   string `json:"disambiguation"`
-	Score            int    `json:"score"`
+	ReleaseMBID      string                `json:"releaseMbid"`
+	ReleaseGroupMBID string                `json:"releaseGroupMbid"`
+	Title            string                `json:"title"`
+	Artist           string                `json:"artist"`
+	Artists          []ReleaseArtistCredit `json:"artists"`
+	Date             string                `json:"date"`
+	Country          string                `json:"country"`
+	TrackCount       int                   `json:"trackCount"`
+	Disambiguation   string                `json:"disambiguation"`
+	Score            int                   `json:"score"`
+}
+
+// ReleaseArtistCredit is one credited artist on a release: the credited-as
+// name (what gets written to the tag) and the artist's own MBID.
+type ReleaseArtistCredit struct {
+	Name string `json:"name"`
+	MBID string `json:"mbid"`
 }
 
 // MusicBrainzSearch searches the MusicBrainz artist search API by name. It is
@@ -118,6 +127,59 @@ func (m *MusicBrainzSearch) Search(ctx context.Context, query string, limit int)
 	return out, nil
 }
 
+type mbReleaseGroupGenresResponse struct {
+	Genres []struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	} `json:"genres"`
+}
+
+// maxReleaseGroupGenres caps how many genres a lookup returns; MusicBrainz
+// tag lists can carry dozens of low-vote entries.
+const maxReleaseGroupGenres = 10
+
+// ReleaseGroupGenres looks up the genres of a release group, ordered by vote
+// count descending and capped at maxReleaseGroupGenres. An empty mbid returns
+// (nil, nil) without making a request.
+func (m *MusicBrainzSearch) ReleaseGroupGenres(ctx context.Context, mbid string) ([]string, error) {
+	if mbid == "" {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/ws/2/release-group/%s?fmt=json&inc=genres", m.BaseURL, url.PathEscape(mbid))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", m.UserAgent)
+	if err := m.limiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+	resp, err := m.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("musicbrainz release-group lookup: status %d", resp.StatusCode)
+	}
+	var body mbReleaseGroupGenresResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(body.Genres, func(i, j int) bool {
+		return body.Genres[i].Count > body.Genres[j].Count
+	})
+	n := len(body.Genres)
+	if n > maxReleaseGroupGenres {
+		n = maxReleaseGroupGenres
+	}
+	out := make([]string, 0, n)
+	for _, g := range body.Genres[:n] {
+		out = append(out, g.Name)
+	}
+	return out, nil
+}
+
 type mbReleaseSearchResponse struct {
 	Releases []struct {
 		ID             string `json:"id"`
@@ -130,6 +192,9 @@ type mbReleaseSearchResponse struct {
 		ArtistCredit   []struct {
 			Name       string `json:"name"`
 			JoinPhrase string `json:"joinphrase"`
+			Artist     struct {
+				ID string `json:"id"`
+			} `json:"artist"`
 		} `json:"artist-credit"`
 		ReleaseGroup struct {
 			ID string `json:"id"`
@@ -172,15 +237,18 @@ func (m *MusicBrainzSearch) SearchRelease(ctx context.Context, query string, lim
 	out := make([]ReleaseCandidate, 0, len(body.Releases))
 	for _, rel := range body.Releases {
 		var artist strings.Builder
+		credits := make([]ReleaseArtistCredit, 0, len(rel.ArtistCredit))
 		for _, ac := range rel.ArtistCredit {
 			artist.WriteString(ac.Name)
 			artist.WriteString(ac.JoinPhrase)
+			credits = append(credits, ReleaseArtistCredit{Name: ac.Name, MBID: ac.Artist.ID})
 		}
 		out = append(out, ReleaseCandidate{
 			ReleaseMBID:      rel.ID,
 			ReleaseGroupMBID: rel.ReleaseGroup.ID,
 			Title:            rel.Title,
 			Artist:           artist.String(),
+			Artists:          credits,
 			Date:             rel.Date,
 			Country:          rel.Country,
 			TrackCount:       rel.TrackCount,

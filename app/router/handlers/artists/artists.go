@@ -23,6 +23,7 @@ import (
 type Searcher interface {
 	Search(ctx context.Context, query string, limit int) ([]artistimage.Candidate, error)
 	SearchRelease(ctx context.Context, query string, limit int) ([]artistimage.ReleaseCandidate, error)
+	ReleaseGroupGenres(ctx context.Context, mbid string) ([]string, error)
 }
 
 type Handler struct {
@@ -35,6 +36,7 @@ type Handler struct {
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/musicbrainz/search").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainz)
 	r.Path("/musicbrainz/search/releases").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainzReleases)
+	r.Path("/musicbrainz/release-groups/{mbid}/genres").Methods(http.MethodGet).HandlerFunc(h.releaseGroupGenres)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
 }
@@ -118,6 +120,23 @@ func (h *Handler) searchMusicBrainzReleases(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+func (h *Handler) releaseGroupGenres(w http.ResponseWriter, r *http.Request) {
+	mbid := mux.Vars(r)["mbid"]
+	if !mbidRe.MatchString(mbid) {
+		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		return
+	}
+	genres, err := h.Search.ReleaseGroupGenres(r.Context(), mbid)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz lookup failed: "+err.Error())
+		return
+	}
+	if genres == nil {
+		genres = []string{}
+	}
+	writeJSON(w, http.StatusOK, genres)
 }
 
 type mbidResponse struct {

@@ -1,0 +1,189 @@
+package metadata_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/glebarez/sqlite"
+	"github.com/gorilla/mux"
+	"gorm.io/gorm"
+)
+
+type fakeIdentifier struct {
+	recs []acoustid.Recording
+	err  error
+}
+
+func (f fakeIdentifier) IdentifyFile(context.Context, string) ([]acoustid.Recording, error) {
+	return f.recs, f.err
+}
+
+func newIdentifyHandler(t *testing.T, libRoot string, ident metaHandler.IdentifyService) (*mux.Router, *model.Library) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Identifier: ident}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return r, lib
+}
+
+func postIdentify(t *testing.T, r *mux.Router, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	buf, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/metadata/identify", bytes.NewReader(buf))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func TestCapabilities_ReportsIdentify(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ident metaHandler.IdentifyService
+		want  bool
+	}{
+		{"disabled", nil, false},
+		{"enabled", fakeIdentifier{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newIdentifyHandler(t, t.TempDir(), tc.ident)
+			req := httptest.NewRequest("GET", "/metadata/capabilities", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+			var body struct {
+				Identify bool `json:"identify"`
+			}
+			_ = json.Unmarshal(w.Body.Bytes(), &body)
+			if body.Identify != tc.want {
+				t.Fatalf("expected identify=%v, got %s", tc.want, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestIdentify_UnavailableWithoutService(t *testing.T) {
+	r, lib := newIdentifyHandler(t, t.TempDir(), nil)
+	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"a.mp3"}})
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestIdentify_ReturnsCandidatesPerPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "song.mp3"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ident := fakeIdentifier{recs: []acoustid.Recording{
+		{
+			Score: 0.95, MBID: "rec-uuid", Title: "Song",
+			Artists: []acoustid.ArtistCredit{{MBID: "artist-uuid", Name: "Artist"}},
+			Release: []acoustid.Release{{MBID: "rel-uuid", ReleaseGroupMBID: "rg-uuid", Title: "Album", Year: 2001}},
+		},
+	}}
+	r, lib := newIdentifyHandler(t, root, ident)
+
+	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"song.mp3"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Results []struct {
+			Path       string `json:"path"`
+			Candidates []struct {
+				Score         float64 `json:"score"`
+				RecordingMBID string  `json:"recording_mbid"`
+				Title         string  `json:"title"`
+				Artists       []struct {
+					Name string `json:"name"`
+					MBID string `json:"mbid"`
+				} `json:"artists"`
+				Releases []struct {
+					ReleaseMBID      string `json:"release_mbid"`
+					ReleaseGroupMBID string `json:"release_group_mbid"`
+					Album            string `json:"album"`
+					Year             int    `json:"year"`
+				} `json:"releases"`
+			} `json:"candidates"`
+			Error string `json:"error"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Results) != 1 || body.Results[0].Path != "song.mp3" {
+		t.Fatalf("unexpected results: %s", w.Body.String())
+	}
+	c := body.Results[0].Candidates
+	if len(c) != 1 || c[0].RecordingMBID != "rec-uuid" || c[0].Title != "Song" || c[0].Score != 0.95 {
+		t.Fatalf("unexpected candidates: %s", w.Body.String())
+	}
+	if len(c[0].Artists) != 1 || c[0].Artists[0].Name != "Artist" {
+		t.Fatalf("unexpected artists: %s", w.Body.String())
+	}
+	if len(c[0].Releases) != 1 || c[0].Releases[0].Album != "Album" || c[0].Releases[0].Year != 2001 {
+		t.Fatalf("unexpected releases: %s", w.Body.String())
+	}
+}
+
+func TestIdentify_RejectsTraversalPerPath(t *testing.T) {
+	r, lib := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
+	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"../outside.mp3"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 with per-path error, got %d", w.Code)
+	}
+	var body struct {
+		Results []struct {
+			Error string `json:"error"`
+		} `json:"results"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if len(body.Results) != 1 || body.Results[0].Error == "" {
+		t.Fatalf("expected per-path error, got %s", w.Body.String())
+	}
+}
+
+func TestIdentify_ValidationErrors(t *testing.T) {
+	r, lib := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
+
+	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{}})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty paths, got %d", w.Code)
+	}
+
+	tooMany := make([]string, 51)
+	for i := range tooMany {
+		tooMany[i] = "a.mp3"
+	}
+	w = postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": tooMany})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for too many paths, got %d", w.Code)
+	}
+}

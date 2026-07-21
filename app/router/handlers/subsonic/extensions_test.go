@@ -40,22 +40,21 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 	for _, e := range exts {
 		names[e.Name] = e.Versions
 	}
-	if len(exts) != 5 {
-		t.Fatalf("expected 5 extensions, got %d: %+v", len(exts), exts)
+	expected := []string{
+		"musicFolderDefaultView",
+		"musicFolderShowArtists",
+		"albumList2Index",
+		"internetRadioCoverArt",
+		"playlistCoverArt",
+		"artistCoverArt",
+		"genreCoverArt",
 	}
-	if v, ok := names["musicFolderDefaultView"]; !ok || len(v) != 1 || v[0] != 1 {
-		t.Fatalf("musicFolderDefaultView versions = %v", v)
+	if len(exts) != len(expected) {
+		t.Fatalf("expected %d extensions, got %d: %+v", len(expected), len(exts), exts)
 	}
-	if v, ok := names["albumList2Index"]; !ok || len(v) != 1 || v[0] != 1 {
-		t.Fatalf("albumList2Index versions = %v", v)
-	}
-	if v, ok := names["internetRadioCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
-		t.Fatalf("internetRadioCoverArt versions = %v", v)
-	}
-	if v, ok := names["playlistCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
-		t.Fatalf("playlistCoverArt versions = %v", v)
-	}
-	if v, ok := names["artistCoverArt"]; !ok || len(v) != 1 || v[0] != 1 {
-		t.Fatalf("artistCoverArt versions = %v", v)
+	for _, name := range expected {
+		if v, ok := names[name]; !ok || len(v) != 1 || v[0] != 1 {
+			t.Fatalf("%s versions = %v", name, v)
+		}
 	}
 }

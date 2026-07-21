@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -169,5 +170,42 @@ func TestScannerMultipleLibraries(t *testing.T) {
 	st.DB().Model(&model.Track{}).Where("library_id = ?", libB.ID).Count(&bCount)
 	if aCount != 1 || bCount != 1 {
 		t.Fatalf("expected one track per library, got A=%d B=%d", aCount, bCount)
+	}
+}
+
+type multiTagReader struct{}
+
+func (multiTagReader) CanRead(absPath string) bool { return scanner.IsAudioFile(absPath) }
+func (multiTagReader) Read(absPath string) (tags.Metadata, error) {
+	return tags.Metadata{
+		Title:       filepath.Base(absPath),
+		Artist:      []string{"Artist A", "Artist B"},
+		AlbumArtist: []string{"Artist A"},
+		Album:       "Album",
+		Genre:       []string{"Rock", "Jazz"},
+		Duration:    180 * time.Second,
+	}, nil
+}
+
+func TestScannerKeepsAllTagValues(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Album/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, multiTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var artistCount int64
+	st.DB().Model(&model.Artist{}).Count(&artistCount)
+	if artistCount != 2 {
+		t.Fatalf("expected 2 artists (multi-value kept as-is), got %d", artistCount)
+	}
+	var genreCount int64
+	st.DB().Model(&model.Genre{}).Count(&genreCount)
+	if genreCount != 2 {
+		t.Fatalf("expected 2 genres, got %d", genreCount)
 	}
 }

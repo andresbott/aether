@@ -24,6 +24,9 @@ export const queryKeys = {
     search: (query: string) => ['subsonic', 'search', query] as const,
     playlists: ['subsonic', 'playlists'] as const,
     playlist: (id: string) => ['subsonic', 'playlist', id] as const,
+    genres: ['subsonic', 'genres'] as const,
+    genreSongs: (genre: string, offset: number) =>
+        ['subsonic', 'genreSongs', genre, offset] as const,
     radioStations: ['subsonic', 'radioStations'] as const,
     randomSongs: (size: number, musicFolderId?: number) =>
         ['subsonic', 'randomSongs', size, musicFolderId] as const
@@ -95,6 +98,25 @@ export function usePlaylist(id: string) {
         queryKey: queryKeys.playlist(id),
         queryFn: () => subsonicClient.getPlaylist(id),
         staleTime: 5 * 60 * 1000
+    })
+}
+
+export function useGenres() {
+    return useQuery({
+        queryKey: queryKeys.genres,
+        queryFn: () => subsonicClient.getGenres(),
+        staleTime: 5 * 60 * 1000
+    })
+}
+
+export function useUpdateGenreCover() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { genreId: string; coverFile?: File; coverClear?: boolean }) =>
+            subsonicClient.updateGenreCover(params.genreId, params.coverFile, params.coverClear),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.genres })
+        }
     })
 }
 

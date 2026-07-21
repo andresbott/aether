@@ -25,6 +25,14 @@ func (s *Store) FindOrCreateGenres(names []string) ([]*model.Genre, error) {
 	return genres, nil
 }
 
+func (s *Store) GetGenre(id uint) (*model.Genre, error) {
+	var genre model.Genre
+	if err := s.db.First(&genre, id).Error; err != nil {
+		return nil, err
+	}
+	return &genre, nil
+}
+
 type GenreWithCounts struct {
 	model.Genre
 	SongCount  int

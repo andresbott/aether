@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import PrimeVue from 'primevue/config'
 import TrackList from '@/views/settings/metadata-editor/TrackList.vue'
 import type { Track } from '@/types/metadata'
 
@@ -19,8 +20,9 @@ const stubs = {
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
     path: 'a.mp3', name: 'a.mp3', title: '', artists: [], album_artists: [],
-    album: '', year: 0, disc_number: 0, disc_subtitle: '', compilation: false,
-    mb_artist_ids: [], mb_album_artist_ids: [], mb_release_id: '', mb_release_group_id: '',
+    album: '', genres: [], year: 0, track_number: 0, disc_number: 0, disc_subtitle: '', compilation: false,
+    mb_artist_ids: [], mb_album_artist_ids: [], mb_recording_id: '',
+    mb_release_id: '', mb_release_group_id: '',
     ...over
 })
 
@@ -91,5 +93,82 @@ describe('TrackList selection', () => {
         w.findComponent(DataTableStub).vm.$emit('update:selection', [good, bad])
         await w.vm.$nextTick()
         expect(w.emitted('update:selection')?.[0]?.[0]).toEqual([good])
+    })
+})
+
+describe('TrackList arrow-key navigation', () => {
+    async function pressKey(wrapper: any, key: string) {
+        await wrapper.find('.table-wrapper').trigger('keydown', { key })
+        await sync(wrapper)
+    }
+
+    function mountWithSelection(list: Track[], selection: Track[]) {
+        return mount(TrackList, {
+            props: { tracks: list, isLoading: false, selection },
+            global: { stubs }
+        })
+    }
+
+    it('moves a single selection down and up', async () => {
+        const w = mountWithSelection(tracks, [tracks[2]])
+        await pressKey(w, 'ArrowDown')
+        expect(paths(w)).toEqual(['p3.mp3'])
+        await w.setProps({ selection: [tracks[3]] })
+        await pressKey(w, 'ArrowUp')
+        expect(paths(w)).toEqual(['p2.mp3'])
+    })
+
+    it('skips error rows when moving', async () => {
+        const list = [
+            mkTrack({ path: 'a.mp3' }),
+            mkTrack({ path: 'bad.mp3', error: 'read error' }),
+            mkTrack({ path: 'c.mp3' })
+        ]
+        const w = mountWithSelection(list, [list[0]])
+        await pressKey(w, 'ArrowDown')
+        expect(paths(w)).toEqual(['c.mp3'])
+    })
+
+    it('stays put at the list edges', async () => {
+        const w = mountWithSelection(tracks, [tracks[0]])
+        await w.find('.table-wrapper').trigger('keydown', { key: 'ArrowUp' })
+        expect(w.emitted('update:selection')).toBeUndefined()
+    })
+
+    it('does nothing with a multi-selection', async () => {
+        const w = mountWithSelection(tracks, [tracks[0], tracks[1]])
+        await w.find('.table-wrapper').trigger('keydown', { key: 'ArrowDown' })
+        expect(w.emitted('update:selection')).toBeUndefined()
+    })
+})
+
+describe('TrackList staged marker', () => {
+    // Mount the real PrimeVue DataTable so the marker column's body slot
+    // renders per row.
+    function mountReal(list: Track[], stagedPaths: ReadonlySet<string>) {
+        return mount(TrackList, {
+            props: { tracks: list, isLoading: false, selection: [], stagedPaths },
+            global: {
+                plugins: [PrimeVue],
+                directives: { tooltip: {} }
+            }
+        })
+    }
+
+    it('marks only rows whose path is staged', () => {
+        const w = mountReal(
+            [mkTrack({ path: 'dirty.mp3' }), mkTrack({ path: 'clean.mp3' })],
+            new Set(['dirty.mp3'])
+        )
+        const markers = w.findAll('[data-test="staged-marker"]')
+        expect(markers).toHaveLength(1)
+        const rows = w.findAll('tbody tr')
+        expect(rows[0].find('[data-test="staged-marker"]').exists()).toBe(true)
+        expect(rows[1].find('[data-test="staged-marker"]').exists()).toBe(false)
+    })
+
+    it('renders no marker without staged paths', () => {
+        const w = mountReal([mkTrack({ path: 'clean.mp3' })], new Set<string>())
+        expect(w.find('[data-test="staged-marker"]').exists()).toBe(false)
     })
 })

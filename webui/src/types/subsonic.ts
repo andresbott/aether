@@ -78,10 +78,19 @@ export interface Playlist {
     coverArt?: string
 }
 
+export interface Genre {
+    value: string
+    songCount: number
+    albumCount: number
+    // Aether's "genreCoverArt" OpenSubsonic extension.
+    coverArt?: string
+}
+
 export interface MusicFolder {
     id: number
     name: string
     defaultView?: 'albums' | 'artists'
+    showArtists?: boolean
 }
 
 export interface SearchResult3 {

@@ -19,20 +19,18 @@ type Handler struct {
 }
 
 type libraryDTO struct {
-	ID                    uint       `json:"id"`
-	Name                  string     `json:"name"`
-	Path                  string     `json:"path"`
-	ExcludePatterns       []string   `json:"exclude_patterns"`
-	FollowSymlinks        bool       `json:"follow_symlinks"`
-	MultiValueGenre       string     `json:"multi_value_genre"`
-	MultiValueArtist      string     `json:"multi_value_artist"`
-	MultiValueAlbumArtist string     `json:"multi_value_album_artist"`
-	DefaultView           string     `json:"default_view"`
-	LastScanStartedAt     *time.Time `json:"last_scan_started_at"`
-	CreatedAt             time.Time  `json:"created_at"`
-	UpdatedAt             time.Time  `json:"updated_at"`
-	TrackCount            int64      `json:"track_count"`
-	PathChanged           bool       `json:"path_changed,omitempty"`
+	ID                uint       `json:"id"`
+	Name              string     `json:"name"`
+	Path              string     `json:"path"`
+	ExcludePatterns   []string   `json:"exclude_patterns"`
+	FollowSymlinks    bool       `json:"follow_symlinks"`
+	ShowArtists       *bool      `json:"show_artists"`
+	DefaultView       string     `json:"default_view"`
+	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	TrackCount        int64      `json:"track_count"`
+	PathChanged       bool       `json:"path_changed,omitempty"`
 }
 
 type apiError struct {
@@ -69,20 +67,22 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if dv == "" {
 		dv = "albums"
 	}
+	// Convert HideArtists (internal, inverted bool) to ShowArtists (API, positive bool).
+	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
+	// HideArtists=true means artists are hidden, so ShowArtists=false.
+	showArtists := !lib.HideArtists
 	return libraryDTO{
-		ID:                    lib.ID,
-		Name:                  lib.Name,
-		Path:                  lib.Path,
-		ExcludePatterns:       patterns,
-		FollowSymlinks:        lib.FollowSymlinks,
-		MultiValueGenre:       lib.MultiValueGenre,
-		MultiValueArtist:      lib.MultiValueArtist,
-		MultiValueAlbumArtist: lib.MultiValueAlbumArtist,
-		DefaultView:           dv,
-		LastScanStartedAt:     lib.LastScanStartedAt,
-		CreatedAt:             lib.CreatedAt,
-		UpdatedAt:             lib.UpdatedAt,
-		TrackCount:            count,
+		ID:                lib.ID,
+		Name:              lib.Name,
+		Path:              lib.Path,
+		ExcludePatterns:   patterns,
+		FollowSymlinks:    lib.FollowSymlinks,
+		ShowArtists:       &showArtists,
+		DefaultView:       dv,
+		LastScanStartedAt: lib.LastScanStartedAt,
+		CreatedAt:         lib.CreatedAt,
+		UpdatedAt:         lib.UpdatedAt,
+		TrackCount:        count,
 	}, nil
 }
 
@@ -109,6 +109,7 @@ func encodeExcludePatterns(patterns []string) (string, error) {
 }
 
 func (h *Handler) Routes(r *mux.Router) {
+	r.Path("/libraries/browse").Methods(http.MethodGet).HandlerFunc(h.browse)
 	r.Path("/libraries").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/libraries").Methods(http.MethodPost).HandlerFunc(h.create)
 	r.Path("/libraries/{id:[0-9]+}").Methods(http.MethodGet).HandlerFunc(h.get)
@@ -173,12 +174,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	for _, mv := range []string{in.MultiValueGenre, in.MultiValueArtist, in.MultiValueAlbumArtist} {
-		if err := validateMultiValue(mv); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-	}
 	if err := validateDefaultView(in.DefaultView); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
@@ -193,15 +188,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if dv == "" {
 		dv = "albums"
 	}
+	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
+	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
+	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
 	lib := &model.Library{
-		Name:                  in.Name,
-		Path:                  abs,
-		ExcludePatterns:       excludes,
-		FollowSymlinks:        in.FollowSymlinks,
-		MultiValueGenre:       in.MultiValueGenre,
-		MultiValueArtist:      in.MultiValueArtist,
-		MultiValueAlbumArtist: in.MultiValueAlbumArtist,
-		DefaultView:           dv,
+		Name:            in.Name,
+		Path:            abs,
+		ExcludePatterns: excludes,
+		FollowSymlinks:  in.FollowSymlinks,
+		HideArtists:     hideArtists,
+		DefaultView:     dv,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -247,12 +243,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	for _, mv := range []string{in.MultiValueGenre, in.MultiValueArtist, in.MultiValueAlbumArtist} {
-		if err := validateMultiValue(mv); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
-	}
 	if err := validateDefaultView(in.DefaultView); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
@@ -269,9 +259,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing.Path = abs
 	existing.ExcludePatterns = excludes
 	existing.FollowSymlinks = in.FollowSymlinks
-	existing.MultiValueGenre = in.MultiValueGenre
-	existing.MultiValueArtist = in.MultiValueArtist
-	existing.MultiValueAlbumArtist = in.MultiValueAlbumArtist
+	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
+	if in.ShowArtists != nil {
+		existing.HideArtists = !*in.ShowArtists
+	}
 	dv := in.DefaultView
 	if dv == "" {
 		dv = "albums"

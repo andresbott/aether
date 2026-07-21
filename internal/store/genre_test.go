@@ -35,6 +35,24 @@ func TestFindOrCreateGenres(t *testing.T) {
 	}
 }
 
+func TestGetGenre(t *testing.T) {
+	s := testStore(t)
+	rock := model.Genre{Name: "Rock"}
+	s.DB().Create(&rock)
+
+	got, err := s.GetGenre(rock.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Rock" {
+		t.Fatalf("expected Rock, got %q", got.Name)
+	}
+
+	if _, err := s.GetGenre(999); err == nil {
+		t.Fatal("expected error for missing genre")
+	}
+}
+
 func TestGetGenres(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

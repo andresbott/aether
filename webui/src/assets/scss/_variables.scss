@@ -20,6 +20,10 @@
     /* Soft accent tint for active/selected/current rows and their hover. */
     --app-accent-soft: rgba(14, 155, 181, 0.12);
     --app-accent-soft-hover: rgba(14, 155, 181, 0.2);
+    /* Staged (unsaved) edits — amber, deliberately distinct from the cyan
+       accent so pending changes stand out (metadata editor). */
+    --app-staged: #b45309;
+    --app-staged-soft: rgba(217, 119, 6, 0.12);
     /* Row hover tint — translucent so it reads on both the white surface
        (sidebar) and the grey app background (full Now Playing view). */
     --app-hover: rgba(20, 120, 150, 0.07);
@@ -61,6 +65,8 @@
     --app-accent-hover: #57e0f7;
     --app-accent-soft: rgba(47, 211, 239, 0.16);
     --app-accent-soft-hover: rgba(47, 211, 239, 0.24);
+    --app-staged: #fbbf24;
+    --app-staged-soft: rgba(251, 191, 36, 0.14);
     --app-hover: rgba(47, 211, 239, 0.09);
     --app-nav-bg: #0a0e13;
     --app-nav-text: #d7dee6;

@@ -154,3 +154,21 @@ func TestDeleteLibraryCascade(t *testing.T) {
 			libCount, trackCount, albumCount, artistCount, starCount)
 	}
 }
+
+func TestCreateLibraryHideArtistsRoundTrip(t *testing.T) {
+	s := testStore(t)
+	lib := &model.Library{Name: "Main", Path: "/a", HideArtists: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetLibrary(lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.HideArtists {
+		t.Fatal("expected HideArtists to persist on create")
+	}
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("expected timestamps to be set on create, got created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
+	}
+}

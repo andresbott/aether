@@ -64,6 +64,47 @@ describe('subsonicClient.getArtistIndex', () => {
     })
 })
 
+describe('subsonicClient genres', () => {
+    beforeEach(() => subsonicClient.initWithDefaults())
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('getGenres unwraps genres.genre including coverArt', async () => {
+        const fetchMock = mockFetchOnce({
+            genres: {
+                genre: [{ value: 'Rock', songCount: 5, albumCount: 2, coverArt: 'ge-1' }]
+            }
+        })
+        const genres = await subsonicClient.getGenres()
+        expect(genres).toEqual([
+            { value: 'Rock', songCount: 5, albumCount: 2, coverArt: 'ge-1' }
+        ])
+        expect(fetchMock.mock.calls[0][0] as string).toContain('/rest/getGenres.view')
+    })
+
+    it('getSongsByGenre passes genre, count and offset', async () => {
+        const fetchMock = mockFetchOnce({
+            songsByGenre: { song: [{ id: 'tr-1', title: 'Song' }] }
+        })
+        const songs = await subsonicClient.getSongsByGenre('Rock', 100, 200)
+        expect(songs).toEqual([{ id: 'tr-1', title: 'Song' }])
+        const params = new URL(fetchMock.mock.calls[0][0] as string).searchParams
+        expect(params.get('genre')).toBe('Rock')
+        expect(params.get('count')).toBe('100')
+        expect(params.get('offset')).toBe('200')
+    })
+
+    it('updateGenreCover posts multipart with id and coverClear', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updateGenreCover('ge-3', undefined, true)
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+        expect(url).toContain('/rest/updateGenre.view')
+        expect(init.method).toBe('POST')
+        const body = init.body as FormData
+        expect(body.get('id')).toBe('ge-3')
+        expect(body.get('coverClear')).toBe('true')
+    })
+})
+
 describe('subsonicClient.replacePlaylistTracks', () => {
     beforeEach(() => subsonicClient.initWithDefaults())
     afterEach(() => vi.unstubAllGlobals())
