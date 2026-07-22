@@ -85,7 +85,13 @@ const onSave = () => {
             </div>
             <p v-if="error" class="error">{{ error }}</p>
         </div>
+        <!-- The global footer rule renders dialog footers in reverse DOM order
+             (confirm | cancel, Cancel rightmost), so this reads right-to-left:
+             Remove far left, then spacer, Save, Cancel. -->
         <template #footer>
+            <Button label="Cancel" text severity="secondary" @click="emit('update:visible', false)" />
+            <Button label="Save" icon="pi pi-check" :loading="saving" @click="onSave" />
+            <span class="spacer" />
             <Button
                 v-if="task?.schedule"
                 label="Remove schedule"
@@ -94,9 +100,6 @@ const onSave = () => {
                 :disabled="saving"
                 @click="emit('remove')"
             />
-            <span class="spacer" />
-            <Button label="Cancel" text severity="secondary" @click="emit('update:visible', false)" />
-            <Button label="Save" icon="pi pi-check" :loading="saving" @click="onSave" />
         </template>
     </Dialog>
 </template>

@@ -26,6 +26,7 @@ type libraryDTO struct {
 	FollowSymlinks    bool       `json:"follow_symlinks"`
 	ShowArtists       *bool      `json:"show_artists"`
 	DefaultView       string     `json:"default_view"`
+	Icon              string     `json:"icon"`
 	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
@@ -67,6 +68,10 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if dv == "" {
 		dv = "albums"
 	}
+	icon := lib.Icon
+	if icon == "" {
+		icon = "folder"
+	}
 	// Convert HideArtists (internal, inverted bool) to ShowArtists (API, positive bool).
 	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
 	// HideArtists=true means artists are hidden, so ShowArtists=false.
@@ -79,6 +84,7 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		FollowSymlinks:    lib.FollowSymlinks,
 		ShowArtists:       &showArtists,
 		DefaultView:       dv,
+		Icon:              icon,
 		LastScanStartedAt: lib.LastScanStartedAt,
 		CreatedAt:         lib.CreatedAt,
 		UpdatedAt:         lib.UpdatedAt,
@@ -178,6 +184,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateIcon(in.Icon); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -187,6 +197,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	dv := in.DefaultView
 	if dv == "" {
 		dv = "albums"
+	}
+	icon := in.Icon
+	if icon == "" {
+		icon = "folder"
 	}
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
@@ -198,6 +212,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		FollowSymlinks:  in.FollowSymlinks,
 		HideArtists:     hideArtists,
 		DefaultView:     dv,
+		Icon:            icon,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -247,6 +262,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateIcon(in.Icon); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -268,6 +287,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		dv = "albums"
 	}
 	existing.DefaultView = dv
+	icon := in.Icon
+	if icon == "" {
+		icon = "folder"
+	}
+	existing.Icon = icon
 
 	err = h.Store.Transaction(func(tx *store.Store) error {
 		if pathChanged {

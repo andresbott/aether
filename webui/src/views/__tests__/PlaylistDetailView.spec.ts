@@ -71,7 +71,9 @@ const mountView = () =>
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
-            stubs: { ConfirmDialog: true }
+            // vue-router is mocked, so RouterLink (used by GenreTrackRow's album
+            // link) isn't registered — stub it to a plain anchor.
+            stubs: { ConfirmDialog: true, RouterLink: { template: '<a><slot /></a>' } }
         }
     })
 
@@ -154,20 +156,31 @@ describe('PlaylistDetailView', () => {
         expect((nameInput(w).element as HTMLInputElement).value).toBe('My Mix')
     })
 
-    it('always renders the editable track list and never a read-only table', () => {
+    it('view mode renders album-style rows with covers; edit mode swaps in the editable list', async () => {
         const w = mountView()
+        expect(w.find('.queue-edit-list').exists()).toBe(false)
+        const rows = w.findAll('.track-list .genre-track-row')
+        expect(rows).toHaveLength(3)
+        expect(rows[0].find('.col-cover').exists()).toBe(true)
+
+        await enterEdit(w)
+        expect(w.find('.track-list').exists()).toBe(false)
         expect(w.find('.queue-edit-list').exists()).toBe(true)
         expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(3)
-        expect(w.find('.track-table').exists()).toBe(false)
-        expect(w.find('.p-datatable').exists()).toBe(false)
+    })
+
+    it('double-clicking a row in view mode plays the playlist from that track', async () => {
+        const w = mountView()
+        await w.findAll('.track-list .genre-track-row')[1].trigger('dblclick')
+        expect(playAlbum).toHaveBeenCalledWith([song('1'), song('2'), song('3')], 1)
     })
 
     it('Save persists the working track order and exits edit mode', async () => {
         const w = mountView()
+        await enterEdit(w)
         await w.find('[data-queue-index="0"] .delete-button').trigger('click')
         expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(2)
 
-        await enterEdit(w)
         await w.find('.edit-action-save').trigger('click')
         await flushPromises()
         expect(replaceAsync).toHaveBeenCalledWith(
@@ -178,8 +191,8 @@ describe('PlaylistDetailView', () => {
 
     it('Save is disabled while a save is pending', async () => {
         const w = mountView()
-        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
         await enterEdit(w)
+        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
         replaceIsPending.value = true
         await w.vm.$nextTick()
         expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
@@ -198,13 +211,6 @@ describe('PlaylistDetailView', () => {
         expect(playAlbum).toHaveBeenCalledWith([song('1'), song('2'), song('3')])
     })
 
-    it('Play reflects local edits before saving', async () => {
-        const w = mountView()
-        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
-        await w.find('.hero-action-play').trigger('click')
-        expect(playAlbum).toHaveBeenCalledWith([song('2'), song('3')])
-    })
-
     it('Add to queue enqueues the current on-screen list', async () => {
         const w = mountView()
         await w.find('.hero-action-queue').trigger('click')
@@ -218,6 +224,7 @@ describe('PlaylistDetailView', () => {
         window.dispatchEvent(clean)
         expect(clean.defaultPrevented).toBe(false)
 
+        await enterEdit(w)
         await w.find('[data-queue-index="0"] .delete-button').trigger('click')
 
         const dirty = new Event('beforeunload', { cancelable: true })
@@ -306,7 +313,7 @@ describe('PlaylistDetailView', () => {
         await w.setProps({ id: 'pl2' })
 
         expect(w.find('.hero-header').classes()).not.toContain('editing')
-        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(1)
+        expect(w.findAll('.track-list .genre-track-row')).toHaveLength(1)
         expect(updateMutate).not.toHaveBeenCalled()
         await enterEdit(w)
         expect((nameInput(w).element as HTMLInputElement).value).toBe('Other Mix')

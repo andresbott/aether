@@ -8,6 +8,7 @@ export interface Library {
     follow_symlinks: boolean
     show_artists: boolean
     default_view: LibraryDefaultView
+    icon: string
     last_scan_started_at: string | null
     created_at: string
     updated_at: string
@@ -22,6 +23,7 @@ export interface LibraryInput {
     follow_symlinks: boolean
     show_artists: boolean
     default_view: LibraryDefaultView
+    icon: string
 }
 
 export interface ListLibrariesResponse {

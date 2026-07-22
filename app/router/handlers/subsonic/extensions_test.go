@@ -43,6 +43,7 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 	expected := []string{
 		"musicFolderDefaultView",
 		"musicFolderShowArtists",
+		"musicFolderIcon",
 		"albumList2Index",
 		"internetRadioCoverArt",
 		"playlistCoverArt",

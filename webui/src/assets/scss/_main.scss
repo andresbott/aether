@@ -66,12 +66,14 @@ a:hover {
     color: var(--app-accent-hover);
 }
 
-/* Confirmation dialogs read confirm | cancel (confirm on the left). PrimeVue
-   renders reject (Cancel) then accept, so reverse the footer visually. This is
-   visual-only; keyboard focus order still reaches Cancel first — the safer
-   default focus for a destructive action. Single source of truth for the order;
-   see docs/architecture/unified-edit-experience.md. */
-.p-confirmdialog .p-dialog-footer {
+/* Dialog footers read confirm | cancel (confirm on the left, Cancel rightmost).
+   PrimeVue and our dialog markup put Cancel first in the DOM, so reverse the
+   footer visually. This is visual-only; keyboard focus order still reaches
+   Cancel first — the safer default focus. Single source of truth for the order;
+   see docs/architecture/unified-edit-experience.md. Footers with extra buttons
+   (e.g. a destructive action pinned far left via a spacer) must author their
+   DOM in reverse. */
+.p-dialog .p-dialog-footer {
     display: flex;
     flex-direction: row-reverse;
     /* The theme right-aligns the footer with justify-content: flex-end; under

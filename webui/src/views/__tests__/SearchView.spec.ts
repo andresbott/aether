@@ -16,7 +16,7 @@ vi.mock('vue-router', () => ({
 const searchResult = ref<{ artist?: Artist[]; album?: Album[]; song?: Song[] }>({})
 const isLoading = ref(false)
 const searchError = ref<Error | null>(null)
-const playNow = vi.fn()
+const playAlbum = vi.fn()
 let lastSearchParams: Ref<SearchParams> | null = null
 
 vi.mock('@/composables/useSubsonicQueries', () => ({
@@ -27,11 +27,11 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 }))
 
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playNow })
+    usePlayer: () => ({ playAlbum })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { getCoverArtUrl: (id: string) => `/cover/${id}` }
+    subsonicClient: { isConfigured: () => true, getCoverArtUrl: (id: string) => `/cover/${id}` }
 }))
 
 // Stub the scaffold and the cards/rows so this spec asserts what SearchView passes
@@ -75,7 +75,10 @@ const mountView = () =>
                 ArtistCard: ArtistCardStub,
                 AlbumCard: AlbumCardStub,
                 ArtistRow: ArtistRowStub,
-                AlbumRow: AlbumRowStub
+                AlbumRow: AlbumRowStub,
+                // vue-router is mocked, so RouterLink (used by GenreTrackRow's
+                // album link) isn't registered — stub it to a plain anchor.
+                RouterLink: { template: '<a><slot /></a>' }
             }
         }
     })
@@ -109,7 +112,7 @@ beforeEach(() => {
     searchResult.value = {}
     isLoading.value = false
     searchError.value = null
-    playNow.mockClear()
+    playAlbum.mockClear()
     lastSearchParams = null
 })
 
@@ -149,17 +152,22 @@ describe('SearchView', () => {
         expect(w.findComponent(ScaffoldStub).props('summary')).toBe('1 artist • 2 albums • 1 song')
         expect(w.findAll('.artist-card-stub')).toHaveLength(1)
         expect(w.findAll('.album-card-stub')).toHaveLength(2)
-        expect(w.findAll('.song-row')).toHaveLength(1)
+        const rows = w.findAll('.genre-track-row')
+        expect(rows).toHaveLength(1)
+        expect(rows[0].find('.col-cover').exists()).toBe(true)
         expect(w.text()).toContain('Time')
     })
 
-    it('plays a song when its row is clicked', async () => {
-        const song = { id: 's1', title: 'Time', artist: 'Pink Floyd' }
-        searchResult.value = { song: [song] }
+    it('double-clicking a song row plays the results from that track', async () => {
+        const songs = [
+            { id: 's1', title: 'Time', artist: 'Pink Floyd' },
+            { id: 's2', title: 'Money', artist: 'Pink Floyd' }
+        ]
+        searchResult.value = { song: songs }
         const w = mountView()
         await typeQuery(w, 'floyd')
-        await w.find('.song-row').trigger('click')
-        expect(playNow).toHaveBeenCalledWith(song)
+        await w.findAll('.genre-track-row')[1].trigger('dblclick')
+        expect(playAlbum).toHaveBeenCalledWith(songs, 1)
     })
 
     it('renders rows instead of cards when the list layout is selected', async () => {
@@ -171,8 +179,8 @@ describe('SearchView', () => {
         expect(w.findAll('.album-row-stub')).toHaveLength(2)
         expect(w.findAll('.artist-card-stub')).toHaveLength(0)
         expect(w.findAll('.album-card-stub')).toHaveLength(0)
-        // Songs stay a list in both layouts.
-        expect(w.findAll('.song-row')).toHaveLength(1)
+        // Songs stay a table in both layouts.
+        expect(w.findAll('.genre-track-row')).toHaveLength(1)
     })
 
     it('zeroes the count param and hides the section when a type is unchecked', async () => {
@@ -197,6 +205,6 @@ describe('SearchView', () => {
         expect(unref(lastSearchParams!).query).toBe('')
         expect(w.text()).toContain('Select at least one type to search')
         expect(w.findAll('.artist-card-stub')).toHaveLength(0)
-        expect(w.findAll('.song-row')).toHaveLength(0)
+        expect(w.findAll('.genre-track-row')).toHaveLength(0)
     })
 })

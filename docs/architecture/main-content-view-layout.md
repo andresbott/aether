@@ -6,8 +6,8 @@ its scrollbar. Follow this whenever you add or refactor a top-level route view s
 screen reads as one app.
 
 The pattern originated in **Now Playing** (`QueueView`, `variant="full"`) and was
-generalised into the reusable **`ContentScaffold`** during the library work. The library
-album/artist views and the radio view now follow it. New views should too.
+generalised into the reusable **`ContentScaffold`** during the library work. All main
+content views — including Now Playing itself — now use the scaffold. New views should too.
 
 **Reference implementations (copy these):**
 - `webui/src/components/layout/ContentScaffold.vue` — the reusable header + body frame.
@@ -15,7 +15,8 @@ album/artist views and the radio view now follow it. New views should too.
 - `webui/src/components/library/AlbumGrid.vue` — the self-scrolling grid body.
 - `webui/src/components/library/AlbumListView.vue` — the list body + alphabet rail.
 - `webui/src/views/RadioView.vue` — the minimal case (scaffold + one action + a grid).
-- `webui/src/components/layout/QueueView.vue` — Now Playing; mirrors the header manually.
+- `webui/src/components/layout/QueueView.vue` — Now Playing; scaffold for the full
+  variant, compact side-panel header for the sidebar variant, body in `QueueBody.vue`.
 - `webui/src/components/layout/EditActionBar.vue` — the uniform edit affordance for
   editable detail views; see [`unified-edit-experience.md`](unified-edit-experience.md).
 - `webui/src/components/layout/HeroActions.vue` — the uniform read-mode play/queue/star
@@ -169,25 +170,22 @@ native scrollbar** — the scrollbar remains the outermost element. No magic off
 
 ---
 
-## 6. Now Playing (`QueueView`) — the origin, and why it's special
+## 6. Now Playing (`QueueView`) — the origin, and its two variants
 
-`QueueView` predates `ContentScaffold` and **mirrors the header manually** rather than
-importing it, because it carries edit-mode chrome, drag-drop, and a `variant` prop that the
-scaffold does not model. Keep it visually in lock-step with the scaffold:
+`QueueView` originated the pattern and now composes `ContentScaffold` like every other
+main content view. It splits per variant:
 
-- `variant="full"` (Now Playing, route `/`): header is `.queue-view--full .queue-view-header`
-  with the **same** values as the scaffold — shared content column
-  (`var(--app-content-max-width)`), `padding: 0.75rem 2rem`, title `1.5rem/700`, summary
-  `0.85rem` secondary. The scrolling *content* below it sits on a narrower **1100px**
-  centered column, so the title deliberately sits slightly left of it.
-- `variant="sidebar"` (queue panel): a compact header (`1rem/600` title, smaller paddings)
-  — this variant is **not** governed by this guidance; it's side-panel chrome.
+- `variant="full"` (Now Playing, route `/`): renders `ContentScaffold` with the queue
+  actions (edit/save/clear, shared `QueueHeaderActions.vue`) in `#actions` and the
+  scrolling queue in the default slot (`QueueBody.vue`). The scrolling *content* sits on a
+  narrower **1100px** centered column, so the title deliberately sits slightly left of it.
+- `variant="sidebar"` (queue panel): a compact hand-rolled header (`1rem/600` title, pill
+  count badge, small buttons) — this variant is **not** governed by this guidance; it's
+  side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import
-`ContentScaffold`** — do not reimplement. Only hand-roll the header (matching §2's values)
-when the view needs structure the scaffold can't express, as `QueueView` does. This
-duplication is tolerated at one site; if a *third* hand-rolled header appears, extract the
-shared header row into a small presentational component both compose.
+`ContentScaffold`** — do not reimplement. Hand-rolled headers are reserved for non-view
+chrome like the queue sidebar.
 
 ---
 
@@ -195,7 +193,7 @@ shared header row into a small presentational component both compose.
 
 | View | Route | Conforms? |
 | --- | --- | --- |
-| Now Playing (`QueueView` full) | `/` | ✅ origin of the pattern (manual header) |
+| Now Playing (`QueueView` full) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
 | Library (album/artist × list/grid) | `/library` | ✅ `ContentScaffold` |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |

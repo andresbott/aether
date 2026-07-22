@@ -91,6 +91,8 @@ export interface MusicFolder {
     name: string
     defaultView?: 'albums' | 'artists'
     showArtists?: boolean
+    // Aether's "musicFolderIcon" OpenSubsonic extension: PrimeIcons name without the "pi pi-" prefix.
+    icon?: string
 }
 
 export interface SearchResult3 {
