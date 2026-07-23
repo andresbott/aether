@@ -52,6 +52,8 @@ const { total, items, isLoading, error } = useRadioTable()
 .list-header {
     flex-shrink: 0;
     box-sizing: border-box;
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .header-row {
@@ -85,6 +87,14 @@ const { total, items, isLoading, error } = useRadioTable()
     max-width: var(--app-content-max-width);
     margin-left: auto;
     margin-right: auto;
+}
+
+/* Uniform rail clearance + gutter, matching the album/artist lists, so the
+   column doesn't shift when navigating between views. */
+.list-body :deep(.p-virtualscroller-content) {
+    box-sizing: border-box;
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .loading {
