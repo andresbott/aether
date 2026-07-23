@@ -240,9 +240,9 @@ watch(songs, () => clearSelection())
     gap: 0.9rem;
     width: 100%;
     box-sizing: border-box;
-    padding: 2rem 1rem 1.25rem;
+    padding: 2rem var(--app-content-gutter) 1.25rem;
     /* Recipe A: center the search box on the same axis as the content column. */
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + 1rem);
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .search-input-wrapper {

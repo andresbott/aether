@@ -193,8 +193,9 @@ watch(
     scrollbar-gutter: stable;
 }
 
-/* Reserve rail clearance (rail 1.75rem + 1rem gap + scrollbar) so centered rows never
-   slide under the rail; border-box keeps the min-width:100% content wrapper from overflowing. */
+/* Recipe C: rail clearance + shared gutter on the scroll content so centered
+   rows never slide under the rail; border-box keeps the min-width:100% content
+   wrapper from overflowing. */
 .card-grid :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
     padding-left: var(--app-content-gutter);

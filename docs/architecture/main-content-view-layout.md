@@ -152,8 +152,8 @@ scrollbar compensation (the multipliers differ):
 
 - **Recipe A — fixed (non-scrolling) frame** (scaffold header, fixed list headers, fixed heroes).
   The element spans the full pane (no scrollbar of its own), so it compensates for the body
-  scroller's scrollbar *twice* (once for the scrollbar itself, once for the clearance the
-  scroller's content adds on top):
+  scroller's scrollbar twice (rail slot + 2×scrollbar: once for the scrollbar the header itself
+  doesn't have, once for the clearance the scroller's content adds):
   `padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px))` on the frame, then
   a centered column inside (`.content-col` or manual centering).
 

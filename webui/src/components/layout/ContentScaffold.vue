@@ -46,7 +46,8 @@ defineEmits<{ (e: 'back'): void }>()
     flex-shrink: 0;
     box-sizing: border-box;
     /* Recipe A: reserve the same right-side clearance as the bodies' scroll
-       areas (rail slot + the body scroller's scrollbar footprint twice) so the
+       areas (rail slot + 2×scrollbar: once for the scrollbar the header itself
+       doesn't have, once for the clearance the scroller's content adds) so the
        header column sits exactly over the body column. */
     padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
     border-bottom: 1px solid var(--app-border);
