@@ -313,7 +313,7 @@ onUnmounted(() => {
             </template>
 
             <div class="playlist-scroll">
-                <div class="playlist-body">
+                <div class="playlist-body content-col">
                     <HeroHeader
                         eyebrow="Playlist"
                         :cover-url="displayedCoverUrl"
@@ -425,11 +425,13 @@ onUnmounted(() => {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    /* Recipe B: uniform rail clearance so the column matches the list views. */
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 .playlist-body {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
 
 .form-field {

@@ -141,7 +141,7 @@ watch(
             </template>
 
             <div class="album-scroll">
-                <div class="album-body">
+                <div class="album-body content-col">
                     <HeroHeader
                         eyebrow="Album"
                         cover-placeholder-icon="pi pi-music"
@@ -238,12 +238,14 @@ watch(
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    /* Recipe B: uniform rail clearance so the column matches the list views. */
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 
 .album-body {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
 
 .artist-link {

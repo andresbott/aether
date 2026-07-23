@@ -300,7 +300,7 @@ onUnmounted(() => {
             </template>
 
             <div class="detail-scroll">
-                <div class="detail-body">
+                <div class="detail-body content-col">
                     <HeroHeader
                         eyebrow="Radio Station"
                         cover-back-label="Station cover"
@@ -376,11 +376,13 @@ onUnmounted(() => {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    /* Recipe B: uniform rail clearance so the column matches the list views. */
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 .detail-body {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
 .form-field {
     display: flex;
