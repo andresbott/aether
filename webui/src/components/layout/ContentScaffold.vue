@@ -8,22 +8,24 @@ defineEmits<{ (e: 'back'): void }>()
 <template>
     <div class="content-scaffold">
         <header class="content-scaffold-header">
-            <Button
-                v-if="showBack"
-                class="scaffold-back"
-                icon="pi pi-arrow-left"
-                text
-                rounded
-                aria-label="Back"
-                @click="$emit('back')"
-            />
-            <div class="scaffold-title">
-                <h1 v-if="title">{{ title }}</h1>
-                <slot name="title-actions" />
-                <span v-if="summary" class="scaffold-summary">{{ summary }}</span>
-            </div>
-            <div class="scaffold-actions">
-                <slot name="actions" />
+            <div class="scaffold-header-inner content-col">
+                <Button
+                    v-if="showBack"
+                    class="scaffold-back"
+                    icon="pi pi-arrow-left"
+                    text
+                    rounded
+                    aria-label="Back"
+                    @click="$emit('back')"
+                />
+                <div class="scaffold-title">
+                    <h1 v-if="title">{{ title }}</h1>
+                    <slot name="title-actions" />
+                    <span v-if="summary" class="scaffold-summary">{{ summary }}</span>
+                </div>
+                <div class="scaffold-actions">
+                    <slot name="actions" />
+                </div>
             </div>
         </header>
         <div class="content-scaffold-body">
@@ -41,19 +43,22 @@ defineEmits<{ (e: 'back'): void }>()
 }
 
 .content-scaffold-header {
+    flex-shrink: 0;
+    box-sizing: border-box;
+    /* Recipe A: reserve the same right-side clearance as the bodies' scroll
+       areas (rail slot + the body scroller's scrollbar footprint twice) so the
+       header column sits exactly over the body column. */
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
+    border-bottom: 1px solid var(--app-border);
+}
+
+/* .content-col supplies the centering + inline gutter. */
+.scaffold-header-inner {
     display: flex;
     align-items: baseline;
     gap: 1rem;
-    flex-shrink: 0;
-    /* Center on the same content column as the list/grid content instead of
-       spanning the full width, so the title sits above the content column. The
-       2rem padding is the side gutter and gives the title a small indent. */
-    max-width: var(--app-content-max-width);
-    width: 100%;
-    margin-inline: auto;
-    box-sizing: border-box;
-    padding: 0.75rem 2rem;
-    border-bottom: 1px solid var(--app-border);
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
 }
 
 .scaffold-back {
@@ -91,8 +96,8 @@ defineEmits<{ (e: 'back'): void }>()
 .content-scaffold-body {
     flex: 1;
     min-height: 0;
-    /* Match the header's left gutter so rows line up under the title, but leave
-       the right edge unpadded so the list's scroll bar sits flush right. */
-    padding-left: 2rem;
+    /* No gutter here: each body owns its full width so its scrollbar and the
+       alphabet rail stay flush right; bodies center content per the recipes in
+       docs/architecture/main-content-view-layout.md. */
 }
 </style>
