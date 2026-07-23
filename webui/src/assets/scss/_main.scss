@@ -81,3 +81,14 @@ a:hover {
        points right in a reversed row, so it keeps the group flush right. */
     justify-content: flex-start;
 }
+
+/* Shared centered content column for main content views. Content inside is at
+   most --app-content-max-width wide; the gutter keeps it off the edges when
+   the pane is narrower. See docs/architecture/main-content-view-layout.md. */
+.content-col {
+    width: 100%;
+    max-width: calc(var(--app-content-max-width) + 2 * var(--app-content-gutter));
+    margin-inline: auto;
+    padding-inline: var(--app-content-gutter);
+    box-sizing: border-box;
+}

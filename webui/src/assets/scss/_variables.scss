@@ -49,6 +49,14 @@
        their rows — keep them all bound to this token. See
        docs/architecture/main-content-view-layout.md. */
     --app-content-max-width: 1320px;
+    /* Horizontal padding inside the centered content column. The column's
+       INNER edge (max-width box + this gutter) is the shared alignment line:
+       header titles, row boxes, cards and heroes all start there. */
+    --app-content-gutter: 1rem;
+    /* Right-side clearance every main content view reserves for the alphabet
+       rail (1.75rem) + its 1rem gap — also on views without a rail, so the
+       content column sits at the same x on every view. */
+    --app-rail-clearance: 2.75rem;
 }
 
 /* Dark mode overrides. Only the colour tokens change; dimensions are inherited

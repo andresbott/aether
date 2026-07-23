@@ -6,9 +6,11 @@ import AppSidebar from '@/components/layout/AppSidebar.vue'
 import PlayerControls from '@/components/layout/PlayerControls.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
 import { useUiStore } from '@/store/uiStore'
+import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 
 const uiStore = useUiStore()
 const route = useRoute()
+const scrollbarWidth = useScrollbarWidth()
 
 onMounted(() => {
     uiStore.checkScreenWidth()
@@ -25,7 +27,7 @@ onUnmounted(() => {
         <div class="body-row">
             <AppSidebar />
 
-            <div class="content-area">
+            <div class="content-area" :style="{ '--sb-w': scrollbarWidth + 'px' }">
                 <main
                     class="main-content"
                     :class="{ 'main-content--flush': route.meta.flush }"
