@@ -179,12 +179,10 @@ const toggleLike = () => {
 <style scoped>
 .song-detail {
     width: 100%;
-    max-width: 1000px;
     margin: 0 auto;
 }
 
 .song-detail--card {
-    max-width: 1100px;
     background: var(--app-surface);
     border: 1px solid var(--app-border);
     border-radius: 12px;

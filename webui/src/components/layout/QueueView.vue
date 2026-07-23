@@ -101,9 +101,8 @@ const summary = computed(() => {
     width: 100%;
 }
 
-/* The scaffold body has a 2rem left gutter but no right padding; keep the
-   queue's scrollbar flush right (the content centers itself on an 1100px
-   column inside QueueBody). */
+/* The scaffold body is full-width; QueueBody centers its content on the shared
+   content column and keeps the queue's scrollbar flush right. */
 .queue-view :deep(.content-scaffold-body) {
     display: flex;
     flex-direction: column;

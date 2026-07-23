@@ -226,18 +226,23 @@ onMounted(() => scrollCurrentIntoView('center'))
     scrollbar-gutter: stable;
 }
 
-/* In the full (Now Playing) view the scrollable area spans the scaffold body's
-   full width so the scrollbar sits flush right; the content itself is a
-   narrower 1100px centered column with its own horizontal gutter. */
+/* Recipe B: the full (Now Playing) scroll area reserves the uniform rail
+   clearance on the right; blocks center on the shared content column. The
+   sidebar variant is side-panel chrome and stays untouched. */
+.queue-body--full {
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+}
+
 .queue-body--full .queue-history,
 .queue-body--full .current-block,
-.queue-body--full .queue-upcoming {
-    max-width: 1100px;
+.queue-body--full .queue-upcoming,
+.queue-body--full :deep(.queue-edit-list) {
     width: 100%;
+    max-width: calc(var(--app-content-max-width) + 2 * var(--app-content-gutter));
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding-left: var(--app-content-gutter);
+    padding-right: var(--app-content-gutter);
     box-sizing: border-box;
 }
 
