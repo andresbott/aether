@@ -13,7 +13,6 @@ import { useGenreSongsTable, GENRE_SONG_PAGE_SIZE } from '@/composables/useGenre
 import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
-import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
@@ -25,7 +24,6 @@ const router = useRouter()
 const player = usePlayer()
 const updateCover = useUpdateGenreCover()
 const songsDrag = useSongsDrag()
-const scrollbarWidth = useScrollbarWidth()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
 
 const { data: genres, isLoading, error } = useGenres()
@@ -233,50 +231,54 @@ watch(
                 />
             </template>
 
-            <div class="genre-body" :style="{ '--sb-w': scrollbarWidth + 'px' }">
+            <div class="genre-body">
                 <div class="genre-hero">
-                    <HeroHeader
-                        eyebrow="Genre"
-                        cover-placeholder-icon="pi pi-tags"
-                        cover-back-label="Genre image"
-                        :cover-url="coverUrl"
-                        :cover-size-error="coverSizeError"
-                        v-model:editing="editing"
-                        @cover-select="onCoverSelect"
-                        @cover-remove="onRemoveCover"
-                    >
-                        <template #read>
-                            <h2 class="hero-name">{{ genre.value }}</h2>
-                            <div v-if="heroMeta.length" class="meta-row">
-                                <span
-                                    v-for="(part, i) in heroMeta"
-                                    :key="part"
-                                    :class="{ dot: i > 0 }"
-                                    >{{ part }}</span
-                                >
-                            </div>
-                        </template>
-                        <template #actions>
-                            <HeroActions
-                                :play-disabled="songTotal === 0"
-                                can-queue
-                                :busy="gathering"
-                                @play="onPlay"
-                                @queue="onQueue"
-                            />
-                        </template>
-                    </HeroHeader>
+                    <div class="genre-hero-inner content-col">
+                        <HeroHeader
+                            eyebrow="Genre"
+                            cover-placeholder-icon="pi pi-tags"
+                            cover-back-label="Genre image"
+                            :cover-url="coverUrl"
+                            :cover-size-error="coverSizeError"
+                            v-model:editing="editing"
+                            @cover-select="onCoverSelect"
+                            @cover-remove="onRemoveCover"
+                        >
+                            <template #read>
+                                <h2 class="hero-name">{{ genre.value }}</h2>
+                                <div v-if="heroMeta.length" class="meta-row">
+                                    <span
+                                        v-for="(part, i) in heroMeta"
+                                        :key="part"
+                                        :class="{ dot: i > 0 }"
+                                        >{{ part }}</span
+                                    >
+                                </div>
+                            </template>
+                            <template #actions>
+                                <HeroActions
+                                    :play-disabled="songTotal === 0"
+                                    can-queue
+                                    :busy="gathering"
+                                    @play="onPlay"
+                                    @queue="onQueue"
+                                />
+                            </template>
+                        </HeroHeader>
+                    </div>
                 </div>
 
                 <div v-if="songTotal > 0" class="track-list">
                     <div class="track-list-header">
-                        <span class="col-cover"></span>
-                        <span class="col-title">Title</span>
-                        <span class="col-artist">Artist</span>
-                        <span class="col-album">Album</span>
-                        <span class="col-duration" aria-label="Duration">
-                            <i class="pi pi-clock"></i>
-                        </span>
+                        <div class="track-list-header-row">
+                            <span class="col-cover"></span>
+                            <span class="col-title">Title</span>
+                            <span class="col-artist">Artist</span>
+                            <span class="col-album">Album</span>
+                            <span class="col-duration" aria-label="Duration">
+                                <i class="pi pi-clock"></i>
+                            </span>
+                        </div>
                     </div>
                     <VirtualScroller
                         :items="items"
@@ -335,13 +337,15 @@ watch(
     min-height: 0;
 }
 
+/* Recipe A: the hero is a fixed frame above the scrolling track list. */
 .genre-hero {
     flex-shrink: 0;
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem 1rem 0;
-    width: 100%;
     box-sizing: border-box;
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
+}
+
+.genre-hero-inner {
+    padding-top: 1rem;
 }
 
 .track-list {
@@ -355,23 +359,24 @@ watch(
 }
 
 .track-list-header {
+    box-sizing: border-box;
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
+}
+
+.track-list-header-row {
     display: grid;
     grid-template-columns: var(--genre-track-cols);
     column-gap: 0.75rem;
     padding: 0 0.5rem 0.4rem;
     border-bottom: 1px solid var(--app-border);
-    margin-bottom: 0.25rem;
+    margin: 0 auto 0.25rem;
+    max-width: var(--app-content-max-width);
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--app-text-secondary);
-    max-width: var(--app-content-max-width);
-    margin-left: auto;
-    margin-right: auto;
-    width: 100%;
-    box-sizing: border-box;
-    padding-right: calc(0.5rem + var(--sb-w, 0px));
 }
 
 .track-list-header .col-duration {
@@ -383,6 +388,12 @@ watch(
     min-height: 0;
     width: 100%;
     scrollbar-gutter: stable;
+}
+
+.track-list :deep(.p-virtualscroller-content) {
+    box-sizing: border-box;
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 /* Center the rows in the shared content column; the scroller stays full width

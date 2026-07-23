@@ -88,7 +88,7 @@ const handleCreate = () => {
 
             <template v-else-if="playlists && playlists.length > 0">
                 <PlaylistListView v-if="layout === 'list'" :playlists="playlists" />
-                <div v-else class="playlist-grid">
+                <div v-else class="playlist-grid content-col">
                     <PlaylistCard v-for="pl in playlists" :key="pl.id" :playlist="pl" />
                 </div>
             </template>
@@ -122,9 +122,15 @@ const handleCreate = () => {
 </template>
 
 <style scoped>
-.playlists-scroll { height: 100%; overflow-y: auto; scrollbar-gutter: stable; }
+.playlists-scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
+}
 .loading { display: flex; justify-content: center; padding: 3rem; color: var(--app-text-secondary); }
-.playlist-grid { max-width: var(--app-content-max-width); margin: 0 auto; padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
+.playlist-grid { padding-top: 1rem; padding-bottom: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2rem; }
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 4rem; gap: 1rem; color: var(--app-text-secondary); }
 .create-form { padding: 1rem 0; }
 </style>

@@ -172,7 +172,7 @@ watch(songs, () => clearSelection())
                     <p>No results found</p>
                 </div>
 
-                <div v-else class="search-content">
+                <div v-else class="search-content content-col">
                     <section v-if="artists.length > 0" class="result-section">
                         <h2 class="section-label">Artists</h2>
                         <div v-if="layout === 'grid'" class="artist-grid">
@@ -241,6 +241,8 @@ watch(songs, () => clearSelection())
     width: 100%;
     box-sizing: border-box;
     padding: 2rem 1rem 1.25rem;
+    /* Recipe A: center the search box on the same axis as the content column. */
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + 1rem);
 }
 
 .search-input-wrapper {
@@ -289,6 +291,8 @@ watch(songs, () => clearSelection())
     min-height: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 
 .state-message {
@@ -303,9 +307,8 @@ watch(songs, () => clearSelection())
 }
 
 .search-content {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
     display: flex;
     flex-direction: column;
     gap: 2rem;
