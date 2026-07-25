@@ -1,0 +1,42 @@
+# Aether server configuration (package defaults).
+#
+# Loaded automatically from /etc/aether/config.yaml. Every value can also be set
+# via environment variables prefixed with AETHER_ (e.g. AETHER_SERVER_PORT=8080),
+# which take precedence over this file.
+#
+# This file is marked as a dpkg conffile: your edits survive package upgrades.
+
+Server:
+  Port: 8075
+  # Bind address. Empty means all interfaces. Set to 127.0.0.1 when a reverse
+  # proxy (nginx/Traefik/Caddy, optionally with Authelia) fronts the server.
+  BindIp: ""
+
+# Observability endpoints (health, metrics). Keep this off the public interface.
+Observability:
+  Port: 9009
+  BindIp: "127.0.0.1"
+
+# Database, cached artwork and task logs live here. Owned by the aether user.
+DataDir: "/var/lib/aether"
+
+Env:
+  LogLevel: "info"
+  Production: true
+
+TaskRunner:
+  Parallelism: 2
+  QueueSize: 20
+  HistorySize: 50
+  # 0 -> derived from the CPU count.
+  TagReadWorkers: 0
+  # Per-execution task logs. Empty -> <DataDir>/task-logs.
+  LogDir: ""
+
+# Artist image fetching. Provide at least one provider API key to enable it;
+# with both empty the "fetch-artist-images" task reports "not configured".
+# A value starting with "@" is read from that file's content, e.g.
+# "@/etc/aether/fanart.api.key" — keeps the key out of this world-readable file.
+ArtistImages:
+  FanartApiKey: ""
+  TheAudioDBApiKey: ""

@@ -21,7 +21,7 @@ func TestArtistImagesKeyLoadedFromFileAndTrimmed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := getAppCfg(cfgFile)
+	cfg, err := getAppCfg(cfgFile, true)
 	if err != nil {
 		t.Fatalf("getAppCfg: %v", err)
 	}

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -56,6 +57,31 @@ type Msg struct {
 
 const EnvBarPrefix = "AETHER"
 
+// configSearchPaths is where the config file is looked up when no -c flag is
+// given, in order of precedence: the working directory (development, `make
+// run`) then the packaged location used by the deb + systemd unit. Missing
+// files are skipped; if none exist the built-in defaults apply.
+var configSearchPaths = []string{
+	"./config.yaml",
+	"/etc/aether/config.yaml",
+}
+
+// resolveConfigFile decides which config file to load. An explicit flag value
+// is mandatory — a typo must fail loudly rather than silently fall back to
+// defaults. Without a flag the search paths are probed and the first existing
+// one wins; an empty return means "no config file, use defaults only".
+func resolveConfigFile(flagValue string, searchPaths []string) (path string, mandatory bool) {
+	if flagValue != "" {
+		return flagValue, true
+	}
+	for _, p := range searchPaths {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p, false
+		}
+	}
+	return "", false
+}
+
 var defaultCfg = AppCfg{
 	DataDir: "./data",
 	Server: serverCfg{
@@ -82,13 +108,19 @@ var defaultCfg = AppCfg{
 	},
 }
 
-func getAppCfg(file string) (AppCfg, error) {
+// getAppCfg loads the configuration. An empty file means "defaults + env only".
+// mandatory makes a missing file an error — used when the path came from -c.
+func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 	configMsg := []Msg{}
 	cfg := AppCfg{}
-	_, err := config.Load(
+	opts := []any{
 		config.Defaults{Item: defaultCfg},
 		config.EnvFile{Path: ".env", Mandatory: false},
-		config.CfgFile{Path: file, Mandatory: false},
+	}
+	if file != "" {
+		opts = append(opts, config.CfgFile{Path: file, Mandatory: mandatory})
+	}
+	opts = append(opts,
 		config.EnvVar{Prefix: EnvBarPrefix},
 		config.Unmarshal{Item: &cfg},
 		config.Writer{Fn: func(level, msg string) {
@@ -100,6 +132,7 @@ func getAppCfg(file string) (AppCfg, error) {
 			}
 		}},
 	)
+	_, err := config.Load(opts...)
 	cfg.Msgs = configMsg
 	if err != nil {
 		return cfg, err

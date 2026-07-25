@@ -37,7 +37,7 @@ import (
 const dbFile = "aether.db"
 
 func serverCmd() *cobra.Command {
-	var configFile = "./config.yaml"
+	var configFile string
 	cmd := &cobra.Command{
 		Use:   "start",
 		Short: "start the aether server",
@@ -45,12 +45,14 @@ func serverCmd() *cobra.Command {
 			return runServer(configFile)
 		},
 	}
-	cmd.Flags().StringVarP(&configFile, "config", "c", configFile, "config file")
+	cmd.Flags().StringVarP(&configFile, "config", "c", "",
+		"config file; default: ./config.yaml then /etc/aether/config.yaml")
 	return cmd
 }
 
 func runServer(configFile string) error {
-	cfg, err := getAppCfg(configFile)
+	path, mandatory := resolveConfigFile(configFile, configSearchPaths)
+	cfg, err := getAppCfg(path, mandatory)
 	if err != nil {
 		return err
 	}
