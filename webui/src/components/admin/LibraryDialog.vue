@@ -8,6 +8,7 @@ import Textarea from 'primevue/textarea'
 import Dropdown from 'primevue/dropdown'
 import Message from 'primevue/message'
 import FolderPickerDialog from './FolderPickerDialog.vue'
+import IconSelect from '@/components/common/IconSelect.vue'
 import type { Library, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
@@ -29,6 +30,7 @@ interface FormState {
     follow_symlinks: boolean
     show_artists: boolean
     default_view: 'albums' | 'artists'
+    icon: string
 }
 
 function emptyForm(): FormState {
@@ -38,7 +40,8 @@ function emptyForm(): FormState {
         excludesText: '',
         follow_symlinks: true,
         show_artists: true,
-        default_view: 'albums'
+        default_view: 'albums',
+        icon: 'folder'
     }
 }
 
@@ -58,7 +61,8 @@ watch(
                 excludesText: (lib.exclude_patterns ?? []).join('\n'),
                 follow_symlinks: lib.follow_symlinks,
                 show_artists: lib.show_artists,
-                default_view: lib.default_view
+                default_view: lib.default_view,
+                icon: lib.icon || 'folder'
             }
             initialPath.value = lib.path
         } else {
@@ -83,7 +87,8 @@ function buildInput(): LibraryInput {
         exclude_patterns: excludes,
         follow_symlinks: form.value.follow_symlinks,
         show_artists: form.value.show_artists,
-        default_view: form.value.default_view
+        default_view: form.value.default_view,
+        icon: form.value.icon
     }
 }
 
@@ -143,6 +148,9 @@ const defaultViewOptions = [
                 optionLabel="label"
                 optionValue="value"
             />
+
+            <label>Icon</label>
+            <IconSelect v-model="form.icon" />
 
             <label>Exclude patterns</label>
             <Textarea

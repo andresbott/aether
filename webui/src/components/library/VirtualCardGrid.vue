@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import VirtualScroller from 'primevue/virtualscroller'
 import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
-import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import type { AlbumLetter } from '@/types/subsonic'
 import {
     chunkRows,
@@ -31,7 +30,6 @@ defineSlots<{ card(props: { item: T | undefined }): unknown }>()
 
 const INFO_HEIGHT_ESTIMATE = 56
 
-const scrollbarWidth = useScrollbarWidth()
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 const gridRoot = ref<HTMLElement | null>(null)
 const sizer = ref<HTMLElement | null>(null)
@@ -133,7 +131,7 @@ watch(
 </script>
 
 <template>
-    <div ref="gridRoot" class="card-grid" :style="{ '--sb-w': scrollbarWidth + 'px' }">
+    <div ref="gridRoot" class="card-grid">
         <div class="grid-sizer" aria-hidden="true">
             <div ref="sizer" class="grid-sizer-inner"></div>
         </div>
@@ -180,7 +178,8 @@ watch(
     overflow: hidden;
     pointer-events: none;
     box-sizing: border-box;
-    padding-right: calc(2.75rem + 2 * var(--sb-w, 0px));
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .grid-sizer-inner {
@@ -194,11 +193,13 @@ watch(
     scrollbar-gutter: stable;
 }
 
-/* Reserve rail clearance (rail 1.75rem + 1rem gap + scrollbar) so centered rows never
-   slide under the rail; border-box keeps the min-width:100% content wrapper from overflowing. */
+/* Recipe C: rail clearance + shared gutter on the scroll content so centered
+   rows never slide under the rail; border-box keeps the min-width:100% content
+   wrapper from overflowing. */
 .card-grid :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
-    padding-right: calc(2.75rem + var(--sb-w, 0px));
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 /* Center each row in the shared content column; the scroller stays full width so its

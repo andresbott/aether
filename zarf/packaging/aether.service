@@ -1,0 +1,44 @@
+[Unit]
+Description=Aether music server
+Documentation=https://github.com/andresbott/aether
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aether
+Group=aether
+ExecStart=/usr/bin/aether start --config /etc/aether/config.yaml
+Restart=on-failure
+RestartSec=5s
+
+# WorkingDirectory matters: DataDir and the "@<file>" API-key syntax resolve
+# relative paths against it. /var/lib/aether keeps a relative config working.
+WorkingDirectory=/var/lib/aether
+
+# Hardening. ReadWritePaths is deliberately narrow — the music library itself is
+# only ever read, except by the metadata editor, which writes tags back to the
+# audio files. If you use it, add your library root to ReadWritePaths via a
+# drop-in: systemctl edit aether.service
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/var/lib/aether
+
+[Install]
+WantedBy=multi-user.target

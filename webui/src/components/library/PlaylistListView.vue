@@ -20,7 +20,7 @@ const play = async (event: Event, id: string): Promise<void> => {
 </script>
 
 <template>
-    <div class="playlist-list">
+    <div class="playlist-list content-col">
         <div class="list-header">
             <span class="col-cover"></span>
             <span class="col-name">Playlist</span>
@@ -49,7 +49,7 @@ const play = async (event: Event, id: string): Promise<void> => {
 </template>
 
 <style scoped>
-.playlist-list { max-width: var(--app-content-max-width); margin: 0 auto; padding: 0 0.5rem; }
+.playlist-list { padding-top: 0; padding-bottom: 0; }
 .list-header, .playlist-row { display: grid; grid-template-columns: 48px 1fr 4rem 3rem; align-items: center; gap: 1rem; padding: 0 0.5rem; }
 .list-header { height: 36px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--app-text-secondary); border-bottom: 1px solid var(--p-content-border-color); }
 .list-header .col-count { text-align: right; }

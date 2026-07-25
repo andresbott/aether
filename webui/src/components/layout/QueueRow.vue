@@ -11,6 +11,10 @@ const props = defineProps<{
     selected?: boolean
     current?: boolean
     deleteLabel?: string
+    // Lay the artist out as its own column beside the title instead of
+    // stacked under it (used by the full Now Playing view; the sidebar
+    // keeps the compact stacked layout).
+    artistColumn?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -74,7 +78,7 @@ const onRowClick = (event: MouseEvent): void => {
             <img v-if="coverUrl" :src="coverUrl" alt="" />
             <i v-else class="pi pi-music"></i>
         </span>
-        <span class="row-info">
+        <span class="row-info" :class="{ 'row-info--columns': artistColumn }">
             <span class="row-title">{{ song.title }}</span>
             <span class="row-artist">{{ song.artist || 'Unknown' }}</span>
         </span>
@@ -112,7 +116,7 @@ const onRowClick = (event: MouseEvent): void => {
             <img v-if="coverUrl" :src="coverUrl" alt="" />
             <i v-else class="pi pi-music"></i>
         </span>
-        <span class="row-info">
+        <span class="row-info" :class="{ 'row-info--columns': artistColumn }">
             <span class="row-title">{{ song.title }}</span>
             <span class="row-artist">{{ song.artist || 'Unknown' }}</span>
         </span>
@@ -219,6 +223,25 @@ const onRowClick = (event: MouseEvent): void => {
     flex: 1;
     display: flex;
     flex-direction: column;
+}
+
+/* Column layout (full Now Playing view): the artist sits in its own column
+   beside the title instead of stacked under it. */
+.row-info--columns {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.row-info--columns .row-title {
+    flex: 2.4;
+    min-width: 0;
+}
+
+.row-info--columns .row-artist {
+    flex: 1.4;
+    min-width: 0;
+    font-size: 0.85rem;
 }
 
 .row-title {

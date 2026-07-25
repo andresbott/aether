@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import InputText from 'primevue/inputtext'
 import Checkbox from 'primevue/checkbox'
@@ -9,9 +9,11 @@ import ArtistCard from '@/components/library/ArtistCard.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import ArtistRow from '@/components/library/ArtistRow.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
+import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
 import { useSearch } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
-import { subsonicClient } from '@/lib/api/subsonic'
+import { useSongsDrag } from '@/composables/useSongsDrag'
+import { useRowSelection } from '@/composables/useRowSelection'
 import type { Album, Artist, Song } from '@/types/subsonic'
 
 type Layout = 'grid' | 'list'
@@ -19,7 +21,9 @@ type Layout = 'grid' | 'list'
 const route = useRoute()
 const router = useRouter()
 
-const { playNow } = usePlayer()
+const player = usePlayer()
+const songsDrag = useSongsDrag()
+const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
 
 const query = ref('')
 
@@ -84,17 +88,22 @@ const summary = computed(() => {
     return parts.join(' • ')
 })
 
-function getCoverUrl(id: string | undefined): string | null {
-    if (!id) return null
-    return subsonicClient.getCoverArtUrl(id, 48)
+// --- Song results (album-style rows with a cover column, as in the playlist view) ---
+const playFrom = (index: number): void => {
+    player.playAlbum(songs.value, index)
 }
 
-function formatDuration(seconds?: number): string {
-    if (!seconds) return ''
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
+// A drag from a selected row carries the whole selection; from an unselected
+// row it carries just that row.
+const onRowDragStart = (event: DragEvent, index: number): void => {
+    const dragSongs = selectionForDrag(index)
+        .map((i) => songs.value[i])
+        .filter((s): s is Song => s !== undefined)
+    songsDrag.start(event, dragSongs, event.currentTarget as HTMLElement)
 }
+
+// Selection indices point into the result list — drop them when it changes.
+watch(songs, () => clearSelection())
 </script>
 
 <template>
@@ -163,7 +172,7 @@ function formatDuration(seconds?: number): string {
                     <p>No results found</p>
                 </div>
 
-                <div v-else class="search-content">
+                <div v-else class="search-content content-col">
                     <section v-if="artists.length > 0" class="result-section">
                         <h2 class="section-label">Artists</h2>
                         <div v-if="layout === 'grid'" class="artist-grid">
@@ -186,24 +195,27 @@ function formatDuration(seconds?: number): string {
 
                     <section v-if="songs.length > 0" class="result-section">
                         <h2 class="section-label">Songs</h2>
-                        <div class="song-list">
-                            <button
-                                v-for="song in songs"
+                        <div class="track-list">
+                            <div class="track-list-header">
+                                <span class="col-cover"></span>
+                                <span class="col-title">Title</span>
+                                <span class="col-artist">Artist</span>
+                                <span class="col-album">Album</span>
+                                <span class="col-duration" aria-label="Duration">
+                                    <i class="pi pi-clock"></i>
+                                </span>
+                            </div>
+                            <GenreTrackRow
+                                v-for="(song, index) in songs"
                                 :key="song.id"
-                                type="button"
-                                class="song-row"
-                                @click="playNow(song)"
-                            >
-                                <span class="song-cover">
-                                    <img v-if="getCoverUrl(song.coverArt)" :src="getCoverUrl(song.coverArt)!" alt="" />
-                                    <i v-else class="pi pi-play"></i>
-                                </span>
-                                <span class="song-info">
-                                    <span class="song-title">{{ song.title }}</span>
-                                    <span class="song-artist">{{ song.artist || 'Unknown' }}</span>
-                                </span>
-                                <span class="song-duration">{{ formatDuration(song.duration) }}</span>
-                            </button>
+                                :song="song"
+                                :index="index"
+                                :selected="isSelected(index)"
+                                @select="(p) => onRowClick(index, p)"
+                                @play="playFrom(index)"
+                                @dragstart="(e) => onRowDragStart(e, index)"
+                                @dragend="songsDrag.end"
+                            />
                         </div>
                     </section>
                 </div>
@@ -228,7 +240,9 @@ function formatDuration(seconds?: number): string {
     gap: 0.9rem;
     width: 100%;
     box-sizing: border-box;
-    padding: 2rem 1rem 1.25rem;
+    padding: 2rem var(--app-content-gutter) 1.25rem;
+    /* Recipe A: center the search box on the same axis as the content column. */
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .search-input-wrapper {
@@ -277,6 +291,8 @@ function formatDuration(seconds?: number): string {
     min-height: 0;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 
 .state-message {
@@ -291,9 +307,8 @@ function formatDuration(seconds?: number): string {
 }
 
 .search-content {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
     display: flex;
     flex-direction: column;
     gap: 2rem;
@@ -320,79 +335,29 @@ function formatDuration(seconds?: number): string {
     flex-direction: column;
 }
 
-.song-list {
+.track-list {
+    /* Shared grid template so the header and every row (GenreTrackRow) align.
+       Custom properties inherit through the DOM regardless of scoped styles. */
+    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 62px;
     display: flex;
     flex-direction: column;
 }
 
-.song-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem;
-    border: none;
-    background: none;
-    cursor: pointer;
-    text-align: left;
-    border-radius: 6px;
-    transition: background-color 0.15s;
-}
-
-.song-row:hover {
-    background-color: var(--app-background);
-}
-
-.song-cover {
-    width: 40px;
-    height: 40px;
-    flex-shrink: 0;
-    border-radius: 4px;
-    overflow: hidden;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.song-cover img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.song-cover i {
-    font-size: 0.9rem;
-    color: rgba(255, 255, 255, 0.85);
-}
-
-.song-info {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-}
-
-.song-title {
-    font-size: 0.9rem;
-    font-weight: 500;
-    color: var(--app-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.song-artist {
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--genre-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
     font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     color: var(--app-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
-.song-duration {
-    font-size: 0.75rem;
-    color: var(--app-text-secondary);
-    flex-shrink: 0;
+.track-list-header .col-duration {
+    text-align: right;
 }
 </style>

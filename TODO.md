@@ -20,6 +20,7 @@
 
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.)
 - [ ] Transcoding — identify formats browsers can't play natively and add FFmpeg transcoding
+- [ ] CUE sheet support — single audio file + `.cue` sidecar (DJ mixes, EAC FLAC/APE rips) exposed as regular per-track albums with seamless web-UI playback; virtual tracks (file + time region), scanner pairing, ffmpeg remux slicing for third-party clients, OpenSubsonic extension for region offsets. Full assessment: `docs/cue-playing.md`
 - [ ] setRating persistence — add rating column to tracks/albums when needed (handler exists in annotation.go but no rating column yet, so not persisted)
 - [x] ~~`getStarred` — folder-based starred list~~ — done as `getStarred2` (`lists.go:108`, backed by `store.GetStarred` with library filter); single-user so no `user_id` yet
 - [ ] getArtistInfo / getAlbumInfo — external metadata (MusicBrainz bios, similar artists)
@@ -52,7 +53,6 @@
   - [ ] Star/unstar toggle on track rows (album view and queue)
   - [ ] Starred indicator on album grid cards in library view
   - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
-- [ ] Songs tab in Library — fetch and display all songs
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
       (partial: Library now has an Artists tab with grid and virtualized list views + alphabet rail — `ArtistGrid`/`ArtistListView` — but it's still rows of artists that navigate to `ArtistView`, not the grouped artist-header + albums layout)
 - [ ] Spotify-style hover selection in song list — on row hover, show a checkbox next to the duration for multi-select
@@ -61,7 +61,7 @@
 - [x] ~~Improve CRUD and views of playlists (check if playlist is part of the OpenSubsonic API)~~ — full playlist CRUD implemented under `/rest/` (get/create/update/delete + cover upload) with reworked `PlaylistsView`/`PlaylistDetailView` (inline rename, batched track edit; see `2026-07-15-playlist-ui-rework` plan)
 - [ ] Better genre handling
 - [x] ~~Remove podcast placeholder~~ — no podcast references remain anywhere in `webui/src`
-- [ ] Custom icons for libraries
+
 
 ## Frontend — Player & Controls
 
@@ -75,8 +75,7 @@
 
 - [ ] Create an app icon / logo — favicon, PWA icons (various sizes), and a wordmark for the topbar
 - [ ] Improve icon theme
-- [ ] Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared scaffold component (spec: `docs/superpowers/specs/2026-07-02-library-scaffold-and-artist-list-design.md`).
-      (partial: the scaffold half is done — `LibraryScaffold` became `ContentScaffold` in `components/layout/` and is the canonical content header per `docs/architecture/main-content-view-layout.md`. QueueView still carries its bespoke `.queue-view-header` copy that mirrors ContentScaffold's styles; the refactor of QueueView itself remains.)
+- [x] ~~Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared scaffold component~~ — done: the full variant renders `ContentScaffold`; the sidebar variant keeps its compact side-panel header. Body extracted to `QueueBody.vue`, shared actions to `QueueHeaderActions.vue`.
 
 ## Metadata & External Integrations
 

@@ -37,4 +37,12 @@ describe('ContentScaffold', () => {
         await w.find('.scaffold-back').trigger('click')
         expect(w.emitted('back')).toHaveLength(1)
     })
+
+    it('centers the header on the shared content column', () => {
+        const w = mount(ContentScaffold, { props: { title: 'Library' } })
+        const inner = w.find('.content-scaffold-header .scaffold-header-inner')
+        expect(inner.exists()).toBe(true)
+        expect(inner.classes()).toContain('content-col')
+        expect(inner.find('h1').text()).toBe('Library')
+    })
 })

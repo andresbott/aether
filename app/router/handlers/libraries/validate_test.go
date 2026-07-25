@@ -48,7 +48,7 @@ func TestValidateDefaultView(t *testing.T) {
 		in string
 		ok bool
 	}{
-		{"", true},        // empty coerced to default by caller
+		{"", true}, // empty coerced to default by caller
 		{"albums", true},
 		{"artists", true},
 		{"songs", false},
@@ -57,6 +57,31 @@ func TestValidateDefaultView(t *testing.T) {
 	}
 	for _, c := range cases {
 		err := validateDefaultView(c.in)
+		gotOK := err == nil
+		if gotOK != c.ok {
+			t.Errorf("%q: expected ok=%v, got err=%v", c.in, c.ok, err)
+		}
+	}
+}
+
+func TestValidateIcon(t *testing.T) {
+	cases := []struct {
+		in string
+		ok bool
+	}{
+		{"", true}, // empty coerced to default by caller
+		{"folder", true},
+		{"folder-open", true},
+		{"th-large", true},
+		{"Folder", false}, // case-sensitive
+		{"folder!", false},
+		{"folder open", false},
+		{"-folder", false},
+		{"folder-", false},
+		{strings.Repeat("a", 101), false},
+	}
+	for _, c := range cases {
+		err := validateIcon(c.in)
 		gotOK := err == nil
 		if gotOK != c.ok {
 			t.Errorf("%q: expected ok=%v, got err=%v", c.in, c.ok, err)

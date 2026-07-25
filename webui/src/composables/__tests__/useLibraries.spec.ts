@@ -29,6 +29,7 @@ function sampleLibrary(): Library {
         follow_symlinks: true,
         show_artists: true,
         default_view: 'artists',
+        icon: 'folder',
         last_scan_started_at: null,
         created_at: '',
         updated_at: '',
@@ -42,7 +43,8 @@ const sampleInput: LibraryInput = {
     exclude_patterns: [],
     follow_symlinks: true,
     show_artists: true,
-    default_view: 'artists'
+    default_view: 'artists',
+    icon: 'folder'
 }
 
 /** Mounts a mutation composable inside a real vue-query context and returns the mutation + the invalidate spy. */

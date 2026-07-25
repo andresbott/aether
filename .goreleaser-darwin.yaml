@@ -20,8 +20,9 @@ builds:
       - -X github.com/andresbott/aether/app/metainfo.BuildTime={{.Date}}
       - -X github.com/andresbott/aether/app/metainfo.ShaVer={{.Commit}}
     binary: aether
+    # Pure Go — see .goreleaser.yaml for why CGO is not needed.
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
 
 archives:
   - formats: [zip]

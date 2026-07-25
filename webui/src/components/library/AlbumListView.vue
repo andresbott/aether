@@ -5,14 +5,12 @@ import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import { useAlbumTable, ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
-import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 
 const props = defineProps<{ folderId?: number }>()
 
 const { total, letters, items, isLoading, error, ensureRange } = useAlbumTable(
     toRef(props, 'folderId')
 )
-const scrollbarWidth = useScrollbarWidth()
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onLazyLoad(event: VirtualScrollerLazyEvent): void {
@@ -26,7 +24,7 @@ function onSelectLetter(offset: number): void {
 </script>
 
 <template>
-    <div class="album-list-view" :style="{ '--sb-w': scrollbarWidth + 'px' }">
+    <div class="album-list-view">
         <div v-if="isLoading" class="loading">
             <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         </div>
@@ -82,7 +80,8 @@ function onSelectLetter(offset: number): void {
 .list-header {
     flex-shrink: 0;
     box-sizing: border-box;
-    padding-right: calc(2.75rem + var(--sb-w, 0px));
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 .header-row {
@@ -125,12 +124,12 @@ function onSelectLetter(offset: number): void {
     background: var(--app-bg, transparent);
 }
 
-/* Reserve rail clearance (rail 1.75rem + 1rem gap + scrollbar) on the scroll
-   content so centered rows never slide under the rail. border-box keeps the
-   min-width:100% content wrapper from overflowing once padded. */
+/* Recipe C: rail clearance + shared gutter on the scroll content so centered
+   rows never slide under the rail and keep a gutter at narrow widths. */
 .list-body :deep(.p-virtualscroller-content) {
     box-sizing: border-box;
-    padding-right: calc(2.75rem + var(--sb-w, 0px));
+    padding-left: var(--app-content-gutter);
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
 /* Center the rows in the shared content column to match the album/artist grid;

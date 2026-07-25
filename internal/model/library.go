@@ -14,6 +14,7 @@ type Library struct {
 	// yields false) and lets SQLite ALTER TABLE add the NOT NULL column.
 	HideArtists       bool   `gorm:"not null;default:false"`
 	DefaultView       string `gorm:"not null;default:'albums'"` // "albums" | "artists"
+	Icon              string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
 	LastScanStartedAt *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time

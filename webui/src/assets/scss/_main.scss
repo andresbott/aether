@@ -66,16 +66,29 @@ a:hover {
     color: var(--app-accent-hover);
 }
 
-/* Confirmation dialogs read confirm | cancel (confirm on the left). PrimeVue
-   renders reject (Cancel) then accept, so reverse the footer visually. This is
-   visual-only; keyboard focus order still reaches Cancel first — the safer
-   default focus for a destructive action. Single source of truth for the order;
-   see docs/architecture/unified-edit-experience.md. */
-.p-confirmdialog .p-dialog-footer {
+/* Dialog footers read confirm | cancel (confirm on the left, Cancel rightmost).
+   PrimeVue and our dialog markup put Cancel first in the DOM, so reverse the
+   footer visually. This is visual-only; keyboard focus order still reaches
+   Cancel first — the safer default focus. Single source of truth for the order;
+   see docs/architecture/unified-edit-experience.md. Footers with extra buttons
+   (e.g. a destructive action pinned far left via a spacer) must author their
+   DOM in reverse. */
+.p-dialog .p-dialog-footer {
     display: flex;
     flex-direction: row-reverse;
     /* The theme right-aligns the footer with justify-content: flex-end; under
        row-reverse that would pack the reversed pair to the LEFT. flex-start
        points right in a reversed row, so it keeps the group flush right. */
     justify-content: flex-start;
+}
+
+/* Shared centered content column for main content views. Content inside is at
+   most --app-content-max-width wide; the gutter keeps it off the edges when
+   the pane is narrower. See docs/architecture/main-content-view-layout.md. */
+.content-col {
+    width: 100%;
+    max-width: calc(var(--app-content-max-width) + 2 * var(--app-content-gutter));
+    margin-inline: auto;
+    padding-inline: var(--app-content-gutter);
+    box-sizing: border-box;
 }

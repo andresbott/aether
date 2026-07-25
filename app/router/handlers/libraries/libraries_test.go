@@ -136,6 +136,77 @@ func TestCreateLibraryDuplicate(t *testing.T) {
 	}
 }
 
+func TestCreateLibraryIcon(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `","icon":"headphones"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["icon"] != "headphones" {
+		t.Fatalf("expected icon=headphones, got %v", got["icon"])
+	}
+}
+
+func TestCreateLibraryIconDefaultsToFolder(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["icon"] != "folder" {
+		t.Fatalf("expected icon=folder, got %v", got["icon"])
+	}
+}
+
+func TestCreateLibraryBadIcon(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `","icon":"not a valid icon!"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateLibraryIcon(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	dir := t.TempDir()
+	lib := &model.Library{Name: "A", Path: dir, Icon: "folder"}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"A","path":"` + dir + `","icon":"heart"}`
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["icon"] != "heart" {
+		t.Fatalf("expected icon=heart, got %v", got["icon"])
+	}
+}
+
 func TestUpdateLibraryRename(t *testing.T) {
 	_, s, r := newTestHandler(t)
 	dir := t.TempDir()

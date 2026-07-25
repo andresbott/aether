@@ -10,6 +10,7 @@ import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
+import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
@@ -18,6 +19,8 @@ import {
     useReplacePlaylistTracks
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+import { useSongsDrag } from '@/composables/useSongsDrag'
+import { useRowSelection } from '@/composables/useRowSelection'
 import { reorderQueue } from '@/utils/queueReorder'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
@@ -28,6 +31,8 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const player = usePlayer()
 const toast = useToast()
+const songsDrag = useSongsDrag()
+const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
 
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
 const updatePlaylist = useUpdatePlaylist()
@@ -35,13 +40,13 @@ const updateCover = useUpdatePlaylistCover()
 const deletePlaylist = useDeletePlaylist()
 const replaceTracks = useReplacePlaylistTracks()
 
-// Hero edit mode (name + description + cover). Track reordering stays always-on.
+// Edit mode covers the hero (name + description + cover) and the track list,
+// which swaps from playable rows to the reorderable/deletable editor.
 const editing = ref(false)
 
-// The view is always an editor: `working` is the live, reorderable/deletable
-// track list; `savedIds` is the last-persisted order. Combined with the staged
-// name/description and cover state below, `dirty` gates the Save button and the
-// unsaved-changes guards.
+// `working` is the live track list edit mode mutates; `savedIds` is the
+// last-persisted order. Combined with the staged name/description and cover
+// state below, `dirty` gates the Save button and the unsaved-changes guards.
 const working = ref<Song[]>([])
 const savedIds = ref<string[]>([])
 
@@ -136,6 +141,20 @@ const playAll = (): void => {
 
 const queueAll = (): void => {
     if (working.value.length) player.addMultipleToQueue(working.value)
+}
+
+// --- View-mode song list (album-style rows with a cover column) ---
+const playFrom = (index: number): void => {
+    player.playAlbum(working.value, index)
+}
+
+// A drag from a selected row carries the whole selection; from an unselected
+// row it carries just that row.
+const onRowDragStart = (event: DragEvent, index: number): void => {
+    const songs = selectionForDrag(index)
+        .map((i) => working.value[i])
+        .filter((s): s is Song => s !== undefined)
+    songsDrag.start(event, songs, event.currentTarget as HTMLElement)
 }
 
 // --- Cover picker ---
@@ -243,6 +262,7 @@ const handleDelete = (): void => {
 const resetOnIdChange = (): void => {
     editing.value = false
     resetCoverStaging()
+    clearSelection()
     seed()
 }
 watch(() => props.id, resetOnIdChange)
@@ -293,7 +313,7 @@ onUnmounted(() => {
             </template>
 
             <div class="playlist-scroll">
-                <div class="playlist-body">
+                <div class="playlist-body content-col">
                     <HeroHeader
                         eyebrow="Playlist"
                         :cover-url="displayedCoverUrl"
@@ -338,14 +358,39 @@ onUnmounted(() => {
                         </template>
                     </HeroHeader>
 
+                    <!-- Edit mode: the reorderable/deletable editor (same component
+                         as the queue's edit mode). View mode: the album-style table
+                         extended with a cover column (shared with GenreDetailView). -->
                     <TrackEditList
-                        v-if="working.length > 0"
+                        v-if="editing && working.length > 0"
                         :songs="working"
                         delete-label="Remove from playlist"
                         group="playlist"
                         @reorder="onReorder"
                         @delete="onDelete"
                     />
+                    <div v-else-if="working.length > 0" class="track-list">
+                        <div class="track-list-header">
+                            <span class="col-cover"></span>
+                            <span class="col-title">Title</span>
+                            <span class="col-artist">Artist</span>
+                            <span class="col-album">Album</span>
+                            <span class="col-duration" aria-label="Duration">
+                                <i class="pi pi-clock"></i>
+                            </span>
+                        </div>
+                        <GenreTrackRow
+                            v-for="(song, index) in working"
+                            :key="song.id + ':' + index"
+                            :song="song"
+                            :index="index"
+                            :selected="isSelected(index)"
+                            @select="(p) => onRowClick(index, p)"
+                            @play="playFrom(index)"
+                            @dragstart="(e) => onRowDragStart(e, index)"
+                            @dragend="songsDrag.end"
+                        />
+                    </div>
                     <div v-else class="empty-tracks">
                         <p>This playlist is empty</p>
                     </div>
@@ -380,11 +425,13 @@ onUnmounted(() => {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
+    /* Recipe B: uniform rail clearance so the column matches the list views. */
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
+    box-sizing: border-box;
 }
 .playlist-body {
-    max-width: var(--app-content-max-width);
-    margin: 0 auto;
-    padding: 1rem;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
 }
 
 .form-field {
@@ -411,5 +458,31 @@ onUnmounted(() => {
     padding: 3rem;
     text-align: center;
     color: var(--app-text-secondary);
+}
+
+.track-list {
+    /* Shared grid template so the header and every row (GenreTrackRow) align.
+       Custom properties inherit through the DOM regardless of scoped styles. */
+    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 62px;
+    display: flex;
+    flex-direction: column;
+}
+
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--genre-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+}
+
+.track-list-header .col-duration {
+    text-align: right;
 }
 </style>

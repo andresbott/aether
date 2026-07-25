@@ -23,11 +23,16 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 		if dv == "" {
 			dv = "albums"
 		}
+		icon := lib.Icon
+		if icon == "" {
+			icon = "folder"
+		}
 		folders = append(folders, map[string]any{
 			"id":          lib.ID,
 			"name":        lib.Name,
 			"defaultView": dv,
 			"showArtists": !lib.HideArtists,
+			"icon":        icon,
 		})
 	}
 	writeResponse(w, map[string]any{

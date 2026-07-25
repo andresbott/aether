@@ -13,6 +13,8 @@ const props = withDefaults(
         currentIndex?: number
         deleteLabel?: string
         group?: string
+        // Passed through to each row: artist as a column beside the title.
+        artistColumn?: boolean
     }>(),
     { currentIndex: -1, deleteLabel: 'Remove', group: 'tracks' }
 )
@@ -148,6 +150,7 @@ defineExpose({ clearSelection })
             :selected="isSelected(row.index)"
             :current="row.index === currentIndex"
             :delete-label="deleteLabel"
+            :artist-column="artistColumn"
             @select="(p) => onSelectRow(row.index, p)"
             @delete="onDeleteRow(row.index)"
         />

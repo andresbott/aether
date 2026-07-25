@@ -62,3 +62,19 @@ func validateDefaultView(v string) error {
 		return fmt.Errorf("invalid default_view: %q (allowed: albums, artists)", v)
 	}
 }
+
+// iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".
+var iconNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+func validateIcon(v string) error {
+	if v == "" {
+		return nil
+	}
+	if len(v) > 100 {
+		return fmt.Errorf("icon name too long (max 100 chars)")
+	}
+	if !iconNameRe.MatchString(v) {
+		return fmt.Errorf("invalid icon: %q (expected a PrimeIcons name like \"folder\" or \"folder-open\")", v)
+	}
+	return nil
+}

@@ -259,6 +259,22 @@ describe('QueueView', () => {
         expect(list.attributes('tabindex')).toBe('0')
     })
 
+    it('full variant renders the artist as a column; the sidebar keeps it stacked', async () => {
+        const full = mountView('full')
+        expect(full.find('.queue-upcoming .row-info').classes()).toContain('row-info--columns')
+        await full.find('.queue-action-edit').trigger('click')
+        expect(full.find('.queue-edit-list .row-info').classes()).toContain('row-info--columns')
+
+        const sidebar = mountView('sidebar')
+        expect(sidebar.find('.queue-upcoming .row-info').classes()).not.toContain(
+            'row-info--columns'
+        )
+        await sidebar.find('.queue-action-edit').trigger('click')
+        expect(sidebar.find('.queue-edit-list .row-info').classes()).not.toContain(
+            'row-info--columns'
+        )
+    })
+
     it('does not render an empty history list outside edit mode', () => {
         currentIndex.value = 0
         const w = mountView('sidebar')

@@ -82,7 +82,14 @@ const submitting = computed(
         </div>
 
         <DataTable v-else :value="libraries" responsiveLayout="scroll">
-            <Column field="name" header="Name" />
+            <Column field="name" header="Name">
+                <template #body="{ data }">
+                    <span class="library-name">
+                        <i :class="`pi pi-${data.icon || 'folder'}`"></i>
+                        {{ data.name }}
+                    </span>
+                </template>
+            </Column>
             <Column field="path" header="Path" />
             <Column field="track_count" header="Tracks" style="width: 7rem; text-align: right" />
             <Column header="Last scan" style="width: 14rem">
@@ -144,5 +151,10 @@ const submitting = computed(
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
+}
+.library-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 </style>

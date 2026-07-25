@@ -121,4 +121,16 @@ describe('QueueRow', () => {
         const w = mountRow({ editing: false })
         expect(w.find('button.queue-row').attributes('data-queue-index')).toBe('4')
     })
+
+    it('stacks the artist under the title by default', () => {
+        const w = mountRow({ editing: false })
+        expect(w.find('.row-info').classes()).not.toContain('row-info--columns')
+    })
+
+    it('lays the artist out as a column beside the title with artistColumn, in both modes', () => {
+        const view = mountRow({ editing: false, artistColumn: true })
+        expect(view.find('.row-info').classes()).toContain('row-info--columns')
+        const edit = mountRow({ editing: true, artistColumn: true })
+        expect(edit.find('.row-info').classes()).toContain('row-info--columns')
+    })
 })

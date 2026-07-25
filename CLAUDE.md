@@ -2,6 +2,17 @@
 
 Music server written in Go with a Vue 3 frontend.
 
+## Agent docs — read before implementing
+
+Before implementation work, read [`docs/agents/architecture.md`](docs/agents/architecture.md)
+and the subsystem doc for the area you're changing:
+[`subsonic-api.md`](docs/agents/subsonic-api.md) (anything under `/rest`),
+[`scanning.md`](docs/agents/scanning.md) (scanner/tags/store reconcile),
+[`frontend.md`](docs/agents/frontend.md) (webui). Check
+[`docs/agents/features.md`](docs/agents/features.md) before adding a
+capability — gaps are catalogued with chosen directions — and
+[`docs/agents/testing.md`](docs/agents/testing.md) for the verification gates.
+
 ## Project State
 
 - **No backwards compatibility — until further notice.** No users, no live deployment. Do not write migration code, schema bridges, config compat layers, or "if old shape, fall back to..." branches. When the schema or config shape changes, just change it; the user will drop the DB manually if needed. Structure can change freely.

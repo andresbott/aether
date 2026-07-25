@@ -32,7 +32,7 @@ const folderItems = computed<NavItem[]>(() => {
         { label: 'All Music', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
         ...folders.map((folder) => ({
             label: folder.name,
-            icon: 'pi pi-folder',
+            icon: `pi pi-${folder.icon || 'folder'}`,
             route: `/library/${folder.id}`,
             routeName: 'library',
             folderId: folder.id
