@@ -106,11 +106,11 @@ const onSelect = (event: { files: File[] }): void => {
                             label="Remove"
                             @click="emit('cover-remove')"
                         />
+                        <Message v-if="coverSizeError" severity="error" :closable="false">
+                            {{ coverSizeError }}
+                        </Message>
+                        <slot name="cover-note" />
                     </div>
-                    <Message v-if="coverSizeError" severity="error" :closable="false">
-                        {{ coverSizeError }}
-                    </Message>
-                    <slot name="cover-note" />
                 </div>
             </div>
         </div>
@@ -213,9 +213,21 @@ const onSelect = (event: { files: File[] }): void => {
     align-items: stretch;
     gap: 0.35rem;
 }
-/* The FileUpload's inner row is left-aligned by default — center it so it lines
-   up with the Remove button. */
+/* Every row spans the same width — the panel's content box — so the upload
+   button, Remove and the status note line up as one stack instead of three
+   content-sized elements centred at different widths. FileUpload wraps its
+   button in a div, so both the wrapper and the button itself need stretching. */
+.flip-back :deep(.p-fileupload-basic) {
+    display: flex;
+}
 .flip-back :deep(.p-fileupload-basic-content) {
+    flex: 1;
+    justify-content: center;
+}
+.flip-back :deep(.p-fileupload-choose-button),
+.cover-controls .cover-remove {
+    flex: 1;
+    width: 100%;
     justify-content: center;
 }
 

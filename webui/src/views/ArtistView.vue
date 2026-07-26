@@ -389,13 +389,16 @@ const onQueue = async (): Promise<void> => {
    Styled as a non-interactive chip so it lines up with the Choose/Remove
    buttons above it — it is a label, not a control, so no hover/active state and
    no pointer cursor. Only the trailing "?" is hoverable, for the source path. */
+/* Full width of the panel's content box, matching the Upload/Remove buttons
+   above it, so the three rows read as one aligned stack. */
 .image-source-note {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
-    align-self: center;
-    max-width: 100%;
+    align-self: stretch;
+    box-sizing: border-box;
+    width: 100%;
     padding: 0.35rem 0.65rem;
     border: 1px solid var(--app-border);
     border-radius: var(--app-radius);
