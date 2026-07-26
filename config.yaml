@@ -2,7 +2,10 @@ Server:
   Port: 8075
   BindIp: ""
 
+# Observability endpoints (health, Prometheus metrics) on a separate server.
+# Disabled by default; set Enabled to true to start it.
 Observability:
+  Enabled: false
   Port: 9009
   BindIp: ""
 

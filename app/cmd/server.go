@@ -225,11 +225,6 @@ func runServer(configFile string) error {
 		Handler:           mainAppHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	obsSrv := &http.Server{
-		Addr:              cfg.Obs.Addr(),
-		Handler:           handlers.Admin(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
@@ -238,7 +233,17 @@ func runServer(configFile string) error {
 
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
-	g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
+	// The observability server (health, Prometheus metrics) is opt-in.
+	if cfg.Obs.Enabled {
+		obsSrv := &http.Server{
+			Addr:              cfg.Obs.Addr(),
+			Handler:           handlers.Admin(),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
+	} else {
+		l.Info("observability server disabled", slog.String("component", "observability"))
+	}
 	g.Go(func() error {
 		<-gctx.Done()
 		scheduler.Stop()

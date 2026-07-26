@@ -34,7 +34,8 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 - **`app/router` owns routing only.** Three surfaces on one gorilla/mux
   router, in order: `/api/v1` (admin), `/rest` (Subsonic), then the SPA
   catch-all on `/`. A second HTTP server (observability, default :9009)
-  serves Prometheus `/metrics` via `handlers.Admin()`.
+  serves Prometheus `/metrics` via `handlers.Admin()` — opt-in via
+  `Observability.Enabled`, and not started at all when false.
 - **`internal/store` is the only DB gateway.** It wraps `*gorm.DB`; handlers
   never touch GORM directly except through it. `Store.Transaction(fn)` yields
   a tx-scoped `*Store`. Query filters are small structs in `filters.go`
