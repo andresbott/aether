@@ -262,14 +262,18 @@ describe('ArtistView', () => {
 describe('ArtistView image-source note', () => {
     it('shows a note in edit mode when the image is read from the artist folder', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
 
         const note = w.find('.image-source-note')
         expect(note.exists()).toBe(true)
-        expect(note.text()).toContain('Current image')
+        expect(note.text()).toContain('from music folder')
     })
 
     it('leads the note with an image icon and ends it with a help marker', async () => {
@@ -303,44 +307,50 @@ describe('ArtistView image-source note', () => {
         )
     })
 
-    it('shows no note when the image comes from aether\'s own store', async () => {
+    // The "?" is the folder case's affordance for the path; other sources have no
+    // path to show, so they get no marker.
+    it('shows no help marker for an image held in aether\'s store', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'store', path: '' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-        expect(w.find('.image-source-note').exists()).toBe(false)
-    })
-
-    it('shows no note when there is no image on file', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'none', path: '' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-        expect(w.find('.image-source-note').exists()).toBe(false)
-    })
-
-    it('hides the note outside edit mode', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
-        const w = mountView()
-        await flushPromises()
-        expect(w.find('.image-source-note').exists()).toBe(false)
-    })
-
-    it('hides the note once a replacement image is staged', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
         expect(w.find('.image-source-note').exists()).toBe(true)
+        expect(w.find('.image-source-help').exists()).toBe(false)
+    })
+
+    it('hides the note outside edit mode', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
+        const w = mountView()
+        await flushPromises()
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+
+    // Staging a replacement swaps the note over to the picked file rather than
+    // leaving the folder image described.
+    it('stops describing the folder image once a replacement is staged', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+        expect(w.find('.image-source-note').text()).toContain('from music folder')
 
         const file = new File(['x'], 'a.png', { type: 'image/png' })
         w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
         await w.vm.$nextTick()
-        expect(w.find('.image-source-note').exists()).toBe(false)
+        const note = w.find('.image-source-note')
+        expect(note.text()).not.toContain('from music folder')
+        expect(note.text()).toContain('a.png')
     })
 })
 
@@ -399,5 +409,90 @@ describe('ArtistView remove with a folder image', () => {
         // ...and Save has nothing to send.
         await w.find('.edit-action-save').trigger('click')
         expect(coverMutate).not.toHaveBeenCalled()
+    })
+})
+
+// PrimeVue's FileUpload only ever says "No file chosen" — it knows nothing about
+// an image already on the server. The note has to carry that state instead.
+describe('ArtistView current-image label', () => {
+    it('names an uploaded image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const note = w.find('.image-source-note')
+        expect(note.exists()).toBe(true)
+        expect(note.text()).toContain('cover.png')
+        expect(note.text()).toContain('uploaded')
+    })
+
+    it('labels an auto-fetched image as fetched', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'fetched', path: '', filename: 'cover.auto.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.image-source-note').text()).toContain('fetched automatically')
+    })
+
+    it('names the on-disk file for a folder image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const note = w.find('.image-source-note')
+        expect(note.text()).toContain('artist.jpg')
+        expect(note.text()).toContain('music folder')
+    })
+
+    it('shows a no-image note when nothing is on file', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.image-source-note').text()).toContain('No image')
+    })
+
+    // Removing an upload must read as a pending change, not silently leave the
+    // old filename on screen.
+    it('marks the note as pending removal once Remove is staged', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        await w.find('.cover-remove').trigger('click')
+        const note = w.find('.image-source-note')
+        expect(note.classes()).toContain('is-pending')
+        expect(note.text()).toContain('will be removed')
+        expect(note.text()).toContain('cover.png')
+    })
+
+    it('names the picked file once a replacement is staged', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const file = new File(['x'], 'new-art.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+
+        const note = w.find('.image-source-note')
+        expect(note.classes()).toContain('is-pending')
+        expect(note.text()).toContain('new-art.png')
     })
 })

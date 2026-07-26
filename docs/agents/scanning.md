@@ -91,10 +91,15 @@ once.
 `ImagePath` → name-seeded generated avatar.
 
 `GET /api/v1/artists/{id}/image-source` (`handlers/artists`) reports which of
-those slots won — `"store"` / `"folder"` (+ `path`) / `"none"` — so
-`ArtistView`'s cover editor can note an image that is read from the music
-folder. Its precedence **duplicates** `artistCoverMeta`; change both together
-or the note will describe an image the user isn't looking at.
+those slots won — `"upload"` / `"fetched"` / `"folder"` (+ `path`) / `"none"`,
+plus a `filename` for everything but `"none"`. `ArtistView`'s cover editor uses
+it for the status line under the file picker (PrimeVue's FileUpload only ever
+says "No file chosen") and to disable Remove for a folder image. The
+upload-vs-fetched split comes from `assetstore.GetEntry`, which surfaces the
+manual/auto filename encoding (`cover.png` vs `cover.auto.png`).
+
+This endpoint's precedence **duplicates** `artistCoverMeta`; change both
+together or the note will describe an image the user isn't looking at.
 
 ## Known scanner debt (TODO.md, direction chosen)
 

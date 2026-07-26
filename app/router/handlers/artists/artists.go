@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -176,18 +177,33 @@ func (h *Handler) getMBID(w http.ResponseWriter, r *http.Request) {
 }
 
 // imageSourceResponse tells the UI where the image getCoverArt currently serves
-// for this artist comes from, so the editor can say the image is read from disk
-// instead of implying it is aether's own. Source is one of:
+// for this artist comes from, so the editor can name it instead of showing a
+// bare "No file chosen". Source is one of:
 //
-//	"store"  — an uploaded or auto-fetched image in aether's asset store
-//	"folder" — an artist.jpg/folder.jpg next to the artist's albums; Path set
-//	"none"   — nothing on file; getCoverArt serves the generated avatar
+//	"upload"  — an image the user uploaded, held in aether's asset store
+//	"fetched" — an image aether auto-fetched from an image provider
+//	"folder"  — an artist.jpg/folder.jpg next to the artist's albums; Path set
+//	"none"    — nothing on file; getCoverArt serves the generated avatar
+//
+// Filename names the image file in every case but "none": the stored file for
+// upload/fetched, the on-disk file for folder.
 //
 // This is a filesystem detail of the server, hence `/api/v1` rather than a
 // non-standard field on the Subsonic artist response.
 type imageSourceResponse struct {
-	Source string `json:"source"`
-	Path   string `json:"path"`
+	Source   string `json:"source"`
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+}
+
+// storedImageSource builds the response for an image held in aether's asset
+// store, distinguishing a user upload from an auto-fetched one.
+func storedImageSource(path string, manual bool) imageSourceResponse {
+	source := "fetched"
+	if manual {
+		source = "upload"
+	}
+	return imageSourceResponse{Source: source, Filename: filepath.Base(path)}
 }
 
 // getImageSource mirrors artistCoverMeta's precedence in handlers/subsonic:
@@ -207,19 +223,23 @@ func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if artist.MBArtistID != "" {
-		if _, ok := h.Assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
-			writeJSON(w, http.StatusOK, imageSourceResponse{Source: "store"})
+		if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, artist.MBArtistID); ok {
+			writeJSON(w, http.StatusOK, storedImageSource(p, manual))
 			return
 		}
 	}
-	if _, ok := h.Assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
-		writeJSON(w, http.StatusOK, imageSourceResponse{Source: "store"})
+	if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+		writeJSON(w, http.StatusOK, storedImageSource(p, manual))
 		return
 	}
 	// A recorded path whose file has gone away is not the served image —
 	// getCoverArt falls through to the generated avatar, so report "none".
 	if scanner.IsUsableArtistImagePath(artist.ImagePath) {
-		writeJSON(w, http.StatusOK, imageSourceResponse{Source: "folder", Path: artist.ImagePath})
+		writeJSON(w, http.StatusOK, imageSourceResponse{
+			Source:   "folder",
+			Path:     artist.ImagePath,
+			Filename: filepath.Base(artist.ImagePath),
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, imageSourceResponse{Source: "none"})

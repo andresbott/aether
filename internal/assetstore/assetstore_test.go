@@ -142,3 +142,37 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("second Delete: %v", err)
 	}
 }
+
+// Callers that present the stored image to a user need to know whether it was
+// uploaded or auto-fetched — the two are indistinguishable from the path alone
+// unless you re-parse the filename.
+func TestGetEntryReportsManualVsAuto(t *testing.T) {
+	s := New(t.TempDir())
+
+	if _, _, ok := s.GetEntry(KindArtist, "a1"); ok {
+		t.Fatal("GetEntry should report not-found for an empty store")
+	}
+
+	if err := s.PutAuto(KindArtist, "a1", "jpg", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	path, manual, ok := s.GetEntry(KindArtist, "a1")
+	if !ok || manual {
+		t.Fatalf("auto image: got manual=%v ok=%v", manual, ok)
+	}
+	if filepath.Base(path) != "cover.auto.jpg" {
+		t.Errorf("path = %q, want cover.auto.jpg", filepath.Base(path))
+	}
+
+	// A manual upload wins over the auto image and is reported as manual.
+	if err := s.PutManual(KindArtist, "a1", "png", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	path, manual, ok = s.GetEntry(KindArtist, "a1")
+	if !ok || !manual {
+		t.Fatalf("manual image: got manual=%v ok=%v", manual, ok)
+	}
+	if filepath.Base(path) != "cover.png" {
+		t.Errorf("path = %q, want cover.png", filepath.Base(path))
+	}
+}

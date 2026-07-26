@@ -55,10 +55,43 @@ const folderImagePath = computed(() =>
 // the cover in the UI.
 const removeDisabled = computed(() => servedFromFolder.value)
 
-// Hover text on the "?": which file on disk the visible image comes from.
-const folderImageHint = computed(() =>
-    folderImagePath.value ? `Current image is served from ${folderImagePath.value}` : undefined
-)
+// FileUpload only ever reports the file the user just picked ("No file chosen"
+// otherwise), so this note carries the real state of the artist's image: what is
+// on the server, or the change staged on top of it. Staged states get
+// `is-pending` so a removal is visibly different from the settled image.
+type ImageNote = { text: string; pending: boolean; hint?: string }
+
+const imageNote = computed<ImageNote | null>(() => {
+    if (!editing.value) return null
+
+    if (selectedFile.value) {
+        return { text: `${selectedFile.value.name} — will be uploaded`, pending: true }
+    }
+    if (coverClear.value) {
+        const removed = imageSource.value?.filename
+        return {
+            text: removed ? `${removed} — will be removed` : 'Image will be removed',
+            pending: true
+        }
+    }
+
+    const src = imageSource.value
+    if (!src) return null
+    switch (src.source) {
+        case 'upload':
+            return { text: `${src.filename} — uploaded`, pending: false }
+        case 'fetched':
+            return { text: `${src.filename} — fetched automatically`, pending: false }
+        case 'folder':
+            return {
+                text: `${src.filename} — from music folder`,
+                pending: false,
+                hint: `Current image is served from ${src.path}`
+            }
+        default:
+            return { text: 'No image — showing a generated placeholder', pending: false }
+    }
+})
 
 const handleStar = () => {
     if (!artist.value) return
@@ -247,11 +280,16 @@ const onQueue = async (): Promise<void> => {
                         @cover-remove="onRemoveCover"
                     >
                         <template #cover-note>
-                            <span v-if="folderImagePath" class="image-source-note">
+                            <span
+                                v-if="imageNote"
+                                class="image-source-note"
+                                :class="{ 'is-pending': imageNote.pending }"
+                            >
                                 <i class="pi pi-image"></i>
-                                <span>Current image</span>
+                                <span class="image-source-text">{{ imageNote.text }}</span>
                                 <i
-                                    v-tooltip.top="folderImageHint"
+                                    v-if="imageNote.hint"
+                                    v-tooltip.top="imageNote.hint"
                                     class="pi pi-question-circle image-source-help"
                                 ></i>
                             </span>
@@ -349,8 +387,8 @@ const onQueue = async (): Promise<void> => {
     justify-content: center;
     gap: 0.4rem;
     align-self: center;
+    max-width: 100%;
     padding: 0.35rem 0.65rem;
-    white-space: nowrap;
     border: 1px solid var(--app-border);
     border-radius: var(--app-radius);
     /* The flip-back face is --app-surface-2, so fill with the subtle tone to
@@ -358,7 +396,20 @@ const onQueue = async (): Promise<void> => {
     background: var(--app-bg-subtle);
     color: var(--app-text-secondary);
     font-size: 0.85rem;
-    line-height: 1;
+    line-height: 1.3;
+}
+/* A staged change (upload or removal) must not read as the settled state. */
+.image-source-note.is-pending {
+    border-color: var(--app-accent);
+    color: var(--app-text);
+}
+/* Filenames can be long, so wrap rather than truncate — the panel is only 250px
+   wide and a clipped name is useless. break-word keeps an unbroken name inside
+   the chip instead of overflowing it. */
+.image-source-text {
+    min-width: 0;
+    text-align: center;
+    overflow-wrap: break-word;
 }
 .image-source-note i {
     flex-shrink: 0;

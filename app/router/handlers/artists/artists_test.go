@@ -521,8 +521,8 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Source != "store" {
-		t.Errorf("source = %q, want %q", got.Source, "store")
+	if got.Source != "upload" {
+		t.Errorf("source = %q, want %q", got.Source, "upload")
 	}
 	if got.Path != "" {
 		t.Errorf("path = %q, want empty for a stored image", got.Path)
@@ -589,5 +589,114 @@ func TestGetArtistImageSource_NotFound(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+// A manual upload and an auto-fetched image both live in the asset store, but the
+// editor must tell them apart: only an upload is something the user put there
+// (and can meaningfully remove).
+func TestGetArtistImageSource_DistinguishesUploadFromFetched(t *testing.T) {
+	tests := []struct {
+		name       string
+		put        func(as *assetstore.Store, key string) error
+		wantSource string
+	}{
+		{
+			name: "manual upload",
+			put: func(as *assetstore.Store, key string) error {
+				return as.PutManual(assetstore.KindArtist, key, "png", []byte("x"))
+			},
+			wantSource: "upload",
+		},
+		{
+			name: "auto-fetched",
+			put: func(as *assetstore.Store, key string) error {
+				return as.PutAuto(assetstore.KindArtist, key, "png", []byte("x"))
+			},
+			wantSource: "fetched",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := model.Migrate(db); err != nil {
+				t.Fatal(err)
+			}
+			s := store.New(db)
+			as := assetstore.New(t.TempDir())
+			h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}}
+			r := mux.NewRouter()
+			h.Routes(r)
+
+			artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := strconv.FormatUint(uint64(artists[0].ID), 10)
+			if err := tt.put(as, id); err != nil {
+				t.Fatal(err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/artists/"+id+"/image-source", nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			var got struct {
+				Source   string `json:"source"`
+				Path     string `json:"path"`
+				Filename string `json:"filename"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Source != tt.wantSource {
+				t.Errorf("source = %q, want %q", got.Source, tt.wantSource)
+			}
+			if got.Filename == "" {
+				t.Error("filename should name the stored image file")
+			}
+			if got.Path != "" {
+				t.Errorf("path = %q, want empty for a stored image", got.Path)
+			}
+		})
+	}
+}
+
+// The folder case names the file on disk so the editor can show it.
+func TestGetArtistImageSource_FolderReportsFilename(t *testing.T) {
+	s, r := newTestHandler(t, &fakeSearcher{}, nil)
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "artist.jpg")
+	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	if err := s.SetArtistImagePath(id, imgPath); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/artists/"+strconv.FormatUint(uint64(id), 10)+"/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		Source   string `json:"source"`
+		Filename string `json:"filename"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "folder" {
+		t.Errorf("source = %q, want folder", got.Source)
+	}
+	if got.Filename != "artist.jpg" {
+		t.Errorf("filename = %q, want artist.jpg", got.Filename)
 	}
 }
