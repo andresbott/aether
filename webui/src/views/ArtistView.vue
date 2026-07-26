@@ -45,12 +45,9 @@ const folderImagePath = computed(() =>
         : null
 )
 
-// Hover text: where the file is, and what editing here does to it — uploading
-// stores a copy in aether and leaves the file on disk untouched.
+// Hover text on the "?": which file on disk the visible image comes from.
 const folderImageHint = computed(() =>
-    folderImagePath.value
-        ? `${folderImagePath.value}\n\nThis file was found next to the artist's albums and is not managed by aether. Uploading an image here stores it in aether instead; the file on disk is left untouched.`
-        : undefined
+    folderImagePath.value ? `Current image is served from ${folderImagePath.value}` : undefined
 )
 
 const handleStar = () => {
@@ -235,13 +232,13 @@ const onQueue = async (): Promise<void> => {
                         @cover-remove="onRemoveCover"
                     >
                         <template #cover-note>
-                            <span
-                                v-if="folderImagePath"
-                                class="image-source-note"
-                                :title="folderImageHint"
-                            >
-                                <span>From music folder</span>
-                                <i class="pi pi-question-circle"></i>
+                            <span v-if="folderImagePath" class="image-source-note">
+                                <i class="pi pi-image"></i>
+                                <span>Current image</span>
+                                <i
+                                    class="pi pi-question-circle image-source-help"
+                                    :title="folderImageHint"
+                                ></i>
                             </span>
                         </template>
 
@@ -327,24 +324,34 @@ const onQueue = async (): Promise<void> => {
     margin-bottom: 1.5rem;
 }
 
-/* Sits on the cover's flip-back face (inside 250px), directly under the
-   FileUpload — so it reads as plain muted body text like that widget's own
-   "No file chosen" label rather than as a badge or a message box. The wording is
-   kept short enough to hold one line at body size. The trailing "?" is the
-   affordance for the hover hint. */
+/* Sits on the cover's flip-back face (inside 250px), under the FileUpload.
+   Styled as a non-interactive chip so it lines up with the Choose/Remove
+   buttons above it — it is a label, not a control, so no hover/active state and
+   no pointer cursor. Only the trailing "?" is hoverable, for the source path. */
 .image-source-note {
-    display: flex;
-    align-items: baseline;
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
-    gap: 0.3rem;
+    gap: 0.4rem;
+    align-self: center;
+    padding: 0.35rem 0.65rem;
     white-space: nowrap;
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    /* The flip-back face is --app-surface-2, so fill with the subtle tone to
+       read as a raised chip against it. */
+    background: var(--app-bg-subtle);
     color: var(--app-text-secondary);
-    cursor: help;
+    font-size: 0.85rem;
+    line-height: 1;
 }
 .image-source-note i {
     flex-shrink: 0;
     font-size: 0.85em;
     opacity: 0.75;
+}
+.image-source-help {
+    cursor: help;
 }
 
 .album-grid {

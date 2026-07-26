@@ -260,24 +260,23 @@ describe('ArtistView image-source note', () => {
 
         const note = w.find('.image-source-note')
         expect(note.exists()).toBe(true)
-        expect(note.text()).toContain('From music folder')
+        expect(note.text()).toContain('Current image')
     })
 
-    it('marks the note with a hoverable question mark, not an image icon', async () => {
+    it('leads the note with an image icon and ends it with a help marker', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
 
-        const icon = w.find('.image-source-note i')
-        expect(icon.classes()).toContain('pi-question-circle')
-        expect(icon.classes()).not.toContain('pi-image')
+        const icons = w.findAll('.image-source-note i')
+        expect(icons[0].classes()).toContain('pi-image')
+        expect(icons[icons.length - 1].classes()).toContain('pi-question-circle')
     })
 
-    // The hint explains what the note means for editing (the file is the user's
-    // own, aether cannot replace or delete it), and carries the path.
-    it('explains the source on hover, path included, but not in the visible text', async () => {
+    // Only the "?" carries the tooltip, so hovering the label itself stays quiet.
+    it('puts a served-from tooltip with the path on the help marker only', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
         const w = mountView()
@@ -286,11 +285,10 @@ describe('ArtistView image-source note', () => {
 
         const note = w.find('.image-source-note')
         expect(note.text()).not.toContain('/music/Pink Floyd/artist.jpg')
+        expect(note.attributes('title')).toBeUndefined()
 
-        const hint = note.attributes('title') ?? ''
-        expect(hint).toContain('/music/Pink Floyd/artist.jpg')
-        expect(hint.length).toBeGreaterThan('/music/Pink Floyd/artist.jpg'.length)
-        expect(hint.toLowerCase()).toContain('upload')
+        const hint = w.find('.image-source-help').attributes('title') ?? ''
+        expect(hint).toBe('Current image is served from /music/Pink Floyd/artist.jpg')
     })
 
     it('shows no note when the image comes from aether\'s own store', async () => {
