@@ -107,3 +107,17 @@ describe('HeroHeader cover controls', () => {
         expect(w.find('.cover-controls').exists()).toBe(true)
     })
 })
+
+// A flat secondary text button reads as disabled next to the solid upload
+// button. Remove is a real, destructive action — it has to look clickable.
+describe('HeroHeader remove button prominence', () => {
+    it('renders Remove as an outlined danger button, not muted text', () => {
+        const w = mountHero({ editing: true })
+        const btn = w.find('.cover-remove')
+        expect(btn.exists()).toBe(true)
+        // Not PrimeVue's flat/text treatment...
+        expect(btn.classes()).not.toContain('p-button-text')
+        // ...and carries the danger severity so it is visibly actionable.
+        expect(btn.classes()).toContain('p-button-danger')
+    })
+})

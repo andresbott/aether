@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
@@ -554,5 +555,87 @@ func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
 	}
 	if _, err := png.Decode(resp.Body); err != nil {
 		t.Errorf("expected a generated PNG avatar: %v", err)
+	}
+}
+
+// Removing an uploaded image makes getCoverArt fall back to the (older) file in
+// the music folder. http.ServeFile would answer 304 Not Modified for a browser
+// holding the upload, because the fallback's mtime is older than the cached
+// copy's — the user would keep seeing the deleted image until a hard refresh.
+// The response must be keyed on which file is served, not on its age.
+func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	musicDir := t.TempDir()
+	folderImg := filepath.Join(musicDir, "artist.jpg")
+	if err := os.WriteFile(folderImg, []byte("\xff\xd8\xffFOLDER"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Make the folder image clearly older than any uploaded one.
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(folderImg, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	artist := model.Artist{Name: "Pink Floyd", NameNorm: "pink floyd", ImagePath: folderImg}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	assetDir := t.TempDir()
+	as := assetstore.New(assetDir)
+	key := strconv.FormatUint(uint64(artist.ID), 10)
+	if err := as.PutManual(assetstore.KindArtist, key, "png", []byte("\x89PNG\r\n\x1a\nUPLOAD")); err != nil {
+		t.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, as, t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	url := fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d", srv.URL, artist.ID)
+
+	// First fetch: the upload, with whatever validators the server offers.
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if !strings.HasPrefix(string(body), "\x89PNG") {
+		t.Fatalf("expected the uploaded PNG first, got %q", body[:min(8, len(body))])
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on the cover response; conditional requests cannot be keyed on the served file")
+	}
+
+	// Remove the upload — getCoverArt now falls back to the older folder file.
+	if err := as.Delete(assetstore.KindArtist, key); err != nil {
+		t.Fatal(err)
+	}
+
+	// A conditional re-fetch carrying the cached validators must not be told
+	// "not modified": a different file is being served now.
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	req.Header.Set("If-Modified-Since", time.Now().UTC().Format(http.TimeFormat))
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.StatusCode == http.StatusNotModified {
+		t.Fatal("got 304 after the served file changed; the stale image stays until a hard refresh")
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	if !strings.HasPrefix(string(body2), "\xff\xd8\xff") {
+		t.Errorf("expected the folder JPEG after removal, got %q", body2[:min(8, len(body2))])
 	}
 }

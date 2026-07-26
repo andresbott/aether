@@ -93,11 +93,16 @@ const onSelect = (event: { files: File[] }): void => {
                                  carries the real state, on its own row. -->
                             <template #filelabel><span /></template>
                         </FileUpload>
+                        <!-- Outlined danger rather than a flat secondary text
+                             button: next to the solid upload button, muted text
+                             reads as disabled — and this is a real destructive
+                             action. -->
                         <Button
                             v-if="coverRemovable"
                             class="cover-remove"
-                            text
-                            severity="secondary"
+                            outlined
+                            severity="danger"
+                            icon="pi pi-trash"
                             label="Remove"
                             @click="emit('cover-remove')"
                         />
