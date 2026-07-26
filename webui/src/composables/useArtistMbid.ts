@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import { setArtistMBID } from '@/lib/api/Artists'
+import { apiErrorMessage } from '@/lib/apiError'
 
 export function useSetArtistMBID() {
     const toast = useToast()
@@ -23,7 +24,7 @@ export function useSetArtistMBID() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to save match',
-                detail: err?.response?.data?.error ?? err.message,
+                detail: apiErrorMessage(err),
                 life: 5000
             })
         }

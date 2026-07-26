@@ -2,7 +2,7 @@
 import SelectButton from 'primevue/selectbutton'
 import { useTheme } from '@/composables/useTheme'
 
-const { mode, options } = useTheme()
+const { mode, options, hiddenUnlocked } = useTheme()
 </script>
 
 <template>
@@ -15,7 +15,10 @@ const { mode, options } = useTheme()
             <div class="setting-row">
                 <div class="setting-label">
                     <span class="setting-title">Theme</span>
-                    <span class="setting-hint">Auto follows your system light/dark preference.</span>
+                    <span class="setting-hint">
+                        Auto follows your system light/dark preference.
+                        <template v-if="hiddenUnlocked"> Nice find.</template>
+                    </span>
                 </div>
                 <SelectButton
                     v-model="mode"

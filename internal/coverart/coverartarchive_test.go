@@ -2,14 +2,25 @@ package coverart
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/andresbott/aether/internal/upstream"
+	"golang.org/x/time/rate"
 )
 
+// newTestClient points a client at a test server with throttling and retry
+// backoff disabled, so the logic under test runs at full speed.
 func newTestClient(baseURL string) *Client {
 	c := New("Aether/test")
 	c.BaseURL = baseURL
+	c.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	c.Doer.Wait = func(context.Context, time.Duration) error { return nil }
 	return c
 }
 
@@ -90,6 +101,87 @@ func TestListEmptyMBIDs(t *testing.T) {
 	}
 	if imgs != nil {
 		t.Fatalf("want nil, got %+v", imgs)
+	}
+}
+
+// A release lookup that stays broken must not sink the whole request when a
+// release-group MBID is also known — the group is a valid answer for the album.
+func TestListFallsBackToGroupWhenReleaseFails(t *testing.T) {
+	var groupHits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/release/rel-mbid":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/release-group/grp-mbid":
+			atomic.AddInt32(&groupHits, 1)
+			_, _ = w.Write([]byte(`{"images":[{"id":"9","image":"http://img/g.jpg","front":true}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	imgs, err := newTestClient(srv.URL).List(context.Background(), "rel-mbid", "grp-mbid")
+	if err != nil {
+		t.Fatalf("List should recover via the release group: %v", err)
+	}
+	if len(imgs) != 1 || imgs[0].ImageURL != "http://img/g.jpg" {
+		t.Fatalf("unexpected images: %+v", imgs)
+	}
+	if n := atomic.LoadInt32(&groupHits); n != 1 {
+		t.Fatalf("release-group lookup ran %d times, want 1", n)
+	}
+}
+
+// With no group to fall back to, the release failure surfaces — as a typed
+// upstream error carrying a human-readable message.
+func TestListReleaseFailureIsTypedUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv.URL).List(context.Background(), "rel-mbid", "")
+	var uerr *upstream.Error
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+	}
+	if uerr.Service != "Cover Art Archive" {
+		t.Fatalf("service = %q", uerr.Service)
+	}
+	if msg := uerr.UserMessage(); !strings.Contains(msg, "Cover Art Archive") {
+		t.Fatalf("unhelpful message: %q", msg)
+	}
+}
+
+// When both lookups fail the group error is what the caller sees; it must stay
+// typed rather than degrading to a bare string.
+func TestListBothFailuresReturnTypedError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	_, err := newTestClient(srv.URL).List(context.Background(), "rel-mbid", "grp-mbid")
+	var uerr *upstream.Error
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+	}
+	if uerr.Kind != upstream.KindUnavailable {
+		t.Fatalf("kind = %v, want unavailable", uerr.Kind)
+	}
+}
+
+func TestDownloadImageFailureIsTypedUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	_, _, err := newTestClient(srv.URL).DownloadImage(context.Background(), srv.URL+"/cover.jpg")
+	var uerr *upstream.Error
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
 	}
 }
 

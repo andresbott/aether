@@ -23,8 +23,20 @@ type IdentifyService interface {
 // run (~1s of CPU) plus one rate-limited AcoustID call.
 const maxIdentifyPaths = 50
 
+// defaultIdentifyUnavailableReason is used when identification is off but the
+// application did not say why, so the UI never has to invent an explanation.
+const defaultIdentifyUnavailableReason = "audio identification is not available on this server"
+
 func (h *Handler) capabilities(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"identify": h.Identifier != nil})
+	body := map[string]any{"identify": h.Identifier != nil}
+	if h.Identifier == nil {
+		reason := h.IdentifyUnavailableReason
+		if reason == "" {
+			reason = defaultIdentifyUnavailableReason
+		}
+		body["identify_unavailable_reason"] = reason
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 type identifyRequest struct {
@@ -62,8 +74,11 @@ type identifyResultDTO struct {
 
 func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 	if h.Identifier == nil {
-		writeErr(w, http.StatusServiceUnavailable, "identify_unavailable",
-			"audio identification is not available on this server")
+		reason := h.IdentifyUnavailableReason
+		if reason == "" {
+			reason = defaultIdentifyUnavailableReason
+		}
+		writeErr(w, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
 	var body identifyRequest

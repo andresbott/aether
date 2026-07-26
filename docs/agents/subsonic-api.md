@@ -55,6 +55,29 @@ image → embedded/folder cover from disk → deterministic generated cover
 carry `Cache-Control: no-cache`; there is no ETag yet (known TODO — stale
 covers after retags are a catalogued bug in TODO.md with root-cause notes).
 
+**Only front-cover art may be served as a cover.** Files and folders routinely
+hold several images (back cover, disc label, booklet, artist photo); the metadata
+editor manages all of them, but the player has exactly one cover vertical.
+Enforced at three points, all of which must stay type-aware:
+
+- `tags.ReadFrontCover` (`internal/tags/cover.go`) returns the picture *typed*
+  `Front Cover`, scanning every attached picture — never index 0, which is
+  whatever the tagger happened to write first. `readEmbeddedCover` uses it.
+- `tags.Metadata.HasCover` (both readers) is true only when a front cover is
+  present, so `HasEmbeddedCover` / `GetCoverTrackPath` never nominate a
+  back-cover-only track as the album's cover source. ffprobe exposes the type in
+  the attached-picture stream's `comment` tag (`Cover (front)`, `Cover (back)`,
+  `Other`), which is why the `-show_entries` list includes `stream_tags=comment`
+  and `stream_disposition=attached_pic`.
+- `scanner.BestCover` rejects filenames naming other artwork
+  (`coverDisqualifyTokens`) even when they also contain a cover/front token, so
+  `Back Cover.jpg` and `booklet-cover.jpg` never become `album.CoverPath`.
+  `scanner.IsUsableCoverPath` re-checks a stored path on every scan, so an album
+  left pointing at a back scan or a deleted file recovers on rescan.
+
+A file whose only embedded picture is typed `Other` counts as having no cover —
+deliberate: it falls through to folder art, then the generated cover.
+
 gosec path-traversal findings on these handlers are suppressed in
 `.golangci.yaml` **with a documented justification**: served paths come from
 the trusted DB or are validated by `metadataedit.ResolveInLibrary`. If you

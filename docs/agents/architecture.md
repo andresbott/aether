@@ -34,7 +34,8 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 - **`app/router` owns routing only.** Three surfaces on one gorilla/mux
   router, in order: `/api/v1` (admin), `/rest` (Subsonic), then the SPA
   catch-all on `/`. A second HTTP server (observability, default :9009)
-  serves Prometheus `/metrics` via `handlers.Admin()`.
+  serves Prometheus `/metrics` via `handlers.Admin()` — opt-in via
+  `Observability.Enabled`, and not started at all when false.
 - **`internal/store` is the only DB gateway.** It wraps `*gorm.DB`; handlers
   never touch GORM directly except through it. `Store.Transaction(fn)` yields
   a tx-scoped `*Store`. Query filters are small structs in `filters.go`
@@ -111,11 +112,54 @@ starting with `@` load the referenced file's contents (used for gitignored
 - **AcoustID + Chromaprint** (`internal/identify`, `libs/acoustid`,
   `libs/fpcalc`) — audio fingerprint identification; requires the `fpcalc`
   binary on the host and a per-version app key baked into `app/metainfo`.
+  Availability is decided once at startup; when either is missing the router
+  gets a nil identifier plus a user-facing reason, which
+  `GET /api/v1/metadata/capabilities` returns as `identify: false` +
+  `identify_unavailable_reason` so the editor can grey out Identify and say
+  what is missing rather than hiding it.
 - **radio-browser.info** (`internal/radiobrowser`) — station search proxied
   server-side to dodge CORS; an admin import tool only.
 
 All outbound clients send the `Aether/<version> (github.com/andresbott/aether)`
 user agent — keep that convention for new clients.
+
+### `internal/upstream` — the shared outbound HTTP policy
+
+Every third-party client above goes through `upstream.Doer` (`upstream.New(service, userAgent, rps)`)
+rather than its own `http.Client` + `rate.Limiter`. **Use it for new outbound
+clients; don't hand-roll the retry/throttle again.** It provides:
+
+- fair-use throttling (burst 1) applied *before* the request,
+- a bounded retry (3 attempts, 500ms doubling) for transient failures —
+  5xx, 429, timeouts, transport errors — and `Retry-After` compliance capped
+  at 5s so a user-facing lookup can't hang,
+- no retry on 4xx (a refusal won't change) — `upstream.IsRejected(err)` lets a
+  caller treat "no data for this id" as an empty result,
+- a typed `*upstream.Error` carrying the technical detail for logs *and*
+  `UserMessage()`, a sentence naming the service for the UI.
+
+Handlers map it with `upstream.HTTPStatus(err)` (502, or 429/504 when more
+precise) and `upstream.UserMessage(err, fallback)` via each handler package's
+`writeUpstreamErr`. **Never put a raw Go error in a user-facing body** — that
+is what leaked `{"error":"...","code":"upstream_error"}` onto the screen.
+
+Degrade rather than fail where a fallback exists: `coverart.List` tries the
+release-group MBID when the release lookup fails, since both describe the same
+album.
+
+## The `/api/v1` error envelope
+
+Every `/api/v1` failure answers `{"error": "<sentence>", "code": "<slug>"}`.
+`app/router/errors.go` (`jsonErrorEnvelope`) guarantees it: a handler body that
+is already a JSON object passes through untouched, and plain-text errors
+(`http.Error`, `http.NotFound`) get an envelope built for them.
+
+**`middleware.Cfg.JsonErrors` must stay `false`.** It wraps *every* error body
+blindly, escaping our JSON into the `error` string — the client then receives a
+document where it expects a sentence. The go-bumbu middleware is still wired for
+logging and Prometheus. Successful responses are never buffered, so streaming
+(audio, task logs) is unaffected; `/rest` reports its own errors inside a 200
+Subsonic envelope and is untouched.
 
 ## Decision records and historical docs
 

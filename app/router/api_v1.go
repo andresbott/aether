@@ -19,6 +19,7 @@ import (
 
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
+	r.Path("/version").Methods(http.MethodGet).Handler(handlers.VersionHandler())
 
 	userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
 
@@ -54,11 +55,12 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 
 		if h.tagReader != nil {
 			mh := &metadataHandler.Handler{
-				Store:      h.store,
-				Reader:     h.tagReader,
-				Assets:     h.assets,
-				CoverArt:   coverart.New(userAgent),
-				Identifier: h.identifier,
+				Store:                     h.store,
+				Reader:                    h.tagReader,
+				Assets:                    h.assets,
+				CoverArt:                  coverart.New(userAgent),
+				Identifier:                h.identifier,
+				IdentifyUnavailableReason: h.identifyOff,
 			}
 			mh.Routes(r)
 		}

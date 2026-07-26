@@ -26,6 +26,19 @@ func TestIsCoverFile(t *testing.T) {
 		{"cover.txt", false},
 		{"back.jpg", false},
 		{"insert.jpg", false},
+		// Non-front art must never be mistaken for the front cover, even
+		// though the filename contains a cover/front token.
+		{"Back Cover.jpg", false},
+		{"back-cover.jpg", false},
+		{"backcover.jpg", false},
+		{"cover-back.jpg", false},
+		{"cover_back.png", false},
+		{"Adele-19 [Back].jpg", false},
+		{"inside cover.jpg", false},
+		{"inlay-cover.jpg", false},
+		{"disc cover.jpg", false},
+		{"booklet-cover.jpg", false},
+		{"CD1 cover-disc.jpg", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +71,30 @@ func TestBestCoverSubstringMatch(t *testing.T) {
 	best := scanner.BestCover(files)
 	if best != "Adele-19 [Front].jpg" {
 		t.Errorf("expected Adele-19 [Front].jpg, got %s", best)
+	}
+}
+
+// A folder holding both faces of the sleeve must serve the front one. Plain
+// alphabetical order puts "Back Cover.jpg" first, so this only works if the
+// back name is rejected outright.
+func TestBestCoverRejectsBackCoverNames(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"back and front", []string{"Back Cover.jpg", "Front Cover.jpg"}, "Front Cover.jpg"},
+		{"backcover and frontcover", []string{"backcover.jpg", "frontcover.jpg"}, "frontcover.jpg"},
+		{"back only", []string{"Back Cover.jpg"}, ""},
+		{"back and generic cover", []string{"back-cover.jpg", "cover.jpg"}, "cover.jpg"},
+		{"non-front art only", []string{"Back Cover.jpg", "booklet-cover.jpg", "disc cover.jpg"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := scanner.BestCover(tt.files); got != tt.want {
+				t.Errorf("BestCover(%v) = %q, want %q", tt.files, got, tt.want)
+			}
+		})
 	}
 }
 

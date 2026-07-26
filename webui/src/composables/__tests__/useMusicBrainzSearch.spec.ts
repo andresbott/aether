@@ -38,4 +38,34 @@ describe('useMusicBrainzSearch', () => {
         expect(error.value).toBe('network down')
         expect(results.value).toEqual([])
     })
+
+    // The backend answers upstream outages with a ready-to-show sentence; a
+    // double-wrapped body must never reach the user as raw JSON.
+    it('surfaces the server sentence and never raw JSON', async () => {
+        searchMock.mockRejectedValue({
+            response: {
+                status: 502,
+                data: {
+                    error: '{"error":"MusicBrainz is temporarily unavailable. Try again in a few minutes.","code":"upstream_error"}',
+                    code: 502
+                }
+            }
+        })
+        const { search, error } = useMusicBrainzSearch()
+        await search('nirvana')
+        expect(error.value?.startsWith('{')).toBe(false)
+        expect(error.value).toBe('MusicBrainz is temporarily unavailable. Try again in a few minutes.')
+    })
+
+    it('flags a rate-limited search', async () => {
+        searchMock.mockRejectedValue({
+            response: {
+                status: 429,
+                data: { error: 'MusicBrainz is receiving too many requests right now.', code: 'upstream_rate_limited' }
+            }
+        })
+        const { search, rateLimited } = useMusicBrainzSearch()
+        await search('nirvana')
+        expect(rateLimited.value).toBe(true)
+    })
 })

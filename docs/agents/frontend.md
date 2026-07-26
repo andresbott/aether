@@ -45,6 +45,16 @@ When a view diverges from these registries, the registry wins.
   default via `initWithDefaults()`, no auth today — see
   [subsonic-api.md](subsonic-api.md)).
 - `types/` — one file per API domain, mirroring backend response shapes.
+- `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
+  `apiErrorMessage(err, fallback)` instead of re-deriving
+  `err?.response?.data?.error ?? err.message`: it reads the server's
+  `{error, code}` envelope, unwraps a nested JSON body rather than showing it
+  raw, and describes a no-response failure as a connectivity problem.
+  `isRateLimitError(err)` spots 429 / `upstream_rate_limited` so a view can
+  invite a retry (warn) rather than report a hard failure (error) — see the
+  search tab of `PicturePickerDialog`. Third-party lookups (cover art,
+  MusicBrainz, radio-browser) fail routinely; the composables expose
+  `{ error, rateLimited }` and the server already sends a showable sentence.
 - `store/uiStore.ts` — Pinia, UI-only state. Player persistence is
   localStorage (`musicPlayer:*` keys) via `utils/localStorage.ts`, not Pinia.
 
@@ -64,6 +74,14 @@ SCSS under `assets/scss/`; shared tokens in `_variables.scss` — notably
 app-wide (never restyle). PrimeVue theme via `@primeuix/themes` (`theme.js`);
 Inter variable font. One deliberate global dialog-footer rule in `_main.scss`
 (confirm-first ordering — see registry 2 before touching dialog footers).
+
+**Hidden themes (easter egg).** `_hidden-themes.scss` holds two unlockable
+palettes — Winamp, CRT. They are token-only repaints layered over
+`.dark-mode` (`useTheme` keeps that class on for them so the PrimeVue preset
+stays dark) and are selected by a `theme-<name>` root class. Five clicks on the
+wordmark's "e" in `AppSidebar` unlock them for good (`aether:hiddenThemes` in
+localStorage) and cycle between them; once unlocked they appear in the
+Settings → Profile theme picker. This is intentional — don't "clean it up".
 
 ## Testing (see [testing.md](testing.md))
 

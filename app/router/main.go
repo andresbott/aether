@@ -30,6 +30,9 @@ type Cfg struct {
 	// Identifier is optional: nil disables audio identification in the
 	// metadata editor.
 	Identifier metadataHandler.IdentifyService
+	// IdentifyUnavailableReason is the user-facing explanation shown by the
+	// editor when Identifier is nil (e.g. fpcalc missing). Ignored otherwise.
+	IdentifyUnavailableReason string
 }
 
 type MainAppHandler struct {
@@ -45,6 +48,7 @@ type MainAppHandler struct {
 	artistFetcher tasks.Fetcher
 	assets        *assetstore.Store
 	identifier    metadataHandler.IdentifyService
+	identifyOff   string
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -66,16 +70,22 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		artistFetcher: cfg.ArtistFetcher,
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
 		identifier:    cfg.Identifier,
+		identifyOff:   cfg.IdentifyUnavailableReason,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)
+	// JsonErrors stays off: it wraps *every* error body, which escapes the JSON
+	// our handlers already write into a string field and shows the user a raw
+	// document. jsonErrorEnvelope does the same job JSON-aware — see errors.go.
+	// The middleware keeps logging + metrics.
 	prodMid := middleware.New(middleware.Cfg{
-		JsonErrors:  true,
+		JsonErrors:  false,
 		GenericErrs: false,
 		Logger:      cfg.Logger,
 		PromHisto:   hist,
 	})
 	r.Use(prodMid.Middleware)
+	r.Use(jsonErrorEnvelope)
 
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 

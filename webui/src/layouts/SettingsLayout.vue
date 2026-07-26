@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/store/uiStore'
+import { useVersion } from '@/composables/useVersion'
 
 interface SettingsNavItem {
     label: string
@@ -51,6 +52,26 @@ const onNavItem = (item: SettingsNavItem) => {
 }
 const goBack = () => router.push('/')
 
+const { data: serverVersion } = useVersion()
+
+// Expanded shows "version: v1.2.3"; collapsed has no room for a label, so the
+// version is omitted entirely there. The "v" is only prepended to bare numeric
+// versions — non-release builds ("dev-build") are shown verbatim.
+const versionLabel = computed(() => {
+    const v = serverVersion.value?.version
+    if (!v) return ''
+    return /^\d/.test(v) ? `v${v}` : v
+})
+
+const versionTitle = computed(() => {
+    const info = serverVersion.value
+    if (!info) return ''
+    const parts = [versionLabel.value]
+    if (info.commit && info.commit !== 'undefined') parts.push(info.commit.slice(0, 8))
+    if (info.build_time) parts.push(info.build_time)
+    return parts.join(' · ')
+})
+
 onMounted(() => {
     uiStore.checkScreenWidth()
     window.addEventListener('resize', uiStore.checkScreenWidth)
@@ -95,6 +116,14 @@ onUnmounted(() => {
                     </button>
                 </template>
             </nav>
+
+            <div
+                v-if="!collapsed && versionLabel"
+                class="sidebar-version"
+                :title="versionTitle"
+            >
+                version: {{ versionLabel }}
+            </div>
 
             <nav class="sidebar-footer-nav">
                 <button
@@ -260,6 +289,26 @@ onUnmounted(() => {
     flex-shrink: 0;
     padding: 0.75rem 0;
     border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Deliberately faint: build info should be findable, never eye-catching. */
+.sidebar-version {
+    flex-shrink: 0;
+    padding: 0 1rem 0.5rem;
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--app-nav-text-dim);
+    opacity: 0.45;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity 0.2s;
+    cursor: default;
+}
+
+.sidebar-version:hover {
+    opacity: 0.8;
 }
 
 .settings-content {

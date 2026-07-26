@@ -111,20 +111,7 @@ func runServer(configFile string) error {
 	dataStore := store.New(db)
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
-	// Build the artist-image fetcher from whatever provider API keys are set.
-	// If none are configured, fetcher stays nil and the task reports a clear
-	// "not configured" message when run (the task is always registered).
-	var providers []artistimage.Provider
-	if cfg.ArtistImages.FanartApiKey != "" {
-		providers = append(providers, artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey))
-	}
-	if cfg.ArtistImages.TheAudioDBApiKey != "" {
-		providers = append(providers, artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey))
-	}
-	var fetcher tasks.Fetcher
-	if len(providers) > 0 {
-		fetcher = artistimage.NewChain(providers...)
-	}
+	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
 	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
 
@@ -151,13 +138,19 @@ func runServer(configFile string) error {
 
 	// Audio identification is optional: it needs the fpcalc binary
 	// (Chromaprint) on the host and an AcoustID application key.
+	// identifyOff is the user-facing reason shown by the metadata editor when
+	// identification is disabled; empty means it is available.
 	acoustIDAppKey := metainfo.AcoustIDAppKey(metainfo.Version)
 	var identifier *identify.Identifier
+	var identifyOff string
 	switch {
 	case acoustIDAppKey == "":
+		identifyOff = "this build has no AcoustID application key, so audio identification is disabled"
 		l.Info("no AcoustID application key for this version — audio identification disabled",
 			slog.String("component", "startup"))
 	case !fpcalc.Available(""):
+		identifyOff = "the fpcalc binary (Chromaprint) was not found on the server at startup; " +
+			"install it (Debian/Ubuntu: libchromaprint-tools) and restart Aether"
 		l.Info("fpcalc binary not found in PATH — audio identification disabled",
 			slog.String("component", "startup"))
 	default:
@@ -206,6 +199,8 @@ func runServer(configFile string) error {
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier
+	} else {
+		routerCfg.IdentifyUnavailableReason = identifyOff
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {
@@ -217,11 +212,6 @@ func runServer(configFile string) error {
 		Handler:           mainAppHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	obsSrv := &http.Server{
-		Addr:              cfg.Obs.Addr(),
-		Handler:           handlers.Admin(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
@@ -230,7 +220,17 @@ func runServer(configFile string) error {
 
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
-	g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
+	// The observability server (health, Prometheus metrics) is opt-in.
+	if cfg.Obs.Enabled {
+		obsSrv := &http.Server{
+			Addr:              cfg.Obs.Addr(),
+			Handler:           handlers.Admin(),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		g.Go(func() error { return serveHTTP(gctx, obsSrv, l, "observability") })
+	} else {
+		l.Info("observability server disabled", slog.String("component", "observability"))
+	}
 	g.Go(func() error {
 		<-gctx.Done()
 		scheduler.Stop()
@@ -247,6 +247,23 @@ func runServer(configFile string) error {
 	}()
 
 	return g.Wait()
+}
+
+// buildArtistFetcher assembles the artist-image fetcher from whatever provider
+// API keys are set. If none are configured it returns nil and the task reports
+// a clear "not configured" message when run (the task is always registered).
+func buildArtistFetcher(cfg ArtistImagesCfg) tasks.Fetcher {
+	var providers []artistimage.Provider
+	if cfg.FanartApiKey != "" {
+		providers = append(providers, artistimage.NewFanartTV(cfg.FanartApiKey))
+	}
+	if cfg.TheAudioDBApiKey != "" {
+		providers = append(providers, artistimage.NewTheAudioDB(cfg.TheAudioDBApiKey))
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	return artistimage.NewChain(providers...)
 }
 
 func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component string) error {

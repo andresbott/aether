@@ -3,28 +3,37 @@ import type { Song, PlayerState } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { saveToLocalStorage, loadFromLocalStorage } from '@/utils/localStorage'
 import { reorderQueue } from '@/utils/queueReorder'
-import { nextQueueIndex } from '@/utils/playbackOrder'
+import {
+    nextQueueIndex,
+    buildShuffleOrder,
+    resyncShuffleOrder,
+    stepOrderPosition
+} from '@/utils/playbackOrder'
 
 const STORAGE_KEY_QUEUE = 'musicPlayer:queue'
 const STORAGE_KEY_CURRENT_INDEX = 'musicPlayer:currentIndex'
 const STORAGE_KEY_VOLUME = 'musicPlayer:volume'
 const STORAGE_KEY_REPEAT = 'musicPlayer:repeat'
 const STORAGE_KEY_SHUFFLE = 'musicPlayer:shuffle'
+const STORAGE_KEY_SHUFFLE_ORDER = 'musicPlayer:shuffleOrder'
 
 const currentTrack = ref<Song | null>(null)
 const queue = ref<Song[]>(loadFromLocalStorage<Song[]>(STORAGE_KEY_QUEUE, []))
 const currentIndex = ref<number>(loadFromLocalStorage<number>(STORAGE_KEY_CURRENT_INDEX, 0))
 const isPlaying = ref<boolean>(false)
 const volume = ref<number>(loadFromLocalStorage<number>(STORAGE_KEY_VOLUME, 1))
-const repeat = ref<'none' | 'all' | 'one'>(
-    loadFromLocalStorage<'none' | 'all' | 'one'>(STORAGE_KEY_REPEAT, 'none')
-)
+const repeat = ref<'none' | 'all'>(loadFromLocalStorage<'none' | 'all'>(STORAGE_KEY_REPEAT, 'none'))
 const shuffle = ref<boolean>(loadFromLocalStorage<boolean>(STORAGE_KEY_SHUFFLE, false))
 const currentTime = ref<number>(0)
 const duration = ref<number>(0)
 // The track buffered ahead on the standby element, so the next track can start
 // without a network/decode gap. null when nothing is queued to play next.
 const preloadedTrack = ref<Song | null>(null)
+// A random play order over the queue, held as track ids alongside the queue's
+// own order. With shuffle on, next/previous walk this permutation instead of the
+// queue, so the random sequence is stable and can be stepped backwards. Rebuilt
+// when shuffle is switched on or the queue is replaced.
+const shuffleOrder = ref<string[]>(loadFromLocalStorage<string[]>(STORAGE_KEY_SHUFFLE_ORDER, []))
 
 // Two audio elements are kept alive at once: `activeEl` plays the current track
 // while `standbyEl` pre-buffers the next one. On track end we swap their roles
@@ -73,15 +82,63 @@ const getTrackUrl = (track: Song | null): string | null => {
     return subsonicClient.getStreamUrl(track.id)
 }
 
+// Draw a fresh random order over the queue, starting at the given track so the
+// shuffled run begins where playback currently is.
+const rebuildShuffleOrder = (startId?: string): void => {
+    const ids = queue.value.map((s) => s.id)
+    const first = startId ?? queue.value[currentIndex.value]?.id ?? null
+    shuffleOrder.value = buildShuffleOrder(ids, first)
+}
+
+// Fold queue changes into the existing random order: removed tracks drop out,
+// added ones get random slots among the entries that have not played yet.
+// Keeping the order rather than redrawing it means a queue edit never
+// re-randomizes the run the user is already listening to.
+const syncShuffleOrder = (): void => {
+    if (!shuffle.value && shuffleOrder.value.length === 0) return
+    shuffleOrder.value = resyncShuffleOrder(
+        shuffleOrder.value,
+        queue.value.map((s) => s.id),
+        queue.value[currentIndex.value]?.id ?? null
+    )
+}
+
+// Where the playing track sits in the random order, or -1 when it is not in it
+// (a freshly inserted track, or an order that has not been built yet).
+const shufflePosition = (): number => {
+    const id = queue.value[currentIndex.value]?.id
+    return id === undefined ? -1 : shuffleOrder.value.indexOf(id)
+}
+
+// The queue index one step away from the current one: the adjacent queue slot
+// with shuffle off, the adjacent entry of the random order with shuffle on.
+// Returns null when there is nothing in that direction.
+const resolveStep = (delta: 1 | -1): number | null => {
+    if (!shuffle.value) {
+        if (delta === 1) return nextQueueIndex(currentIndex.value, queue.value.length, repeat.value)
+        const prev = currentIndex.value - 1
+        if (prev >= 0) return prev
+        return repeat.value === 'all' && queue.value.length > 0 ? queue.value.length - 1 : null
+    }
+
+    const position = stepOrderPosition(
+        shufflePosition(),
+        shuffleOrder.value.length,
+        delta,
+        repeat.value
+    )
+    if (position === null) return null
+    const id = shuffleOrder.value[position]
+    if (id === undefined) return null
+    const index = queue.value.findIndex((s) => s.id === id)
+    return index === -1 ? null : index
+}
+
 // Point the standby element at whatever track should play next so the browser
-// can buffer it ahead of time. Repeat 'one' replays the current track, so there
-// is nothing distinct to pre-buffer.
+// can buffer it ahead of time.
 const updatePreload = (): void => {
     if (!standbyEl) return
-    const nextIndex =
-        repeat.value === 'one'
-            ? null
-            : nextQueueIndex(currentIndex.value, queue.value.length, repeat.value)
+    const nextIndex = resolveStep(1)
     const nextTrack = nextIndex === null ? null : (queue.value[nextIndex] ?? null)
     preloadedTrack.value = nextTrack
 
@@ -133,6 +190,12 @@ export function usePlayer() {
             activeEl.volume = volume.value
         }
     }
+    // A restored session may have shuffle on with an order that predates the
+    // stored queue, or none at all.
+    if (shuffle.value) {
+        if (shuffleOrder.value.length === 0) rebuildShuffleOrder()
+        else syncShuffleOrder()
+    }
     updatePreload()
 
     watch(
@@ -156,14 +219,25 @@ export function usePlayer() {
         saveToLocalStorage(STORAGE_KEY_SHUFFLE, newShuffle)
     })
 
+    watch(shuffleOrder, (newOrder) => {
+        saveToLocalStorage(STORAGE_KEY_SHUFFLE_ORDER, newOrder)
+    })
+
     const hasNext = computed(() => {
-        if (repeat.value === 'one') return true
-        if (repeat.value === 'all') return queue.value.length > 0
+        if (queue.value.length === 0) return false
+        if (repeat.value === 'all') return true
+        if (shuffle.value) {
+            // At the end of the random order there is nothing left to play.
+            const position = shufflePosition()
+            return position < shuffleOrder.value.length - 1
+        }
         return currentIndex.value < queue.value.length - 1
     })
 
     const hasPrevious = computed(() => {
-        if (repeat.value === 'all') return queue.value.length > 0
+        if (queue.value.length === 0) return false
+        if (repeat.value === 'all') return true
+        if (shuffle.value) return shufflePosition() !== 0
         return currentIndex.value > 0
     })
 
@@ -212,15 +286,7 @@ export function usePlayer() {
     }
 
     const playNext = (): void => {
-        if (repeat.value === 'one') {
-            if (currentTrack.value && activeEl) {
-                activeEl.currentTime = 0
-                play()
-            }
-            return
-        }
-
-        const nextIndex = nextQueueIndex(currentIndex.value, queue.value.length, repeat.value)
+        const nextIndex = resolveStep(1)
         if (nextIndex === null) {
             pause()
             return
@@ -252,15 +318,10 @@ export function usePlayer() {
             return
         }
 
-        let prevIndex = currentIndex.value - 1
-
-        if (prevIndex < 0) {
-            if (repeat.value === 'all') {
-                prevIndex = queue.value.length - 1
-            } else {
-                if (activeEl) activeEl.currentTime = 0
-                return
-            }
+        const prevIndex = resolveStep(-1)
+        if (prevIndex === null) {
+            if (activeEl) activeEl.currentTime = 0
+            return
         }
 
         loadTrack(prevIndex)
@@ -277,36 +338,43 @@ export function usePlayer() {
     }
 
     const toggleRepeat = (): void => {
-        const modes: Array<'none' | 'all' | 'one'> = ['none', 'all', 'one']
-        const currentModeIndex = modes.indexOf(repeat.value)
-        const nextMode = modes[(currentModeIndex + 1) % modes.length]
-        if (nextMode) {
-            repeat.value = nextMode
-        }
+        repeat.value = repeat.value === 'all' ? 'none' : 'all'
     }
 
     const toggleShuffle = (): void => {
         shuffle.value = !shuffle.value
+        // Turning shuffle on draws a new random order from the playing track;
+        // turning it off drops it so the next enable is not a stale sequence.
+        if (shuffle.value) rebuildShuffleOrder()
+        else shuffleOrder.value = []
+        updatePreload()
     }
 
     const addToQueue = (song: Song): void => {
         queue.value.push(song)
+        syncShuffleOrder()
         updatePreload()
     }
 
     const addMultipleToQueue = (songs: Song[]): void => {
         queue.value.push(...songs)
+        syncShuffleOrder()
         updatePreload()
     }
 
     const playNow = (song: Song): void => {
         queue.value = [song]
+        shuffleOrder.value = shuffle.value ? [song.id] : []
         loadTrack(0)
         play()
     }
 
     const playAlbum = (songs: Song[], startIndex: number = 0): void => {
         queue.value = [...songs]
+        // A new queue invalidates the old order entirely: redraw it around the
+        // track the user picked.
+        if (shuffle.value) rebuildShuffleOrder(songs[startIndex]?.id)
+        else shuffleOrder.value = []
         loadTrack(startIndex)
         play()
     }
@@ -318,6 +386,7 @@ export function usePlayer() {
             currentIndex.value--
         }
         queue.value.splice(index, 1)
+        syncShuffleOrder()
         updatePreload()
     }
 
@@ -344,11 +413,13 @@ export function usePlayer() {
             // (or the new last track) and keep playback going if it was.
             const wasPlaying = isPlaying.value
             loadTrack(Math.min(keptBeforeCurrent, next.length - 1))
+            syncShuffleOrder()
             if (wasPlaying) play()
         } else if (current) {
             // Keep pointing at the still-playing track.
             const idx = next.indexOf(current)
             if (idx !== -1) currentIndex.value = idx
+            syncShuffleOrder()
             updatePreload()
         }
     }
@@ -374,11 +445,13 @@ export function usePlayer() {
             const idx = queue.value.indexOf(current)
             if (idx !== -1) currentIndex.value = idx
         }
+        syncShuffleOrder()
         updatePreload()
     }
 
     const clearQueue = (): void => {
         queue.value = []
+        shuffleOrder.value = []
         currentIndex.value = 0
         currentTrack.value = null
         preloadedTrack.value = null
@@ -388,6 +461,8 @@ export function usePlayer() {
         if (standbyEl) standbyEl.src = ''
     }
 
+    // Picking a track by hand jumps to its slot in the random order rather than
+    // redrawing, so next/previous keep walking the same sequence around it.
     const playQueueItem = (index: number): void => {
         loadTrack(index)
         play()
@@ -407,6 +482,7 @@ export function usePlayer() {
         currentTime,
         duration,
         preloadedTrack,
+        shuffleOrder,
         hasNext,
         hasPrevious,
         play,

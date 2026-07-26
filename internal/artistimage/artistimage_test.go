@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -25,8 +26,9 @@ func TestFanartTVFetch(t *testing.T) {
 	base = srv.URL
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Client = srv.Client()
-	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
 
 	data, ext, err := p.Fetch(context.Background(), "mbid-1")
 	if err != nil {
@@ -70,8 +72,9 @@ func TestTheAudioDBFetch(t *testing.T) {
 
 	p := NewTheAudioDB("testkey")
 	p.BaseURL = srv.URL
-	p.Client = srv.Client()
-	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
 
 	data, ext, err := p.Fetch(context.Background(), "some-mbid")
 	if err != nil {
@@ -98,8 +101,9 @@ func TestDownloadNon200(t *testing.T) {
 
 	p := NewTheAudioDB("testkey")
 	p.BaseURL = srv.URL
-	p.Client = srv.Client()
-	p.limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
 
 	_, _, err := p.Fetch(context.Background(), "some-mbid")
 	if err == nil {
@@ -120,8 +124,8 @@ func TestProviderThrottleGatesRequest(t *testing.T) {
 
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Client = srv.Client()
-	p.limiter = rate.NewLimiter(1, 0) // burst 0 -> Wait can never succeed
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(1, 0) // burst 0 -> Wait can never succeed
 
 	_, _, err := p.Fetch(context.Background(), "mbid-1")
 	if err == nil {
@@ -129,6 +133,41 @@ func TestProviderThrottleGatesRequest(t *testing.T) {
 	}
 	if n := atomic.LoadInt32(&hits); n != 0 {
 		t.Fatalf("request reached the server despite the throttle: %d hits", n)
+	}
+}
+
+// An image host that fails once must not cost us the artist image: the
+// provider retries before the chain writes it off as "no image here".
+func TestProviderRetriesTransientFailure(t *testing.T) {
+	var imgHits int32
+	mux := http.NewServeMux()
+	var base string
+	mux.HandleFunc("/v3/music/mbid-1", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"artistthumb":[{"url":"` + base + `/img.png"}]}`))
+	})
+	mux.HandleFunc("/img.png", func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&imgHits, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte("PNGDATA"))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	p := NewFanartTV("key")
+	p.BaseURL = srv.URL
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+
+	data, ext, err := p.Fetch(context.Background(), "mbid-1")
+	if err != nil {
+		t.Fatalf("Fetch should have recovered on retry: %v", err)
+	}
+	if string(data) != "PNGDATA" || ext != "png" {
+		t.Fatalf("got data=%q ext=%q", data, ext)
 	}
 }
 

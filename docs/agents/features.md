@@ -42,7 +42,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Artist image fetching | Implemented, key-gated | task `fetch-artist-images`, `internal/artistimage` (fanart.tv → TheAudioDB chain) |
 | Metadata editor (tags, pictures, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` |
 | Radio-browser station import | Implemented | `handlers/radiobrowser` (server-side proxy) |
-| Prometheus metrics | Implemented | separate observability server (`:9009` default), `handlers/admin.go` |
+| Prometheus metrics | Implemented, opt-in | separate observability server, off unless `Observability.Enabled` (`:9009` default), `handlers/admin.go` |
 
 ## Web UI (see [frontend.md](frontend.md))
 

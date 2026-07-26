@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import Slider from 'primevue/slider'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
@@ -57,6 +57,54 @@ const volumeIcon = computed(() => {
 const volumePercent = computed({
     get: () => player.volume.value * 100,
     set: (val: number) => player.setVolume(val / 100)
+})
+
+// PrimeVue's Slider only binds mousemove/mouseup after a mousedown on the
+// handle; pressing the bare rail is handled by a plain `click`, so holding and
+// moving from there doesn't update anything until release. We take over the
+// rail-press path: apply the value on mousedown and keep following the pointer
+// until mouseup, which is what dragging the handle already does.
+const useRailDrag = (apply: (percent: number) => void) => {
+    const rail = ref<HTMLElement | null>(null)
+
+    const onDrag = (event: MouseEvent): void => {
+        const track = rail.value?.querySelector('.p-slider')
+        if (!track) return
+        const rect = track.getBoundingClientRect()
+        if (rect.width === 0) return
+        const ratio = (event.clientX - rect.left) / rect.width
+        // floor, matching PrimeVue's own rail math, so the value doesn't shift
+        // by a percent when its click handler recomputes it on release.
+        apply(Math.min(100, Math.max(0, Math.floor(ratio * 100))))
+    }
+
+    const stop = (): void => {
+        document.removeEventListener('mousemove', onDrag)
+        document.removeEventListener('mouseup', stop)
+    }
+
+    const onMouseDown = (event: MouseEvent): void => {
+        // Let PrimeVue own presses that start on the handle — that path already
+        // tracks the pointer correctly.
+        const target = event.target as HTMLElement | null
+        if (target?.closest('.p-slider-handle')) return
+        if (event.button !== 0) return
+        onDrag(event)
+        document.addEventListener('mousemove', onDrag)
+        document.addEventListener('mouseup', stop)
+    }
+
+    onBeforeUnmount(stop)
+
+    return { rail, onMouseDown }
+}
+
+const { rail: volumeRail, onMouseDown: onVolumeRailMouseDown } = useRailDrag((percent) => {
+    volumePercent.value = percent
+})
+
+const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag((percent) => {
+    onProgressChange(percent)
 })
 </script>
 
@@ -118,13 +166,16 @@ const volumePercent = computed({
                     @click="player.toggleRepeat"
                 >
                     <i class="pi pi-sync"></i>
-                    <span v-if="player.repeat.value === 'one'" class="repeat-badge">1</span>
                 </button>
             </div>
 
             <div class="progress-row">
                 <span class="time-label">{{ formatTime(player.currentTime.value) }}</span>
-                <div class="progress-slider">
+                <div
+                    ref="progressRail"
+                    class="progress-slider"
+                    @mousedown="onProgressRailMouseDown"
+                >
                     <Slider
                         :modelValue="progressPercent"
                         @update:modelValue="onProgressChange"
@@ -136,7 +187,7 @@ const volumePercent = computed({
 
         <div class="player-right">
             <i :class="volumeIcon" class="volume-icon"></i>
-            <div class="volume-slider">
+            <div ref="volumeRail" class="volume-slider" @mousedown="onVolumeRailMouseDown">
                 <Slider v-model="volumePercent" />
             </div>
             <button
@@ -314,22 +365,6 @@ const volumePercent = computed({
     box-shadow: 0 3px 12px rgba(47, 211, 239, 0.3);
 }
 
-.repeat-badge {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    font-size: 0.6rem;
-    font-weight: 700;
-    background-color: var(--app-accent);
-    color: white;
-    border-radius: 50%;
-    width: 14px;
-    height: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
 .progress-row {
     display: flex;
     align-items: center;
@@ -339,6 +374,7 @@ const volumePercent = computed({
 
 .time-label {
     font-size: 0.75rem;
+    font-family: var(--app-player-time-font);
     color: var(--app-player-dim);
     min-width: 36px;
     text-align: center;
@@ -353,10 +389,13 @@ const volumePercent = computed({
     flex: 1;
 }
 
+/* cursor on .p-slider (not just the rail) so the enlarged ::before hit strip
+   below inherits it — the whole clickable area reads as seekable on hover. */
 .progress-slider :deep(.p-slider) {
     height: 6px;
     background: var(--app-player-track);
     border-radius: 99px;
+    cursor: pointer;
 }
 
 /* Enlarge the click/seek target vertically without changing the thin rail's
@@ -412,14 +451,17 @@ const volumePercent = computed({
     color: var(--app-player-dim);
 }
 
+/* Wide enough that each 1% volume step is ~1.5px of travel, so the rail can be
+   set precisely by eye instead of jumping several percent per pixel. */
 .volume-slider {
-    width: 90px;
+    width: 150px;
 }
 
 .volume-slider :deep(.p-slider) {
     height: 5px;
     background: var(--app-player-track);
     border-radius: 99px;
+    cursor: pointer;
 }
 
 /* Same enlarged click target as the progress bar — thin rail, taller hit strip. */
@@ -437,9 +479,19 @@ const volumePercent = computed({
     border-radius: 99px;
 }
 
-/* Mock volume has no visible knob; keep it draggable but invisible. */
+/* Mock volume has no visible knob; keep it draggable but invisible. Since there
+   is no knob to grab, use the same pointer cursor as the rest of the rail. */
 .volume-slider :deep(.p-slider-handle) {
     opacity: 0;
+    cursor: pointer;
+}
+
+/* Below this the wider rail starts squeezing the centered playback column, so
+   fall back to the compact width. */
+@media (max-width: 1100px) {
+    .volume-slider {
+        width: 90px;
+    }
 }
 
 @media (max-width: 768px) {

@@ -17,6 +17,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -108,6 +109,59 @@ func TestSearchMusicBrainz_UpstreamError(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// An upstream outage must reach the UI as a sentence naming MusicBrainz, with
+// a rate limit distinguished from an outage so the UI can say "wait and retry".
+func TestSearchMusicBrainz_UpstreamErrorIsHumanReadable(t *testing.T) {
+	search := &fakeSearcher{err: &upstream.Error{
+		Service: "MusicBrainz",
+		Kind:    upstream.KindUnavailable,
+		Status:  http.StatusServiceUnavailable,
+	}}
+	_, r := newTestHandler(t, search, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/musicbrainz/search?q=Nirvana", nil))
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Code != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", body.Code)
+	}
+	if !strings.Contains(body.Error, "MusicBrainz") || !strings.Contains(body.Error, "unavailable") {
+		t.Errorf("error is not a human sentence: %q", body.Error)
+	}
+	if strings.Contains(body.Error, "search failed") || strings.Contains(body.Error, "status") {
+		t.Errorf("error leaks internal wording: %q", body.Error)
+	}
+}
+
+func TestSearchMusicBrainz_RateLimitedReturns429(t *testing.T) {
+	search := &fakeSearcher{err: &upstream.Error{
+		Service: "MusicBrainz",
+		Kind:    upstream.KindRateLimited,
+		Status:  http.StatusTooManyRequests,
+	}}
+	_, r := newTestHandler(t, search, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/musicbrainz/search?q=Nirvana", nil))
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", w.Code)
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Code != "upstream_rate_limited" {
+		t.Errorf("code = %q, want upstream_rate_limited", body.Code)
 	}
 }
 

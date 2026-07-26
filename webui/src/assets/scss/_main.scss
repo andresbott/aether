@@ -1,4 +1,6 @@
 @use 'variables';
+/* After variables so the hidden palettes override the .dark-mode tokens. */
+@use 'hidden-themes';
 
 * {
     box-sizing: border-box;

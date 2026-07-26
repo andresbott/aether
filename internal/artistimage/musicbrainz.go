@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
-	"time"
 
-	"golang.org/x/time/rate"
+	"github.com/andresbott/aether/internal/upstream"
 )
+
+// mbServiceName is what the user sees when MusicBrainz misbehaves.
+const mbServiceName = "MusicBrainz"
 
 // Candidate is a simplified MusicBrainz artist search result.
 type Candidate struct {
@@ -52,19 +53,30 @@ type ReleaseArtistCredit struct {
 // separate from the Provider interface (image fetch by MBID) — this client
 // looks artists up, it does not fetch images.
 type MusicBrainzSearch struct {
-	BaseURL   string
-	UserAgent string
-	Client    *http.Client
-	limiter   *rate.Limiter
+	BaseURL string
+	// Doer carries the throttle, retry policy and error classification shared
+	// by all of aether's outbound clients.
+	Doer *upstream.Doer
 }
 
 func NewMusicBrainzSearch(userAgent string) *MusicBrainzSearch {
 	return &MusicBrainzSearch{
-		BaseURL:   "https://musicbrainz.org",
-		UserAgent: userAgent,
-		Client:    &http.Client{Timeout: 20 * time.Second},
-		limiter:   rate.NewLimiter(requestsPerSecond, 1),
+		BaseURL: "https://musicbrainz.org",
+		Doer:    upstream.New(mbServiceName, userAgent, requestsPerSecond),
 	}
+}
+
+// getJSON performs a throttled, retrying GET and decodes the JSON body into out.
+func (m *MusicBrainzSearch) getJSON(ctx context.Context, url string, out any) error {
+	resp, err := m.Doer.Get(ctx, url, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return m.Doer.BadResponse(err)
+	}
+	return nil
 }
 
 type mbArtistSearchResponse struct {
@@ -92,24 +104,8 @@ func (m *MusicBrainzSearch) Search(ctx context.Context, query string, limit int)
 		limit = 10
 	}
 	u := fmt.Sprintf("%s/ws/2/artist/?query=%s&fmt=json&limit=%d", m.BaseURL, url.QueryEscape(query), limit)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", m.UserAgent)
-	if err := m.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := m.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("musicbrainz search: status %d", resp.StatusCode)
-	}
 	var body mbArtistSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := m.getJSON(ctx, u, &body); err != nil {
 		return nil, err
 	}
 	out := make([]Candidate, 0, len(body.Artists))
@@ -146,24 +142,8 @@ func (m *MusicBrainzSearch) ReleaseGroupGenres(ctx context.Context, mbid string)
 		return nil, nil
 	}
 	u := fmt.Sprintf("%s/ws/2/release-group/%s?fmt=json&inc=genres", m.BaseURL, url.PathEscape(mbid))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", m.UserAgent)
-	if err := m.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := m.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("musicbrainz release-group lookup: status %d", resp.StatusCode)
-	}
 	var body mbReleaseGroupGenresResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := m.getJSON(ctx, u, &body); err != nil {
 		return nil, err
 	}
 	sort.SliceStable(body.Genres, func(i, j int) bool {
@@ -214,24 +194,8 @@ func (m *MusicBrainzSearch) SearchRelease(ctx context.Context, query string, lim
 		limit = 10
 	}
 	u := fmt.Sprintf("%s/ws/2/release/?query=%s&fmt=json&limit=%d", m.BaseURL, url.QueryEscape(query), limit)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", m.UserAgent)
-	if err := m.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := m.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("musicbrainz release search: status %d", resp.StatusCode)
-	}
 	var body mbReleaseSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := m.getJSON(ctx, u, &body); err != nil {
 		return nil, err
 	}
 	out := make([]ReleaseCandidate, 0, len(body.Releases))

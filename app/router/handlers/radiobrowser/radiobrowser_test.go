@@ -6,10 +6,12 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	rbHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	"github.com/andresbott/aether/internal/radiobrowser"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 )
 
@@ -102,6 +104,35 @@ func TestSearch_UpstreamError(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
+	}
+}
+
+// The station directory's outages get the same human treatment.
+func TestSearch_UpstreamErrorIsHumanReadable(t *testing.T) {
+	r := newRouter(&fakeSearcher{searchErr: &upstream.Error{
+		Service: "radio-browser.info",
+		Kind:    upstream.KindUnavailable,
+		Status:  http.StatusServiceUnavailable,
+	}})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/radiobrowser/search?q=BBC", nil))
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Code != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", body.Code)
+	}
+	if !strings.Contains(body.Error, "radio-browser.info") {
+		t.Errorf("error does not name the service: %q", body.Error)
+	}
+	if strings.Contains(body.Error, "search failed") {
+		t.Errorf("error leaks internal wording: %q", body.Error)
 	}
 }
 

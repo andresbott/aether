@@ -12,7 +12,7 @@ import (
 
 type AppCfg struct {
 	Server       serverCfg
-	Obs          serverCfg `config:"Observability"`
+	Obs          obsCfg `config:"Observability"`
 	Env          Env
 	DataDir      string
 	Msgs         []Msg
@@ -44,10 +44,26 @@ type serverCfg struct {
 }
 
 func (c serverCfg) Addr() string {
-	if c.BindIp == "" {
-		return ":" + strconv.Itoa(c.Port)
+	return listenAddr(c.BindIp, c.Port)
+}
+
+// obsCfg configures the observability server (health, Prometheus metrics).
+// Enabled false means the server is never started at all.
+type obsCfg struct {
+	Enabled bool
+	BindIp  string
+	Port    int
+}
+
+func (c obsCfg) Addr() string {
+	return listenAddr(c.BindIp, c.Port)
+}
+
+func listenAddr(bindIP string, port int) string {
+	if bindIP == "" {
+		return ":" + strconv.Itoa(port)
 	}
-	return c.BindIp + ":" + strconv.Itoa(c.Port)
+	return bindIP + ":" + strconv.Itoa(port)
 }
 
 type Msg struct {
@@ -88,9 +104,10 @@ var defaultCfg = AppCfg{
 		BindIp: "",
 		Port:   8075,
 	},
-	Obs: serverCfg{
-		BindIp: "",
-		Port:   9009,
+	Obs: obsCfg{
+		Enabled: false,
+		BindIp:  "",
+		Port:    9009,
 	},
 	Env: Env{
 		LogLevel:   "info",

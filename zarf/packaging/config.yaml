@@ -12,8 +12,10 @@ Server:
   # proxy (nginx/Traefik/Caddy, optionally with Authelia) fronts the server.
   BindIp: ""
 
-# Observability endpoints (health, metrics). Keep this off the public interface.
+# Observability endpoints (health, metrics). Off by default; when enabled, keep
+# it off the public interface.
 Observability:
+  Enabled: false
   Port: 9009
   BindIp: "127.0.0.1"
 

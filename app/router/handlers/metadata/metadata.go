@@ -12,6 +12,7 @@ import (
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -34,6 +35,11 @@ type Handler struct {
 	// Identifier is optional: nil disables the identify endpoint and is
 	// reported through /metadata/capabilities.
 	Identifier IdentifyService
+	// IdentifyUnavailableReason explains, in user-facing terms, why Identifier
+	// is nil (missing fpcalc binary, missing AcoustID key, ...). Surfaced
+	// through /metadata/capabilities so the UI can say what is missing instead
+	// of silently hiding the feature. Ignored when Identifier is set.
+	IdentifyUnavailableReason string
 	// RawTagReader reads a file's complete tag map; nil defaults to
 	// taglib.ReadTags. Overridable for tests.
 	RawTagReader func(absPath string) (map[string][]string, error)
@@ -71,6 +77,20 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Error: msg, Code: code})
+}
+
+// writeUpstreamErr reports a failed call to an external service. The body
+// carries the upstream package's human-readable sentence (or fallback for an
+// error that isn't upstream-typed) — never a raw Go error — and the status
+// mirrors the upstream condition so the UI can tell "retry later" (429/504)
+// from "it's broken" (502).
+func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
+	status := upstream.HTTPStatus(err)
+	code := "upstream_error"
+	if status == http.StatusTooManyRequests {
+		code = "upstream_rate_limited"
+	}
+	writeErr(w, status, code, upstream.UserMessage(err, fallback))
 }
 
 func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {

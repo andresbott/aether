@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as MetadataApi from '@/lib/api/Metadata'
+import { apiErrorMessage } from '@/lib/apiError'
 import type {
     Folder,
     IdentifyRequest,
@@ -117,7 +118,7 @@ export function useUpdateTracks() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to save metadata',
-                detail: err?.response?.data?.error ?? err.message,
+                detail: apiErrorMessage(err),
                 life: 5000
             })
         }
@@ -159,7 +160,7 @@ export function useIdentifyTracks() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to identify tracks',
-                detail: err?.response?.data?.error ?? err.message,
+                detail: apiErrorMessage(err),
                 life: 5000
             })
         }
@@ -179,7 +180,7 @@ export function useApplyPicture() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to save picture',
-                detail: err?.response?.data?.error ?? err.message,
+                detail: apiErrorMessage(err),
                 life: 5000
             })
         }
@@ -205,7 +206,7 @@ export function useDeletePicture() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to remove picture',
-                detail: err?.response?.data?.error ?? err.message,
+                detail: apiErrorMessage(err),
                 life: 5000
             })
         }

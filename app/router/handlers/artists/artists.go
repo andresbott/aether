@@ -14,6 +14,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -54,6 +55,20 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Error: msg, Code: code})
+}
+
+// writeUpstreamErr reports a failed call to an external service. The body
+// carries the upstream package's human-readable sentence (or fallback for an
+// error that isn't upstream-typed) — never a raw Go error — and the status
+// mirrors the upstream condition so the UI can tell "retry later" (429/504)
+// from "it's broken" (502).
+func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
+	status := upstream.HTTPStatus(err)
+	code := "upstream_error"
+	if status == http.StatusTooManyRequests {
+		code = "upstream_rate_limited"
+	}
+	writeError(w, status, code, upstream.UserMessage(err, fallback))
 }
 
 func parseID(r *http.Request) (uint, error) {
@@ -103,7 +118,7 @@ func (h *Handler) searchMusicBrainz(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.Search.Search(r.Context(), q, limit)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz search failed: "+err.Error())
+		writeUpstreamErr(w, err, "The artist search could not be completed. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -116,7 +131,7 @@ func (h *Handler) searchMusicBrainzReleases(w http.ResponseWriter, r *http.Reque
 	}
 	results, err := h.Search.SearchRelease(r.Context(), q, limit)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz search failed: "+err.Error())
+		writeUpstreamErr(w, err, "The release search could not be completed. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -130,7 +145,7 @@ func (h *Handler) releaseGroupGenres(w http.ResponseWriter, r *http.Request) {
 	}
 	genres, err := h.Search.ReleaseGroupGenres(r.Context(), mbid)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream_error", "musicbrainz lookup failed: "+err.Error())
+		writeUpstreamErr(w, err, "The genre lookup could not be completed. Try again in a moment.")
 		return
 	}
 	if genres == nil {

@@ -11,11 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -39,12 +41,16 @@ type stubCoverArt struct {
 	images       []coverart.CoverImage
 	downloadData []byte
 	downloadExt  string
+	err          error
 }
 
 func (s stubCoverArt) List(context.Context, string, string) ([]coverart.CoverImage, error) {
-	return s.images, nil
+	return s.images, s.err
 }
 func (s stubCoverArt) DownloadImage(context.Context, string) ([]byte, string, error) {
+	if s.err != nil {
+		return nil, "", s.err
+	}
 	return s.downloadData, s.downloadExt, nil
 }
 
@@ -541,6 +547,104 @@ func TestPictureCandidates(t *testing.T) {
 	}
 	if len(got) != 1 || got[0]["id"] != "1" || got[0]["isFront"] != true {
 		t.Fatalf("unexpected candidates: %s", w.Body.String())
+	}
+}
+
+// An upstream failure must reach the UI as a readable sentence naming the
+// service — never a Go error string with "status 500" in it.
+func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
+	ca := stubCoverArt{err: &upstream.Error{
+		Service: "Cover Art Archive",
+		Kind:    upstream.KindUnavailable,
+		Status:  http.StatusInternalServerError,
+	}}
+	_, r, _, _ := newPictureHandler(t, t.TempDir(), ca)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates?mbid=rel-1", nil))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502", w.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Code != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", body.Code)
+	}
+	if !strings.Contains(body.Error, "Cover Art Archive") ||
+		!strings.Contains(body.Error, "temporarily unavailable") {
+		t.Errorf("error is not a human sentence: %q", body.Error)
+	}
+	if strings.Contains(body.Error, "status 500") || strings.Contains(body.Error, "lookup failed") {
+		t.Errorf("error leaks internal wording: %q", body.Error)
+	}
+}
+
+// A rate-limited provider answers 429 so the UI can say "wait and retry".
+func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
+	ca := stubCoverArt{err: &upstream.Error{
+		Service: "Cover Art Archive",
+		Kind:    upstream.KindRateLimited,
+		Status:  http.StatusTooManyRequests,
+	}}
+	_, r, _, _ := newPictureHandler(t, t.TempDir(), ca)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates?mbid=rel-1", nil))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want 429", w.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Code != "upstream_rate_limited" {
+		t.Errorf("code = %q, want upstream_rate_limited", body.Code)
+	}
+	if !strings.Contains(body.Error, "too many requests") {
+		t.Errorf("unhelpful message: %q", body.Error)
+	}
+}
+
+// The image download shares the mapping: staging a Cover Art Archive URL that
+// the archive then refuses must not answer with a raw Go error either.
+func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
+	root := t.TempDir()
+	ca := stubCoverArt{err: &upstream.Error{
+		Service: "Cover Art Archive",
+		Kind:    upstream.KindUnavailable,
+		Status:  http.StatusBadGateway,
+	}}
+	_, r, lib, _ := newPictureHandler(t, root, ca)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("library_id", libIDStr(lib))
+	_ = mw.WriteField("target", "db")
+	_ = mw.WriteField("paths", "album/01.flac")
+	_ = mw.WriteField("image_url", "http://img/f.jpg")
+	_ = mw.Close()
+
+	req := httptest.NewRequest("POST", "/metadata/pictures", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if !strings.Contains(body.Error, "Cover Art Archive") || body.Code != "upstream_error" {
+		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }
 

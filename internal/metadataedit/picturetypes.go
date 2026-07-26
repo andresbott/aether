@@ -1,5 +1,7 @@
 package metadataedit
 
+import "github.com/andresbott/aether/internal/tags"
+
 // PictureType is one kind of attached picture the editor manages. ID is the
 // canonical TagLib pictureType string as stored in the files; FileBase is the
 // filename base used both for folder art (<base>.jpg/png) and for the named
@@ -13,7 +15,7 @@ type PictureType struct {
 // PictureTypes is the curated, ordered registry of picture types the editor
 // offers. Mirrored in webui/src/lib/pictureTypes.ts — keep the two in sync.
 var PictureTypes = []PictureType{
-	{ID: "Front Cover", Label: "Front cover", FileBase: "cover"},
+	{ID: tags.FrontCoverType, Label: "Front cover", FileBase: "cover"},
 	{ID: "Back Cover", Label: "Back cover", FileBase: "back"},
 	{ID: "Media", Label: "Media (disc)", FileBase: "disc"},
 	{ID: "Leaflet Page", Label: "Booklet", FileBase: "booklet"},

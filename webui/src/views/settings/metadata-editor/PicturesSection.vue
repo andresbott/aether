@@ -12,6 +12,7 @@ import {
     pictureTypeLabel
 } from '@/lib/pictureTypes'
 import type {
+    PictureCopySource,
     PictureInfo,
     PictureSlot,
     StagedPictureSource,
@@ -26,6 +27,8 @@ const props = defineProps<{
     // MB release IDs from the album form, used by the picker's online search.
     releaseMbid: string
     releaseGroupMbid: string
+    // Album name from the form, prefilling the picker's manual release search.
+    albumName: string
 }>()
 
 const selectionPaths = computed(() => props.selection.map((t) => t.path))
@@ -198,6 +201,50 @@ function openPicker(type: string, slot: PictureSlot) {
     picker.value = { open: true, type, slot }
 }
 
+// Every other cell of this album that currently holds an image — the picker
+// offers them as copy sources (e.g. copy the embedded front cover into the
+// internal store). A staged image hands over its own file/URL; a server-held
+// one is downloaded by the picker from its image endpoint. The cell being
+// edited is excluded: copying it onto itself is a no-op.
+const copySources = computed<PictureCopySource[]>(() => {
+    const target = picker.value
+    const out: PictureCopySource[] = []
+    const cells = new Set<string>()
+    for (const p of serverPictures.value) for (const s of p.slots) cells.add(`${p.type}\n${s.slot}`)
+    const entry =
+        pictureDir.value !== null ? props.session.getPictureOps(pictureDir.value) : undefined
+    if (entry) {
+        for (const [type, slots] of entry.ops) {
+            for (const slot of slots.keys()) cells.add(`${type}\n${slot}`)
+        }
+    }
+    for (const { id: type } of PICTURE_TYPES) {
+        for (const slot of PICTURE_SLOTS) {
+            if (!cells.has(`${type}\n${slot}`)) continue
+            if (type === target.type && slot === target.slot) continue
+            // null covers both an empty cell and one staged for removal.
+            const thumb = cellThumbUrl(type, slot)
+            if (thumb === null) continue
+            const op = stagedOp(type, slot)
+            out.push({
+                key: `${type}-${slot}`,
+                label: `${pictureTypeLabel(type)} — ${PICTURE_SLOT_LABELS[slot]}`,
+                detail:
+                    op?.kind === 'set'
+                        ? 'pending change in this session'
+                        : (serverDetail(type, slot) ?? ''),
+                thumbUrl: thumb,
+                file: op?.kind === 'set' ? op.file : null,
+                imageUrl: op?.kind === 'set' ? op.imageUrl : null,
+                // Only server-held images need a download; a staged op already
+                // carries its bytes (file) or its remote URL.
+                fetchUrl: op?.kind === 'set' ? null : thumb
+            })
+        }
+    }
+    return out
+})
+
 function onPickerSelect(source: StagedPictureSource) {
     if (pictureDir.value === null) return
     props.session.stagePictureSet(
@@ -274,51 +321,84 @@ function undoCell(type: string, slot: PictureSlot) {
                         }"
                         :data-test="`picture-cell-${type}-${slot}`"
                     >
-                        <img
-                            v-if="cellThumbUrl(type, slot)"
-                            :src="cellThumbUrl(type, slot) ?? undefined"
-                            class="cell-thumb"
-                            :alt="`${pictureTypeLabel(type)} — ${PICTURE_SLOT_LABELS[slot]}`"
-                        />
-                        <div v-else class="cell-placeholder"><i class="pi pi-image"></i></div>
-                        <div class="cell-info">
-                            <span class="cell-slot">{{ PICTURE_SLOT_LABELS[slot] }}</span>
-                            <span class="cell-note">{{ cellNote(type, slot) }}</span>
+                        <!-- Occupied cell: the image itself, flipping on hover to
+                             the change/remove controls (mirrors the hero cover). -->
+                        <div v-if="cellThumbUrl(type, slot)" class="cell-art">
+                            <div class="cell-flip">
+                                <div class="cell-face cell-front">
+                                    <img
+                                        :src="cellThumbUrl(type, slot) ?? undefined"
+                                        class="cell-thumb"
+                                        :alt="`${pictureTypeLabel(type)} — ${PICTURE_SLOT_LABELS[slot]}`"
+                                    />
+                                </div>
+                                <div class="cell-face cell-back">
+                                    <Button
+                                        v-if="stagedOp(type, slot)"
+                                        icon="pi pi-undo"
+                                        label="Undo"
+                                        text
+                                        size="small"
+                                        aria-label="Undo staged change"
+                                        :data-test="`picture-undo-${type}-${slot}`"
+                                        @click="undoCell(type, slot)"
+                                    />
+                                    <template v-else>
+                                        <Button
+                                            icon="pi pi-images"
+                                            label="Change"
+                                            text
+                                            size="small"
+                                            aria-label="Change picture"
+                                            :data-test="`picture-change-${type}-${slot}`"
+                                            :disabled="libraryId === null"
+                                            @click="openPicker(type, slot)"
+                                        />
+                                        <Button
+                                            v-if="serverHas(type, slot)"
+                                            icon="pi pi-trash"
+                                            label="Remove"
+                                            text
+                                            size="small"
+                                            severity="danger"
+                                            aria-label="Remove picture"
+                                            :data-test="`picture-remove-${type}-${slot}`"
+                                            @click="stageRemove(type, slot)"
+                                        />
+                                    </template>
+                                </div>
+                            </div>
                         </div>
-                        <div class="cell-actions">
+                        <!-- Empty cell: no image to flip, so the add button is
+                             the placeholder itself. -->
+                        <div v-else class="cell-art">
                             <Button
                                 v-if="stagedOp(type, slot)"
+                                class="cell-placeholder-btn"
                                 icon="pi pi-undo"
+                                label="Undo"
                                 text
                                 size="small"
                                 aria-label="Undo staged change"
                                 :data-test="`picture-undo-${type}-${slot}`"
-                                v-tooltip.top="'Discard this staged change'"
                                 @click="undoCell(type, slot)"
                             />
-                            <template v-else>
-                                <Button
-                                    icon="pi pi-images"
-                                    text
-                                    size="small"
-                                    aria-label="Change picture"
-                                    :data-test="`picture-change-${type}-${slot}`"
-                                    :disabled="libraryId === null"
-                                    v-tooltip.top="'Choose an image for this slot'"
-                                    @click="openPicker(type, slot)"
-                                />
-                                <Button
-                                    v-if="serverHas(type, slot)"
-                                    icon="pi pi-trash"
-                                    text
-                                    size="small"
-                                    severity="danger"
-                                    aria-label="Remove picture"
-                                    :data-test="`picture-remove-${type}-${slot}`"
-                                    v-tooltip.top="'Remove this image on Save'"
-                                    @click="stageRemove(type, slot)"
-                                />
-                            </template>
+                            <Button
+                                v-else
+                                class="cell-placeholder-btn"
+                                icon="pi pi-plus"
+                                label="Add image"
+                                text
+                                size="small"
+                                aria-label="Change picture"
+                                :data-test="`picture-change-${type}-${slot}`"
+                                :disabled="libraryId === null"
+                                @click="openPicker(type, slot)"
+                            />
+                        </div>
+                        <div class="cell-info">
+                            <span class="cell-slot">{{ PICTURE_SLOT_LABELS[slot] }}</span>
+                            <span class="cell-note">{{ cellNote(type, slot) }}</span>
                         </div>
                     </div>
                     </template>
@@ -339,6 +419,8 @@ function undoCell(type: string, slot: PictureSlot) {
             :pictureSlot="picker.slot"
             :releaseMbid="releaseMbid"
             :releaseGroupMbid="releaseGroupMbid"
+            :albumName="albumName"
+            :sources="copySources"
             @select="onPickerSelect"
         />
     </CollapsibleSection>
@@ -393,27 +475,72 @@ function undoCell(type: string, slot: PictureSlot) {
     color: var(--app-staged);
     text-decoration: line-through;
 }
-.cell-thumb {
+/* --- The image tile, with a 3D flip to its controls on hover/focus. ---
+   Same idea as the hero cover (HeroHeader), but hover-driven and always in a 3D
+   context: `backface-visibility` (not `display: none`) hides the control face,
+   so its buttons stay tabbable — tabbing to one triggers :focus-within and
+   flips the tile into view. Unlike the hero cover there is no prop-driven
+   initial state, so an always-on 3D layer cannot animate a flip on mount. */
+.cell-art {
     width: 100%;
     aspect-ratio: 1 / 1;
+    position: relative;
+    perspective: 800px;
+}
+.cell-flip {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform 0.4s;
+}
+.cell-art:hover .cell-flip,
+.cell-art:focus-within .cell-flip {
+    transform: rotateY(180deg);
+}
+.cell-face {
+    position: absolute;
+    inset: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    backface-visibility: hidden;
+}
+.cell-back {
+    transform: rotateY(180deg);
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: 0.35rem;
+}
+.cell-thumb {
+    width: 100%;
+    height: 100%;
     object-fit: cover;
     border-radius: 6px;
     border: 1px solid var(--app-border);
     background: var(--app-bg-subtle, #f3f4f6);
+    display: block;
 }
 .picture-cell.pending .cell-thumb {
     border: 2px solid var(--app-staged);
 }
-.cell-placeholder {
+/* An empty cell has no image to flip: the add button IS the placeholder. */
+.cell-placeholder-btn {
     width: 100%;
-    aspect-ratio: 1 / 1;
+    height: 100%;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    gap: 0.25rem;
     border-radius: 6px;
     border: 1px dashed var(--app-border);
     color: var(--app-text-secondary);
-    font-size: 1.5rem;
+}
+.cell-placeholder-btn:hover {
+    border-color: var(--app-accent);
 }
 .cell-info {
     display: flex;
@@ -435,12 +562,6 @@ function undoCell(type: string, slot: PictureSlot) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.cell-actions {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.15rem;
 }
 .no-pictures {
     font-size: 0.8rem;

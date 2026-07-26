@@ -14,8 +14,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/andresbott/aether/internal/upstream"
 	"golang.org/x/time/rate"
 )
 
@@ -26,6 +26,9 @@ const (
 
 	// requestsPerSecond is a conservative fair-use rate limit (burst 1).
 	requestsPerSecond rate.Limit = 1
+
+	// serviceName is what the user sees when the directory misbehaves.
+	serviceName = "radio-browser.info"
 
 	// maxFaviconBytes caps a proxied favicon download. Matches the 5 MiB cover
 	// limit enforced by the radio-station cover pipeline (subsonic.readCoverFile).
@@ -51,10 +54,10 @@ type Station struct {
 
 // Client queries the radio-browser.info API.
 type Client struct {
-	BaseURL    string
-	UserAgent  string
-	HTTPClient *http.Client
-	limiter    *rate.Limiter
+	BaseURL string
+	// Doer carries the throttle, retry policy and error classification shared
+	// by all of aether's outbound clients.
+	Doer *upstream.Doer
 }
 
 // New returns a Client pointed at the shared mirror pool with a conservative
@@ -62,10 +65,8 @@ type Client struct {
 // callers to send a descriptive User-Agent).
 func New(userAgent string) *Client {
 	return &Client{
-		BaseURL:    defaultBaseURL,
-		UserAgent:  userAgent,
-		HTTPClient: &http.Client{Timeout: 20 * time.Second},
-		limiter:    rate.NewLimiter(requestsPerSecond, 1),
+		BaseURL: defaultBaseURL,
+		Doer:    upstream.New(serviceName, userAgent, requestsPerSecond),
 	}
 }
 
@@ -105,25 +106,14 @@ func (c *Client) Search(ctx context.Context, query string, limit int) ([]Station
 	q.Set("reverse", "true")
 	u := fmt.Sprintf("%s/json/stations/search?%s", c.BaseURL, q.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	if err := c.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := c.Doer.Get(ctx, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("radiobrowser search: status %d", resp.StatusCode)
-	}
 	var body []rbStation
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
+		return nil, c.Doer.BadResponse(err)
 	}
 	out := make([]Station, 0, len(body))
 	for _, s := range body {
@@ -170,22 +160,11 @@ func (c *Client) FetchFavicon(ctx context.Context, faviconURL string) (data []by
 		return nil, "", fmt.Errorf("favicon url must be http or https")
 	}
 
-	req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, faviconURL, nil)
-	if rerr != nil {
-		return nil, "", rerr
-	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	if werr := c.limiter.Wait(ctx); werr != nil {
-		return nil, "", werr
-	}
-	resp, derr := c.HTTPClient.Do(req)
+	resp, derr := c.Doer.Get(ctx, faviconURL, nil)
 	if derr != nil {
 		return nil, "", derr
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("radiobrowser favicon: status %d", resp.StatusCode)
-	}
 
 	// Read one byte past the cap so we can detect an over-limit body.
 	body, aerr := io.ReadAll(io.LimitReader(resp.Body, maxFaviconBytes+1))

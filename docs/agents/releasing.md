@@ -76,12 +76,18 @@ Contents and lifecycle (assets in `zarf/packaging/`):
   deliberately **keeps `/var/lib/aether`** (prints a notice instead) so a purge
   never destroys someone's library database.
 
-Dependency policy: no libc dependency (static binary). `ffmpeg` is
-**Recommends** — it provides `ffprobe`, the fallback tag reader
-(`internal/tags/ffprobe.go`) for formats taglib cannot handle; without it the
-scanner degrades to taglib-only. `libchromaprint-tools` is **Suggests** — it
-provides `fpcalc` for AcoustID identification, which disables itself when
-absent (`app/cmd/server.go`).
+Dependency policy: no libc dependency (static binary). Both optional runtime
+dependencies are **Recommends**, since apt installs recommends by default and a
+plain `apt install aether` should get the full feature set:
+
+- `ffmpeg` provides `ffprobe`, the fallback tag reader
+  (`internal/tags/ffprobe.go`) for formats taglib cannot handle; without it the
+  scanner degrades to taglib-only.
+- `libchromaprint-tools` provides `fpcalc` for AcoustID identification, which
+  disables itself when absent (`app/cmd/server.go`). The detection runs **once
+  at startup**, so installing fpcalc later needs a restart; until then the
+  metadata editor shows Identify greyed out with the reason from
+  `/api/v1/metadata/capabilities`.
 
 ## Config resolution
 

@@ -2,14 +2,30 @@ package artistimage
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/andresbott/aether/internal/upstream"
 	"golang.org/x/time/rate"
 )
+
+// newTestSearch points a search client at srv with throttling and retry backoff
+// disabled, so the logic under test runs at full speed.
+func newTestSearch(t *testing.T, srv *httptest.Server) *MusicBrainzSearch {
+	t.Helper()
+	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
+	m.BaseURL = srv.URL
+	m.Doer.Client = srv.Client()
+	m.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	m.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	return m
+}
 
 func TestMusicBrainzSearchParsesResults(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -34,10 +50,7 @@ func TestMusicBrainzSearchParsesResults(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	results, err := m.Search(context.Background(), "Nirvana", 10)
 	if err != nil {
@@ -79,10 +92,7 @@ func TestMusicBrainzReleaseGroupGenres(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	got, err := m.ReleaseGroupGenres(context.Background(), "rg-uuid")
 	if err != nil {
@@ -108,10 +118,7 @@ func TestMusicBrainzReleaseGroupGenresUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	if _, err := m.ReleaseGroupGenres(context.Background(), "rg-uuid"); err == nil {
 		t.Fatal("expected error on upstream failure")
@@ -147,10 +154,7 @@ func TestMusicBrainzSearchReleaseParsesResults(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	results, err := m.SearchRelease(context.Background(), "OK Computer", 10)
 	if err != nil {
@@ -194,10 +198,7 @@ func TestMusicBrainzSearchReleaseUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	if _, err := m.SearchRelease(context.Background(), "OK Computer", 10); err == nil {
 		t.Fatal("expected an error for a non-200 upstream response")
@@ -218,12 +219,99 @@ func TestMusicBrainzSearchUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := NewMusicBrainzSearch("Aether/test")
-	m.BaseURL = srv.URL
-	m.Client = srv.Client()
-	m.limiter = rate.NewLimiter(rate.Inf, 1)
+	m := newTestSearch(t, srv)
 
 	if _, err := m.Search(context.Background(), "Nirvana", 10); err == nil {
 		t.Fatal("expected an error for a non-200 upstream response")
+	}
+}
+
+// MusicBrainz throttles aggressively; a 503 that clears on the next attempt
+// must not reach the user at all.
+func TestMusicBrainzSearchRetriesTransientFailure(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`{"artists":[{"id":"a-1","name":"Nirvana"}]}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Search(context.Background(), "Nirvana", 10)
+	if err != nil {
+		t.Fatalf("Search should have recovered on retry: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "Nirvana" {
+		t.Fatalf("unexpected results: %+v", got)
+	}
+	if n := atomic.LoadInt32(&hits); n != 2 {
+		t.Fatalf("want 2 attempts, got %d", n)
+	}
+}
+
+// A persistent failure surfaces as a typed error naming MusicBrainz, so the UI
+// can show a sentence instead of "status 503".
+func TestMusicBrainzSearchFailureIsTypedUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	_, err := m.Search(context.Background(), "Nirvana", 10)
+	var uerr *upstream.Error
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+	}
+	if uerr.Service != "MusicBrainz" {
+		t.Fatalf("service = %q, want MusicBrainz", uerr.Service)
+	}
+	if msg := uerr.UserMessage(); !strings.Contains(msg, "MusicBrainz") {
+		t.Fatalf("unhelpful message: %q", msg)
+	}
+}
+
+func TestMusicBrainzReleaseSearchRetriesTransientFailure(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte(`{"releases":[{"id":"rel-1","title":"OK Computer"}]}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.SearchRelease(context.Background(), "OK Computer", 10)
+	if err != nil {
+		t.Fatalf("SearchRelease should have recovered on retry: %v", err)
+	}
+	if len(got) != 1 || got[0].Title != "OK Computer" {
+		t.Fatalf("unexpected results: %+v", got)
+	}
+}
+
+func TestMusicBrainzGenresRetriesTransientFailure(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"genres":[{"name":"rock","count":3}]}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.ReleaseGroupGenres(context.Background(), "rg-uuid")
+	if err != nil {
+		t.Fatalf("ReleaseGroupGenres should have recovered on retry: %v", err)
+	}
+	if len(got) != 1 || got[0] != "rock" {
+		t.Fatalf("unexpected genres: %v", got)
 	}
 }

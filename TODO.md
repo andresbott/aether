@@ -46,6 +46,7 @@
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums.
     - ~~No `Cache-Control`/ETag on `getCoverArt` responses~~ (partially addressed: `Cache-Control: no-cache` is now set on every `getCoverArt` response, `media.go:142`; no ETag yet).
   Fix options: clear `album.CoverPath` at the start of each reconcile pass and redetect; or drop `CoverPath` entirely and resolve per-request from a current track's directory. Pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`). Add a stable ETag (album `updated_at`) so edits immediately invalidate client caches.
+- [] Make obserbaility endpoint optional by passing or not passing the IP
 
 ## Frontend — Music Browsing & Features
 
@@ -61,6 +62,7 @@
 - [x] ~~Improve CRUD and views of playlists (check if playlist is part of the OpenSubsonic API)~~ — full playlist CRUD implemented under `/rest/` (get/create/update/delete + cover upload) with reworked `PlaylistsView`/`PlaylistDetailView` (inline rename, batched track edit; see `2026-07-15-playlist-ui-rework` plan)
 - [ ] Better genre handling
 - [x] ~~Remove podcast placeholder~~ — no podcast references remain anywhere in `webui/src`
+- [] errors when creating library is not propagated back to user in ui => check for other errors ont printed in user dialog
 
 
 ## Frontend — Player & Controls

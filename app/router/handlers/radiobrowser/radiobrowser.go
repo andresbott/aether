@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/andresbott/aether/internal/radiobrowser"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 )
 
@@ -47,6 +48,20 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Error: msg, Code: code})
 }
 
+// writeUpstreamErr reports a failed call to an external service. The body
+// carries the upstream package's human-readable sentence (or fallback for an
+// error that isn't upstream-typed) — never a raw Go error — and the status
+// mirrors the upstream condition so the UI can tell "retry later" (429/504)
+// from "it's broken" (502).
+func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
+	status := upstream.HTTPStatus(err)
+	code := "upstream_error"
+	if status == http.StatusTooManyRequests {
+		code = "upstream_rate_limited"
+	}
+	writeError(w, status, code, upstream.UserMessage(err, fallback))
+}
+
 // searchStations proxies GET /radiobrowser/search?q=&limit= to the upstream
 // station search. q is required; limit defaults to 10 and is capped at 25.
 func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +84,7 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.Client.Search(r.Context(), q, limit)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream_error", "radiobrowser search failed: "+err.Error())
+		writeUpstreamErr(w, err, "The station directory could not be reached. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -87,7 +102,7 @@ func (h *Handler) getFavicon(w http.ResponseWriter, r *http.Request) {
 	}
 	data, contentType, err := h.Client.FetchFavicon(r.Context(), u)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream_error", "favicon fetch failed: "+err.Error())
+		writeUpstreamErr(w, err, "The station logo could not be downloaded.")
 		return
 	}
 	// data is validated PNG/JPEG bytes (FetchFavicon sniffs them); serve it with

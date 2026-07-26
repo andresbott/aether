@@ -78,12 +78,17 @@ const stubs = {
         template:
             '<input :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />'
     },
+    // Mirrors InputNumber's nullable model: an emptied box emits null, not 0.
     InputNumber: {
-        props: ['modelValue', 'disabled'],
+        props: ['modelValue', 'disabled', 'placeholder'],
         template:
-            '<input :disabled="disabled" :value="modelValue" @input="$emit(\'update:modelValue\', Number($event.target.value))" />'
+            '<input :disabled="disabled" :placeholder="placeholder" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value === \'\' ? null : Number($event.target.value))" />'
     },
-    Checkbox: { props: ['modelValue'], template: '<input type="checkbox" />' },
+    Checkbox: {
+        props: ['modelValue', 'indeterminate'],
+        template:
+            '<input type="checkbox" :checked="modelValue" :data-indeterminate="indeterminate" :data-test="$attrs[\'data-test\']" @change="$emit(\'update:modelValue\', indeterminate ? true : !modelValue)" />'
+    },
     // The chip input; tests drive it by emitting update:modelValue with the
     // full genre list, as the real AutoComplete (multiple) does.
     AutoComplete: {
@@ -99,6 +104,17 @@ const stubs = {
         inheritAttrs: false,
         template:
             '<button :disabled="disabled" :aria-label="$attrs[\'aria-label\']" :data-test="$attrs[\'data-test\']" @click="$emit(\'click\')">{{ label }}</button>'
+    }
+}
+
+// Stands in for PrimeVue's v-tooltip and mirrors the bound text onto the
+// element so tests can assert what the user would read on hover.
+const tooltipRecorder = {
+    mounted(el: HTMLElement, binding: { value: unknown }) {
+        el.setAttribute('data-tooltip', String(binding.value ?? ''))
+    },
+    updated(el: HTMLElement, binding: { value: unknown }) {
+        el.setAttribute('data-tooltip', String(binding.value ?? ''))
     }
 }
 
@@ -139,7 +155,7 @@ function mountPanel(selection: Track[], libraryId = 1, extraProps: Record<string
             isIdentifying: false,
             ...extraProps
         },
-        global: { stubs }
+        global: { stubs, directives: { tooltip: tooltipRecorder } }
     })
     return { wrapper, session }
 }
@@ -517,6 +533,97 @@ describe('EditPanel artist pairs', () => {
         })
     })
 
+    describe('mixed-value placeholders', () => {
+        // A mixed numeric field must show "(multiple values)": the buffer holds
+        // null so InputNumber renders an empty box the placeholder shows through,
+        // instead of a literal 0 that hides it.
+        const cases: Array<[string, string, Partial<Track>, Partial<Track>]> = [
+            ['disc number', 'input.field-disc-number', { disc_number: 1 }, { disc_number: 2 }],
+            ['year', 'input.field-year', { year: 1997 }, { year: 2001 }],
+            ['album name', 'input.album-name', { album: 'A' }, { album: 'B' }],
+            [
+                'disc subtitle',
+                'input.field-disc-subtitle',
+                { disc_subtitle: 'CD 1' },
+                { disc_subtitle: 'CD 2' }
+            ],
+            [
+                'release ID',
+                'input.album-mbid',
+                { mb_release_id: 'rel-a' },
+                { mb_release_id: 'rel-b' }
+            ]
+        ]
+
+        it.each(cases)('shows the mixed placeholder for %s', (_name, selector, a, b) => {
+            const { wrapper } = mountPanel([
+                mkTrack({ path: 'a.mp3', ...a }),
+                mkTrack({ path: 'b.mp3', ...b })
+            ])
+            const input = wrapper.find(selector)
+            expect((input.element as HTMLInputElement).value).toBe('')
+            expect(input.attributes('placeholder')).toBe('(multiple values)')
+        })
+
+        it('shows the mixed placeholder for the release-group ID', () => {
+            const { wrapper } = mountPanel([
+                mkTrack({ path: 'a.mp3', mb_release_group_id: 'rg-a' }),
+                mkTrack({ path: 'b.mp3', mb_release_group_id: 'rg-b' })
+            ])
+            const input = wrapper.findAll('input.album-mbid')[1]
+            expect((input.element as HTMLInputElement).value).toBe('')
+            expect(input.attributes('placeholder')).toBe('(multiple values)')
+        })
+
+        it('renders an empty numeric box rather than 0 when the tag is unset', () => {
+            const { wrapper } = mountPanel([mkTrack({ disc_number: 0, year: 0 })])
+            expect(
+                (wrapper.find('input.field-disc-number').element as HTMLInputElement).value
+            ).toBe('')
+            expect((wrapper.find('input.field-year').element as HTMLInputElement).value).toBe('')
+        })
+
+        it('clearing a numeric field stages 0 so the tag is removed', async () => {
+            const track = mkTrack({ disc_number: 3 })
+            const { wrapper, session } = mountPanel([track])
+            await wrapper.find('input.field-disc-number').setValue('')
+            expect(stagedPatch(session, track).disc_number).toBe(0)
+        })
+
+        // A checkbox has no placeholder, so mixed renders as indeterminate.
+        it('marks a mixed compilation checkbox indeterminate with a note', () => {
+            const { wrapper } = mountPanel([
+                mkTrack({ path: 'a.mp3', compilation: true }),
+                mkTrack({ path: 'b.mp3', compilation: false })
+            ])
+            expect(
+                wrapper.find('[data-test="compilation-input"]').attributes('data-indeterminate')
+            ).toBe('true')
+            expect(wrapper.find('[data-test="compilation-mixed"]').exists()).toBe(true)
+        })
+
+        it('leaves a shared compilation checkbox determinate', () => {
+            const { wrapper } = mountPanel([
+                mkTrack({ path: 'a.mp3', compilation: true }),
+                mkTrack({ path: 'b.mp3', compilation: true })
+            ])
+            expect(
+                wrapper.find('[data-test="compilation-input"]').attributes('data-indeterminate')
+            ).toBe('false')
+            expect(wrapper.find('[data-test="compilation-mixed"]').exists()).toBe(false)
+        })
+
+        it('clicking a mixed compilation checkbox stages true on every track', async () => {
+            const a = mkTrack({ path: 'a.mp3', compilation: true })
+            const b = mkTrack({ path: 'b.mp3', compilation: false })
+            const { wrapper, session } = mountPanel([a, b])
+            await wrapper.find('[data-test="compilation-input"]').trigger('change')
+            // a already had true, so only b gets an overlay entry
+            expect(stagedPatch(session, a)).toEqual({})
+            expect(stagedPatch(session, b).compilation).toBe(true)
+        })
+    })
+
     describe('mixed multi-selection', () => {
         const mkSelection = () => [
             mkTrack({ path: 'a.mp3', artists: ['A'], mb_artist_ids: [''] }),
@@ -572,9 +679,31 @@ describe('EditPanel raw mode', () => {
 })
 
 describe('EditPanel identify button', () => {
-    it('is hidden when the server lacks the capability', () => {
+    it('is visible but disabled when the server lacks the capability', () => {
         const { wrapper } = mountPanel([mkTrack()], 1, { canIdentify: false })
-        expect(wrapper.find('[data-test="identify-button"]').exists()).toBe(false)
+        const btn = wrapper.find('[data-test="identify-button"]')
+        expect(btn.exists()).toBe(true)
+        expect(btn.attributes('disabled')).toBeDefined()
+    })
+
+    it('shows the server reason for the disabled state', () => {
+        const { wrapper } = mountPanel([mkTrack()], 1, {
+            canIdentify: false,
+            identifyUnavailableReason: 'fpcalc is missing; install libchromaprint-tools'
+        })
+        expect(wrapper.find('.identify-wrap').attributes('data-tooltip')).toBe(
+            'fpcalc is missing; install libchromaprint-tools'
+        )
+    })
+
+    it('is disabled when nothing in the selection can be fingerprinted', () => {
+        const bad = mkTrack({ path: 'bad.mp3', error: 'read failed' })
+        const { wrapper } = mountPanel([bad], 1, { canIdentify: true })
+        const btn = wrapper.find('[data-test="identify-button"]')
+        expect(btn.attributes('disabled')).toBeDefined()
+        expect(wrapper.find('.identify-wrap').attributes('data-tooltip')).toContain(
+            'nothing to fingerprint'
+        )
     })
 
     it('is hidden while raw mode is active', async () => {

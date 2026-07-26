@@ -156,7 +156,7 @@ export interface PlayerState {
     currentIndex: number
     isPlaying: boolean
     volume: number
-    repeat: 'none' | 'all' | 'one'
+    repeat: 'none' | 'all'
     shuffle: boolean
     currentTime: number
     duration: number

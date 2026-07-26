@@ -83,6 +83,17 @@ export async function listReleaseCovers(mbid: string, releaseGroup?: string) {
     return data
 }
 
+// fetchPictureFile downloads an image the server already serves (a picture
+// cell's image URL) and wraps it in a File, so an image the album already has
+// can be staged as an upload for another type+slot cell.
+export async function fetchPictureFile(url: string): Promise<File> {
+    const res = await fetch(url, { credentials: 'include' })
+    if (!res.ok) throw new Error(`could not load the image (status ${res.status})`)
+    const blob = await res.blob()
+    const ext = blob.type === 'image/png' ? 'png' : 'jpg'
+    return new File([blob], `copied.${ext}`, { type: blob.type || 'image/jpeg' })
+}
+
 export async function applyPicture(form: FormData) {
     const { data } = await apiClient.post<ApplyPictureResult>('/metadata/pictures', form, {
         headers: { 'Content-Type': 'multipart/form-data' }

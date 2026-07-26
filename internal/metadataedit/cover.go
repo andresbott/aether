@@ -1,5 +1,7 @@
 package metadataedit
 
+import "github.com/andresbott/aether/internal/tags"
+
 // Front-cover conveniences over the typed picture helpers in pictures.go.
 
 // WriteEmbeddedCover writes data as the embedded front-cover image of the
@@ -7,9 +9,9 @@ package metadataedit
 // removes the front cover(s).
 func WriteEmbeddedCover(path string, data []byte) error {
 	if len(data) == 0 {
-		return DeleteEmbeddedPicture(path, "Front Cover")
+		return DeleteEmbeddedPicture(path, tags.FrontCoverType)
 	}
-	return WriteEmbeddedPicture(path, "Front Cover", data, "")
+	return WriteEmbeddedPicture(path, tags.FrontCoverType, data, "")
 }
 
 // WriteFolderCover writes data to dir as cover.<ext> (jpg or png), replacing
