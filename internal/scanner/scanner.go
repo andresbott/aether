@@ -153,7 +153,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 		return ctx.Err()
 	}
 
-	rec, err := s.reconcile(ctx, tagResults, scanStart)
+	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart)
 	if err != nil {
 		return err
 	}

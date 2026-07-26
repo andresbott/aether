@@ -65,6 +65,31 @@ the candidate fixes (clear-and-redetect per reconcile pass, or drop
 `CoverPath` and resolve per-request). If you touch cover resolution, read
 that entry first; don't patch around it locally.
 
+## Artist images at scan time (`artistimage.go`)
+
+`reconcile.go` also records `artist.ImagePath` — an image found in the
+artist's **own** folder, for the common `<collection>/<artist>/<album>`
+layout. `DetectArtistImage(libRoot, trackPath, artistName)` walks from the
+track's parent-of-parent up to (excluding) the library root and accepts a
+directory only when it is **both** above the album directory **and** named
+after the artist (`unidecode.Normalize` on both sides). That double condition
+is deliberate: file location alone does not identify an artist, so a library
+laid out differently yields `""` rather than a wrong portrait. Accepted
+filenames are exact-match only (`artist` > `artistthumb` > `folder`, plus
+`coverExts`) — an album's own `cover.jpg`/`front.png` never qualifies, and a
+`folder.jpg` inside the album directory stays an album cover.
+
+Unlike `album.CoverPath`, the path is re-validated every pass
+(`IsUsableArtistImagePath`) and cleared when the file is gone; it is only
+kept across a pass when detection finds nothing but the recorded file still
+exists (another library may have supplied it). Detection results are cached
+per (track dir, artist) for the pass so a large library lists each folder
+once.
+
+`ImagePath` is the **last** fallback in `artistCoverMeta`
+(`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →
+`ImagePath` → name-seeded generated avatar.
+
 ## Known scanner debt (TODO.md, direction chosen)
 
 - Full scan should drop-and-reinsert a track's derived rows so renamed

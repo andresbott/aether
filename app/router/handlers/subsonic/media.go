@@ -42,8 +42,10 @@ type coverMeta struct {
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
 // (auto-fetched or a manual upload made while the artist was matched) takes
-// precedence; fall back to the DB-ID slot used for manual uploads on unmatched
-// artists.
+// precedence; then the DB-ID slot used for manual uploads on unmatched artists;
+// then an image found next to the artist's albums on disk (`ImagePath`, set by
+// the scanner for `<collection>/<artist>/<album>` layouts). Nothing found means
+// the name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	meta := coverMeta{seed: artist.NameNorm}
 	if artist.MBArtistID != "" {
@@ -55,6 +57,9 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
 			meta.coverPath = p
 		}
+	}
+	if meta.coverPath == "" {
+		meta.coverPath = artist.ImagePath
 	}
 	return meta
 }

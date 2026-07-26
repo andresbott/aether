@@ -441,3 +441,118 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 		t.Errorf("expected a decodable generated PNG, got %v", err)
 	}
 }
+
+// An artist with no fetched or uploaded image falls back to the image found in
+// the artist's folder on disk before the generated avatar.
+func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	musicDir := t.TempDir()
+	imgPath := filepath.Join(musicDir, "artist.jpg")
+	if err := os.WriteFile(imgPath, []byte("\xff\xd8\xffFAKEJPEG"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	artist := model.Artist{Name: "Pink Floyd", NameNorm: "pink floyd", ImagePath: imgPath}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d", srv.URL, artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "\xff\xd8\xff") {
+		t.Errorf("response body is not the folder JPEG; got %q", body[:min(8, len(body))])
+	}
+}
+
+// A stored (fetched or uploaded) image outranks the artist-folder image.
+func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	musicDir := t.TempDir()
+	imgPath := filepath.Join(musicDir, "artist.jpg")
+	if err := os.WriteFile(imgPath, []byte("\xff\xd8\xffFAKEJPEG"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	artist := model.Artist{Name: "Pink Floyd", NameNorm: "pink floyd", MBArtistID: "mbid-pf", ImagePath: imgPath}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+
+	as := assetstore.New(t.TempDir())
+	if err := as.PutAuto(assetstore.KindArtist, "mbid-pf", "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+		t.Fatalf("PutAuto: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, as, t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d", srv.URL, artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "\x89PNG") {
+		t.Errorf("stored image should win over the folder image; got %q", body[:min(8, len(body))])
+	}
+}
+
+// A recorded artist-folder image that has since disappeared must not break cover
+// art: the generated avatar still gets served.
+func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	artist := model.Artist{
+		Name:      "Pink Floyd",
+		NameNorm:  "pink floyd",
+		ImagePath: filepath.Join(t.TempDir(), "gone", "artist.jpg"),
+	}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=ar-%d&size=200", srv.URL, artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if _, err := png.Decode(resp.Body); err != nil {
+		t.Errorf("expected a generated PNG avatar: %v", err)
+	}
+}

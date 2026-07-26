@@ -114,6 +114,12 @@ func (s *Store) ArtistsWithMBID() ([]model.Artist, error) {
 	return artists, err
 }
 
+// SetArtistImagePath records the artist-folder image found on disk at scan time
+// (empty string clears it).
+func (s *Store) SetArtistImagePath(id uint, path string) error {
+	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("image_path", path).Error
+}
+
 func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
 	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
 }
