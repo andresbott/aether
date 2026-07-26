@@ -534,16 +534,14 @@ describe('ArtistView editor honesty', () => {
         expect(remove.attributes('disabled')).toBeUndefined()
     })
 
-    // An auto-fetched image is aether's own doing, not the user's upload — like a
-    // music-folder image it is not theirs to delete from here, so no Remove.
-    it('hides Remove for an auto-fetched image', async () => {
+    it('shows Remove for an auto-fetched image', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'fetched', path: '', filename: 'cover.auto.jpg' }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
 
-        expect(w.find('.cover-remove').exists()).toBe(false)
+        expect(w.find('.cover-remove').exists()).toBe(true)
     })
 
     // A staged pick must stay cancellable even when nothing is on the server.
@@ -590,20 +588,5 @@ describe('ArtistView cover cache busting', () => {
         const w2 = mountView()
         await flushPromises()
         expect(w2.find('.flip-front img').attributes('src')).toBe(after)
-    })
-})
-
-// With no Remove button, the "?" hint is the only place that can explain why an
-// auto-fetched image cannot be dropped from here.
-describe('ArtistView fetched-image hint', () => {
-    it('explains on hover that a fetched image is not removable here', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'fetched', path: '', filename: 'cover.auto.jpg' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-
-        const hint = w.find('.image-source-help').attributes('data-tooltip') ?? ''
-        expect(hint).toContain('Upload an image to override it')
     })
 })

@@ -94,18 +94,9 @@ once.
 those slots won — `"upload"` / `"fetched"` / `"folder"` (+ `path`) / `"none"`,
 plus a `filename` for everything but `"none"`. `ArtistView`'s cover editor uses
 it for the status line under the file picker (PrimeVue's FileUpload only ever
-says "No file chosen"). The upload-vs-fetched split comes from
-`assetstore.GetEntry`, which surfaces the manual/auto filename encoding
-(`cover.png` vs `cover.auto.png`).
-
-**Remove is for the user's own upload only** — `"upload"` (or a staged pick).
-A `"folder"` image is the user's file on disk and a `"fetched"` one is aether's
-own doing, so neither offers Remove; the `?` hint says to upload an override
-instead. The backend enforces the same rule: `updateArtist`'s `coverClear` calls
-`assetstore.DeleteManual`, which drops only the manual variant and leaves an
-auto-fetched image to become the served cover again (plain `Delete` removes the
-whole entity directory and would throw away fetched art). Genre/playlist/radio
-covers have no auto-fetcher, so those handlers still use `Delete`.
+says "No file chosen") and to disable Remove for a folder image. The
+upload-vs-fetched split comes from `assetstore.GetEntry`, which surfaces the
+manual/auto filename encoding (`cover.png` vs `cover.auto.png`).
 
 This endpoint's precedence **duplicates** `artistCoverMeta`; change both
 together or the note will describe an image the user isn't looking at.

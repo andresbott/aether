@@ -49,15 +49,16 @@ const folderImagePath = computed(() =>
         : null
 )
 
-// Remove only means something for an image the user uploaded. A music-folder
-// image is the user's own file (aether must not touch it), an auto-fetched one is
-// aether's own doing, and with no image there is nothing to remove — in all three
-// cases the control is hidden. A greyed-out button the user has to hover to
-// understand is worse than no button. A staged pick keeps it visible so the
-// choice stays cancellable.
-const canRemoveImage = computed(
-    () => selectedFile.value !== null || imageSource.value?.source === 'upload'
-)
+// Remove only means something for an image aether holds. For a folder image
+// (the user's own file, which aether must not touch) or no image at all there is
+// nothing to remove, so the control is hidden — a greyed-out button the user has
+// to hover to understand is worse than no button. A staged pick keeps it visible
+// so the choice stays cancellable.
+const canRemoveImage = computed(() => {
+    if (selectedFile.value) return true
+    const source = imageSource.value?.source
+    return source === 'upload' || source === 'fetched'
+})
 
 // FileUpload only ever reports the file the user just picked ("No file chosen"
 // otherwise), so this note carries the real state of the artist's image: what is
@@ -85,13 +86,7 @@ const imageNote = computed<ImageNote | null>(() => {
         case 'upload':
             return { text: `${src.filename} — uploaded`, pending: false }
         case 'fetched':
-            return {
-                text: `${src.filename} — fetched automatically`,
-                pending: false,
-                // Explains the missing Remove button: this image is aether's own
-                // doing, not something the user put here.
-                hint: 'This image was fetched automatically from an image provider. Upload an image to override it.'
-            }
+            return { text: `${src.filename} — fetched automatically`, pending: false }
         case 'folder':
             return {
                 text: `${src.filename} — from music folder`,
