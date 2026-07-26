@@ -260,7 +260,7 @@ describe('ArtistView image-source note', () => {
 
         const note = w.find('.image-source-note')
         expect(note.exists()).toBe(true)
-        expect(note.text()).toContain('Image loaded from music folder')
+        expect(note.text()).toContain('From music folder')
     })
 
     it('marks the note with a hoverable question mark, not an image icon', async () => {

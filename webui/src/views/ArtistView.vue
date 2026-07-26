@@ -240,7 +240,7 @@ const onQueue = async (): Promise<void> => {
                                 class="image-source-note"
                                 :title="folderImageHint"
                             >
-                                <span>Image loaded from music folder</span>
+                                <span>From music folder</span>
                                 <i class="pi pi-question-circle"></i>
                             </span>
                         </template>
@@ -329,22 +329,21 @@ const onQueue = async (): Promise<void> => {
 
 /* Sits on the cover's flip-back face (inside 250px), directly under the
    FileUpload — so it reads as plain muted body text like that widget's own
-   "No file chosen" label rather than as a badge or a message box. The trailing
-   "?" is the affordance for the hover hint. */
+   "No file chosen" label rather than as a badge or a message box. The wording is
+   kept short enough to hold one line at body size. The trailing "?" is the
+   affordance for the hover hint. */
 .image-source-note {
     display: flex;
     align-items: baseline;
     justify-content: center;
     gap: 0.3rem;
-    text-align: center;
-    font-size: 0.8rem;
-    line-height: 1.35;
+    white-space: nowrap;
     color: var(--app-text-secondary);
     cursor: help;
 }
 .image-source-note i {
     flex-shrink: 0;
-    font-size: 0.75rem;
+    font-size: 0.85em;
     opacity: 0.75;
 }
 
