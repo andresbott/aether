@@ -66,6 +66,7 @@ const ScaffoldStub = {
 
 import ArtistView from '@/views/ArtistView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
+import { resetCoverVersions } from '@/composables/useCoverVersion'
 
 // Records what v-tooltip was bound with, so specs can assert on the tooltip
 // text the way the real directive would render it.
@@ -101,6 +102,9 @@ beforeEach(() => {
     coverIsPending.value = false
     imageSource.value = null
     imageSourceRefetch.mockClear()
+    // Cover versions are module-level (they must outlive a component), so they
+    // leak between tests unless cleared.
+    resetCoverVersions()
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
 })
@@ -553,5 +557,36 @@ describe('ArtistView editor honesty', () => {
         await w.vm.$nextTick()
 
         expect(w.find('.cover-remove').exists()).toBe(true)
+    })
+})
+
+// The browser's in-memory image cache never revalidates within an SPA session,
+// so a changed cover has to change its URL — and that has to survive navigating
+// away (the component, and any ref in it, is destroyed).
+describe('ArtistView cover cache busting', () => {
+    it('busts the cover url after a save, and keeps it busted across a remount', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const before = w.find('.flip-front img').attributes('src')
+        expect(before).toBe('/cover/ar-1?size=250')
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+
+        const after = w.find('.flip-front img').attributes('src')
+        expect(after).not.toBe(before)
+
+        // Navigate away and back: a fresh mount must still use the busted url.
+        w.unmount()
+        const w2 = mountView()
+        await flushPromises()
+        expect(w2.find('.flip-front img').attributes('src')).toBe(after)
     })
 })

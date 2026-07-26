@@ -8,6 +8,7 @@ import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
 import { useArtistImageSource } from '@/composables/useArtistImageSource'
+import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
@@ -22,7 +23,6 @@ const updateCover = useUpdateArtistCover()
 const { data: artist, isLoading, error } = useArtist(props.id)
 
 const editing = ref(false)
-const cacheBust = ref(0)
 const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
@@ -153,7 +153,10 @@ const saveEdit = (): void => {
         {
             onSuccess: () => {
                 resetCoverStaging()
-                cacheBust.value++
+                // Bump the shared version, not a local ref: the browser's
+                // in-memory image cache outlives this component, so navigating
+                // away and back would otherwise re-show the old bitmap.
+                if (artist.value?.coverArt) bumpCoverVersion(artist.value.coverArt)
                 editing.value = false
                 // An upload moves the image into aether's store, a clear can
                 // uncover the folder image again — either way the note is stale.
@@ -173,7 +176,7 @@ const coverUrl = computed(() => {
     if (coverClear.value) return null
     if (!artist.value?.coverArt || !subsonicClient.isConfigured()) return null
     const base = subsonicClient.getCoverArtUrl(artist.value.coverArt, 250)
-    return cacheBust.value > 0 ? `${base}&_cb=${cacheBust.value}` : base
+    return versionedCoverUrl(base, artist.value.coverArt)
 })
 
 // Unsaved-changes guards (mirror Playlist/Radio detail views).

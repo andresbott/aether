@@ -23,6 +23,7 @@ import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { reorderQueue } from '@/utils/queueReorder'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import type { Song } from '@/types/subsonic'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
@@ -83,9 +84,6 @@ const selectedCoverFile = ref<File | null>(null)
 const coverClear = ref(false)
 const coverPreviewUrl = ref<string | null>(null)
 const coverSizeError = ref<string | null>(null)
-// Bumped after a cover save so the (otherwise unchanged) cover URL busts the
-// browser cache and the hero shows the new image without a manual reload.
-const coverCacheBust = ref(0)
 
 const coverDirty = computed(() => selectedCoverFile.value !== null || coverClear.value)
 
@@ -111,7 +109,7 @@ const displayedCoverUrl = computed(() => {
     if (coverClear.value) return null
     if (playlist.value?.coverArt) {
         const base = subsonicClient.getCoverArtUrl(playlist.value.coverArt, 250)
-        return coverCacheBust.value ? `${base}&cb=${coverCacheBust.value}` : base
+        return versionedCoverUrl(base, playlist.value.coverArt)
     }
     return null
 })
@@ -226,7 +224,10 @@ const saveEdit = async (): Promise<void> => {
                 })
                 .then(() => {
                     resetCoverStaging()
-                    coverCacheBust.value = Date.now()
+                    // Shared, module-level version: a local ref would die with
+                    // this component, so navigating away and back would re-show
+                    // the old image from the browser's in-memory cache.
+                    if (playlist.value?.coverArt) bumpCoverVersion(playlist.value.coverArt)
                 })
         )
     }
