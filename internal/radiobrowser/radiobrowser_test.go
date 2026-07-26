@@ -3,21 +3,67 @@ package radiobrowser
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/andresbott/aether/internal/upstream"
 	"golang.org/x/time/rate"
 )
 
-// testClient points a Client at a test server with the rate limiter disabled.
+// testClient points a Client at a test server with the rate limiter and retry
+// backoff disabled.
 func testClient(baseURL string, hc *http.Client) *Client {
 	c := New("Aether/test (https://example.com)")
 	c.BaseURL = baseURL
-	c.HTTPClient = hc
-	c.limiter = rate.NewLimiter(rate.Inf, 1)
+	c.Doer.Client = hc
+	c.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	c.Doer.Wait = func(context.Context, time.Duration) error { return nil }
 	return c
+}
+
+// The radio-browser mirror pool sheds load under pressure; a 503 that clears on
+// retry must not surface as a failed station search.
+func TestSearchRetriesTransientFailure(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"name":"BBC Radio 1","url":"http://s/1"}]`))
+	}))
+	defer srv.Close()
+
+	got, err := testClient(srv.URL, srv.Client()).Search(context.Background(), "BBC", 10)
+	if err != nil {
+		t.Fatalf("Search should have recovered on retry: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "BBC Radio 1" {
+		t.Fatalf("unexpected results: %+v", got)
+	}
+}
+
+// A persistent failure is typed, so the handler can render a sentence naming
+// the directory rather than "status 503".
+func TestSearchFailureIsTypedUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	_, err := testClient(srv.URL, srv.Client()).Search(context.Background(), "BBC", 10)
+	var uerr *upstream.Error
+	if !errors.As(err, &uerr) {
+		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+	}
+	if msg := uerr.UserMessage(); !strings.Contains(msg, "radio-browser.info") {
+		t.Fatalf("message does not name the service: %q", msg)
+	}
 }
 
 func TestSearchParsesResults(t *testing.T) {

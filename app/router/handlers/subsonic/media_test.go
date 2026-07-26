@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/gorilla/mux"
+	"go.senan.xyz/taglib"
 )
 
 func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
@@ -326,5 +328,116 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(body), "\x89PNG") {
 		t.Errorf("response body does not start with PNG magic bytes; got %q", body[:min(8, len(body))])
+	}
+}
+
+// embeddedPic is one attached picture to write into a test fixture.
+type embeddedPic struct {
+	typeID string
+	data   []byte
+}
+
+// embeddedFixture copies the shared fixture into dir and embeds the given
+// pictures, in order, as attached pictures of the named types.
+func embeddedFixture(t *testing.T, dir, name string, pics ...embeddedPic) string {
+	t.Helper()
+	src := "../../../../internal/metadataedit/testdata/empty.flac"
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	dst := filepath.Join(dir, name)
+	if err := os.WriteFile(dst, raw, 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	for i, p := range pics {
+		if err := taglib.WriteImageOptions(dst, p.data, i, p.typeID, "", "image/png"); err != nil {
+			t.Fatalf("embed %s: %v", p.typeID, err)
+		}
+	}
+	return dst
+}
+
+// The embedded front cover must be served even when a back cover sits ahead of
+// it in the file. Reading attached picture index 0 blindly served the back scan.
+func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	front := []byte("\x89PNG\r\n\x1a\nFRONT")
+	back := []byte("\x89PNG\r\n\x1a\nBACK")
+	trackPath := embeddedFixture(t, t.TempDir(), "01.flac",
+		embeddedPic{"Back Cover", back},
+		embeddedPic{"Front Cover", front},
+	)
+
+	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", HasEmbeddedCover: true}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "01.flac", FilePath: trackPath, HasEmbeddedCover: true}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatalf("create track: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) == string(back) {
+		t.Fatal("served the embedded BACK cover; want the front cover")
+	}
+	if string(body) != string(front) {
+		t.Errorf("served %q, want the embedded front cover", body[:min(16, len(body))])
+	}
+}
+
+// A track carrying only a back cover has no cover art: the album must fall
+// through to the generated cover rather than serving the back scan.
+func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	back := []byte("\x89PNG\r\n\x1a\nBACK")
+	trackPath := embeddedFixture(t, t.TempDir(), "01.flac", embeddedPic{"Back Cover", back})
+
+	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", HasEmbeddedCover: true}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "01.flac", FilePath: trackPath, HasEmbeddedCover: true}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatalf("create track: %v", err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=128", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) == string(back) {
+		t.Fatal("served the embedded back cover; want the generated fallback cover")
+	}
+	if _, err := png.Decode(bytes.NewReader(body)); err != nil {
+		t.Errorf("expected a decodable generated PNG, got %v", err)
 	}
 }

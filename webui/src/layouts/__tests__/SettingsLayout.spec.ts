@@ -18,6 +18,11 @@ vi.mock('@/store/uiStore', () => ({
     useUiStore: () => reactive({ settingsSidebarCollapsed, toggleSettingsSidebar, checkScreenWidth })
 }))
 
+const versionData = ref<Record<string, string> | undefined>(undefined)
+vi.mock('@/composables/useVersion', () => ({
+    useVersion: () => ({ data: versionData })
+}))
+
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
 
 const mountLayout = () =>
@@ -32,6 +37,7 @@ describe('SettingsLayout', () => {
     beforeEach(() => {
         route.path = '/settings/profile'
         settingsSidebarCollapsed.value = false
+        versionData.value = undefined
         push.mockClear()
         toggleSettingsSidebar.mockClear()
         checkScreenWidth.mockClear()
@@ -88,5 +94,55 @@ describe('SettingsLayout', () => {
         expect(info).toHaveBeenCalled()
         expect(push).not.toHaveBeenCalled()
         info.mockRestore()
+    })
+})
+
+describe('SettingsLayout version string', () => {
+    beforeEach(() => {
+        settingsSidebarCollapsed.value = false
+        versionData.value = undefined
+    })
+
+    it('renders nothing while the version is unknown', () => {
+        expect(mountLayout().find('.sidebar-version').exists()).toBe(false)
+    })
+
+    it('shows the version above the footer spacer with build details in the title', () => {
+        versionData.value = {
+            version: '0.1.1',
+            commit: 'abcdef1234567890',
+            build_time: '2026-07-25T10:00:00Z'
+        }
+        const w = mountLayout()
+        const el = w.find('.sidebar-version')
+        expect(el.text()).toBe('version: v0.1.1')
+        expect(el.attributes('title')).toBe('v0.1.1 · abcdef12 · 2026-07-25T10:00:00Z')
+
+        // The version sits outside the footer nav, directly above its top border.
+        const children = Array.from(w.find('.settings-sidebar').element.children)
+        const versionIdx = children.findIndex((c) => c.classList.contains('sidebar-version'))
+        const footerIdx = children.findIndex((c) => c.classList.contains('sidebar-footer-nav'))
+        expect(versionIdx).toBeGreaterThanOrEqual(0)
+        expect(versionIdx).toBe(footerIdx - 1)
+    })
+
+    it('does not double the v prefix for tagged versions', () => {
+        versionData.value = { version: 'v2.0.0', commit: 'undefined', build_time: '' }
+        const el = mountLayout().find('.sidebar-version')
+        expect(el.text()).toBe('version: v2.0.0')
+        expect(el.attributes('title')).toBe('v2.0.0')
+    })
+
+    it('leaves non-release build names unprefixed', () => {
+        versionData.value = { version: 'dev-build', commit: 'undefined', build_time: '' }
+        const el = mountLayout().find('.sidebar-version')
+        expect(el.text()).toBe('version: dev-build')
+        expect(el.attributes('title')).toBe('dev-build')
+    })
+
+    it('hides the version when the sidebar is collapsed', () => {
+        versionData.value = { version: '0.1.1', commit: 'abc', build_time: '' }
+        settingsSidebarCollapsed.value = true
+        expect(mountLayout().find('.sidebar-version').exists()).toBe(false)
     })
 })

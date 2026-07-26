@@ -50,6 +50,20 @@ async function click(wrapper: any, index: number, mods: Partial<MouseEvent> = {}
     await sync(wrapper)
 }
 
+// A checkbox toggle: PrimeVue swallows the click (it lands inside .p-checkbox) and
+// only re-emits update:selection with the additively toggled list, so the wrapper
+// mousedown is the component's only view of the modifier keys.
+async function checkboxToggle(wrapper: any, index: number, mods: Partial<MouseEvent> = {}) {
+    await wrapper.find('.table-wrapper').trigger('mousedown', { shiftKey: false, ...mods })
+    const track = wrapper.props('tracks')[index]
+    const current: Track[] = wrapper.props('selection')
+    const next = current.some((t) => t.path === track.path)
+        ? current.filter((t) => t.path !== track.path)
+        : [...current, track]
+    wrapper.findComponent(DataTableStub).vm.$emit('update:selection', next)
+    await sync(wrapper)
+}
+
 const paths = (wrapper: any): string[] => {
     const events = wrapper.emitted('update:selection')
     return (events[events.length - 1][0] as Track[]).map((t) => t.path)
@@ -84,6 +98,50 @@ describe('TrackList selection', () => {
         // Re-dragging the range off the same pivot shrinks it back to the base.
         await click(w, 4, { shiftKey: true })
         expect(paths(w)).toEqual(['p1.mp3', 'p3.mp3', 'p4.mp3'])
+    })
+
+    it('Shift checkbox toggle extends the range, like a Shift row click', async () => {
+        const w = mountList()
+        await checkboxToggle(w, 1) // check the 2nd row (anchor)
+        await checkboxToggle(w, 4, { shiftKey: true }) // shift-check the 5th row
+        expect(paths(w)).toEqual(['p1.mp3', 'p2.mp3', 'p3.mp3', 'p4.mp3'])
+
+        // Same pivot, so re-dragging shrinks the range instead of accumulating.
+        await checkboxToggle(w, 2, { shiftKey: true })
+        expect(paths(w)).toEqual(['p1.mp3', 'p2.mp3'])
+    })
+
+    it('Shift checkbox toggle unions onto the earlier committed selection', async () => {
+        const w = mountList()
+        await click(w, 0) // plain-select the 1st row
+        await checkboxToggle(w, 2) // check the 3rd row (new anchor + base)
+        await checkboxToggle(w, 4, { shiftKey: true })
+        expect(paths(w)).toEqual(['p0.mp3', 'p2.mp3', 'p3.mp3', 'p4.mp3'])
+    })
+
+    it('Shift row click extends from a checkbox-set anchor', async () => {
+        const w = mountList()
+        await checkboxToggle(w, 1)
+        await click(w, 3, { shiftKey: true })
+        expect(paths(w)).toEqual(['p1.mp3', 'p2.mp3', 'p3.mp3'])
+    })
+
+    it('a bare checkbox toggle stays additive', async () => {
+        const w = mountList()
+        await checkboxToggle(w, 1)
+        await checkboxToggle(w, 4)
+        expect(paths(w)).toEqual(['p1.mp3', 'p4.mp3'])
+        await checkboxToggle(w, 1)
+        expect(paths(w)).toEqual(['p4.mp3'])
+    })
+
+    it('Shift select-all is not treated as a range', async () => {
+        const w = mountList()
+        await checkboxToggle(w, 1)
+        await w.find('.table-wrapper').trigger('mousedown', { shiftKey: true })
+        w.findComponent(DataTableStub).vm.$emit('update:selection', tracks)
+        await sync(w)
+        expect(paths(w)).toEqual(tracks.map((t) => t.path))
     })
 
     it('filters error rows out of a checkbox-driven selection', async () => {

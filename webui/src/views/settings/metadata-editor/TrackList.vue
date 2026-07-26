@@ -20,7 +20,8 @@ const rows = computed(() => props.tracks)
 // Selection mirrors the Now Playing queue (see useQueueEdit): a plain click
 // selects just that row, Ctrl/Cmd click toggles a row, and Shift click extends a
 // range from the anchor, unioned onto the committed base selection. The checkbox
-// column (and its header select-all) toggles additively. We drive all of this
+// column behaves the same way — a bare toggle is additive, a Shift toggle extends
+// the range — and its header select-all toggles every row. We drive all of this
 // ourselves rather than through PrimeVue's built-in row selection, because
 // PrimeVue's Shift range *replaces* the whole selection instead of extending it
 // onto what was already selected.
@@ -28,6 +29,11 @@ const anchorIndex = ref<number | null>(null)
 // The selection a Shift range is unioned onto. Committed by plain/Ctrl clicks and
 // checkbox toggles; left untouched by Shift so a range re-drags off one pivot.
 let baseSelection: Track[] = []
+// Checkbox clicks never reach @row-click — PrimeVue's DataTable swallows clicks
+// landing inside .p-checkbox — and the change event they do produce is a plain
+// Event with no modifier keys. So remember whether Shift was down on the
+// interaction that preceded the toggle.
+let shiftHeld = false
 
 const selectable = (t: Track): boolean => !t.error
 
@@ -101,13 +107,29 @@ function onRowClick(event: RowClickEvent): void {
 
 // Checkbox toggles and the header select-all arrive through PrimeVue's
 // update:selection. Treat them as an additive commit: strip error rows and move
-// the anchor to the toggled row so a following Shift extends from it.
+// the anchor to the toggled row so a following Shift extends from it. With Shift
+// held on a single-row toggle, behave exactly like a Shift row click instead.
 function onCheckboxSelection(value: Track[]): void {
     const next = value.filter(selectable)
     const before = new Set(props.selection.map((t) => t.path))
     const after = new Set(next.map((t) => t.path))
-    const changed =
-        next.find((t) => !before.has(t.path)) ?? props.selection.find((t) => !after.has(t.path))
+    const touched = [
+        ...next.filter((t) => !before.has(t.path)),
+        ...props.selection.filter((t) => !after.has(t.path))
+    ]
+
+    if (shiftHeld && anchorIndex.value !== null && touched.length === 1) {
+        const index = rows.value.findIndex((t) => t.path === touched[0].path)
+        if (index !== -1) {
+            emit(
+                'update:selection',
+                dedupe([...baseSelection, ...rangeBetween(anchorIndex.value, index)])
+            )
+            return
+        }
+    }
+
+    const changed = touched[0]
     const anchor = changed ? rows.value.findIndex((t) => t.path === changed.path) : anchorIndex.value
     commit(next, anchor)
 }
@@ -117,6 +139,12 @@ watch(rows, () => {
     anchorIndex.value = null
     baseSelection = []
 })
+
+// Runs before the checkbox's change event, so it records the modifier state of
+// the interaction that is about to toggle a row.
+function onModifierProbe(event: MouseEvent | KeyboardEvent): void {
+    shiftHeld = event.shiftKey
+}
 
 // Arrow keys move a single-row selection up/down (skipping error rows). Only
 // active with exactly one selected track — with a multi-selection the "move"
@@ -156,7 +184,15 @@ const wrapperEl = ref<HTMLElement | null>(null)
 
         <!-- tabindex makes the wrapper focusable: clicking a row focuses it, so
              arrow keys can then move a single-row selection. -->
-        <div v-else class="table-wrapper" ref="wrapperEl" tabindex="0" @keydown="onKeydown">
+        <div
+            v-else
+            class="table-wrapper"
+            ref="wrapperEl"
+            tabindex="0"
+            @keydown="onKeydown"
+            @mousedown.capture="onModifierProbe"
+            @keydown.capture="onModifierProbe"
+        >
         <DataTable
             :value="rows"
             :selection="selection"

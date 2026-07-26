@@ -4,6 +4,7 @@ import Tree from 'primevue/tree'
 import type { TreeExpandedKeys } from 'primevue/tree'
 import type { TreeNode } from 'primevue/treenode'
 import { listFolders } from '@/lib/api/Metadata'
+import { apiErrorMessage } from '@/lib/apiError'
 
 const props = defineProps<{ libraryId: number | null }>()
 const emit = defineEmits<{
@@ -47,7 +48,7 @@ async function resetTree() {
     try {
         nodes.value = await loadChildren('')
     } catch (err: any) {
-        loadError.value = err?.response?.data?.error ?? err.message
+        loadError.value = apiErrorMessage(err)
     }
 }
 
@@ -56,7 +57,7 @@ async function onNodeExpand(node: TreeNode) {
     try {
         node.children = await loadChildren(node.data.path)
     } catch (err: any) {
-        loadError.value = err?.response?.data?.error ?? err.message
+        loadError.value = apiErrorMessage(err)
     }
 }
 

@@ -92,12 +92,12 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	album.ReleaseType = meta.ReleaseType
 	album.HasEmbeddedCover = meta.HasCover
 
-	// Detect external cover
+	// Detect external cover. A path already on record is re-checked rather than
+	// trusted: it may point at a file that has since been deleted, or at art
+	// that does not qualify as a front cover (a back scan, a disc label).
 	dir := filepath.Dir(tr.walk.FilePath)
-	if album.CoverPath == "" {
-		if cover := detectCoverInDir(dir); cover != "" {
-			album.CoverPath = cover
-		}
+	if !IsUsableCoverPath(album.CoverPath) {
+		album.CoverPath = detectCoverInDir(dir)
 	}
 
 	db := tx.DB()

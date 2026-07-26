@@ -33,7 +33,7 @@ func (TaglibReader) Read(absPath string) (Metadata, error) {
 	m := Metadata{
 		Duration: props.Length,
 		Bitrate:  int(props.BitRate),
-		HasCover: len(props.Images) > 0,
+		HasCover: hasFrontCover(props.Images),
 	}
 	m.Title = first(raw, "title", "TITLE")
 	m.Artist = values(raw, "artist", "ARTIST")

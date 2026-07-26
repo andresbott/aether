@@ -19,7 +19,7 @@ import (
 const (
 	pictureMultipartMemory = 1 << 20  // 1 MiB kept in memory; larger parts spill to temp files
 	maxPictureRequestBytes = 12 << 20 // 12 MiB total request cap
-	frontCoverType         = "Front Cover"
+	frontCoverType         = tags.FrontCoverType
 )
 
 var errPictureSource = errors.New("an image file or image_url is required")
@@ -296,6 +296,12 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 
 	data, ext, status, err := h.pictureImageSource(r)
 	if err != nil {
+		// status 0 marks an upstream download failure: let the upstream mapping
+		// pick the status and the human message.
+		if status == 0 {
+			writeUpstreamErr(w, err, "The image could not be downloaded. Try again in a moment.")
+			return
+		}
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
@@ -447,7 +453,7 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	imgs, err := h.CoverArt.List(r.Context(), mbid, releaseGroup)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "upstream_error", "cover art archive lookup failed: "+err.Error())
+		writeUpstreamErr(w, err, "Cover art could not be loaded right now. Try again in a moment.")
 		return
 	}
 	out := make([]pictureCandidateDTO, 0, len(imgs))
@@ -466,6 +472,10 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 
 // pictureImageSource returns the image bytes and normalized extension from
 // either an uploaded "image" file part or a downloaded "image_url".
+//
+// status is the HTTP status to answer with on failure; a zero status alongside
+// a non-nil err means the failure came from the external image host, which the
+// caller maps through writeUpstreamErr.
 func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
 	if file, header, ferr := r.FormFile("image"); ferr == nil {
 		defer func() { _ = file.Close() }()
@@ -481,7 +491,7 @@ func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, 
 		}
 		data, ext, derr := h.CoverArt.DownloadImage(r.Context(), url)
 		if derr != nil {
-			return nil, "", http.StatusBadGateway, derr
+			return nil, "", 0, derr
 		}
 		return data, ext, 0, nil
 	}

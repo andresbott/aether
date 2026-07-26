@@ -12,7 +12,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/model"
-	"go.senan.xyz/taglib"
+	"github.com/andresbott/aether/internal/tags"
 )
 
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
@@ -246,13 +246,17 @@ func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
 	return path, nil
 }
 
+// readEmbeddedCover returns the album's embedded front cover, or nil when the
+// flagged track has none. Only the picture typed "Front Cover" is a cover: a
+// file may also embed a back cover, disc scan or booklet page, and those must
+// never be served as the album art.
 func (h *Handler) readEmbeddedCover(albumID uint) []byte {
 	trackPath, err := h.store.GetCoverTrackPath(albumID)
 	if err != nil || trackPath == "" {
 		return nil
 	}
-	data, err := taglib.ReadImage(trackPath)
-	if err != nil || len(data) == 0 {
+	data, ok, err := tags.ReadFrontCover(trackPath)
+	if err != nil || !ok {
 		return nil
 	}
 	return data

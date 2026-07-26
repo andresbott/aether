@@ -5,25 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"time"
 
-	"golang.org/x/time/rate"
+	"github.com/andresbott/aether/internal/upstream"
 )
 
 type FanartTV struct {
 	APIKey  string
 	BaseURL string
-	Client  *http.Client
-	limiter *rate.Limiter
+	// Doer carries the throttle, retry policy and error classification shared
+	// by all of aether's outbound clients.
+	Doer *upstream.Doer
 }
 
 func NewFanartTV(apiKey string) *FanartTV {
 	return &FanartTV{
 		APIKey:  apiKey,
 		BaseURL: "https://webservice.fanart.tv",
-		Client:  &http.Client{Timeout: 20 * time.Second},
-		limiter: rate.NewLimiter(requestsPerSecond, 1),
+		Doer:    upstream.New("fanart.tv", "", requestsPerSecond),
 	}
 }
 
@@ -34,21 +32,16 @@ func (p *FanartTV) Fetch(ctx context.Context, mbid string) ([]byte, string, erro
 		return nil, "", nil
 	}
 	u := fmt.Sprintf("%s/v3/music/%s?api_key=%s", p.BaseURL, mbid, p.APIKey)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	// A 4xx here means "this provider has no artwork for the MBID", which is
+	// not an error — only transient failures (retried by the Doer) are.
+	resp, err := p.Doer.Get(ctx, u, nil)
 	if err != nil {
-		return nil, "", err
-	}
-	if err := p.limiter.Wait(ctx); err != nil {
-		return nil, "", err
-	}
-	resp, err := p.Client.Do(req)
-	if err != nil {
+		if upstream.IsRejected(err) {
+			return nil, "", nil
+		}
 		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", nil // 404 = no artwork; not an error
-	}
 	var body struct {
 		ArtistThumb []struct {
 			URL string `json:"url"`
@@ -60,31 +53,20 @@ func (p *FanartTV) Fetch(ctx context.Context, mbid string) ([]byte, string, erro
 	if len(body.ArtistThumb) == 0 || body.ArtistThumb[0].URL == "" {
 		return nil, "", nil
 	}
-	return download(ctx, p.limiter, p.Client, body.ArtistThumb[0].URL)
+	return download(ctx, p.Doer, body.ArtistThumb[0].URL)
 }
 
-// download fetches imageURL and returns its bytes and a normalized extension.
-// It waits on limiter before the request so downloads count toward the
-// provider's fair-use rate.
-func download(ctx context.Context, limiter *rate.Limiter, client *http.Client, imageURL string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	if err := limiter.Wait(ctx); err != nil {
-		return nil, "", err
-	}
-	resp, err := client.Do(req)
+// download fetches imageURL through doer, so the image download shares the
+// provider's fair-use throttle and retry policy.
+func download(ctx context.Context, doer *upstream.Doer, imageURL string) ([]byte, string, error) {
+	resp, err := doer.Get(ctx, imageURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("download %s: status %d", imageURL, resp.StatusCode)
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
-		return nil, "", err
+		return nil, "", doer.BadResponse(err)
 	}
 	return data, extFromURL(imageURL), nil
 }

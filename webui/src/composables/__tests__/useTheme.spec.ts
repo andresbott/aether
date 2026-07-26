@@ -37,13 +37,16 @@ function installMatchMedia(initialMatches: boolean) {
 
 // useTheme is a module-level singleton; reset the module registry before each
 // test so `initialized` and the shared refs start fresh.
+const THEME_CLASSES = ['dark-mode', 'theme-winamp', 'theme-crt']
+
 beforeEach(() => {
     vi.resetModules()
-    document.documentElement.classList.remove('dark-mode')
+    localStorage.clear()
+    document.documentElement.classList.remove(...THEME_CLASSES)
 })
 
 afterEach(() => {
-    document.documentElement.classList.remove('dark-mode')
+    document.documentElement.classList.remove(...THEME_CLASSES)
 })
 
 describe('useTheme', () => {
@@ -88,6 +91,83 @@ describe('useTheme', () => {
         mode.value = 'light'
         await nextTick()
         expect(isDark.value).toBe(false)
+        expect(document.documentElement.classList.contains('dark-mode')).toBe(false)
+    })
+})
+
+describe('useTheme hidden themes', () => {
+    it('keeps them out of the picker until unlocked', async () => {
+        installMatchMedia(false)
+        const { useTheme } = await import('../useTheme')
+        const { options, hiddenUnlocked, unlockHiddenThemes } = useTheme()
+
+        expect(hiddenUnlocked.value).toBe(false)
+        expect(options.value.map((o) => o.value)).toEqual(['auto', 'light', 'dark'])
+
+        unlockHiddenThemes()
+        expect(hiddenUnlocked.value).toBe(true)
+        expect(options.value.map((o) => o.value)).toEqual([
+            'auto',
+            'light',
+            'dark',
+            'winamp',
+            'crt'
+        ])
+    })
+
+    it('remembers the unlock across reloads', async () => {
+        installMatchMedia(false)
+        const first = await import('../useTheme')
+        first.useTheme().unlockHiddenThemes()
+
+        // Fresh module registry = a page reload with the same localStorage.
+        vi.resetModules()
+        const second = await import('../useTheme')
+        expect(second.useTheme().hiddenUnlocked.value).toBe(true)
+    })
+
+    it('cycles winamp → crt → winamp', async () => {
+        installMatchMedia(false)
+        const { useTheme } = await import('../useTheme')
+        const { mode, cycleHiddenTheme } = useTheme()
+
+        expect(cycleHiddenTheme().value).toBe('winamp')
+        expect(mode.value).toBe('winamp')
+        expect(cycleHiddenTheme().value).toBe('crt')
+        expect(cycleHiddenTheme().value).toBe('winamp')
+    })
+
+    it('applies dark-mode plus exactly one theme class', async () => {
+        installMatchMedia(false)
+        const { useTheme } = await import('../useTheme')
+        const { mode, isDark } = useTheme()
+
+        mode.value = 'crt'
+        await nextTick()
+        expect(isDark.value).toBe(true)
+        const list = document.documentElement.classList
+        expect(list.contains('dark-mode')).toBe(true)
+        expect(list.contains('theme-crt')).toBe(true)
+        expect(list.contains('theme-winamp')).toBe(false)
+
+        mode.value = 'winamp'
+        await nextTick()
+        expect(list.contains('theme-crt')).toBe(false)
+        expect(list.contains('theme-winamp')).toBe(true)
+    })
+
+    it('drops the theme class when returning to a standard mode', async () => {
+        installMatchMedia(false)
+        const { useTheme } = await import('../useTheme')
+        const { mode, isDark } = useTheme()
+
+        mode.value = 'winamp'
+        await nextTick()
+        mode.value = 'light'
+        await nextTick()
+
+        expect(isDark.value).toBe(false)
+        expect(document.documentElement.classList.contains('theme-winamp')).toBe(false)
         expect(document.documentElement.classList.contains('dark-mode')).toBe(false)
     })
 })

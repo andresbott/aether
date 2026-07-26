@@ -6,7 +6,12 @@ import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import type { Track, TrackOverlay } from '@/types/metadata'
-import { diffInitialValues, distinctArtistMbids, type ArtistMbidRow } from '@/composables/useMetadataEditor'
+import {
+    diffInitialValues,
+    distinctArtistMbids,
+    type ArtistMbidRow,
+    type FieldDiff
+} from '@/composables/useMetadataEditor'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ArtistMatchPayload, ReleaseArtistCredit } from '@/types/artists'
 import MusicBrainzArtistPicker from '@/components/library/MusicBrainzArtistPicker.vue'
@@ -20,6 +25,9 @@ const props = defineProps<{
     libraryId: number | null
     session: EditSession
     canIdentify: boolean
+    // Explanation shown on the disabled Identify button when canIdentify is
+    // false (e.g. fpcalc missing on the server). Empty when identify works.
+    identifyUnavailableReason?: string
     isIdentifying: boolean
 }>()
 const emit = defineEmits<{
@@ -44,27 +52,28 @@ const selectionPaths = computed(() => props.selection.map((t) => t.path))
 // persisted until the view-level Save.
 const effectiveSelection = computed(() => props.selection.map((t) => props.session.effective(t)))
 
-type ScalarKey =
+type TextKey =
     | 'title'
     | 'album'
     | 'mb_recording_id'
     | 'mb_release_id'
     | 'mb_release_group_id'
-    | 'year'
-    | 'track_number'
-    | 'disc_number'
     | 'disc_subtitle'
-    | 'compilation'
+type NumKey = 'year' | 'track_number' | 'disc_number'
+type ScalarKey = TextKey | NumKey | 'compilation'
 
+// Numeric buffers are nullable: InputNumber renders null as an empty box (0
+// would render "0" and hide the "(multiple values)" placeholder), so null
+// means "empty or mixed". Writes coerce it back to 0, which clears the tag.
 type ScalarValues = {
     title: string
     album: string
     mb_recording_id: string
     mb_release_id: string
     mb_release_group_id: string
-    year: number
-    track_number: number
-    disc_number: number
+    year: number | null
+    track_number: number | null
+    disc_number: number | null
     disc_subtitle: string
     compilation: boolean
 }
@@ -75,9 +84,9 @@ const values = ref<ScalarValues>({
     mb_recording_id: '',
     mb_release_id: '',
     mb_release_group_id: '',
-    year: 0,
-    track_number: 0,
-    disc_number: 0,
+    year: null,
+    track_number: null,
+    disc_number: null,
     disc_subtitle: '',
     compilation: false
 })
@@ -111,6 +120,12 @@ const albumArtistsMixed = computed(
     () => props.selection.length > 1 && !diff.value.album_artists.shared
 )
 const genresMixed = computed(() => props.selection.length > 1 && !diff.value.genres.shared)
+// A checkbox has no placeholder to show "(multiple values)" in, so a mixed
+// compilation flag renders in the indeterminate (dash) state instead. Clicking
+// it commits an explicit true/false onto every selected track.
+const compilationMixed = computed(
+    () => props.selection.length > 1 && !diff.value.compilation.shared
+)
 
 // fieldDirty reports whether any selected track has this field staged; drives
 // the accent coloring and the per-field undo button.
@@ -120,12 +135,21 @@ function fieldDirty(key: keyof TrackOverlay): boolean {
 
 // stageScalar pushes the edit buffer's current value for one field onto the
 // session (staged per selected track, normalized away when equal to original).
+// A cleared numeric buffer (null) stages 0, the value that clears the tag.
 function stageScalar(key: ScalarKey) {
     if (key === 'title' || key === 'mb_recording_id' || key === 'track_number') {
         // Per-recording fields are only editable in single-track mode.
         if (isMass.value) return
     }
-    props.session.stageField(selectionPaths.value, key, values.value[key])
+    const value = values.value[key]
+    props.session.stageField(selectionPaths.value, key, value === null ? 0 : value)
+}
+
+// stageNumber writes InputNumber's emitted value into the buffer and stages it.
+// The buffer keeps null (empty box) while the patch gets 0.
+function stageNumber(key: NumKey, v: number | null) {
+    values.value[key] = v
+    stageScalar(key)
 }
 
 // undoTooltip describes what the per-field undo button restores: the shared
@@ -154,7 +178,7 @@ function undoField(key: ScalarKey) {
     if (key === 'compilation') {
         values.value.compilation = d.compilation.value
     } else if (key === 'year' || key === 'track_number' || key === 'disc_number') {
-        values.value[key] = d[key].value
+        values.value[key] = numBuffer(d[key])
     } else {
         values.value[key] = d[key].value
     }
@@ -261,7 +285,7 @@ function onAlbumPickerSelect(payload: AlbumMatchPayload) {
         values.value.album = payload.album
         stageScalar('album')
     }
-    if (payload.year !== undefined && payload.year !== values.value.year) {
+    if (payload.year !== undefined && payload.year !== (values.value.year ?? 0)) {
         values.value.year = payload.year
         stageScalar('year')
     }
@@ -303,6 +327,14 @@ function resetPairs() {
     genresList.value = d.genres.shared ? [...d.genres.value] : []
 }
 
+// numBuffer maps a numeric field diff onto the nullable buffer: mixed tracks
+// and an unset tag (0) both mean "show an empty box", so the placeholder is
+// visible in either case.
+function numBuffer(d: FieldDiff<number>): number | null {
+    if (!d.shared) return null
+    return d.value === 0 ? null : d.value
+}
+
 // reset refills the edit buffers when the selection changes. Purely a display
 // refresh: staged edits live in the session and are not discarded here.
 function reset() {
@@ -314,9 +346,9 @@ function reset() {
         mb_recording_id: d.mb_recording_id.value,
         mb_release_id: d.mb_release_id.value,
         mb_release_group_id: d.mb_release_group_id.value,
-        year: d.year.value,
-        track_number: d.track_number.value,
-        disc_number: d.disc_number.value,
+        year: numBuffer(d.year),
+        track_number: numBuffer(d.track_number),
+        disc_number: numBuffer(d.disc_number),
         disc_subtitle: d.disc_subtitle.value,
         compilation: d.compilation.value
     }
@@ -338,6 +370,25 @@ watch(() => props.selection, reset, { immediate: true, deep: true })
 
 const identifiable = computed(() => props.selection.filter((t) => !t.error))
 
+// The Identify button is always rendered so the feature is discoverable; it
+// goes grey with an explanatory tooltip when the server lacks the dependency
+// or the selection has nothing readable to fingerprint.
+const identifyDisabled = computed(
+    () => !props.canIdentify || identifiable.value.length === 0 || props.isIdentifying
+)
+const identifyTooltip = computed(() => {
+    if (!props.canIdentify) {
+        return (
+            props.identifyUnavailableReason ||
+            'Audio identification is not available on this server.'
+        )
+    }
+    if (identifiable.value.length === 0) {
+        return 'None of the selected tracks could be read, so there is nothing to fingerprint'
+    }
+    return 'Look up these tracks on AcoustID by acoustic fingerprint'
+})
+
 // Raw mode swaps the form body for the raw tag editor; the panel header (count
 // + Identify + Raw buttons) stays so mode switching is always reachable.
 const rawMode = ref(false)
@@ -351,17 +402,18 @@ const rawMode = ref(false)
                 {{ isMass ? `Editing ${selection.length} tracks` : 'Editing 1 track' }}
             </h3>
             <div class="panel-header-actions">
-                <Button
-                    v-if="canIdentify && !rawMode"
-                    :label="isMass ? `Identify ${identifiable.length} tracks` : 'Identify'"
-                    icon="pi pi-wave-pulse"
-                    size="small"
-                    outlined
-                    data-test="identify-button"
-                    :disabled="identifiable.length === 0 || isIdentifying"
-                    :loading="isIdentifying"
-                    @click="emit('identify', identifiable)"
-                />
+                <span v-if="!rawMode" v-tooltip.left="identifyTooltip" class="identify-wrap">
+                    <Button
+                        :label="isMass ? `Identify ${identifiable.length} tracks` : 'Identify'"
+                        icon="pi pi-wave-pulse"
+                        size="small"
+                        outlined
+                        data-test="identify-button"
+                        :disabled="identifyDisabled"
+                        :loading="isIdentifying"
+                        @click="emit('identify', identifiable)"
+                    />
+                </span>
                 <Button
                     label="Raw"
                     icon="pi pi-code"
@@ -436,12 +488,7 @@ const rawMode = ref(false)
                 <InputNumber
                     class="field-track-number"
                     v-model="values.track_number"
-                    @update:modelValue="
-                        (v) => {
-                            values.track_number = v ?? 0
-                            stageScalar('track_number')
-                        }
-                    "
+                    @update:modelValue="(v) => stageNumber('track_number', v)"
                     :useGrouping="false"
                     :placeholder="isMass ? '' : placeholders.track_number"
                     :disabled="isMass"
@@ -645,13 +692,9 @@ const rawMode = ref(false)
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('year') }">
                 <label>Year</label>
                 <InputNumber
+                    class="field-year"
                     v-model="values.year"
-                    @update:modelValue="
-                        (v) => {
-                            values.year = v ?? 0
-                            stageScalar('year')
-                        }
-                    "
+                    @update:modelValue="(v) => stageNumber('year', v)"
                     :useGrouping="false"
                     :placeholder="placeholders.year"
                 />
@@ -750,11 +793,22 @@ const rawMode = ref(false)
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('compilation') }">
                 <label>Compilation</label>
-                <Checkbox
-                    v-model="values.compilation"
-                    @update:modelValue="stageScalar('compilation')"
-                    :binary="true"
-                />
+                <div class="compilation-field">
+                    <Checkbox
+                        v-model="values.compilation"
+                        @update:modelValue="stageScalar('compilation')"
+                        :binary="true"
+                        :indeterminate="compilationMixed"
+                        data-test="compilation-input"
+                    />
+                    <small
+                        v-if="compilationMixed"
+                        class="mixed-note"
+                        data-test="compilation-mixed"
+                    >
+                        (multiple values)
+                    </small>
+                </div>
                 <Button
                     v-if="fieldDirty('compilation')"
                     icon="pi pi-undo"
@@ -772,12 +826,7 @@ const rawMode = ref(false)
                 <InputNumber
                     class="field-disc-number"
                     v-model="values.disc_number"
-                    @update:modelValue="
-                        (v) => {
-                            values.disc_number = v ?? 0
-                            stageScalar('disc_number')
-                        }
-                    "
+                    @update:modelValue="(v) => stageNumber('disc_number', v)"
                     :useGrouping="false"
                     :placeholder="placeholders.disc_number"
                 />
@@ -820,6 +869,7 @@ const rawMode = ref(false)
             :session="session"
             :releaseMbid="values.mb_release_id"
             :releaseGroupMbid="values.mb_release_group_id"
+            :albumName="values.album"
         />
 
         </template>
@@ -836,7 +886,7 @@ const rawMode = ref(false)
             :albumName="values.album"
             :currentReleaseMbid="values.mb_release_id"
             :currentReleaseGroupMbid="values.mb_release_group_id"
-            :currentYear="values.year"
+            :currentYear="values.year ?? 0"
             :currentAlbumArtists="currentAlbumArtistCredits"
             :currentGenres="genresList"
             @select="onAlbumPickerSelect"
@@ -870,6 +920,11 @@ const rawMode = ref(false)
     display: flex;
     align-items: center;
     gap: 0.35rem;
+}
+/* A disabled PrimeVue Button swallows pointer events, so the tooltip lives on
+   this wrapper instead — it must not alter the flex layout. */
+.identify-wrap {
+    display: inline-flex;
 }
 .empty {
     padding: 2rem;
@@ -970,6 +1025,11 @@ const rawMode = ref(false)
 .field-row.disabled label {
     color: var(--app-text-secondary);
     opacity: 0.6;
+}
+.compilation-field {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 .genres-field {
     display: flex;

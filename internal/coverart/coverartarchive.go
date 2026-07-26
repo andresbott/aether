@@ -12,8 +12,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"time"
 
+	"github.com/andresbott/aether/internal/upstream"
 	"golang.org/x/time/rate"
 )
 
@@ -21,6 +21,9 @@ import (
 // Archive API and image-download requests (burst 1). The archive is backed by
 // archive.org, so we stay polite.
 const requestsPerSecond rate.Limit = 1
+
+// serviceName is what the user sees when the archive misbehaves.
+const serviceName = "Cover Art Archive"
 
 // CoverImage is a single cover candidate from the Cover Art Archive.
 type CoverImage struct {
@@ -35,39 +38,49 @@ type CoverImage struct {
 }
 
 // Client queries the Cover Art Archive JSON API and downloads cover images.
+// Retries, throttling and error classification live in the shared Doer.
 type Client struct {
-	BaseURL   string
-	UserAgent string
-	Client    *http.Client
-	limiter   *rate.Limiter
+	BaseURL string
+	Doer    *upstream.Doer
 }
 
 func New(userAgent string) *Client {
 	return &Client{
-		BaseURL:   "https://coverartarchive.org",
-		UserAgent: userAgent,
-		Client:    &http.Client{Timeout: 20 * time.Second},
-		limiter:   rate.NewLimiter(requestsPerSecond, 1),
+		BaseURL: "https://coverartarchive.org",
+		Doer:    upstream.New(serviceName, userAgent, requestsPerSecond),
 	}
 }
 
 // List returns cover candidates for the given release MBID, falling back to the
 // release-group MBID when the release has no images (or no release MBID is
 // known). An empty result is not an error.
+//
+// A failing release lookup is not fatal while a release-group MBID is still on
+// offer: the group covers the same album, so we try it rather than failing the
+// whole request over one bad archive response. The error only surfaces when
+// there is nothing left to try.
 func (c *Client) List(ctx context.Context, releaseMBID, releaseGroupMBID string) ([]CoverImage, error) {
+	var releaseErr error
 	if releaseMBID != "" {
 		imgs, err := c.list(ctx, "release", releaseMBID)
 		if err != nil {
-			return nil, err
+			if releaseGroupMBID == "" {
+				return nil, err
+			}
+			releaseErr = err
 		}
 		if len(imgs) > 0 {
 			return imgs, nil
 		}
 	}
 	if releaseGroupMBID != "" {
-		return c.list(ctx, "release-group", releaseGroupMBID)
+		imgs, err := c.list(ctx, "release-group", releaseGroupMBID)
+		if err != nil {
+			return nil, err
+		}
+		return imgs, nil
 	}
-	return nil, nil
+	return nil, releaseErr
 }
 
 type caaResponse struct {
@@ -83,29 +96,19 @@ type caaResponse struct {
 
 func (c *Client) list(ctx context.Context, kind, mbid string) ([]CoverImage, error) {
 	u := fmt.Sprintf("%s/%s/%s", c.BaseURL, kind, url.PathEscape(mbid))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	req.Header.Set("Accept", "application/json")
-	if err := c.limiter.Wait(ctx); err != nil {
-		return nil, err
-	}
-	resp, err := c.Client.Do(req)
+	// 404 is the archive's "no cover art for this MBID" — a valid answer, not
+	// a failure, so it is allowed through rather than retried.
+	resp, err := c.Doer.Get(ctx, u, http.Header{"Accept": []string{"application/json"}}, http.StatusNotFound)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil // no cover art for this MBID
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("cover art archive %s: status %d", kind, resp.StatusCode)
+		return nil, nil
 	}
 	var body caaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, err
+		return nil, c.Doer.BadResponse(err)
 	}
 	out := make([]CoverImage, 0, len(body.Images))
 	for _, img := range body.Images {
@@ -137,25 +140,14 @@ func pickThumb(thumbs map[string]string, full string) string {
 // DownloadImage fetches imageURL and returns its bytes and a normalized
 // extension ("jpg"/"png").
 func (c *Client) DownloadImage(ctx context.Context, imageURL string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	req.Header.Set("User-Agent", c.UserAgent)
-	if err := c.limiter.Wait(ctx); err != nil {
-		return nil, "", err
-	}
-	resp, err := c.Client.Do(req)
+	resp, err := c.Doer.Get(ctx, imageURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, "", fmt.Errorf("download %s: status %d", imageURL, resp.StatusCode)
-	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
-		return nil, "", err
+		return nil, "", c.Doer.BadResponse(err)
 	}
 	return data, extFromURL(imageURL), nil
 }

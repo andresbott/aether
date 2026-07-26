@@ -40,7 +40,15 @@ vi.mock('@/lib/api/Metadata', async (importActual) => {
 vi.mock('@/components/library/PicturePickerDialog.vue', () => ({
     default: {
         name: 'PicturePickerDialog',
-        props: ['visible', 'pictureType', 'pictureSlot', 'releaseMbid', 'releaseGroupMbid'],
+        props: [
+            'visible',
+            'pictureType',
+            'pictureSlot',
+            'releaseMbid',
+            'releaseGroupMbid',
+            'albumName',
+            'sources'
+        ],
         emits: ['select', 'update:visible'],
         template: '<div class="picture-picker-stub" />'
     }
@@ -94,7 +102,8 @@ function mountSection(selection: Track[], libraryId: number | null = 3) {
             libraryId,
             session,
             releaseMbid: 'rel-1',
-            releaseGroupMbid: 'rg-1'
+            releaseGroupMbid: 'rg-1',
+            albumName: 'The Album'
         },
         global: { stubs }
     })
@@ -148,6 +157,17 @@ describe('PicturesSection', () => {
         expect(
             front.find('[data-test="picture-cell-Front Cover-db"] img.cell-thumb').exists()
         ).toBe(false)
+        // An occupied cell flips its image to the controls; an empty one has no
+        // flip layer — its add button IS the placeholder.
+        expect(
+            front.find('[data-test="picture-cell-Front Cover-folder"] .cell-flip').exists()
+        ).toBe(true)
+        expect(front.find('[data-test="picture-cell-Front Cover-db"] .cell-flip').exists()).toBe(
+            false
+        )
+        expect(
+            front.find('[data-test="picture-cell-Front Cover-db"] .cell-art button').exists()
+        ).toBe(true)
 
         expect(wrapper.find('[data-test="picture-type-Back Cover"]').exists()).toBe(true)
         // Absent types are not rendered.
@@ -218,6 +238,104 @@ describe('PicturesSection', () => {
         expect(
             wrapper.find('[data-test="picture-cell-Back Cover-embedded"]').classes()
         ).toContain('pending')
+    })
+
+    describe('picker copy sources', () => {
+        it('offers the album’s other occupied cells, excluding the target cell', async () => {
+            getPicturesSpy.mockResolvedValue([
+                {
+                    type: 'Front Cover',
+                    slots: [
+                        { slot: 'embedded', detail: '1 of 1 files' },
+                        { slot: 'folder', detail: 'cover.jpg' }
+                    ]
+                },
+                { type: 'Back Cover', slots: [{ slot: 'db' }] }
+            ])
+            const { wrapper } = mountSection([mkTrack()])
+            await flushPromises()
+
+            // Editing the (empty) internal-store front cover: every other
+            // occupied cell of the album is a copy source.
+            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            const sources = wrapper
+                .findComponent({ name: 'PicturePickerDialog' })
+                .props('sources') as Array<Record<string, unknown>>
+            expect(sources.map((s) => s.key)).toEqual([
+                'Front Cover-embedded',
+                'Front Cover-folder',
+                'Back Cover-db'
+            ])
+            const embedded = sources[0]
+            expect(embedded.label).toBe('Front cover — embedded in file')
+            expect(embedded.detail).toBe('1 of 1 files')
+            // Server-held images are downloaded by the picker from the image endpoint.
+            expect(embedded.file).toBeNull()
+            expect(String(embedded.fetchUrl)).toContain('slot=embedded')
+        })
+
+        it('excludes the edited cell itself and empty cells', async () => {
+            getPicturesSpy.mockResolvedValue([
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+            ])
+            const { wrapper } = mountSection([mkTrack()])
+            await flushPromises()
+
+            await wrapper.find('[data-test="picture-change-Front Cover-folder"]').trigger('click')
+            expect(
+                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')
+            ).toEqual([])
+        })
+
+        it('offers an image staged this session, carrying its file rather than a URL', async () => {
+            // jsdom does not implement object URLs; the session previews
+            // uploads with one, so install a stub for this test.
+            const url = URL as unknown as Record<string, unknown>
+            url.createObjectURL = vi.fn(() => 'blob:preview')
+            url.revokeObjectURL = vi.fn()
+            const { wrapper, session } = mountSection([mkTrack()])
+            await flushPromises()
+            const file = new File(['x'], 'up.png', { type: 'image/png' })
+            session.stagePictureSet('album', 'Front Cover', 'folder', { file, imageUrl: null }, [
+                'album/a.mp3'
+            ])
+            await flushPromises()
+
+            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            const sources = wrapper
+                .findComponent({ name: 'PicturePickerDialog' })
+                .props('sources') as Array<Record<string, unknown>>
+            expect(sources).toHaveLength(1)
+            expect(sources[0].key).toBe('Front Cover-folder')
+            expect(sources[0].detail).toBe('pending change in this session')
+            expect(sources[0].file).toBe(file)
+            expect(sources[0].fetchUrl).toBeNull()
+            expect(sources[0].thumbUrl).toBe('blob:preview')
+            delete url.createObjectURL
+            delete url.revokeObjectURL
+        })
+
+        it('does not offer a cell staged for removal', async () => {
+            getPicturesSpy.mockResolvedValue([
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+            ])
+            const { wrapper } = mountSection([mkTrack()])
+            await flushPromises()
+            await wrapper.find('[data-test="picture-remove-Front Cover-folder"]').trigger('click')
+
+            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            expect(
+                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')
+            ).toEqual([])
+        })
+
+        it('passes the album name through for the manual release search', async () => {
+            const { wrapper } = mountSection([mkTrack()])
+            await flushPromises()
+            expect(
+                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('albumName')
+            ).toBe('The Album')
+        })
     })
 
     it('hides an embedded op staged for another track in the same folder', async () => {

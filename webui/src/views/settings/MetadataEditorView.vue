@@ -134,6 +134,16 @@ onBeforeRouteLeave((_to, _from, next) => {
 
 const capabilitiesQuery = useMetadataCapabilities()
 const canIdentify = computed(() => capabilitiesQuery.data.value?.identify === true)
+// When identification is off the button stays visible but disabled, explaining
+// what the server is missing — a hidden button reads as a broken build.
+const identifyUnavailableReason = computed(() => {
+    if (canIdentify.value) return ''
+    if (capabilitiesQuery.isPending.value) return 'Checking server capabilities…'
+    return (
+        capabilitiesQuery.data.value?.identify_unavailable_reason ??
+        'Audio identification is not available on this server.'
+    )
+})
 const identifyMutation = useIdentifyTracks()
 
 const identifyResults = ref<IdentifyTrackResult[]>([])
@@ -218,6 +228,7 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                     :libraryId="selectedLibraryId"
                     :session="session"
                     :canIdentify="canIdentify"
+                    :identifyUnavailableReason="identifyUnavailableReason"
                     :isIdentifying="identifyMutation.isPending.value"
                     @identify="identify"
                 />

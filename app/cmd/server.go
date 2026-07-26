@@ -151,13 +151,19 @@ func runServer(configFile string) error {
 
 	// Audio identification is optional: it needs the fpcalc binary
 	// (Chromaprint) on the host and an AcoustID application key.
+	// identifyOff is the user-facing reason shown by the metadata editor when
+	// identification is disabled; empty means it is available.
 	acoustIDAppKey := metainfo.AcoustIDAppKey(metainfo.Version)
 	var identifier *identify.Identifier
+	var identifyOff string
 	switch {
 	case acoustIDAppKey == "":
+		identifyOff = "this build has no AcoustID application key, so audio identification is disabled"
 		l.Info("no AcoustID application key for this version — audio identification disabled",
 			slog.String("component", "startup"))
 	case !fpcalc.Available(""):
+		identifyOff = "the fpcalc binary (Chromaprint) was not found on the server at startup; " +
+			"install it (Debian/Ubuntu: libchromaprint-tools) and restart Aether"
 		l.Info("fpcalc binary not found in PATH — audio identification disabled",
 			slog.String("component", "startup"))
 	default:
@@ -206,6 +212,8 @@ func runServer(configFile string) error {
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier
+	} else {
+		routerCfg.IdentifyUnavailableReason = identifyOff
 	}
 	mainAppHandler, err := router.New(routerCfg)
 	if err != nil {

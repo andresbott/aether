@@ -144,6 +144,10 @@ export interface TrackOverlay {
 
 export interface MetadataCapabilities {
     identify: boolean
+    // Why identification is off (missing fpcalc binary, missing AcoustID key).
+    // Only sent when identify is false; shown to the user on the disabled
+    // Identify button so a missing server dependency is discoverable.
+    identify_unavailable_reason?: string
 }
 
 // One release (album) an identified recording appears on. track_number /
@@ -252,4 +256,23 @@ export interface ApplyPictureResult {
 export interface StagedPictureSource {
     file: File | null
     imageUrl: string | null
+}
+
+// An image this album already has in another type+slot cell, offered in the
+// picker as a copy source (e.g. copy the embedded front cover into the
+// internal store). Exactly one of file / imageUrl / fetchUrl resolves it:
+// - file:     an upload already staged in this session
+// - imageUrl: a Cover Art Archive URL already staged in this session
+// - fetchUrl: an image the server holds; the browser fetches the bytes and
+//             stages them as a file, so the server never re-reads its own API
+export interface PictureCopySource {
+    key: string
+    // e.g. "Front cover — embedded in file"
+    label: string
+    // e.g. "cover.jpg", "2 of 5 files", "pending change"
+    detail: string
+    thumbUrl: string
+    file: File | null
+    imageUrl: string | null
+    fetchUrl: string | null
 }

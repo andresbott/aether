@@ -118,14 +118,18 @@ nfpms:
       - deb
 
     # The binary is static (CGO_ENABLED=0), so there is no libc dependency.
-    # ffmpeg provides ffprobe, the fallback tag reader for formats taglib does
-    # not handle (internal/tags/ffprobe.go) — recommended, not required: the
-    # scanner degrades to taglib-only without it.
+    # Both of these are optional at runtime — the server starts without them and
+    # degrades the affected feature — but apt installs recommends by default, so
+    # a plain `apt install aether` gets the complete feature set.
+    #   ffmpeg                provides ffprobe, the fallback tag reader for
+    #                         formats taglib does not handle
+    #                         (internal/tags/ffprobe.go); absent, the scanner
+    #                         degrades to taglib-only.
+    #   libchromaprint-tools  provides fpcalc, used for AcoustID audio
+    #                         identification (libs/fpcalc); absent, the
+    #                         metadata editor hides Identify entirely.
     recommends:
       - ffmpeg
-    # libchromaprint-tools provides fpcalc, used for AcoustID audio
-    # identification. Optional by design: absent, the feature disables itself.
-    suggests:
       - libchromaprint-tools
 
     contents:

@@ -27,7 +27,11 @@ func (FFProbeReader) CanRead(absPath string) bool {
 func (FFProbeReader) Read(absPath string) (Metadata, error) {
 	out, err := exec.Command( //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
 		"ffprobe", "-hide_banner", "-v", "0", "-i", absPath,
-		"-show_entries", "format:stream=codec_type", "-of", "json",
+		// The attached picture's type only shows up in the stream's "comment"
+		// tag, and its disposition tells a cover apart from a real video
+		// stream — both are needed to accept only front covers as cover art.
+		"-show_entries", "format:stream=codec_type:stream_tags=comment:stream_disposition=attached_pic",
+		"-of", "json",
 	).Output()
 	if err != nil {
 		return Metadata{}, fmt.Errorf("ffprobe exec: %w", err)
@@ -41,7 +45,13 @@ func (FFProbeReader) Read(absPath string) (Metadata, error) {
 func parseFFProbeJSON(out []byte) (Metadata, error) {
 	var d struct {
 		Streams []struct {
-			CodecType string `json:"codec_type"`
+			CodecType   string `json:"codec_type"`
+			Disposition struct {
+				AttachedPic int `json:"attached_pic"`
+			} `json:"disposition"`
+			Tags struct {
+				Comment string `json:"comment"`
+			} `json:"tags"`
 		} `json:"streams"`
 		Format struct {
 			Duration string            `json:"duration"`
@@ -61,9 +71,11 @@ func parseFFProbeJSON(out []byte) (Metadata, error) {
 		tags[k] = []string{v}
 	}
 
+	// Only an attached picture typed as a front cover counts as cover art: a
+	// back cover, disc scan or booklet page must never be served as one.
 	var hasCover bool
 	for _, s := range d.Streams {
-		if s.CodecType == "video" {
+		if s.CodecType == "video" && s.Disposition.AttachedPic == 1 && isFrontCoverComment(s.Tags.Comment) {
 			hasCover = true
 			break
 		}

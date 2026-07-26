@@ -33,12 +33,18 @@
     --app-nav-text-dim: #7b8794;
     /* Logo/brand accent — cyan in both themes. */
     --app-nav-brand: #2fd3ef;
+    /* The second colour in the wordmark (the "e" of Aether). Its own token so
+       the hidden themes can repaint the brand without touching the component. */
+    --app-nav-brand-alt: #d81b60;
     --app-player-bg: #141b24;
     --app-player-text: #d3dae2;
     /* Muted controls in the player bar (consumed in Step 4). */
     --app-player-dim: #6f7b88;
     /* Scrubber / volume rail. */
     --app-player-track: rgba(255, 255, 255, 0.18);
+    /* Font for the elapsed/total clock in the player bar. The hardware-flavoured
+       hidden themes swap this for the mono stack. */
+    --app-player-time-font: var(--font-sans);
     --app-sidebar-width: 260px;
     --app-sidebar-collapsed-width: 70px;
     --app-player-height: 116px;

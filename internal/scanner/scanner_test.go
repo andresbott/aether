@@ -112,6 +112,56 @@ func TestScannerFullScan(t *testing.T) {
 	}
 }
 
+// A scan must not keep an album pointed at a cover file that no longer
+// qualifies as front art — e.g. a back scan an earlier scan wrongly picked, or
+// a cover file that has since been deleted.
+func TestScannerRefreshesStaleAlbumCoverPath(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01.mp3",
+		"Artist/Album/cover.jpg",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var album model.Album
+	if err := st.DB().First(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "Artist/Album/cover.jpg")
+	if album.CoverPath != want {
+		t.Fatalf("CoverPath = %q, want %q", album.CoverPath, want)
+	}
+
+	// Simulate the state the old loose matcher left behind: the album points at
+	// the sleeve's back scan.
+	back := filepath.Join(dir, "Artist/Album/Back Cover.jpg")
+	if err := os.WriteFile(back, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAlbumCoverPath(album.ID, back); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB().First(&album, album.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if album.CoverPath == back {
+		t.Fatal("album still points at the back cover after a rescan")
+	}
+	if album.CoverPath != want {
+		t.Errorf("CoverPath = %q, want %q", album.CoverPath, want)
+	}
+}
+
 func TestScannerCleanupOrphans(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()

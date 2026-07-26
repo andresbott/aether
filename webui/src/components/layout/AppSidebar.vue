@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'primevue/usetoast'
 import { useUiStore } from '@/store/uiStore'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import { useTheme } from '@/composables/useTheme'
 
 const route = useRoute()
 const router = useRouter()
@@ -70,6 +72,51 @@ const navigateTo = (item: NavItem) => {
 }
 
 const collapsed = computed(() => uiStore.sidebarCollapsed)
+
+// --- Easter egg: the wordmark's "e" unlocks the hidden themes -----------------
+// Five clicks inside EGG_WINDOW_MS reveal them in Settings → Profile and switch
+// to the first; every further burst cycles to the next. The burst window means
+// idle curiosity (a stray click) never trips it.
+const EGG_CLICKS = 5
+const EGG_WINDOW_MS = 1500
+
+const toast = useToast()
+const { hiddenUnlocked, unlockHiddenThemes, cycleHiddenTheme } = useTheme()
+
+const eggClicks = ref(0)
+let eggTimer: ReturnType<typeof setTimeout> | undefined
+
+const resetEgg = (): void => {
+    clearTimeout(eggTimer)
+    eggTimer = undefined
+    eggClicks.value = 0
+}
+
+const onBrandAccentClick = (): void => {
+    clearTimeout(eggTimer)
+    eggClicks.value += 1
+
+    if (eggClicks.value < EGG_CLICKS) {
+        eggTimer = setTimeout(resetEgg, EGG_WINDOW_MS)
+        return
+    }
+
+    resetEgg()
+    // Read before unlocking so the toast can tell first discovery from a cycle.
+    const firstUnlock = !hiddenUnlocked.value
+    unlockHiddenThemes()
+    const theme = cycleHiddenTheme()
+    toast.add({
+        severity: 'success',
+        summary: firstUnlock ? 'Hidden themes unlocked' : `Theme: ${theme.label}`,
+        detail: firstUnlock
+            ? `${theme.label} enabled — the rest live in Settings → Profile.`
+            : undefined,
+        life: 4000
+    })
+}
+
+onBeforeUnmount(resetEgg)
 </script>
 
 <template>
@@ -79,7 +126,13 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
                 <div class="header-content">
                     <div class="brand">
                         <span class="brand-mark">◈</span>
-                        <h1 class="logo">A<span class="logo-accent">e</span>ther</h1>
+                        <!-- The "e" is the easter-egg trigger. Left as a plain
+                             span, not a button: it must not be focusable or
+                             announced, or it stops being hidden. -->
+                        <h1 class="logo">A<span
+                            class="logo-accent"
+                            @click="onBrandAccentClick"
+                        >e</span>ther</h1>
                     </div>
                 </div>
             </template>
@@ -311,8 +364,11 @@ const collapsed = computed(() => uiStore.sidebarCollapsed)
     white-space: nowrap;
 }
 
+/* Only the colour differs from the rest of the wordmark: no cursor or
+   selection override, so the click target is indistinguishable from ordinary
+   text and stays unadvertised. */
 .logo-accent {
-    color: #d81b60;
+    color: var(--app-nav-brand-alt);
 }
 
 .sidebar-footer-nav {

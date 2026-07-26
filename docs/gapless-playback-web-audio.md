@@ -99,7 +99,7 @@ encoded file is downloaded up front before playback can begin.
 
 - **Queue model.** `playbackOrder.nextQueueIndex` already decides "what plays
   next" (honoring repeat `all`/`none`); reuse it to decide which buffer to
-  schedule. Repeat `one` re-schedules the same buffer.
+  schedule.
 - **Queue edits mid-playback.** Reorder/insert/remove (`moveInQueue`,
   `insertIntoQueue`, `removeFromQueue`) must cancel and reschedule the pending
   next-track node, not just re-point a `src`.

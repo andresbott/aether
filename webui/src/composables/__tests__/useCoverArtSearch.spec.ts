@@ -52,4 +52,72 @@ describe('useCoverArtSearch', () => {
         expect(error.value).toBe('network down')
         expect(candidates.value).toEqual([])
     })
+
+    // The backend sends a ready-to-show sentence for an upstream outage; the
+    // composable must surface exactly that.
+    it('surfaces the server sentence for an upstream failure', async () => {
+        listMock.mockRejectedValue({
+            response: {
+                status: 502,
+                data: {
+                    error: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
+                    code: 'upstream_error'
+                }
+            }
+        })
+        const { search, error, rateLimited } = useCoverArtSearch()
+        await search('rel-1')
+        expect(error.value).toBe(
+            'Cover Art Archive is temporarily unavailable. Try again in a few minutes.'
+        )
+        expect(rateLimited.value).toBe(false)
+    })
+
+    // Regression for the raw-JSON bug: a double-wrapped body must still render
+    // as a sentence, never as a JSON document.
+    it('never exposes a raw JSON envelope as the error text', async () => {
+        listMock.mockRejectedValue({
+            response: {
+                status: 502,
+                data: {
+                    error: '{"error":"cover art archive lookup failed: status 500","code":"upstream_error"}',
+                    code: 502
+                }
+            }
+        })
+        const { search, error } = useCoverArtSearch()
+        await search('rel-1')
+        expect(error.value?.startsWith('{')).toBe(false)
+        expect(error.value).toBe('cover art archive lookup failed: status 500')
+    })
+
+    it('flags a rate-limited lookup so the UI can invite a retry', async () => {
+        listMock.mockRejectedValue({
+            response: {
+                status: 429,
+                data: {
+                    error: 'Cover Art Archive is receiving too many requests right now. Wait a moment and try again.',
+                    code: 'upstream_rate_limited'
+                }
+            }
+        })
+        const { search, rateLimited, error } = useCoverArtSearch()
+        await search('rel-1')
+        expect(rateLimited.value).toBe(true)
+        expect(error.value).toContain('too many requests')
+    })
+
+    it('clears a previous error when a later search succeeds', async () => {
+        listMock.mockRejectedValueOnce({
+            response: { status: 429, data: { code: 'upstream_rate_limited', error: 'slow down' } }
+        })
+        const { search, error, rateLimited } = useCoverArtSearch()
+        await search('rel-1')
+        expect(rateLimited.value).toBe(true)
+
+        listMock.mockResolvedValueOnce([candidate])
+        await search('rel-2')
+        expect(error.value).toBeNull()
+        expect(rateLimited.value).toBe(false)
+    })
 })

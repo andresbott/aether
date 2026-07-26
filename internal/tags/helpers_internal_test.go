@@ -100,7 +100,10 @@ func TestParseFloatPtr(t *testing.T) {
 
 func TestParseFFProbeJSON(t *testing.T) {
 	const sample = `{
-		"streams": [{"codec_type": "audio"}, {"codec_type": "video"}],
+		"streams": [
+			{"codec_type": "audio"},
+			{"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Cover (front)"}}
+		],
 		"format": {
 			"duration": "180.5",
 			"bit_rate": "320000",
@@ -145,7 +148,7 @@ func TestParseFFProbeJSON(t *testing.T) {
 		t.Errorf("DiscNumber = %d", m.DiscNumber)
 	}
 	if !m.HasCover {
-		t.Error("expected HasCover true (video stream present)")
+		t.Error("expected HasCover true (front-cover attached picture present)")
 	}
 	if m.Bitrate != 320 {
 		t.Errorf("Bitrate = %d", m.Bitrate)
@@ -166,6 +169,60 @@ func TestParseFFProbeJSON(t *testing.T) {
 	// Invalid JSON returns an error.
 	if _, err := parseFFProbeJSON([]byte("not json")); err == nil {
 		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+// ffprobe exposes an attached picture's type in the video stream's "comment"
+// tag ("Cover (front)", "Cover (back)", "Other", ...). Only a front cover
+// counts as the album cover.
+func TestParseFFProbeJSONHasCoverByPictureType(t *testing.T) {
+	tests := []struct {
+		name    string
+		streams string
+		want    bool
+	}{
+		{
+			name:    "front cover",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Cover (front)"}}`,
+			want:    true,
+		},
+		{
+			name:    "back cover",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Cover (back)"}}`,
+			want:    false,
+		},
+		{
+			name:    "untyped other",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Other"}}`,
+			want:    false,
+		},
+		{
+			name:    "no comment tag",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 1}}`,
+			want:    false,
+		},
+		{
+			name:    "front plus back",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Cover (back)"}}, {"codec_type": "video", "disposition": {"attached_pic": 1}, "tags": {"comment": "Cover (front)"}}`,
+			want:    true,
+		},
+		{
+			name:    "real video stream is not a cover",
+			streams: `{"codec_type": "video", "disposition": {"attached_pic": 0}}`,
+			want:    false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sample := `{"streams": [{"codec_type": "audio"}, ` + tt.streams + `], "format": {"duration": "1", "bit_rate": "1000", "tags": {}}}`
+			m, err := parseFFProbeJSON([]byte(sample))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if m.HasCover != tt.want {
+				t.Errorf("HasCover = %v, want %v", m.HasCover, tt.want)
+			}
+		})
 	}
 }
 

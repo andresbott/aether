@@ -30,6 +30,13 @@ func (f fakeIdentifier) IdentifyFile(context.Context, string) ([]acoustid.Record
 
 func newIdentifyHandler(t *testing.T, libRoot string, ident metaHandler.IdentifyService) (*mux.Router, *model.Library) {
 	t.Helper()
+	return newIdentifyHandlerWithReason(t, libRoot, ident, "")
+}
+
+func newIdentifyHandlerWithReason(
+	t *testing.T, libRoot string, ident metaHandler.IdentifyService, reason string,
+) (*mux.Router, *model.Library) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +49,12 @@ func newIdentifyHandler(t *testing.T, libRoot string, ident metaHandler.Identify
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Identifier: ident}
+	h := &metaHandler.Handler{
+		Store:                     s,
+		Reader:                    nullReader{},
+		Identifier:                ident,
+		IdentifyUnavailableReason: reason,
+	}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -60,6 +72,19 @@ func postIdentify(t *testing.T, r *mux.Router, body any) *httptest.ResponseRecor
 	return w
 }
 
+func getCapabilities(t *testing.T, r *mux.Router) (bool, string, int) {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/metadata/capabilities", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var body struct {
+		Identify bool   `json:"identify"`
+		Reason   string `json:"identify_unavailable_reason"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	return body.Identify, body.Reason, w.Code
+}
+
 func TestCapabilities_ReportsIdentify(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -71,20 +96,55 @@ func TestCapabilities_ReportsIdentify(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, _ := newIdentifyHandler(t, t.TempDir(), tc.ident)
-			req := httptest.NewRequest("GET", "/metadata/capabilities", nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-			if w.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d", w.Code)
+			got, _, code := getCapabilities(t, r)
+			if code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", code)
 			}
-			var body struct {
-				Identify bool `json:"identify"`
-			}
-			_ = json.Unmarshal(w.Body.Bytes(), &body)
-			if body.Identify != tc.want {
-				t.Fatalf("expected identify=%v, got %s", tc.want, w.Body.String())
+			if got != tc.want {
+				t.Fatalf("expected identify=%v, got %v", tc.want, got)
 			}
 		})
+	}
+}
+
+// The UI greys out Identify and shows this reason, so it must reach the client
+// verbatim — and never leak when the feature is actually available.
+func TestCapabilities_ReportsUnavailableReason(t *testing.T) {
+	const reason = "fpcalc not found; install libchromaprint-tools"
+
+	r, _ := newIdentifyHandlerWithReason(t, t.TempDir(), nil, reason)
+	if _, got, _ := getCapabilities(t, r); got != reason {
+		t.Fatalf("expected reason %q, got %q", reason, got)
+	}
+
+	// No reason configured: a generic explanation still reaches the UI.
+	r, _ = newIdentifyHandlerWithReason(t, t.TempDir(), nil, "")
+	if _, got, _ := getCapabilities(t, r); got == "" {
+		t.Fatal("expected a fallback reason when none is configured")
+	}
+
+	// Enabled: no reason at all.
+	r, _ = newIdentifyHandlerWithReason(t, t.TempDir(), fakeIdentifier{}, reason)
+	if _, got, _ := getCapabilities(t, r); got != "" {
+		t.Fatalf("expected no reason when identify is enabled, got %q", got)
+	}
+}
+
+// The 503 body carries the same explanation, for clients that POST anyway.
+func TestIdentify_UnavailableIncludesReason(t *testing.T) {
+	const reason = "fpcalc not found; install libchromaprint-tools"
+	r, lib := newIdentifyHandlerWithReason(t, t.TempDir(), nil, reason)
+	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"a.mp3"}})
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", w.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Error != reason || body.Code != "identify_unavailable" {
+		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }
 

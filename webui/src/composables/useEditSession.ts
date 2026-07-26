@@ -6,6 +6,7 @@ import {
     useApplyPicture,
     useDeletePicture
 } from '@/composables/useMetadataEditor'
+import { apiErrorMessage } from '@/lib/apiError'
 import type {
     ArtistCredit,
     IdentifyCandidate,
@@ -650,7 +651,7 @@ export function useEditSession(
                 toast.add({
                     severity: 'error',
                     summary: `Failed to save metadata (${ok} track${ok === 1 ? '' : 's'} saved before the error)`,
-                    detail: err?.response?.data?.error ?? err?.message,
+                    detail: apiErrorMessage(err),
                     life: 8000
                 })
             } else if (failed === 0) {

@@ -57,7 +57,7 @@ function onSelect(letter: string): void {
 }
 
 .rail-letter:hover:not(:disabled) {
-    color: var(--p-primary-color);
+    color: var(--app-accent);
 }
 
 .rail-letter:disabled {
