@@ -111,20 +111,7 @@ func runServer(configFile string) error {
 	dataStore := store.New(db)
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
-	// Build the artist-image fetcher from whatever provider API keys are set.
-	// If none are configured, fetcher stays nil and the task reports a clear
-	// "not configured" message when run (the task is always registered).
-	var providers []artistimage.Provider
-	if cfg.ArtistImages.FanartApiKey != "" {
-		providers = append(providers, artistimage.NewFanartTV(cfg.ArtistImages.FanartApiKey))
-	}
-	if cfg.ArtistImages.TheAudioDBApiKey != "" {
-		providers = append(providers, artistimage.NewTheAudioDB(cfg.ArtistImages.TheAudioDBApiKey))
-	}
-	var fetcher tasks.Fetcher
-	if len(providers) > 0 {
-		fetcher = artistimage.NewChain(providers...)
-	}
+	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
 	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
 
@@ -260,6 +247,23 @@ func runServer(configFile string) error {
 	}()
 
 	return g.Wait()
+}
+
+// buildArtistFetcher assembles the artist-image fetcher from whatever provider
+// API keys are set. If none are configured it returns nil and the task reports
+// a clear "not configured" message when run (the task is always registered).
+func buildArtistFetcher(cfg ArtistImagesCfg) tasks.Fetcher {
+	var providers []artistimage.Provider
+	if cfg.FanartApiKey != "" {
+		providers = append(providers, artistimage.NewFanartTV(cfg.FanartApiKey))
+	}
+	if cfg.TheAudioDBApiKey != "" {
+		providers = append(providers, artistimage.NewTheAudioDB(cfg.TheAudioDBApiKey))
+	}
+	if len(providers) == 0 {
+		return nil
+	}
+	return artistimage.NewChain(providers...)
 }
 
 func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component string) error {
