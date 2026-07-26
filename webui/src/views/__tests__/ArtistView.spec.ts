@@ -15,10 +15,22 @@ const coverMutate = vi.fn((_payload: unknown, opts?: { onSuccess?: () => void })
     opts?.onSuccess?.()
 )
 
+// Commits a staged online pick. Invokes onSuccess like the cover mutation does.
+const imageSearchMutate = vi.fn((_p: unknown, opts?: { onSuccess?: () => void }) =>
+    opts?.onSuccess?.()
+)
+const imageSearchIsPending = ref(false)
+
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useArtist: () => ({ data: artist, isLoading, error }),
     useToggleStar: () => ({ mutate: toggleStarMutate }),
     useUpdateArtistCover: () => ({ mutate: coverMutate, isPending: coverIsPending })
+}))
+vi.mock('@/composables/useSetArtistImageFromSearch', () => ({
+    useSetArtistImageFromSearch: () => ({
+        mutate: imageSearchMutate,
+        isPending: imageSearchIsPending
+    })
 }))
 
 const imageSource = ref<any>(null)
@@ -117,6 +129,8 @@ beforeEach(() => {
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
     coverIsPending.value = false
+    imageSearchMutate.mockClear()
+    imageSearchIsPending.value = false
     imageSource.value = null
     imageSourceRefetch.mockClear()
     // Cover versions are module-level (they must outlive a component), so they
@@ -622,7 +636,7 @@ describe('ArtistView online image search', () => {
         expect(w.find('[data-test="open-image-search"]').exists()).toBe(true)
     })
 
-    it('opens the dialog with the artist name and id', async () => {
+    it('opens the dialog with the artist name', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'none', path: '', filename: '' }
         const w = mountView()
@@ -635,38 +649,144 @@ describe('ArtistView online image search', () => {
         await w.find('[data-test="open-image-search"]').trigger('click')
         expect(dialog.props('visible')).toBe(true)
         expect(dialog.props('artistName')).toBe('Pink Floyd')
-        expect(dialog.props('artistId')).toBe('ar-1')
     })
+})
 
-    // The dialog stores the image itself, so the view must bust the cover URL and
-    // refresh the source note — otherwise the old image stays on screen.
-    it('busts the cover and refreshes the source note after the dialog saves', async () => {
+// A pick from the dialog behaves exactly like a locally staged file upload: it
+// previews in the cover, marks the editor dirty, is discarded by Cancel, and is
+// only written by the editor's own Save.
+describe('ArtistView staged online image pick', () => {
+    const PICK = {
+        mbid: 'mbid-a',
+        name: 'Pink Floyd',
+        previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+    }
+
+    const openWithPick = async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'none', path: '', filename: '' }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
+        w.findComponent(ArtistImageSearchDialog).vm.$emit('select', PICK)
+        await flushPromises()
+        return w
+    }
 
-        const before = w.find('.flip-front img').attributes('src')
-        w.findComponent(ArtistImageSearchDialog).vm.$emit('saved')
+    it('previews the picked image in the cover without saving', async () => {
+        const w = await openWithPick()
+        expect(w.find('.flip-front img').attributes('src')).toBe(PICK.previewUrl)
+        expect(coverMutate).not.toHaveBeenCalled()
+        expect(imageSearchMutate).not.toHaveBeenCalled()
+    })
+
+    it('marks the note as a pending change naming the picked artist', async () => {
+        const w = await openWithPick()
+        const note = w.find('.image-source-note')
+        expect(note.classes()).toContain('is-pending')
+        expect(note.text()).toContain('Pink Floyd')
+    })
+
+    it('enables Save (the editor is dirty)', async () => {
+        const w = await openWithPick()
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeUndefined()
+    })
+
+    it('Save commits the pick and busts the cover', async () => {
+        const w = await openWithPick()
+        await w.find('.edit-action-save').trigger('click')
         await flushPromises()
 
-        expect(w.find('.flip-front img').attributes('src')).not.toBe(before)
+        expect(imageSearchMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ artistId: 'ar-1', mbid: 'mbid-a' }),
+            expect.anything()
+        )
+        // The plain cover mutation is not used for a searched pick.
+        expect(coverMutate).not.toHaveBeenCalled()
         expect(imageSourceRefetch).toHaveBeenCalled()
     })
 
-    // Nothing was staged locally, so Save must not fire a cover mutation.
-    it('leaves the editor clean after the dialog saves', async () => {
+    it('Cancel discards the pick without writing anything', async () => {
+        const w = await openWithPick()
+        await w.find('.edit-action-cancel').trigger('click')
+        await flushPromises()
+
+        expect(imageSearchMutate).not.toHaveBeenCalled()
+        expect(coverMutate).not.toHaveBeenCalled()
+        // The cover reverts to the persisted image.
+        expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
+    })
+
+    // Picking online and then choosing a local file (or Remove) must not send both.
+    it('a later file pick supersedes the online pick', async () => {
+        const w = await openWithPick()
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+
+        expect(imageSearchMutate).not.toHaveBeenCalled()
+        expect(coverMutate).toHaveBeenCalledWith(
+            expect.objectContaining({ artistId: 'ar-1', coverFile: file }),
+            expect.anything()
+        )
+    })
+})
+
+// A staged pick must stay cancellable via Remove even when the persisted image is
+// a folder one (where Remove is otherwise hidden).
+describe('ArtistView remove with a staged online pick', () => {
+    it('offers Remove for a staged pick over a folder image', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'none', path: '', filename: '' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
+        expect(w.find('.cover-remove').exists()).toBe(false)
 
-        w.findComponent(ArtistImageSearchDialog).vm.$emit('saved')
+        w.findComponent(ArtistImageSearchDialog).vm.$emit('select', {
+            mbid: 'mbid-a',
+            name: 'Pink Floyd',
+            previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+        })
+        await flushPromises()
+        expect(w.find('.cover-remove').exists()).toBe(true)
+    })
+})
+
+// Removing a staged pick should discard it, not stage a clear of the persisted
+// image — the pick was never saved, so there is nothing to clear.
+describe('ArtistView removing a staged online pick', () => {
+    it('discards the pick and leaves the persisted image alone', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+        w.findComponent(ArtistImageSearchDialog).vm.$emit('select', {
+            mbid: 'mbid-a',
+            name: 'Pink Floyd',
+            previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+        })
         await flushPromises()
 
+        await w.find('.cover-remove').trigger('click')
+        await flushPromises()
+
+        // Back to the persisted folder image, and nothing left to save.
+        expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
         await w.find('.edit-action-save').trigger('click')
         expect(coverMutate).not.toHaveBeenCalled()
+        expect(imageSearchMutate).not.toHaveBeenCalled()
     })
 })

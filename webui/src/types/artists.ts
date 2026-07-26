@@ -55,6 +55,14 @@ export interface ArtistImageSource {
     filename: string
 }
 
+// A staged pick from the online image search: which MusicBrainz artist's provider
+// image to use, plus the preview URL so the editor can show it before saving.
+export interface ArtistImagePick {
+    mbid: string
+    name: string
+    previewUrl: string
+}
+
 export interface SetArtistMBIDResponse {
     mbArtistId: string
     imageFetched: boolean

@@ -112,7 +112,12 @@ user picks by name rather than the artist's stored `MBArtistID`:
   `http.DetectContentType`-sniffed (not the provider's claimed extension),
   non-image payloads are refused with 502, and it carries `nosniff` +
   `Cache-Control: no-store`.
-- `PUT /api/v1/artists/{id}/image-from-search` stores the pick as a **manual**
+- `PUT /api/v1/artists/{id}/image-from-search` — called by the **editor's Save**,
+  not the dialog: a pick is staged in `ArtistView` like a file upload (previewed
+  in the cover, marks the editor dirty, discarded by Cancel/Remove). The three
+  staged edits (file, clear, searched pick) are mutually exclusive; the last one
+  wins, and `saveEdit` routes a pick here instead of `updateArtist`. It stores
+  the pick as a **manual**
   upload, so it outranks anything the job later writes to the auto slot. It files
   under `artistCoverKey` (MBID slot when matched, else DB ID) — the same slot a
   normal upload uses, because cover resolution reads the MBID slot first and a

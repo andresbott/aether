@@ -5,23 +5,18 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import { useMusicBrainzSearch } from '@/composables/useMusicBrainzSearch'
-import {
-    artistImagePreviewUrl,
-    parseArtistNumericId,
-    setArtistImageFromSearch
-} from '@/lib/api/Artists'
-import { apiErrorMessage } from '@/lib/apiError'
-import type { MusicBrainzCandidate } from '@/types/artists'
+import { artistImagePreviewUrl } from '@/lib/api/Artists'
+import type { ArtistImagePick, MusicBrainzCandidate } from '@/types/artists'
 
 const props = defineProps<{
     visible: boolean
-    artistId: string
     artistName: string
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    // The image was stored; the caller should bust its cover URL and refetch.
-    (e: 'saved'): void
+    // The user's confirmed pick. Nothing is written here — the parent stages it
+    // and commits on its own Save, so Cancel discards it like any other edit.
+    (e: 'select', pick: ArtistImagePick): void
 }>()
 
 // Same MusicBrainz artist search the MBID picker and the auto-fetch job use — the
@@ -32,15 +27,13 @@ const { results, loading: searching, error: searchError, search } = useMusicBrai
 const query = ref('')
 const picked = ref<MusicBrainzCandidate | null>(null)
 // Set when the preview <img> fails: the providers hold no image for this
-// candidate, so there is nothing to save.
+// candidate, so there is nothing to pick.
 const previewFailed = ref(false)
-const saveError = ref<string | null>(null)
-const saving = ref(false)
 
 const previewUrl = computed(() =>
     picked.value ? artistImagePreviewUrl(picked.value.mbid) : null
 )
-const canSave = computed(() => picked.value !== null && !previewFailed.value && !saving.value)
+const canConfirm = computed(() => picked.value !== null && !previewFailed.value)
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 watch(query, () => {
@@ -58,7 +51,6 @@ watch(
         query.value = props.artistName
         picked.value = null
         previewFailed.value = false
-        saveError.value = null
         search(props.artistName)
     },
     { immediate: true }
@@ -67,22 +59,19 @@ watch(
 function pick(c: MusicBrainzCandidate): void {
     picked.value = c
     previewFailed.value = false
-    saveError.value = null
 }
 
-async function save(): Promise<void> {
-    if (!picked.value || previewFailed.value) return
-    saving.value = true
-    saveError.value = null
-    try {
-        await setArtistImageFromSearch(parseArtistNumericId(props.artistId), picked.value.mbid)
-        emit('saved')
-        emit('update:visible', false)
-    } catch (err) {
-        saveError.value = apiErrorMessage(err)
-    } finally {
-        saving.value = false
-    }
+function confirm(): void {
+    const c = picked.value
+    if (!c || previewFailed.value) return
+    emit('select', {
+        mbid: c.mbid,
+        name: c.name,
+        // The parent shows this as the staged cover preview, so it doesn't have
+        // to rebuild the URL.
+        previewUrl: artistImagePreviewUrl(c.mbid)
+    })
+    emit('update:visible', false)
 }
 
 function cancel(): void {
@@ -111,7 +100,6 @@ function lifeSpan(c: MusicBrainzCandidate): string {
         />
 
         <Message v-if="searchError" severity="error" :closable="false">{{ searchError }}</Message>
-        <Message v-if="saveError" severity="error" :closable="false">{{ saveError }}</Message>
 
         <div class="results">
             <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
@@ -154,12 +142,13 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 
         <template #footer>
             <Button label="Cancel" text data-test="image-search-cancel" @click="cancel" />
+            <!-- "Use this image", not "Save": the write happens on the editor's
+                 own Save, so this only stages the pick. -->
             <Button
-                label="Save"
+                label="Use this image"
                 data-test="image-search-save"
-                :disabled="!canSave"
-                :loading="saving"
-                @click="save"
+                :disabled="!canConfirm"
+                @click="confirm"
             />
         </template>
     </Dialog>

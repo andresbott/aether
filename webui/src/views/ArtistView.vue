@@ -10,10 +10,12 @@ import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialo
 import Button from 'primevue/button'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
 import { useArtistImageSource } from '@/composables/useArtistImageSource'
+import { useSetArtistImageFromSearch } from '@/composables/useSetArtistImageFromSearch'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
+import type { ArtistImagePick } from '@/types/artists'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
 
@@ -21,6 +23,7 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const toggleStar = useToggleStar()
 const updateCover = useUpdateArtistCover()
+const setImageFromSearch = useSetArtistImageFromSearch()
 
 const { data: artist, isLoading, error } = useArtist(props.id)
 
@@ -29,8 +32,13 @@ const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
 const coverSizeError = ref<string | null>(null)
+// A pick from the online search, staged like any other cover edit: previewed
+// here, written only by saveEdit, discarded by Cancel.
+const imagePick = ref<ArtistImagePick | null>(null)
 
-const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+const dirty = computed(
+    () => selectedFile.value !== null || coverClear.value || imagePick.value !== null
+)
 
 // The image may be a file read from the music folder rather than one of aether's
 // own — say so while editing, so a "Remove" that cannot delete the user's file
@@ -57,7 +65,8 @@ const folderImagePath = computed(() =>
 // to hover to understand is worse than no button. A staged pick keeps it visible
 // so the choice stays cancellable.
 const canRemoveImage = computed(() => {
-    if (selectedFile.value) return true
+    // Any staged change stays cancellable via Remove, whatever is persisted.
+    if (selectedFile.value || imagePick.value) return true
     const source = imageSource.value?.source
     return source === 'upload' || source === 'fetched'
 })
@@ -73,6 +82,13 @@ const imageNote = computed<ImageNote | null>(() => {
 
     if (selectedFile.value) {
         return { text: `${selectedFile.value.name} — will be uploaded`, pending: true }
+    }
+    if (imagePick.value) {
+        return {
+            text: `${imagePick.value.name} — will be saved from search`,
+            pending: true,
+            hint: `Image found online for the MusicBrainz artist ${imagePick.value.name} (${imagePick.value.mbid}). It is saved when you save this artist.`
+        }
     }
     if (coverClear.value) {
         const removed = imageSource.value?.filename
@@ -115,6 +131,7 @@ function resetCoverStaging(): void {
     selectedFile.value = null
     coverClear.value = false
     coverSizeError.value = null
+    imagePick.value = null
 }
 
 // Artist edit = cover only. Changes are staged locally and applied on Save.
@@ -127,23 +144,53 @@ const onCoverSelect = (file: File): void => {
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     selectedFile.value = file
     previewUrl.value = URL.createObjectURL(file)
+    // The three staged edits are mutually exclusive — the last one wins.
     coverClear.value = false
+    imagePick.value = null
 }
 
 const onRemoveCover = (): void => {
     // Belt and braces: the button is hidden in this state, but a clear must
     // never be staged for an image aether does not own.
     if (!canRemoveImage.value) return
-    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-    previewUrl.value = null
-    selectedFile.value = null
+
+    // Removing a staged change just discards it — nothing was saved, so there is
+    // nothing to clear on the server. Only fall through to staging a clear when
+    // the persisted image is aether's own.
+    const hadStagedChange = selectedFile.value !== null || imagePick.value !== null
+    resetCoverStaging()
+    if (hadStagedChange) return
+
     coverClear.value = true
-    coverSizeError.value = null
+}
+
+// Shared by both save paths: the persisted image changed, so bust the (unchanged)
+// cover URL and re-read where the image now comes from.
+function afterCoverSaved(): void {
+    resetCoverStaging()
+    // Bump the shared version, not a local ref: the browser's in-memory image
+    // cache outlives this component, so navigating away and back would otherwise
+    // re-show the old bitmap.
+    if (artist.value?.coverArt) bumpCoverVersion(artist.value.coverArt)
+    editing.value = false
+    // An upload moves the image into aether's store, a clear can uncover the
+    // folder image again — either way the note is stale.
+    void refetchImageSource()
 }
 
 const saveEdit = (): void => {
     if (!dirty.value) {
         editing.value = false
+        return
+    }
+    // A searched pick goes through its own endpoint (the server fetches the image
+    // from the provider); the staged edits are mutually exclusive, so only one of
+    // these runs.
+    if (imagePick.value) {
+        setImageFromSearch.mutate(
+            { artistId: props.id, mbid: imagePick.value.mbid },
+            { onSuccess: afterCoverSaved }
+        )
         return
     }
     updateCover.mutate(
@@ -152,19 +199,7 @@ const saveEdit = (): void => {
             coverFile: selectedFile.value ?? undefined,
             coverClear: coverClear.value || undefined
         },
-        {
-            onSuccess: () => {
-                resetCoverStaging()
-                // Bump the shared version, not a local ref: the browser's
-                // in-memory image cache outlives this component, so navigating
-                // away and back would otherwise re-show the old bitmap.
-                if (artist.value?.coverArt) bumpCoverVersion(artist.value.coverArt)
-                editing.value = false
-                // An upload moves the image into aether's store, a clear can
-                // uncover the folder image again — either way the note is stale.
-                void refetchImageSource()
-            }
-        }
+        { onSuccess: afterCoverSaved }
     )
 }
 
@@ -174,18 +209,22 @@ const cancelEdit = (): void => {
 }
 
 // --- Online image search ------------------------------------------------------
-// The dialog searches MusicBrainz by name and stores the chosen artist's provider
-// image server-side (a manual upload, so it outranks the auto-fetch job). Nothing
-// is staged locally, so there is no Save step here — only a refresh.
+// The dialog searches MusicBrainz by name and hands back a pick. Nothing is
+// written until Save, so the choice behaves like a staged file upload.
 const imageSearchOpen = ref(false)
 
-const onImageSearchSaved = (): void => {
-    if (artist.value?.coverArt) bumpCoverVersion(artist.value.coverArt)
-    void refetchImageSource()
+const onImageSearchSelect = (pick: ArtistImagePick): void => {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = false
+    coverSizeError.value = null
+    imagePick.value = pick
 }
 
 const coverUrl = computed(() => {
     if (previewUrl.value) return previewUrl.value
+    if (imagePick.value) return imagePick.value.previewUrl
     if (coverClear.value) return null
     if (!artist.value?.coverArt || !subsonicClient.isConfigured()) return null
     const base = subsonicClient.getCoverArtUrl(artist.value.coverArt, 250)
@@ -283,7 +322,7 @@ const onQueue = async (): Promise<void> => {
                     v-model:editing="editing"
                     :can-delete="false"
                     :save-disabled="!dirty"
-                    :saving="updateCover.isPending.value"
+                    :saving="updateCover.isPending.value || setImageFromSearch.isPending.value"
                     :dirty="dirty"
                     @save="saveEdit"
                     @cancel="cancelEdit"
@@ -368,9 +407,8 @@ const onQueue = async (): Promise<void> => {
             </div>
             <ArtistImageSearchDialog
                 v-model:visible="imageSearchOpen"
-                :artist-id="id"
                 :artist-name="artist.name"
-                @saved="onImageSearchSaved"
+                @select="onImageSearchSelect"
             />
         </ContentScaffold>
     </div>

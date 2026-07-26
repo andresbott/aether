@@ -11,6 +11,8 @@ vi.mock('@/composables/useMusicBrainzSearch', () => ({
     useMusicBrainzSearch: () => ({ results, loading, error: searchError, search })
 }))
 
+// The dialog only *stages* a pick — the write happens on the view's main Save —
+// so it must not touch the store-the-image endpoint at all.
 const setArtistImageFromSearch = vi.fn(() => Promise.resolve())
 vi.mock('@/lib/api/Artists', () => ({
     artistImagePreviewUrl: (mbid: string) => `/api/v1/artists/image-preview?mbid=${mbid}`,
@@ -73,8 +75,8 @@ describe('ArtistImageSearchDialog', () => {
         expect(img.attributes('src')).toContain('mbid=mbid-a')
     })
 
-    // Nothing is stored until the user confirms the previewed image.
-    it('disables Save until a candidate is picked', async () => {
+    // Nothing is staged until the user confirms the previewed image.
+    it('disables the confirm button until a candidate is picked', async () => {
         results.value = CANDIDATES
         const w = mountDialog()
         await flushPromises()
@@ -84,7 +86,9 @@ describe('ArtistImageSearchDialog', () => {
         expect(w.find('[data-test="image-search-save"]').attributes('disabled')).toBeUndefined()
     })
 
-    it('saves the picked mbid for the artist and closes', async () => {
+    // Confirming hands the pick to the parent to stage — it must NOT write to the
+    // server, so a Cancel on the main editor discards it like any other edit.
+    it('emits the pick and closes without storing anything', async () => {
         results.value = CANDIDATES
         const w = mountDialog()
         await flushPromises()
@@ -92,17 +96,19 @@ describe('ArtistImageSearchDialog', () => {
         await w.find('[data-test="image-search-save"]').trigger('click')
         await flushPromises()
 
-        expect(setArtistImageFromSearch).toHaveBeenCalledWith(63, 'mbid-b')
-        expect(w.emitted('saved')).toHaveLength(1)
+        expect(setArtistImageFromSearch).not.toHaveBeenCalled()
+        expect(w.emitted('select')?.[0]).toEqual([
+            { mbid: 'mbid-b', name: 'Pink Floyd Tribute', previewUrl: '/api/v1/artists/image-preview?mbid=mbid-b' }
+        ])
         expect(w.emitted('update:visible')?.at(-1)).toEqual([false])
     })
 
-    it('does not save when nothing is picked', async () => {
+    it('emits nothing when no candidate is picked', async () => {
         results.value = CANDIDATES
         const w = mountDialog()
         await flushPromises()
         await w.find('[data-test="image-search-save"]').trigger('click')
-        expect(setArtistImageFromSearch).not.toHaveBeenCalled()
+        expect(w.emitted('select')).toBeUndefined()
     })
 
     // A provider with no image for the candidate makes the <img> fail to load;
@@ -126,13 +132,14 @@ describe('ArtistImageSearchDialog', () => {
         expect(w.text()).toContain('MusicBrainz is unavailable')
     })
 
-    it('cancel closes without saving', async () => {
+    it('cancel closes without emitting a pick', async () => {
         results.value = CANDIDATES
         const w = mountDialog()
         await flushPromises()
         await w.findAll('.result-row')[0].trigger('click')
         await w.find('[data-test="image-search-cancel"]').trigger('click')
 
+        expect(w.emitted('select')).toBeUndefined()
         expect(setArtistImageFromSearch).not.toHaveBeenCalled()
         expect(w.emitted('update:visible')?.at(-1)).toEqual([false])
     })
