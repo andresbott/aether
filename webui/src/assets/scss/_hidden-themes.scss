@@ -170,7 +170,13 @@
    dpr 1 and gets averaged toward its neighbours once the display or zoom is
    scaled, which thins the pattern unpredictably; 2px keeps a whole pixel of
    each colour in every case. Hard stops (two stops at the same offset) keep the
-   edges crisp rather than letting the gradient interpolate the stripe away. */
+   edges crisp rather than letting the gradient interpolate the stripe away.
+
+   Alphas are deliberately low. The dark band covers half the viewport, so it
+   dominates the perceived strength: at 0.34 it dimmed the whole UI and read as
+   a heavy veil rather than a raster. 0.16 keeps the banding legible on glyphs
+   without washing the interface out, and the phosphor line is held well under
+   it so it textures the canvas instead of adding a green cast. */
 .dark-mode.theme-crt::after {
     content: '';
     position: fixed;
@@ -179,10 +185,10 @@
     pointer-events: none;
     background: repeating-linear-gradient(
         to bottom,
-        rgba(51, 255, 102, 0.05) 0,
-        rgba(51, 255, 102, 0.05) 2px,
-        rgba(0, 0, 0, 0.34) 2px,
-        rgba(0, 0, 0, 0.34) 4px
+        rgba(51, 255, 102, 0.03) 0,
+        rgba(51, 255, 102, 0.03) 2px,
+        rgba(0, 0, 0, 0.16) 2px,
+        rgba(0, 0, 0, 0.16) 4px
     );
 }
 
