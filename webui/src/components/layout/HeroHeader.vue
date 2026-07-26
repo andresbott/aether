@@ -15,10 +15,10 @@ const props = withDefaults(
         coverEditable?: boolean
         coverBackLabel?: string
         coverSizeError?: string | null
-        // Set when the served image is not aether's to delete (e.g. a file read
-        // from the music folder).
-        coverRemoveDisabled?: boolean
-        coverRemoveDisabledReason?: string
+        // Clear when there is nothing for Remove to act on — e.g. the served
+        // image is a file in the user's music folder, which aether must not
+        // touch. The button is hidden rather than disabled.
+        coverRemovable?: boolean
     }>(),
     {
         coverUrl: null,
@@ -26,8 +26,7 @@ const props = withDefaults(
         coverEditable: true,
         coverBackLabel: 'Cover art',
         coverSizeError: null,
-        coverRemoveDisabled: false,
-        coverRemoveDisabledReason: undefined
+        coverRemovable: true
     }
 )
 
@@ -79,23 +78,30 @@ const onSelect = (event: { files: File[] }): void => {
                 </div>
                 <div v-if="coverEditable" class="flip-face flip-back">
                     <span class="field-label">{{ coverBackLabel }}</span>
-                    <FileUpload
-                        mode="basic"
-                        accept="image/png,image/jpeg"
-                        :maxFileSize="MAX_COVER_BYTES"
-                        :auto="false"
-                        chooseLabel="Choose image"
-                        @select="onSelect"
-                    />
-                    <Button
-                        v-tooltip.top="coverRemoveDisabled ? coverRemoveDisabledReason : undefined"
-                        class="cover-remove"
-                        text
-                        severity="secondary"
-                        label="Remove"
-                        :disabled="coverRemoveDisabled"
-                        @click="emit('cover-remove')"
-                    />
+                    <div class="cover-controls">
+                        <FileUpload
+                            mode="basic"
+                            accept="image/png,image/jpeg"
+                            :maxFileSize="MAX_COVER_BYTES"
+                            :auto="false"
+                            chooseLabel="Upload image"
+                            @select="onSelect"
+                        >
+                            <!-- Suppress PrimeVue's built-in label: it says "No file
+                                 chosen" until a file is picked, which contradicts an
+                                 image already held on the server. The #cover-note slot
+                                 carries the real state, on its own row. -->
+                            <template #filelabel><span /></template>
+                        </FileUpload>
+                        <Button
+                            v-if="coverRemovable"
+                            class="cover-remove"
+                            text
+                            severity="secondary"
+                            label="Remove"
+                            @click="emit('cover-remove')"
+                        />
+                    </div>
                     <Message v-if="coverSizeError" severity="error" :closable="false">
                         {{ coverSizeError }}
                     </Message>
@@ -194,8 +200,16 @@ const onSelect = (event: { files: File[] }): void => {
     text-align: center;
     margin-bottom: 0.25rem;
 }
-/* The FileUpload spans the full flip face, but its inner row (button + chosen-file
-   text) is left-aligned by default — center it so it lines up with the Remove button. */
+/* One control per row: the upload button, then Remove, then the status note from
+   #cover-note. Keeps a long filename off the button's row inside the 250px face. */
+.cover-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+}
+/* The FileUpload's inner row is left-aligned by default — center it so it lines
+   up with the Remove button. */
 .flip-back :deep(.p-fileupload-basic-content) {
     justify-content: center;
 }

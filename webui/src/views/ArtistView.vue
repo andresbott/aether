@@ -49,11 +49,16 @@ const folderImagePath = computed(() =>
         : null
 )
 
-// Remove deletes aether's own stored image. With a folder image there is nothing
-// of aether's to delete and the user's file must not be touched, so the control
-// is disabled rather than firing a clear that changes nothing on disk but blanks
-// the cover in the UI.
-const removeDisabled = computed(() => servedFromFolder.value)
+// Remove only means something for an image aether holds. For a folder image
+// (the user's own file, which aether must not touch) or no image at all there is
+// nothing to remove, so the control is hidden — a greyed-out button the user has
+// to hover to understand is worse than no button. A staged pick keeps it visible
+// so the choice stays cancellable.
+const canRemoveImage = computed(() => {
+    if (selectedFile.value) return true
+    const source = imageSource.value?.source
+    return source === 'upload' || source === 'fetched'
+})
 
 // FileUpload only ever reports the file the user just picked ("No file chosen"
 // otherwise), so this note carries the real state of the artist's image: what is
@@ -86,10 +91,14 @@ const imageNote = computed<ImageNote | null>(() => {
             return {
                 text: `${src.filename} — from music folder`,
                 pending: false,
-                hint: `Current image is served from ${src.path}`
+                // Also explains the missing Remove button: this file is the
+                // user's, so aether will not delete it.
+                hint: `Current image is served from ${src.path} — aether does not manage this file and will not delete it. Upload an image to override it.`
             }
         default:
-            return { text: 'No image — showing a generated placeholder', pending: false }
+            // Nothing on file: say nothing. The generated avatar is visible in
+            // the cover itself, and a note here would read as a broken state.
+            return null
     }
 })
 
@@ -120,9 +129,9 @@ const onCoverSelect = (file: File): void => {
 }
 
 const onRemoveCover = (): void => {
-    // Belt and braces: the button is disabled in this state, but a clear must
+    // Belt and braces: the button is hidden in this state, but a clear must
     // never be staged for an image aether does not own.
-    if (removeDisabled.value) return
+    if (!canRemoveImage.value) return
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = null
     selectedFile.value = null
@@ -273,8 +282,7 @@ const onQueue = async (): Promise<void> => {
                         cover-back-label="Artist image"
                         :cover-url="coverUrl"
                         :cover-size-error="coverSizeError"
-                        :cover-remove-disabled="removeDisabled"
-                        cover-remove-disabled-reason="This image is a file in your music folder — aether cannot remove it. Upload an image to override it."
+                        :cover-removable="canRemoveImage"
                         v-model:editing="editing"
                         @cover-select="onCoverSelect"
                         @cover-remove="onRemoveCover"

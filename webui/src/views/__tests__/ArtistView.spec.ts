@@ -65,6 +65,7 @@ const ScaffoldStub = {
 }
 
 import ArtistView from '@/views/ArtistView.vue'
+import HeroHeader from '@/components/layout/HeroHeader.vue'
 
 // Records what v-tooltip was bound with, so specs can assert on the tooltip
 // text the way the real directive would render it.
@@ -180,6 +181,7 @@ describe('ArtistView', () => {
 
     it('renders the hero image and the flip-back cover controls', () => {
         artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
         const w = mountView()
         expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
         expect(w.findComponent(FileUpload).exists()).toBe(true)
@@ -246,6 +248,7 @@ describe('ArtistView', () => {
 
     it('Remove stages a cover clear that Save commits', async () => {
         artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 0, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
         const w = mountView()
         await w.find('.cover-remove').trigger('click')
         expect(coverMutate).not.toHaveBeenCalled()
@@ -301,10 +304,10 @@ describe('ArtistView image-source note', () => {
         const note = w.find('.image-source-note')
         expect(note.text()).not.toContain('/music/Pink Floyd/artist.jpg')
 
-        const help = w.find('.image-source-help')
-        expect(help.attributes('data-tooltip')).toBe(
-            'Current image is served from /music/Pink Floyd/artist.jpg'
-        )
+        const hint = w.find('.image-source-help').attributes('data-tooltip') ?? ''
+        expect(hint).toContain('served from /music/Pink Floyd/artist.jpg')
+        // It also stands in for the hidden Remove button.
+        expect(hint).toContain('will not delete it')
     })
 
     // The "?" is the folder case's affordance for the path; other sources have no
@@ -376,34 +379,22 @@ describe('ArtistView image-source refresh', () => {
 // the music folder there is nothing of aether's to remove — and aether must not
 // touch the user's file — so the control must not be usable.
 describe('ArtistView remove with a folder image', () => {
-    it('disables Remove while the image comes from the music folder', async () => {
+    // Remove is hidden in this state (see "editor honesty"), so a clear can never
+    // be staged — but the guard in onRemoveCover must hold even if it is reached.
+    it('never stages a clear for an image aether does not own', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
         const w = mountView()
         await enterEdit(w)
         await flushPromises()
 
-        expect(w.find('.cover-remove').attributes('disabled')).toBeDefined()
-    })
+        w.findComponent(HeroHeader).vm.$emit('cover-remove')
+        await w.vm.$nextTick()
 
-    it('keeps Remove enabled for an image held in aether\'s store', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'store', path: '' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-
-        expect(w.find('.cover-remove').attributes('disabled')).toBeUndefined()
-    })
-
-    it('does not clear or blank the cover when Remove is clicked on a folder image', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-
-        await w.find('.cover-remove').trigger('click')
         // The cover still shows the served image rather than going blank...
         expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
         // ...and Save has nothing to send.
@@ -454,16 +445,6 @@ describe('ArtistView current-image label', () => {
         expect(note.text()).toContain('music folder')
     })
 
-    it('shows a no-image note when nothing is on file', async () => {
-        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
-        imageSource.value = { source: 'none', path: '', filename: '' }
-        const w = mountView()
-        await enterEdit(w)
-        await flushPromises()
-
-        expect(w.find('.image-source-note').text()).toContain('No image')
-    })
-
     // Removing an upload must read as a pending change, not silently leave the
     // old filename on screen.
     it('marks the note as pending removal once Remove is staged', async () => {
@@ -494,5 +475,83 @@ describe('ArtistView current-image label', () => {
         const note = w.find('.image-source-note')
         expect(note.classes()).toContain('is-pending')
         expect(note.text()).toContain('new-art.png')
+    })
+})
+
+// After saving an upload the editor must not imply there is nothing there, and
+// after a reload with only a folder image it must not show a dead Remove button.
+describe('ArtistView editor honesty', () => {
+    it('shows no note at all when nothing is on file', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+
+    // Remove is only meaningful for an image aether holds. For a folder image or
+    // no image there is nothing to remove, so hide it rather than showing a
+    // greyed-out control the user has to hover to understand.
+    it('hides Remove when the image is not aether\'s to delete', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = {
+            source: 'folder',
+            path: '/music/Pink Floyd/artist.jpg',
+            filename: 'artist.jpg'
+        }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.cover-remove').exists()).toBe(false)
+    })
+
+    it('hides Remove when there is no image on file', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.cover-remove').exists()).toBe(false)
+    })
+
+    it('shows Remove for an uploaded image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const remove = w.find('.cover-remove')
+        expect(remove.exists()).toBe(true)
+        expect(remove.attributes('disabled')).toBeUndefined()
+    })
+
+    it('shows Remove for an auto-fetched image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'fetched', path: '', filename: 'cover.auto.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.cover-remove').exists()).toBe(true)
+    })
+
+    // A staged pick must stay cancellable even when nothing is on the server.
+    it('shows Remove once a file is staged over no image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+
+        expect(w.find('.cover-remove').exists()).toBe(true)
     })
 })

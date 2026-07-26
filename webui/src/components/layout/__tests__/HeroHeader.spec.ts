@@ -84,3 +84,26 @@ describe('HeroHeader', () => {
         expect(w.findComponent(FileUpload).exists()).toBe(false)
     })
 })
+
+describe('HeroHeader cover controls', () => {
+    it('labels the picker as an upload action', () => {
+        const w = mountHero({ editing: true })
+        expect(w.findComponent(FileUpload).props('chooseLabel')).toBe('Upload image')
+    })
+
+    // PrimeVue's own file label says "No file chosen" until a file is picked,
+    // which contradicts an image that is already on the server. The #cover-note
+    // slot carries that state instead, so the built-in label is suppressed.
+    it('suppresses PrimeVue\'s built-in file label', () => {
+        const w = mountHero({ editing: true })
+        expect(w.text()).not.toContain('No file chosen')
+        expect(w.find('.p-fileupload-filelabel').exists()).toBe(false)
+    })
+
+    // The picked filename belongs on its own row, not squeezed alongside the
+    // button inside the 250px panel.
+    it('stacks the picker and its status on separate rows', () => {
+        const w = mountHero({ editing: true })
+        expect(w.find('.cover-controls').exists()).toBe(true)
+    })
+})
