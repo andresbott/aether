@@ -64,11 +64,15 @@ func (h *Handler) updateArtist(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case r.Form.Get("coverClear") == "true":
-		_ = h.assets.Delete(assetstore.KindArtist, key)
+		// Clear the user's upload only. An auto-fetched image is not something
+		// the user put here (and neither is a music-folder image), so it must
+		// survive and become the served cover again — deleting the whole entry
+		// would silently throw away art aether fetched itself.
+		_ = h.assets.DeleteManual(assetstore.KindArtist, key)
 		// Also clear the DB-ID slot in case a prior upload was made while the
 		// artist was unmatched.
 		if dbKey := strconv.FormatUint(uint64(artist.ID), 10); dbKey != key {
-			_ = h.assets.Delete(assetstore.KindArtist, dbKey)
+			_ = h.assets.DeleteManual(assetstore.KindArtist, dbKey)
 		}
 	}
 

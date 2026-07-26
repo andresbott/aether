@@ -183,6 +183,34 @@ func (s *Store) Delete(kind, key string) error {
 	return os.RemoveAll(dir)
 }
 
+// DeleteManual removes only the manual upload of the entity's primary image,
+// leaving an auto-fetched variant in place to become the served image again.
+// Clearing a user's own upload should not throw away art aether fetched itself.
+// Missing directory or missing upload is a no-op, not an error.
+func (s *Store) DeleteManual(kind, key string) error {
+	dir, err := s.entityDir(kind, key)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("assetstore: read dir: %w", err)
+	}
+	for _, e := range entries {
+		base, isAuto, ok := splitEntry(e.Name())
+		if !ok || isAuto || base != DefaultName {
+			continue
+		}
+		if rerr := os.Remove(filepath.Join(dir, e.Name())); rerr != nil {
+			return fmt.Errorf("assetstore: remove: %w", rerr)
+		}
+	}
+	return nil
+}
+
 // DeleteNamed removes one named entry (both manual and auto variants),
 // leaving the entity's other entries in place.
 func (s *Store) DeleteNamed(kind, key, name string) error {

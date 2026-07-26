@@ -133,3 +133,76 @@ func TestUpdateArtistNotFound(t *testing.T) {
 		t.Fatalf("expected code 70, got %d", code)
 	}
 }
+
+// coverClear removes the user's own upload only. An auto-fetched image is not
+// something the user put there — like a music-folder image, it is not theirs to
+// delete here — so it must survive and become the served cover again.
+func TestUpdateArtistCoverClearKeepsAutoFetchedImage(t *testing.T) {
+	s := testStore(t)
+	artist := model.Artist{Name: "Both", NameNorm: "both", MBArtistID: "mbid-both"}
+	if err := s.DB().Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+	srv, as := newRadioServer(t, s)
+	defer srv.Close()
+
+	// An auto-fetched image plus a manual upload on top of it.
+	if err := as.PutAuto(assetstore.KindArtist, "mbid-both", "png", pngBytes(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := as.PutManual(assetstore.KindArtist, "mbid-both", "png", pngBytes(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	body, ct := buildMultipart(t, map[string]string{
+		"id":         encodeArtistID(artist.ID),
+		"coverClear": "true",
+	}, nil, "")
+	if status, code := postArtist(t, srv.URL, body, ct); status != "ok" {
+		t.Fatalf("status=%s code=%d", status, code)
+	}
+
+	path, manual, ok := as.GetEntry(assetstore.KindArtist, "mbid-both")
+	if !ok {
+		t.Fatal("auto-fetched image was deleted along with the upload")
+	}
+	if manual {
+		t.Errorf("manual upload survived coverClear: %s", path)
+	}
+}
+
+// The DB-ID slot gets the same treatment: an upload made while the artist was
+// unmatched is cleared, an auto-fetched image in that slot is not.
+func TestUpdateArtistCoverClearKeepsAutoFetchedUnderDBID(t *testing.T) {
+	s := testStore(t)
+	artist := model.Artist{Name: "DBSlot", NameNorm: "dbslot"}
+	if err := s.DB().Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+	srv, as := newRadioServer(t, s)
+	defer srv.Close()
+
+	dbKey := strconv.FormatUint(uint64(artist.ID), 10)
+	if err := as.PutAuto(assetstore.KindArtist, dbKey, "png", pngBytes(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := as.PutManual(assetstore.KindArtist, dbKey, "png", pngBytes(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	body, ct := buildMultipart(t, map[string]string{
+		"id":         encodeArtistID(artist.ID),
+		"coverClear": "true",
+	}, nil, "")
+	if status, code := postArtist(t, srv.URL, body, ct); status != "ok" {
+		t.Fatalf("status=%s code=%d", status, code)
+	}
+
+	_, manual, ok := as.GetEntry(assetstore.KindArtist, dbKey)
+	if !ok {
+		t.Fatal("auto-fetched image was deleted along with the upload")
+	}
+	if manual {
+		t.Error("manual upload survived coverClear")
+	}
+}
