@@ -45,6 +45,14 @@ const folderImagePath = computed(() =>
         : null
 )
 
+// Hover text: where the file is, and what editing here does to it — uploading
+// stores a copy in aether and leaves the file on disk untouched.
+const folderImageHint = computed(() =>
+    folderImagePath.value
+        ? `${folderImagePath.value}\n\nThis file was found next to the artist's albums and is not managed by aether. Uploading an image here stores it in aether instead; the file on disk is left untouched.`
+        : undefined
+)
+
 const handleStar = () => {
     if (!artist.value) return
     toggleStar.mutate({ id: artist.value.id, starred: !!artist.value.starred })
@@ -230,10 +238,10 @@ const onQueue = async (): Promise<void> => {
                             <span
                                 v-if="folderImagePath"
                                 class="image-source-note"
-                                :title="folderImagePath"
+                                :title="folderImageHint"
                             >
-                                <i class="pi pi-image"></i>
                                 <span>Image loaded from music folder</span>
+                                <i class="pi pi-question-circle"></i>
                             </span>
                         </template>
 
@@ -319,24 +327,25 @@ const onQueue = async (): Promise<void> => {
     margin-bottom: 1.5rem;
 }
 
-/* Sits on the cover's flip-back face, so it has to stay inside 250px. */
+/* Sits on the cover's flip-back face (inside 250px), directly under the
+   FileUpload — so it reads as plain muted body text like that widget's own
+   "No file chosen" label rather than as a badge or a message box. The trailing
+   "?" is the affordance for the hover hint. */
 .image-source-note {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: center;
-    gap: 0.35rem;
-    font-size: 0.72rem;
-    line-height: 1.2;
+    gap: 0.3rem;
+    text-align: center;
+    font-size: 0.8rem;
+    line-height: 1.35;
     color: var(--app-text-secondary);
     cursor: help;
 }
-/* The sentence is longer than the 250px panel is wide at some font sizes, so it
-   wraps rather than truncating — the hover tooltip carries the path anyway. */
-.image-source-note span {
-    text-align: center;
-}
 .image-source-note i {
     flex-shrink: 0;
+    font-size: 0.75rem;
+    opacity: 0.75;
 }
 
 .album-grid {
