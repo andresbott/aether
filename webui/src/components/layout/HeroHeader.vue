@@ -15,13 +15,19 @@ const props = withDefaults(
         coverEditable?: boolean
         coverBackLabel?: string
         coverSizeError?: string | null
+        // Set when the served image is not aether's to delete (e.g. a file read
+        // from the music folder).
+        coverRemoveDisabled?: boolean
+        coverRemoveDisabledReason?: string
     }>(),
     {
         coverUrl: null,
         coverPlaceholderIcon: 'pi pi-image',
         coverEditable: true,
         coverBackLabel: 'Cover art',
-        coverSizeError: null
+        coverSizeError: null,
+        coverRemoveDisabled: false,
+        coverRemoveDisabledReason: undefined
     }
 )
 
@@ -82,10 +88,12 @@ const onSelect = (event: { files: File[] }): void => {
                         @select="onSelect"
                     />
                     <Button
+                        v-tooltip.top="coverRemoveDisabled ? coverRemoveDisabledReason : undefined"
                         class="cover-remove"
                         text
                         severity="secondary"
                         label="Remove"
+                        :disabled="coverRemoveDisabled"
                         @click="emit('cover-remove')"
                     />
                     <Message v-if="coverSizeError" severity="error" :closable="false">

@@ -66,12 +66,21 @@ const ScaffoldStub = {
 
 import ArtistView from '@/views/ArtistView.vue'
 
+// Records what v-tooltip was bound with, so specs can assert on the tooltip
+// text the way the real directive would render it.
+const recordingTooltip = {
+    mounted(el: HTMLElement, binding: { value: unknown }) {
+        const text = typeof binding.value === 'string' ? binding.value : undefined
+        if (text) el.setAttribute('data-tooltip', text)
+    }
+}
+
 const mountView = () =>
     mount(ArtistView, {
         props: { id: 'ar-1' },
         global: {
             plugins: [PrimeVue],
-            directives: { tooltip: {} },
+            directives: { tooltip: recordingTooltip },
             stubs: { ContentScaffold: ScaffoldStub, ConfirmDialog: true, RouterLink: true }
         }
     })
@@ -276,6 +285,8 @@ describe('ArtistView image-source note', () => {
     })
 
     // Only the "?" carries the tooltip, so hovering the label itself stays quiet.
+    // It must go through PrimeVue's v-tooltip: a bare `title` attribute needs a
+    // long hover on a small glyph and is easy to miss entirely.
     it('puts a served-from tooltip with the path on the help marker only', async () => {
         artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
         imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
@@ -285,10 +296,11 @@ describe('ArtistView image-source note', () => {
 
         const note = w.find('.image-source-note')
         expect(note.text()).not.toContain('/music/Pink Floyd/artist.jpg')
-        expect(note.attributes('title')).toBeUndefined()
 
-        const hint = w.find('.image-source-help').attributes('title') ?? ''
-        expect(hint).toBe('Current image is served from /music/Pink Floyd/artist.jpg')
+        const help = w.find('.image-source-help')
+        expect(help.attributes('data-tooltip')).toBe(
+            'Current image is served from /music/Pink Floyd/artist.jpg'
+        )
     })
 
     it('shows no note when the image comes from aether\'s own store', async () => {
@@ -347,5 +359,45 @@ describe('ArtistView image-source refresh', () => {
         await flushPromises()
 
         expect(imageSourceRefetch).toHaveBeenCalled()
+    })
+})
+
+// Remove clears aether's own stored image. When the served image is a file from
+// the music folder there is nothing of aether's to remove — and aether must not
+// touch the user's file — so the control must not be usable.
+describe('ArtistView remove with a folder image', () => {
+    it('disables Remove while the image comes from the music folder', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.cover-remove').attributes('disabled')).toBeDefined()
+    })
+
+    it('keeps Remove enabled for an image held in aether\'s store', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'store', path: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.cover-remove').attributes('disabled')).toBeUndefined()
+    })
+
+    it('does not clear or blank the cover when Remove is clicked on a folder image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        await w.find('.cover-remove').trigger('click')
+        // The cover still shows the served image rather than going blank...
+        expect(w.find('.flip-front img').attributes('src')).toBe('/cover/ar-1?size=250')
+        // ...and Save has nothing to send.
+        await w.find('.edit-action-save').trigger('click')
+        expect(coverMutate).not.toHaveBeenCalled()
     })
 })

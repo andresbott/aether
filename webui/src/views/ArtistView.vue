@@ -37,13 +37,23 @@ const { data: imageSource, refetch: refetchImageSource } = useArtistImageSource(
     props.id,
     () => editing.value
 )
+// Whether the persisted image is a file from the music folder. Independent of
+// staging: what is on record does not change until Save.
+const servedFromFolder = computed(() => imageSource.value?.source === 'folder')
+
 // The flip-back face stays mounted (CSS hides it), so gate on `editing` here
 // rather than leaving a stale note in the DOM outside edit mode.
 const folderImagePath = computed(() =>
-    editing.value && !dirty.value && imageSource.value?.source === 'folder'
-        ? imageSource.value.path
+    editing.value && !dirty.value && servedFromFolder.value
+        ? (imageSource.value?.path ?? null)
         : null
 )
+
+// Remove deletes aether's own stored image. With a folder image there is nothing
+// of aether's to delete and the user's file must not be touched, so the control
+// is disabled rather than firing a clear that changes nothing on disk but blanks
+// the cover in the UI.
+const removeDisabled = computed(() => servedFromFolder.value)
 
 // Hover text on the "?": which file on disk the visible image comes from.
 const folderImageHint = computed(() =>
@@ -77,6 +87,9 @@ const onCoverSelect = (file: File): void => {
 }
 
 const onRemoveCover = (): void => {
+    // Belt and braces: the button is disabled in this state, but a clear must
+    // never be staged for an image aether does not own.
+    if (removeDisabled.value) return
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
     previewUrl.value = null
     selectedFile.value = null
@@ -227,6 +240,8 @@ const onQueue = async (): Promise<void> => {
                         cover-back-label="Artist image"
                         :cover-url="coverUrl"
                         :cover-size-error="coverSizeError"
+                        :cover-remove-disabled="removeDisabled"
+                        cover-remove-disabled-reason="This image is a file in your music folder — aether cannot remove it. Upload an image to override it."
                         v-model:editing="editing"
                         @cover-select="onCoverSelect"
                         @cover-remove="onRemoveCover"
@@ -236,8 +251,8 @@ const onQueue = async (): Promise<void> => {
                                 <i class="pi pi-image"></i>
                                 <span>Current image</span>
                                 <i
+                                    v-tooltip.top="folderImageHint"
                                     class="pi pi-question-circle image-source-help"
-                                    :title="folderImageHint"
                                 ></i>
                             </span>
                         </template>
