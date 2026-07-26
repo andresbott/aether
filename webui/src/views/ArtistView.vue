@@ -6,6 +6,8 @@ import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
+import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
+import Button from 'primevue/button'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
 import { useArtistImageSource } from '@/composables/useArtistImageSource'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
@@ -171,6 +173,17 @@ const cancelEdit = (): void => {
     editing.value = false
 }
 
+// --- Online image search ------------------------------------------------------
+// The dialog searches MusicBrainz by name and stores the chosen artist's provider
+// image server-side (a manual upload, so it outranks the auto-fetch job). Nothing
+// is staged locally, so there is no Save step here — only a refresh.
+const imageSearchOpen = ref(false)
+
+const onImageSearchSaved = (): void => {
+    if (artist.value?.coverArt) bumpCoverVersion(artist.value.coverArt)
+    void refetchImageSource()
+}
+
 const coverUrl = computed(() => {
     if (previewUrl.value) return previewUrl.value
     if (coverClear.value) return null
@@ -290,6 +303,17 @@ const onQueue = async (): Promise<void> => {
                         @cover-select="onCoverSelect"
                         @cover-remove="onRemoveCover"
                     >
+                        <template #cover-actions>
+                            <Button
+                                data-test="open-image-search"
+                                outlined
+                                severity="secondary"
+                                icon="pi pi-search"
+                                label="Search online"
+                                @click="imageSearchOpen = true"
+                            />
+                        </template>
+
                         <template #cover-note>
                             <span
                                 v-if="imageNote"
@@ -342,6 +366,12 @@ const onQueue = async (): Promise<void> => {
                     </section>
                 </div>
             </div>
+            <ArtistImageSearchDialog
+                v-model:visible="imageSearchOpen"
+                :artist-id="id"
+                :artist-name="artist.name"
+                @saved="onImageSearchSaved"
+            />
         </ContentScaffold>
     </div>
 </template>

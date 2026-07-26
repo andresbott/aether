@@ -101,6 +101,25 @@ manual/auto filename encoding (`cover.png` vs `cover.auto.png`).
 This endpoint's precedence **duplicates** `artistCoverMeta`; change both
 together or the note will describe an image the user isn't looking at.
 
+### Manual online image search
+
+`ArtistView`'s "Search online" button (`ArtistImageSearchDialog`) drives the same
+provider chain as the `fetch-artist-images` job, but from a MusicBrainz artist the
+user picks by name rather than the artist's stored `MBArtistID`:
+
+- `GET /api/v1/artists/image-preview?mbid=…` runs the chain and streams the image
+  back without storing it. Third-party bytes, so the response type is
+  `http.DetectContentType`-sniffed (not the provider's claimed extension),
+  non-image payloads are refused with 502, and it carries `nosniff` +
+  `Cache-Control: no-store`.
+- `PUT /api/v1/artists/{id}/image-from-search` stores the pick as a **manual**
+  upload, so it outranks anything the job later writes to the auto slot. It files
+  under `artistCoverKey` (MBID slot when matched, else DB ID) — the same slot a
+  normal upload uses, because cover resolution reads the MBID slot first and a
+  pick filed under the DB ID would lose to an auto-fetched image. The *chosen*
+  MBID is not written to `artist.MBArtistID`: picking a portrait is not asserting
+  a metadata match.
+
 ## Known scanner debt (TODO.md, direction chosen)
 
 - Full scan should drop-and-reinsert a track's derived rows so renamed

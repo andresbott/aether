@@ -106,6 +106,10 @@ const onSelect = (event: { files: File[] }): void => {
                             label="Remove"
                             @click="emit('cover-remove')"
                         />
+                        <!-- Optional extra actions, e.g. ArtistView's online image
+                             search. Part of the same stack so it aligns with the
+                             buttons above. -->
+                        <slot name="cover-actions" />
                         <Message v-if="coverSizeError" severity="error" :closable="false">
                             {{ coverSizeError }}
                         </Message>

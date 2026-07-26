@@ -700,3 +700,225 @@ func TestGetArtistImageSource_FolderReportsFilename(t *testing.T) {
 		t.Errorf("filename = %q, want artist.jpg", got.Filename)
 	}
 }
+
+// --- Manual online image search -------------------------------------------
+// The user searches MusicBrainz by name (existing endpoint), then previews the
+// image the providers hold for a chosen candidate, then saves it. Preview and
+// save are separate so the user sees what they get before it is stored.
+
+func TestPreviewArtistImage_ReturnsTheProviderImage(t *testing.T) {
+	fetcher := &fakeFetcher{data: []byte("\x89PNG\r\n\x1a\nFAKE"), ext: "png"}
+	_, r := newTestHandler(t, &fakeSearcher{}, fetcher)
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid="+mbid, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/") {
+		t.Errorf("Content-Type = %q, want an image type", ct)
+	}
+	if !strings.HasPrefix(w.Body.String(), "\x89PNG") {
+		t.Error("body is not the fetched PNG")
+	}
+	if fetcher.calls != 1 {
+		t.Errorf("fetcher calls = %d, want 1", fetcher.calls)
+	}
+}
+
+func TestPreviewArtistImage_NotFoundWhenNoProviderImage(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{})
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid="+mbid, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestPreviewArtistImage_RejectsBadMBID(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{})
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid=not-a-mbid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestPreviewArtistImage_UnconfiguredFetcher(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid="+mbid, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+}
+
+// Saving stores the image as a *manual* upload, so it outranks whatever the
+// auto-fetch job later puts in the auto slot for the same artist.
+func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	as := assetstore.New(t.TempDir())
+	fetcher := &fakeFetcher{data: []byte("\x89PNG\r\n\x1a\nFAKE"), ext: "png"}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	idStr := strconv.FormatUint(uint64(id), 10)
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	body := strings.NewReader(`{"mbid":"` + mbid + `"}`)
+	req := httptest.NewRequest(http.MethodPut, "/artists/"+idStr+"/image-from-search", body)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	// Stored under the artist's own key, as a manual upload.
+	path, manual, ok := as.GetEntry(assetstore.KindArtist, idStr)
+	if !ok {
+		t.Fatal("no image stored for the artist")
+	}
+	if !manual {
+		t.Errorf("image stored as auto-fetched (%s); a searched pick must outrank the job", path)
+	}
+}
+
+// The picked image must win even when the auto-fetch job already stored one.
+func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	as := assetstore.New(t.TempDir())
+	fetcher := &fakeFetcher{data: []byte("\x89PNG\r\n\x1a\nPICKED"), ext: "png"}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	idStr := strconv.FormatUint(uint64(id), 10)
+	if err := as.PutAuto(assetstore.KindArtist, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "png", []byte("AUTO")); err != nil {
+		t.Fatal(err)
+	}
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodPut, "/artists/"+idStr+"/image-from-search",
+		strings.NewReader(`{"mbid":"`+mbid+`"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	// image-source must now report the picked upload, not the fetched image.
+	req2 := httptest.NewRequest(http.MethodGet, "/artists/"+idStr+"/image-source", nil)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	var got struct {
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(w2.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "upload" {
+		t.Errorf("source = %q, want upload", got.Source)
+	}
+}
+
+func TestSetArtistImageFromSearch_NoImageFound(t *testing.T) {
+	s, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{})
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idStr := strconv.FormatUint(uint64(artists[0].ID), 10)
+
+	req := httptest.NewRequest(http.MethodPut, "/artists/"+idStr+"/image-from-search",
+		strings.NewReader(`{"mbid":"11111111-2222-3333-4444-555555555555"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestSetArtistImageFromSearch_ArtistNotFound(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{data: []byte("x"), ext: "png"})
+	req := httptest.NewRequest(http.MethodPut, "/artists/999/image-from-search",
+		strings.NewReader(`{"mbid":"11111111-2222-3333-4444-555555555555"}`))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+// The preview echoes third-party bytes straight to the browser, so anything that
+// is not an image must be refused rather than forwarded.
+func TestPreviewArtistImage_RejectsNonImageBytes(t *testing.T) {
+	fetcher := &fakeFetcher{data: []byte("<html><script>alert(1)</script>"), ext: "png"}
+	_, r := newTestHandler(t, &fakeSearcher{}, fetcher)
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid="+mbid, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "<script>") {
+		t.Error("upstream HTML was echoed back to the client")
+	}
+}
+
+// The preview must set the sniffed type, not the provider's claimed extension.
+func TestPreviewArtistImage_UsesSniffedContentType(t *testing.T) {
+	// PNG magic bytes, but the provider claims jpg.
+	fetcher := &fakeFetcher{data: []byte("\x89PNG\r\n\x1a\nFAKE"), ext: "jpg"}
+	_, r := newTestHandler(t, &fakeSearcher{}, fetcher)
+
+	mbid := "11111111-2222-3333-4444-555555555555"
+	req := httptest.NewRequest(http.MethodGet, "/artists/image-preview?mbid="+mbid, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if ct := w.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type = %q, want image/png (sniffed, not the claimed jpg)", ct)
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("missing nosniff on a response carrying third-party bytes")
+	}
+}

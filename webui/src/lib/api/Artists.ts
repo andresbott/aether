@@ -52,6 +52,19 @@ export async function getArtistImageSource(numericId: number): Promise<ArtistIma
     return data
 }
 
+// artistImagePreviewUrl is the URL of the image the configured providers hold for
+// a MusicBrainz artist. Used as an <img src> so the browser does the fetching;
+// nothing is stored until setArtistImageFromSearch is called.
+export function artistImagePreviewUrl(mbid: string): string {
+    return `${apiClient.defaults.baseURL ?? ''}/artists/image-preview?mbid=${encodeURIComponent(mbid)}`
+}
+
+// setArtistImageFromSearch stores the provider image of a chosen MusicBrainz
+// artist for this artist, as a manual upload that outranks the auto-fetch job.
+export async function setArtistImageFromSearch(numericId: number, mbid: string): Promise<void> {
+    await apiClient.put(`/artists/${numericId}/image-from-search`, { mbid })
+}
+
 export async function setArtistMBID(numericId: number, mbid: string): Promise<SetArtistMBIDResponse> {
     const { data } = await apiClient.put<SetArtistMBIDResponse>(`/artists/${numericId}/mbid`, { mbid })
     return data

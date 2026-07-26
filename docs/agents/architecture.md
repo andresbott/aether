@@ -60,7 +60,9 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
   `GET /artists/{id}/image-source` (which of aether's store / the music folder /
   the generated avatar the artist's image comes from — a server filesystem
-  detail, not a Subsonic field), radio-browser import proxy, health. TODO.md
+  detail, not a Subsonic field), artist image preview + pick from the image
+  providers (`/artists/image-preview`, `/artists/{id}/image-from-search` — see
+  [scanning.md](scanning.md)), radio-browser import proxy, health. TODO.md
   plans moving these under an `/admin` path eventually.
 
 ## Key domain types (internal/model)

@@ -121,3 +121,20 @@ describe('HeroHeader remove button prominence', () => {
         expect(btn.classes()).toContain('p-button-danger')
     })
 })
+
+// An optional extra action in the cover panel (ArtistView uses it for the online
+// image search); views that pass no #cover-actions slot get no extra row.
+describe('HeroHeader cover-actions slot', () => {
+    it('renders extra cover actions in the controls stack', () => {
+        const w = mountHero(
+            { editing: true },
+            { 'cover-actions': '<button class="probe-action">Search</button>' }
+        )
+        expect(w.find('.cover-controls .probe-action').exists()).toBe(true)
+    })
+
+    it('renders nothing extra when the slot is unused', () => {
+        const w = mountHero({ editing: true })
+        expect(w.find('.probe-action').exists()).toBe(false)
+    })
+})

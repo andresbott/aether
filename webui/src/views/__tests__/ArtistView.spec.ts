@@ -43,6 +43,22 @@ vi.mock('@/lib/api/subsonic', () => ({
     }
 }))
 
+// The image-search dialog is mounted for real (its own spec covers behaviour),
+// so stub the network layer it imports.
+vi.mock('@/lib/api/Artists', () => ({
+    artistImagePreviewUrl: (mbid: string) => `/api/v1/artists/image-preview?mbid=${mbid}`,
+    setArtistImageFromSearch: () => Promise.resolve(),
+    parseArtistNumericId: (id: string) => Number(id.split('-').pop())
+}))
+vi.mock('@/composables/useMusicBrainzSearch', () => ({
+    useMusicBrainzSearch: () => ({
+        results: ref([]),
+        loading: ref(false),
+        error: ref(null),
+        search: vi.fn()
+    })
+}))
+
 const playAlbum = vi.fn()
 const addMultipleToQueue = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
@@ -66,6 +82,7 @@ const ScaffoldStub = {
 
 import ArtistView from '@/views/ArtistView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
+import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
 import { resetCoverVersions } from '@/composables/useCoverVersion'
 
 // Records what v-tooltip was bound with, so specs can assert on the tooltip
@@ -588,5 +605,68 @@ describe('ArtistView cover cache busting', () => {
         const w2 = mountView()
         await flushPromises()
         expect(w2.find('.flip-front img').attributes('src')).toBe(after)
+    })
+})
+
+// The online image search reuses the auto-fetch providers, driven by a manual
+// MusicBrainz pick. Its result is stored server-side by the dialog, so the view
+// only has to open it and refresh the cover afterwards.
+describe('ArtistView online image search', () => {
+    it('offers a search button in the cover editor', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('[data-test="open-image-search"]').exists()).toBe(true)
+    })
+
+    it('opens the dialog with the artist name and id', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const dialog = w.findComponent(ArtistImageSearchDialog)
+        expect(dialog.props('visible')).toBe(false)
+
+        await w.find('[data-test="open-image-search"]').trigger('click')
+        expect(dialog.props('visible')).toBe(true)
+        expect(dialog.props('artistName')).toBe('Pink Floyd')
+        expect(dialog.props('artistId')).toBe('ar-1')
+    })
+
+    // The dialog stores the image itself, so the view must bust the cover URL and
+    // refresh the source note — otherwise the old image stays on screen.
+    it('busts the cover and refreshes the source note after the dialog saves', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const before = w.find('.flip-front img').attributes('src')
+        w.findComponent(ArtistImageSearchDialog).vm.$emit('saved')
+        await flushPromises()
+
+        expect(w.find('.flip-front img').attributes('src')).not.toBe(before)
+        expect(imageSourceRefetch).toHaveBeenCalled()
+    })
+
+    // Nothing was staged locally, so Save must not fire a cover mutation.
+    it('leaves the editor clean after the dialog saves', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '', filename: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        w.findComponent(ArtistImageSearchDialog).vm.$emit('saved')
+        await flushPromises()
+
+        await w.find('.edit-action-save').trigger('click')
+        expect(coverMutate).not.toHaveBeenCalled()
     })
 })
