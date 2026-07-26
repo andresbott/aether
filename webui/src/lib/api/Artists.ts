@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api/client'
 import type {
+    ArtistImageSource,
     MusicBrainzCandidate,
     MusicBrainzReleaseCandidate,
     SetArtistMBIDResponse
@@ -42,6 +43,13 @@ export async function getReleaseGroupGenres(mbid: string): Promise<string[]> {
 export async function getArtistMBID(numericId: number): Promise<string> {
     const { data } = await apiClient.get<{ mbArtistId: string }>(`/artists/${numericId}/mbid`)
     return data.mbArtistId
+}
+
+// getArtistImageSource reports where the image getCoverArt serves for this
+// artist comes from, so the editor can tell the user it is read from disk.
+export async function getArtistImageSource(numericId: number): Promise<ArtistImageSource> {
+    const { data } = await apiClient.get<ArtistImageSource>(`/artists/${numericId}/image-source`)
+    return data
 }
 
 export async function setArtistMBID(numericId: number, mbid: string): Promise<SetArtistMBIDResponse> {

@@ -13,6 +13,7 @@ import (
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
@@ -40,6 +41,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/musicbrainz/release-groups/{mbid}/genres").Methods(http.MethodGet).HandlerFunc(h.releaseGroupGenres)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
+	r.Path("/artists/{id:[0-9]+}/image-source").Methods(http.MethodGet).HandlerFunc(h.getImageSource)
 }
 
 type apiError struct {
@@ -171,6 +173,56 @@ func (h *Handler) getMBID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, mbidResponse{MBArtistID: artist.MBArtistID})
+}
+
+// imageSourceResponse tells the UI where the image getCoverArt currently serves
+// for this artist comes from, so the editor can say the image is read from disk
+// instead of implying it is aether's own. Source is one of:
+//
+//	"store"  — an uploaded or auto-fetched image in aether's asset store
+//	"folder" — an artist.jpg/folder.jpg next to the artist's albums; Path set
+//	"none"   — nothing on file; getCoverArt serves the generated avatar
+//
+// This is a filesystem detail of the server, hence `/api/v1` rather than a
+// non-standard field on the Subsonic artist response.
+type imageSourceResponse struct {
+	Source string `json:"source"`
+	Path   string `json:"path"`
+}
+
+// getImageSource mirrors artistCoverMeta's precedence in handlers/subsonic:
+// asset store first, then the scanner-detected folder image. Keep the two in
+// step, or the note will describe an image the user isn't looking at.
+func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	artist, _, err := h.Store.GetArtist(id)
+	if err != nil {
+		status, code := mapStoreError(err)
+		writeError(w, status, code, err.Error())
+		return
+	}
+
+	if artist.MBArtistID != "" {
+		if _, ok := h.Assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+			writeJSON(w, http.StatusOK, imageSourceResponse{Source: "store"})
+			return
+		}
+	}
+	if _, ok := h.Assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+		writeJSON(w, http.StatusOK, imageSourceResponse{Source: "store"})
+		return
+	}
+	// A recorded path whose file has gone away is not the served image —
+	// getCoverArt falls through to the generated avatar, so report "none".
+	if scanner.IsUsableArtistImagePath(artist.ImagePath) {
+		writeJSON(w, http.StatusOK, imageSourceResponse{Source: "folder", Path: artist.ImagePath})
+		return
+	}
+	writeJSON(w, http.StatusOK, imageSourceResponse{Source: "none"})
 }
 
 var mbidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)

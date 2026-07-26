@@ -91,6 +91,7 @@ const onSelect = (event: { files: File[] }): void => {
                     <Message v-if="coverSizeError" severity="error" :closable="false">
                         {{ coverSizeError }}
                     </Message>
+                    <slot name="cover-note" />
                 </div>
             </div>
         </div>

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -434,5 +436,158 @@ func TestGetMBID_ReturnsCurrentValue(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if got.MBArtistID != "existing-mbid" {
 		t.Fatalf("expected existing-mbid, got %q", got.MBArtistID)
+	}
+}
+
+func TestGetArtistImageSource_FolderImage(t *testing.T) {
+	s, r := newTestHandler(t, &fakeSearcher{}, nil)
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "artist.jpg")
+	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	if err := s.SetArtistImagePath(id, imgPath); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/artists/"+strconv.FormatUint(uint64(id), 10)+"/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Source string `json:"source"`
+		Path   string `json:"path"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "folder" {
+		t.Errorf("source = %q, want %q", got.Source, "folder")
+	}
+	if got.Path != imgPath {
+		t.Errorf("path = %q, want %q", got.Path, imgPath)
+	}
+}
+
+// A stored (uploaded or fetched) image outranks the folder image, so the note
+// must not claim the image comes from disk.
+func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	as := assetstore.New(t.TempDir())
+	h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	dir := t.TempDir()
+	imgPath := filepath.Join(dir, "artist.jpg")
+	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	if err := s.SetArtistImagePath(id, imgPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := as.PutManual(assetstore.KindArtist, strconv.FormatUint(uint64(id), 10), "png", []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/artists/"+strconv.FormatUint(uint64(id), 10)+"/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		Source string `json:"source"`
+		Path   string `json:"path"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "store" {
+		t.Errorf("source = %q, want %q", got.Source, "store")
+	}
+	if got.Path != "" {
+		t.Errorf("path = %q, want empty for a stored image", got.Path)
+	}
+}
+
+// An artist with neither a stored nor a folder image is served the generated
+// avatar; the UI shows no note for that.
+func TestGetArtistImageSource_None(t *testing.T) {
+	s, r := newTestHandler(t, &fakeSearcher{}, nil)
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/artists/"+strconv.FormatUint(uint64(artists[0].ID), 10)+"/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		Source string `json:"source"`
+		Path   string `json:"path"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "none" {
+		t.Errorf("source = %q, want %q", got.Source, "none")
+	}
+}
+
+// A recorded path whose file has gone away must not be reported as the source:
+// getCoverArt would fall through to the generated avatar.
+func TestGetArtistImageSource_MissingFolderImage(t *testing.T) {
+	s, r := newTestHandler(t, &fakeSearcher{}, nil)
+	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := artists[0].ID
+	if err := s.SetArtistImagePath(id, filepath.Join(t.TempDir(), "gone", "artist.jpg")); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/artists/"+strconv.FormatUint(uint64(id), 10)+"/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var got struct {
+		Source string `json:"source"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "none" {
+		t.Errorf("source = %q, want %q", got.Source, "none")
+	}
+}
+
+func TestGetArtistImageSource_NotFound(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/artists/999/image-source", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }

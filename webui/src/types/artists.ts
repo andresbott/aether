@@ -45,6 +45,15 @@ export interface AlbumMatchPayload {
     genres?: string[]
 }
 
+// Where the image the server currently serves for an artist comes from:
+// "store" = uploaded/auto-fetched into aether's own asset store, "folder" = a
+// file read from disk next to the artist's albums (path set), "none" = the
+// generated avatar. Only "folder" is surfaced in the UI.
+export interface ArtistImageSource {
+    source: 'store' | 'folder' | 'none'
+    path: string
+}
+
 export interface SetArtistMBIDResponse {
     mbArtistId: string
     imageFetched: boolean

@@ -90,6 +90,12 @@ once.
 (`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →
 `ImagePath` → name-seeded generated avatar.
 
+`GET /api/v1/artists/{id}/image-source` (`handlers/artists`) reports which of
+those slots won — `"store"` / `"folder"` (+ `path`) / `"none"` — so
+`ArtistView`'s cover editor can note an image that is read from the music
+folder. Its precedence **duplicates** `artistCoverMeta`; change both together
+or the note will describe an image the user isn't looking at.
+
 ## Known scanner debt (TODO.md, direction chosen)
 
 - Full scan should drop-and-reinsert a track's derived rows so renamed

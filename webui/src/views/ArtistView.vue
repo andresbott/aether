@@ -7,6 +7,7 @@ import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
+import { useArtistImageSource } from '@/composables/useArtistImageSource'
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
@@ -28,6 +29,21 @@ const coverClear = ref(false)
 const coverSizeError = ref<string | null>(null)
 
 const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+
+// The image may be a file read from the music folder rather than one of aether's
+// own — say so while editing, so a "Remove" that cannot delete the user's file
+// is not mistaken for one that can. Only fetched once the user opens the editor.
+const { data: imageSource, refetch: refetchImageSource } = useArtistImageSource(
+    props.id,
+    () => editing.value
+)
+// The flip-back face stays mounted (CSS hides it), so gate on `editing` here
+// rather than leaving a stale note in the DOM outside edit mode.
+const folderImagePath = computed(() =>
+    editing.value && !dirty.value && imageSource.value?.source === 'folder'
+        ? imageSource.value.path
+        : null
+)
 
 const handleStar = () => {
     if (!artist.value) return
@@ -79,6 +95,9 @@ const saveEdit = (): void => {
                 resetCoverStaging()
                 cacheBust.value++
                 editing.value = false
+                // An upload moves the image into aether's store, a clear can
+                // uncover the folder image again — either way the note is stale.
+                void refetchImageSource()
             }
         }
     )
@@ -207,6 +226,17 @@ const onQueue = async (): Promise<void> => {
                         @cover-select="onCoverSelect"
                         @cover-remove="onRemoveCover"
                     >
+                        <template #cover-note>
+                            <span
+                                v-if="folderImagePath"
+                                class="image-source-note"
+                                :title="folderImagePath"
+                            >
+                                <i class="pi pi-folder-open"></i>
+                                <span>Loaded from music folder</span>
+                            </span>
+                        </template>
+
                         <template #read>
                             <h2 class="hero-name">{{ artist.name }}</h2>
                             <div v-if="heroMeta.length" class="meta-row">
@@ -287,6 +317,23 @@ const onQueue = async (): Promise<void> => {
     font-size: 1.5rem;
     font-weight: 600;
     margin-bottom: 1.5rem;
+}
+
+/* Sits on the cover's flip-back face, so it has to stay inside 250px. */
+.image-source-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--app-text-secondary);
+    cursor: help;
+}
+.image-source-note span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .album-grid {

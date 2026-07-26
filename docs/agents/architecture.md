@@ -58,8 +58,10 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   never a bespoke `/api/v1` music endpoint. See [subsonic-api.md](subsonic-api.md).
 - **`/api/v1` is server management only**: libraries CRUD + folder browse,
   tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
-  radio-browser import proxy, health. TODO.md plans moving these under an
-  `/admin` path eventually.
+  `GET /artists/{id}/image-source` (which of aether's store / the music folder /
+  the generated avatar the artist's image comes from — a server filesystem
+  detail, not a Subsonic field), radio-browser import proxy, health. TODO.md
+  plans moving these under an `/admin` path eventually.
 
 ## Key domain types (internal/model)
 

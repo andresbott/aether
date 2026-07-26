@@ -21,6 +21,12 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
     useUpdateArtistCover: () => ({ mutate: coverMutate, isPending: coverIsPending })
 }))
 
+const imageSource = ref<any>(null)
+const imageSourceRefetch = vi.fn()
+vi.mock('@/composables/useArtistImageSource', () => ({
+    useArtistImageSource: () => ({ data: imageSource, refetch: imageSourceRefetch })
+}))
+
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
@@ -83,6 +89,8 @@ beforeEach(() => {
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
     coverIsPending.value = false
+    imageSource.value = null
+    imageSourceRefetch.mockClear()
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
 })
@@ -239,5 +247,89 @@ describe('ArtistView', () => {
             expect.objectContaining({ artistId: 'ar-1', coverClear: true }),
             expect.anything()
         )
+    })
+})
+
+describe('ArtistView image-source note', () => {
+    it('shows a note in edit mode when the image is read from the artist folder', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const note = w.find('.image-source-note')
+        expect(note.exists()).toBe(true)
+        expect(note.text()).toContain('folder')
+    })
+
+    it('puts the full path in the note tooltip, not in the visible text', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const note = w.find('.image-source-note')
+        expect(note.text()).not.toContain('/music/Pink Floyd/artist.jpg')
+        expect(note.attributes('title')).toBe('/music/Pink Floyd/artist.jpg')
+    })
+
+    it('shows no note when the image comes from aether\'s own store', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'store', path: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+
+    it('shows no note when there is no image on file', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'none', path: '' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+
+    it('hides the note outside edit mode', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await flushPromises()
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+
+    it('hides the note once a replacement image is staged', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+        expect(w.find('.image-source-note').exists()).toBe(true)
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        expect(w.find('.image-source-note').exists()).toBe(false)
+    })
+})
+
+describe('ArtistView image-source refresh', () => {
+    it('refetches the image source after saving a new image', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const file = new File(['x'], 'a.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await w.vm.$nextTick()
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+
+        expect(imageSourceRefetch).toHaveBeenCalled()
     })
 })
