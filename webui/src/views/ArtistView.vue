@@ -232,8 +232,8 @@ const onQueue = async (): Promise<void> => {
                                 class="image-source-note"
                                 :title="folderImagePath"
                             >
-                                <i class="pi pi-folder-open"></i>
-                                <span>Loaded from music folder</span>
+                                <i class="pi pi-image"></i>
+                                <span>Image loaded from music folder</span>
                             </span>
                         </template>
 
@@ -330,10 +330,13 @@ const onQueue = async (): Promise<void> => {
     color: var(--app-text-secondary);
     cursor: help;
 }
+/* The sentence is longer than the 250px panel is wide at some font sizes, so it
+   wraps rather than truncating — the hover tooltip carries the path anyway. */
 .image-source-note span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    text-align: center;
+}
+.image-source-note i {
+    flex-shrink: 0;
 }
 
 .album-grid {

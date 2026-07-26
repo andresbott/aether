@@ -260,7 +260,17 @@ describe('ArtistView image-source note', () => {
 
         const note = w.find('.image-source-note')
         expect(note.exists()).toBe(true)
-        expect(note.text()).toContain('folder')
+        expect(note.text()).toBe('Image loaded from music folder')
+    })
+
+    it('marks the note with an image icon', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'folder', path: '/music/Pink Floyd/artist.jpg' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        expect(w.find('.image-source-note i').classes()).toContain('pi-image')
     })
 
     it('puts the full path in the note tooltip, not in the visible text', async () => {
