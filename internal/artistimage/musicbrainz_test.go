@@ -315,3 +315,85 @@ func TestMusicBrainzGenresRetriesTransientFailure(t *testing.T) {
 		t.Fatalf("unexpected genres: %v", got)
 	}
 }
+
+func TestMusicBrainzReleaseParsesTracklist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/ws/2/release/rel-1") {
+			t.Errorf("unexpected path: %q", r.URL.Path)
+		}
+		if !strings.Contains(r.URL.RawQuery, "inc=recordings") {
+			t.Errorf("expected inc=recordings..., got %q", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"id": "rel-1",
+			"title": "Nevermind",
+			"date": "1991-09-24",
+			"release-group": {"id": "rg-1"},
+			"artist-credit": [{"name": "Nirvana", "joinphrase": "", "artist": {"id": "art-1"}}],
+			"media": [
+				{
+					"position": 1,
+					"track-count": 2,
+					"tracks": [
+						{"position": 1, "title": "Smells Like Teen Spirit", "length": 301000,
+						 "recording": {"id": "rec-1"}},
+						{"position": 2, "title": "In Bloom", "length": 254000,
+						 "recording": {"id": "rec-2"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "rel-1")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.ReleaseMBID != "rel-1" || got.ReleaseGroupMBID != "rg-1" || got.Title != "Nevermind" {
+		t.Fatalf("unexpected release: %+v", got)
+	}
+	if got.Artist != "Nirvana" || len(got.Artists) != 1 || got.Artists[0].MBID != "art-1" {
+		t.Fatalf("unexpected artists: %+v", got.Artists)
+	}
+	if got.TrackCount != 2 || got.DiscCount != 1 {
+		t.Fatalf("expected 2 tracks on 1 disc, got %d/%d", got.TrackCount, got.DiscCount)
+	}
+	want := ReleaseTrack{
+		DiscNumber: 1, TrackNumber: 2, Title: "In Bloom",
+		DurationSeconds: 254, RecordingMBID: "rec-2",
+	}
+	if !reflect.DeepEqual(got.Tracks[1], want) {
+		t.Fatalf("unexpected track: got %+v want %+v", got.Tracks[1], want)
+	}
+}
+
+func TestMusicBrainzReleaseEmptyMBIDSkipsRequest(t *testing.T) {
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.ReleaseMBID != "" || calls.Load() != 0 {
+		t.Fatalf("expected no request and a zero release, got %+v after %d calls", got, calls.Load())
+	}
+}
+
+func TestMusicBrainzReleaseUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	if _, err := m.Release(context.Background(), "rel-1"); err == nil {
+		t.Fatal("expected an error for a 500 response")
+	}
+}
