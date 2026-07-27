@@ -243,7 +243,7 @@ func TestRankTracklistSizeFavoursTheAlbumOverTheCompilation(t *testing.T) {
 	album := opt("album", "Album", 1991, []int{1, 2, 3}, 0.8)
 	album.Enriched, album.TrackCount, album.DiscCount = true, 3, 1
 	comp := opt("comp", "Mega Hits", 1991, []int{1, 2, 3}, 0.8)
-	comp.Enriched, comp.TrackCount, comp.DiscCount = true, 40, 2
+	comp.Enriched, comp.TrackCount, comp.DiscCount = true, 40, 1
 
 	opts := []*AlbumOption{comp, album}
 	rankOptions(opts, inputs)
@@ -283,5 +283,31 @@ func TestRankIsStableForEqualOptions(t *testing.T) {
 		if got := mbids(again); got[0] != want[0] || got[1] != want[1] {
 			t.Fatalf("unstable order: %v then %v", want, got)
 		}
+	}
+}
+
+func TestRankKnownYearBeatsUnknown(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}}
+	opts := []*AlbumOption{
+		opt("unknown-year", "Album", 0, []int{1}, 0.8),
+		opt("known-year", "Album", 1991, []int{1}, 0.8),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "known-year" {
+		t.Fatalf("expected known year to win over unknown, got %v", got)
+	}
+}
+
+func TestRankContiguityHandlesZeroAndSinglePosition(t *testing.T) {
+	// Zero known positions: nothing is known, so contiguity should be 0.
+	optZero := opt("zero", "Album", 1991, []int{0, 0}, 0.8)
+	if got := contiguity(optZero); got != 0 {
+		t.Fatalf("expected contiguity=0 for zero known positions, got %v", got)
+	}
+
+	// One known position: trivially an unbroken run, so neutral 1.0.
+	optOne := opt("one", "Album", 1991, []int{1}, 0.8)
+	if got := contiguity(optOne); got != 1.0 {
+		t.Fatalf("expected contiguity=1.0 for single position, got %v", got)
 	}
 }

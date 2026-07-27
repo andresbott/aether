@@ -5,9 +5,12 @@ import (
 	"strings"
 )
 
-// Ranking weights. Coverage dominates by design: this feature exists to find
-// the release that explains the whole selection, so a release covering one more
-// file outranks any combination of the softer signals below.
+// Ranking weights. Coverage is the heaviest term by design: this feature
+// exists to find the release that explains the whole selection. For small
+// selections (under ~8 files), covering one more file typically outranks any
+// combination of the softer signals. For larger selections, a right-sized
+// single-disc release can outrank a broader match by ~7 points (sizeFit 6 +
+// singleDisc 1) plus score differences.
 const (
 	weightCoverage    = 100.0
 	weightMeanScore   = 10.0
@@ -64,7 +67,8 @@ func optionScore(o *AlbumOption, inputs []Input) float64 {
 
 // contiguity is the share of the matched track numbers that form one unbroken
 // run — the signature of a folder holding a whole album rather than tracks
-// scattered across a compilation. Unknown positions (0) score nothing.
+// scattered across a compilation. Unknown positions (0) are excluded because
+// they carry no spatial information.
 func contiguity(o *AlbumOption) float64 {
 	nums := make([]int, 0, len(o.Assignments))
 	for _, a := range o.Assignments {
@@ -72,8 +76,15 @@ func contiguity(o *AlbumOption) float64 {
 			nums = append(nums, a.TrackNumber)
 		}
 	}
-	if len(nums) < 2 {
+	// Zero positions: nothing is known, nothing is earned.
+	if len(nums) == 0 {
 		return 0
+	}
+	// One position: trivially an unbroken run, so neutral (1.0). Returning 0
+	// would forfeit the full 8-point weight and penalise legitimately small
+	// selections.
+	if len(nums) == 1 {
+		return 1.0
 	}
 	sort.Ints(nums)
 	span := nums[len(nums)-1] - nums[0] + 1
@@ -110,6 +121,9 @@ func albumTagAgreement(o *AlbumOption, inputs []Input) float64 {
 	return float64(hits) / float64(len(inputs))
 }
 
+// normalizeAlbum canonicalises album names for comparison. Case and whitespace
+// differences are normalised because they are common transcription variations,
+// not evidence that the albums differ.
 func normalizeAlbum(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
