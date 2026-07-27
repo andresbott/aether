@@ -3,6 +3,8 @@ import type {
     ApplyPictureResult,
     CoverCandidate,
     DeletePictureResult,
+    IdentifyAlbumRequest,
+    IdentifyAlbumResponse,
     IdentifyRequest,
     IdentifyResponse,
     ListFoldersResponse,
@@ -58,6 +60,14 @@ export async function getMetadataCapabilities() {
 export async function identifyTracks(body: IdentifyRequest) {
     const { data } = await apiClient.post<IdentifyResponse>('/metadata/identify', body)
     return data.results
+}
+
+// identifyAlbum maps a multi-file selection onto a single release. Slower than
+// identifyTracks: the server fingerprints every file and then fetches
+// MusicBrainz tracklists for the best candidate releases.
+export async function identifyAlbum(body: IdentifyAlbumRequest) {
+    const { data } = await apiClient.post<IdentifyAlbumResponse>('/metadata/identify-album', body)
+    return data
 }
 
 // getPictureUrl builds the URL of one picture type+slot cell for use as an

@@ -5,6 +5,7 @@ import * as MetadataApi from '@/lib/api/Metadata'
 import { apiErrorMessage } from '@/lib/apiError'
 import type {
     Folder,
+    IdentifyAlbumRequest,
     IdentifyRequest,
     MetadataCapabilities,
     PatchFields,
@@ -208,6 +209,23 @@ export function useIdentifyTracks() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to identify tracks',
+                detail: apiErrorMessage(err),
+                life: 5000
+            })
+        }
+    })
+}
+
+// useIdentifyAlbum maps the selected files onto one release. Like
+// useIdentifyTracks it writes nothing, so there is no invalidation.
+export function useIdentifyAlbum() {
+    const toast = useToast()
+    return useMutation({
+        mutationFn: (body: IdentifyAlbumRequest) => MetadataApi.identifyAlbum(body),
+        onError: (err: any) => {
+            toast.add({
+                severity: 'error',
+                summary: 'Failed to identify album',
                 detail: apiErrorMessage(err),
                 life: 5000
             })

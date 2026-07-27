@@ -193,6 +193,73 @@ export interface IdentifyResponse {
     results: IdentifyTrackResult[]
 }
 
+// ----- Album identification (map a selection onto one release) -----
+
+// How a file ended up on a track position of an album option. Mirrors
+// internal/albumidentify's Source* constants.
+export type AlbumAssignmentSource = 'fingerprint' | 'inferred' | 'none'
+
+// One position on a release's tracklist.
+export interface AlbumTrackSlot {
+    disc_number: number
+    track_number: number
+    title: string
+    recording_mbid: string
+    duration_seconds: number
+}
+
+// One selected file's placement on one album option. `error` is set instead of
+// a placement when the file could not be fingerprinted at all.
+export interface AlbumAssignment {
+    path: string
+    source: AlbumAssignmentSource
+    title: string
+    recording_mbid: string
+    artists: ArtistCredit[]
+    disc_number: number
+    track_number: number
+    score: number
+    error?: string
+}
+
+// One candidate release for the whole selection. `enriched` false means the
+// MusicBrainz tracklist lookup did not happen or failed, so track_count,
+// disc_count and tracks are unknown.
+export interface AlbumOption {
+    release_mbid: string
+    release_group_mbid: string
+    album: string
+    year: number
+    artists: ArtistCredit[]
+    track_count: number
+    disc_count: number
+    enriched: boolean
+    matched_count: number
+    mean_score: number
+    assignments: AlbumAssignment[]
+    tracks: AlbumTrackSlot[]
+}
+
+export interface IdentifyAlbumRequest {
+    library_id: number
+    paths: string[]
+}
+
+export interface IdentifyAlbumResponse {
+    options: AlbumOption[]
+    // Paths the server refused before identification (e.g. outside the library).
+    errors: { path: string; error: string }[]
+}
+
+// One song's confirmed placement from the album dialog: the album the user
+// picked plus the position they accepted for this file (null = album-level
+// fields only).
+export interface AlbumIdentifyPick {
+    path: string
+    option: AlbumOption
+    assignment: AlbumAssignment | null
+}
+
 export interface UpdateTracksRequest {
     library_id: number
     paths: string[]
