@@ -27,13 +27,24 @@ func New(fp *fpcalc.Client, ac *acoustid.Client) *Identifier {
 // MusicBrainz recordings ordered by score descending. An empty slice means the
 // fingerprint matched nothing.
 func (i *Identifier) IdentifyFile(ctx context.Context, absPath string) ([]acoustid.Recording, error) {
+	recs, _, err := i.IdentifyFileWithDuration(ctx, absPath)
+	return recs, err
+}
+
+// IdentifyFileWithDuration is IdentifyFile plus the track duration fpcalc
+// measured, in seconds. Callers that map several files onto one album use it to
+// place a file the fingerprint did not match: its duration against a release's
+// tracklist is the strongest remaining signal.
+func (i *Identifier) IdentifyFileWithDuration(
+	ctx context.Context, absPath string,
+) ([]acoustid.Recording, float64, error) {
 	fp, err := i.Fp.Fingerprint(ctx, absPath)
 	if err != nil {
-		return nil, fmt.Errorf("fingerprint: %w", err)
+		return nil, 0, fmt.Errorf("fingerprint: %w", err)
 	}
 	recs, err := i.Acoust.Lookup(ctx, fp.Fingerprint, fp.Duration)
 	if err != nil {
-		return nil, fmt.Errorf("acoustid: %w", err)
+		return nil, fp.Duration, fmt.Errorf("acoustid: %w", err)
 	}
-	return recs, nil
+	return recs, fp.Duration, nil
 }

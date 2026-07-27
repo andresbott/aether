@@ -96,3 +96,37 @@ func TestIdentifyFileLookupError(t *testing.T) {
 		t.Fatalf("expected acoustid error, got %v", err)
 	}
 }
+
+func TestIdentifyFileWithDurationReturnsFpcalcDuration(t *testing.T) {
+	bin := writeFakeFpcalc(t, `{"duration": 245.7, "fingerprint": "ABC123"}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"status": "ok",
+			"results": [{
+				"score": 0.9,
+				"recordings": [{"id": "rec-mbid-1", "title": "Song One"}]
+			}]
+		}`))
+	}))
+	defer srv.Close()
+
+	id := New(fpcalc.New(bin), newAcoustClient(srv))
+	recs, dur, err := id.IdentifyFileWithDuration(context.Background(), "/some/file.mp3")
+	if err != nil {
+		t.Fatalf("IdentifyFileWithDuration: %v", err)
+	}
+	if dur != 245.7 {
+		t.Fatalf("expected duration 245.7, got %v", dur)
+	}
+	if len(recs) != 1 || recs[0].MBID != "rec-mbid-1" {
+		t.Fatalf("unexpected recordings: %+v", recs)
+	}
+}
+
+func TestIdentifyFileWithDurationFingerprintError(t *testing.T) {
+	id := New(fpcalc.New(filepath.Join(t.TempDir(), "does-not-exist")), acoustid.New("k", "ua"))
+	_, _, err := id.IdentifyFileWithDuration(context.Background(), "/some/file.mp3")
+	if err == nil || !strings.Contains(err.Error(), "fingerprint:") {
+		t.Fatalf("expected fingerprint error, got %v", err)
+	}
+}
