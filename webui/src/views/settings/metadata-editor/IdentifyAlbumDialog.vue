@@ -1,0 +1,426 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import Dialog from 'primevue/dialog'
+import Dropdown from 'primevue/dropdown'
+import Button from 'primevue/button'
+import Checkbox from 'primevue/checkbox'
+import type {
+    AlbumAssignment,
+    AlbumIdentifyPick,
+    AlbumOption,
+    Track
+} from '@/types/metadata'
+
+// Sentinel slot values for the per-row re-point dropdown: keep the server's
+// proposal, or drop the position entirely (album fields only).
+const SLOT_KEEP = -1
+const SLOT_CLEAR = 0
+
+const props = defineProps<{
+    visible: boolean
+    options: AlbumOption[]
+    tracks: Track[]
+}>()
+const emit = defineEmits<{
+    (e: 'update:visible', v: boolean): void
+    (e: 'apply', picks: AlbumIdentifyPick[]): void
+}>()
+
+// Per-song review state. `slot` is the tracklist position the user settled on:
+// SLOT_KEEP defers to the chosen album's own assignment, SLOT_CLEAR stages the
+// album fields with no position, any other value is a picked track number.
+interface RowState {
+    included: boolean
+    slot: number
+}
+
+const selectedMbid = ref('')
+const rows = ref(new Map<string, RowState>())
+
+const selectedOption = computed<AlbumOption | undefined>(() =>
+    props.options.find((o) => o.release_mbid === selectedMbid.value)
+)
+
+// Switching albums invalidates every manual re-point: the positions belonged to
+// the previous tracklist. Reset the rows rather than carry meaningless slots.
+function resetRows() {
+    const next = new Map<string, RowState>()
+    for (const t of props.tracks) {
+        next.set(t.path, { included: true, slot: SLOT_KEEP })
+    }
+    rows.value = next
+}
+
+watch(
+    () => props.options,
+    (options) => {
+        selectedMbid.value = options[0]?.release_mbid ?? ''
+        resetRows()
+    },
+    { immediate: true }
+)
+
+watch(selectedMbid, resetRows)
+
+const trackByPath = computed(() => {
+    const map = new Map<string, Track>()
+    for (const t of props.tracks) map.set(t.path, t)
+    return map
+})
+
+const assignmentByPath = computed(() => {
+    const map = new Map<string, AlbumAssignment>()
+    for (const a of selectedOption.value?.assignments ?? []) map.set(a.path, a)
+    return map
+})
+
+const slotByNumber = computed(() => {
+    const map = new Map<number, { track_number: number; title: string; recording_mbid: string }>()
+    for (const s of selectedOption.value?.tracks ?? []) map.set(s.track_number, s)
+    return map
+})
+
+function rowState(path: string): RowState {
+    return rows.value.get(path) ?? { included: true, slot: SLOT_KEEP }
+}
+
+// resolved is what the row actually stages: the album's assignment, the user's
+// re-point, or nothing.
+function resolved(path: string): AlbumAssignment | null {
+    const state = rowState(path)
+    const proposed = assignmentByPath.value.get(path) ?? null
+    if (state.slot === SLOT_KEEP) {
+        if (!proposed || proposed.source === 'none') return null
+        return proposed
+    }
+    if (state.slot === SLOT_CLEAR) return null
+    const slot = slotByNumber.value.get(state.slot)
+    if (!slot) return null
+    return {
+        path,
+        // A hand-picked position is an assertion by the user, not an inference.
+        source: 'fingerprint',
+        title: slot.title,
+        recording_mbid: slot.recording_mbid,
+        artists: proposed?.artists ?? [],
+        disc_number: selectedOption.value?.tracks.find(
+            (s) => s.track_number === state.slot
+        )?.disc_number ?? 0,
+        track_number: slot.track_number,
+        score: 0
+    }
+}
+
+function badge(path: string): string {
+    const state = rowState(path)
+    if (state.slot !== SLOT_KEEP) return state.slot === SLOT_CLEAR ? 'none' : 'chosen'
+    return assignmentByPath.value.get(path)?.source ?? 'none'
+}
+
+function rowError(path: string): string {
+    return assignmentByPath.value.get(path)?.error ?? ''
+}
+
+function currentTitle(path: string): string {
+    const t = trackByPath.value.get(path)
+    return t?.title || t?.name || path
+}
+
+// Rows in tracklist order, then the unplaced ones — the order the album reads
+// in, not the order the file system happened to list.
+const orderedPaths = computed(() => {
+    const paths = props.tracks.map((t) => t.path)
+    return [...paths].sort((a, b) => {
+        const ra = resolved(a)
+        const rb = resolved(b)
+        const na = ra ? ra.disc_number * 1000 + ra.track_number : Number.MAX_SAFE_INTEGER
+        const nb = rb ? rb.disc_number * 1000 + rb.track_number : Number.MAX_SAFE_INTEGER
+        if (na !== nb) return na - nb
+        return a.localeCompare(b)
+    })
+})
+
+const albumChoices = computed(() =>
+    props.options.map((o) => ({
+        value: o.release_mbid,
+        label: albumLabel(o),
+        detail: albumDetail(o)
+    }))
+)
+
+function albumLabel(o: AlbumOption): string {
+    const artist = o.artists.map((a) => a.name).join(', ')
+    const year = o.year > 0 ? ` (${o.year})` : ''
+    return artist ? `${o.album} — ${artist}${year}` : `${o.album}${year}`
+}
+
+function albumDetail(o: AlbumOption): string {
+    const parts = [`${o.matched_count} of ${props.tracks.length} songs matched`]
+    if (o.enriched) {
+        parts.push(`${o.track_count} track${o.track_count === 1 ? '' : 's'}`)
+        if (o.disc_count > 1) parts.push(`${o.disc_count} discs`)
+    } else {
+        parts.push('track list unavailable')
+    }
+    return parts.join(' · ')
+}
+
+const selectedDetail = computed(() =>
+    selectedOption.value ? albumDetail(selectedOption.value) : ''
+)
+
+// Positions already claimed, so a re-point dropdown only offers free slots.
+const takenPositions = computed(() => {
+    const taken = new Set<number>()
+    for (const path of props.tracks.map((t) => t.path)) {
+        const r = resolved(path)
+        if (r && r.track_number > 0) taken.add(r.track_number)
+    }
+    return taken
+})
+
+function slotChoices(path: string) {
+    const mine = resolved(path)
+    const choices = [
+        { value: SLOT_KEEP, label: 'Keep proposed' },
+        { value: SLOT_CLEAR, label: 'No position' }
+    ]
+    for (const s of selectedOption.value?.tracks ?? []) {
+        if (takenPositions.value.has(s.track_number) && mine?.track_number !== s.track_number) {
+            continue
+        }
+        choices.push({ value: s.track_number, label: `${s.track_number}. ${s.title}` })
+    }
+    return choices
+}
+
+const includedPaths = computed(() =>
+    props.tracks.map((t) => t.path).filter((p) => rowState(p).included)
+)
+
+// Two included songs on one position would write the same track number twice;
+// the server's gap-fill avoids it, but a stale option or a manual pick could
+// still collide.
+const conflictingPositions = computed(() => {
+    const seen = new Map<number, number>()
+    for (const path of includedPaths.value) {
+        const r = resolved(path)
+        if (!r || r.track_number <= 0) continue
+        seen.set(r.track_number, (seen.get(r.track_number) ?? 0) + 1)
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([pos]) => pos)
+})
+
+function isConflicting(path: string): boolean {
+    const r = resolved(path)
+    return r !== null && conflictingPositions.value.includes(r.track_number)
+}
+
+const canApply = computed(
+    () =>
+        selectedOption.value !== undefined &&
+        includedPaths.value.length > 0 &&
+        conflictingPositions.value.length === 0
+)
+
+function apply() {
+    const option = selectedOption.value
+    if (!option) return
+    const picks: AlbumIdentifyPick[] = includedPaths.value.map((path) => ({
+        path,
+        option,
+        assignment: resolved(path)
+    }))
+    emit('apply', picks)
+}
+</script>
+
+<template>
+    <Dialog
+        :visible="visible"
+        @update:visible="(v) => emit('update:visible', v)"
+        header="Identify album"
+        modal
+        :style="{ width: '72rem', maxWidth: '95vw' }"
+    >
+        <div v-if="options.length === 0" class="album-empty" data-test="album-empty">
+            None of these songs matched a known release.
+        </div>
+
+        <template v-else>
+            <div class="album-pick">
+                <label for="album-select">Album</label>
+                <Dropdown
+                    inputId="album-select"
+                    data-test="album-select"
+                    class="album-select"
+                    :modelValue="selectedMbid"
+                    @update:modelValue="(v: string) => (selectedMbid = v)"
+                    :options="albumChoices"
+                    optionLabel="label"
+                    optionValue="value"
+                />
+                <small class="album-detail">{{ selectedDetail }}</small>
+            </div>
+
+            <p v-if="conflictingPositions.length > 0" class="album-conflict" data-test="album-conflict">
+                Two songs are on the same track position. Change one before staging.
+            </p>
+
+            <div class="album-rows">
+                <div
+                    v-for="path in orderedPaths"
+                    :key="path"
+                    class="album-row"
+                    :class="{ conflicting: isConflicting(path) }"
+                    :data-test="`album-row-${path}`"
+                >
+                    <Checkbox
+                        :modelValue="rowState(path).included"
+                        @update:modelValue="(v: boolean) => (rowState(path).included = v)"
+                        :binary="true"
+                        :inputId="`album-include-${path}`"
+                    />
+                    <label :for="`album-include-${path}`" class="row-titles">
+                        <span class="row-proposed">
+                            {{ resolved(path)?.title || '(no title change)' }}
+                        </span>
+                        <span class="row-current">current: {{ currentTitle(path) }}</span>
+                        <small v-if="rowError(path)" class="row-error">{{ rowError(path) }}</small>
+                    </label>
+                    <span class="row-position">
+                        <template v-if="resolved(path)">
+                            {{ resolved(path)!.disc_number }}-{{ resolved(path)!.track_number }}
+                        </template>
+                        <template v-else>—</template>
+                    </span>
+                    <span
+                        class="row-badge"
+                        :class="`badge-${badge(path)}`"
+                        :data-test="`album-badge-${path}`"
+                    >
+                        {{ badge(path) }}
+                    </span>
+                    <Dropdown
+                        class="row-slot"
+                        :data-test="`album-slot-${path}`"
+                        :modelValue="rowState(path).slot"
+                        @update:modelValue="(v: number) => (rowState(path).slot = v)"
+                        :options="slotChoices(path)"
+                        optionLabel="label"
+                        optionValue="value"
+                    />
+                </div>
+            </div>
+        </template>
+
+        <template #footer>
+            <Button label="Cancel" text @click="emit('update:visible', false)" />
+            <Button
+                v-if="options.length > 0"
+                :label="`Stage ${includedPaths.length} song${includedPaths.length === 1 ? '' : 's'}`"
+                icon="pi pi-check"
+                data-test="album-apply"
+                :disabled="!canApply"
+                @click="apply"
+            />
+        </template>
+    </Dialog>
+</template>
+
+<style scoped>
+.album-empty {
+    padding: 1rem 0;
+    color: var(--app-text-secondary);
+}
+.album-pick {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-bottom: 0.8rem;
+}
+.album-select {
+    min-width: 28rem;
+    max-width: 100%;
+}
+.album-detail {
+    color: var(--app-text-secondary);
+}
+.album-conflict {
+    margin: 0 0 0.6rem;
+    color: var(--p-red-600, #dc2626);
+}
+.album-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 65vh;
+    overflow-y: auto;
+}
+.album-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+}
+.album-row.conflicting {
+    border-color: var(--p-red-600, #dc2626);
+}
+.row-titles {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    cursor: pointer;
+}
+.row-proposed {
+    font-size: 0.9rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.row-current,
+.row-error {
+    font-size: 0.75rem;
+}
+.row-current {
+    color: var(--app-text-secondary);
+}
+.row-error {
+    color: var(--p-red-600, #dc2626);
+}
+.row-position {
+    font-variant-numeric: tabular-nums;
+    color: var(--app-text-secondary);
+    min-width: 3.5rem;
+    text-align: right;
+}
+.row-badge {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    min-width: 6.5rem;
+    text-align: center;
+}
+.badge-fingerprint,
+.badge-chosen {
+    background: var(--p-green-100, #dcfce7);
+    color: var(--p-green-800, #166534);
+}
+.badge-inferred {
+    background: var(--p-yellow-100, #fef9c3);
+    color: var(--p-yellow-800, #854d0e);
+}
+.badge-none {
+    background: var(--app-surface-alt, #f1f5f9);
+    color: var(--app-text-secondary);
+}
+.row-slot {
+    max-width: 14rem;
+}
+</style>
