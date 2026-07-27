@@ -16,6 +16,11 @@ import type {
 const SLOT_KEEP = -1
 const SLOT_CLEAR = 0
 
+// Composite slot identity: a position is a (disc, track) pair, not a bare track number.
+function slotKey(disc: number, track: number): string {
+    return `${disc}-${track}`
+}
+
 const props = defineProps<{
     visible: boolean
     options: AlbumOption[]
@@ -28,10 +33,10 @@ const emit = defineEmits<{
 
 // Per-song review state. `slot` is the tracklist position the user settled on:
 // SLOT_KEEP defers to the chosen album's own assignment, SLOT_CLEAR stages the
-// album fields with no position, any other value is a picked track number.
+// album fields with no position, any other value is a slotKey string (disc-track).
 interface RowState {
     included: boolean
-    slot: number
+    slot: number | string
 }
 
 const selectedMbid = ref('')
@@ -74,9 +79,16 @@ const assignmentByPath = computed(() => {
     return map
 })
 
-const slotByNumber = computed(() => {
-    const map = new Map<number, { track_number: number; title: string; recording_mbid: string }>()
-    for (const s of selectedOption.value?.tracks ?? []) map.set(s.track_number, s)
+const slotByKey = computed(() => {
+    const map = new Map<string, { disc_number: number; track_number: number; title: string; recording_mbid: string }>()
+    for (const s of selectedOption.value?.tracks ?? []) {
+        map.set(slotKey(s.disc_number, s.track_number), {
+            disc_number: s.disc_number,
+            track_number: s.track_number,
+            title: s.title,
+            recording_mbid: s.recording_mbid
+        })
+    }
     return map
 })
 
@@ -94,7 +106,8 @@ function resolved(path: string): AlbumAssignment | null {
         return proposed
     }
     if (state.slot === SLOT_CLEAR) return null
-    const slot = slotByNumber.value.get(state.slot)
+    // state.slot is a slotKey string (disc-track).
+    const slot = slotByKey.value.get(state.slot as string)
     if (!slot) return null
     return {
         path,
@@ -103,9 +116,7 @@ function resolved(path: string): AlbumAssignment | null {
         title: slot.title,
         recording_mbid: slot.recording_mbid,
         artists: proposed?.artists ?? [],
-        disc_number: selectedOption.value?.tracks.find(
-            (s) => s.track_number === state.slot
-        )?.disc_number ?? 0,
+        disc_number: slot.disc_number,
         track_number: slot.track_number,
         score: 0
     }
@@ -133,9 +144,12 @@ const orderedPaths = computed(() => {
     return [...paths].sort((a, b) => {
         const ra = resolved(a)
         const rb = resolved(b)
-        const na = ra ? ra.disc_number * 1000 + ra.track_number : Number.MAX_SAFE_INTEGER
-        const nb = rb ? rb.disc_number * 1000 + rb.track_number : Number.MAX_SAFE_INTEGER
-        if (na !== nb) return na - nb
+        // Sort placed rows before unplaced, then by disc and track separately (no magic multiplier).
+        if (!ra && !rb) return a.localeCompare(b)
+        if (!ra) return 1
+        if (!rb) return -1
+        if (ra.disc_number !== rb.disc_number) return ra.disc_number - rb.disc_number
+        if (ra.track_number !== rb.track_number) return ra.track_number - rb.track_number
         return a.localeCompare(b)
     })
 })
@@ -169,51 +183,60 @@ const selectedDetail = computed(() =>
     selectedOption.value ? albumDetail(selectedOption.value) : ''
 )
 
-// Positions already claimed, so a re-point dropdown only offers free slots.
-const takenPositions = computed(() => {
-    const taken = new Set<number>()
-    for (const path of props.tracks.map((t) => t.path)) {
-        const r = resolved(path)
-        if (r && r.track_number > 0) taken.add(r.track_number)
-    }
-    return taken
-})
-
-function slotChoices(path: string) {
-    const mine = resolved(path)
-    const choices = [
-        { value: SLOT_KEEP, label: 'Keep proposed' },
-        { value: SLOT_CLEAR, label: 'No position' }
-    ]
-    for (const s of selectedOption.value?.tracks ?? []) {
-        if (takenPositions.value.has(s.track_number) && mine?.track_number !== s.track_number) {
-            continue
-        }
-        choices.push({ value: s.track_number, label: `${s.track_number}. ${s.title}` })
-    }
-    return choices
-}
-
 const includedPaths = computed(() =>
     props.tracks.map((t) => t.path).filter((p) => rowState(p).included)
 )
 
-// Two included songs on one position would write the same track number twice;
-// the server's gap-fill avoids it, but a stale option or a manual pick could
-// still collide.
+// Positions already claimed by INCLUDED rows, so a re-point dropdown only offers free slots.
+// Unchecking a row frees its position.
+const takenPositions = computed(() => {
+    const taken = new Set<string>()
+    for (const path of includedPaths.value) {
+        const r = resolved(path)
+        if (r && r.track_number > 0) taken.add(slotKey(r.disc_number, r.track_number))
+    }
+    return taken
+})
+
+function slotChoices(path: string): Array<{ value: number | string; label: string }> {
+    const mine = resolved(path)
+    const mineKey = mine ? slotKey(mine.disc_number, mine.track_number) : null
+    const isMultiDisc = (selectedOption.value?.disc_count ?? 0) > 1
+    const choices: Array<{ value: number | string; label: string }> = [
+        { value: SLOT_KEEP, label: 'Keep proposed' },
+        { value: SLOT_CLEAR, label: 'No position' }
+    ]
+    for (const s of selectedOption.value?.tracks ?? []) {
+        const key = slotKey(s.disc_number, s.track_number)
+        if (takenPositions.value.has(key) && mineKey !== key) {
+            continue
+        }
+        const label = isMultiDisc
+            ? `${s.disc_number}-${s.track_number}. ${s.title}`
+            : `${s.track_number}. ${s.title}`
+        choices.push({ value: key, label })
+    }
+    return choices
+}
+
+// Two included songs on one position (same disc AND track number) would write
+// the same track number twice; the server's gap-fill avoids it, but a stale
+// option or a manual pick could still collide.
 const conflictingPositions = computed(() => {
-    const seen = new Map<number, number>()
+    const seen = new Map<string, number>()
     for (const path of includedPaths.value) {
         const r = resolved(path)
         if (!r || r.track_number <= 0) continue
-        seen.set(r.track_number, (seen.get(r.track_number) ?? 0) + 1)
+        const key = slotKey(r.disc_number, r.track_number)
+        seen.set(key, (seen.get(key) ?? 0) + 1)
     }
-    return [...seen.entries()].filter(([, n]) => n > 1).map(([pos]) => pos)
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([key]) => key)
 })
 
 function isConflicting(path: string): boolean {
     const r = resolved(path)
-    return r !== null && conflictingPositions.value.includes(r.track_number)
+    if (!r) return false
+    return conflictingPositions.value.includes(slotKey(r.disc_number, r.track_number))
 }
 
 const canApply = computed(
@@ -305,7 +328,7 @@ function apply() {
                         class="row-slot"
                         :data-test="`album-slot-${path}`"
                         :modelValue="rowState(path).slot"
-                        @update:modelValue="(v: number) => (rowState(path).slot = v)"
+                        @update:modelValue="(v: number | string) => (rowState(path).slot = v)"
                         :options="slotChoices(path)"
                         optionLabel="label"
                         optionValue="value"

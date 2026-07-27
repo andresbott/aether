@@ -127,6 +127,48 @@ const albumB: AlbumOption = {
     ]
 }
 
+// Multi-disc release: disc 1 track 1 and disc 2 track 1 are distinct positions.
+const multiDisc: AlbumOption = {
+    release_mbid: 'rel-multi',
+    release_group_mbid: 'rg-multi',
+    album: 'Double Album',
+    year: 2000,
+    artists: [{ name: 'Artist', mbid: 'art-1' }],
+    track_count: 4,
+    disc_count: 2,
+    enriched: true,
+    matched_count: 2,
+    mean_score: 0.8,
+    assignments: [
+        {
+            path: '01.mp3',
+            source: 'fingerprint',
+            title: 'Disc 1 Track 1',
+            recording_mbid: 'rec-d1t1',
+            artists: [],
+            disc_number: 1,
+            track_number: 1,
+            score: 0.85
+        },
+        {
+            path: '02.mp3',
+            source: 'fingerprint',
+            title: 'Disc 2 Track 1',
+            recording_mbid: 'rec-d2t1',
+            artists: [],
+            disc_number: 2,
+            track_number: 1,
+            score: 0.75
+        }
+    ],
+    tracks: [
+        { disc_number: 1, track_number: 1, title: 'Disc 1 Track 1', recording_mbid: 'rec-d1t1', duration_seconds: 200 },
+        { disc_number: 1, track_number: 2, title: 'Disc 1 Track 2', recording_mbid: 'rec-d1t2', duration_seconds: 220 },
+        { disc_number: 2, track_number: 1, title: 'Disc 2 Track 1', recording_mbid: 'rec-d2t1', duration_seconds: 180 },
+        { disc_number: 2, track_number: 2, title: 'Disc 2 Track 2', recording_mbid: 'rec-d2t2', duration_seconds: 240 }
+    ]
+}
+
 function mountDialog(options: AlbumOption[], t: Track[] = tracks) {
     return mount(IdentifyAlbumDialog, {
         props: { visible: true, options, tracks: t },
@@ -191,10 +233,17 @@ describe('IdentifyAlbumDialog', () => {
     it('offers only free tracklist slots for re-pointing and frees the old one', async () => {
         const w = mountDialog([albumA])
         const rowSelect = w.find('[data-test="album-slot-02.mp3"]')
-        // Slots 1 and 2 are taken by the two rows; only 3 (plus "keep" and
-        // "clear") is offered.
+        // Row 02.mp3 is on slot 2. It should show slot 2 (mine) and slot 3 (free),
+        // but not slot 1 (taken by 01.mp3).
         expect(rowSelect.text()).toContain('3')
-        expect(rowSelect.text()).not.toContain('One')
+        expect(rowSelect.text()).toContain('Two') // mine
+        expect(rowSelect.text()).not.toContain('One') // taken by another row
+        // The taken positions (except mine) are genuinely absent from the choices.
+        const options = rowSelect.findAll('option')
+        const values = options.map(o => o.element.value)
+        expect(values).toContain('1-2') // mine — I can keep it
+        expect(values).toContain('1-3') // slot 3 is free
+        expect(values).not.toContain('1-1') // slot 1 is taken by 01.mp3
     })
 
     it('disables apply when two rows resolve to the same position', async () => {
@@ -232,5 +281,69 @@ describe('IdentifyAlbumDialog', () => {
         }
         const w = mountDialog([withError])
         expect(w.find('[data-test="album-row-02.mp3"]').text()).toContain('fingerprint failed')
+    })
+
+    // Multi-disc tests: a position is a (disc, track) pair, not a bare track number.
+    it('multi-disc: both same-numbered slots from different discs are offered', () => {
+        const w = mountDialog([multiDisc])
+        const rowSelect = w.find('[data-test="album-slot-01.mp3"]')
+        const options = rowSelect.findAll('option')
+        const values = options.map(o => o.element.value)
+        // Disc 1 track 1 is taken by this row (01.mp3), so it IS shown (mine).
+        // Disc 2 track 1 is taken by 02.mp3, so it's NOT shown.
+        // Both disc 1 track 2 and disc 2 track 2 are free.
+        expect(values).toContain('1-1') // mine — I can keep it
+        expect(values).toContain('1-2') // free on disc 1
+        expect(values).toContain('2-2') // free on disc 2
+        expect(values).not.toContain('2-1') // taken by 02.mp3, not mine
+    })
+
+    it('multi-disc: re-pointing to disc 2 track 1 stages disc 2 metadata', async () => {
+        const w = mountDialog([multiDisc])
+        // Uncheck 02.mp3 first so disc 2 track 1 becomes available for 01.mp3.
+        const boxes = w.findAll('input[type="checkbox"]')
+        await boxes[1].setValue(false)
+
+        // Now 01.mp3's dropdown offers disc 2 track 1 (it was taken by 02.mp3 before).
+        const rowSelect = w.find('[data-test="album-slot-01.mp3"]')
+        const options = rowSelect.findAll('option')
+        const targetIndex = options.findIndex(o => o.element.value === '2-1')
+        expect(targetIndex).toBeGreaterThan(-1) // slot should exist now
+        ;(rowSelect.element as HTMLSelectElement).selectedIndex = targetIndex
+        await rowSelect.trigger('change')
+
+        await w.find('[data-test="album-apply"]').trigger('click')
+        const picks = w.emitted('apply')![0][0] as any[]
+        expect(picks).toHaveLength(1)
+        expect(picks[0].path).toBe('01.mp3')
+        expect(picks[0].assignment.disc_number).toBe(2)
+        expect(picks[0].assignment.track_number).toBe(1)
+        expect(picks[0].assignment.title).toBe('Disc 2 Track 1')
+        expect(picks[0].assignment.recording_mbid).toBe('rec-d2t1')
+    })
+
+    it('multi-disc: disc 1 track 1 and disc 2 track 1 are not a conflict', () => {
+        const w = mountDialog([multiDisc])
+        // Both rows have track_number 1 but on different discs — no conflict.
+        expect(w.find('[data-test="album-conflict"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-apply"]').attributes('disabled')).toBeUndefined()
+    })
+
+    it('multi-disc: unchecking a row frees its position', async () => {
+        const w = mountDialog([multiDisc])
+        // Initially, disc 1 track 1 is taken by 01.mp3, so 02.mp3's dropdown does not offer it.
+        const row2Select = w.find('[data-test="album-slot-02.mp3"]')
+        let options = row2Select.findAll('option')
+        let values = options.map(o => o.element.value)
+        expect(values).not.toContain('1-1')
+
+        // Uncheck 01.mp3 to free disc 1 track 1.
+        const boxes = w.findAll('input[type="checkbox"]')
+        await boxes[0].setValue(false)
+
+        // Now 02.mp3's dropdown offers disc 1 track 1.
+        options = row2Select.findAll('option')
+        values = options.map(o => o.element.value)
+        expect(values).toContain('1-1')
     })
 })
