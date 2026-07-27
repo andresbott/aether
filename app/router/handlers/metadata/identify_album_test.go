@@ -23,14 +23,15 @@ import (
 type fakeAlbumIdentifier struct {
 	options []albumidentify.AlbumOption
 	err     error
-	// gotInputs records what the handler passed down.
-	gotInputs []albumidentify.Input
+	// callHistory records every Resolve call's inputs, so tests can verify what
+	// paths reached (or never reached) the resolver across multiple calls.
+	callHistory [][]albumidentify.Input
 }
 
 func (f *fakeAlbumIdentifier) Resolve(
 	_ context.Context, inputs []albumidentify.Input,
 ) ([]albumidentify.AlbumOption, error) {
-	f.gotInputs = inputs
+	f.callHistory = append(f.callHistory, inputs)
 	return f.options, f.err
 }
 
@@ -147,9 +148,21 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	// The traversal path never reaches the resolver.
-	if len(svc.gotInputs) != 1 || svc.gotInputs[0].Path != "song.mp3" {
-		t.Fatalf("unexpected inputs: %+v", svc.gotInputs)
+	// The resolver was called exactly once.
+	if len(svc.callHistory) != 1 {
+		t.Fatalf("expected 1 resolver call, got %d", len(svc.callHistory))
+	}
+	// The traversal path never reached the resolver: only song.mp3 did.
+	if len(svc.callHistory[0]) != 1 || svc.callHistory[0][0].Path != "song.mp3" {
+		t.Fatalf("unexpected inputs: %+v", svc.callHistory[0])
+	}
+	// Confirm ../outside.mp3 appears in NO recorded call.
+	for _, call := range svc.callHistory {
+		for _, input := range call {
+			if input.Path == "../outside.mp3" {
+				t.Fatalf("traversal path ../outside.mp3 leaked to resolver")
+			}
+		}
 	}
 	var body struct {
 		Errors []struct {
@@ -160,6 +173,63 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if len(body.Errors) != 1 || body.Errors[0].Path != "../outside.mp3" || body.Errors[0].Error == "" {
 		t.Fatalf("expected a per-path error, got %s", w.Body.String())
+	}
+}
+
+func TestIdentifyAlbum_AllPathsRejected(t *testing.T) {
+	root := t.TempDir()
+	svc := &fakeAlbumIdentifier{}
+	r, lib := newAlbumIdentifyHandler(t, root, svc)
+
+	w := postIdentifyAlbum(t, r, map[string]any{
+		"library_id": lib.ID, "paths": []string{"../a.mp3", "../b.mp3"},
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// The resolver was never called at all.
+	if len(svc.callHistory) != 0 {
+		t.Fatalf("expected 0 resolver calls, got %d", len(svc.callHistory))
+	}
+	var body struct {
+		Options []any `json:"options"`
+		Errors  []struct {
+			Path  string `json:"path"`
+			Error string `json:"error"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// options is an empty JSON array (not null).
+	if body.Options == nil || len(body.Options) != 0 {
+		t.Fatalf("expected empty options array, got %s", w.Body.String())
+	}
+	// Both paths appear in the errors array.
+	if len(body.Errors) != 2 {
+		t.Fatalf("expected 2 errors, got %d: %s", len(body.Errors), w.Body.String())
+	}
+	paths := map[string]bool{body.Errors[0].Path: true, body.Errors[1].Path: true}
+	if !paths["../a.mp3"] || !paths["../b.mp3"] {
+		t.Fatalf("expected both ../a.mp3 and ../b.mp3 in errors, got %s", w.Body.String())
+	}
+	if body.Errors[0].Error == "" || body.Errors[1].Error == "" {
+		t.Fatalf("expected error messages, got %s", w.Body.String())
+	}
+}
+
+// assertResolvedPathsAreValid verifies every input in the call has an absolute
+// AbsPath that lies inside libRoot (the library the handler looked up).
+func assertResolvedPathsAreValid(t *testing.T, libRoot string, inputs []albumidentify.Input) {
+	t.Helper()
+	for _, input := range inputs {
+		if !filepath.IsAbs(input.AbsPath) {
+			t.Fatalf("expected absolute path, got %q", input.AbsPath)
+		}
+		relPath, err := filepath.Rel(libRoot, input.AbsPath)
+		if err != nil || filepath.IsAbs(relPath) || len(relPath) >= 3 && relPath[:3] == ".."+string(filepath.Separator) {
+			t.Fatalf("path %q is not inside library root %q", input.AbsPath, libRoot)
+		}
 	}
 }
 
@@ -229,10 +299,16 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 	if len(o.Tracks) != 2 || o.Tracks[0].Title != "One" {
 		t.Fatalf("unexpected tracklist: %s", w.Body.String())
 	}
-	// The handler must pass the current tags down as ranking signals.
-	if len(svc.gotInputs) != 2 || svc.gotInputs[0].AbsPath == "" {
-		t.Fatalf("unexpected inputs: %+v", svc.gotInputs)
+	// The handler must pass the current tags down as ranking signals. Verify
+	// the resolver was called exactly once with two inputs, and that each
+	// AbsPath is absolute and inside the library root.
+	if len(svc.callHistory) != 1 {
+		t.Fatalf("expected 1 resolver call, got %d", len(svc.callHistory))
 	}
+	if len(svc.callHistory[0]) != 2 {
+		t.Fatalf("expected 2 inputs, got %d", len(svc.callHistory[0]))
+	}
+	assertResolvedPathsAreValid(t, root, svc.callHistory[0])
 }
 
 func TestIdentifyAlbum_ResolverErrorIsBadGateway(t *testing.T) {
