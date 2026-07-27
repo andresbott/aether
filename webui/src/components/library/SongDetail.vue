@@ -4,7 +4,7 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import type { Song } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
-import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 
 const props = defineProps<{
     song: Song
@@ -59,7 +59,10 @@ onBeforeUnmount(() => {
     resizeObserver?.disconnect()
 })
 
-watch(() => props.song.title, () => nextTick(fitTitle))
+watch(
+    () => props.song.title,
+    () => nextTick(fitTitle)
+)
 
 const formatDuration = (seconds?: number): string => {
     if (!seconds) return ''
@@ -73,6 +76,27 @@ const formatFileSize = (bytes?: number): string => {
     const mb = bytes / (1024 * 1024)
     return `${mb.toFixed(1)} MB`
 }
+
+// The disc subtitle lives on the album (OpenSubsonic discTitles), not on the
+// song, so the card fetches its album to label multi-disc releases. Only the
+// card shows it, so the plain detail view makes no extra request.
+const albumQuery = useAlbum(() => (props.card ? props.song.albumId : undefined))
+
+// An unset disc number is disc 0, which is how a single-disc release with a
+// disc subtitle is tagged — the subtitle still applies to this song.
+const discSubtitle = computed(() => {
+    const disc = props.song.discNumber ?? 0
+    return albumQuery.data.value?.discTitles?.find((d) => d.disc === disc)?.title ?? ''
+})
+
+// "Disc 2", "Disc 2 · Bonus Tracks" or just the subtitle — rendered after the
+// album title. Disc 0 means "unset" and is not shown.
+const discLabel = computed(() => {
+    const parts: string[] = []
+    if (props.song.discNumber) parts.push(`Disc ${props.song.discNumber}`)
+    if (discSubtitle.value) parts.push(discSubtitle.value)
+    return parts.join(' · ')
+})
 
 const toggleStar = useToggleStar()
 const isStarred = computed(() => !!props.song.starred)
@@ -103,13 +127,15 @@ const toggleLike = () => {
             <div class="song-info">
                 <h1 ref="titleRef">{{ song.title }}</h1>
                 <p class="artist">{{ song.artist }}</p>
-                <router-link
-                    v-if="song.albumId"
-                    :to="{ name: 'album', params: { id: song.albumId } }"
-                    class="album-link"
-                >
-                    {{ song.album }}
-                </router-link>
+                <p v-if="song.albumId" class="album-line">
+                    <router-link
+                        :to="{ name: 'album', params: { id: song.albumId } }"
+                        class="album-link"
+                    >
+                        {{ song.album }}
+                    </router-link>
+                    <span v-if="discLabel" class="disc-label">{{ discLabel }}</span>
+                </p>
 
                 <div v-if="!card" class="meta">
                     <span v-if="song.year">{{ song.year }}</span>
@@ -165,11 +191,7 @@ const toggleLike = () => {
                 </template>
 
                 <div v-if="!card" class="actions">
-                    <Button
-                        label="Play"
-                        icon="pi pi-play"
-                        @click="emit('play')"
-                    />
+                    <Button label="Play" icon="pi pi-play" @click="emit('play')" />
                 </div>
             </div>
         </div>
@@ -286,9 +308,28 @@ const toggleLike = () => {
     margin: 0;
 }
 
+.album-line {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0;
+    min-width: 0;
+}
+
 .album-link {
     font-size: 1rem;
     color: var(--app-accent);
+}
+
+.disc-label {
+    font-size: 0.9rem;
+    color: var(--app-text-secondary);
+}
+
+.disc-label::before {
+    content: '\00b7';
+    margin-right: 0.5rem;
 }
 
 .meta {

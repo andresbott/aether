@@ -24,6 +24,13 @@ export interface Artist {
     artistImageUrl?: string
 }
 
+// One disc of a multi-disc album that carries a subtitle (OpenSubsonic
+// AlbumID3.discTitles). Discs without a subtitle are not listed.
+export interface DiscTitle {
+    disc: number
+    title: string
+}
+
 export interface Album {
     id: string
     name: string
@@ -36,6 +43,7 @@ export interface Album {
     year?: number
     genre?: string
     starred?: string
+    discTitles?: DiscTitle[]
 }
 
 export interface AlbumWithSongs extends Album {

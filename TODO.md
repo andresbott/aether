@@ -73,6 +73,13 @@
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
+- [] if an album disk has a comment, add it int he view album view ( disk subtitle)
+- no palying hero card should print disk number if set, same with the subtitlte  ! print aftter the albuim title
+- in metadata editor, when identifyin multiple traks find a way to unify all in one album ( not always) but normally if we identify multiple ones they are all from the same album so find common one and improve ux
+  - maybe instead of single indentify use an identify albyum button when more than one is selected
+
+
+
 
 ## Frontend — Branding & Layout
 
