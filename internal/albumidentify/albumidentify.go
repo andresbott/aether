@@ -191,9 +191,14 @@ func (r *Resolver) enrich(ctx context.Context, o *AlbumOption) {
 	}
 	o.TrackCount = detail.TrackCount
 	o.DiscCount = detail.DiscCount
+	// Assign fresh slices rather than appending so calling enrich twice yields
+	// the same result as calling it once. The tracklist must not accumulate
+	// across calls because gap-fill treats each slot as claimable exactly once.
+	o.Artists = make([]Artist, 0, len(detail.Artists))
 	for _, a := range detail.Artists {
 		o.Artists = append(o.Artists, Artist{Name: a.Name, MBID: a.MBID})
 	}
+	o.Tracks = make([]Slot, 0, len(detail.Tracks))
 	for _, t := range detail.Tracks {
 		o.Tracks = append(o.Tracks, Slot{
 			DiscNumber:      t.DiscNumber,
@@ -209,9 +214,6 @@ func (r *Resolver) enrich(ctx context.Context, o *AlbumOption) {
 // there is none.
 func yearOf(date string) int {
 	parts := strings.SplitN(strings.TrimSpace(date), "-", 2)
-	if len(parts) == 0 {
-		return 0
-	}
 	y, err := strconv.Atoi(parts[0])
 	if err != nil {
 		return 0

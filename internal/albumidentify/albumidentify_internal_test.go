@@ -732,3 +732,31 @@ func TestResolveWithNoMatchesReturnsNoOptions(t *testing.T) {
 		t.Fatalf("expected no options, got %+v", opts)
 	}
 }
+
+func TestEnrichIsIdempotent(t *testing.T) {
+	releases := &fakeReleaseLookup{byMBID: map[string]artistimage.ReleaseDetail{
+		"rel-A": {
+			ReleaseMBID: "rel-A", Title: "Album A",
+			Artists:    []artistimage.ReleaseArtistCredit{{Name: "Artist", MBID: "art-1"}},
+			TrackCount: 2, DiscCount: 1,
+			Tracks: []artistimage.ReleaseTrack{
+				{DiscNumber: 1, TrackNumber: 1, Title: "One", DurationSeconds: 180, RecordingMBID: "rec-1"},
+				{DiscNumber: 1, TrackNumber: 2, Title: "Two", DurationSeconds: 200, RecordingMBID: "rec-2"},
+			},
+		},
+	}}
+	r := New(nil, releases)
+	o := &AlbumOption{ReleaseMBID: "rel-A"}
+
+	r.enrich(context.Background(), o)
+	artistsAfterOne := len(o.Artists)
+	tracksAfterOne := len(o.Tracks)
+
+	r.enrich(context.Background(), o)
+	if len(o.Artists) != artistsAfterOne {
+		t.Fatalf("enrich is not idempotent: artists grew from %d to %d", artistsAfterOne, len(o.Artists))
+	}
+	if len(o.Tracks) != tracksAfterOne {
+		t.Fatalf("enrich is not idempotent: tracks grew from %d to %d", tracksAfterOne, len(o.Tracks))
+	}
+}
