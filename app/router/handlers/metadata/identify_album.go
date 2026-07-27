@@ -97,7 +97,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The resolver only fails when the outbound lookups do; that is an
 		// upstream problem, not a bad request.
-		writeErr(w, http.StatusBadGateway, "upstream_error", err.Error())
+		writeUpstreamErr(w, err, "album identification is temporarily unavailable")
 		return
 	}
 	if options == nil {
