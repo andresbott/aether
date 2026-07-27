@@ -1,7 +1,9 @@
 package albumidentify
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -1223,5 +1225,71 @@ func TestEnrichIsIdempotent(t *testing.T) {
 	}
 	if len(o.Tracks) != tracksAfterOne {
 		t.Fatalf("enrich is not idempotent: tracks grew from %d to %d", tracksAfterOne, len(o.Tracks))
+	}
+}
+
+// The HTTP layer marshals AlbumOption straight to the wire and the client's
+// TypeScript declares every slice as an array, so a nil slice — which encodes as
+// JSON null — crashes the dialog on its first .map(). Only enrich() fills
+// Artists/Tracks, so every option past MaxEnrichedOptions, and every option
+// whose MusicBrainz lookup failed, ships un-enriched: exactly the case that must
+// still serialise as [].
+func TestResolveNeverEmitsNullSlicesInJSON(t *testing.T) {
+	// Two files matching two releases, with a release lookup that fails, so both
+	// options come back un-enriched.
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{
+				// No artist credits at all: toArtists must still yield [].
+				{
+					Score: 0.9, MBID: "rec-1", Title: "One",
+					Release: []acoustid.Release{
+						rel("rel-A", "Album A", 1991, 1, 1),
+						rel("rel-B", "Album B", 1995, 1, 4),
+					},
+				},
+			},
+			duration: 180,
+		},
+		// Unmatched, so fillGaps appends a SourceNone assignment for it.
+		"/lib/02.flac": {duration: 200},
+	}}
+	releases := &fakeReleaseLookup{failFor: map[string]bool{"rel-A": true, "rel-B": true}}
+
+	r := New(ident, releases)
+	options, _, err := r.Resolve(context.Background(), []Input{
+		{Path: "01.flac", AbsPath: "/lib/01.flac"},
+		{Path: "02.flac", AbsPath: "/lib/02.flac"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(options) == 0 {
+		t.Fatal("expected at least one option")
+	}
+
+	blob, err := json.Marshal(options)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// Assert on the encoded JSON, not the Go slices: "[]" vs "null" is precisely
+	// the distinction that broke the client, and only marshalling reveals it.
+	for _, nullField := range []string{
+		`"artists":null`,
+		`"tracks":null`,
+		`"assignments":null`,
+	} {
+		if bytes.Contains(blob, []byte(nullField)) {
+			t.Fatalf("found %s in the API payload; nil slices must encode as []: %s",
+				nullField, blob)
+		}
+	}
+
+	// And each option really is un-enriched, so the assertion above covered the
+	// case it was written for rather than passing on enriched data.
+	for _, o := range options {
+		if o.Enriched {
+			t.Fatalf("expected un-enriched options, got %+v", o)
+		}
 	}
 }

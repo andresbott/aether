@@ -40,6 +40,13 @@ func unionReleases(results []fileResult) []*AlbumOption {
 					ReleaseGroupMBID: m.release.ReleaseGroupMBID,
 					Album:            m.release.Title,
 					Year:             m.release.Year,
+					// Empty, not nil: these are serialised straight to the API,
+					// where a nil slice becomes JSON null and the client's typed
+					// array contract breaks on the first .map(). Only enrich()
+					// fills Artists, so an un-enriched option would otherwise ship
+					// null — which is every option past MaxEnrichedOptions.
+					Artists: []Artist{},
+					Tracks:  []Slot{},
 				}
 				byMBID[mbid] = opt
 				order = append(order, mbid)
@@ -105,10 +112,9 @@ func bestPerRelease(recs []acoustid.Recording) map[string]releaseMatch {
 	return out
 }
 
+// toArtists always returns a non-nil slice: the result is serialised to the API
+// as an array the client dereferences without a null check.
 func toArtists(credits []acoustid.ArtistCredit) []Artist {
-	if len(credits) == 0 {
-		return nil
-	}
 	out := make([]Artist, 0, len(credits))
 	for _, c := range credits {
 		out = append(out, Artist{Name: c.Name, MBID: c.MBID})

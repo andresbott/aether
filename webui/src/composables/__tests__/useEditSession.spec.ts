@@ -755,6 +755,34 @@ describe('albumPickToOverlay', () => {
         assignments: []
     }
 
+    // A Go nil slice marshals to JSON null, so `artists` can arrive null even
+    // though the type declares an array. That must degrade to "no artists
+    // staged", never throw and lose the whole apply.
+    it('survives null artist lists on the option and the assignment', () => {
+        const pick = {
+            path: 'a.mp3',
+            option: { ...option, artists: null },
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: 'rec-id',
+                artists: null,
+                disc_number: 1,
+                track_number: 5,
+                score: 0.95
+            }
+        } as unknown as AlbumIdentifyPick
+
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.album_artists).toBeUndefined()
+        expect(overlay.artists).toBeUndefined()
+        // The rest of the pick still stages normally.
+        expect(overlay.album).toBe('Album')
+        expect(overlay.title).toBe('Song')
+        expect(overlay.track_number).toBe(5)
+    })
+
     it('stages both album-level and song-level fields when assignment is present', () => {
         const pick: AlbumIdentifyPick = {
             path: 'a.mp3',

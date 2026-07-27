@@ -248,14 +248,18 @@ export function albumPickToOverlay(
     if (option.release_mbid !== '') out.mb_release_id = option.release_mbid
     if (option.release_group_mbid !== '') out.mb_release_group_id = option.release_group_mbid
     if (option.year > 0) out.year = option.year
-    if (option.artists.length > 0) {
-        out.album_artists = option.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+    // `?? []` despite the type promising an array: a missing credit list must
+    // stage no artists, never abort the whole apply and lose the user's picks.
+    const albumArtists = option.artists ?? []
+    if (albumArtists.length > 0) {
+        out.album_artists = albumArtists.map((a) => ({ name: a.name, mbid: a.mbid }))
     }
     if (assignment) {
         if (assignment.title !== '') out.title = assignment.title
         if (assignment.recording_mbid !== '') out.mb_recording_id = assignment.recording_mbid
-        if (assignment.artists.length > 0) {
-            out.artists = assignment.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+        const trackArtists = assignment.artists ?? []
+        if (trackArtists.length > 0) {
+            out.artists = trackArtists.map((a) => ({ name: a.name, mbid: a.mbid }))
         }
         if (assignment.track_number > 0) out.track_number = assignment.track_number
         if (assignment.disc_number > 0) out.disc_number = assignment.disc_number

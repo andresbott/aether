@@ -88,10 +88,14 @@ func fillGaps(o *AlbumOption, results []fileResult) {
 				RecordingMBID: s.RecordingMBID,
 				DiscNumber:    s.DiscNumber,
 				TrackNumber:   s.TrackNumber,
+				// Empty, not nil: serialised to the API as an array the client
+				// maps over without a null check. A tracklist slot carries no
+				// artist credits of its own, so there is nothing to copy here.
+				Artists: []Artist{},
 			})
 			continue
 		}
-		a := Assignment{Path: res.input.Path, Source: SourceNone}
+		a := Assignment{Path: res.input.Path, Source: SourceNone, Artists: []Artist{}}
 		if res.err != nil {
 			// The short reason, not the Go error: this row is rendered verbatim
 			// in the dialog. See failureReason.
