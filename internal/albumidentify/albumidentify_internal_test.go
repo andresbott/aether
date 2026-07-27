@@ -242,6 +242,23 @@ func TestRankCurrentAlbumTagBreaksTie(t *testing.T) {
 	}
 }
 
+// Pre-fix, albumTagAgreement used a weaker normaliser than gap-fill, so
+// "Nevermind (Remastered)" vs "Nevermind" disagreed despite being the same album.
+func TestRankAlbumTagAgreesToleratesPunctuation(t *testing.T) {
+	inputs := []Input{
+		{Path: "a.flac", CurrentAlbum: "Nevermind (Remastered)"},
+		{Path: "b.flac", CurrentAlbum: "Nevermind (Remastered)"},
+	}
+	opts := []*AlbumOption{
+		opt("other", "Best Of", 1991, []int{1, 2}, 0.8),
+		opt("tagged", "Nevermind", 1991, []int{1, 2}, 0.8),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "tagged" {
+		t.Fatalf("expected the option matching the current album tag (ignoring punctuation) to win, got %v", got)
+	}
+}
+
 func TestRankTracklistSizeFavoursTheAlbumOverTheCompilation(t *testing.T) {
 	inputs := []Input{{Path: "a.flac"}, {Path: "b.flac"}, {Path: "c.flac"}}
 	album := opt("album", "Album", 1991, []int{1, 2, 3}, 0.8)

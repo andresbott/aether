@@ -125,22 +125,31 @@ func sizeFit(trackCount, selected int) float64 {
 // albumTagAgreement is the share of inputs whose current album tag already
 // names this release — the user's existing tags are evidence, not noise.
 func albumTagAgreement(o *AlbumOption, inputs []Input) float64 {
-	want := normalizeAlbum(o.Album)
+	want := normalizeText(o.Album)
 	if want == "" {
 		return 0
 	}
 	var hits int
 	for _, in := range inputs {
-		if normalizeAlbum(in.CurrentAlbum) == want {
+		if normalizeText(in.CurrentAlbum) == want {
 			hits++
 		}
 	}
 	return float64(hits) / float64(len(inputs))
 }
 
-// normalizeAlbum canonicalises album names for comparison. Case and whitespace
-// differences are normalised because they are common transcription variations,
-// not evidence that the albums differ.
-func normalizeAlbum(s string) string {
-	return strings.ToLower(strings.TrimSpace(s))
+// normalizeText canonicalises text for comparison. Case, whitespace, and
+// punctuation differences are normalised because they are common transcription
+// variations, not evidence that the strings differ.
+func normalizeText(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteRune(' ')
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }

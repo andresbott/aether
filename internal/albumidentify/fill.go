@@ -120,8 +120,8 @@ func fillScore(res fileResult, s Slot) float64 {
 		weight += 0.6
 	}
 
-	fileTitle := normalizeTitle(res.input.CurrentTitle)
-	slotTitle := normalizeTitle(s.Title)
+	fileTitle := normalizeText(res.input.CurrentTitle)
+	slotTitle := normalizeText(s.Title)
 	if fileTitle != "" && slotTitle != "" {
 		score += 0.3 * titleSimilarity(fileTitle, slotTitle)
 		weight += 0.3
@@ -171,15 +171,3 @@ func titleSimilarity(a, b string) float64 {
 	return float64(hits) / float64(len(wa))
 }
 
-func normalizeTitle(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteRune(' ')
-		}
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
-}
