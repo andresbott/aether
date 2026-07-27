@@ -477,7 +477,7 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
 }
 
 .volume-slider :deep(.p-slider-range) {
-    background: var(--app-player-dim);
+    background: var(--app-accent);
     border-radius: 99px;
 }
 
