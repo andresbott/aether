@@ -337,7 +337,7 @@ func TestMusicBrainzReleaseParsesTracklist(t *testing.T) {
 					"tracks": [
 						{"position": 1, "title": "Smells Like Teen Spirit", "length": 301000,
 						 "recording": {"id": "rec-1"}},
-						{"position": 2, "title": "In Bloom", "length": 254000,
+						{"position": 2, "title": "In Bloom", "length": 254500,
 						 "recording": {"id": "rec-2"}}
 					]
 				}
@@ -362,7 +362,7 @@ func TestMusicBrainzReleaseParsesTracklist(t *testing.T) {
 	}
 	want := ReleaseTrack{
 		DiscNumber: 1, TrackNumber: 2, Title: "In Bloom",
-		DurationSeconds: 254, RecordingMBID: "rec-2",
+		DurationSeconds: 254.5, RecordingMBID: "rec-2",
 	}
 	if !reflect.DeepEqual(got.Tracks[1], want) {
 		t.Fatalf("unexpected track: got %+v want %+v", got.Tracks[1], want)
