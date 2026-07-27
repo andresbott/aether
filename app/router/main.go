@@ -10,6 +10,7 @@ import (
 	"github.com/andresbott/aether/app/spa"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
@@ -29,7 +30,7 @@ type Cfg struct {
 	ArtistFetcher tasks.Fetcher
 	// Identifier is optional: nil disables audio identification in the
 	// metadata editor.
-	Identifier metadataHandler.IdentifyService
+	Identifier *identify.Identifier
 	// IdentifyUnavailableReason is the user-facing explanation shown by the
 	// editor when Identifier is nil (e.g. fpcalc missing). Ignored otherwise.
 	IdentifyUnavailableReason string
@@ -50,7 +51,7 @@ type MainAppHandler struct {
 	tagReader     tags.Reader
 	artistFetcher tasks.Fetcher
 	assets        *assetstore.Store
-	identifier    metadataHandler.IdentifyService
+	identifier    *identify.Identifier
 	identifyOff   string
 	rescanner     metadataHandler.TrackRescanner
 }
