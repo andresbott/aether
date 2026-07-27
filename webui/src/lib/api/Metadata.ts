@@ -57,16 +57,26 @@ export async function getMetadataCapabilities() {
 // identifyTracks resolves the given files to MusicBrainz recording candidates
 // by acoustic fingerprint. Slow: each path costs a fingerprint run plus a
 // rate-limited AcoustID call on the server.
-export async function identifyTracks(body: IdentifyRequest) {
-    const { data } = await apiClient.post<IdentifyResponse>('/metadata/identify', body)
+// signal aborts the request: the server fingerprints the paths in a loop driven
+// by the request context, so cancelling stops it part-way instead of running the
+// remaining files for a response nobody will read.
+export async function identifyTracks(body: IdentifyRequest, signal?: AbortSignal) {
+    const { data } = await apiClient.post<IdentifyResponse>('/metadata/identify', body, { signal })
     return data.results
 }
 
 // identifyAlbum maps a multi-file selection onto a single release. Slower than
 // identifyTracks: the server fingerprints every file and then fetches
 // MusicBrainz tracklists for the best candidate releases.
-export async function identifyAlbum(body: IdentifyAlbumRequest) {
-    const { data } = await apiClient.post<IdentifyAlbumResponse>('/metadata/identify-album', body)
+// signal aborts the request: the server threads the request context through
+// fpcalc and the AcoustID/MusicBrainz lookups, so cancelling really does stop
+// the work rather than just abandoning the response.
+export async function identifyAlbum(body: IdentifyAlbumRequest, signal?: AbortSignal) {
+    const { data } = await apiClient.post<IdentifyAlbumResponse>(
+        '/metadata/identify-album',
+        body,
+        { signal }
+    )
     return data
 }
 

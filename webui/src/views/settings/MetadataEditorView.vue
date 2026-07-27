@@ -156,16 +156,51 @@ const identifyMutation = useIdentifyTracks()
 const identifyAlbumMutation = useIdentifyAlbum()
 
 const identifyResults = ref<IdentifyTrackResult[]>([])
+const identifyPendingTracks = ref<Track[]>([])
 const identifyDialog = ref(false)
+
+// The controller for the request currently in flight, so Cancel can abort it.
+let identifyAbort: AbortController | null = null
 
 async function identify(tracks: Track[]) {
     if (selectedLibraryId.value === null || tracks.length === 0) return
-    const results = await identifyMutation.mutateAsync({
-        library_id: selectedLibraryId.value,
-        paths: tracks.map((t) => t.path)
-    })
-    identifyResults.value = results
+
+    // Open on click, before the request resolves: each file costs a fingerprint
+    // run plus a rate-limited AcoustID call, so a button that looks inert that
+    // long reads as broken. The dialog shows its own progress state and Cancel.
+    identifyPendingTracks.value = tracks
+    identifyResults.value = []
     identifyDialog.value = true
+
+    const abort = new AbortController()
+    identifyAbort = abort
+    try {
+        const results = await identifyMutation.mutateAsync({
+            body: {
+                library_id: selectedLibraryId.value,
+                paths: tracks.map((t) => t.path)
+            },
+            signal: abort.signal
+        })
+        // A response that arrives after the user cancelled (or started another
+        // run) must not repopulate a dialog they already dismissed.
+        if (identifyAbort !== abort) return
+        identifyResults.value = results
+    } catch {
+        // The mutation toasts real failures and stays silent on a cancel; either
+        // way there is nothing to review, so close rather than show an empty
+        // dialog the user has to dismiss.
+        if (identifyAbort === abort) identifyDialog.value = false
+    } finally {
+        if (identifyAbort === abort) identifyAbort = null
+    }
+}
+
+// Cancel means stop the work, not just hide the dialog: the request is holding a
+// fingerprint pass and rate-limited AcoustID lookups open.
+function onIdentifyCancel() {
+    identifyAbort?.abort()
+    identifyAbort = null
 }
 
 function onIdentifyApply(picks: IdentifyPick[]) {
@@ -186,16 +221,50 @@ const albumIdentifiedTracks = ref<Track[]>([])
 const albumPathErrors = ref<Array<{ path: string; error: string }>>([])
 const albumDialog = ref(false)
 
+// The controller for the request currently in flight, so Cancel can abort it.
+let albumIdentifyAbort: AbortController | null = null
+
 async function identifyAlbum(tracks: Track[]) {
     if (selectedLibraryId.value === null || tracks.length < 2) return
-    const out = await identifyAlbumMutation.mutateAsync({
-        library_id: selectedLibraryId.value,
-        paths: tracks.map((t) => t.path)
-    })
-    albumOptions.value = out.options
+
+    // Open on click, before the request resolves: identification takes tens of
+    // seconds for a full album, and a button that looks inert that long reads as
+    // broken. The dialog shows its own progress state and offers Cancel.
     albumIdentifiedTracks.value = tracks
-    albumPathErrors.value = out.errors
+    albumOptions.value = []
+    albumPathErrors.value = []
     albumDialog.value = true
+
+    const abort = new AbortController()
+    albumIdentifyAbort = abort
+    try {
+        const out = await identifyAlbumMutation.mutateAsync({
+            body: {
+                library_id: selectedLibraryId.value,
+                paths: tracks.map((t) => t.path)
+            },
+            signal: abort.signal
+        })
+        // A response that arrives after the user cancelled (or started another
+        // run) must not repopulate a dialog they already dismissed.
+        if (albumIdentifyAbort !== abort) return
+        albumOptions.value = out.options
+        albumPathErrors.value = out.errors
+    } catch {
+        // The mutation toasts real failures and stays silent on a cancel; either
+        // way there is nothing to review, so close rather than show an empty
+        // dialog the user has to dismiss.
+        if (albumIdentifyAbort === abort) albumDialog.value = false
+    } finally {
+        if (albumIdentifyAbort === abort) albumIdentifyAbort = null
+    }
+}
+
+// Cancel means stop the work, not just hide the dialog: the request is holding a
+// fingerprint pass and rate-limited upstream lookups open.
+function onAlbumIdentifyCancel() {
+    albumIdentifyAbort?.abort()
+    albumIdentifyAbort = null
 }
 
 function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
@@ -311,7 +380,10 @@ function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
             v-model:visible="identifyDialog"
             :results="identifyResults"
             :tracks="tracksQuery.data.value ?? []"
+            :loading="identifyMutation.isPending.value"
+            :pending="identifyPendingTracks"
             @apply="onIdentifyApply"
+            @cancel="onIdentifyCancel"
         />
 
         <IdentifyAlbumDialog
@@ -319,7 +391,9 @@ function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
             :options="albumOptions"
             :tracks="albumIdentifiedTracks"
             :pathErrors="albumPathErrors"
+            :loading="identifyAlbumMutation.isPending.value"
             @apply="onAlbumIdentifyApply"
+            @cancel="onAlbumIdentifyCancel"
         />
 
         <ConfirmDialog />

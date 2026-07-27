@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { QueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as MetadataApi from '@/lib/api/Metadata'
-import { apiErrorMessage } from '@/lib/apiError'
+import { apiErrorMessage, isCanceledError } from '@/lib/apiError'
 import type {
     Folder,
     IdentifyAlbumRequest,
@@ -201,11 +201,22 @@ export function useMetadataCapabilities() {
 
 // useIdentifyTracks resolves files to MusicBrainz recording candidates by
 // acoustic fingerprint. Identification writes nothing, so no invalidation.
+// IdentifyTracksVariables carries the optional abort signal alongside the
+// request body, so the caller can cancel a run that is already in flight.
+export interface IdentifyTracksVariables {
+    body: IdentifyRequest
+    signal?: AbortSignal
+}
+
 export function useIdentifyTracks() {
     const toast = useToast()
     return useMutation({
-        mutationFn: (body: IdentifyRequest) => MetadataApi.identifyTracks(body),
+        mutationFn: (vars: IdentifyTracksVariables) =>
+            MetadataApi.identifyTracks(vars.body, vars.signal),
         onError: (err: any) => {
+            // A cancel the user asked for is not a failure; toasting it would
+            // report an error for the button they just pressed.
+            if (isCanceledError(err)) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to identify tracks',
@@ -216,13 +227,24 @@ export function useIdentifyTracks() {
     })
 }
 
+// IdentifyAlbumVariables carries the optional abort signal alongside the request
+// body, so the caller can cancel a run that is already in flight.
+export interface IdentifyAlbumVariables {
+    body: IdentifyAlbumRequest
+    signal?: AbortSignal
+}
+
 // useIdentifyAlbum maps the selected files onto one release. Like
 // useIdentifyTracks it writes nothing, so there is no invalidation.
 export function useIdentifyAlbum() {
     const toast = useToast()
     return useMutation({
-        mutationFn: (body: IdentifyAlbumRequest) => MetadataApi.identifyAlbum(body),
+        mutationFn: (vars: IdentifyAlbumVariables) =>
+            MetadataApi.identifyAlbum(vars.body, vars.signal),
         onError: (err: any) => {
+            // A cancel the user asked for is not a failure; toasting it would
+            // report an error for the button they just pressed.
+            if (isCanceledError(err)) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to identify album',
