@@ -59,9 +59,12 @@ func unionReleases(results []fileResult) []*AlbumOption {
 	out := make([]*AlbumOption, 0, len(order))
 	for _, mbid := range order {
 		opt := byMBID[mbid]
-		// Assignments arrive in input order per release; keep them so, and
-		// summarise coverage.
+		// Assignments arrive in input order per release; sort them by disc, then
+		// track, and summarise coverage.
 		sort.SliceStable(opt.Assignments, func(i, j int) bool {
+			if opt.Assignments[i].DiscNumber != opt.Assignments[j].DiscNumber {
+				return opt.Assignments[i].DiscNumber < opt.Assignments[j].DiscNumber
+			}
 			return opt.Assignments[i].TrackNumber < opt.Assignments[j].TrackNumber
 		})
 		opt.MatchedCount = len(opt.Assignments)
