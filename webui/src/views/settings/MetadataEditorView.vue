@@ -9,7 +9,7 @@ import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import { useConfirm } from 'primevue/useconfirm'
 import { useLibraries } from '@/composables/useLibraries'
-import { useTracks, useMetadataCapabilities, useIdentifyTracks } from '@/composables/useMetadataEditor'
+import { useTracks, useMetadataCapabilities, useIdentifyTracks, useIdentifyAlbum } from '@/composables/useMetadataEditor'
 import { useEditSession, candidateToOverlay } from '@/composables/useEditSession'
 import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
@@ -145,6 +145,7 @@ const identifyUnavailableReason = computed(() => {
     )
 })
 const identifyMutation = useIdentifyTracks()
+const identifyAlbumMutation = useIdentifyAlbum()
 
 const identifyResults = ref<IdentifyTrackResult[]>([])
 const identifyDialog = ref(false)
@@ -238,6 +239,7 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                     :canIdentify="canIdentify"
                     :identifyUnavailableReason="identifyUnavailableReason"
                     :isIdentifying="identifyMutation.isPending.value"
+                    :isIdentifyingAlbum="identifyAlbumMutation.isPending.value"
                     @identify="identify"
                 />
             </SplitterPanel>
