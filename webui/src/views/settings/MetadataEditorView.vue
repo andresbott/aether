@@ -182,6 +182,8 @@ function onIdentifyApply(picks: IdentifyPick[]) {
 // ----- Identify album -----
 
 const albumOptions = ref<AlbumOption[]>([])
+const albumIdentifiedTracks = ref<Track[]>([])
+const albumPathErrors = ref<Array<{ path: string; error: string }>>([])
 const albumDialog = ref(false)
 
 async function identifyAlbum(tracks: Track[]) {
@@ -191,6 +193,8 @@ async function identifyAlbum(tracks: Track[]) {
         paths: tracks.map((t) => t.path)
     })
     albumOptions.value = out.options
+    albumIdentifiedTracks.value = tracks
+    albumPathErrors.value = out.errors
     albumDialog.value = true
 }
 
@@ -313,7 +317,8 @@ function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
         <IdentifyAlbumDialog
             v-model:visible="albumDialog"
             :options="albumOptions"
-            :tracks="selection"
+            :tracks="albumIdentifiedTracks"
+            :pathErrors="albumPathErrors"
             @apply="onAlbumIdentifyApply"
         />
 

@@ -742,7 +742,7 @@ func TestResolveEnrichesAndFillsTheBestOption(t *testing.T) {
 	}}
 
 	r := New(ident, releases)
-	opts, err := r.Resolve(context.Background(), []Input{
+	opts, _, err := r.Resolve(context.Background(), []Input{
 		{Path: "01.flac", AbsPath: "/lib/01.flac"},
 		{Path: "02.flac", AbsPath: "/lib/02.flac"},
 	})
@@ -801,7 +801,7 @@ func TestResolveCapsEnrichmentAtMaxEnrichedOptions(t *testing.T) {
 	releases := &fakeReleaseLookup{byMBID: byMBID}
 
 	r := New(fakeFileIdentifier{byPath: byPath}, releases)
-	opts, err := r.Resolve(context.Background(), inputs)
+	opts, _, err := r.Resolve(context.Background(), inputs)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestResolveDegradesAFailedEnrichment(t *testing.T) {
 	releases := &fakeReleaseLookup{failFor: map[string]bool{"rel-A": true}}
 
 	r := New(ident, releases)
-	opts, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
+	opts, _, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
 	if err != nil {
 		t.Fatalf("Resolve must not fail when MusicBrainz does: %v", err)
 	}
@@ -860,7 +860,7 @@ func TestResolveReportsPerFileFailuresWithoutFailing(t *testing.T) {
 	}}
 
 	r := New(ident, releases)
-	opts, err := r.Resolve(context.Background(), []Input{
+	opts, _, err := r.Resolve(context.Background(), []Input{
 		{Path: "01.flac", AbsPath: "/lib/01.flac"},
 		{Path: "bad.flac", AbsPath: "/lib/bad.flac"},
 	})
@@ -876,12 +876,44 @@ func TestResolveReportsPerFileFailuresWithoutFailing(t *testing.T) {
 func TestResolveWithNoMatchesReturnsNoOptions(t *testing.T) {
 	ident := fakeFileIdentifier{byPath: map[string]fileResult{"/lib/01.flac": {duration: 180}}}
 	r := New(ident, &fakeReleaseLookup{})
-	opts, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
+	opts, fileErrs, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if len(opts) != 0 {
 		t.Fatalf("expected no options, got %+v", opts)
+	}
+	if len(fileErrs) != 0 {
+		t.Fatalf("expected no file errors when the file just didn't match, got %+v", fileErrs)
+	}
+}
+
+// Pre-fix, when every file failed to fingerprint, Resolve returned (nil, nil)
+// and the dialog told the user "None matched" — a hard failure was misdiagnosed
+// as a lookup miss.
+func TestResolveReturnsFileErrorsWhenAllFilesFail(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/a.flac": {err: errFake},
+		"/lib/b.flac": {err: errFake},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	opts, fileErrs, err := r.Resolve(context.Background(), []Input{
+		{Path: "a.flac", AbsPath: "/lib/a.flac"},
+		{Path: "b.flac", AbsPath: "/lib/b.flac"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("expected no options when all files failed, got %+v", opts)
+	}
+	if len(fileErrs) != 2 {
+		t.Fatalf("expected 2 file errors, got %d", len(fileErrs))
+	}
+	for _, fe := range fileErrs {
+		if fe.Error == "" {
+			t.Fatalf("file error must carry the error message, got %+v", fe)
+		}
 	}
 }
 

@@ -12,10 +12,10 @@ import (
 )
 
 // AlbumIdentifyService maps a set of files onto a single MusicBrainz release,
-// returning the candidate albums ranked best-first. Satisfied by
-// *albumidentify.Resolver.
+// returning the candidate albums ranked best-first plus per-file errors.
+// Satisfied by *albumidentify.Resolver.
 type AlbumIdentifyService interface {
-	Resolve(ctx context.Context, inputs []albumidentify.Input) ([]albumidentify.AlbumOption, error)
+	Resolve(ctx context.Context, inputs []albumidentify.Input) ([]albumidentify.AlbumOption, []albumidentify.FileError, error)
 }
 
 // minAlbumIdentifyPaths: identifying "the album" of a single file is just
@@ -93,7 +93,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	options, err := h.AlbumIdentifier.Resolve(r.Context(), inputs)
+	options, fileErrors, err := h.AlbumIdentifier.Resolve(r.Context(), inputs)
 	if err != nil {
 		// The resolver only fails when the outbound lookups do; that is an
 		// upstream problem, not a bad request.
@@ -102,6 +102,10 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	}
 	if options == nil {
 		options = []albumidentify.AlbumOption{}
+	}
+	// Merge fingerprint errors with path errors so the dialog shows both.
+	for _, fe := range fileErrors {
+		pathErrors = append(pathErrors, pathErrorDTO{Path: fe.Path, Error: fe.Error})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"options": options, "errors": pathErrors})
 }

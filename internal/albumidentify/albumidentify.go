@@ -121,6 +121,12 @@ type fileResult struct {
 // with an unknown track count and no gap-fill — and the user can pick one.
 const MaxEnrichedOptions = 8
 
+// FileError is one file's fingerprint failure.
+type FileError struct {
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
 // Resolver maps file selections onto single releases. Releases may be nil: the
 // resolver then skips enrichment entirely and returns fingerprint-only options.
 type Resolver struct {
@@ -134,25 +140,30 @@ func New(id FileIdentifier, rel ReleaseLookup) *Resolver {
 }
 
 // Resolve fingerprints every input and returns the candidate releases for the
-// selection, best first, each carrying one assignment per input.
+// selection (best first, each carrying one assignment per input) plus per-file
+// fingerprint errors.
 //
 // It fails only when it cannot proceed at all: a file that will not fingerprint
 // and a release lookup that errors are both reported in the result — the first
-// on that file's row, the second as an un-enriched option — because a partial
+// in the FileError slice, the second as an un-enriched option — because a partial
 // answer is still useful to the user, and one bad file must not sink a
 // twelve-file album.
-func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, error) {
+func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, []FileError, error) {
 	results := make([]fileResult, 0, len(inputs))
+	var fileErrors []FileError
 	for _, in := range inputs {
 		// Sequential on purpose: fpcalc is CPU-bound and the AcoustID client is
 		// rate-limited, so concurrency buys nothing here.
 		recs, dur, err := r.Identifier.IdentifyFileWithDuration(ctx, in.AbsPath)
 		results = append(results, fileResult{input: in, recordings: recs, duration: dur, err: err})
+		if err != nil {
+			fileErrors = append(fileErrors, FileError{Path: in.Path, Error: err.Error()})
+		}
 	}
 
 	options := unionReleases(results)
 	if len(options) == 0 {
-		return nil, nil
+		return nil, fileErrors, nil
 	}
 	rankOptions(options, inputs)
 
@@ -169,7 +180,7 @@ func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, 
 	for _, o := range options {
 		out = append(out, *o)
 	}
-	return out, nil
+	return out, fileErrors, nil
 }
 
 // enrich fills an option's tracklist and album-level fields from MusicBrainz.

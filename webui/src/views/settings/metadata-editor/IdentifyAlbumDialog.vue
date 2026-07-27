@@ -25,6 +25,7 @@ const props = defineProps<{
     visible: boolean
     options: AlbumOption[]
     tracks: Track[]
+    pathErrors: Array<{ path: string; error: string }>
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
@@ -266,8 +267,26 @@ function apply() {
         modal
         :style="{ width: '72rem', maxWidth: '95vw' }"
     >
-        <div v-if="options.length === 0" class="album-empty" data-test="album-empty">
+        <div
+            v-if="pathErrors.length > 0"
+            class="album-path-errors"
+            data-test="album-path-errors"
+        >
+            <p class="path-errors-header">Some files could not be fingerprinted:</p>
+            <ul class="path-errors-list">
+                <li v-for="e in pathErrors" :key="e.path" class="path-error-item">
+                    <span class="path-error-path">{{ e.path }}</span>
+                    <span class="path-error-message">{{ e.error }}</span>
+                </li>
+            </ul>
+        </div>
+
+        <div v-if="options.length === 0 && pathErrors.length === 0" class="album-empty" data-test="album-empty">
             None of these songs matched a known release.
+        </div>
+
+        <div v-else-if="options.length === 0 && pathErrors.length > 0" class="album-empty" data-test="album-empty">
+            No songs matched a known release.
         </div>
 
         <template v-else>
@@ -355,6 +374,36 @@ function apply() {
 .album-empty {
     padding: 1rem 0;
     color: var(--app-text-secondary);
+}
+.album-path-errors {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border: 1px solid var(--p-red-300, #fca5a5);
+    border-radius: 6px;
+    background: var(--p-red-50, #fef2f2);
+}
+.path-errors-header {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+    color: var(--p-red-800, #991b1b);
+}
+.path-errors-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+}
+.path-error-item {
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+}
+.path-error-path {
+    font-family: var(--p-font-mono, 'Courier New', monospace);
+    font-weight: 600;
+    color: var(--p-red-900, #7f1d1d);
+}
+.path-error-message {
+    margin-left: 0.5rem;
+    color: var(--p-red-700, #b91c1c);
 }
 .album-pick {
     display: flex;
