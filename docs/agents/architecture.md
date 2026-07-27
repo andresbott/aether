@@ -22,7 +22,8 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
             |            v                    v
     internal/* ── store (GORM/SQLite) ── scanner ── tags ── model
                   taskrunner · assetstore · artistimage · coverart ·
-                  covergen · identify · metadataedit · radiobrowser · unidecode
+                  covergen · identify · albumidentify · metadataedit ·
+                  radiobrowser · unidecode
     libs/ ── acoustid, fpcalc (standalone clients, no aether imports)
 
 - **`app/cmd` is the only composition root.** `server.go` builds everything —
@@ -121,6 +122,24 @@ starting with `@` load the referenced file's contents (used for gitignored
   `GET /api/v1/metadata/capabilities` returns as `identify: false` +
   `identify_unavailable_reason` so the editor can grey out Identify and say
   what is missing rather than hiding it.
+- **Album identification** (`internal/albumidentify`) answers the album question
+  the editor asks when tagging a rip: which single release explains this whole
+  selection, and where does each file sit on it. It fingerprints every file
+  through `internal/identify`, unions every release the AcoustID candidates
+  mention, ranks the union (coverage of the selection first, then mean score,
+  track-position contiguity, tracklist-size fit, agreement with the files'
+  existing album tag, single-disc bonus, earliest year as tiebreak), enriches
+  the best `MaxEnrichedOptions` (8) with their MusicBrainz tracklist, and places
+  the files no fingerprint matched by duration + title similarity. The cap
+  exists because a dozen-file selection routinely unions dozens of releases —
+  every reissue and compilation a track ever appeared on — and MusicBrainz is
+  throttled to a few requests per second; the options past the cap still appear,
+  with an unknown track count and no gap-fill. Exposed as
+  `POST /api/v1/metadata/identify-album` (management API, not `/rest`), nil-safe
+  exactly like identify: no fingerprinting service means a 503 and a greyed-out
+  button. A per-file fingerprint failure is reported on that file's row and a
+  failed MusicBrainz lookup only degrades its own option — neither fails the
+  request.
 - **radio-browser.info** (`internal/radiobrowser`) — station search proxied
   server-side to dodge CORS; an admin import tool only.
 
