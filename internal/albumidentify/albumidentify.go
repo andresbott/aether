@@ -12,10 +12,12 @@ package albumidentify
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
 )
 
@@ -143,11 +145,16 @@ func New(id FileIdentifier, rel ReleaseLookup) *Resolver {
 // selection (best first, each carrying one assignment per input) plus per-file
 // fingerprint errors.
 //
-// It fails only when it cannot proceed at all: a file that will not fingerprint
+// A partial failure is never a request failure: a file that will not fingerprint
 // and a release lookup that errors are both reported in the result — the first
 // in the FileError slice, the second as an un-enriched option — because a partial
 // answer is still useful to the user, and one bad file must not sink a
 // twelve-file album.
+//
+// It fails only when NOTHING could be identified and the reason was the AcoustID
+// service rather than the files: an outage answered as a 200 list of per-file
+// errors reads as "these files could not be identified", when the truth is "try
+// again in a moment". See upstreamFailure.
 func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, []FileError, error) {
 	results := make([]fileResult, 0, len(inputs))
 	var fileErrors []FileError
@@ -159,6 +166,9 @@ func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, 
 		if err != nil {
 			fileErrors = append(fileErrors, FileError{Path: in.Path, Error: err.Error()})
 		}
+	}
+	if err := upstreamFailure(results); err != nil {
+		return nil, fileErrors, err
 	}
 
 	options := unionReleases(results)
@@ -181,6 +191,46 @@ func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, 
 		out = append(out, *o)
 	}
 	return out, fileErrors, nil
+}
+
+// upstreamFailure returns a request-level error when EVERY input failed and at
+// least one failure came from the AcoustID service itself; nil otherwise.
+//
+// Both halves of that condition matter. "Every input failed" is what separates
+// an outage from one unreadable file among eleven good ones — a partial answer
+// is still an answer, and the bad file's report belongs on its row. "Came from
+// the service" is what separates a retryable outage from a per-file data problem
+// (fpcalc missing, unsupported codec, truncated file): those are genuinely about
+// the files, so 200 with per-file errors is the honest answer for them.
+//
+// The discriminator is *upstream.Error via errors.As, never error text.
+// internal/identify wraps every AcoustID failure into that type (see
+// identify.asUpstream), so a rate limit, a timeout, an unreachable host and a
+// provider refusal all arrive typed and the handler's writeUpstreamErr maps them
+// to 429/504/502 with a human sentence. A refusal is included even though
+// retrying will not help: nothing was identified, and reporting a bad API key as
+// "these files could not be fingerprinted" would send the user hunting the wrong
+// problem.
+//
+// The returned error is the first upstream failure seen. Reporting one cause is
+// enough — during an outage every file fails the same way, and the user needs the
+// condition, not eleven copies of it.
+func upstreamFailure(results []fileResult) error {
+	if len(results) == 0 {
+		return nil
+	}
+	var firstUpstream error
+	for _, res := range results {
+		if res.err == nil {
+			// Something worked, so the service is reachable: not an outage.
+			return nil
+		}
+		var uerr *upstream.Error
+		if firstUpstream == nil && errors.As(res.err, &uerr) {
+			firstUpstream = res.err
+		}
+	}
+	return firstUpstream
 }
 
 // enrich fills an option's tracklist and album-level fields from MusicBrainz.

@@ -5,16 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -310,6 +313,64 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 		t.Fatalf("expected 2 inputs, got %d", len(svc.callHistory[0]))
 	}
 	assertResolvedPathsAreValid(t, root, svc.callHistory[0])
+}
+
+// A total AcoustID outage must reach the client as its classified status with a
+// human sentence — never as 200 plus a list of "these files could not be
+// identified", which is what the pre-fix resolver produced because it had no
+// failure path at all.
+func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		kind       upstream.Kind
+		status     int
+		wantStatus int
+		wantCode   string
+	}{
+		{"rate limited", upstream.KindRateLimited, 429, http.StatusTooManyRequests, "upstream_rate_limited"},
+		{"timeout", upstream.KindTimeout, 0, http.StatusGatewayTimeout, "upstream_error"},
+		{"unreachable", upstream.KindUnreachable, 0, http.StatusBadGateway, "upstream_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, n := range []string{"01.mp3", "02.mp3"} {
+				if err := os.WriteFile(filepath.Join(root, n), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc := &fakeAlbumIdentifier{
+				err: fmt.Errorf("acoustid: %w", upstream.WrapError(
+					"AcoustID", tc.kind, tc.status, errors.New("dial tcp: connection refused"))),
+			}
+			r, lib := newAlbumIdentifyHandler(t, root, svc)
+
+			w := postIdentifyAlbum(t, r, map[string]any{
+				"library_id": lib.ID, "paths": []string{"01.mp3", "02.mp3"},
+			})
+			if w.Code != tc.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tc.wantStatus, w.Code, w.Body.String())
+			}
+			var body struct {
+				Error string `json:"error"`
+				Code  string `json:"code"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body.Code != tc.wantCode {
+				t.Fatalf("expected code %q, got %q", tc.wantCode, body.Code)
+			}
+			if !strings.Contains(body.Error, "AcoustID") {
+				t.Fatalf("expected the service named in the message, got %q", body.Error)
+			}
+			// The body must not leak the Go error or the transport detail.
+			for _, leak := range []string{"connection refused", "acoustid:", "dial tcp"} {
+				if strings.Contains(body.Error, leak) {
+					t.Fatalf("raw error detail %q leaked into the body: %q", leak, body.Error)
+				}
+			}
+		})
+	}
 }
 
 func TestIdentifyAlbum_ResolverErrorIsBadGateway(t *testing.T) {

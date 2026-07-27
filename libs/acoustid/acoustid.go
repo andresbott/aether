@@ -6,6 +6,7 @@ package acoustid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -46,6 +47,45 @@ type Recording struct {
 	Title   string         `json:"title"`
 	Artists []ArtistCredit `json:"artists"`
 	Release []Release      `json:"releases"`
+}
+
+// LookupError is a failed AcoustID call, carrying enough structure for callers
+// to tell a transport/throttling outage (retry later) from the service refusing
+// the request itself (retrying is pointless).
+//
+// It is a distinct type rather than internal/upstream's *Error because libs/
+// deliberately has no aether imports; internal/identify translates it.
+type LookupError struct {
+	// Status is the HTTP status, or 0 when the request never got a response.
+	Status int
+	// Transport is true when the request never completed (DNS, refused, reset,
+	// timeout) — as opposed to a response the service refused with.
+	Transport bool
+	// Message is the service's own error text, when it sent one.
+	Message string
+	Err     error
+}
+
+func (e *LookupError) Error() string {
+	switch {
+	case e.Message != "":
+		return fmt.Sprintf("acoustid lookup: %s", e.Message)
+	case e.Status > 0:
+		return fmt.Sprintf("acoustid lookup: status %d", e.Status)
+	case e.Err != nil:
+		return fmt.Sprintf("acoustid lookup: %v", e.Err)
+	default:
+		return "acoustid lookup: request failed"
+	}
+}
+
+func (e *LookupError) Unwrap() error { return e.Err }
+
+// Timeout reports whether the failure was a timeout, so callers can classify it
+// without unwrapping to a net error themselves.
+func (e *LookupError) Timeout() bool {
+	var terr interface{ Timeout() bool }
+	return errors.As(e.Err, &terr) && terr.Timeout()
 }
 
 // Client calls the AcoustID lookup API.
@@ -126,18 +166,20 @@ func (c *Client) Lookup(ctx context.Context, fingerprint string, duration float6
 	}
 	resp, err := c.Client.Do(req)
 	if err != nil {
-		return nil, err
+		// A cancelled caller context is the caller's business, not a service
+		// fault, so it is not relabelled as an upstream transport failure.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, &LookupError{Transport: true, Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var body lookupResponse
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("acoustid lookup: %w", err)
+		return nil, &LookupError{Status: resp.StatusCode, Err: err}
 	}
 	if body.Status != "ok" {
-		if body.Error.Message != "" {
-			return nil, fmt.Errorf("acoustid lookup: %s", body.Error.Message)
-		}
-		return nil, fmt.Errorf("acoustid lookup: status %d", resp.StatusCode)
+		return nil, &LookupError{Status: resp.StatusCode, Message: body.Error.Message}
 	}
 	return flatten(body), nil
 }

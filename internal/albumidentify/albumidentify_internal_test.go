@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
 )
 
@@ -1011,6 +1012,129 @@ func TestResolveReturnsFileErrorsWhenAllFilesFail(t *testing.T) {
 		if fe.Error == "" {
 			t.Fatalf("file error must carry the error message, got %+v", fe)
 		}
+	}
+}
+
+// upstreamErr builds the failure an AcoustID outage produces, wrapped the way
+// internal/identify wraps it, so the discriminator under test is the real one.
+func upstreamErr(kind upstream.Kind, status int) error {
+	return fmt.Errorf("acoustid: %w",
+		upstream.WrapError("AcoustID", kind, status, errors.New("boom")))
+}
+
+// Pre-fix, Resolve had no failure path at all: a rate-limited or unreachable
+// AcoustID was collected into fileErrors and answered 200, reading to the user
+// as "these files could not be identified" instead of "try again in a moment".
+func TestResolveFailsWhenEveryFileHitsAnUpstreamOutage(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{"rate limited", upstreamErr(upstream.KindRateLimited, 429), 429},
+		{"unreachable", upstreamErr(upstream.KindUnreachable, 0), 502},
+		{"timeout", upstreamErr(upstream.KindTimeout, 0), 504},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ident := fakeFileIdentifier{byPath: map[string]fileResult{
+				"/lib/a.flac": {err: tc.err},
+				"/lib/b.flac": {err: tc.err},
+			}}
+			r := New(ident, &fakeReleaseLookup{})
+			_, _, err := r.Resolve(context.Background(), []Input{
+				{Path: "a.flac", AbsPath: "/lib/a.flac"},
+				{Path: "b.flac", AbsPath: "/lib/b.flac"},
+			})
+			if err == nil {
+				t.Fatal("expected Resolve to fail on a total upstream outage")
+			}
+			var uerr *upstream.Error
+			if !errors.As(err, &uerr) {
+				t.Fatalf("expected an *upstream.Error the handler can classify, got %v", err)
+			}
+			if got := upstream.HTTPStatus(err); got != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d", tc.wantStatus, got)
+			}
+		})
+	}
+}
+
+// A total failure for FILE-specific reasons (missing fpcalc, unsupported codec,
+// unreadable file) is not a request failure: those reports belong on the rows.
+func TestResolveDoesNotFailWhenEveryFileFailsForItsOwnReasons(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/a.flac": {err: errors.New("fingerprint: fpcalc exec: executable file not found in $PATH")},
+		"/lib/b.flac": {err: errors.New("fingerprint: fpcalc json: unexpected end of JSON input")},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	_, fileErrs, err := r.Resolve(context.Background(), []Input{
+		{Path: "a.flac", AbsPath: "/lib/a.flac"},
+		{Path: "b.flac", AbsPath: "/lib/b.flac"},
+	})
+	if err != nil {
+		t.Fatalf("per-file failures must not fail the request: %v", err)
+	}
+	if len(fileErrs) != 2 {
+		t.Fatalf("expected both failures reported per file, got %+v", fileErrs)
+	}
+}
+
+// One bad file among good ones is never a request failure, even when the bad
+// one failed upstream-shaped: the answer for the rest is still useful.
+func TestResolveSucceedsWhenOnlySomeFilesFailUpstream(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
+			duration:   180,
+		},
+		"/lib/bad.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	opts, fileErrs, err := r.Resolve(context.Background(), []Input{
+		{Path: "01.flac", AbsPath: "/lib/01.flac"},
+		{Path: "bad.flac", AbsPath: "/lib/bad.flac"},
+	})
+	if err != nil {
+		t.Fatalf("a partial failure must not fail the request: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("expected the good file's option, got %+v", opts)
+	}
+	if len(fileErrs) != 1 || fileErrs[0].Path != "bad.flac" {
+		t.Fatalf("expected the one failure reported per file, got %+v", fileErrs)
+	}
+}
+
+// A total failure mixing an outage with a file-specific problem is still an
+// outage: nothing was identified and the retryable cause explains why.
+func TestResolveFailsWhenATotalFailureIncludesAnOutage(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/a.flac": {err: errors.New("fingerprint: fpcalc: empty fingerprint in output")},
+		"/lib/b.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	if _, _, err := r.Resolve(context.Background(), []Input{
+		{Path: "a.flac", AbsPath: "/lib/a.flac"},
+		{Path: "b.flac", AbsPath: "/lib/b.flac"},
+	}); err == nil || upstream.HTTPStatus(err) != 429 {
+		t.Fatalf("expected a classified rate-limit failure, got %v", err)
+	}
+}
+
+// A provider REFUSAL (bad API key, malformed fingerprint) is not retryable and
+// not per-file either; it must still reach the handler as a request failure
+// rather than be reported as eleven unidentifiable files.
+func TestResolveFailsOnATotalProviderRejection(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/a.flac": {err: upstreamErr(upstream.KindRejected, 400)},
+		"/lib/b.flac": {err: upstreamErr(upstream.KindRejected, 400)},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	if _, _, err := r.Resolve(context.Background(), []Input{
+		{Path: "a.flac", AbsPath: "/lib/a.flac"},
+		{Path: "b.flac", AbsPath: "/lib/b.flac"},
+	}); err == nil {
+		t.Fatal("expected a total provider rejection to fail the request")
 	}
 }
 
