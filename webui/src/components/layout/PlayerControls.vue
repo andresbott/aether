@@ -418,7 +418,8 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     border-radius: 99px;
 }
 
-.progress-slider :deep(.p-slider-handle) {
+.progress-slider :deep(.p-slider-handle),
+.volume-slider :deep(.p-slider-handle) {
     width: 14px;
     height: 14px;
     margin-top: -7px;
@@ -428,7 +429,8 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
-.progress-slider :deep(.p-slider-handle)::before {
+.progress-slider :deep(.p-slider-handle)::before,
+.volume-slider :deep(.p-slider-handle)::before {
     width: 14px;
     height: 14px;
     background: var(--app-accent);
@@ -475,15 +477,8 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
 }
 
 .volume-slider :deep(.p-slider-range) {
-    background: var(--app-player-dim);
+    background: var(--app-accent);
     border-radius: 99px;
-}
-
-/* Mock volume has no visible knob; keep it draggable but invisible. Since there
-   is no knob to grab, use the same pointer cursor as the rest of the rail. */
-.volume-slider :deep(.p-slider-handle) {
-    opacity: 0;
-    cursor: pointer;
 }
 
 /* Below this the wider rail starts squeezing the centered playback column, so
