@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -17,10 +18,11 @@ import (
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
 	"go.senan.xyz/taglib"
@@ -56,6 +58,13 @@ func (s stubCoverArt) DownloadImage(context.Context, string) ([]byte, string, er
 
 func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClient) (*store.Store, *mux.Router, *model.Library, *assetstore.Store) {
 	t.Helper()
+	return newPictureHandlerWithRescan(t, libRoot, ca, nil)
+}
+
+func newPictureHandlerWithRescan(
+	t *testing.T, libRoot string, ca metaHandler.CoverArtClient, rs metaHandler.TrackRescanner,
+) (*store.Store, *mux.Router, *model.Library, *assetstore.Store) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +78,7 @@ func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClie
 		t.Fatal(err)
 	}
 	as := assetstore.New(t.TempDir())
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Assets: as, CoverArt: ca}
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Assets: as, CoverArt: ca, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib, as
@@ -907,5 +916,169 @@ func copyFixture(t *testing.T, src, dst string) {
 	defer func() { _ = out.Close() }()
 	if _, err := io.Copy(out, in); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
+	src := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "Artist", "Album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	trackAbs := filepath.Join(albumDir, "01.flac")
+	copyFixture(t, src, trackAbs)
+
+	rs := &fakeRescanner{}
+	_, r, lib, _ := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+
+	body := &bytes.Buffer{}
+	mw := multipart.NewWriter(body)
+	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(lib.ID), 10))
+	_ = mw.WriteField("target", "folder")
+	_ = mw.WriteField("type", "Front Cover")
+	_ = mw.WriteField("paths", "Artist/Album/01.flac")
+	part, _ := mw.CreateFormFile("image", "cover.png")
+	_, _ = part.Write(pngBytes)
+	_ = mw.Close()
+
+	req := httptest.NewRequest("POST", "/metadata/pictures", body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if len(rs.calls) != 1 || len(rs.calls[0]) != 1 || rs.calls[0][0] != trackAbs {
+		t.Fatalf("unexpected rescan paths: %v", rs.calls)
+	}
+	var resp struct {
+		Rescan *struct {
+			OK bool `json:"ok"`
+		} `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Rescan == nil || !resp.Rescan.OK {
+		t.Fatalf("expected rescan ok, got %+v", resp.Rescan)
+	}
+}
+
+// The picture endpoints never let the user pick the rescan path list: with no
+// explicit paths, selectionPaths -> folderTrackPaths recursively lists every
+// file the *editor's* reader accepts under the album dir, which is wider than
+// the scanner's admission (extra extensions, excludes ignored). The frontend
+// always sends paths: undefined for folder/db slots, so this is THE normal
+// path — one .oga sibling or one excluded subfolder must not make a correct
+// cover removal warn about the index.
+func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.MkdirAll(filepath.Join(albumDir, "Live"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyFixture(t, fx, filepath.Join(albumDir, "01.flac"))
+	copyFixture(t, fx, filepath.Join(albumDir, "02.oga"))       // reader-only extension
+	copyFixture(t, fx, filepath.Join(albumDir, "Live/01.flac")) // excluded ancestor dir
+	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root, ExcludePatterns: `["^Live$"]`}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	h := &metaHandler.Handler{
+		Store:  s,
+		Reader: wideReader{},
+		Assets: assetstore.New(t.TempDir()),
+		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
+	}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	// No paths param — exactly what useEditSession sends for a folder slot.
+	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=album&slot=folder&type=Back%20Cover"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OK     bool `json:"ok"`
+		Rescan *struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Rescan == nil || !resp.Rescan.OK {
+		t.Fatalf("a correct cover removal must not warn about the index: %+v", resp.Rescan)
+	}
+}
+
+// A picture delete whose re-index indexed nothing must report ok:false, while
+// still answering 200 — the file is already gone from disk.
+func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// selectionPaths falls back to the folder's tracks; nullReader reports none,
+	// so pass the path explicitly to give the rescan something to do.
+	if err := os.WriteFile(filepath.Join(albumDir, "01.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := &fakeRescanner{stats: &scanner.ScanStats{
+		TracksProcessed: 0,
+		Errors:          []error{errors.New(`read tags "01.flac": broken`)},
+	}}
+	_, r, lib, _ := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+
+	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
+		"&path=album&slot=folder&type=Back%20Cover&paths=album/01.flac"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OK     bool `json:"ok"`
+		Rescan *struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.OK {
+		t.Fatalf("the delete itself must still report ok: %s", w.Body.String())
+	}
+	if resp.Rescan == nil || resp.Rescan.OK {
+		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
+	}
+	if !strings.Contains(resp.Rescan.Error, "read tags") {
+		t.Fatalf("expected the tag-read error, got %q", resp.Rescan.Error)
 	}
 }

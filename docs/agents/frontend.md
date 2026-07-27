@@ -40,6 +40,15 @@ When a view diverges from these registries, the registry wins.
   TanStack query composables (`useSubsonicQueries.ts` with a central
   `queryKeys` map — add new keys there, don't inline key arrays).
   `usePlayer.ts` is module-scoped singleton state.
+  After any metadata-editor write, call `invalidateAfterMetadataWrite(qc)`
+  from `useMetadataEditor.ts` rather than inlining keys. It drops
+  `['metadata','tracks']` and `['metadata','raw']` (the editor's own views)
+  plus the entire `['subsonic']` tree (the music UI). The last one is blunt on
+  purpose: album/artist/genre ids are not stable across a tag edit (album
+  identity is `(name_norm, album_artist_norm, mb_release_id)`, so renaming an
+  album creates a new row), and the editor works in file paths, so there is no
+  precise key set to target. The server re-indexes synchronously, so a
+  resolved write already means the DB is current; no polling needed.
 - `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v1`, overridable via
   `VITE_SERVER_URL_V1`) and `subsonic.ts` (`SubsonicClient`; same-origin
   default via `initWithDefaults()`, no auth today — see

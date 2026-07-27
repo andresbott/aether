@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
+import type { QueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as MetadataApi from '@/lib/api/Metadata'
 import { apiErrorMessage } from '@/lib/apiError'
@@ -8,6 +9,7 @@ import type {
     MetadataCapabilities,
     PatchFields,
     PictureSlot,
+    RescanStatus,
     Track,
     UpdateResult,
     UpdateTracksRequest
@@ -17,6 +19,19 @@ import type {
 export const metadataQueryKeys = {
     folders: (libraryId: number, path: string) => ['metadata', 'folders', libraryId, path] as const,
     tracks: (libraryId: number, path: string) => ['metadata', 'tracks', libraryId, path] as const
+}
+
+// invalidateAfterMetadataWrite drops every cache a tag or picture write can
+// stale. The music UI is keyed by DB ids, and editing an album name, album
+// artist or release MBID moves the tracks to a *new* album row — the editor
+// works in file paths and cannot know which ids changed, so there is no precise
+// key set to target. Same precedent as the library mutations. Call it only
+// after the response resolves: the server re-indexes synchronously, so a
+// resolved write means the DB is current.
+export function invalidateAfterMetadataWrite(qc: QueryClient) {
+    qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
+    qc.invalidateQueries({ queryKey: ['metadata', 'raw'] })
+    qc.invalidateQueries({ queryKey: ['subsonic'] })
 }
 
 export function useFolders(libraryId: () => number | null, path: () => string) {
@@ -74,17 +89,45 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
     return [...byPath.values()]
 }
 
+// One logical tracks update: per-path write results plus the server's report on
+// the re-index that followed them.
+export interface UpdateTracksResult {
+    results: UpdateResult[]
+    rescan?: RescanStatus
+}
+
 // updateTracksPartitioned performs one logical tracks update, transparently
 // splitting it into the two sequential PUTs the server requires when a patch
 // both renames artists and sets their MB IDs. Shared by useUpdateTracks and
 // the edit-session save (which needs the raw call without per-batch toasts).
-export async function updateTracksPartitioned(body: UpdateTracksRequest): Promise<UpdateResult[]> {
+// When the patch is split, the second write's rescan status is the current one;
+// the first is only reported when the split short-circuits.
+export async function updateTracksPartitioned(
+    body: UpdateTracksRequest
+): Promise<UpdateTracksResult> {
     const parts = partitionFields(body.fields)
     if (!parts) return MetadataApi.updateTracks(body)
     const first = await MetadataApi.updateTracks({ ...body, fields: parts.names })
-    if (!first.some((r) => r.ok)) return first
+    if (!first.results.some((r) => r.ok)) return first
     const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
-    return mergeUpdateResults(first, second)
+    return {
+        results: mergeUpdateResults(first.results, second.results),
+        rescan: second.rescan ?? first.rescan
+    }
+}
+
+// rescanWarning is the toast a failed post-write re-index produces: the write
+// itself landed on disk, only the library index lags. Shared by every write
+// path (tags and pictures) so the wording never drifts. Returns null when the
+// re-index succeeded or the server did not report one.
+export function rescanWarning(rescan: RescanStatus | undefined) {
+    if (!rescan || rescan.ok) return null
+    return {
+        severity: 'warn' as const,
+        summary: 'Saved, but the library index was not updated',
+        detail: rescan.error ?? 'unknown error',
+        life: 8000
+    }
 }
 
 export function useUpdateTracks() {
@@ -92,10 +135,15 @@ export function useUpdateTracks() {
     const toast = useToast()
     return useMutation({
         mutationFn: updateTracksPartitioned,
-        onSuccess: (results, req) => {
-            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
+        onSuccess: (out) => {
+            invalidateAfterMetadataWrite(qc)
+            const results = out.results
             const ok = results.filter((r) => r.ok).length
             const failed = results.length - ok
+            const warning = rescanWarning(out.rescan)
+            if (warning) {
+                toast.add(warning)
+            }
             if (failed === 0) {
                 toast.add({
                     severity: 'success',
@@ -167,13 +215,27 @@ export function useIdentifyTracks() {
     })
 }
 
-export function useApplyPicture() {
+// PictureMutationOptions tunes the shared picture mutations for a caller that
+// drives many of them in one logical save. quietRescanWarning suppresses the
+// per-call "index not updated" toast so that caller can raise one aggregate
+// warning instead of one per op (see useEditSession.savePictures).
+export interface PictureMutationOptions {
+    quietRescanWarning?: boolean
+}
+
+export function useApplyPicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
         mutationFn: (form: FormData) => MetadataApi.applyPicture(form),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
+        onSuccess: (out) => {
+            invalidateAfterMetadataWrite(qc)
+            // The image is written either way; warn when the index did not catch
+            // up, or the album keeps serving the old cover with no explanation.
+            const warning = opts.quietRescanWarning ? null : rescanWarning(out.rescan)
+            if (warning) {
+                toast.add(warning)
+            }
             toast.add({ severity: 'success', summary: 'Picture saved', life: 3000 })
         },
         onError: (err: any) => {
@@ -187,7 +249,7 @@ export function useApplyPicture() {
     })
 }
 
-export function useDeletePicture() {
+export function useDeletePicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
@@ -198,8 +260,12 @@ export function useDeletePicture() {
             slot: PictureSlot
             paths?: string[]
         }) => MetadataApi.deletePicture(v.libraryId, v.path, v.type, v.slot, v.paths),
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
+        onSuccess: (out) => {
+            invalidateAfterMetadataWrite(qc)
+            const warning = opts.quietRescanWarning ? null : rescanWarning(out?.rescan)
+            if (warning) {
+                toast.add(warning)
+            }
             toast.add({ severity: 'success', summary: 'Picture removed', life: 3000 })
         },
         onError: (err: any) => {

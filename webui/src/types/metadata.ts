@@ -205,8 +205,16 @@ export interface UpdateResult {
     error?: string
 }
 
+// The outcome of the server-side re-index that runs after a write. A failure is
+// not a write failure: the tags are on disk, the library index just lags.
+export interface RescanStatus {
+    ok: boolean
+    error?: string
+}
+
 export interface UpdateTracksResponse {
     results: UpdateResult[]
+    rescan?: RescanStatus
 }
 
 // A cover candidate returned by the Cover Art Archive lookup.
@@ -253,6 +261,12 @@ export interface ApplyPictureResult {
     ok: boolean
     target: PictureSlot
     type: string
+    rescan?: RescanStatus
+}
+
+export interface DeletePictureResult {
+    ok: boolean
+    rescan?: RescanStatus
 }
 
 // An image chosen in the picker but not yet persisted: it previews in the

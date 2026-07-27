@@ -61,6 +61,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				CoverArt:                  coverart.New(userAgent),
 				Identifier:                h.identifier,
 				IdentifyUnavailableReason: h.identifyOff,
+				Rescan:                    h.rescanner,
 			}
 			mh.Routes(r)
 		}

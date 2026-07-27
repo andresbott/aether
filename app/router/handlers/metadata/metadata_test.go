@@ -2,16 +2,20 @@ package metadata_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/glebarez/sqlite"
@@ -471,5 +475,326 @@ func TestUpdateTracks_RejectsAlbumArtistRenameWithMBID(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// fakeRescanner records what the handler asked to re-index. By default it
+// reports every path re-indexed; stats overrides that with a partial or
+// erroring result.
+type fakeRescanner struct {
+	calls [][]string
+	libs  []uint
+	err   error
+	// stats, when set, replaces the default "everything was processed" report.
+	stats *scanner.ScanStats
+}
+
+func (f *fakeRescanner) RescanPaths(_ context.Context, libraryID uint, absPaths []string) (scanner.ScanStats, error) {
+	f.calls = append(f.calls, absPaths)
+	f.libs = append(f.libs, libraryID)
+	if f.stats != nil {
+		return *f.stats, f.err
+	}
+	return scanner.ScanStats{TracksProcessed: len(absPaths)}, f.err
+}
+
+// rescanTestHandler builds a handler over a real in-memory store whose library
+// root is a temp dir holding one writable flac fixture.
+func rescanTestHandler(t *testing.T, rs *fakeRescanner) (*mux.Router, *model.Library) {
+	t.Helper()
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return r, lib
+}
+
+// rescanResponse is the slice of an update response the rescan assertions need.
+type rescanResponse struct {
+	Results []struct {
+		OK bool `json:"ok"`
+	} `json:"results"`
+	Rescan *struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	} `json:"rescan"`
+}
+
+// putTitle saves a title to ok.flac and decodes the response, asserting the
+// write itself succeeded with a 200.
+func putTitle(t *testing.T, r *mux.Router, libID uint) rescanResponse {
+	t.Helper()
+	body := `{"library_id": ` + strconv.FormatUint(uint64(libID), 10) +
+		`, "paths": ["ok.flac"], "fields": {"title": "T"}}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	// The tags are already on disk; a failed re-index must not fail the write.
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp rescanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Results) != 1 || !resp.Results[0].OK {
+		t.Fatalf("expected the write to succeed: %s", w.Body.String())
+	}
+	return resp
+}
+
+// wideReader stands in for the editor's tag reader, which is deliberately wider
+// than the scanner's admission rules: it accepts extensions the scanner does not
+// index (.oga, .mpc, ... per internal/tags/ffprobe.go) and knows nothing about
+// the library's exclude patterns.
+type wideReader struct{}
+
+func (wideReader) CanRead(p string) bool {
+	switch filepath.Ext(p) {
+	case ".flac", ".mp3", ".oga":
+		return true
+	}
+	return false
+}
+
+func (wideReader) Read(p string) (tags.Metadata, error) {
+	return tags.Metadata{
+		Title:       filepath.Base(p),
+		Artist:      []string{"A"},
+		AlbumArtist: []string{"A"},
+		Album:       "Alb",
+	}, nil
+}
+
+// realRescanHandler wires a *real* scanner.Scanner into the handler, so the
+// admission rules under test are the scanner's own rather than a fake's.
+func realRescanHandler(t *testing.T, root string, excludes []string) (*mux.Router, *model.Library) {
+	t.Helper()
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	excludeJSON := ""
+	if len(excludes) > 0 {
+		b, _ := json.Marshal(excludes)
+		excludeJSON = string(b)
+	}
+	lib := &model.Library{Name: "Main", Path: root, ExcludePatterns: excludeJSON}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	h := &metaHandler.Handler{
+		Store:  s,
+		Reader: wideReader{},
+		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
+	}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return r, lib
+}
+
+// The regression this guards: RescanPaths deliberately skips paths the library
+// does not cover, and the editor's file listing is wider than the scanner's
+// admission on purpose (it ignores excludes and reads extra extensions). A save
+// that hands over such paths is entirely correct, so it must report rescan
+// ok:true — measuring the shortfall against the raw path count instead of
+// against the admitted count warns the user about a save that worked.
+func TestUpdateTracks_InadmissiblePathsDoNotFailTheRescan(t *testing.T) {
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "Artist", "Live"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "Artist", "Album"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// One good track, one under an excluded ancestor directory, one with an
+	// extension the editor reads but the scanner does not index.
+	copyTestFile(t, fx, filepath.Join(root, "Artist/Album/01.flac"))
+	copyTestFile(t, fx, filepath.Join(root, "Artist/Live/01.flac"))
+	copyTestFile(t, fx, filepath.Join(root, "Artist/Album/02.oga"))
+
+	r, lib := realRescanHandler(t, root, []string{"^Live$"})
+
+	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `, "paths": [` +
+		`"Artist/Album/01.flac", "Artist/Live/01.flac", "Artist/Album/02.oga"` +
+		`], "fields": {"genres": ["Rock"]}}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp rescanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range resp.Results {
+		if !row.OK {
+			t.Fatalf("every write should have succeeded: %s", w.Body.String())
+		}
+	}
+	if resp.Rescan == nil || !resp.Rescan.OK {
+		t.Fatalf("a correct save must not warn about the index: %+v", resp.Rescan)
+	}
+}
+
+// A re-index that indexed fewer files than were written must not claim success:
+// the response's contract is "rescan.ok means the library index is current".
+func TestUpdateTracks_PartialRescanReportsNotOK(t *testing.T) {
+	rs := &fakeRescanner{stats: &scanner.ScanStats{TracksProcessed: 0}}
+	r, lib := rescanTestHandler(t, rs)
+	resp := putTitle(t, r, lib.ID)
+	if resp.Rescan == nil || resp.Rescan.OK {
+		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
+	}
+	if !strings.Contains(resp.Rescan.Error, "0 of 1") {
+		t.Fatalf("expected the shortfall to be named, got %q", resp.Rescan.Error)
+	}
+}
+
+func TestUpdateTracks_RescanErrorsReportNotOK(t *testing.T) {
+	rs := &fakeRescanner{stats: &scanner.ScanStats{
+		TracksProcessed: 1,
+		Errors:          []error{errors.New(`read tags "ok.flac": broken`)},
+	}}
+	r, lib := rescanTestHandler(t, rs)
+	resp := putTitle(t, r, lib.ID)
+	if resp.Rescan == nil || resp.Rescan.OK {
+		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
+	}
+	if !strings.Contains(resp.Rescan.Error, "read tags") {
+		t.Fatalf("expected the tag-read error to be reported, got %q", resp.Rescan.Error)
+	}
+}
+
+// Many per-file errors are summarised, not concatenated: the message ends up in
+// a toast.
+func TestUpdateTracks_ManyRescanErrorsAreSummarised(t *testing.T) {
+	rs := &fakeRescanner{stats: &scanner.ScanStats{
+		TracksProcessed: 1,
+		Errors: []error{
+			errors.New("first failure"),
+			errors.New("second failure"),
+			errors.New("third failure"),
+		},
+	}}
+	r, lib := rescanTestHandler(t, rs)
+	resp := putTitle(t, r, lib.ID)
+	if resp.Rescan == nil || resp.Rescan.OK {
+		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
+	}
+	if !strings.Contains(resp.Rescan.Error, "3 files could not be re-indexed") ||
+		!strings.Contains(resp.Rescan.Error, "first failure") {
+		t.Fatalf("expected a count plus the first error, got %q", resp.Rescan.Error)
+	}
+	if strings.Contains(resp.Rescan.Error, "third failure") {
+		t.Fatalf("expected the tail of the errors to be summarised away, got %q", resp.Rescan.Error)
+	}
+}
+
+func TestUpdateTracks_RescansWrittenPaths(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst := filepath.Join(root, "ok.flac")
+	copyTestFile(t, fx, dst)
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	rs := &fakeRescanner{}
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac", "missing.flac"],
+		"fields": { "title": "New Title" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if len(rs.calls) != 1 {
+		t.Fatalf("expected one rescan call, got %d", len(rs.calls))
+	}
+	// Only the path that was actually written is re-indexed.
+	if len(rs.calls[0]) != 1 || rs.calls[0][0] != dst {
+		t.Fatalf("unexpected rescan paths: %v", rs.calls[0])
+	}
+	if rs.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %d", lib.ID, rs.libs[0])
+	}
+
+	var resp struct {
+		Rescan *struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Rescan == nil || !resp.Rescan.OK {
+		t.Fatalf("expected rescan ok, got %+v", resp.Rescan)
+	}
+}
+
+func TestUpdateTracks_RescanFailureStillSucceeds(t *testing.T) {
+	rs := &fakeRescanner{err: errors.New("db is on fire")}
+	r, lib := rescanTestHandler(t, rs)
+	resp := putTitle(t, r, lib.ID)
+	if resp.Rescan == nil || resp.Rescan.OK || resp.Rescan.Error != "db is on fire" {
+		t.Fatalf("expected the rescan error to be reported, got %+v", resp.Rescan)
+	}
+}
+
+func TestUpdateTracks_NoRescannerOmitsTheField(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
+	_, r, lib := newTestHandler(t, root)
+
+	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) +
+		`, "paths": ["ok.flac"], "fields": {"title": "T"}}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte(`"rescan"`)) {
+		t.Fatalf("expected no rescan field without a rescanner: %s", w.Body.String())
 	}
 }

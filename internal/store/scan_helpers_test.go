@@ -27,6 +27,48 @@ func TestBulkUpdateLastSeen(t *testing.T) {
 	}
 }
 
+// The marker must never move backwards: `scan` and `scan-full` are separately
+// registered tasks, so they can overlap, and lowering a newer marker would make
+// a live track look stale to the other scan's Cleanup — which deletes the row
+// and cascades its playlist entries, play history and stars.
+func TestBulkUpdateLastSeenNeverLowersTheMarker(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	db.Create(&album)
+
+	later := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	earlier := later.Add(-time.Hour)
+
+	// A newer scan already stamped this track.
+	track := model.Track{
+		AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3",
+		LastSeenAt: later,
+	}
+	db.Create(&track)
+
+	// An older scan, still in flight, finds it unchanged on disk.
+	if err := s.BulkUpdateLastSeen([]string{"/music/01.mp3"}, earlier); err != nil {
+		t.Fatal(err)
+	}
+
+	var got model.Track
+	db.First(&got, track.ID)
+	if !got.LastSeenAt.Equal(later) {
+		t.Fatalf("expected the marker to stay at %v, got %v", later, got.LastSeenAt)
+	}
+
+	// The newer scan's cleanup must not delete it.
+	if err := s.Cleanup(later); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	db.Model(&model.Track{}).Where("id = ?", track.ID).Count(&count)
+	if count != 1 {
+		t.Fatal("expected the track to survive the concurrent scan's cleanup")
+	}
+}
+
 func TestFilterChanged(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

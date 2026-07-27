@@ -2,6 +2,7 @@ import { apiClient } from '@/lib/api/client'
 import type {
     ApplyPictureResult,
     CoverCandidate,
+    DeletePictureResult,
     IdentifyRequest,
     IdentifyResponse,
     ListFoldersResponse,
@@ -29,9 +30,11 @@ export async function listTracks(libraryId: number, path: string) {
     return data.tracks
 }
 
-export async function updateTracks(body: UpdateTracksRequest) {
+// updateTracks returns the whole response, not just the per-path results: the
+// server also reports whether its post-write re-index succeeded.
+export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTracksResponse> {
     const { data } = await apiClient.put<UpdateTracksResponse>('/metadata/tracks', body)
-    return data.results
+    return data
 }
 
 // getRawTags reads the complete tag map of the given files, including keys
@@ -117,16 +120,18 @@ export async function getPictures(
 }
 
 // deletePicture removes one picture type+slot cell. For 'embedded', paths are
-// the selected tracks the removal applies to.
+// the selected tracks the removal applies to. Returns the whole response, not
+// just ok: the server also reports whether its post-write re-index succeeded.
 export async function deletePicture(
     libraryId: number,
     path: string,
     type: string,
     slot: PictureSlot,
     paths?: string[]
-) {
-    await apiClient.delete('/metadata/pictures', {
+): Promise<DeletePictureResult> {
+    const { data } = await apiClient.delete<DeletePictureResult>('/metadata/pictures', {
         params: { library_id: libraryId, path, type, slot, paths },
         paramsSerializer: { indexes: null } // repeat paths= for arrays
     })
+    return data
 }

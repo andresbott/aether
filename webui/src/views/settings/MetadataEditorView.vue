@@ -190,7 +190,15 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                 @click="onReload"
             />
             <span class="header-spacer"></span>
-            <span v-if="session.hasStagedChanges.value" class="unsaved-note" data-test="unsaved-note">
+            <span v-if="session.isSaving.value" class="saving-note" data-test="saving-note">
+                <i class="pi pi-spin pi-spinner"></i>
+                Saving and re-indexing…
+            </span>
+            <span
+                v-else-if="session.hasStagedChanges.value"
+                class="unsaved-note"
+                data-test="unsaved-note"
+            >
                 Unsaved changes
             </span>
             <Button
@@ -312,6 +320,17 @@ function onIdentifyApply(picks: IdentifyPick[]) {
     border: 1px solid var(--app-staged);
     border-radius: 1rem;
     padding: 0.15rem 0.6rem;
+    white-space: nowrap;
+}
+
+/* A save also re-indexes the written files server-side, so it takes noticeably
+   longer than a plain tag write; the note keeps that wait reading as progress. */
+.saving-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
     white-space: nowrap;
 }
 

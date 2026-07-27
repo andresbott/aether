@@ -7,6 +7,18 @@ import (
 	"github.com/andresbott/aether/internal/model"
 )
 
+// BulkUpdateLastSeen advances the liveness marker on paths an incremental scan
+// found unchanged on disk.
+//
+// The update is monotonic — `last_seen_at < scanTime` in the WHERE clause — for
+// the same reason reconcileTrack's assignment is: scans of different types
+// (`scan` / `scan-full`) are separately registered tasks, so MaxParallelism 1
+// does not stop them overlapping, and a targeted rescan runs with its own
+// scanStart. Lowering a newer marker would make a live track look stale to a
+// scan already in flight, and its Cleanup would delete the row along with the
+// track's playlist memberships, play history and stars. Within a single scan
+// every row is either already at scanTime (no-op) or older (advances), so the
+// added predicate never skips a row that needs the bump.
 func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
 	const chunkSize = 500
 	for i := 0; i < len(paths); i += chunkSize {
@@ -14,7 +26,9 @@ func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
 		if end > len(paths) {
 			end = len(paths)
 		}
-		if err := s.db.Table("tracks").Where("file_path IN ?", paths[i:end]).Update("last_seen_at", scanTime).Error; err != nil {
+		if err := s.db.Table("tracks").
+			Where("file_path IN ? AND last_seen_at < ?", paths[i:end], scanTime).
+			Update("last_seen_at", scanTime).Error; err != nil {
 			return err
 		}
 	}

@@ -1,9 +1,15 @@
-import { describe, it, expect } from 'vitest'
+const updateTracksMock = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/api/Metadata', () => ({
+    updateTracks: (...args: unknown[]) => updateTracksMock(...args)
+}))
+
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
     diffInitialValues,
     distinctArtistMbids,
     mergeUpdateResults,
-    partitionFields
+    partitionFields,
+    updateTracksPartitioned
 } from '@/composables/useMetadataEditor'
 import type { Track } from '@/types/metadata'
 
@@ -172,6 +178,59 @@ describe('mergeUpdateResults', () => {
         expect(
             mergeUpdateResults([{ path: 'a', ok: true }], [{ path: 'a', ok: true }])
         ).toEqual([{ path: 'a', ok: true, error: undefined }])
+    })
+})
+
+describe('updateTracksPartitioned', () => {
+    beforeEach(() => {
+        updateTracksMock.mockReset()
+    })
+
+    it('passes the rescan status through for a single write', async () => {
+        updateTracksMock.mockResolvedValue({
+            results: [{ path: 'a.mp3', ok: true }],
+            rescan: { ok: true }
+        })
+        const out = await updateTracksPartitioned({
+            library_id: 1,
+            paths: ['a.mp3'],
+            fields: { title: 'T' }
+        })
+        expect(out.results).toEqual([{ path: 'a.mp3', ok: true }])
+        expect(out.rescan).toEqual({ ok: true })
+    })
+
+    it('reports the second write rescan status when the patch is split', async () => {
+        updateTracksMock
+            .mockResolvedValueOnce({
+                results: [{ path: 'a.mp3', ok: true }],
+                rescan: { ok: true }
+            })
+            .mockResolvedValueOnce({
+                results: [{ path: 'a.mp3', ok: true }],
+                rescan: { ok: false, error: 'boom' }
+            })
+        const out = await updateTracksPartitioned({
+            library_id: 1,
+            paths: ['a.mp3'],
+            fields: { artists: ['New'], artist_mbids: { New: 'id' } }
+        })
+        expect(updateTracksMock).toHaveBeenCalledTimes(2)
+        expect(out.rescan).toEqual({ ok: false, error: 'boom' })
+    })
+
+    it('keeps the first rescan status when the split short-circuits', async () => {
+        updateTracksMock.mockResolvedValueOnce({
+            results: [{ path: 'a.mp3', ok: false, error: 'nope' }],
+            rescan: { ok: true }
+        })
+        const out = await updateTracksPartitioned({
+            library_id: 1,
+            paths: ['a.mp3'],
+            fields: { artists: ['New'], artist_mbids: { New: 'id' } }
+        })
+        expect(updateTracksMock).toHaveBeenCalledTimes(1)
+        expect(out.rescan).toEqual({ ok: true })
     })
 })
 

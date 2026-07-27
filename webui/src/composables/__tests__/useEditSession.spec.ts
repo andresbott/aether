@@ -15,8 +15,12 @@ import type { IdentifyCandidate, Track, TrackOverlay } from '@/types/metadata'
 // The session composable calls useApplyPicture()/useDeletePicture() plus the
 // query client and toast at setup; keep the real pure helpers but stub the
 // side-effecting pieces so no vue-query/toast providers are needed.
+const updateTracksSpy = vi.hoisted(() => vi.fn())
 const applyPictureSpy = vi.hoisted(() => vi.fn())
 const deletePictureSpy = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/api/Metadata', () => ({
+    updateTracks: (...args: unknown[]) => updateTracksSpy(...args)
+}))
 vi.mock('@/composables/useMetadataEditor', async (importActual) => {
     const actual = await importActual<typeof import('@/composables/useMetadataEditor')>()
     return {
@@ -25,15 +29,17 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: deletePictureSpy })
     }
 })
+const invalidateSpy = vi.hoisted(() => vi.fn())
 vi.mock('@tanstack/vue-query', async (importActual) => {
     const actual = await importActual<typeof import('@tanstack/vue-query')>()
     return {
         ...actual,
-        useQueryClient: () => ({ invalidateQueries: vi.fn() })
+        useQueryClient: () => ({ invalidateQueries: invalidateSpy })
     }
 })
+const toastAddSpy = vi.hoisted(() => vi.fn())
 vi.mock('primevue/usetoast', () => ({
-    useToast: () => ({ add: vi.fn() })
+    useToast: () => ({ add: toastAddSpy })
 }))
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
@@ -295,10 +301,14 @@ describe('picture staging', () => {
         )
 
     beforeEach(() => {
+        updateTracksSpy.mockReset()
+        updateTracksSpy.mockResolvedValue({ results: [{ path: 'album/a.mp3', ok: true }] })
         applyPictureSpy.mockReset()
         applyPictureSpy.mockResolvedValue({ ok: true, target: 'folder', type: 'Back Cover' })
         deletePictureSpy.mockReset()
-        deletePictureSpy.mockResolvedValue(undefined)
+        deletePictureSpy.mockResolvedValue({ ok: true })
+        invalidateSpy.mockReset()
+        toastAddSpy.mockReset()
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: vi.fn(() => 'blob:preview'),
@@ -420,6 +430,91 @@ describe('picture staging', () => {
             paths: undefined
         })
         expect(session.hasStagedChanges.value).toBe(false)
+    })
+
+    // The image is on disk either way, so a failed re-index must not be silent:
+    // otherwise the album keeps serving the old cover with a green toast.
+    const rescanWarnings = () =>
+        toastAddSpy.mock.calls
+            .map((c) => c[0])
+            .filter((t) => t.summary === 'Saved, but the library index was not updated')
+
+    it('warns when a picture write reports a failed re-index', async () => {
+        const session = mkSession()
+        applyPictureSpy.mockResolvedValue({
+            ok: true,
+            target: 'folder',
+            type: 'Back Cover',
+            rescan: { ok: false, error: 'db is locked' }
+        })
+        session.stagePictureSet('album', 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        await session.save()
+        expect(rescanWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                detail: 'db is locked',
+                life: 8000
+            })
+        ])
+    })
+
+    it('warns when a picture removal reports a failed re-index', async () => {
+        const session = mkSession()
+        deletePictureSpy.mockResolvedValue({ ok: true, rescan: { ok: false } })
+        session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
+        await session.save()
+        expect(rescanWarnings()).toEqual([
+            expect.objectContaining({ severity: 'warn', detail: 'unknown error' })
+        ])
+    })
+
+    // Deliberate: the session reports the LAST failure and does not clear it
+    // when a later batch succeeds — a partly stale index is still stale. Only
+    // one warning is raised no matter how many ops failed.
+    it('keeps a picture rescan failure even when a later tag write succeeds', async () => {
+        const session = mkSession()
+        deletePictureSpy.mockResolvedValue({
+            ok: true,
+            rescan: { ok: false, error: 'picture reindex failed' }
+        })
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }],
+            rescan: { ok: true }
+        })
+        session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
+        session.stageField(['album/a.mp3'], 'title', 'New')
+        await session.save()
+        expect(updateTracksSpy).toHaveBeenCalledTimes(1)
+        expect(rescanWarnings()).toEqual([
+            expect.objectContaining({ detail: 'picture reindex failed' })
+        ])
+    })
+
+    it('reports a picture rescan failure even when the save then aborts', async () => {
+        const session = mkSession()
+        deletePictureSpy.mockResolvedValue({
+            ok: true,
+            rescan: { ok: false, error: 'picture reindex failed' }
+        })
+        applyPictureSpy.mockRejectedValue(new Error('boom'))
+        session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
+        session.stagePictureSet('album', 'Front Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        await session.save()
+        expect(rescanWarnings()).toEqual([
+            expect.objectContaining({ detail: 'picture reindex failed' })
+        ])
+    })
+
+    it('stays silent when every picture write re-indexed cleanly', async () => {
+        const session = mkSession()
+        deletePictureSpy.mockResolvedValue({ ok: true, rescan: { ok: true } })
+        session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
+        await session.save()
+        expect(rescanWarnings()).toEqual([])
     })
 
     it('aborts the save on the first failure, keeping the failed op staged', async () => {
@@ -568,6 +663,16 @@ describe('picture staging', () => {
         session.discardAll()
         expect(session.hasStagedChanges.value).toBe(false)
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
+    })
+
+    it('save drops the music-UI caches, not just the editor views', async () => {
+        const track = mkTrack({ path: 'album/a.mp3', title: 'Original' })
+        const session = mkSession([track])
+        session.overlays.value.set('album/a.mp3', { title: 'Changed' })
+        await session.save()
+        const keys = invalidateSpy.mock.calls.map((c) => c[0].queryKey)
+        expect(keys).toContainEqual(['metadata', 'tracks'])
+        expect(keys).toContainEqual(['subsonic'])
     })
 })
 

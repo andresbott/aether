@@ -133,7 +133,18 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	track.FilePath = tr.walk.FilePath
 	track.FileSize = fileSize(tr.walk.FilePath)
 	track.FileModTime = tr.walk.ModTime
-	track.LastSeenAt = scanStart
+	// LastSeenAt is monotonic: only ever advanced, never moved backwards.
+	// It is the liveness marker store.Cleanup uses to delete "tracks nobody
+	// saw this run" (last_seen_at < scanStart), and a targeted rescan
+	// (RescanPaths) runs concurrently with scheduled scans using its own,
+	// possibly older, scanStart. Overwriting a newer marker with an older one
+	// would make a live track look stale to a scan that is already in flight
+	// and get it deleted — taking its playlist memberships, play history and
+	// stars with it. A brand-new track has the zero time, so it still gets its
+	// marker set here.
+	if scanStart.After(track.LastSeenAt) {
+		track.LastSeenAt = scanStart
+	}
 	track.Title = meta.Title
 	track.TitleNorm = unidecode.Normalize(meta.Title)
 	track.TrackNumber = meta.TrackNumber

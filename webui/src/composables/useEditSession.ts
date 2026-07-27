@@ -2,6 +2,7 @@ import { computed, ref, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import {
+    invalidateAfterMetadataWrite,
     updateTracksPartitioned,
     useApplyPicture,
     useDeletePicture
@@ -14,6 +15,7 @@ import type {
     IdentifyRelease,
     PatchFields,
     PictureSlot,
+    RescanStatus,
     StagedPictureSource,
     Track,
     TrackOverlay,
@@ -265,8 +267,11 @@ export type EditSession = ReturnType<typeof useEditSession>
 export function useEditSession(tracks: () => Track[] | undefined, libraryId: () => number | null) {
     const qc = useQueryClient()
     const toast = useToast()
-    const applyPictureMutation = useApplyPicture()
-    const deletePictureMutation = useDeletePicture()
+    // The session drives many picture ops per save and raises one aggregate
+    // "index not updated" warning itself, so the mutations must stay quiet
+    // about it — otherwise a 6-cell save would stack 6 identical toasts.
+    const applyPictureMutation = useApplyPicture({ quietRescanWarning: true })
+    const deletePictureMutation = useDeletePicture({ quietRescanWarning: true })
 
     const overlays = ref(new Map<string, TrackOverlay>())
     const pictures = ref(new Map<string, PictureSessionEntry>())
@@ -551,16 +556,31 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
 
     // ----- Save -----
 
-    // savePictures persists all staged picture ops. Returns false to abort the
+    // One savePictures run: whether every staged op was written, plus the last
+    // re-index failure any of them reported (null = the index is current).
+    interface SavePicturesOutcome {
+        ok: boolean
+        rescanFailure: string | null
+    }
+
+    // savePictures persists all staged picture ops. ok is false to abort the
     // save on the first failure (the mutations show their own error toasts).
-    async function savePictures(): Promise<boolean> {
+    // A failed re-index is not a write failure — the image is on disk — so it
+    // does not abort; it is reported alongside the tag batches' failures, with
+    // the same "last failure wins, never cleared by a later success" rule
+    // save() uses.
+    async function savePictures(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
-        if (lib === null) return pictures.value.size === 0
+        if (lib === null) {
+            return { ok: pictures.value.size === 0, rescanFailure: null }
+        }
         let wrote = false
+        let rescanFailure: string | null = null
         for (const [key, entry] of pictures.value) {
             for (const [type, slots] of entry.ops) {
                 for (const [slot, op] of [...slots]) {
                     try {
+                        let out: { rescan?: RescanStatus } | undefined
                         if (op.kind === 'set') {
                             const form = new FormData()
                             form.append('library_id', String(lib))
@@ -569,9 +589,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                             for (const p of op.paths) form.append('paths', p)
                             if (op.file) form.append('image', op.file)
                             else if (op.imageUrl) form.append('image_url', op.imageUrl)
-                            await applyPictureMutation.mutateAsync(form)
+                            out = await applyPictureMutation.mutateAsync(form)
                         } else {
-                            await deletePictureMutation.mutateAsync({
+                            out = await deletePictureMutation.mutateAsync({
                                 libraryId: lib,
                                 // The entry key identifies the album, not a
                                 // location: the server needs a real folder.
@@ -585,19 +605,36 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                                 paths: slot === 'db' ? undefined : op.paths
                             })
                         }
+                        if (out?.rescan && !out.rescan.ok) {
+                            rescanFailure = out.rescan.error ?? 'unknown error'
+                        }
                         releaseOpPreview(op)
                         slots.delete(slot)
                         wrote = true
                     } catch {
                         if (wrote) picturesSavedAt.value = Date.now()
-                        return false
+                        return { ok: false, rescanFailure }
                     }
                 }
             }
             prunePictureEntry(key)
         }
         if (wrote) picturesSavedAt.value = Date.now()
-        return true
+        return { ok: true, rescanFailure }
+    }
+
+    // reportRescanFailure warns that the write landed on disk but the library
+    // index did not catch up. Deliberately reports the LAST failure of the save
+    // and never clears it because a later batch succeeded: a stale index for
+    // part of the selection is still a stale index.
+    function reportRescanFailure(rescanFailure: string | null) {
+        if (rescanFailure === null) return
+        toast.add({
+            severity: 'warn',
+            summary: 'Saved, but the library index was not updated',
+            detail: rescanFailure,
+            life: 8000
+        })
     }
 
     async function save() {
@@ -605,12 +642,21 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         if (isSaving.value || lib === null) return
         isSaving.value = true
         try {
-            if (!(await savePictures())) return
+            const pics = await savePictures()
+            // The picture writes carry their own re-index report. Seed the
+            // session's failure with it so it is not lost on either exit path
+            // below: the images are on disk regardless, only the index lags.
+            let rescanFailure: string | null = pics.rescanFailure
+            if (!pics.ok) {
+                reportRescanFailure(rescanFailure)
+                return
+            }
 
             const batches = groupPatches(originals.value, overlays.value)
             if (batches.length === 0) {
                 // Overlays may exist whose patch is a no-op; nothing to write.
                 overlays.value.clear()
+                reportRescanFailure(rescanFailure)
                 return
             }
             const results: UpdateResult[] = []
@@ -619,13 +665,17 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 try {
                     // Sequential on purpose: the server writes tags into files
                     // and the batches may touch the same directories.
-                    results.push(
-                        ...(await updateTracksPartitioned({
-                            library_id: lib,
-                            paths: batch.paths,
-                            fields: batch.fields
-                        }))
-                    )
+                    const out = await updateTracksPartitioned({
+                        library_id: lib,
+                        paths: batch.paths,
+                        fields: batch.fields
+                    })
+                    results.push(...out.results)
+                    // Report the last re-index failure; the tags are written
+                    // either way, only the library index lags.
+                    if (out.rescan && !out.rescan.ok) {
+                        rescanFailure = out.rescan.error ?? 'unknown error'
+                    }
                 } catch (err) {
                     // A transport-level failure likely affects the remaining
                     // batches too; stop and report what completed.
@@ -636,8 +686,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             for (const r of results) {
                 if (r.ok) overlays.value.delete(r.path)
             }
-            qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
-            qc.invalidateQueries({ queryKey: ['metadata', 'raw'] })
+            invalidateAfterMetadataWrite(qc)
+
+            reportRescanFailure(rescanFailure)
 
             const ok = results.filter((r) => r.ok).length
             const failed = results.length - ok

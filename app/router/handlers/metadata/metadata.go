@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/upstream"
@@ -22,6 +24,13 @@ import (
 type CoverArtClient interface {
 	List(ctx context.Context, releaseMBID, releaseGroupMBID string) ([]coverart.CoverImage, error)
 	DownloadImage(ctx context.Context, imageURL string) ([]byte, string, error)
+}
+
+// TrackRescanner re-reads the tags of specific files and updates the library
+// index. Satisfied by *scanner.Scanner. It exists so the editor can make an
+// edit visible in the music UI without waiting for a scan task.
+type TrackRescanner interface {
+	RescanPaths(ctx context.Context, libraryID uint, absPaths []string) (scanner.ScanStats, error)
 }
 
 // Handler serves the metadata editor API. It depends on the library portion of
@@ -46,11 +55,74 @@ type Handler struct {
 	// UnsupportedReader lists a file's hidden-frame descriptors; nil defaults
 	// to taglib.ReadUnsupported. Overridable for tests.
 	UnsupportedReader func(absPath string) ([]string, error)
+	// Rescan re-indexes the files a write touched, synchronously, before the
+	// response is sent — so a 200 means the library index is current and the
+	// UI can drop its caches without polling. nil disables re-indexing; the
+	// file write still succeeds and the index catches up on the next scan.
+	Rescan TrackRescanner
 }
 
 type apiError struct {
 	Error string `json:"error"`
 	Code  string `json:"code"`
+}
+
+// rescanStatus reports the outcome of the post-write re-index. A failure is
+// never fatal: the tags are already on disk, so the only consequence is that
+// the library index lags until the next scan.
+type rescanStatus struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
+// rescanSaved re-indexes absPaths, returning nil when re-indexing is disabled
+// or there is nothing to do (the response then carries no "rescan" field).
+//
+// OK is true only when every path the library covers was re-indexed. The
+// re-index swallows per-file failures (a lost SQLite write lock skips one
+// track, an unreadable file lands in ScanStats.Errors) and still returns a nil
+// error, so inspecting err alone would promise "the index is current" for a run
+// that indexed nothing — exactly the overlapping-scan case this feature exists
+// for.
+func (h *Handler) rescanSaved(ctx context.Context, libraryID uint, absPaths []string) *rescanStatus {
+	if h.Rescan == nil || len(absPaths) == 0 {
+		return nil
+	}
+	stats, err := h.Rescan.RescanPaths(ctx, libraryID, absPaths)
+	if err != nil {
+		return &rescanStatus{Error: err.Error()}
+	}
+	if msg := incompleteRescanMessage(stats, len(absPaths)); msg != "" {
+		return &rescanStatus{Error: msg}
+	}
+	return &rescanStatus{OK: true}
+}
+
+// incompleteRescanMessage describes a partial re-index ("" = every path the
+// library covers made it). Per-file errors are summarised rather than
+// concatenated: a folder-wide picture write can produce hundreds, and this text
+// ends up in a toast.
+//
+// The shortfall is measured against the paths the scanner actually admitted
+// (total minus the ones it deliberately skipped), never against total. The
+// editor lists files the scanner does not index — it ignores the library's
+// exclude patterns and its tag reader accepts extensions absent from the
+// scanner's audio set — so a perfectly correct save routinely hands
+// RescanPaths paths it will not index. Comparing against total would warn the
+// user about a save that worked.
+func incompleteRescanMessage(stats scanner.ScanStats, total int) string {
+	if len(stats.Errors) > 0 {
+		if len(stats.Errors) == 1 {
+			return stats.Errors[0].Error()
+		}
+		return fmt.Sprintf("%d files could not be re-indexed; first error: %v",
+			len(stats.Errors), stats.Errors[0])
+	}
+	indexable := total - stats.TracksSkipped
+	if stats.TracksProcessed < indexable {
+		return fmt.Sprintf("only %d of %d files were re-indexed", stats.TracksProcessed, indexable)
+	}
+	return ""
 }
 
 // Routes mounts the handler under an already-subrouted mux.Router.
@@ -332,6 +404,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	results := make([]updateResult, 0, len(resolved))
+	written := make([]string, 0, len(resolved))
 	anyOK := false
 	for i, abs := range resolved {
 		var cur metadataedit.CurrentTags
@@ -353,13 +426,19 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		results = append(results, updateResult{Path: body.Paths[i], OK: true})
+		written = append(written, abs)
 		anyOK = true
 	}
 	status := http.StatusOK
 	if !anyOK {
 		status = http.StatusInternalServerError
 	}
-	writeJSON(w, status, map[string]any{"results": results})
+	out := map[string]any{"results": results}
+	// Only the files that were actually written need re-indexing.
+	if rs := h.rescanSaved(r.Context(), libModel.ID, written); rs != nil {
+		out["rescan"] = rs
+	}
+	writeJSON(w, status, out)
 }
 
 func codeFor(status int) string {

@@ -347,9 +347,10 @@ func validSlot(slot string) bool {
 }
 
 type applyPictureResult struct {
-	OK     bool   `json:"ok"`
-	Target string `json:"target"`
-	Type   string `json:"type"`
+	OK     bool          `json:"ok"`
+	Target string        `json:"target"`
+	Type   string        `json:"type"`
+	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
 
 // applyPicture saves an image of one picture type to one slot: aether's
@@ -420,7 +421,11 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID})
+	// Re-index the folder's tracks: the embedded slot changed their tags, and
+	// folder/db writes change which image the album should serve (reconcile
+	// redetects album.CoverPath).
+	rs := h.rescanSaved(r.Context(), libModel.ID, resolved)
+	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID, Rescan: rs})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
@@ -489,6 +494,11 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	paths := r.URL.Query()["paths"]
+	// Resolved once, before the switch: this is both the selection the delete
+	// acts on and the set handed to the post-delete re-index, so the two can
+	// never disagree. Re-deriving it inside a case would mean a second
+	// directory listing when the client sends no explicit paths.
+	rescanPaths := h.selectionPaths(lib, abs, paths)
 	switch r.URL.Query().Get("slot") {
 	case "db":
 		album, aerr := h.albumForSelection(lib, abs, paths)
@@ -522,7 +532,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "embedded":
-		for _, trackAbs := range h.selectionPaths(lib, abs, paths) {
+		for _, trackAbs := range rescanPaths {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
 				writeErr(w, http.StatusInternalServerError, "internal", werr.Error())
 				return
@@ -535,7 +545,11 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder, db")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	if rs := h.rescanSaved(r.Context(), lib.ID, rescanPaths); rs != nil {
+		out["rescan"] = rs
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // writeImage writes raw image bytes with a sniffed image content-type.

@@ -33,6 +33,9 @@ type Cfg struct {
 	// IdentifyUnavailableReason is the user-facing explanation shown by the
 	// editor when Identifier is nil (e.g. fpcalc missing). Ignored otherwise.
 	IdentifyUnavailableReason string
+	// Rescanner re-indexes files the metadata editor writes, so an edit shows
+	// up in the music UI without a scan task. Optional: nil disables it.
+	Rescanner metadataHandler.TrackRescanner
 }
 
 type MainAppHandler struct {
@@ -49,6 +52,7 @@ type MainAppHandler struct {
 	assets        *assetstore.Store
 	identifier    metadataHandler.IdentifyService
 	identifyOff   string
+	rescanner     metadataHandler.TrackRescanner
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +75,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
+		rescanner:     cfg.Rescanner,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

@@ -24,7 +24,15 @@ type ScanStats struct {
 	TracksProcessed int
 	TracksNew       int
 	TracksUpdated   int
-	Errors          []error
+	// TracksSkipped counts paths a caller supplied that the library does not
+	// cover and that were therefore deliberately not indexed (outside the root,
+	// not an audio extension, excluded, unreadable). Only RescanPaths can
+	// produce these — it is handed an explicit path list — so a full Scan, whose
+	// paths all come from its own walk, always leaves this zero. It exists so a
+	// caller can tell "skipped by design" from "reconcile failed" instead of
+	// inferring a shortfall from TracksProcessed.
+	TracksSkipped int
+	Errors        []error
 }
 
 type Scanner struct {
