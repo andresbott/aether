@@ -272,7 +272,11 @@ function apply() {
             class="album-path-errors"
             data-test="album-path-errors"
         >
-            <p class="path-errors-header">Some files could not be fingerprinted:</p>
+            <!-- Covers both kinds the server reports here: files it could not
+                 fingerprint or look up, and paths it refused before
+                 identification (outside the library). Naming only fingerprinting
+                 would mislabel the latter, which was never fingerprinted. -->
+            <p class="path-errors-header">Some files were not identified:</p>
             <ul class="path-errors-list">
                 <li v-for="e in pathErrors" :key="e.path" class="path-error-item">
                     <span class="path-error-path">{{ e.path }}</span>

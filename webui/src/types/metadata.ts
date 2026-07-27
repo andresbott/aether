@@ -247,7 +247,10 @@ export interface IdentifyAlbumRequest {
 
 export interface IdentifyAlbumResponse {
     options: AlbumOption[]
-    // Paths the server refused before identification (e.g. outside the library).
+    // Files this identification did not cover, of both kinds: paths the server
+    // refused before identification (outside the library) and files that reached
+    // the resolver but could not be fingerprinted or looked up. `error` is a
+    // short user-facing reason, never a raw server error.
     errors: { path: string; error: string }[]
 }
 

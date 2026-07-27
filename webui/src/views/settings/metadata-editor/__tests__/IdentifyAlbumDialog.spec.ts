@@ -284,16 +284,26 @@ describe('IdentifyAlbumDialog', () => {
     })
 
     it('shows path errors even when no options exist', () => {
+        // The reasons the server actually sends: short, user-facing sentences.
         const pathErrs = [
-            { path: 'bad.mp3', error: 'fpcalc not found' },
-            { path: 'corrupt.mp3', error: 'invalid audio format' }
+            { path: 'bad.mp3', error: 'could not be fingerprinted' },
+            { path: '../outside.mp3', error: 'is outside the library' }
         ]
         const w = mountDialog([], [], pathErrs)
         expect(w.find('[data-test="album-path-errors"]').exists()).toBe(true)
         expect(w.text()).toContain('bad.mp3')
-        expect(w.text()).toContain('fpcalc not found')
-        expect(w.text()).toContain('corrupt.mp3')
-        expect(w.text()).toContain('invalid audio format')
+        expect(w.text()).toContain('could not be fingerprinted')
+        expect(w.text()).toContain('../outside.mp3')
+        expect(w.text()).toContain('is outside the library')
+    })
+
+    // errors[] carries library-resolution refusals too, which were never
+    // fingerprinted, so the header must not claim fingerprinting for all of them.
+    it('labels the error block for both refusals and fingerprint failures', () => {
+        const w = mountDialog([], [], [{ path: '../outside.mp3', error: 'is outside the library' }])
+        const header = w.find('[data-test="album-path-errors"]').text()
+        expect(header).not.toContain('could not be fingerprinted:')
+        expect(header).toContain('were not identified')
     })
 
     // Multi-disc tests: a position is a (disc, track) pair, not a bare track number.

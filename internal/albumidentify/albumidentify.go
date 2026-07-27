@@ -123,10 +123,52 @@ type fileResult struct {
 // with an unknown track count and no gap-fill — and the user can pick one.
 const MaxEnrichedOptions = 8
 
-// FileError is one file's fingerprint failure.
+// Per-file failure reasons. These are the sentences a person reads next to the
+// file name, so they say what happened and nothing about how: a raw Go error
+// here would put server filesystem paths ("/usr/bin/fpcalc") and fpcalc's own
+// stderr into a user-facing response body, which docs/agents/architecture.md
+// forbids.
+//
+// Only three, because only three distinctions change what the user can DO about
+// it: fix/replace the file, wait and retry, or fix the selection.
+const (
+	// ReasonNotFingerprinted: the local fingerprint step failed — fpcalc is
+	// missing, the file is not decodable audio, or it produced no fingerprint.
+	// Nothing about retrying will change it.
+	ReasonNotFingerprinted = "could not be fingerprinted"
+	// ReasonLookupFailed: the file fingerprinted fine but the AcoustID lookup
+	// failed for it. Worth retrying, unlike the above. (When EVERY file fails
+	// this way the whole request fails instead — see upstreamFailure.)
+	ReasonLookupFailed = "could not be looked up — the identification service failed"
+	// ReasonOutsideLibrary: the path never reached identification at all because
+	// it resolved outside the library root. Set by the API layer, which is where
+	// paths are resolved.
+	ReasonOutsideLibrary = "is outside the library"
+)
+
+// FileError is one file that produced no identification, with the short reason
+// a person reads. The technical error is deliberately absent: it is only useful
+// server-side and this struct is serialised straight to the client.
 type FileError struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
+}
+
+// failureReason maps one file's fingerprint/lookup error to its user-facing
+// reason. An upstream-typed error means the AcoustID call itself failed (see
+// identify.asUpstream); anything else came from the local fingerprint step.
+//
+// It classifies on the error TYPE, never on error text, so a reworded message
+// upstream cannot silently reclassify a failure.
+func failureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	var uerr *upstream.Error
+	if errors.As(err, &uerr) {
+		return ReasonLookupFailed
+	}
+	return ReasonNotFingerprinted
 }
 
 // Resolver maps file selections onto single releases. Releases may be nil: the
@@ -164,7 +206,7 @@ func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, 
 		recs, dur, err := r.Identifier.IdentifyFileWithDuration(ctx, in.AbsPath)
 		results = append(results, fileResult{input: in, recordings: recs, duration: dur, err: err})
 		if err != nil {
-			fileErrors = append(fileErrors, FileError{Path: in.Path, Error: err.Error()})
+			fileErrors = append(fileErrors, FileError{Path: in.Path, Error: failureReason(err)})
 		}
 	}
 	if err := upstreamFailure(results); err != nil {

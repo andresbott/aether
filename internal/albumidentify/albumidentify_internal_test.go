@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -1135,6 +1136,65 @@ func TestResolveFailsOnATotalProviderRejection(t *testing.T) {
 		{Path: "b.flac", AbsPath: "/lib/b.flac"},
 	}); err == nil {
 		t.Fatal("expected a total provider rejection to fail the request")
+	}
+}
+
+// Pre-fix, FileError.Error was err.Error() verbatim, so the headline
+// fpcalc-missing case put a server filesystem path — and a decode failure put
+// fpcalc's stderr — into a user-facing response body.
+func TestResolveReportsShortReasonsNotRawErrors(t *testing.T) {
+	fpcalcMissing := fmt.Errorf(
+		"fingerprint: fpcalc exec: %w",
+		errors.New(`exec: "/usr/bin/fpcalc": executable file not found in $PATH`))
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
+			duration:   180,
+		},
+		"/lib/bad.flac":     {err: fpcalcMissing},
+		"/lib/limited.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+	}}
+	r := New(ident, &fakeReleaseLookup{})
+	opts, fileErrs, err := r.Resolve(context.Background(), []Input{
+		{Path: "01.flac", AbsPath: "/lib/01.flac"},
+		{Path: "bad.flac", AbsPath: "/lib/bad.flac"},
+		{Path: "limited.flac", AbsPath: "/lib/limited.flac"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	byPath := map[string]string{}
+	for _, fe := range fileErrs {
+		byPath[fe.Path] = fe.Error
+	}
+	if got := byPath["bad.flac"]; got != ReasonNotFingerprinted {
+		t.Fatalf("expected %q, got %q", ReasonNotFingerprinted, got)
+	}
+	if got := byPath["limited.flac"]; got != ReasonLookupFailed {
+		t.Fatalf("expected %q, got %q", ReasonLookupFailed, got)
+	}
+	// No leak anywhere in the reported reasons or the per-row errors.
+	leaks := []string{"/usr/bin/fpcalc", "$PATH", "exec:", "fpcalc", "acoustid", "AcoustID", "boom"}
+	var reported []string
+	for _, fe := range fileErrs {
+		reported = append(reported, fe.Error)
+	}
+	for _, o := range opts {
+		for _, a := range o.Assignments {
+			if a.Error != "" {
+				reported = append(reported, a.Error)
+			}
+		}
+	}
+	if len(reported) < 4 {
+		t.Fatalf("expected reasons on both the file list and the rows, got %v", reported)
+	}
+	for _, msg := range reported {
+		for _, leak := range leaks {
+			if strings.Contains(msg, leak) {
+				t.Fatalf("technical detail %q leaked into a user-facing reason: %q", leak, msg)
+			}
+		}
 	}
 }
 

@@ -175,8 +175,18 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 		} `json:"errors"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if len(body.Errors) != 1 || body.Errors[0].Path != "../outside.mp3" || body.Errors[0].Error == "" {
+	if len(body.Errors) != 1 || body.Errors[0].Path != "../outside.mp3" {
 		t.Fatalf("expected a per-path error, got %s", w.Body.String())
+	}
+	// A short reason, not the resolution error: that one quotes the rejected path
+	// and the library root back at the client.
+	if body.Errors[0].Error != albumidentify.ReasonOutsideLibrary {
+		t.Fatalf("expected %q, got %q", albumidentify.ReasonOutsideLibrary, body.Errors[0].Error)
+	}
+	for _, leak := range []string{"resolves outside library root", root} {
+		if strings.Contains(w.Body.String(), leak) {
+			t.Fatalf("server detail %q leaked into the body: %s", leak, w.Body.String())
+		}
 	}
 }
 

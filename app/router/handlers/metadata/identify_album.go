@@ -27,8 +27,14 @@ type identifyAlbumRequest struct {
 	Paths     []string `json:"paths"`
 }
 
-// pathErrorDTO is one requested path that never reached the resolver (it
-// escaped the library root, or was otherwise unusable).
+// pathErrorDTO is one requested file that produced no identification, with the
+// short reason a person reads. It covers both kinds: a path refused before
+// identification (outside the library) and a file that reached the resolver but
+// could not be fingerprinted or looked up.
+//
+// The reason is always one of albumidentify's fixed sentences — never a Go error
+// — because this body is rendered verbatim in the dialog and a raw error would
+// leak server paths and fpcalc's stderr to the client.
 type pathErrorDTO struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
@@ -72,7 +78,11 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	for _, p := range body.Paths {
 		abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, p)
 		if rerr != nil {
-			pathErrors = append(pathErrors, pathErrorDTO{Path: p, Error: rerr.Error()})
+			// The resolution error quotes the rejected path and the library root;
+			// the user only needs to know the file is not eligible.
+			pathErrors = append(pathErrors, pathErrorDTO{
+				Path: p, Error: albumidentify.ReasonOutsideLibrary,
+			})
 			continue
 		}
 		album, title, trackNo, discNo := h.currentTags(abs)
@@ -103,7 +113,9 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	if options == nil {
 		options = []albumidentify.AlbumOption{}
 	}
-	// Merge fingerprint errors with path errors so the dialog shows both.
+	// Merge the resolver's per-file failures with the paths refused before
+	// identification: to the user they are one list of "files this did not cover",
+	// and the resolver already reduced each to a short reason.
 	for _, fe := range fileErrors {
 		pathErrors = append(pathErrors, pathErrorDTO{Path: fe.Path, Error: fe.Error})
 	}

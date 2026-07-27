@@ -93,7 +93,9 @@ func fillGaps(o *AlbumOption, results []fileResult) {
 		}
 		a := Assignment{Path: res.input.Path, Source: SourceNone}
 		if res.err != nil {
-			a.Error = res.err.Error()
+			// The short reason, not the Go error: this row is rendered verbatim
+			// in the dialog. See failureReason.
+			a.Error = failureReason(res.err)
 		}
 		o.Assignments = append(o.Assignments, a)
 	}
