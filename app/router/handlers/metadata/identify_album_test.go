@@ -21,8 +21,9 @@ import (
 )
 
 type fakeAlbumIdentifier struct {
-	options []albumidentify.AlbumOption
-	err     error
+	options    []albumidentify.AlbumOption
+	fileErrors []albumidentify.FileError
+	err        error
 	// callHistory records every Resolve call's inputs, so tests can verify what
 	// paths reached (or never reached) the resolver across multiple calls.
 	callHistory [][]albumidentify.Input
@@ -30,9 +31,9 @@ type fakeAlbumIdentifier struct {
 
 func (f *fakeAlbumIdentifier) Resolve(
 	_ context.Context, inputs []albumidentify.Input,
-) ([]albumidentify.AlbumOption, error) {
+) ([]albumidentify.AlbumOption, []albumidentify.FileError, error) {
 	f.callHistory = append(f.callHistory, inputs)
-	return f.options, f.err
+	return f.options, f.fileErrors, f.err
 }
 
 func newAlbumIdentifyHandler(

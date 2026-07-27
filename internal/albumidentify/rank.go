@@ -140,10 +140,26 @@ func albumTagAgreement(o *AlbumOption, inputs []Input) float64 {
 
 // normalizeText canonicalises text for comparison. Case, whitespace, and
 // punctuation differences are normalised because they are common transcription
-// variations, not evidence that the strings differ.
+// variations, not evidence that the strings differ. Parenthetical annotations
+// are stripped entirely.
 func normalizeText(s string) string {
+	// Strip parenthesized content: "Nevermind (Remastered)" → "Nevermind ".
+	var stripped strings.Builder
+	depth := 0
+	for _, r := range s {
+		if r == '(' {
+			depth++
+		} else if r == ')' {
+			if depth > 0 {
+				depth--
+			}
+		} else if depth == 0 {
+			stripped.WriteRune(r)
+		}
+	}
+	// Then normalize: lowercase, alphanumeric only, collapse whitespace.
 	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
+	for _, r := range strings.ToLower(stripped.String()) {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 			b.WriteRune(r)
