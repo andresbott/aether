@@ -169,12 +169,269 @@ const multiDisc: AlbumOption = {
     ]
 }
 
-function mountDialog(options: AlbumOption[], t: Track[] = tracks, pathErrors: Array<{ path: string; error: string }> = []) {
+function mountDialog(
+    options: AlbumOption[],
+    t: Track[] = tracks,
+    pathErrors: Array<{ path: string; error: string }> = [],
+    loading = false
+) {
     return mount(IdentifyAlbumDialog, {
-        props: { visible: true, options, tracks: t, pathErrors },
+        props: { visible: true, options, tracks: t, pathErrors, loading },
         global: { stubs }
     })
 }
+
+describe('IdentifyAlbumDialog track table', () => {
+    it('renders a current/target column pair for both title and artist', () => {
+        const w = mountDialog([albumA])
+        const header = w.find('.track-list-header')
+        expect(header.exists()).toBe(true)
+        const text = header.text()
+        expect(text).toContain('#')
+        expect(text).toContain('File')
+        expect(text).toContain('New title')
+        expect(text).toContain('Artist')
+        expect(text).toContain('New artist')
+    })
+
+    it('shows the proposed track number in the index column', () => {
+        const w = mountDialog([albumA])
+        const row = w.find('[data-test="album-row-01.mp3"]')
+        expect(row.find('.col-index').text()).toBe('1')
+    })
+
+    it('identifies the row by file name, not by its title tag', () => {
+        // The fixture's tracks all carry the same title tag ('Current Title'),
+        // which is exactly why the column shows the file name: it is the only
+        // value that tells two rows apart.
+        const w = mountDialog([albumA])
+        const file = w.find('[data-test="album-file-01.mp3"]')
+        expect(file.text()).toContain('a.mp3')
+        // Reads the `name` field, not the path key: a nested file shows its own
+        // name in the column and its full path only in the tooltip.
+        const nested = mountDialog([albumA], [
+            mkTrack({ path: 'CD 1/01.mp3', name: '01 - Song.mp3' }),
+            mkTrack({ path: '02.mp3' })
+        ])
+        expect(nested.find('[data-test="album-file-CD 1/01.mp3"]').text()).toContain(
+            '01 - Song.mp3'
+        )
+        expect(file.text()).not.toContain('Current Title')
+        // The proposed title sits in its own column beside it.
+        expect(w.find('[data-test="album-title-01.mp3"]').text()).toContain('One')
+    })
+
+    it('reports the current title tag in the new-title tooltip', () => {
+        // With the title tag off the table, the tooltip is the only place it
+        // appears — so it has to carry it rather than merely flag a change.
+        const w = mountDialog([albumA])
+        const cell = w.find('[data-test="album-title-01.mp3"]').find('.cell-value')
+        expect(cell.attributes('data-pd-tooltip')).toBeDefined()
+    })
+
+    it('falls back to the release artist when a row carries no credits', () => {
+        // albumA's second assignment has no artists of its own, so the target
+        // column shows the album artist rather than going blank.
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-artist-02.mp3"]').text()).toBe('Artist')
+    })
+
+    it('flags a changed value and explains what it replaces on hover', () => {
+        const w = mountDialog([albumA])
+        const title = w.find('[data-test="album-title-01.mp3"]')
+        // 'One' replaces 'Current Title', so the cell is marked and the tooltip
+        // names the value being replaced — the old value stays reachable without
+        // spending a column on it.
+        expect(title.classes()).toContain('changed')
+        // The directive only marks the element when it was given a non-empty
+        // value, so presence here means a tooltip really was attached. (jsdom
+        // renders no tooltip text, so the copy itself is covered by the
+        // replacesTooltip unit test below.)
+        expect(title.find('.cell-value').attributes('data-pd-tooltip')).toBeDefined()
+
+        const artist = w.find('[data-test="album-artist-01.mp3"]')
+        expect(artist.classes()).toContain('changed')
+    })
+
+    it('does not flag a target equal to the value the file already has', () => {
+        // The file is already titled 'One' and credited 'Artist', so identifying
+        // it changes nothing and the cell must not shout about it.
+        const already = [
+            mkTrack({ path: '01.mp3', title: 'One', artists: ['Artist'] }),
+            mkTrack({ path: '02.mp3' })
+        ]
+        const w = mountDialog([albumA], already)
+        expect(w.find('[data-test="album-title-01.mp3"]').classes()).not.toContain('changed')
+        expect(w.find('[data-test="album-artist-01.mp3"]').classes()).not.toContain('changed')
+        // And no tooltip: there is nothing being replaced to explain.
+        expect(
+            w.find('[data-test="album-title-01.mp3"]').find('.cell-value').attributes('data-pd-tooltip')
+        ).toBeUndefined()
+    })
+
+    it('marks a row that stages no title as unchanged rather than blank', () => {
+        // albumB's second assignment has source 'none', so nothing is proposed.
+        const w = mountDialog([albumB])
+        const title = w.find('[data-test="album-title-02.mp3"]')
+        expect(title.text()).toContain('unchanged')
+        expect(title.classes()).not.toContain('changed')
+    })
+
+    it('banners each disc only when the release spans more than one', () => {
+        const single = mountDialog([albumA])
+        expect(single.findAll('.disc-header')).toHaveLength(0)
+
+        const multi = mountDialog([multiDisc])
+        const banners = multi.findAll('.disc-header').map((b) => b.text())
+        expect(banners).toContain('Disc 1')
+        expect(banners).toContain('Disc 2')
+    })
+
+    it('marks a conflicting row so it is visible in a long list', () => {
+        const clashing: AlbumOption = {
+            ...albumA,
+            assignments: [
+                { ...albumA.assignments[0], path: '01.mp3', disc_number: 1, track_number: 1 },
+                { ...albumA.assignments[1], path: '02.mp3', disc_number: 1, track_number: 1 }
+            ]
+        }
+        const w = mountDialog([clashing])
+        expect(w.find('[data-test="album-row-01.mp3"]').classes()).toContain('conflicting')
+    })
+
+    it('dims a row the user excluded', async () => {
+        const w = mountDialog([albumA])
+        const row = w.find('[data-test="album-row-01.mp3"]')
+        expect(row.classes()).not.toContain('excluded')
+        await row.find('input[type="checkbox"]').setValue(false)
+        expect(w.find('[data-test="album-row-01.mp3"]').classes()).toContain('excluded')
+    })
+})
+
+describe('IdentifyAlbumDialog unfilled tracklist positions', () => {
+    it('shows a greyed placeholder for a release track the selection lacks', () => {
+        // albumA has 3 tracks; the 2 selected files cover 1 and 2, so track 3 is
+        // a hole in the selection and must be visible as one.
+        const w = mountDialog([albumA])
+        const gap = w.find('[data-test="album-gap-1-3"]')
+        expect(gap.exists()).toBe(true)
+        expect(gap.classes()).toContain('gap-row')
+        // It names the album's song but carries no file name and no controls.
+        expect(gap.text()).toContain('Three')
+        expect(gap.text()).toContain('not in selection')
+        expect(gap.find('input[type="checkbox"]').exists()).toBe(false)
+        expect(gap.find('select').exists()).toBe(false)
+    })
+
+    it('places the placeholder in track order, not appended at the end', () => {
+        // Only track 2 is covered, so tracks 1 and 3 are gaps and the rows must
+        // read 1, 2, 3 rather than 2, 1, 3.
+        const onlyTrackTwo: AlbumOption = {
+            ...albumA,
+            assignments: [albumA.assignments[1]]
+        }
+        const w = mountDialog([onlyTrackTwo], [mkTrack({ path: '02.mp3' })])
+        const numbers = w
+            .findAll('.album-track-row .col-index')
+            .map((c) => c.text())
+        expect(numbers).toEqual(['1', '2', '3'])
+    })
+
+    it('has no placeholders when the selection covers the whole release', () => {
+        const full: AlbumOption = {
+            ...albumA,
+            track_count: 2,
+            tracks: albumA.tracks.slice(0, 2)
+        }
+        const w = mountDialog([full])
+        expect(w.findAll('.gap-row')).toHaveLength(0)
+    })
+
+    it('brings the placeholder back when its file is unchecked', async () => {
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-gap-1-1"]').exists()).toBe(false)
+
+        // Unchecking 01.mp3 means track 1 is no longer being filled.
+        await w
+            .find('[data-test="album-row-01.mp3"]')
+            .find('input[type="checkbox"]')
+            .setValue(false)
+        expect(w.find('[data-test="album-gap-1-1"]').exists()).toBe(true)
+    })
+
+    it('shows placeholders per disc on a multi-disc release', () => {
+        // multiDisc has 4 positions; the 2 files cover disc 1 track 1 and disc 2
+        // track 1, leaving one gap on each disc.
+        const w = mountDialog([multiDisc])
+        expect(w.find('[data-test="album-gap-1-2"]').exists()).toBe(true)
+        expect(w.find('[data-test="album-gap-2-2"]').exists()).toBe(true)
+    })
+
+    it('does not show placeholders for an un-enriched option', () => {
+        // No tracklist was fetched, so the release's other songs are unknown —
+        // inventing placeholders would be a guess.
+        const unenriched: AlbumOption = {
+            ...albumA,
+            enriched: false,
+            track_count: 0,
+            tracks: []
+        }
+        const w = mountDialog([unenriched])
+        expect(w.findAll('.gap-row')).toHaveLength(0)
+    })
+})
+
+describe('IdentifyAlbumDialog loading state', () => {
+    it('shows progress instead of results while the request is in flight', () => {
+        const w = mountDialog([], tracks, [], true)
+        expect(w.find('[data-test="album-loading"]').exists()).toBe(true)
+        expect(w.text()).toContain('Identifying 2 songs')
+        // Nothing to review yet: no album picker, no rows, no staging button,
+        // and crucially not the "nothing matched" copy, which would be a lie.
+        expect(w.find('[data-test="album-select"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-apply"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-empty"]').exists()).toBe(false)
+    })
+
+    it('swaps the progress state for the results once options arrive', async () => {
+        const w = mountDialog([], tracks, [], true)
+        expect(w.find('[data-test="album-loading"]').exists()).toBe(true)
+
+        await w.setProps({ loading: false, options: [albumA] })
+        expect(w.find('[data-test="album-loading"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-select"]').exists()).toBe(true)
+        expect(w.find('[data-test="album-apply"]').exists()).toBe(true)
+    })
+
+    it('hides the loading state even when the request reported per-file errors', async () => {
+        const w = mountDialog([], tracks, [{ path: 'x.mp3', error: 'could not be read' }], false)
+        expect(w.find('[data-test="album-loading"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-path-errors"]').exists()).toBe(true)
+    })
+
+    it('emits cancel alongside close so the parent can abort the request', async () => {
+        const w = mountDialog([], tracks, [], true)
+        await w.find('[data-test="album-cancel"]').trigger('click')
+        expect(w.emitted('cancel')).toHaveLength(1)
+        expect(w.emitted('update:visible')![0]).toEqual([false])
+    })
+
+    it('emits cancel when the dialog is dismissed without the Cancel button', async () => {
+        // The header X and Escape both come through the Dialog's update:visible,
+        // and they must abort too — otherwise the request runs on invisibly.
+        const w = mountDialog([], tracks, [], true)
+        await w.findComponent(stubs.Dialog).vm.$emit('update:visible', false)
+        expect(w.emitted('cancel')).toHaveLength(1)
+    })
+
+    it('still offers Cancel after results arrive', async () => {
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-cancel"]').exists()).toBe(true)
+        await w.find('[data-test="album-cancel"]').trigger('click')
+        // No request is in flight by then; the parent's abort is a no-op.
+        expect(w.emitted('update:visible')![0]).toEqual([false])
+    })
+})
 
 describe('IdentifyAlbumDialog', () => {
     it('preselects the first option and stages every song on apply', async () => {
@@ -257,6 +514,18 @@ describe('IdentifyAlbumDialog', () => {
         const w = mountDialog([clashing])
         expect(w.find('[data-test="album-conflict"]').exists()).toBe(true)
         expect(w.find('[data-test="album-apply"]').attributes('disabled')).toBeDefined()
+    })
+
+    // An un-enriched option carries no artist credits, and a Go nil slice
+    // marshals to JSON null, so `artists` can arrive null despite the type. The
+    // album label is rendered for every option during setup, so an unguarded
+    // .map() there takes the entire dialog down instead of degrading one label.
+    it('renders an option whose artist list arrived as null', () => {
+        const noArtists = { ...albumA, artists: null } as unknown as AlbumOption
+        const w = mountDialog([noArtists])
+        expect(w.find('[data-test="album-select"]').exists()).toBe(true)
+        expect(w.text()).toContain('Album A')
+        expect(w.find('[data-test="album-apply"]').exists()).toBe(true)
     })
 
     it('shows an empty state when nothing matched', () => {

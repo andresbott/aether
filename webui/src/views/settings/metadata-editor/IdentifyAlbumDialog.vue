@@ -26,10 +26,17 @@ const props = defineProps<{
     options: AlbumOption[]
     tracks: Track[]
     pathErrors: Array<{ path: string; error: string }>
+    // The dialog opens before the request resolves so the user sees the work
+    // start; while this is true the body is a progress note and there is nothing
+    // to review yet.
+    loading: boolean
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
     (e: 'apply', picks: AlbumIdentifyPick[]): void
+    // Cancel is not just "close": it aborts the in-flight identify request, so
+    // the parent needs to hear it rather than only observing visible: false.
+    (e: 'cancel'): void
 }>()
 
 // Per-song review state. `slot` is the tracklist position the user settled on:
@@ -133,9 +140,65 @@ function rowError(path: string): string {
     return assignmentByPath.value.get(path)?.error ?? ''
 }
 
+// The file name, which is what the Song column shows: it identifies the row
+// unambiguously even for a file whose title tag is missing, wrong, or identical
+// to another file's. The current title tag is still reachable — it is named in
+// the new-title cell's tooltip.
+function fileName(path: string): string {
+    return trackByPath.value.get(path)?.name || path
+}
+
+// The title the file carries today. Not shown as its own column any more, but it
+// is what a proposed title is compared against and what the tooltip reports.
 function currentTitle(path: string): string {
     const t = trackByPath.value.get(path)
-    return t?.title || t?.name || path
+    return t?.title ?? ''
+}
+
+// The artist the file carries today, for the current-artist column.
+function currentArtist(path: string): string {
+    const names = (trackByPath.value.get(path)?.artists ?? []).filter((n) => n !== '')
+    return names.length > 0 ? names.join(', ') : ''
+}
+
+// ----- current vs target -----
+// Each pair renders as two columns. When the target differs from the current
+// value the target is highlighted and carries a tooltip naming what it replaces,
+// so a rename is visible at a glance without reading both columns side by side.
+
+// targetTitle is what the row would write, or '' when it stages no title (an
+// unplaced row keeps the file's own).
+function targetTitle(path: string): string {
+    return resolved(path)?.title ?? ''
+}
+
+function titleChanged(path: string): boolean {
+    const target = targetTitle(path)
+    return target !== '' && target !== currentTitle(path)
+}
+
+function targetArtist(path: string): string {
+    const names = (resolved(path)?.artists ?? []).map((a) => a.name).filter((n) => n !== '')
+    if (names.length > 0) return names.join(', ')
+    // A recording without its own credits inherits the release's artists — that
+    // is what a save would actually write as the album artist.
+    const albumArtists = (selectedOption.value?.artists ?? [])
+        .map((a) => a.name)
+        .filter((n) => n !== '')
+    return albumArtists.join(', ')
+}
+
+function artistChanged(path: string): boolean {
+    const target = targetArtist(path)
+    return target !== '' && target !== currentArtist(path)
+}
+
+// The tooltip on a changed cell: what the value is now, since the column shows
+// what it will become. This is the ONLY place the file's existing title and
+// artist tags are shown — the Song column identifies the file, not its tags — so
+// an absent tag has to say so rather than render as a blank tooltip.
+function replacesTooltip(current: string): string {
+    return current === '' ? 'Currently: (no value)' : `Currently: ${current}`
 }
 
 // Rows in tracklist order, then the unplaced ones — the order the album reads
@@ -155,6 +218,77 @@ const orderedPaths = computed(() => {
     })
 })
 
+// A table row is either one of the selected files or a tracklist position no
+// selected file fills — the release has a song there, this selection just does
+// not include it. Showing those as placeholders makes a partial selection
+// obvious ("I only picked 9 of the 11 tracks") instead of silently looking
+// complete.
+type TableRow =
+    | { kind: 'file'; path: string; disc: number; track: number }
+    | { kind: 'gap'; disc: number; track: number; title: string }
+
+function rowKey(row: TableRow): string {
+    return row.kind === 'file' ? `file:${row.path}` : `gap:${row.disc}-${row.track}`
+}
+
+// Grouped by disc so the table reads like the album view's track list: a disc
+// banner only when the release actually spans several, and unplaced files in a
+// trailing group of their own (disc 0) because they belong to no disc yet.
+const discGroups = computed(() => {
+    const groups: Array<{ discNumber: number; rows: TableRow[] }> = []
+    const pushRow = (disc: number, row: TableRow) => {
+        const last = groups[groups.length - 1]
+        if (last && last.discNumber === disc) last.rows.push(row)
+        else groups.push({ discNumber: disc, rows: [row] })
+    }
+
+    // Positions the selection accounts for, so the gaps are everything else on
+    // the release. Only included rows count: unchecking a file means its slot is
+    // no longer being filled, so the placeholder should come back.
+    const filled = new Set<string>()
+    for (const path of includedPaths.value) {
+        const r = resolved(path)
+        if (r && r.track_number > 0) filled.add(slotKey(r.disc_number, r.track_number))
+    }
+
+    // Walk the placed files and the release's own tracklist together, in position
+    // order, so a gap lands where the missing song actually sits.
+    const gaps = (selectedOption.value?.tracks ?? [])
+        .filter((s) => !filled.has(slotKey(s.disc_number, s.track_number)))
+        .map<TableRow>((s) => ({
+            kind: 'gap',
+            disc: s.disc_number,
+            track: s.track_number,
+            title: s.title
+        }))
+
+    const placed: TableRow[] = []
+    const unplaced: TableRow[] = []
+    for (const path of orderedPaths.value) {
+        const r = resolved(path)
+        if (r && r.track_number > 0) {
+            placed.push({ kind: 'file', path, disc: r.disc_number, track: r.track_number })
+        } else {
+            unplaced.push({ kind: 'file', path, disc: 0, track: 0 })
+        }
+    }
+
+    const merged = [...placed, ...gaps].sort((a, b) => {
+        if (a.disc !== b.disc) return a.disc - b.disc
+        return a.track - b.track
+    })
+    for (const row of merged) pushRow(row.disc, row)
+    // Files with no position at all trail the whole table, under their own banner.
+    for (const row of unplaced) pushRow(0, row)
+    return groups
+})
+
+// Only banner the discs when there is more than one REAL disc; a lone unplaced
+// group is not a disc and must not make a single-disc release look multi-disc.
+const hasMultipleDiscs = computed(
+    () => discGroups.value.filter((g) => g.discNumber > 0).length > 1
+)
+
 const albumChoices = computed(() =>
     props.options.map((o) => ({
         value: o.release_mbid,
@@ -164,7 +298,10 @@ const albumChoices = computed(() =>
 )
 
 function albumLabel(o: AlbumOption): string {
-    const artist = o.artists.map((a) => a.name).join(', ')
+    // `?? []` despite the type promising an array: this label is the first thing
+    // rendered for every option, so a single missing credit list would take the
+    // whole dialog down rather than degrade one row.
+    const artist = (o.artists ?? []).map((a) => a.name).join(', ')
     const year = o.year > 0 ? ` (${o.year})` : ''
     return artist ? `${o.album} — ${artist}${year}` : `${o.album}${year}`
 }
@@ -257,18 +394,46 @@ function apply() {
     }))
     emit('apply', picks)
 }
+
+// One exit path for Cancel, the header X and an Escape press: all three mean
+// "stop", and while a request is in flight stopping must abort it, not leave it
+// running invisibly against the user's rate limit.
+function cancel() {
+    emit('cancel')
+    emit('update:visible', false)
+}
 </script>
 
 <template>
+    <!-- Near-full-screen: eight columns of current-vs-target comparison over a
+         whole album need the width, and the row list needs the height so a
+         20-track release is not read through a keyhole. -->
     <Dialog
         :visible="visible"
-        @update:visible="(v) => emit('update:visible', v)"
+        @update:visible="(v) => !v && cancel()"
         header="Identify album"
         modal
-        :style="{ width: '72rem', maxWidth: '95vw' }"
+        :style="{ width: '96vw', maxWidth: '96vw', height: '92vh' }"
+        class="album-identify-dialog"
     >
+        <div v-if="loading" class="album-loading" data-test="album-loading">
+            <i class="pi pi-spin pi-spinner"></i>
+            <div class="loading-text">
+                <p class="loading-headline">
+                    Identifying {{ tracks.length }} song{{ tracks.length === 1 ? '' : 's' }}…
+                </p>
+                <!-- Sets the expectation: this is one fpcalc run plus a
+                     rate-limited AcoustID call per file, then MusicBrainz
+                     lookups, so tens of seconds is normal rather than a hang. -->
+                <small class="loading-note">
+                    Fingerprinting each file and looking up matching releases. This can take a
+                    while; Cancel stops it.
+                </small>
+            </div>
+        </div>
+
         <div
-            v-if="pathErrors.length > 0"
+            v-else-if="pathErrors.length > 0"
             class="album-path-errors"
             data-test="album-path-errors"
         >
@@ -285,15 +450,23 @@ function apply() {
             </ul>
         </div>
 
-        <div v-if="options.length === 0 && pathErrors.length === 0" class="album-empty" data-test="album-empty">
+        <div
+            v-if="!loading && options.length === 0 && pathErrors.length === 0"
+            class="album-empty"
+            data-test="album-empty"
+        >
             None of these songs matched a known release.
         </div>
 
-        <div v-else-if="options.length === 0 && pathErrors.length > 0" class="album-empty" data-test="album-empty">
+        <div
+            v-else-if="!loading && options.length === 0 && pathErrors.length > 0"
+            class="album-empty"
+            data-test="album-empty"
+        >
             No songs matched a known release.
         </div>
 
-        <template v-else>
+        <template v-else-if="!loading">
             <div class="album-pick">
                 <label for="album-select">Album</label>
                 <Dropdown
@@ -313,57 +486,154 @@ function apply() {
                 Two songs are on the same track position. Change one before staging.
             </p>
 
-            <div class="album-rows">
-                <div
-                    v-for="path in orderedPaths"
-                    :key="path"
-                    class="album-row"
-                    :class="{ conflicting: isConflicting(path) }"
-                    :data-test="`album-row-${path}`"
-                >
-                    <Checkbox
-                        :modelValue="rowState(path).included"
-                        @update:modelValue="(v: boolean) => (rowState(path).included = v)"
-                        :binary="true"
-                        :inputId="`album-include-${path}`"
-                    />
-                    <label :for="`album-include-${path}`" class="row-titles">
-                        <span class="row-proposed">
-                            {{ resolved(path)?.title || '(no title change)' }}
-                        </span>
-                        <span class="row-current">current: {{ currentTitle(path) }}</span>
-                        <small v-if="rowError(path)" class="row-error">{{ rowError(path) }}</small>
-                    </label>
-                    <span class="row-position">
-                        <template v-if="resolved(path)">
-                            {{ resolved(path)!.disc_number }}-{{ resolved(path)!.track_number }}
-                        </template>
-                        <template v-else>—</template>
-                    </span>
-                    <span
-                        class="row-badge"
-                        :class="`badge-${badge(path)}`"
-                        :data-test="`album-badge-${path}`"
-                    >
-                        {{ badge(path) }}
-                    </span>
-                    <Dropdown
-                        class="row-slot"
-                        :data-test="`album-slot-${path}`"
-                        :modelValue="rowState(path).slot"
-                        @update:modelValue="(v: number | string) => (rowState(path).slot = v)"
-                        :options="slotChoices(path)"
-                        optionLabel="label"
-                        optionValue="value"
-                    />
+            <div class="track-list">
+                <div class="track-list-header">
+                    <span class="col-include" aria-label="Include"></span>
+                    <span class="col-index">#</span>
+                    <span class="col-current">File</span>
+                    <span class="col-target">New title</span>
+                    <span class="col-current">Artist</span>
+                    <span class="col-target">New artist</span>
+                    <span class="col-source">Match</span>
+                    <span class="col-slot">Position</span>
                 </div>
+
+                <template v-for="(group, gi) in discGroups" :key="group.discNumber">
+                    <div v-if="hasMultipleDiscs && group.discNumber > 0" class="disc-header">
+                        Disc {{ group.discNumber }}
+                    </div>
+                    <!-- The unplaced group carries no disc, so it gets its own
+                         banner rather than being mistaken for disc 1's tail. -->
+                    <div
+                        v-else-if="group.discNumber === 0 && gi > 0"
+                        class="disc-header unplaced-header"
+                    >
+                        No position on this release
+                    </div>
+
+                    <template v-for="(row, i) in group.rows" :key="rowKey(row)">
+                        <!-- A position on the release that none of the selected
+                             files fills: shown in place, greyed and inert, so a
+                             partial selection is visible instead of looking
+                             complete. -->
+                        <div
+                            v-if="row.kind === 'gap'"
+                            class="album-track-row gap-row"
+                            :class="{ striped: i % 2 === 1 }"
+                            :data-test="`album-gap-${row.disc}-${row.track}`"
+                        >
+                            <span class="col-include"></span>
+                            <span class="col-index track-number">{{ row.track }}</span>
+                            <span class="col-current cell-current">
+                                <span class="cell-value gap-note">not in selection</span>
+                            </span>
+                            <span class="col-target cell-target">
+                                <span class="cell-value gap-title">{{ row.title }}</span>
+                            </span>
+                            <span class="col-current"></span>
+                            <span class="col-target"></span>
+                            <span class="col-source"></span>
+                            <span class="col-slot"></span>
+                        </div>
+
+                        <div
+                            v-else
+                            class="album-track-row"
+                            :class="{
+                                striped: i % 2 === 1,
+                                conflicting: isConflicting(row.path),
+                                excluded: !rowState(row.path).included
+                            }"
+                            :data-test="`album-row-${row.path}`"
+                        >
+                        <span class="col-include">
+                            <Checkbox
+                                :modelValue="rowState(row.path).included"
+                                @update:modelValue="(v: boolean) => (rowState(row.path).included = v)"
+                                :binary="true"
+                                :inputId="`album-include-${row.path}`"
+                            />
+                        </span>
+                        <span class="col-index track-number">
+                            <template v-if="resolved(row.path)">
+                                {{ resolved(row.path)!.track_number }}
+                            </template>
+                            <template v-else>—</template>
+                        </span>
+                        <label
+                            :for="`album-include-${row.path}`"
+                            class="col-current cell-current"
+                            :data-test="`album-file-${row.path}`"
+                        >
+                            <span v-tooltip.top="row.path" class="cell-value file-name">
+                                {{ fileName(row.path) }}
+                            </span>
+                            <small v-if="rowError(row.path)" class="row-error">
+                                {{ rowError(row.path) }}
+                            </small>
+                        </label>
+                        <span
+                            class="col-target cell-target"
+                            :class="{ changed: titleChanged(row.path) }"
+                            :data-test="`album-title-${row.path}`"
+                        >
+                            <span
+                                v-if="targetTitle(row.path) !== ''"
+                                v-tooltip.top="
+                                    titleChanged(row.path) ? replacesTooltip(currentTitle(row.path)) : ''
+                                "
+                                class="cell-value"
+                                >{{ targetTitle(row.path) }}</span
+                            >
+                            <span v-else class="cell-unchanged">unchanged</span>
+                        </span>
+
+                        <span class="col-current cell-current">
+                            <span class="cell-value">{{ currentArtist(row.path) || '—' }}</span>
+                        </span>
+                        <span
+                            class="col-target cell-target"
+                            :class="{ changed: artistChanged(row.path) }"
+                            :data-test="`album-artist-${row.path}`"
+                        >
+                            <span
+                                v-if="targetArtist(row.path) !== ''"
+                                v-tooltip.top="
+                                    artistChanged(row.path) ? replacesTooltip(currentArtist(row.path)) : ''
+                                "
+                                class="cell-value"
+                                >{{ targetArtist(row.path) }}</span
+                            >
+                            <span v-else class="cell-unchanged">unchanged</span>
+                        </span>
+                        <span class="col-source">
+                            <span
+                                class="row-badge"
+                                :class="`badge-${badge(row.path)}`"
+                                :data-test="`album-badge-${row.path}`"
+                            >
+                                {{ badge(row.path) }}
+                            </span>
+                        </span>
+                        <Dropdown
+                            class="col-slot row-slot"
+                            :data-test="`album-slot-${row.path}`"
+                            :modelValue="rowState(row.path).slot"
+                            @update:modelValue="(v: number | string) => (rowState(row.path).slot = v)"
+                            :options="slotChoices(row.path)"
+                            optionLabel="label"
+                            optionValue="value"
+                        />
+                    </div>
+                    </template>
+                </template>
             </div>
         </template>
 
         <template #footer>
-            <Button label="Cancel" text @click="emit('update:visible', false)" />
+            <Button label="Cancel" text data-test="album-cancel" @click="cancel" />
             <Button
-                v-if="options.length > 0"
+                v-if="!loading && options.length > 0"
                 :label="`Stage ${includedPaths.length} song${includedPaths.length === 1 ? '' : 's'}`"
                 icon="pi pi-check"
                 data-test="album-apply"
@@ -375,6 +645,29 @@ function apply() {
 </template>
 
 <style scoped>
+.album-loading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    padding: 2rem 0.5rem;
+}
+.album-loading .pi-spinner {
+    font-size: 1.6rem;
+    color: var(--app-accent);
+}
+.loading-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+}
+.loading-headline {
+    margin: 0;
+    font-weight: 600;
+}
+.loading-note {
+    color: var(--app-text-secondary);
+}
 .album-empty {
     padding: 1rem 0;
     color: var(--app-text-secondary);
@@ -426,61 +719,201 @@ function apply() {
     margin: 0 0 0.6rem;
     color: var(--p-red-600, #dc2626);
 }
-.album-rows {
+/* A fixed-height dialog only pays off if the body actually fills it: make the
+   PrimeVue content region a flex column so the track table absorbs the leftover
+   height and scrolls internally, instead of the whole dialog overflowing. Needs
+   :deep() because these are PrimeVue's own elements, not ours. */
+.album-identify-dialog:deep(.p-dialog-content) {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
-    max-height: 65vh;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* The album track table, styled to match AlbumView's track list: one shared grid
+   template for the header and every row, uppercase column labels, zebra
+   striping, and accent disc banners. Kept as a local copy of the pattern rather
+   than reusing AlbumTrackRow — that component renders a playable Subsonic Song
+   with drag and selection, while these rows are editor controls (a checkbox, a
+   match badge, a position dropdown) over identify results. */
+.track-list {
+    /* Shared grid template so the header and every row align. */
+    /* include · # · file · new title · artist · new artist · match · position.
+       Each current/target pair shares one width so a rename reads as a straight
+       left-to-right comparison; match and position are fixed since their content
+       is bounded. */
+    --album-track-cols: 2.2rem 34px minmax(0, 1.5fr) minmax(0, 1.5fr) minmax(0, 1fr)
+        minmax(0, 1fr) 7rem 15rem;
+    display: flex;
+    flex-direction: column;
+    /* Fills the dialog's remaining height rather than a fixed viewport slice, so
+       the taller dialog actually shows more rows. */
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
 }
-.album-row {
-    display: flex;
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--album-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+    /* The header stays put while a long tracklist scrolls under it. */
+    position: sticky;
+    top: 0;
+    background: var(--app-surface, #fff);
+    z-index: 1;
+}
+.track-list-header .col-index {
+    text-align: right;
+}
+.disc-header {
+    background: var(--app-accent);
+    color: #fff;
+    text-align: center;
+    padding: 0.7rem 1rem;
+    margin: 0.5rem 0 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+/* The unplaced group is not a disc, so it is muted rather than accented. */
+.disc-header.unplaced-header {
+    background: var(--app-surface-alt, #f1f5f9);
+    color: var(--app-text-secondary);
+}
+.album-track-row {
+    display: grid;
+    grid-template-columns: var(--album-track-cols);
     align-items: center;
-    gap: 0.6rem;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--app-border);
-    border-radius: 6px;
+    column-gap: 0.75rem;
+    width: 100%;
+    min-height: 56px;
+    padding: 0 0.5rem;
+    box-sizing: border-box;
 }
-.album-row.conflicting {
-    border-color: var(--p-red-600, #dc2626);
+.album-track-row.striped {
+    background-color: rgba(0, 0, 0, 0.025);
 }
-.row-titles {
+.album-track-row:hover {
+    background-color: var(--app-hover);
+}
+/* A conflicting position blocks staging, so it has to be visible at a glance in
+   a long list — a left accent bar rather than a full border, which would break
+   the grid's alignment. */
+.album-track-row.conflicting,
+.album-track-row.conflicting.striped {
+    background-color: var(--p-red-50, #fef2f2);
+    box-shadow: inset 3px 0 0 var(--p-red-600, #dc2626);
+}
+/* A tracklist position no selected file fills. Inert and greyed: there is
+   nothing to include, re-point or stage, so it reads as a hole in the selection
+   rather than as a row the user forgot to tick. */
+.album-track-row.gap-row {
+    opacity: 0.45;
+    cursor: default;
+}
+.album-track-row.gap-row:hover {
+    /* No hover affordance — nothing here responds to a click. */
+    background-color: transparent;
+}
+.album-track-row.gap-row.striped:hover {
+    background-color: rgba(0, 0, 0, 0.025);
+}
+.gap-note {
+    font-style: italic;
+}
+.gap-title {
+    font-style: italic;
+}
+
+/* An excluded row stages nothing; dim it so the included set reads clearly. */
+.album-track-row.excluded .col-current,
+.album-track-row.excluded .col-target,
+.album-track-row.excluded .col-index {
+    opacity: 0.5;
+}
+.col-index {
+    text-align: right;
+}
+.track-number {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+/* The current/target column pair. The current side is muted (it is context) and
+   the target side carries the emphasis, since that is what a save writes. */
+.col-current,
+.col-target {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    flex: 1;
+}
+.col-current {
     cursor: pointer;
 }
-.row-proposed {
-    font-size: 0.9rem;
-    font-weight: 600;
+.cell-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.row-current,
+.cell-current .cell-value {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+/* The file name identifies the row, so it reads as a path rather than prose, and
+   hovering shows the full path relative to the library. */
+.file-name {
+    font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.8rem;
+    cursor: help;
+}
+.cell-target .cell-value {
+    font-size: 0.9rem;
+    color: var(--app-text-primary);
+}
+/* A value that actually differs from the file's own: emphasised, and the only
+   one that carries the "Currently: …" tooltip. */
+/* --app-staged is the editor's established colour for a pending tag change (see
+   EditPanel's .field-dirty rows). A value this dialog would overwrite is exactly
+   that, so it reuses the token rather than picking its own orange — and inherits
+   the per-theme shades already defined for light, dark and the hidden themes. */
+.cell-target.changed .cell-value {
+    font-weight: 600;
+    color: var(--app-staged);
+    cursor: help;
+}
+.cell-unchanged {
+    font-size: 0.8rem;
+    font-style: italic;
+    color: var(--app-text-secondary);
+    opacity: 0.7;
+}
 .row-error {
     font-size: 0.75rem;
-}
-.row-current {
-    color: var(--app-text-secondary);
-}
-.row-error {
     color: var(--p-red-600, #dc2626);
-}
-.row-position {
-    font-variant-numeric: tabular-nums;
-    color: var(--app-text-secondary);
-    min-width: 3.5rem;
-    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .row-badge {
+    display: inline-block;
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    min-width: 6.5rem;
+    width: 100%;
+    box-sizing: border-box;
     text-align: center;
 }
 .badge-fingerprint,
@@ -488,15 +921,21 @@ function apply() {
     background: var(--p-green-100, #dcfce7);
     color: var(--p-green-800, #166534);
 }
+/* Same token as a changed value: an inferred position is a proposal the user
+   should look at, not a confirmed match, so it reads in the editor's staged
+   colour rather than a second hand-picked yellow. */
 .badge-inferred {
-    background: var(--p-yellow-100, #fef9c3);
-    color: var(--p-yellow-800, #854d0e);
+    background: var(--app-staged-soft);
+    color: var(--app-staged);
 }
 .badge-none {
     background: var(--app-surface-alt, #f1f5f9);
     color: var(--app-text-secondary);
 }
 .row-slot {
-    max-width: 14rem;
+    /* The grid column already sizes this; keep it from overflowing on a long
+       track title. */
+    min-width: 0;
+    max-width: 100%;
 }
 </style>
