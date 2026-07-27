@@ -169,9 +169,9 @@ const multiDisc: AlbumOption = {
     ]
 }
 
-function mountDialog(options: AlbumOption[], t: Track[] = tracks) {
+function mountDialog(options: AlbumOption[], t: Track[] = tracks, pathErrors: Array<{ path: string; error: string }> = []) {
     return mount(IdentifyAlbumDialog, {
-        props: { visible: true, options, tracks: t },
+        props: { visible: true, options, tracks: t, pathErrors },
         global: { stubs }
     })
 }
@@ -281,6 +281,19 @@ describe('IdentifyAlbumDialog', () => {
         }
         const w = mountDialog([withError])
         expect(w.find('[data-test="album-row-02.mp3"]').text()).toContain('fingerprint failed')
+    })
+
+    it('shows path errors even when no options exist', () => {
+        const pathErrs = [
+            { path: 'bad.mp3', error: 'fpcalc not found' },
+            { path: 'corrupt.mp3', error: 'invalid audio format' }
+        ]
+        const w = mountDialog([], [], pathErrs)
+        expect(w.find('[data-test="album-path-errors"]').exists()).toBe(true)
+        expect(w.text()).toContain('bad.mp3')
+        expect(w.text()).toContain('fpcalc not found')
+        expect(w.text()).toContain('corrupt.mp3')
+        expect(w.text()).toContain('invalid audio format')
     })
 
     // Multi-disc tests: a position is a (disc, track) pair, not a bare track number.
