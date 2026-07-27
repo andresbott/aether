@@ -68,27 +68,44 @@ func optionScore(o *AlbumOption, inputs []Input) float64 {
 // contiguity is the share of the matched track numbers that form one unbroken
 // run — the signature of a folder holding a whole album rather than tracks
 // scattered across a compilation. Unknown positions (0) are excluded because
-// they carry no spatial information.
+// they carry no spatial information. A position is a (disc, track) pair, not a
+// bare track number: duplicates are deduplicated per disc, and contiguity is
+// computed per disc and averaged.
 func contiguity(o *AlbumOption) float64 {
-	nums := make([]int, 0, len(o.Assignments))
+	type pos struct{ disc, track int }
+	positions := make(map[pos]bool, len(o.Assignments))
 	for _, a := range o.Assignments {
 		if a.TrackNumber > 0 {
-			nums = append(nums, a.TrackNumber)
+			positions[pos{disc: a.DiscNumber, track: a.TrackNumber}] = true
 		}
 	}
 	// Zero positions: nothing is known, nothing is earned.
-	if len(nums) == 0 {
+	if len(positions) == 0 {
 		return 0
 	}
 	// One position: trivially an unbroken run, so neutral (1.0). Returning 0
 	// would forfeit the full 8-point weight and penalise legitimately small
 	// selections.
-	if len(nums) == 1 {
+	if len(positions) == 1 {
 		return 1.0
 	}
-	sort.Ints(nums)
-	span := nums[len(nums)-1] - nums[0] + 1
-	return float64(len(nums)) / float64(span)
+	// Group positions by disc to compute contiguity per disc.
+	byDisc := make(map[int][]int)
+	for p := range positions {
+		byDisc[p.disc] = append(byDisc[p.disc], p.track)
+	}
+	// Compute contiguity for each disc and average. This keeps the result 0..1
+	// and avoids the overshoot when multiple discs repeat track numbers.
+	var sum float64
+	for _, tracks := range byDisc {
+		if len(tracks) == 0 {
+			continue
+		}
+		sort.Ints(tracks)
+		span := tracks[len(tracks)-1] - tracks[0] + 1
+		sum += float64(len(tracks)) / float64(span)
+	}
+	return sum / float64(len(byDisc))
 }
 
 // sizeFit rewards a release whose tracklist is about as long as the selection.

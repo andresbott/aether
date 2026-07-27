@@ -316,6 +316,107 @@ func TestRankContiguityHandlesZeroAndSinglePosition(t *testing.T) {
 	}
 }
 
+// Pre-fix, multi-disc albums with repeated track numbers across discs had
+// contiguity >1.0, inverting the signal.
+func TestRankContiguityStaysNormalizedForMultiDisc(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "multi-disc",
+		Assignments: []Assignment{
+			{Path: "d1-t1.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint},
+			{Path: "d1-t2.flac", DiscNumber: 1, TrackNumber: 2, Source: SourceFingerprint},
+			{Path: "d1-t3.flac", DiscNumber: 1, TrackNumber: 3, Source: SourceFingerprint},
+			{Path: "d2-t1.flac", DiscNumber: 2, TrackNumber: 1, Source: SourceFingerprint},
+			{Path: "d2-t2.flac", DiscNumber: 2, TrackNumber: 2, Source: SourceFingerprint},
+			{Path: "d2-t3.flac", DiscNumber: 2, TrackNumber: 3, Source: SourceFingerprint},
+		},
+	}
+	got := contiguity(o)
+	if got < 0 || got > 1.0 {
+		t.Fatalf("contiguity must stay 0..1, got %v", got)
+	}
+	// Both discs are contiguous 1-2-3: average is 1.0.
+	if got != 1.0 {
+		t.Fatalf("expected contiguity=1.0 for contiguous multi-disc, got %v", got)
+	}
+}
+
+// Pre-fix, two files on the same track number (mis-rip, re-encode, etc.) also
+// produced contiguity >1.0.
+func TestRankContiguityDeduplicatesPositions(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "dup",
+		Assignments: []Assignment{
+			{Path: "a.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint},
+			{Path: "b.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint},
+			{Path: "c.flac", DiscNumber: 1, TrackNumber: 2, Source: SourceFingerprint},
+		},
+	}
+	got := contiguity(o)
+	if got < 0 || got > 1.0 {
+		t.Fatalf("contiguity must stay 0..1, got %v", got)
+	}
+	// Deduplicated: positions 1 and 2, contiguous.
+	if got != 1.0 {
+		t.Fatalf("expected contiguity=1.0 after dedup, got %v", got)
+	}
+}
+
+// Verify that a fully-covering single-disc option outranks a partial multi-disc
+// option after the contiguity overshoot is fixed.
+func TestRankFullCoverageWinsOverMultiDiscPartialWithContiguityFixed(t *testing.T) {
+	inputs := []Input{
+		{Path: "01.flac"}, {Path: "02.flac"}, {Path: "03.flac"}, {Path: "04.flac"},
+		{Path: "05.flac"}, {Path: "06.flac"}, {Path: "07.flac"}, {Path: "08.flac"},
+		{Path: "09.flac"}, {Path: "10.flac"}, {Path: "11.flac"}, {Path: "12.flac"},
+	}
+	// Full coverage: single disc, all 12 files matched.
+	fullCoverage := &AlbumOption{
+		ReleaseMBID: "full",
+		Assignments: []Assignment{
+			{Path: "01.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint, Score: 0.8},
+			{Path: "02.flac", DiscNumber: 1, TrackNumber: 2, Source: SourceFingerprint, Score: 0.8},
+			{Path: "03.flac", DiscNumber: 1, TrackNumber: 3, Source: SourceFingerprint, Score: 0.8},
+			{Path: "04.flac", DiscNumber: 1, TrackNumber: 4, Source: SourceFingerprint, Score: 0.8},
+			{Path: "05.flac", DiscNumber: 1, TrackNumber: 5, Source: SourceFingerprint, Score: 0.8},
+			{Path: "06.flac", DiscNumber: 1, TrackNumber: 6, Source: SourceFingerprint, Score: 0.8},
+			{Path: "07.flac", DiscNumber: 1, TrackNumber: 7, Source: SourceFingerprint, Score: 0.8},
+			{Path: "08.flac", DiscNumber: 1, TrackNumber: 8, Source: SourceFingerprint, Score: 0.8},
+			{Path: "09.flac", DiscNumber: 1, TrackNumber: 9, Source: SourceFingerprint, Score: 0.8},
+			{Path: "10.flac", DiscNumber: 1, TrackNumber: 10, Source: SourceFingerprint, Score: 0.8},
+			{Path: "11.flac", DiscNumber: 1, TrackNumber: 11, Source: SourceFingerprint, Score: 0.8},
+			{Path: "12.flac", DiscNumber: 1, TrackNumber: 12, Source: SourceFingerprint, Score: 0.8},
+		},
+		MatchedCount: 12,
+		MeanScore:    0.8,
+	}
+	// Partial multi-disc: 11 of 12, but on two discs with repeated track numbers.
+	// Pre-fix, the repeated tracks gave contiguity=2.0 → 16 points, outranking
+	// the full-coverage option purely on the overshoot.
+	partialMulti := &AlbumOption{
+		ReleaseMBID: "partial",
+		Assignments: []Assignment{
+			{Path: "01.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint, Score: 0.8},
+			{Path: "02.flac", DiscNumber: 1, TrackNumber: 2, Source: SourceFingerprint, Score: 0.8},
+			{Path: "03.flac", DiscNumber: 1, TrackNumber: 3, Source: SourceFingerprint, Score: 0.8},
+			{Path: "04.flac", DiscNumber: 1, TrackNumber: 4, Source: SourceFingerprint, Score: 0.8},
+			{Path: "05.flac", DiscNumber: 1, TrackNumber: 5, Source: SourceFingerprint, Score: 0.8},
+			{Path: "06.flac", DiscNumber: 1, TrackNumber: 6, Source: SourceFingerprint, Score: 0.8},
+			{Path: "07.flac", DiscNumber: 2, TrackNumber: 1, Source: SourceFingerprint, Score: 0.8},
+			{Path: "08.flac", DiscNumber: 2, TrackNumber: 2, Source: SourceFingerprint, Score: 0.8},
+			{Path: "09.flac", DiscNumber: 2, TrackNumber: 3, Source: SourceFingerprint, Score: 0.8},
+			{Path: "10.flac", DiscNumber: 2, TrackNumber: 4, Source: SourceFingerprint, Score: 0.8},
+			{Path: "11.flac", DiscNumber: 2, TrackNumber: 5, Source: SourceFingerprint, Score: 0.8},
+		},
+		MatchedCount: 11,
+		MeanScore:    0.8,
+	}
+	opts := []*AlbumOption{partialMulti, fullCoverage}
+	rankOptions(opts, inputs)
+	if opts[0].ReleaseMBID != "full" {
+		t.Fatalf("expected full-coverage to rank first, got %v", mbids(opts))
+	}
+}
+
 func slot(disc, track int, title string, dur float64, recMBID string) Slot {
 	return Slot{
 		DiscNumber: disc, TrackNumber: track, Title: title,
