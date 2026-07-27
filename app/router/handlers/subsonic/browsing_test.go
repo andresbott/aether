@@ -96,6 +96,54 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 	}
 }
 
+func TestGetAlbumDiscTitles(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	album := &model.Album{Name: "Box Set", NameNorm: "box set", AlbumArtistNorm: "a"}
+	db.Create(album)
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "1.flac", FilePath: "/l/1.flac",
+		Title: "One", TrackNumber: 1, DiscNumber: 1, DiscSubtitle: "The Album"})
+	// A disc with no subtitle must not produce an entry.
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "2.flac", FilePath: "/l/2.flac",
+		Title: "Two", TrackNumber: 1, DiscNumber: 2})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "3.flac", FilePath: "/l/3.flac",
+		Title: "Three", TrackNumber: 1, DiscNumber: 3, DiscSubtitle: "Bonus Tracks"})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getAlbum.view?id=" + encodeAlbumID(album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			Album struct {
+				DiscTitles []struct {
+					Disc  int    `json:"disc"`
+					Title string `json:"title"`
+				} `json:"discTitles"`
+			} `json:"album"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	titles := body.SubsonicResponse.Album.DiscTitles
+	if len(titles) != 2 {
+		t.Fatalf("expected 2 disc titles, got %+v", titles)
+	}
+	if titles[0].Disc != 1 || titles[0].Title != "The Album" {
+		t.Fatalf("unexpected first disc title: %+v", titles[0])
+	}
+	if titles[1].Disc != 3 || titles[1].Title != "Bonus Tracks" {
+		t.Fatalf("unexpected second disc title: %+v", titles[1])
+	}
+}
+
 func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
