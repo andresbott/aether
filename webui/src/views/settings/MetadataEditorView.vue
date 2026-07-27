@@ -15,7 +15,15 @@ import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
 import IdentifyReviewDialog from './metadata-editor/IdentifyReviewDialog.vue'
-import type { IdentifyPick, IdentifyTrackResult, Track, TrackOverlay } from '@/types/metadata'
+import IdentifyAlbumDialog from './metadata-editor/IdentifyAlbumDialog.vue'
+import type {
+    AlbumIdentifyPick,
+    AlbumOption,
+    IdentifyPick,
+    IdentifyTrackResult,
+    Track,
+    TrackOverlay
+} from '@/types/metadata'
 
 const { data: libraries } = useLibraries()
 const selectedLibraryId = ref<number | null>(null)
@@ -170,6 +178,59 @@ function onIdentifyApply(picks: IdentifyPick[]) {
     // buffers with the just-staged values.
     selection.value = [...selection.value]
 }
+
+// ----- Identify album -----
+
+const albumOptions = ref<AlbumOption[]>([])
+const albumDialog = ref(false)
+
+async function identifyAlbum(tracks: Track[]) {
+    if (selectedLibraryId.value === null || tracks.length < 2) return
+    const out = await identifyAlbumMutation.mutateAsync({
+        library_id: selectedLibraryId.value,
+        paths: tracks.map((t) => t.path)
+    })
+    albumOptions.value = out.options
+    albumDialog.value = true
+}
+
+// albumPickToOverlay stages the album-level fields on every accepted song, plus
+// the song's own recording fields when a position was resolved. Genres,
+// compilation and disc subtitle are deliberately left alone: identification
+// says nothing reliable about them.
+function albumPickToOverlay(pick: AlbumIdentifyPick): TrackOverlay {
+    const { option, assignment } = pick
+    const out: TrackOverlay = {
+        album: option.album,
+        mb_release_id: option.release_mbid,
+        mb_release_group_id: option.release_group_mbid
+    }
+    if (option.year > 0) out.year = option.year
+    if (option.artists.length > 0) {
+        out.album_artists = option.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+    }
+    if (assignment) {
+        out.title = assignment.title
+        out.mb_recording_id = assignment.recording_mbid
+        if (assignment.artists.length > 0) {
+            out.artists = assignment.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+        }
+        if (assignment.track_number > 0) out.track_number = assignment.track_number
+        if (assignment.disc_number > 0) out.disc_number = assignment.disc_number
+    }
+    return out
+}
+
+function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
+    const entries = new Map<string, TrackOverlay>(
+        picks.map((p) => [p.path, albumPickToOverlay(p)])
+    )
+    session.stageOverlays(entries)
+    albumDialog.value = false
+    // New array reference so EditPanel's selection watcher refreshes its edit
+    // buffers with the just-staged values.
+    selection.value = [...selection.value]
+}
 </script>
 
 <template>
@@ -241,6 +302,7 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                     :isIdentifying="identifyMutation.isPending.value"
                     :isIdentifyingAlbum="identifyAlbumMutation.isPending.value"
                     @identify="identify"
+                    @identify-album="identifyAlbum"
                 />
             </SplitterPanel>
         </Splitter>
@@ -273,6 +335,13 @@ function onIdentifyApply(picks: IdentifyPick[]) {
             :results="identifyResults"
             :tracks="tracksQuery.data.value ?? []"
             @apply="onIdentifyApply"
+        />
+
+        <IdentifyAlbumDialog
+            v-model:visible="albumDialog"
+            :options="albumOptions"
+            :tracks="selection"
+            @apply="onAlbumIdentifyApply"
         />
 
         <ConfirmDialog />
