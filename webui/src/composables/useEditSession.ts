@@ -232,6 +232,37 @@ export function candidateToOverlay(
     return out
 }
 
+/**
+ * albumPickToOverlay converts an accepted album identify pick into staged field
+ * values. Stages the album-level fields on every accepted song, plus the song's
+ * own recording fields when a position was resolved. Genres, compilation and
+ * disc subtitle are deliberately left alone: identification says nothing
+ * reliable about them.
+ */
+export function albumPickToOverlay(
+    pick: import('@/types/metadata').AlbumIdentifyPick
+): TrackOverlay {
+    const { option, assignment } = pick
+    const out: TrackOverlay = {}
+    if (option.album !== '') out.album = option.album
+    if (option.release_mbid !== '') out.mb_release_id = option.release_mbid
+    if (option.release_group_mbid !== '') out.mb_release_group_id = option.release_group_mbid
+    if (option.year > 0) out.year = option.year
+    if (option.artists.length > 0) {
+        out.album_artists = option.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+    }
+    if (assignment) {
+        if (assignment.title !== '') out.title = assignment.title
+        if (assignment.recording_mbid !== '') out.mb_recording_id = assignment.recording_mbid
+        if (assignment.artists.length > 0) {
+            out.artists = assignment.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
+        }
+        if (assignment.track_number > 0) out.track_number = assignment.track_number
+        if (assignment.disc_number > 0) out.disc_number = assignment.disc_number
+    }
+    return out
+}
+
 // ----- Session state -----
 
 // PictureOp is one staged change to a picture type+slot cell: set a new image

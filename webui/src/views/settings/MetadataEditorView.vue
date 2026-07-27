@@ -10,7 +10,7 @@ import SplitterPanel from 'primevue/splitterpanel'
 import { useConfirm } from 'primevue/useconfirm'
 import { useLibraries } from '@/composables/useLibraries'
 import { useTracks, useMetadataCapabilities, useIdentifyTracks, useIdentifyAlbum } from '@/composables/useMetadataEditor'
-import { useEditSession, candidateToOverlay } from '@/composables/useEditSession'
+import { useEditSession, candidateToOverlay, albumPickToOverlay } from '@/composables/useEditSession'
 import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
@@ -192,33 +192,6 @@ async function identifyAlbum(tracks: Track[]) {
     })
     albumOptions.value = out.options
     albumDialog.value = true
-}
-
-// albumPickToOverlay stages the album-level fields on every accepted song, plus
-// the song's own recording fields when a position was resolved. Genres,
-// compilation and disc subtitle are deliberately left alone: identification
-// says nothing reliable about them.
-function albumPickToOverlay(pick: AlbumIdentifyPick): TrackOverlay {
-    const { option, assignment } = pick
-    const out: TrackOverlay = {
-        album: option.album,
-        mb_release_id: option.release_mbid,
-        mb_release_group_id: option.release_group_mbid
-    }
-    if (option.year > 0) out.year = option.year
-    if (option.artists.length > 0) {
-        out.album_artists = option.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
-    }
-    if (assignment) {
-        out.title = assignment.title
-        out.mb_recording_id = assignment.recording_mbid
-        if (assignment.artists.length > 0) {
-            out.artists = assignment.artists.map((a) => ({ name: a.name, mbid: a.mbid }))
-        }
-        if (assignment.track_number > 0) out.track_number = assignment.track_number
-        if (assignment.disc_number > 0) out.disc_number = assignment.disc_number
-    }
-    return out
 }
 
 function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {

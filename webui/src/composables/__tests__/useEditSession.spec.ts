@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { nextTick, ref } from 'vue'
 import { albumKey } from '@/lib/albumIdentity'
 import {
+    albumPickToOverlay,
     applyOverlay,
     buildTrackPatch,
     candidateToOverlay,
@@ -10,7 +11,13 @@ import {
     trackCredits,
     useEditSession
 } from '@/composables/useEditSession'
-import type { IdentifyCandidate, Track, TrackOverlay } from '@/types/metadata'
+import type {
+    AlbumIdentifyPick,
+    AlbumOption,
+    IdentifyCandidate,
+    Track,
+    TrackOverlay
+} from '@/types/metadata'
 
 // The session composable calls useApplyPicture()/useDeletePicture() plus the
 // query client and toast at setup; keep the real pure helpers but stub the
@@ -729,5 +736,216 @@ describe('candidateToOverlay', () => {
         expect(overlay.year).toBeUndefined()
         expect(overlay.track_number).toBeUndefined()
         expect(overlay.disc_number).toBeUndefined()
+    })
+})
+
+describe('albumPickToOverlay', () => {
+    const option: AlbumOption = {
+        release_mbid: 'rel-id',
+        release_group_mbid: 'rg-id',
+        album: 'Album',
+        year: 2000,
+        artists: [{ name: 'Artist', mbid: 'artist-id' }],
+        track_count: 10,
+        disc_count: 1,
+        matched_count: 8,
+        mean_score: 0.92,
+        enriched: true,
+        tracks: [],
+        assignments: []
+    }
+
+    it('stages both album-level and song-level fields when assignment is present', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: 'rec-id',
+                artists: [{ name: 'Song Artist', mbid: 'song-artist-id' }],
+                disc_number: 1,
+                track_number: 5,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.album).toBe('Album')
+        expect(overlay.mb_release_id).toBe('rel-id')
+        expect(overlay.mb_release_group_id).toBe('rg-id')
+        expect(overlay.year).toBe(2000)
+        expect(overlay.album_artists).toEqual([{ name: 'Artist', mbid: 'artist-id' }])
+        expect(overlay.title).toBe('Song')
+        expect(overlay.mb_recording_id).toBe('rec-id')
+        expect(overlay.artists).toEqual([{ name: 'Song Artist', mbid: 'song-artist-id' }])
+        expect(overlay.disc_number).toBe(1)
+        expect(overlay.track_number).toBe(5)
+    })
+
+    it('stages ONLY album-level fields when assignment is null', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: null
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.album).toBe('Album')
+        expect(overlay.mb_release_id).toBe('rel-id')
+        expect(overlay.mb_release_group_id).toBe('rg-id')
+        expect(overlay.year).toBe(2000)
+        expect(overlay.album_artists).toEqual([{ name: 'Artist', mbid: 'artist-id' }])
+        expect(overlay.title).toBeUndefined()
+        expect(overlay.mb_recording_id).toBeUndefined()
+        expect(overlay.artists).toBeUndefined()
+        expect(overlay.track_number).toBeUndefined()
+        expect(overlay.disc_number).toBeUndefined()
+    })
+
+    it('omits year when zero', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option: { ...option, year: 0 },
+            assignment: null
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.year).toBeUndefined()
+        expect(overlay.album).toBe('Album')
+    })
+
+    it('omits track_number and disc_number when zero', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: 'rec-id',
+                artists: [],
+                disc_number: 0,
+                track_number: 0,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.track_number).toBeUndefined()
+        expect(overlay.disc_number).toBeUndefined()
+        expect(overlay.title).toBe('Song')
+    })
+
+    it('omits empty album string', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option: { ...option, album: '' },
+            assignment: null
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.album).toBeUndefined()
+        expect(overlay.mb_release_id).toBe('rel-id')
+    })
+
+    it('omits empty title string', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: '',
+                recording_mbid: 'rec-id',
+                artists: [],
+                disc_number: 1,
+                track_number: 1,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.title).toBeUndefined()
+        expect(overlay.mb_recording_id).toBe('rec-id')
+    })
+
+    it('omits empty recording_mbid string', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: '',
+                artists: [],
+                disc_number: 1,
+                track_number: 1,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.mb_recording_id).toBeUndefined()
+        expect(overlay.title).toBe('Song')
+    })
+
+    it('omits empty release_mbid and release_group_mbid strings', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option: { ...option, release_mbid: '', release_group_mbid: '' },
+            assignment: null
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.mb_release_id).toBeUndefined()
+        expect(overlay.mb_release_group_id).toBeUndefined()
+        expect(overlay.album).toBe('Album')
+    })
+
+    it('omits album_artists when the list is empty', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option: { ...option, artists: [] },
+            assignment: null
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.album_artists).toBeUndefined()
+        expect(overlay.album).toBe('Album')
+    })
+
+    it('omits artists when the assignment list is empty', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: 'rec-id',
+                artists: [],
+                disc_number: 1,
+                track_number: 1,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.artists).toBeUndefined()
+        expect(overlay.title).toBe('Song')
+    })
+
+    it('never stages genres, compilation or disc_subtitle', () => {
+        const pick: AlbumIdentifyPick = {
+            path: 'a.mp3',
+            option,
+            assignment: {
+                path: 'a.mp3',
+                source: 'fingerprint',
+                title: 'Song',
+                recording_mbid: 'rec-id',
+                artists: [],
+                disc_number: 1,
+                track_number: 1,
+                score: 0.95
+            }
+        }
+        const overlay = albumPickToOverlay(pick)
+        expect(overlay.genres).toBeUndefined()
+        expect(overlay.compilation).toBeUndefined()
+        expect(overlay.disc_subtitle).toBeUndefined()
     })
 })
