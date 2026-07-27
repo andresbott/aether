@@ -579,6 +579,40 @@ func TestFillGapsUsesCurrentTrackNumberWhenNothingElseSeparates(t *testing.T) {
 	}
 }
 
+// Pre-fix, gap-fill's track-number hint was disc-blind, placing disc-2 files
+// on disc-1 positions with the same track number.
+func TestFillGapsRequiresDiscAgreementForTrackNumberHint(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 6, DiscCount: 2,
+		Tracks: []Slot{
+			slot(1, 1, "D1T1", 180, "rec-d1-1"),
+			slot(1, 2, "D1T2", 185, "rec-d1-2"),
+			slot(1, 3, "D1T3", 190, "rec-d1-3"),
+			slot(2, 1, "D2T1", 195, "rec-d2-1"),
+			slot(2, 2, "D2T2", 200, "rec-d2-2"),
+			slot(2, 3, "D2T3", 205, "rec-d2-3"),
+		},
+	}
+	// Two files: disc 1 track 3, and disc 2 track 3. Both durations within
+	// tolerance of multiple slots, so the track-number+disc-number hint must
+	// separate them.
+	results := []fileResult{
+		{input: Input{Path: "d1-t3.flac", CurrentTrackNumber: 3, CurrentDiscNumber: 1}, duration: 191},
+		{input: Input{Path: "d2-t3.flac", CurrentTrackNumber: 3, CurrentDiscNumber: 2}, duration: 206},
+	}
+
+	fillGaps(o, results)
+
+	d1 := assignmentFor(o, "d1-t3.flac")
+	if d1 == nil || d1.DiscNumber != 1 || d1.TrackNumber != 3 {
+		t.Fatalf("expected disc 1 track 3, got %+v", d1)
+	}
+	d2 := assignmentFor(o, "d2-t3.flac")
+	if d2 == nil || d2.DiscNumber != 2 || d2.TrackNumber != 3 {
+		t.Fatalf("expected disc 2 track 3, got %+v", d2)
+	}
+}
+
 func TestFillGapsMarksHopelessFilesAsNone(t *testing.T) {
 	o := &AlbumOption{
 		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 1, DiscCount: 1,

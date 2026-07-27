@@ -45,14 +45,15 @@ type ReleaseLookup interface {
 }
 
 // Input is one file to place on the album, with the tag values it carries
-// today — the current album name and track number are ranking and gap-fill
-// signals, not values to preserve.
+// today — the current album name, track number, and disc number are ranking and
+// gap-fill signals, not values to preserve.
 type Input struct {
 	Path               string
 	AbsPath            string
 	CurrentAlbum       string
 	CurrentTitle       string
 	CurrentTrackNumber int
+	CurrentDiscNumber  int
 }
 
 // Artist is one credited artist: the credited-as name and its MusicBrainz ID.

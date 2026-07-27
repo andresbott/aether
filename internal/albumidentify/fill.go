@@ -105,8 +105,8 @@ func slotKey(disc, track int) string {
 
 // fillScore rates how well one file fits one tracklist slot, 0..1. Duration is
 // the strongest signal (it is measured, not typed), title similarity next, and
-// the file's current track number last — it is often right for a clean rip and
-// meaningless otherwise.
+// the file's current (disc, track) position last — it is often right for a clean
+// rip and meaningless otherwise.
 func fillScore(res fileResult, s Slot) float64 {
 	var score, weight float64
 
@@ -127,8 +127,10 @@ func fillScore(res fileResult, s Slot) float64 {
 		weight += 0.3
 	}
 
+	// Track-number hint earns credit only when the disc also agrees.
 	if res.input.CurrentTrackNumber > 0 {
-		if res.input.CurrentTrackNumber == s.TrackNumber {
+		discAgrees := res.input.CurrentDiscNumber == 0 || res.input.CurrentDiscNumber == s.DiscNumber
+		if discAgrees && res.input.CurrentTrackNumber == s.TrackNumber {
 			score += 0.1
 		}
 		weight += 0.1
