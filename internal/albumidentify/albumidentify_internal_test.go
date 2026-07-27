@@ -174,3 +174,114 @@ func TestUnionDeterministicOrderingWhenFileMatchesMultipleReleases(t *testing.T)
 		}
 	}
 }
+
+// opt builds an option with explicit ranking inputs; assignments are synthetic
+// positions, one per matched song.
+func opt(mbid, album string, year int, positions []int, mean float64) *AlbumOption {
+	o := &AlbumOption{ReleaseMBID: mbid, Album: album, Year: year, MeanScore: mean}
+	for i, p := range positions {
+		o.Assignments = append(o.Assignments, Assignment{
+			Path:        string(rune('a'+i)) + ".flac",
+			Source:      SourceFingerprint,
+			TrackNumber: p,
+			Score:       mean,
+		})
+	}
+	o.MatchedCount = len(positions)
+	return o
+}
+
+func mbids(opts []*AlbumOption) []string {
+	out := make([]string, 0, len(opts))
+	for _, o := range opts {
+		out = append(out, o.ReleaseMBID)
+	}
+	return out
+}
+
+func TestRankCoverageBeatsScore(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}, {Path: "b.flac"}, {Path: "c.flac"}}
+	opts := []*AlbumOption{
+		opt("weak-but-broad", "Album", 1991, []int{1, 2, 3}, 0.55),
+		opt("strong-but-narrow", "Album", 1991, []int{1}, 0.99),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "weak-but-broad" {
+		t.Fatalf("expected coverage to win, got %v", got)
+	}
+}
+
+func TestRankContiguityBreaksCoverageTie(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}, {Path: "b.flac"}, {Path: "c.flac"}}
+	opts := []*AlbumOption{
+		opt("scattered", "Compilation", 1991, []int{2, 9, 17}, 0.8),
+		opt("contiguous", "Album", 1991, []int{1, 2, 3}, 0.8),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "contiguous" {
+		t.Fatalf("expected the contiguous run to win, got %v", got)
+	}
+}
+
+func TestRankCurrentAlbumTagBreaksTie(t *testing.T) {
+	inputs := []Input{
+		{Path: "a.flac", CurrentAlbum: "Nevermind"},
+		{Path: "b.flac", CurrentAlbum: "Nevermind"},
+	}
+	opts := []*AlbumOption{
+		opt("other", "Best Of Nirvana", 1991, []int{1, 2}, 0.8),
+		opt("tagged", "Nevermind", 1991, []int{1, 2}, 0.8),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "tagged" {
+		t.Fatalf("expected the option matching the current album tag to win, got %v", got)
+	}
+}
+
+func TestRankTracklistSizeFavoursTheAlbumOverTheCompilation(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}, {Path: "b.flac"}, {Path: "c.flac"}}
+	album := opt("album", "Album", 1991, []int{1, 2, 3}, 0.8)
+	album.Enriched, album.TrackCount, album.DiscCount = true, 3, 1
+	comp := opt("comp", "Mega Hits", 1991, []int{1, 2, 3}, 0.8)
+	comp.Enriched, comp.TrackCount, comp.DiscCount = true, 40, 2
+
+	opts := []*AlbumOption{comp, album}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "album" {
+		t.Fatalf("expected the same-size release to win, got %v", got)
+	}
+}
+
+func TestRankEarliestYearIsTheFinalTiebreak(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}}
+	opts := []*AlbumOption{
+		opt("reissue", "Album", 2011, []int{1}, 0.8),
+		opt("original", "Album", 1991, []int{1}, 0.8),
+	}
+	rankOptions(opts, inputs)
+	if got := mbids(opts); got[0] != "original" {
+		t.Fatalf("expected the earliest year to win, got %v", got)
+	}
+}
+
+// Equal options must not reorder run to run: the dialog preselects rank 1 and a
+// flapping order would silently change what the user stages.
+func TestRankIsStableForEqualOptions(t *testing.T) {
+	inputs := []Input{{Path: "a.flac"}}
+	build := func() []*AlbumOption {
+		return []*AlbumOption{
+			opt("first", "Album", 1991, []int{1}, 0.8),
+			opt("second", "Album", 1991, []int{1}, 0.8),
+		}
+	}
+	opts := build()
+	rankOptions(opts, inputs)
+	want := mbids(opts)
+	for i := 0; i < 5; i++ {
+		again := build()
+		rankOptions(again, inputs)
+		if got := mbids(again); got[0] != want[0] || got[1] != want[1] {
+			t.Fatalf("unstable order: %v then %v", want, got)
+		}
+	}
+}

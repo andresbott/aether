@@ -1,0 +1,115 @@
+package albumidentify
+
+import (
+	"sort"
+	"strings"
+)
+
+// Ranking weights. Coverage dominates by design: this feature exists to find
+// the release that explains the whole selection, so a release covering one more
+// file outranks any combination of the softer signals below.
+const (
+	weightCoverage    = 100.0
+	weightMeanScore   = 10.0
+	weightContiguity  = 8.0
+	weightSizeFit     = 6.0
+	weightAlbumTag    = 5.0
+	weightSingleDisc  = 1.0
+)
+
+// rankOptions sorts opts best-first, in place. It runs both before and after
+// MusicBrainz enrichment; the size-fit term only participates for enriched
+// options, so an un-enriched option is never punished for an unknown tracklist.
+func rankOptions(opts []*AlbumOption, inputs []Input) {
+	scores := make(map[string]float64, len(opts))
+	years := make(map[string]int, len(opts))
+	for _, o := range opts {
+		scores[o.ReleaseMBID] = optionScore(o, inputs)
+		years[o.ReleaseMBID] = o.Year
+	}
+	sort.SliceStable(opts, func(i, j int) bool {
+		a, b := opts[i].ReleaseMBID, opts[j].ReleaseMBID
+		if scores[a] != scores[b] {
+			return scores[a] > scores[b]
+		}
+		// A release and its reissues score identically; prefer the original.
+		// Year 0 means unknown and must not beat a real year.
+		ya, yb := years[a], years[b]
+		if ya != yb && ya != 0 && yb != 0 {
+			return ya < yb
+		}
+		return ya != 0 && yb == 0
+	})
+}
+
+// optionScore is the weighted heuristic sum for one option. Every term is
+// normalised to 0..1 before weighting so the weights above are comparable.
+func optionScore(o *AlbumOption, inputs []Input) float64 {
+	total := len(inputs)
+	if total == 0 {
+		return 0
+	}
+	score := weightCoverage * float64(o.MatchedCount) / float64(total)
+	score += weightMeanScore * o.MeanScore
+	score += weightContiguity * contiguity(o)
+	score += weightAlbumTag * albumTagAgreement(o, inputs)
+	if o.Enriched {
+		score += weightSizeFit * sizeFit(o.TrackCount, total)
+		if o.DiscCount <= 1 {
+			score += weightSingleDisc
+		}
+	}
+	return score
+}
+
+// contiguity is the share of the matched track numbers that form one unbroken
+// run — the signature of a folder holding a whole album rather than tracks
+// scattered across a compilation. Unknown positions (0) score nothing.
+func contiguity(o *AlbumOption) float64 {
+	nums := make([]int, 0, len(o.Assignments))
+	for _, a := range o.Assignments {
+		if a.TrackNumber > 0 {
+			nums = append(nums, a.TrackNumber)
+		}
+	}
+	if len(nums) < 2 {
+		return 0
+	}
+	sort.Ints(nums)
+	span := nums[len(nums)-1] - nums[0] + 1
+	return float64(len(nums)) / float64(span)
+}
+
+// sizeFit rewards a release whose tracklist is about as long as the selection.
+// A 40-track compilation that happens to contain all 11 selected songs is a
+// worse answer than the 11-track album they came from.
+func sizeFit(trackCount, selected int) float64 {
+	if trackCount <= 0 || selected <= 0 {
+		return 0
+	}
+	if trackCount < selected {
+		// The selection cannot fit: strongly wrong.
+		return 0
+	}
+	return float64(selected) / float64(trackCount)
+}
+
+// albumTagAgreement is the share of inputs whose current album tag already
+// names this release — the user's existing tags are evidence, not noise.
+func albumTagAgreement(o *AlbumOption, inputs []Input) float64 {
+	want := normalizeAlbum(o.Album)
+	if want == "" {
+		return 0
+	}
+	var hits int
+	for _, in := range inputs {
+		if normalizeAlbum(in.CurrentAlbum) == want {
+			hits++
+		}
+	}
+	return float64(hits) / float64(len(inputs))
+}
+
+func normalizeAlbum(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
