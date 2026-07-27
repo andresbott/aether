@@ -232,6 +232,11 @@ export interface PictureSlotInfo {
     slot: PictureSlot
     // e.g. "back.jpg" for folder slots, "4 of 10 files" for embedded slots.
     detail?: string
+    // Folder slots only: the album spans several directories (a multi-disc
+    // release) and they do not all hold the same image — one is missing it or
+    // carries a different one. The editor shows the first folder's image and
+    // warns; saving writes the picture into every folder.
+    mixed?: boolean
 }
 
 // One picture type present somewhere for the folder, with its occupied slots.

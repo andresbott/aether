@@ -95,6 +95,7 @@ type picturesBody struct {
 		Slots []struct {
 			Slot   string `json:"slot"`
 			Detail string `json:"detail"`
+			Mixed  bool   `json:"mixed"`
 		} `json:"slots"`
 	} `json:"pictures"`
 }
@@ -170,6 +171,92 @@ func TestPictures_MatrixListsPresentSlots(t *testing.T) {
 	}
 }
 
+// mkDiscDirs creates root/album/CD 1 and root/album/CD 2 and returns them.
+func mkDiscDirs(t *testing.T, root string) (string, string) {
+	t.Helper()
+	one := filepath.Join(root, "album", "CD 1")
+	two := filepath.Join(root, "album", "CD 2")
+	for _, d := range []string{one, two} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return one, two
+}
+
+// A multi-disc album selected as a whole reports its folder art across every
+// directory the selection spans, not just the requested path.
+func TestPictures_FolderSlotSpansSelectionDirectories(t *testing.T) {
+	root := t.TempDir()
+	one, _ := mkDiscDirs(t, root)
+	if err := os.WriteFile(filepath.Join(one, "back.jpg"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib, _ := newPictureHandler(t, root, nil)
+
+	body := fetchPictures(t, r, lib.ID, "&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac")
+	detail, mixed, ok := findSlot(body, "Back Cover", "folder")
+	if !ok {
+		t.Fatalf("back cover folder slot not reported: %+v", body.Pictures)
+	}
+	if detail != "back.jpg" {
+		t.Errorf("detail = %q, want back.jpg", detail)
+	}
+	// Only CD 1 holds the file, so the album's folder art is not uniform.
+	if !mixed {
+		t.Error("slot should be marked mixed when one disc folder lacks the picture")
+	}
+}
+
+// findSlot returns one type+slot cell's detail and mixed flag from a matrix body.
+func findSlot(body picturesBody, pictureType, slot string) (detail string, mixed bool, ok bool) {
+	for _, p := range body.Pictures {
+		if p.Type != pictureType {
+			continue
+		}
+		for _, sl := range p.Slots {
+			if sl.Slot == slot {
+				return sl.Detail, sl.Mixed, true
+			}
+		}
+	}
+	return "", false, false
+}
+
+func TestPictures_FolderSlotMixedOnlyWhenContentsDiffer(t *testing.T) {
+	jpgBytes := []byte("A-DIFFERENT-IMAGE")
+	cases := []struct {
+		name      string
+		twoBytes  []byte
+		wantMixed bool
+	}{
+		{"identical art in both folders", pngBytes, false},
+		{"different art per folder", jpgBytes, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			one, two := mkDiscDirs(t, root)
+			if err := os.WriteFile(filepath.Join(one, "back.jpg"), pngBytes, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(two, "back.jpg"), tc.twoBytes, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, r, lib, _ := newPictureHandler(t, root, nil)
+
+			body := fetchPictures(t, r, lib.ID, "&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac")
+			_, mixed, ok := findSlot(body, "Back Cover", "folder")
+			if !ok {
+				t.Fatalf("back cover folder slot not reported: %+v", body.Pictures)
+			}
+			if mixed != tc.wantMixed {
+				t.Errorf("mixed = %v, want %v", mixed, tc.wantMixed)
+			}
+		})
+	}
+}
+
 func TestPictures_Empty(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "album"), 0o755); err != nil {
@@ -214,6 +301,31 @@ func TestPictureImage_ServesFolderFileByType(t *testing.T) {
 	}
 	if w := get("Front%20Cover", "embedded"); w.Code != http.StatusNotFound {
 		t.Fatalf("empty embedded slot should 404, got %d", w.Code)
+	}
+}
+
+// The album's folder art may live in a later disc folder than the primary one
+// the request is anchored on; the paths tell the server where else to look.
+func TestPictureImage_FolderSlotFindsArtInAnotherDiscFolder(t *testing.T) {
+	root := t.TempDir()
+	_, two := mkDiscDirs(t, root)
+	backBytes := []byte("BACK-COVER-BYTES")
+	if err := os.WriteFile(filepath.Join(two, "back.jpg"), backBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib, _ := newPictureHandler(t, root, nil)
+
+	// path= is CD 1 (the primary folder, which has no art at all).
+	url := "/metadata/pictures/image?library_id=" + libIDStr(lib) +
+		"&path=album/CD%201&slot=folder&type=Back%20Cover" +
+		"&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if !bytes.Equal(w.Body.Bytes(), backBytes) {
+		t.Fatalf("served wrong bytes: %q", w.Body.Bytes())
 	}
 }
 
@@ -314,6 +426,71 @@ func TestApplyPicture_FolderByType(t *testing.T) {
 	if !bytes.Equal(got, pngBytes) {
 		t.Fatal("written picture differs")
 	}
+}
+
+// A folder-slot save for a multi-disc album writes the same file into every
+// directory the selected tracks live in (option A: duplicate per folder).
+func TestApplyPicture_FolderWritesEverySelectionDirectory(t *testing.T) {
+	root := t.TempDir()
+	one, two := mkDiscDirs(t, root)
+	_, r, lib, _ := newPictureHandler(t, root, nil)
+
+	body, ct := buildPictureForm(t, lib.ID, "folder", "Back Cover",
+		[]string{"album/CD 1/01.flac", "album/CD 1/02.flac", "album/CD 2/01.flac"},
+		"art.png", pngBytes)
+	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	for _, dir := range []string{one, two} {
+		got, err := os.ReadFile(filepath.Join(dir, "back.png"))
+		if err != nil {
+			t.Fatalf("back.png not written in %s: %v", dir, err)
+		}
+		if !bytes.Equal(got, pngBytes) {
+			t.Errorf("written picture differs in %s", dir)
+		}
+	}
+}
+
+// The embedded slot already targets the listed files, and the db slot is one
+// album-wide entry: neither may be affected by the folder fan-out.
+func TestApplyPicture_DBWritesOneEntryForMultiDiscSelection(t *testing.T) {
+	root := t.TempDir()
+	one, two := mkDiscDirs(t, root)
+	s, r, lib, as := newPictureHandler(t, root, nil)
+	// Both discs' tracks belong to the same scanned album.
+	trackOne := filepath.Join(one, "01.flac")
+	key := seedAlbum(t, s, lib, trackOne)
+	s.DB().Create(&model.Track{
+		AlbumID:   parseUintOrFail(t, key),
+		LibraryID: lib.ID,
+		Filename:  "01.flac",
+		FilePath:  filepath.Join(two, "01.flac"),
+	})
+
+	body, ct := buildPictureForm(t, lib.ID, "db", "Back Cover",
+		[]string{"album/CD 1/01.flac", "album/CD 2/01.flac"}, "art.png", pngBytes)
+	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := as.GetNamed(assetstore.KindAlbum, key, "back"); !ok {
+		t.Fatal("back picture not stored in asset store")
+	}
+	// No stray art files: the db slot must not touch the music folders.
+	for _, dir := range []string{one, two} {
+		if _, err := os.Stat(filepath.Join(dir, "back.png")); !os.IsNotExist(err) {
+			t.Errorf("db save must not write a folder file in %s", dir)
+		}
+	}
+}
+
+func parseUintOrFail(t *testing.T, s string) uint {
+	t.Helper()
+	n, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return uint(n)
 }
 
 func TestApplyPicture_DefaultTypeIsFrontCover(t *testing.T) {
@@ -440,6 +617,39 @@ func TestDeletePicture_FolderByType(t *testing.T) {
 	}
 	if _, err := os.Stat(coverFile); err != nil {
 		t.Fatal("cover.png must survive deleting the back cover")
+	}
+}
+
+// Removing folder art for a multi-disc album deletes it from every directory
+// the selection spans, mirroring the fan-out on save.
+func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
+	root := t.TempDir()
+	one, two := mkDiscDirs(t, root)
+	for _, dir := range []string{one, two} {
+		if err := os.WriteFile(filepath.Join(dir, "back.jpg"), pngBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cover.png"), pngBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, r, lib, _ := newPictureHandler(t, root, nil)
+
+	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
+		"&path=album&slot=folder&type=Back%20Cover" +
+		"&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	for _, dir := range []string{one, two} {
+		if _, err := os.Stat(filepath.Join(dir, "back.jpg")); !os.IsNotExist(err) {
+			t.Errorf("back.jpg survived in %s", dir)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "cover.png")); err != nil {
+			t.Errorf("cover.png must survive in %s: %v", dir, err)
+		}
 	}
 }
 

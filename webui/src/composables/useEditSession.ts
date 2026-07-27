@@ -6,6 +6,7 @@ import {
     useApplyPicture,
     useDeletePicture
 } from '@/composables/useMetadataEditor'
+import { albumKey, dirOf } from '@/lib/albumIdentity'
 import { apiErrorMessage } from '@/lib/apiError'
 import type {
     ArtistCredit,
@@ -234,8 +235,9 @@ export function candidateToOverlay(
 // PictureOp is one staged change to a picture type+slot cell: set a new image
 // (from a local file or a Cover Art Archive URL, with a preview URL for the
 // editor) or remove the cell's current image. `paths` are the tracks selected
-// when the op was staged — the exact files an embedded op reads/writes; for
-// folder/db ops just the handle the server resolves the album from.
+// when the op was staged — the exact files an embedded op reads/writes, and for
+// a folder op the set of directories the art is written into (an album can span
+// several: a multi-disc release laid out as CD 1/, CD 2/ subfolders).
 export type PictureOp =
     | {
           kind: 'set'
@@ -246,8 +248,9 @@ export type PictureOp =
       }
     | { kind: 'remove'; paths: string[] }
 
-// PictureSessionEntry is the pending picture work for one album directory:
-// one op per type+slot cell, each carrying its own target paths.
+// PictureSessionEntry is the pending picture work for one album (keyed by
+// albumKey, not by directory): one op per type+slot cell, each carrying its own
+// target paths.
 export interface PictureSessionEntry {
     ops: Map<string, Map<PictureSlot, PictureOp>>
 }
@@ -259,10 +262,7 @@ export type EditSession = ReturnType<typeof useEditSession>
  * field overlays plus per-album staged cover changes, none persisted until
  * save(). Instantiate once in the metadata editor view.
  */
-export function useEditSession(
-    tracks: () => Track[] | undefined,
-    libraryId: () => number | null
-) {
+export function useEditSession(tracks: () => Track[] | undefined, libraryId: () => number | null) {
     const qc = useQueryClient()
     const toast = useToast()
     const applyPictureMutation = useApplyPicture()
@@ -282,57 +282,49 @@ export function useEditSession(
 
     // Files can disappear or change under the session on a reload; drop
     // overlays whose path no longer exists so stale edits can't be saved.
-    // Picture entries are keyed by directory: drop those whose dir no longer
-    // holds any listed track.
+    // Picture entries are keyed by album: drop those whose album no longer has
+    // any listed track.
     watch(originals, (fresh) => {
         if (tracks() === undefined) return
         for (const path of overlays.value.keys()) {
             if (!fresh.has(path)) overlays.value.delete(path)
         }
-        const freshDirs = new Set([...fresh.keys()].map(dirOf))
-        for (const dir of pictures.value.keys()) {
-            if (!freshDirs.has(dir)) {
-                const entry = pictures.value.get(dir)!
+        const freshAlbums = new Set([...fresh.values()].map(albumKey))
+        for (const key of pictures.value.keys()) {
+            if (!freshAlbums.has(key)) {
+                const entry = pictures.value.get(key)!
                 for (const slots of entry.ops.values()) {
                     for (const op of slots.values()) releaseOpPreview(op)
                 }
-                pictures.value.delete(dir)
+                pictures.value.delete(key)
             }
         }
     })
 
-    // dirOf returns the library-relative parent directory of a track path
-    // ('' = root), matching how picture entries are keyed.
-    function dirOf(path: string): string {
-        const i = path.lastIndexOf('/')
-        return i === -1 ? '' : path.slice(0, i)
-    }
-
     // stagedPaths drives the per-track unsaved indicators: a track is staged
     // when it has field overlays OR pending picture work. Embedded picture ops
     // touch exactly the tracks they were staged for; folder/db ops belong to
-    // the whole album directory, so every track in it is flagged.
+    // the whole album, so every track of it is flagged — across all the
+    // directories a multi-disc album spans.
     const stagedPaths = computed<ReadonlySet<string>>(() => {
         const out = new Set(overlays.value.keys())
-        for (const [dir, entry] of pictures.value) {
-            let wholeDir = false
+        for (const [key, entry] of pictures.value) {
+            let wholeAlbum = false
             for (const slots of entry.ops.values()) {
                 for (const [slot, op] of slots) {
                     if (slot === 'embedded') for (const p of op.paths) out.add(p)
-                    else wholeDir = true
+                    else wholeAlbum = true
                 }
             }
-            if (wholeDir) {
-                for (const path of originals.value.keys()) {
-                    if (dirOf(path) === dir) out.add(path)
+            if (wholeAlbum) {
+                for (const track of originals.value.values()) {
+                    if (albumKey(track) === key) out.add(track.path)
                 }
             }
         }
         return out
     })
-    const hasStagedChanges = computed(
-        () => overlays.value.size > 0 || pictures.value.size > 0
-    )
+    const hasStagedChanges = computed(() => overlays.value.size > 0 || pictures.value.size > 0)
 
     function effective(track: Track): Track {
         return applyOverlay(track, overlays.value.get(track.path))
@@ -458,9 +450,7 @@ export function useEditSession(
     }
 
     function isUnsupportedRemovalStaged(paths: string[], descriptor: string): boolean {
-        return paths.some((p) =>
-            overlays.value.get(p)?.removeUnsupported?.includes(descriptor)
-        )
+        return paths.some((p) => overlays.value.get(p)?.removeUnsupported?.includes(descriptor))
     }
 
     // stageOverlays merges identify picks (or any bulk edit) onto existing
@@ -475,22 +465,22 @@ export function useEditSession(
 
     // ----- Pictures -----
 
-    function pictureEntry(dir: string): PictureSessionEntry {
-        let entry = pictures.value.get(dir)
+    function pictureEntry(album: string): PictureSessionEntry {
+        let entry = pictures.value.get(album)
         if (!entry) {
             entry = { ops: new Map() }
-            pictures.value.set(dir, entry)
+            pictures.value.set(album, entry)
         }
         return entry
     }
 
-    function prunePictureEntry(dir: string) {
-        const entry = pictures.value.get(dir)
+    function prunePictureEntry(album: string) {
+        const entry = pictures.value.get(album)
         if (!entry) return
         for (const [type, slots] of entry.ops) {
             if (slots.size === 0) entry.ops.delete(type)
         }
-        if (entry.ops.size === 0) pictures.value.delete(dir)
+        if (entry.ops.size === 0) pictures.value.delete(album)
     }
 
     function releaseOpPreview(op: PictureOp | undefined) {
@@ -501,8 +491,8 @@ export function useEditSession(
 
     // setOp stores one op for a type+slot cell, replacing (and cleaning up)
     // whatever op the cell held before — a set overwrites a remove and vice versa.
-    function setOp(dir: string, type: string, slot: PictureSlot, op: PictureOp) {
-        const entry = pictureEntry(dir)
+    function setOp(album: string, type: string, slot: PictureSlot, op: PictureOp) {
+        const entry = pictureEntry(album)
         let slots = entry.ops.get(type)
         if (!slots) {
             slots = new Map()
@@ -513,13 +503,13 @@ export function useEditSession(
     }
 
     function stagePictureSet(
-        dir: string,
+        album: string,
         type: string,
         slot: PictureSlot,
         src: StagedPictureSource,
         paths: string[]
     ) {
-        setOp(dir, type, slot, {
+        setOp(album, type, slot, {
             kind: 'set',
             file: src.file,
             imageUrl: src.imageUrl,
@@ -528,25 +518,25 @@ export function useEditSession(
         })
     }
 
-    function stagePictureRemoval(dir: string, type: string, slot: PictureSlot, paths: string[]) {
-        setOp(dir, type, slot, { kind: 'remove', paths })
+    function stagePictureRemoval(album: string, type: string, slot: PictureSlot, paths: string[]) {
+        setOp(album, type, slot, { kind: 'remove', paths })
     }
 
-    function discardPictureOp(dir: string, type: string, slot: PictureSlot) {
-        const entry = pictures.value.get(dir)
+    function discardPictureOp(album: string, type: string, slot: PictureSlot) {
+        const entry = pictures.value.get(album)
         const slots = entry?.ops.get(type)
         if (!entry || !slots) return
         releaseOpPreview(slots.get(slot))
         slots.delete(slot)
-        prunePictureEntry(dir)
+        prunePictureEntry(album)
     }
 
-    function getPictureOps(dir: string): PictureSessionEntry | undefined {
-        return pictures.value.get(dir)
+    function getPictureOps(album: string): PictureSessionEntry | undefined {
+        return pictures.value.get(album)
     }
 
-    function getPictureOp(dir: string, type: string, slot: PictureSlot): PictureOp | undefined {
-        return pictures.value.get(dir)?.ops.get(type)?.get(slot)
+    function getPictureOp(album: string, type: string, slot: PictureSlot): PictureOp | undefined {
+        return pictures.value.get(album)?.ops.get(type)?.get(slot)
     }
 
     function discardAll() {
@@ -567,7 +557,7 @@ export function useEditSession(
         const lib = libraryId()
         if (lib === null) return pictures.value.size === 0
         let wrote = false
-        for (const [dir, entry] of pictures.value) {
+        for (const [key, entry] of pictures.value) {
             for (const [type, slots] of entry.ops) {
                 for (const [slot, op] of [...slots]) {
                     try {
@@ -583,11 +573,16 @@ export function useEditSession(
                         } else {
                             await deletePictureMutation.mutateAsync({
                                 libraryId: lib,
-                                path: dir,
+                                // The entry key identifies the album, not a
+                                // location: the server needs a real folder.
+                                path: dirOf(op.paths[0] ?? ''),
                                 type,
                                 slot,
-                                // Embedded removal applies to the staged files only.
-                                paths: slot === 'embedded' ? op.paths : undefined
+                                // Embedded removal applies to the staged files;
+                                // a folder removal needs them too, to reach
+                                // every directory the album spans. The db slot
+                                // is one album-wide entry.
+                                paths: slot === 'db' ? undefined : op.paths
                             })
                         }
                         releaseOpPreview(op)
@@ -599,7 +594,7 @@ export function useEditSession(
                     }
                 }
             }
-            prunePictureEntry(dir)
+            prunePictureEntry(key)
         }
         if (wrote) picturesSavedAt.value = Date.now()
         return true
