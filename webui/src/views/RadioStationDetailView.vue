@@ -19,6 +19,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { stationToSong } from '@/utils/radioSong'
 import { fetchRadioFavicon } from '@/lib/api/RadioBrowser'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import type { InternetRadioStation } from '@/types/subsonic'
 import type { RadioBrowserStation } from '@/types/radiobrowser'
 
@@ -93,7 +94,8 @@ const hasExistingCover = computed(
 const displayedCoverUrl = computed(() => {
     if (previewUrl.value) return previewUrl.value
     if (hasExistingCover.value && station.value?.coverArt) {
-        return subsonicClient.getCoverArtUrl(station.value.coverArt, 250)
+        const base = subsonicClient.getCoverArtUrl(station.value.coverArt, 250)
+        return versionedCoverUrl(base, station.value.coverArt)
     }
     return null
 })
@@ -198,6 +200,10 @@ function onSave() {
             onSuccess: () => {
                 submittedClean.value = true
                 baseline.value = { ...form.value }
+                // The cover URL is unchanged, so bust it by version — otherwise
+                // the browser's in-memory cache keeps the old image, here and
+                // after navigating away and back.
+                if (station.value?.coverArt) bumpCoverVersion(station.value.coverArt)
                 resetCoverState()
                 editing.value = false
             }

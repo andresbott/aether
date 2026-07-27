@@ -136,6 +136,10 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
+	// Scanner for the metadata editor's post-write re-index. The scheduled
+	// scan tasks build their own scanner instances (via NewScanTaskFn).
+	libScanner := scanner.New(scanCfg, dataStore, tagReader)
+
 	// Audio identification is optional: it needs the fpcalc binary
 	// (Chromaprint) on the host and an AcoustID application key.
 	// identifyOff is the user-facing reason shown by the metadata editor when
@@ -196,6 +200,7 @@ func runServer(configFile string) error {
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
+		Rescanner:     libScanner,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

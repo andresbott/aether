@@ -222,3 +222,96 @@ func (m *MusicBrainzSearch) SearchRelease(ctx context.Context, query string, lim
 	}
 	return out, nil
 }
+
+// ReleaseTrack is one track of a release's tracklist. DurationSeconds is 0 when
+// MusicBrainz carries no length for the track.
+type ReleaseTrack struct {
+	DiscNumber      int     `json:"discNumber"`
+	TrackNumber     int     `json:"trackNumber"`
+	Title           string  `json:"title"`
+	DurationSeconds float64 `json:"durationSeconds"`
+	RecordingMBID   string  `json:"recordingMbid"`
+}
+
+// ReleaseDetail is one release with its full tracklist, as needed to map a set
+// of files onto a single album: the album-level fields to tag with, plus every
+// position a file could occupy.
+type ReleaseDetail struct {
+	ReleaseMBID      string                `json:"releaseMbid"`
+	ReleaseGroupMBID string                `json:"releaseGroupMbid"`
+	Title            string                `json:"title"`
+	Artist           string                `json:"artist"`
+	Artists          []ReleaseArtistCredit `json:"artists"`
+	Date             string                `json:"date"`
+	TrackCount       int                   `json:"trackCount"`
+	DiscCount        int                   `json:"discCount"`
+	Tracks           []ReleaseTrack        `json:"tracks"`
+}
+
+type mbReleaseDetailResponse struct {
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Date         string `json:"date"`
+	ArtistCredit []struct {
+		Name       string `json:"name"`
+		JoinPhrase string `json:"joinphrase"`
+		Artist     struct {
+			ID string `json:"id"`
+		} `json:"artist"`
+	} `json:"artist-credit"`
+	ReleaseGroup struct {
+		ID string `json:"id"`
+	} `json:"release-group"`
+	Media []struct {
+		Position int `json:"position"`
+		Tracks   []struct {
+			Position  int    `json:"position"`
+			Title     string `json:"title"`
+			Length    int    `json:"length"`
+			Recording struct {
+				ID string `json:"id"`
+			} `json:"recording"`
+		} `json:"tracks"`
+	} `json:"media"`
+}
+
+// Release looks up one release with its complete tracklist. An empty mbid
+// returns a zero ReleaseDetail without making a request.
+func (m *MusicBrainzSearch) Release(ctx context.Context, mbid string) (ReleaseDetail, error) {
+	if mbid == "" {
+		return ReleaseDetail{}, nil
+	}
+	u := fmt.Sprintf("%s/ws/2/release/%s?fmt=json&inc=recordings+artist-credits+media",
+		m.BaseURL, url.PathEscape(mbid))
+	var body mbReleaseDetailResponse
+	if err := m.getJSON(ctx, u, &body); err != nil {
+		return ReleaseDetail{}, err
+	}
+	out := ReleaseDetail{
+		ReleaseMBID:      body.ID,
+		ReleaseGroupMBID: body.ReleaseGroup.ID,
+		Title:            body.Title,
+		Date:             body.Date,
+		DiscCount:        len(body.Media),
+	}
+	var artist strings.Builder
+	for _, ac := range body.ArtistCredit {
+		artist.WriteString(ac.Name)
+		artist.WriteString(ac.JoinPhrase)
+		out.Artists = append(out.Artists, ReleaseArtistCredit{Name: ac.Name, MBID: ac.Artist.ID})
+	}
+	out.Artist = artist.String()
+	for _, medium := range body.Media {
+		for _, tr := range medium.Tracks {
+			out.Tracks = append(out.Tracks, ReleaseTrack{
+				DiscNumber:      medium.Position,
+				TrackNumber:     tr.Position,
+				Title:           tr.Title,
+				DurationSeconds: float64(tr.Length) / 1000,
+				RecordingMBID:   tr.Recording.ID,
+			})
+		}
+	}
+	out.TrackCount = len(out.Tracks)
+	return out, nil
+}

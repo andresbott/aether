@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { apiErrorMessage, isRateLimitError } from '@/lib/apiError'
+import { apiErrorMessage, isCanceledError, isRateLimitError } from '@/lib/apiError'
 
 // The server answers /api/v1 failures as {"error": "<sentence>", "code": "<slug>"}.
 // apiErrorMessage is the single place the UI turns any thrown value into text a
@@ -83,5 +83,24 @@ describe('isRateLimitError', () => {
             false
         )
         expect(isRateLimitError(new Error('boom'))).toBe(false)
+    })
+})
+
+describe('isCanceledError', () => {
+    it('recognises a deliberate abort in each shape it arrives as', () => {
+        // axios wraps an aborted request as a CanceledError with this code.
+        expect(isCanceledError({ code: 'ERR_CANCELED', message: 'canceled' })).toBe(true)
+        expect(isCanceledError({ name: 'CanceledError' })).toBe(true)
+        // A raw AbortError, when the abort fires before axios wraps it.
+        expect(isCanceledError({ name: 'AbortError' })).toBe(true)
+    })
+
+    it('does not mistake a real failure for a cancel', () => {
+        expect(isCanceledError(new Error('boom'))).toBe(false)
+        expect(isCanceledError({ response: { status: 502, data: {} } })).toBe(false)
+        expect(isCanceledError({ code: 'ERR_NETWORK' })).toBe(false)
+        expect(isCanceledError(null)).toBe(false)
+        expect(isCanceledError(undefined)).toBe(false)
+        expect(isCanceledError('canceled')).toBe(false)
     })
 })

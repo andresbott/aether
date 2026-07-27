@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
 	"gorm.io/gorm"
@@ -67,6 +69,47 @@ func (h *Handler) selectionPaths(lib *librarySummary, abs string, paths []string
 	return out
 }
 
+// selectionDirs returns the distinct directories the selected tracks live in,
+// in first-seen order. An album is not necessarily one folder — a multi-disc
+// release is usually laid out as CD 1/, CD 2/ subfolders — so folder art is
+// resolved over every directory the selection spans, with the first one acting
+// as the album's primary (representative) folder. Falls back to the requested
+// folder when the selection is empty.
+func (h *Handler) selectionDirs(lib *librarySummary, abs string, paths []string) []string {
+	dirs := distinctDirs(h.selectionPaths(lib, abs, paths))
+	if len(dirs) == 0 {
+		return []string{abs}
+	}
+	return dirs
+}
+
+// distinctDirs returns the parent directories of the given track paths, in
+// first-seen order without duplicates.
+func distinctDirs(trackPaths []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 2)
+	for _, p := range trackPaths {
+		dir := filepath.Dir(p)
+		if !seen[dir] {
+			seen[dir] = true
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// albumForSelection resolves the scanned album of the selection. It tries the
+// selected tracks first (a multi-disc album's requested folder is the parent of
+// the disc folders and holds no track of its own), then the requested folder.
+func (h *Handler) albumForSelection(lib *librarySummary, abs string, paths []string) (*model.Album, error) {
+	for _, trackAbs := range h.selectionPaths(lib, abs, paths) {
+		if album, err := h.Store.GetAlbumByTrackPath(trackAbs); err == nil {
+			return album, nil
+		}
+	}
+	return h.Store.GetAlbumByTrackDir(abs)
+}
+
 // folderTrackPaths returns the absolute paths of the audio tracks in abs.
 func folderTrackPaths(lib *librarySummary, abs string, reader tags.Reader) []string {
 	rows, _ := metadataedit.ListTracks(lib.Path, abs, reader)
@@ -99,12 +142,60 @@ func folderPictureName(dir string, pt metadataedit.PictureType) string {
 	return metadataedit.FolderPictureName(dir, pt.FileBase)
 }
 
+// folderPictureAcross reports the album's folder art for a type across every
+// directory the selection spans. detail/path come from the first directory that
+// holds the picture (the album's representative image); mixed is true when the
+// directories do not all hold the same bytes — i.e. one disc folder is missing
+// the art or carries a different image — so the editor can flag it.
+func folderPictureAcross(dirs []string, pt metadataedit.PictureType) (name, path string, mixed, ok bool) {
+	var firstSum [sha256.Size]byte
+	for _, dir := range dirs {
+		n := folderPictureName(dir, pt)
+		if n == "" {
+			mixed = true // this folder lacks the album's art
+			continue
+		}
+		p := filepath.Join(dir, n)
+		sum, serr := fileSum(p)
+		if !ok {
+			name, path, firstSum, ok = n, p, sum, true
+			continue
+		}
+		if serr != nil || sum != firstSum {
+			mixed = true
+		}
+	}
+	// A picture nowhere at all is simply absent, not mixed.
+	if !ok {
+		return "", "", false, false
+	}
+	return name, path, mixed, true
+}
+
+// fileSum returns the SHA-256 of a file's contents, used to tell whether the
+// disc folders of one album hold the same image.
+func fileSum(path string) ([sha256.Size]byte, error) {
+	f, err := os.Open(path) //nolint:gosec // G304: path is built from a validated album directory plus a filename read from that directory
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	defer func() { _ = f.Close() }()
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	var sum [sha256.Size]byte
+	copy(sum[:], hasher.Sum(nil))
+	return sum, nil
+}
+
 // pictureForSlot resolves one type+slot cell, or ok=false when empty. paths
-// are the selected tracks (embedded slot only; empty = whole folder).
+// are the selected tracks; they also determine the directories a folder
+// picture is looked up in (empty = the requested folder).
 func (h *Handler) pictureForSlot(lib *librarySummary, abs string, pt metadataedit.PictureType, slot string, paths []string) (resolvedPicture, bool) {
 	switch slot {
 	case "db":
-		album, err := h.Store.GetAlbumByTrackDir(abs)
+		album, err := h.albumForSelection(lib, abs, paths)
 		if err != nil || h.Assets == nil {
 			return resolvedPicture{}, false
 		}
@@ -113,8 +204,8 @@ func (h *Handler) pictureForSlot(lib *librarySummary, abs string, pt metadataedi
 			return resolvedPicture{filePath: p}, true
 		}
 	case "folder":
-		if name := folderPictureName(abs, pt); name != "" {
-			return resolvedPicture{detail: name, filePath: filepath.Join(abs, name)}, true
+		if name, path, _, found := folderPictureAcross(h.selectionDirs(lib, abs, paths), pt); found {
+			return resolvedPicture{detail: name, filePath: path}, true
 		}
 	case "embedded":
 		for _, trackAbs := range h.embeddedProbeOrder(lib, abs, pt, paths) {
@@ -133,7 +224,7 @@ func (h *Handler) embeddedProbeOrder(lib *librarySummary, abs string, pt metadat
 	if pt.ID != frontCoverType {
 		return tracks
 	}
-	if album, err := h.Store.GetAlbumByTrackDir(abs); err == nil {
+	if album, err := h.albumForSelection(lib, abs, paths); err == nil {
 		if tp, e := h.Store.GetCoverTrackPath(album.ID); e == nil && tp != "" {
 			return append([]string{tp}, tracks...)
 		}
@@ -144,6 +235,11 @@ func (h *Handler) embeddedProbeOrder(lib *librarySummary, abs string, pt metadat
 type pictureSlotDTO struct {
 	Slot   string `json:"slot"` // "embedded" | "folder" | "db"
 	Detail string `json:"detail,omitempty"`
+	// Mixed marks a folder slot whose art is not the same in every directory
+	// the album spans (a multi-disc release): one disc folder is missing it or
+	// holds a different image. The editor shows the first one and warns that
+	// saving overwrites all of them.
+	Mixed bool `json:"mixed,omitempty"`
 }
 
 type pictureDTO struct {
@@ -179,9 +275,12 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var albumKey string
-	if album, aerr := h.Store.GetAlbumByTrackDir(abs); aerr == nil {
+	if album, aerr := h.albumForSelection(lib, abs, r.URL.Query()["paths"]); aerr == nil {
 		albumKey = strconv.FormatUint(uint64(album.ID), 10)
 	}
+	// Folder art is looked up in every directory the selection spans, so a
+	// multi-disc album reports the art of its disc folders as one cell.
+	dirs := h.selectionDirs(lib, abs, r.URL.Query()["paths"])
 
 	out := make([]pictureDTO, 0, len(metadataedit.PictureTypes))
 	for _, pt := range metadataedit.PictureTypes {
@@ -192,8 +291,8 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 				Detail: fmt.Sprintf("%d of %d files", n, len(tracks)),
 			})
 		}
-		if name := folderPictureName(abs, pt); name != "" {
-			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name})
+		if name, _, mixed, found := folderPictureAcross(dirs, pt); found {
+			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name, Mixed: mixed})
 		}
 		if albumKey != "" && h.Assets != nil {
 			if _, ok := h.Assets.GetNamed(assetstore.KindAlbum, albumKey, pt.FileBase); ok {
@@ -248,9 +347,10 @@ func validSlot(slot string) bool {
 }
 
 type applyPictureResult struct {
-	OK     bool   `json:"ok"`
-	Target string `json:"target"`
-	Type   string `json:"type"`
+	OK     bool          `json:"ok"`
+	Target string        `json:"target"`
+	Type   string        `json:"type"`
+	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
 
 // applyPicture saves an image of one picture type to one slot: aether's
@@ -321,7 +421,11 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID})
+	// Re-index the folder's tracks: the embedded slot changed their tags, and
+	// folder/db writes change which image the album should serve (reconcile
+	// redetects album.CoverPath).
+	rs := h.rescanSaved(r.Context(), libModel.ID, resolved)
+	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID, Rescan: rs})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
@@ -340,15 +444,24 @@ func (h *Handler) savePictureToSlot(target string, pt metadataedit.PictureType, 
 			return http.StatusInternalServerError, err
 		}
 	case "folder":
-		picPath, err := metadataedit.WriteFolderPicture(filepath.Dir(resolved[0]), pt.FileBase, ext, data)
-		if err != nil {
-			return http.StatusInternalServerError, err
+		// An album can span several directories (a multi-disc release laid out
+		// as CD 1/, CD 2/): write the same art file into each of them, so every
+		// disc folder carries the album's picture.
+		var firstPath string
+		for _, dir := range distinctDirs(resolved) {
+			picPath, err := metadataedit.WriteFolderPicture(dir, pt.FileBase, ext, data)
+			if err != nil {
+				return http.StatusInternalServerError, err
+			}
+			if firstPath == "" {
+				firstPath = picPath
+			}
 		}
 		// Point the DB album at the new front cover so it serves immediately
 		// (best effort — a not-yet-scanned folder still keeps the written file).
 		if pt.ID == frontCoverType {
 			if album, aerr := h.Store.GetAlbumByTrackPath(resolved[0]); aerr == nil {
-				_ = h.Store.SetAlbumCoverPath(album.ID, picPath)
+				_ = h.Store.SetAlbumCoverPath(album.ID, firstPath)
 			}
 		}
 	case "embedded":
@@ -380,9 +493,15 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "validation_error", terr.Error())
 		return
 	}
+	paths := r.URL.Query()["paths"]
+	// Resolved once, before the switch: this is both the selection the delete
+	// acts on and the set handed to the post-delete re-index, so the two can
+	// never disagree. Re-deriving it inside a case would mean a second
+	// directory listing when the client sends no explicit paths.
+	rescanPaths := h.selectionPaths(lib, abs, paths)
 	switch r.URL.Query().Get("slot") {
 	case "db":
-		album, aerr := h.Store.GetAlbumByTrackDir(abs)
+		album, aerr := h.albumForSelection(lib, abs, paths)
 		if aerr != nil {
 			writeErr(w, http.StatusNotFound, "not_found", "album not found for this folder")
 			return
@@ -395,19 +514,25 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "folder":
-		if name := folderPictureName(abs, pt); name != "" {
-			if rerr := os.Remove(filepath.Join(abs, name)); rerr != nil { //nolint:gosec // G703: abs is validated by ResolveInLibrary (rejects traversal); name is a bare filename from the folder listing
+		// Mirrors the save fan-out: the art was written into every directory the
+		// album spans, so remove it from each of them.
+		for _, dir := range h.selectionDirs(lib, abs, paths) {
+			name := folderPictureName(dir, pt)
+			if name == "" {
+				continue
+			}
+			if rerr := os.Remove(filepath.Join(dir, name)); rerr != nil { //nolint:gosec // G703: dir derives from paths validated by ResolveInLibrary (rejects traversal); name is a bare filename from the folder listing
 				writeErr(w, http.StatusInternalServerError, "internal", rerr.Error())
 				return
 			}
 		}
 		if pt.ID == frontCoverType {
-			if album, aerr := h.Store.GetAlbumByTrackDir(abs); aerr == nil {
+			if album, aerr := h.albumForSelection(lib, abs, paths); aerr == nil {
 				_ = h.Store.SetAlbumCoverPath(album.ID, "")
 			}
 		}
 	case "embedded":
-		for _, trackAbs := range h.selectionPaths(lib, abs, r.URL.Query()["paths"]) {
+		for _, trackAbs := range rescanPaths {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
 				writeErr(w, http.StatusInternalServerError, "internal", werr.Error())
 				return
@@ -420,7 +545,11 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder, db")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	out := map[string]any{"ok": true}
+	if rs := h.rescanSaved(r.Context(), lib.ID, rescanPaths); rs != nil {
+		out["rescan"] = rs
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // writeImage writes raw image bytes with a sniffed image content-type.

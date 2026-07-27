@@ -11,6 +11,7 @@ import (
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
+	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/radiobrowser"
@@ -59,8 +60,21 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				Reader:                    h.tagReader,
 				Assets:                    h.assets,
 				CoverArt:                  coverart.New(userAgent),
-				Identifier:                h.identifier,
 				IdentifyUnavailableReason: h.identifyOff,
+				Rescan:                    h.rescanner,
+			}
+			if h.identifier != nil {
+				// Guard both assignments: a nil *identify.Identifier assigned
+				// to an interface-typed field produces a non-nil interface
+				// wrapping a nil pointer, breaking the nil checks in identify.go
+				// and identify_album.go.
+				mh.Identifier = h.identifier
+				// Album identification needs the same fingerprinting the
+				// per-file identify uses, plus MusicBrainz for tracklists.
+				mh.AlbumIdentifier = albumidentify.New(
+					h.identifier,
+					artistimage.NewMusicBrainzSearch(userAgent),
+				)
 			}
 			mh.Routes(r)
 		}

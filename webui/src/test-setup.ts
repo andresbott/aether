@@ -1,7 +1,15 @@
-import { enableAutoUnmount } from '@vue/test-utils'
+import { config, enableAutoUnmount } from '@vue/test-utils'
+import Tooltip from 'primevue/tooltip'
 import { afterEach } from 'vitest'
 
 enableAutoUnmount(afterEach)
+
+// v-tooltip is registered on the real app in main.ts; component tests mount
+// single components, so register it globally too. Without this every component
+// using v-tooltip floods stderr with "Failed to resolve directive: tooltip"
+// plus a full props dump. Specs that assert on tooltip content still pass their
+// own `directives: { tooltip: ... }` recorder, which takes precedence.
+config.global.directives = { ...config.global.directives, tooltip: Tooltip }
 
 // jsdom does not implement ResizeObserver; stub it for component tests that use
 // PrimeVue TabList (which binds a ResizeObserver in its mounted hook).

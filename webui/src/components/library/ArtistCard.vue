@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { Artist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{
     artist: Artist
@@ -9,7 +10,9 @@ const props = defineProps<{
 
 const coverUrl = computed(() => {
     if (!props.artist.coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(props.artist.coverArt, 200)
+    const base = subsonicClient.getCoverArtUrl(props.artist.coverArt, 200)
+    // Same cache-bust as the detail view, so editing a cover updates the grid too.
+    return versionedCoverUrl(base, props.artist.coverArt)
 })
 </script>
 

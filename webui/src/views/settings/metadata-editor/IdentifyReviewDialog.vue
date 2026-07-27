@@ -20,10 +20,21 @@ const props = defineProps<{
     visible: boolean
     results: IdentifyTrackResult[]
     tracks: Track[]
+    // The dialog opens before the request resolves so the user sees the work
+    // start; while this is true the body is a progress note and there is nothing
+    // to review yet.
+    loading: boolean
+    // The files this run was launched for, so the progress note can name a count
+    // before any result exists. `tracks` is the whole folder listing here (it is
+    // the current-title lookup), so it cannot answer that.
+    pending: Track[]
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
     (e: 'apply', picks: IdentifyPick[]): void
+    // Cancel is not just "close": it aborts the in-flight identify request, so
+    // the parent needs to hear it rather than only observing visible: false.
+    (e: 'cancel'): void
 }>()
 
 // Per-track review state: whether the user accepts the match, which candidate
@@ -110,17 +121,41 @@ function apply() {
     }
     emit('apply', picks)
 }
+
+// One exit path for Cancel, the header X and an Escape press: all three mean
+// "stop", and while a request is in flight stopping must abort it, not leave it
+// running invisibly against the user's rate limit.
+function cancel() {
+    emit('cancel')
+    emit('update:visible', false)
+}
 </script>
 
 <template>
     <Dialog
         :visible="visible"
-        @update:visible="(v) => emit('update:visible', v)"
+        @update:visible="(v) => !v && cancel()"
         header="Identify tracks"
         modal
         :style="{ width: '72rem', maxWidth: '95vw' }"
     >
-        <div class="identify-list">
+        <div v-if="loading" class="identify-loading" data-test="identify-loading">
+            <i class="pi pi-spin pi-spinner"></i>
+            <div class="loading-text">
+                <p class="loading-headline">
+                    Identifying {{ pending.length }} track{{ pending.length === 1 ? '' : 's' }}…
+                </p>
+                <!-- Sets the expectation: one fpcalc run plus a rate-limited
+                     AcoustID call per file, so several seconds per track is
+                     normal rather than a hang. -->
+                <small class="loading-note">
+                    Fingerprinting each file and looking it up on AcoustID. This can take a while;
+                    Cancel stops it.
+                </small>
+            </div>
+        </div>
+
+        <div v-else class="identify-list">
             <div
                 v-for="result in results"
                 :key="result.path"
@@ -202,8 +237,9 @@ function apply() {
         </div>
 
         <template #footer>
-            <Button label="Cancel" text @click="emit('update:visible', false)" />
+            <Button label="Cancel" text data-test="identify-cancel" @click="cancel" />
             <Button
+                v-if="!loading"
                 :label="`Stage ${acceptedCount} track${acceptedCount === 1 ? '' : 's'}`"
                 icon="pi pi-check"
                 data-test="identify-apply"
@@ -215,6 +251,29 @@ function apply() {
 </template>
 
 <style scoped>
+.identify-loading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.9rem;
+    padding: 2rem 0.5rem;
+}
+.identify-loading .pi-spinner {
+    font-size: 1.6rem;
+    color: var(--app-accent);
+}
+.loading-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+}
+.loading-headline {
+    margin: 0;
+    font-weight: 600;
+}
+.loading-note {
+    color: var(--app-text-secondary);
+}
 .identify-list {
     display: flex;
     flex-direction: column;

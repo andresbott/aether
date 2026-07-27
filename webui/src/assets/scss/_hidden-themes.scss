@@ -157,7 +157,26 @@
 
 /* Scanlines. Painted on <html> via ::after so nothing in the app — dialogs and
    toasts included — sits above it, and pointer-events stay with the app. The
-   fixed layer is only created for this theme, so other themes pay nothing. */
+   fixed layer is only created for this theme, so other themes pay nothing.
+
+   Two-tone stripes, not just dark ones: `--app-background` is #040804, so a
+   black stripe has essentially nothing left to darken (0.22 black over #040804
+   composites to #030603 — one step out of 255) and the pattern only shows where
+   bright glyphs happen to sit. The faint phosphor line is what makes the raster
+   visible across the empty canvas; the dark line is what gives glyphs their
+   banding.
+
+   Bands are 2px on a 4px period. A 1px band is a single device pixel at
+   dpr 1 and gets averaged toward its neighbours once the display or zoom is
+   scaled, which thins the pattern unpredictably; 2px keeps a whole pixel of
+   each colour in every case. Hard stops (two stops at the same offset) keep the
+   edges crisp rather than letting the gradient interpolate the stripe away.
+
+   Alphas are deliberately low. The dark band covers half the viewport, so it
+   dominates the perceived strength: at 0.34 it dimmed the whole UI and read as
+   a heavy veil rather than a raster. 0.16 keeps the banding legible on glyphs
+   without washing the interface out, and the phosphor line is held well under
+   it so it textures the canvas instead of adding a green cast. */
 .dark-mode.theme-crt::after {
     content: '';
     position: fixed;
@@ -166,16 +185,24 @@
     pointer-events: none;
     background: repeating-linear-gradient(
         to bottom,
-        rgba(0, 0, 0, 0) 0,
-        rgba(0, 0, 0, 0) 2px,
-        rgba(0, 0, 0, 0.22) 3px,
-        rgba(0, 0, 0, 0.22) 4px
+        rgba(51, 255, 102, 0.03) 0,
+        rgba(51, 255, 102, 0.03) 2px,
+        rgba(0, 0, 0, 0.16) 2px,
+        rgba(0, 0, 0, 0.16) 4px
     );
 }
 
-/* Respect a reduced-transparency/reduced-motion preference: the scanline
-   overlay is decoration, and it lowers effective contrast. */
-@media (prefers-reduced-motion: reduce) {
+/* No `prefers-reduced-motion` guard: the overlay is a static gradient with no
+   animation or transition, so that query does not apply to it. It used to be
+   gated that way, which switched the whole effect off for anyone whose desktop
+   reports reduced motion — the palette still changed, so the theme looked
+   "colours only, no effect". Worse, browsers disagree about what counts: Chrome
+   on Linux maps KDE's low AnimationDurationFactor to reduced motion while
+   Firefox does not, so the same machine showed scanlines in one browser and a
+   flat theme in the other.
+   `prefers-contrast: more` is the query that does apply: the overlay trades
+   contrast for texture, so drop it when the user asks for more contrast. */
+@media (prefers-contrast: more) {
     .dark-mode.theme-crt::after {
         display: none;
     }

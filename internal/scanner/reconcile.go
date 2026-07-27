@@ -20,8 +20,10 @@ type reconcileStats struct {
 	Updated   int
 }
 
-func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart time.Time) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time) (reconcileStats, error) {
 	var stats reconcileStats
+	// One directory listing per artist folder is enough for the whole pass.
+	imageCache := map[string]string{}
 
 	for _, tr := range results {
 		if ctx.Err() != nil {
@@ -29,7 +31,7 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 		}
 
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, tr, scanStart, &stats)
+			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
 			continue
@@ -40,7 +42,7 @@ func (s *Scanner) reconcile(ctx context.Context, results []tagResult, scanStart 
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
 	meta := tr.meta
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
@@ -65,6 +67,11 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	}
 	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
+		return err
+	}
+
+	// Detect an artist-folder image for every artist this track mentions.
+	if err := syncArtistImages(tx, libRoot, imageCache, tr.walk.FilePath, artists, albumArtists); err != nil {
 		return err
 	}
 
@@ -126,7 +133,18 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 	track.FilePath = tr.walk.FilePath
 	track.FileSize = fileSize(tr.walk.FilePath)
 	track.FileModTime = tr.walk.ModTime
-	track.LastSeenAt = scanStart
+	// LastSeenAt is monotonic: only ever advanced, never moved backwards.
+	// It is the liveness marker store.Cleanup uses to delete "tracks nobody
+	// saw this run" (last_seen_at < scanStart), and a targeted rescan
+	// (RescanPaths) runs concurrently with scheduled scans using its own,
+	// possibly older, scanStart. Overwriting a newer marker with an older one
+	// would make a live track look stale to a scan that is already in flight
+	// and get it deleted — taking its playlist memberships, play history and
+	// stars with it. A brand-new track has the zero time, so it still gets its
+	// marker set here.
+	if scanStart.After(track.LastSeenAt) {
+		track.LastSeenAt = scanStart
+	}
 	track.Title = meta.Title
 	track.TitleNorm = unidecode.Normalize(meta.Title)
 	track.TrackNumber = meta.TrackNumber
@@ -153,6 +171,44 @@ func (s *Scanner) reconcileTrack(tx *store.Store, tr tagResult, scanStart time.T
 		stats.Updated++
 	}
 
+	return nil
+}
+
+// syncArtistImages records, for each artist the track mentions, the image found
+// in the artist's own folder on disk (`<collection>/<artist>/artist.jpg`). A
+// path already on record is re-checked rather than trusted: the file may have
+// been removed or the tree reorganised. imageCache holds one detection result
+// per (artist folder scope) so a 200-track library does not list the same
+// directory 200 times.
+func syncArtistImages(tx *store.Store, libRoot string, imageCache map[string]string, trackPath string, artistSets ...[]*model.Artist) error {
+	seen := map[uint]bool{}
+	for _, set := range artistSets {
+		for _, a := range set {
+			if seen[a.ID] {
+				continue
+			}
+			seen[a.ID] = true
+
+			key := filepath.Dir(trackPath) + "\x00" + a.NameNorm
+			img, cached := imageCache[key]
+			if !cached {
+				img = DetectArtistImage(libRoot, trackPath, a.Name)
+				imageCache[key] = img
+			}
+			// Keep a path that is still valid when this track's own tree yields
+			// nothing: another library layout may have supplied it.
+			if img == "" && IsUsableArtistImagePath(a.ImagePath) {
+				continue
+			}
+			if img == a.ImagePath {
+				continue
+			}
+			if err := tx.SetArtistImagePath(a.ID, img); err != nil {
+				return err
+			}
+			a.ImagePath = img
+		}
+	}
 	return nil
 }
 

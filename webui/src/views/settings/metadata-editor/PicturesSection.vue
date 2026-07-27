@@ -5,6 +5,7 @@ import Menu from 'primevue/menu'
 import PicturePickerDialog from '@/components/library/PicturePickerDialog.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 import { getPictures, getPictureUrl } from '@/lib/api/Metadata'
+import { selectionAlbumKey, selectionDirs } from '@/lib/albumIdentity'
 import {
     PICTURE_SLOTS,
     PICTURE_SLOT_LABELS,
@@ -15,6 +16,7 @@ import type {
     PictureCopySource,
     PictureInfo,
     PictureSlot,
+    PictureSlotInfo,
     StagedPictureSource,
     Track
 } from '@/types/metadata'
@@ -33,21 +35,18 @@ const props = defineProps<{
 
 const selectionPaths = computed(() => props.selection.map((t) => t.path))
 
-// Pictures live in the selected tracks' own directory, so picture editing
-// targets that directory (resolved from the selection) rather than whatever
-// folder is highlighted in the tree — that node can be a parent of the album
-// folder, since the track list is populated recursively.
-function dirOf(path: string): string {
-    const i = path.lastIndexOf('/')
-    return i === -1 ? '' : path.slice(0, i)
-}
-const selectionDirs = computed(() => new Set(props.selection.map((t) => dirOf(t.path))))
-// Pictures are per-album (per-directory): editing one requires the selection
-// to sit in a single directory. A selection spanning albums shows a note
-// instead (mirrors the mixed-artist handling in the form).
-const singleAlbum = computed(() => props.selection.length > 0 && selectionDirs.value.size === 1)
+// Pictures belong to an ALBUM, identified by its tags (see selectionAlbumKey) —
+// not to a directory. A multi-disc release is usually laid out as CD 1/, CD 2/
+// subfolders yet is one album, and its folder art is written into each of those
+// folders. Editing requires the selection to be one album; a selection spanning
+// albums shows a note instead (mirrors the mixed-artist handling in the form).
+// albumId keys the album's staged picture ops in the session.
+const albumId = computed<string | null>(() => selectionAlbumKey(props.selection))
+const singleAlbum = computed(() => albumId.value !== null)
+// Picture requests are anchored on the album's primary (first) directory; the
+// selection paths tell the server every folder the album spans.
 const pictureDir = computed<string | null>(() =>
-    singleAlbum.value ? [...selectionDirs.value][0] : null
+    singleAlbum.value ? (selectionDirs(props.selection)[0] ?? null) : null
 )
 
 // Bumped after a session save wrote picture changes to cache-bust the <img>
@@ -71,11 +70,7 @@ async function refreshPictures() {
         return
     }
     try {
-        const pictures = await getPictures(
-            props.libraryId,
-            pictureDir.value,
-            selectionPaths.value
-        )
+        const pictures = await getPictures(props.libraryId, pictureDir.value, selectionPaths.value)
         if (seq === refreshSeq) serverPictures.value = pictures
     } catch {
         if (seq === refreshSeq) serverPictures.value = []
@@ -91,10 +86,10 @@ watch(
 )
 
 const serverSlotDetail = computed(() => {
-    const map = new Map<string, Map<PictureSlot, string>>()
+    const map = new Map<string, Map<PictureSlot, PictureSlotInfo>>()
     for (const p of serverPictures.value) {
-        const slots = new Map<PictureSlot, string>()
-        for (const s of p.slots) slots.set(s.slot, s.detail ?? '')
+        const slots = new Map<PictureSlot, PictureSlotInfo>()
+        for (const s of p.slots) slots.set(s.slot, s)
         map.set(p.type, slots)
     }
     return map
@@ -103,7 +98,7 @@ const serverSlotDetail = computed(() => {
 // Types added by the user this session (via "Add picture…") that have nothing
 // on the server yet; they render as all-empty blocks until an op is staged.
 const addedTypes = ref<string[]>([])
-watch(pictureDir, () => {
+watch(albumId, () => {
     addedTypes.value = []
 })
 
@@ -113,7 +108,7 @@ watch(pictureDir, () => {
 const visibleTypes = computed(() => {
     const present = new Set<string>()
     for (const p of serverPictures.value) present.add(p.type)
-    const entry = pictureDir.value !== null ? props.session.getPictureOps(pictureDir.value) : undefined
+    const entry = albumId.value !== null ? props.session.getPictureOps(albumId.value) : undefined
     if (entry) {
         for (const [type, slots] of entry.ops) {
             for (const slot of slots.keys()) {
@@ -127,9 +122,7 @@ const visibleTypes = computed(() => {
 
 // "Add picture…" offers the registry types not already rendered.
 const addMenu = ref()
-const addableTypes = computed(() =>
-    PICTURE_TYPES.filter((t) => !visibleTypes.value.includes(t.id))
-)
+const addableTypes = computed(() => PICTURE_TYPES.filter((t) => !visibleTypes.value.includes(t.id)))
 const addMenuItems = computed(() =>
     addableTypes.value.map((t) => ({
         label: t.label,
@@ -148,8 +141,8 @@ function toggleAddMenu(event: Event) {
 // selection: folder/db ops belong to the whole album; embedded ops only to
 // the tracks they were staged for.
 function stagedOp(type: string, slot: PictureSlot) {
-    if (pictureDir.value === null) return undefined
-    const op = props.session.getPictureOp(pictureDir.value, type, slot)
+    if (albumId.value === null) return undefined
+    const op = props.session.getPictureOp(albumId.value, type, slot)
     if (!op) return undefined
     if (slot === 'embedded' && !selectionPaths.value.some((p) => op.paths.includes(p))) {
         return undefined
@@ -158,7 +151,15 @@ function stagedOp(type: string, slot: PictureSlot) {
 }
 
 function serverDetail(type: string, slot: PictureSlot): string | undefined {
-    return serverSlotDetail.value.get(type)?.get(slot)
+    const info = serverSlotDetail.value.get(type)?.get(slot)
+    return info === undefined ? undefined : (info.detail ?? '')
+}
+
+// serverMixed marks a folder cell whose art is not the same in every directory
+// the album spans (a multi-disc release): the grid shows the first folder's
+// image, and saving overwrites all of them.
+function serverMixed(type: string, slot: PictureSlot): boolean {
+    return serverSlotDetail.value.get(type)?.get(slot)?.mixed === true
 }
 
 function serverHas(type: string, slot: PictureSlot): boolean {
@@ -176,7 +177,10 @@ function cellThumbUrl(type: string, slot: PictureSlot): string | null {
         type,
         slot,
         pictureBust.value,
-        slot === 'embedded' ? selectionPaths.value : undefined
+        // Embedded: narrow the probe to the selected tracks. Folder: name the
+        // directories the album spans, since the art may sit in a later disc
+        // folder than the primary one this URL is anchored on.
+        slot === 'db' ? undefined : selectionPaths.value
     )
 }
 
@@ -185,8 +189,11 @@ function cellNote(type: string, slot: PictureSlot): string {
     if (op?.kind === 'set') return 'Pending — saves on Save'
     if (op?.kind === 'remove') return 'Will be removed on Save'
     const detail = serverDetail(type, slot)
-    if (detail !== undefined) return detail
-    return 'No image'
+    if (detail === undefined) return 'No image'
+    if (serverMixed(type, slot)) {
+        return detail === '' ? 'differs across folders' : `${detail} — differs across folders`
+    }
+    return detail
 }
 
 // ----- Actions -----
@@ -211,8 +218,7 @@ const copySources = computed<PictureCopySource[]>(() => {
     const out: PictureCopySource[] = []
     const cells = new Set<string>()
     for (const p of serverPictures.value) for (const s of p.slots) cells.add(`${p.type}\n${s.slot}`)
-    const entry =
-        pictureDir.value !== null ? props.session.getPictureOps(pictureDir.value) : undefined
+    const entry = albumId.value !== null ? props.session.getPictureOps(albumId.value) : undefined
     if (entry) {
         for (const [type, slots] of entry.ops) {
             for (const slot of slots.keys()) cells.add(`${type}\n${slot}`)
@@ -246,9 +252,9 @@ const copySources = computed<PictureCopySource[]>(() => {
 })
 
 function onPickerSelect(source: StagedPictureSource) {
-    if (pictureDir.value === null) return
+    if (albumId.value === null) return
     props.session.stagePictureSet(
-        pictureDir.value,
+        albumId.value,
         picker.value.type,
         picker.value.slot,
         source,
@@ -257,13 +263,13 @@ function onPickerSelect(source: StagedPictureSource) {
 }
 
 function stageRemove(type: string, slot: PictureSlot) {
-    if (pictureDir.value === null) return
-    props.session.stagePictureRemoval(pictureDir.value, type, slot, selectionPaths.value)
+    if (albumId.value === null) return
+    props.session.stagePictureRemoval(albumId.value, type, slot, selectionPaths.value)
 }
 
 function undoCell(type: string, slot: PictureSlot) {
-    if (pictureDir.value === null) return
-    props.session.discardPictureOp(pictureDir.value, type, slot)
+    if (albumId.value === null) return
+    props.session.discardPictureOp(albumId.value, type, slot)
 }
 </script>
 
@@ -302,105 +308,105 @@ function undoCell(type: string, slot: PictureSlot) {
                 <div class="picture-type-name">{{ pictureTypeLabel(type) }}</div>
                 <div class="picture-slots">
                     <template v-for="(slot, i) in PICTURE_SLOTS" :key="slot">
-                    <div
-                        v-if="i > 0"
-                        class="slot-priority"
-                        aria-hidden="true"
-                        v-tooltip.top="
-                            'Loading priority: embedded in file, then album folder, ' +
-                            'then internal store'
-                        "
-                    >
-                        <i class="pi pi-angle-right"></i>
-                    </div>
-                    <div
-                        class="picture-cell"
-                        :class="{
-                            pending: stagedOp(type, slot)?.kind === 'set',
-                            removing: stagedOp(type, slot)?.kind === 'remove'
-                        }"
-                        :data-test="`picture-cell-${type}-${slot}`"
-                    >
-                        <!-- Occupied cell: the image itself, flipping on hover to
+                        <div
+                            v-if="i > 0"
+                            class="slot-priority"
+                            aria-hidden="true"
+                            v-tooltip.top="
+                                'Loading priority: embedded in file, then album folder, ' +
+                                'then internal store'
+                            "
+                        >
+                            <i class="pi pi-angle-right"></i>
+                        </div>
+                        <div
+                            class="picture-cell"
+                            :class="{
+                                pending: stagedOp(type, slot)?.kind === 'set',
+                                removing: stagedOp(type, slot)?.kind === 'remove'
+                            }"
+                            :data-test="`picture-cell-${type}-${slot}`"
+                        >
+                            <!-- Occupied cell: the image itself, flipping on hover to
                              the change/remove controls (mirrors the hero cover). -->
-                        <div v-if="cellThumbUrl(type, slot)" class="cell-art">
-                            <div class="cell-flip">
-                                <div class="cell-face cell-front">
-                                    <img
-                                        :src="cellThumbUrl(type, slot) ?? undefined"
-                                        class="cell-thumb"
-                                        :alt="`${pictureTypeLabel(type)} — ${PICTURE_SLOT_LABELS[slot]}`"
-                                    />
-                                </div>
-                                <div class="cell-face cell-back">
-                                    <Button
-                                        v-if="stagedOp(type, slot)"
-                                        icon="pi pi-undo"
-                                        label="Undo"
-                                        text
-                                        size="small"
-                                        aria-label="Undo staged change"
-                                        :data-test="`picture-undo-${type}-${slot}`"
-                                        @click="undoCell(type, slot)"
-                                    />
-                                    <template v-else>
+                            <div v-if="cellThumbUrl(type, slot)" class="cell-art">
+                                <div class="cell-flip">
+                                    <div class="cell-face cell-front">
+                                        <img
+                                            :src="cellThumbUrl(type, slot) ?? undefined"
+                                            class="cell-thumb"
+                                            :alt="`${pictureTypeLabel(type)} — ${PICTURE_SLOT_LABELS[slot]}`"
+                                        />
+                                    </div>
+                                    <div class="cell-face cell-back">
                                         <Button
-                                            icon="pi pi-images"
-                                            label="Change"
+                                            v-if="stagedOp(type, slot)"
+                                            icon="pi pi-undo"
+                                            label="Undo"
                                             text
                                             size="small"
-                                            aria-label="Change picture"
-                                            :data-test="`picture-change-${type}-${slot}`"
-                                            :disabled="libraryId === null"
-                                            @click="openPicker(type, slot)"
+                                            aria-label="Undo staged change"
+                                            :data-test="`picture-undo-${type}-${slot}`"
+                                            @click="undoCell(type, slot)"
                                         />
-                                        <Button
-                                            v-if="serverHas(type, slot)"
-                                            icon="pi pi-trash"
-                                            label="Remove"
-                                            text
-                                            size="small"
-                                            severity="danger"
-                                            aria-label="Remove picture"
-                                            :data-test="`picture-remove-${type}-${slot}`"
-                                            @click="stageRemove(type, slot)"
-                                        />
-                                    </template>
+                                        <template v-else>
+                                            <Button
+                                                icon="pi pi-images"
+                                                label="Change"
+                                                text
+                                                size="small"
+                                                aria-label="Change picture"
+                                                :data-test="`picture-change-${type}-${slot}`"
+                                                :disabled="libraryId === null"
+                                                @click="openPicker(type, slot)"
+                                            />
+                                            <Button
+                                                v-if="serverHas(type, slot)"
+                                                icon="pi pi-trash"
+                                                label="Remove"
+                                                text
+                                                size="small"
+                                                severity="danger"
+                                                aria-label="Remove picture"
+                                                :data-test="`picture-remove-${type}-${slot}`"
+                                                @click="stageRemove(type, slot)"
+                                            />
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <!-- Empty cell: no image to flip, so the add button is
+                            <!-- Empty cell: no image to flip, so the add button is
                              the placeholder itself. -->
-                        <div v-else class="cell-art">
-                            <Button
-                                v-if="stagedOp(type, slot)"
-                                class="cell-placeholder-btn"
-                                icon="pi pi-undo"
-                                label="Undo"
-                                text
-                                size="small"
-                                aria-label="Undo staged change"
-                                :data-test="`picture-undo-${type}-${slot}`"
-                                @click="undoCell(type, slot)"
-                            />
-                            <Button
-                                v-else
-                                class="cell-placeholder-btn"
-                                icon="pi pi-plus"
-                                label="Add image"
-                                text
-                                size="small"
-                                aria-label="Change picture"
-                                :data-test="`picture-change-${type}-${slot}`"
-                                :disabled="libraryId === null"
-                                @click="openPicker(type, slot)"
-                            />
+                            <div v-else class="cell-art">
+                                <Button
+                                    v-if="stagedOp(type, slot)"
+                                    class="cell-placeholder-btn"
+                                    icon="pi pi-undo"
+                                    label="Undo"
+                                    text
+                                    size="small"
+                                    aria-label="Undo staged change"
+                                    :data-test="`picture-undo-${type}-${slot}`"
+                                    @click="undoCell(type, slot)"
+                                />
+                                <Button
+                                    v-else
+                                    class="cell-placeholder-btn"
+                                    icon="pi pi-plus"
+                                    label="Add image"
+                                    text
+                                    size="small"
+                                    aria-label="Change picture"
+                                    :data-test="`picture-change-${type}-${slot}`"
+                                    :disabled="libraryId === null"
+                                    @click="openPicker(type, slot)"
+                                />
+                            </div>
+                            <div class="cell-info">
+                                <span class="cell-slot">{{ PICTURE_SLOT_LABELS[slot] }}</span>
+                                <span class="cell-note">{{ cellNote(type, slot) }}</span>
+                            </div>
                         </div>
-                        <div class="cell-info">
-                            <span class="cell-slot">{{ PICTURE_SLOT_LABELS[slot] }}</span>
-                            <span class="cell-note">{{ cellNote(type, slot) }}</span>
-                        </div>
-                    </div>
                     </template>
                 </div>
             </div>

@@ -25,7 +25,67 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 
 `LastSeenAt` is the liveness marker — every code path that touches a track
 during a scan must set it to the scan's start time, or cleanup will delete
-live tracks.
+live tracks. It is **monotonic in both writers**: `reconcileTrack` guards its
+assignment, and `store.BulkUpdateLastSeen` carries `last_seen_at < scanTime`
+in its WHERE clause. Concurrent runs with different `scanStart` values are
+normal — a targeted rescan (below) uses its own, and `scan` / `scan-full` are
+separately registered tasks so `MaxParallelism: 1` does not stop them
+overlapping. Writing an older timestamp over a newer one would make a live
+track look stale to the other run's `Cleanup` and delete it, taking its
+playlist memberships, play history and stars with it. Within a single scan
+every row is either already at `scanStart` or older, so the guards never skip
+a bump that was needed.
+
+## Targeted rescan (`rescan.go`)
+
+`Scanner.RescanPaths(ctx, libraryID, absPaths)` re-indexes an explicit list of
+files: it admits each path (inside the library root, audio extension, not
+excluded, stat-able, `tagReader.CanRead`), reads its tags serially, and hands
+the results to the same `reconcile` step 4 uses. The metadata editor calls it
+synchronously after writing tags or pictures
+(`app/router/handlers/metadata`), so a save is visible in the music UI
+without a scan task. Inadmissible paths are silently skipped and counted in
+`ScanStats.TracksSkipped`; only real tag-read failures land in
+`ScanStats.Errors`.
+
+**A run indexed everything it should when `TracksProcessed ==
+len(absPaths) - TracksSkipped` and `Errors` is empty.** Never compare
+`TracksProcessed` to `len(absPaths)`: the editor's file listing is deliberately
+*wider* than the scanner's admission — `metadataedit.ListTracks` ignores
+`lib.ExcludePatterns` entirely and `tags.Reader.CanRead` accepts extensions
+(`.oga`, `.mpc`, `.tak`, ...) absent from `walk.go`'s `audioExtensions`. A
+perfectly correct save therefore routinely hands `RescanPaths` paths it will
+not index, and the picture endpoints do so on the *normal* path
+(`selectionPaths` → `folderTrackPaths` lists the whole album dir recursively
+when the client sends no explicit paths, which is what the editor does for
+folder/db slots). A full `Scan`'s paths all come from its own walk, so
+`TracksSkipped` stays zero there.
+
+Admission must stay a superset-free mirror of `Walk`: `Walk` prunes whole
+*directories* with `SkipDir`, so `admitPath` tests every ancestor segment
+against the excludes (`excludedByAnySegment`), not just the full relative path
+and the filename. Both sides share `matchesExclude` in `walk.go`. Admitting a
+path the walk prunes would index a row the next scan immediately deletes.
+
+Two invariants:
+
+- **It must never call `store.Cleanup` / `DeleteTracksNotSeenSince`.** Those
+  delete every track whose `last_seen_at` predates the run — with only N
+  paths reconciled that is the whole library.
+- **It does call `DeleteOrphanedAggregates`.** An edit can empty an
+  album/artist/genre (renaming the last track by an artist), and that prune
+  is keyed on "has no tracks" rather than a timestamp, so it is safe
+  standalone.
+
+A rescan failure is reported in the response's `rescan: {ok, error}` field
+and never fails the write: the tags are already on disk, so the only
+consequence is that the index lags until the next scan. `ok: true` means every
+written path the library *covers* was re-indexed — the handler (`rescanSaved`)
+also treats a non-empty `ScanStats.Errors` or a shortfall against
+`len(paths) - TracksSkipped` as a failure, because `reconcile` swallows
+per-track transaction errors and still returns `nil`. Deliberately skipped
+paths are not a failure (see above). The frontend warns on `ok: false` for both
+tag and picture writes.
 
 ## Identity & normalization rules
 
@@ -57,13 +117,77 @@ can't read. `ErrUnsupported` marks unreadable file types.
 
 ## Cover art at scan time
 
-`reconcile.go` sets `album.CoverPath` from a folder image
-(`detectCoverInDir`) **only when it is empty**, and tracks record
-`HasEmbeddedCover`. This "only when empty" rule is the root cause of the
-known stale-cover bug after retagging — TODO.md carries the full analysis and
-the candidate fixes (clear-and-redetect per reconcile pass, or drop
-`CoverPath` and resolve per-request). If you touch cover resolution, read
-that entry first; don't patch around it locally.
+`reconcile.go` re-checks `album.CoverPath` on **every** pass rather than
+trusting a path already on record: `IsUsableCoverPath` (`cover.go`) rejects a
+path whose file has since been deleted or whose filename does not qualify as
+front art (a back scan, a disc label), and only then does
+`detectCoverInDir` pick a replacement from the track's directory. Tracks
+record `HasEmbeddedCover`.
+
+Still open in TODO.md: `store.GetCoverTrackPath` picks the *first* track with
+`has_embedded_cover=true` with no ordering, so which embedded cover wins is
+unstable across rescans, and `getCoverArt` sends `Cache-Control: no-cache`
+but no ETag. If you touch cover resolution, read that entry first.
+
+## Artist images at scan time (`artistimage.go`)
+
+`reconcile.go` also records `artist.ImagePath` — an image found in the
+artist's **own** folder, for the common `<collection>/<artist>/<album>`
+layout. `DetectArtistImage(libRoot, trackPath, artistName)` walks from the
+track's parent-of-parent up to (excluding) the library root and accepts a
+directory only when it is **both** above the album directory **and** named
+after the artist (`unidecode.Normalize` on both sides). That double condition
+is deliberate: file location alone does not identify an artist, so a library
+laid out differently yields `""` rather than a wrong portrait. Accepted
+filenames are exact-match only (`artist` > `artistthumb` > `folder`, plus
+`coverExts`) — an album's own `cover.jpg`/`front.png` never qualifies, and a
+`folder.jpg` inside the album directory stays an album cover.
+
+Unlike `album.CoverPath`, the path is re-validated every pass
+(`IsUsableArtistImagePath`) and cleared when the file is gone; it is only
+kept across a pass when detection finds nothing but the recorded file still
+exists (another library may have supplied it). Detection results are cached
+per (track dir, artist) for the pass so a large library lists each folder
+once.
+
+`ImagePath` is the **last** fallback in `artistCoverMeta`
+(`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →
+`ImagePath` → name-seeded generated avatar.
+
+`GET /api/v1/artists/{id}/image-source` (`handlers/artists`) reports which of
+those slots won — `"upload"` / `"fetched"` / `"folder"` (+ `path`) / `"none"`,
+plus a `filename` for everything but `"none"`. `ArtistView`'s cover editor uses
+it for the status line under the file picker (PrimeVue's FileUpload only ever
+says "No file chosen") and to disable Remove for a folder image. The
+upload-vs-fetched split comes from `assetstore.GetEntry`, which surfaces the
+manual/auto filename encoding (`cover.png` vs `cover.auto.png`).
+
+This endpoint's precedence **duplicates** `artistCoverMeta`; change both
+together or the note will describe an image the user isn't looking at.
+
+### Manual online image search
+
+`ArtistView`'s "Search online" button (`ArtistImageSearchDialog`) drives the same
+provider chain as the `fetch-artist-images` job, but from a MusicBrainz artist the
+user picks by name rather than the artist's stored `MBArtistID`:
+
+- `GET /api/v1/artists/image-preview?mbid=…` runs the chain and streams the image
+  back without storing it. Third-party bytes, so the response type is
+  `http.DetectContentType`-sniffed (not the provider's claimed extension),
+  non-image payloads are refused with 502, and it carries `nosniff` +
+  `Cache-Control: no-store`.
+- `PUT /api/v1/artists/{id}/image-from-search` — called by the **editor's Save**,
+  not the dialog: a pick is staged in `ArtistView` like a file upload (previewed
+  in the cover, marks the editor dirty, discarded by Cancel/Remove). The three
+  staged edits (file, clear, searched pick) are mutually exclusive; the last one
+  wins, and `saveEdit` routes a pick here instead of `updateArtist`. It stores
+  the pick as a **manual**
+  upload, so it outranks anything the job later writes to the auto slot. It files
+  under `artistCoverKey` (MBID slot when matched, else DB ID) — the same slot a
+  normal upload uses, because cover resolution reads the MBID slot first and a
+  pick filed under the DB ID would lose to an auto-fetched image. The *chosen*
+  MBID is not written to `artist.MBArtistID`: picking a portrait is not asserting
+  a metadata match.
 
 ## Known scanner debt (TODO.md, direction chosen)
 

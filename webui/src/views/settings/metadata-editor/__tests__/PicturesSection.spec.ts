@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import PicturesSection from '@/views/settings/metadata-editor/PicturesSection.vue'
 import { useEditSession } from '@/composables/useEditSession'
+import { albumKey } from '@/lib/albumIdentity'
 import type { PictureInfo, Track } from '@/types/metadata'
 
 // The session composable calls useApplyPicture()/useDeletePicture() plus the
@@ -110,6 +111,10 @@ function mountSection(selection: Track[], libraryId: number | null = 3) {
     return { wrapper, session }
 }
 
+// Identity of the folder the single-album tests use: these fixture tracks
+// carry no album tag, so identity falls back to their directory.
+const ALBUM = albumKey(mkTrack())
+
 describe('PicturesSection', () => {
     beforeEach(() => {
         getPicturesSpy.mockReset()
@@ -204,7 +209,7 @@ describe('PicturesSection', () => {
 
         await wrapper.find('[data-test="picture-remove-Back Cover-folder"]').trigger('click')
         expect(deletePictureSpy).not.toHaveBeenCalled()
-        expect(session.getPictureOp('album', 'Back Cover', 'folder')).toEqual({
+        expect(session.getPictureOp(ALBUM, 'Back Cover', 'folder')).toEqual({
             kind: 'remove',
             paths: ['album/a.mp3']
         })
@@ -212,7 +217,7 @@ describe('PicturesSection', () => {
         expect(cell.classes()).toContain('removing')
 
         await wrapper.find('[data-test="picture-undo-Back Cover-folder"]').trigger('click')
-        expect(session.getPictureOp('album', 'Back Cover', 'folder')).toBeUndefined()
+        expect(session.getPictureOp(ALBUM, 'Back Cover', 'folder')).toBeUndefined()
         expect(session.hasStagedChanges.value).toBe(false)
     })
 
@@ -233,11 +238,11 @@ describe('PicturesSection', () => {
         picker.vm.$emit('select', { file: null, imageUrl: 'http://img/x.jpg' })
         await wrapper.vm.$nextTick()
         expect(applyPictureSpy).not.toHaveBeenCalled()
-        const op = session.getPictureOp('album', 'Back Cover', 'embedded')
+        const op = session.getPictureOp(ALBUM, 'Back Cover', 'embedded')
         expect(op?.kind).toBe('set')
-        expect(
-            wrapper.find('[data-test="picture-cell-Back Cover-embedded"]').classes()
-        ).toContain('pending')
+        expect(wrapper.find('[data-test="picture-cell-Back Cover-embedded"]').classes()).toContain(
+            'pending'
+        )
     })
 
     describe('picker copy sources', () => {
@@ -282,9 +287,9 @@ describe('PicturesSection', () => {
             await flushPromises()
 
             await wrapper.find('[data-test="picture-change-Front Cover-folder"]').trigger('click')
-            expect(
-                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')
-            ).toEqual([])
+            expect(wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')).toEqual(
+                []
+            )
         })
 
         it('offers an image staged this session, carrying its file rather than a URL', async () => {
@@ -296,7 +301,7 @@ describe('PicturesSection', () => {
             const { wrapper, session } = mountSection([mkTrack()])
             await flushPromises()
             const file = new File(['x'], 'up.png', { type: 'image/png' })
-            session.stagePictureSet('album', 'Front Cover', 'folder', { file, imageUrl: null }, [
+            session.stagePictureSet(ALBUM, 'Front Cover', 'folder', { file, imageUrl: null }, [
                 'album/a.mp3'
             ])
             await flushPromises()
@@ -324,17 +329,17 @@ describe('PicturesSection', () => {
             await wrapper.find('[data-test="picture-remove-Front Cover-folder"]').trigger('click')
 
             await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
-            expect(
-                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')
-            ).toEqual([])
+            expect(wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')).toEqual(
+                []
+            )
         })
 
         it('passes the album name through for the manual release search', async () => {
             const { wrapper } = mountSection([mkTrack()])
             await flushPromises()
-            expect(
-                wrapper.findComponent({ name: 'PicturePickerDialog' }).props('albumName')
-            ).toBe('The Album')
+            expect(wrapper.findComponent({ name: 'PicturePickerDialog' }).props('albumName')).toBe(
+                'The Album'
+            )
         })
     })
 
@@ -346,7 +351,7 @@ describe('PicturesSection', () => {
 
         // Stage an embedded back cover for track A only, then select track B.
         session.stagePictureSet(
-            'album',
+            ALBUM,
             'Back Cover',
             'embedded',
             { file: null, imageUrl: 'http://img/x.jpg' },
@@ -375,7 +380,7 @@ describe('PicturesSection', () => {
 
         // Folder art belongs to the whole album, whoever staged it.
         session.stagePictureSet(
-            'album',
+            ALBUM,
             'Back Cover',
             'folder',
             { file: null, imageUrl: 'http://img/x.jpg' },
@@ -408,13 +413,111 @@ describe('PicturesSection', () => {
 
     it('shows a note instead of the matrix when the selection spans albums', async () => {
         const { wrapper } = mountSection([
-            mkTrack({ path: 'Album A/01.flac' }),
-            mkTrack({ path: 'Album B/01.flac' })
+            mkTrack({ path: 'Album A/01.flac', album: 'A' }),
+            mkTrack({ path: 'Album B/01.flac', album: 'B' })
         ])
         await flushPromises()
         expect(getPicturesSpy).not.toHaveBeenCalled()
         expect(wrapper.find('[data-test="pictures-multi-album"]').exists()).toBe(true)
         expect(wrapper.find('[data-test="add-picture"]').exists()).toBe(false)
+    })
+
+    describe('multi-folder (multi-disc) albums', () => {
+        const discSelection = [
+            mkTrack({ path: 'Release/CD 1/01.flac', album: 'Sensaciones' }),
+            mkTrack({ path: 'Release/CD 2/01.flac', album: 'Sensaciones' })
+        ]
+
+        it('manages the pictures of one album spread over several disc folders', async () => {
+            getPicturesSpy.mockResolvedValue([
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+            ])
+            const { wrapper } = mountSection(discSelection)
+            await flushPromises()
+
+            // Same album, two folders: the matrix is shown, not the note.
+            expect(wrapper.find('[data-test="pictures-multi-album"]').exists()).toBe(false)
+            expect(wrapper.find('[data-test="picture-type-Front Cover"]').exists()).toBe(true)
+            // The request is anchored on the first (primary) folder and carries
+            // every selected path so the server can span both folders.
+            expect(getPicturesSpy).toHaveBeenCalledWith(3, 'Release/CD 1', [
+                'Release/CD 1/01.flac',
+                'Release/CD 2/01.flac'
+            ])
+        })
+
+        it('stages one album-wide op that carries every selected path', async () => {
+            getPicturesSpy.mockResolvedValue([
+                { type: 'Front Cover', slots: [{ slot: 'embedded', detail: '2 of 2 files' }] }
+            ])
+            const { wrapper, session } = mountSection(discSelection)
+            await flushPromises()
+
+            await wrapper.find('[data-test="picture-change-Front Cover-folder"]').trigger('click')
+            wrapper
+                .findComponent({ name: 'PicturePickerDialog' })
+                .vm.$emit('select', { file: null, imageUrl: 'http://img/x.jpg' })
+            await wrapper.vm.$nextTick()
+
+            const op = session.getPictureOp(albumKey(discSelection[0]), 'Front Cover', 'folder')
+            expect(op?.kind).toBe('set')
+            // Both disc folders must be written, so both paths travel with it.
+            expect(op?.paths).toEqual(['Release/CD 1/01.flac', 'Release/CD 2/01.flac'])
+        })
+
+        it('asks the image endpoint for the folder slot with every selected path', async () => {
+            // The art may live in a later disc folder than the primary one, so
+            // the paths must travel with the image request too — otherwise the
+            // server only looks in the primary folder and 404s.
+            getPicturesSpy.mockResolvedValue([
+                {
+                    type: 'Front Cover',
+                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true }]
+                }
+            ])
+            const { wrapper } = mountSection(discSelection)
+            await flushPromises()
+
+            const src = wrapper
+                .find('[data-test="picture-cell-Front Cover-folder"] img.cell-thumb')
+                .attributes('src')!
+            const params = new URLSearchParams(src.slice(src.indexOf('?') + 1))
+            expect(params.getAll('paths')).toEqual(['Release/CD 1/01.flac', 'Release/CD 2/01.flac'])
+        })
+
+        it('warns when the folder art differs across the album’s folders', async () => {
+            getPicturesSpy.mockResolvedValue([
+                {
+                    type: 'Front Cover',
+                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true }]
+                }
+            ])
+            const { wrapper } = mountSection(discSelection)
+            await flushPromises()
+
+            const cell = wrapper.find('[data-test="picture-cell-Front Cover-folder"]')
+            expect(cell.text()).toContain('differs across folders')
+        })
+
+        it('keeps a staged op visible after the selection moves to the other disc', async () => {
+            getPicturesSpy.mockResolvedValue([])
+            const { wrapper, session } = mountSection(discSelection)
+            await flushPromises()
+            session.stagePictureSet(
+                albumKey(discSelection[0]),
+                'Back Cover',
+                'folder',
+                { file: null, imageUrl: 'http://img/x.jpg' },
+                discSelection.map((t) => t.path)
+            )
+
+            // Narrowing to disc 2 alone is still the same album.
+            await wrapper.setProps({ selection: [discSelection[1]] })
+            await flushPromises()
+            const cell = wrapper.find('[data-test="picture-cell-Back Cover-folder"]')
+            expect(cell.exists()).toBe(true)
+            expect(cell.classes()).toContain('pending')
+        })
     })
 
     it('shows the empty note when nothing is present or staged', async () => {

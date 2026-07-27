@@ -45,6 +45,24 @@ export interface AlbumMatchPayload {
     genres?: string[]
 }
 
+// Where the image the server currently serves for an artist comes from:
+// "upload" = the user uploaded it, "fetched" = aether auto-fetched it, "folder" =
+// a file read from disk next to the artist's albums (path set), "none" = the
+// generated avatar. `filename` names the image file in every case but "none".
+export interface ArtistImageSource {
+    source: 'upload' | 'fetched' | 'folder' | 'none'
+    path: string
+    filename: string
+}
+
+// A staged pick from the online image search: which MusicBrainz artist's provider
+// image to use, plus the preview URL so the editor can show it before saving.
+export interface ArtistImagePick {
+    mbid: string
+    name: string
+    previewUrl: string
+}
+
 export interface SetArtistMBIDResponse {
     mbArtistId: string
     imageFetched: boolean

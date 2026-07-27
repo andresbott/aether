@@ -91,6 +91,17 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
+// WrapError builds an *Error for a provider whose client does not use Doer —
+// a hand-rolled or libs/ client that classified its own failure but cannot
+// import this package. Status may be 0 when no response was received.
+//
+// The retry bookkeeping is deliberately left zero: the caller already finished
+// trying, and this only exists so the failure reaches handlers in the shape
+// HTTPStatus and UserMessage understand.
+func WrapError(service string, kind Kind, status int, err error) *Error {
+	return &Error{Service: service, Kind: kind, Status: status, Err: err, Attempts: 1}
+}
+
 // UserMessage is a complete, human-readable sentence naming the service and
 // what to do about it. It deliberately omits status codes and Go error text.
 func (e *Error) UserMessage() string {

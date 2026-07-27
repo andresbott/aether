@@ -15,13 +15,18 @@ const props = withDefaults(
         coverEditable?: boolean
         coverBackLabel?: string
         coverSizeError?: string | null
+        // Clear when there is nothing for Remove to act on — e.g. the served
+        // image is a file in the user's music folder, which aether must not
+        // touch. The button is hidden rather than disabled.
+        coverRemovable?: boolean
     }>(),
     {
         coverUrl: null,
         coverPlaceholderIcon: 'pi pi-image',
         coverEditable: true,
         coverBackLabel: 'Cover art',
-        coverSizeError: null
+        coverSizeError: null,
+        coverRemovable: true
     }
 )
 
@@ -73,24 +78,43 @@ const onSelect = (event: { files: File[] }): void => {
                 </div>
                 <div v-if="coverEditable" class="flip-face flip-back">
                     <span class="field-label">{{ coverBackLabel }}</span>
-                    <FileUpload
-                        mode="basic"
-                        accept="image/png,image/jpeg"
-                        :maxFileSize="MAX_COVER_BYTES"
-                        :auto="false"
-                        chooseLabel="Choose image"
-                        @select="onSelect"
-                    />
-                    <Button
-                        class="cover-remove"
-                        text
-                        severity="secondary"
-                        label="Remove"
-                        @click="emit('cover-remove')"
-                    />
-                    <Message v-if="coverSizeError" severity="error" :closable="false">
-                        {{ coverSizeError }}
-                    </Message>
+                    <div class="cover-controls">
+                        <FileUpload
+                            mode="basic"
+                            accept="image/png,image/jpeg"
+                            :maxFileSize="MAX_COVER_BYTES"
+                            :auto="false"
+                            chooseLabel="Upload image"
+                            @select="onSelect"
+                        >
+                            <!-- Suppress PrimeVue's built-in label: it says "No file
+                                 chosen" until a file is picked, which contradicts an
+                                 image already held on the server. The #cover-note slot
+                                 carries the real state, on its own row. -->
+                            <template #filelabel><span /></template>
+                        </FileUpload>
+                        <!-- Outlined danger rather than a flat secondary text
+                             button: next to the solid upload button, muted text
+                             reads as disabled — and this is a real destructive
+                             action. -->
+                        <Button
+                            v-if="coverRemovable"
+                            class="cover-remove"
+                            outlined
+                            severity="danger"
+                            icon="pi pi-trash"
+                            label="Remove"
+                            @click="emit('cover-remove')"
+                        />
+                        <!-- Optional extra actions, e.g. ArtistView's online image
+                             search. Part of the same stack so it aligns with the
+                             buttons above. -->
+                        <slot name="cover-actions" />
+                        <Message v-if="coverSizeError" severity="error" :closable="false">
+                            {{ coverSizeError }}
+                        </Message>
+                        <slot name="cover-note" />
+                    </div>
                 </div>
             </div>
         </div>
@@ -185,9 +209,29 @@ const onSelect = (event: { files: File[] }): void => {
     text-align: center;
     margin-bottom: 0.25rem;
 }
-/* The FileUpload spans the full flip face, but its inner row (button + chosen-file
-   text) is left-aligned by default — center it so it lines up with the Remove button. */
+/* One control per row: the upload button, then Remove, then the status note from
+   #cover-note. Keeps a long filename off the button's row inside the 250px face. */
+.cover-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+}
+/* Every row spans the same width — the panel's content box — so the upload
+   button, Remove and the status note line up as one stack instead of three
+   content-sized elements centred at different widths. FileUpload wraps its
+   button in a div, so both the wrapper and the button itself need stretching. */
+.flip-back :deep(.p-fileupload-basic) {
+    display: flex;
+}
 .flip-back :deep(.p-fileupload-basic-content) {
+    flex: 1;
+    justify-content: center;
+}
+.flip-back :deep(.p-fileupload-choose-button),
+.cover-controls .cover-remove {
+    flex: 1;
+    width: 100%;
     justify-content: center;
 }
 

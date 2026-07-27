@@ -80,6 +80,20 @@ export function apiErrorMessage(err: unknown, fallback: string = GENERIC_MESSAGE
 }
 
 /**
+ * isCanceledError reports whether the request was aborted deliberately (an
+ * AbortController the UI triggered), as opposed to having failed. Callers use it
+ * to stay silent: a cancel the user asked for is not an error to report, and
+ * axios surfaces it as a rejection like any other.
+ */
+export function isCanceledError(err: unknown): boolean {
+    if (typeof err !== 'object' || err === null) return false
+    const e = err as { code?: unknown; name?: unknown; message?: unknown }
+    // axios sets code ERR_CANCELED; a raw AbortError (fetch, or an abort that
+    // fires before axios wraps it) only carries the name.
+    return e.code === 'ERR_CANCELED' || e.name === 'CanceledError' || e.name === 'AbortError'
+}
+
+/**
  * isRateLimitError reports whether the failure was a rate limit — ours (429) or
  * an upstream provider's — so the UI can invite a retry rather than report a
  * hard failure.

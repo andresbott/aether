@@ -10,6 +10,7 @@ import (
 	"github.com/andresbott/aether/app/spa"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
@@ -29,10 +30,13 @@ type Cfg struct {
 	ArtistFetcher tasks.Fetcher
 	// Identifier is optional: nil disables audio identification in the
 	// metadata editor.
-	Identifier metadataHandler.IdentifyService
+	Identifier *identify.Identifier
 	// IdentifyUnavailableReason is the user-facing explanation shown by the
 	// editor when Identifier is nil (e.g. fpcalc missing). Ignored otherwise.
 	IdentifyUnavailableReason string
+	// Rescanner re-indexes files the metadata editor writes, so an edit shows
+	// up in the music UI without a scan task. Optional: nil disables it.
+	Rescanner metadataHandler.TrackRescanner
 }
 
 type MainAppHandler struct {
@@ -47,8 +51,9 @@ type MainAppHandler struct {
 	tagReader     tags.Reader
 	artistFetcher tasks.Fetcher
 	assets        *assetstore.Store
-	identifier    metadataHandler.IdentifyService
+	identifier    *identify.Identifier
 	identifyOff   string
+	rescanner     metadataHandler.TrackRescanner
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +76,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
+		rescanner:     cfg.Rescanner,
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

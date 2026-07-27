@@ -84,3 +84,57 @@ describe('HeroHeader', () => {
         expect(w.findComponent(FileUpload).exists()).toBe(false)
     })
 })
+
+describe('HeroHeader cover controls', () => {
+    it('labels the picker as an upload action', () => {
+        const w = mountHero({ editing: true })
+        expect(w.findComponent(FileUpload).props('chooseLabel')).toBe('Upload image')
+    })
+
+    // PrimeVue's own file label says "No file chosen" until a file is picked,
+    // which contradicts an image that is already on the server. The #cover-note
+    // slot carries that state instead, so the built-in label is suppressed.
+    it('suppresses PrimeVue\'s built-in file label', () => {
+        const w = mountHero({ editing: true })
+        expect(w.text()).not.toContain('No file chosen')
+        expect(w.find('.p-fileupload-filelabel').exists()).toBe(false)
+    })
+
+    // The picked filename belongs on its own row, not squeezed alongside the
+    // button inside the 250px panel.
+    it('stacks the picker and its status on separate rows', () => {
+        const w = mountHero({ editing: true })
+        expect(w.find('.cover-controls').exists()).toBe(true)
+    })
+})
+
+// A flat secondary text button reads as disabled next to the solid upload
+// button. Remove is a real, destructive action — it has to look clickable.
+describe('HeroHeader remove button prominence', () => {
+    it('renders Remove as an outlined danger button, not muted text', () => {
+        const w = mountHero({ editing: true })
+        const btn = w.find('.cover-remove')
+        expect(btn.exists()).toBe(true)
+        // Not PrimeVue's flat/text treatment...
+        expect(btn.classes()).not.toContain('p-button-text')
+        // ...and carries the danger severity so it is visibly actionable.
+        expect(btn.classes()).toContain('p-button-danger')
+    })
+})
+
+// An optional extra action in the cover panel (ArtistView uses it for the online
+// image search); views that pass no #cover-actions slot get no extra row.
+describe('HeroHeader cover-actions slot', () => {
+    it('renders extra cover actions in the controls stack', () => {
+        const w = mountHero(
+            { editing: true },
+            { 'cover-actions': '<button class="probe-action">Search</button>' }
+        )
+        expect(w.find('.cover-controls .probe-action').exists()).toBe(true)
+    })
+
+    it('renders nothing extra when the slot is unused', () => {
+        const w = mountHero({ editing: true })
+        expect(w.find('.probe-action').exists()).toBe(false)
+    })
+})

@@ -14,6 +14,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import type { Song } from '@/types/subsonic'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
@@ -39,7 +40,6 @@ const currentTrackId = computed(() => player.currentTrack.value?.id)
 
 // --- Cover editing (mirrors ArtistView: staged locally, applied on Save) ---
 const editing = ref(false)
-const cacheBust = ref(0)
 const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
@@ -89,7 +89,10 @@ const saveEdit = (): void => {
         {
             onSuccess: () => {
                 resetCoverStaging()
-                cacheBust.value++
+                // Shared, module-level version: a local ref would die with this
+                // component, so navigating away and back would re-show the old
+                // image from the browser's in-memory cache.
+                if (genre.value?.coverArt) bumpCoverVersion(genre.value.coverArt)
                 editing.value = false
             }
         }
@@ -106,7 +109,7 @@ const coverUrl = computed(() => {
     if (coverClear.value) return null
     if (!genre.value?.coverArt || !subsonicClient.isConfigured()) return null
     const base = subsonicClient.getCoverArtUrl(genre.value.coverArt, 250)
-    return cacheBust.value > 0 ? `${base}&_cb=${cacheBust.value}` : base
+    return versionedCoverUrl(base, genre.value.coverArt)
 })
 
 // Unsaved-changes guards (mirror Artist/Playlist/Radio detail views).

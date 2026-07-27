@@ -3,6 +3,7 @@ import type { Ref, ComputedRef } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { UseQueryOptions, UseMutationOptions } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { artistImageSourceKey } from '@/composables/useArtistImageSource'
 import type {
     Album,
     AlbumWithSongs,
@@ -22,6 +23,8 @@ export const queryKeys = {
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     search: (query: string) => ['subsonic', 'search', query] as const,
+    // Prefix of every per-query search cache entry, for invalidating them all.
+    searchAll: ['subsonic', 'search'] as const,
     playlists: ['subsonic', 'playlists'] as const,
     playlist: (id: string) => ['subsonic', 'playlist', id] as const,
     genres: ['subsonic', 'genres'] as const,
@@ -182,7 +185,19 @@ export function useUpdateArtistCover() {
                 params.coverClear
             ),
         onSuccess: (_data, params) => {
+            // Every cached surface that renders this artist's cover has to go:
+            // the detail view, the library index (list/grid), and search results.
+            // The image URL is unchanged, so a stale cache would keep showing the
+            // old picture.
             queryClient.invalidateQueries({ queryKey: queryKeys.artist(params.artistId) })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'artistIndex'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.searchAll })
+            // An upload moves the image into aether's store and a clear can
+            // uncover the music-folder file again — the recorded source is stale
+            // either way (drives the "Current image" note and the Remove guard).
+            queryClient.invalidateQueries({
+                queryKey: artistImageSourceKey(params.artistId)
+            })
         }
     })
 }

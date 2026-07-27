@@ -73,33 +73,46 @@ func (s *Store) Get(kind, key string) (string, bool) {
 // GetNamed returns the best image path for one named entry of the entity,
 // preferring a manual upload over an auto-fetched image.
 func (s *Store) GetNamed(kind, key, name string) (string, bool) {
+	path, _, ok := s.GetEntryNamed(kind, key, name)
+	return path, ok
+}
+
+// GetEntry is Get plus whether the winning image is a manual upload rather than
+// an auto-fetched one. Callers that show the image to a user need the
+// distinction; the path alone does not carry it without re-parsing the filename.
+func (s *Store) GetEntry(kind, key string) (path string, manual bool, ok bool) {
+	return s.GetEntryNamed(kind, key, DefaultName)
+}
+
+// GetEntryNamed is GetNamed plus the manual-vs-auto flag.
+func (s *Store) GetEntryNamed(kind, key, name string) (path string, manual bool, ok bool) {
 	dir, err := s.entityDir(kind, key)
 	if err != nil || !nameRe.MatchString(name) {
-		return "", false
+		return "", false, false
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
-	var manual, auto string
+	var manualPath, autoPath string
 	for _, e := range entries {
 		base, isAuto, ok := splitEntry(e.Name())
 		if !ok || base != name {
 			continue
 		}
 		if isAuto {
-			auto = filepath.Join(dir, e.Name())
+			autoPath = filepath.Join(dir, e.Name())
 		} else {
-			manual = filepath.Join(dir, e.Name())
+			manualPath = filepath.Join(dir, e.Name())
 		}
 	}
-	if manual != "" {
-		return manual, true
+	if manualPath != "" {
+		return manualPath, true, true
 	}
-	if auto != "" {
-		return auto, true
+	if autoPath != "" {
+		return autoPath, false, true
 	}
-	return "", false
+	return "", false, false
 }
 
 func (s *Store) PutAuto(kind, key, ext string, data []byte) error {

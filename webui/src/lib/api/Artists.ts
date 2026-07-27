@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api/client'
 import type {
+    ArtistImageSource,
     MusicBrainzCandidate,
     MusicBrainzReleaseCandidate,
     SetArtistMBIDResponse
@@ -42,6 +43,26 @@ export async function getReleaseGroupGenres(mbid: string): Promise<string[]> {
 export async function getArtistMBID(numericId: number): Promise<string> {
     const { data } = await apiClient.get<{ mbArtistId: string }>(`/artists/${numericId}/mbid`)
     return data.mbArtistId
+}
+
+// getArtistImageSource reports where the image getCoverArt serves for this
+// artist comes from, so the editor can tell the user it is read from disk.
+export async function getArtistImageSource(numericId: number): Promise<ArtistImageSource> {
+    const { data } = await apiClient.get<ArtistImageSource>(`/artists/${numericId}/image-source`)
+    return data
+}
+
+// artistImagePreviewUrl is the URL of the image the configured providers hold for
+// a MusicBrainz artist. Used as an <img src> so the browser does the fetching;
+// nothing is stored until setArtistImageFromSearch is called.
+export function artistImagePreviewUrl(mbid: string): string {
+    return `${apiClient.defaults.baseURL ?? ''}/artists/image-preview?mbid=${encodeURIComponent(mbid)}`
+}
+
+// setArtistImageFromSearch stores the provider image of a chosen MusicBrainz
+// artist for this artist, as a manual upload that outranks the auto-fetch job.
+export async function setArtistImageFromSearch(numericId: number, mbid: string): Promise<void> {
+    await apiClient.put(`/artists/${numericId}/image-from-search`, { mbid })
 }
 
 export async function setArtistMBID(numericId: number, mbid: string): Promise<SetArtistMBIDResponse> {

@@ -153,6 +153,7 @@ function mountPanel(selection: Track[], libraryId = 1, extraProps: Record<string
             session,
             canIdentify: false,
             isIdentifying: false,
+            isIdentifyingAlbum: false,
             ...extraProps
         },
         global: { stubs, directives: { tooltip: tooltipRecorder } }
@@ -723,5 +724,53 @@ describe('EditPanel identify button', () => {
         const emitted = wrapper.emitted('identify')
         expect(emitted).toHaveLength(1)
         expect(emitted![0][0]).toEqual([good])
+    })
+})
+
+describe('EditPanel album identify', () => {
+    it('hides the album button for a single selected track', () => {
+        const { wrapper } = mountPanel([mkTrack({ path: 'a.mp3' })])
+        expect(wrapper.find('[data-test="identify-album-button"]').exists()).toBe(false)
+    })
+
+    it('shows the album button above one selected track', () => {
+        const { wrapper } = mountPanel([
+            mkTrack({ path: 'a.mp3' }),
+            mkTrack({ path: 'b.mp3' })
+        ])
+        expect(wrapper.find('[data-test="identify-album-button"]').exists()).toBe(true)
+    })
+
+    it('emits identify-album with the readable tracks', async () => {
+        const good = mkTrack({ path: 'a.mp3' })
+        const other = mkTrack({ path: 'b.mp3' })
+        const broken = mkTrack({ path: 'c.mp3', error: 'unreadable' })
+        const { wrapper } = mountPanel([good, other, broken], 1, { canIdentify: true })
+
+        await wrapper.find('[data-test="identify-album-button"]').trigger('click')
+        const emitted = wrapper.emitted('identify-album')![0][0] as Track[]
+        expect(emitted.map((t) => t.path)).toEqual(['a.mp3', 'b.mp3'])
+    })
+
+    it('disables the album button when the server cannot identify', () => {
+        const { wrapper } = mountPanel(
+            [mkTrack({ path: 'a.mp3' }), mkTrack({ path: 'b.mp3' })],
+            1,
+            { canIdentify: false }
+        )
+        expect(
+            wrapper.find('[data-test="identify-album-button"]').attributes('disabled')
+        ).toBeDefined()
+    })
+
+    it('disables the album button when fewer than two tracks are readable', () => {
+        const { wrapper } = mountPanel([
+            mkTrack({ path: 'a.mp3' }),
+            mkTrack({ path: 'b.mp3', error: 'unreadable' })
+        ])
+        // Visible (two selected) but unusable: one readable file is not an album.
+        expect(
+            wrapper.find('[data-test="identify-album-button"]').attributes('disabled')
+        ).toBeDefined()
     })
 })

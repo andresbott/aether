@@ -315,3 +315,142 @@ func TestMusicBrainzGenresRetriesTransientFailure(t *testing.T) {
 		t.Fatalf("unexpected genres: %v", got)
 	}
 }
+
+func TestMusicBrainzReleaseParsesTracklist(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/ws/2/release/rel-1") {
+			t.Errorf("unexpected path: %q", r.URL.Path)
+		}
+		if !strings.Contains(r.URL.RawQuery, "inc=recordings") {
+			t.Errorf("expected inc=recordings..., got %q", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{
+			"id": "rel-1",
+			"title": "Nevermind",
+			"date": "1991-09-24",
+			"release-group": {"id": "rg-1"},
+			"artist-credit": [{"name": "Nirvana", "joinphrase": "", "artist": {"id": "art-1"}}],
+			"media": [
+				{
+					"position": 1,
+					"track-count": 2,
+					"tracks": [
+						{"position": 1, "title": "Smells Like Teen Spirit", "length": 301000,
+						 "recording": {"id": "rec-1"}},
+						{"position": 2, "title": "In Bloom", "length": 254500,
+						 "recording": {"id": "rec-2"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "rel-1")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.ReleaseMBID != "rel-1" || got.ReleaseGroupMBID != "rg-1" || got.Title != "Nevermind" {
+		t.Fatalf("unexpected release: %+v", got)
+	}
+	if got.Artist != "Nirvana" || len(got.Artists) != 1 || got.Artists[0].MBID != "art-1" {
+		t.Fatalf("unexpected artists: %+v", got.Artists)
+	}
+	if got.TrackCount != 2 || got.DiscCount != 1 {
+		t.Fatalf("expected 2 tracks on 1 disc, got %d/%d", got.TrackCount, got.DiscCount)
+	}
+	want := ReleaseTrack{
+		DiscNumber: 1, TrackNumber: 2, Title: "In Bloom",
+		DurationSeconds: 254.5, RecordingMBID: "rec-2",
+	}
+	if !reflect.DeepEqual(got.Tracks[1], want) {
+		t.Fatalf("unexpected track: got %+v want %+v", got.Tracks[1], want)
+	}
+}
+
+func TestMusicBrainzReleaseMultiDiscConstructsPositionsProperly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"id": "rel-multi",
+			"title": "The Wall",
+			"date": "1979-11-30",
+			"release-group": {"id": "rg-multi"},
+			"artist-credit": [{"name": "Pink Floyd", "joinphrase": "", "artist": {"id": "art-pf"}}],
+			"media": [
+				{
+					"position": 1,
+					"track-count": 3,
+					"tracks": [
+						{"position": 1, "title": "In The Flesh?", "length": 200000, "recording": {"id": "rec-d1-1"}},
+						{"position": 2, "title": "The Thin Ice", "length": 150000, "recording": {"id": "rec-d1-2"}},
+						{"position": 3, "title": "Another Brick 1", "length": 180000, "recording": {"id": "rec-d1-3"}}
+					]
+				},
+				{
+					"position": 2,
+					"track-count": 3,
+					"tracks": [
+						{"position": 1, "title": "Hey You", "length": 270000, "recording": {"id": "rec-d2-1"}},
+						{"position": 2, "title": "Is There Anybody Out There?", "length": 160000, "recording": {"id": "rec-d2-2"}},
+						{"position": 3, "title": "Nobody Home", "length": 200000, "recording": {"id": "rec-d2-3"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "rel-multi")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.TrackCount != 6 || got.DiscCount != 2 {
+		t.Fatalf("expected 6 tracks on 2 discs, got %d/%d", got.TrackCount, got.DiscCount)
+	}
+	// Verify disc 1 track 3.
+	d1t3 := got.Tracks[2]
+	if d1t3.DiscNumber != 1 || d1t3.TrackNumber != 3 || d1t3.Title != "Another Brick 1" || d1t3.RecordingMBID != "rec-d1-3" {
+		t.Fatalf("disc 1 track 3: got %+v", d1t3)
+	}
+	// Verify disc 2 track 1.
+	d2t1 := got.Tracks[3]
+	if d2t1.DiscNumber != 2 || d2t1.TrackNumber != 1 || d2t1.Title != "Hey You" || d2t1.RecordingMBID != "rec-d2-1" {
+		t.Fatalf("disc 2 track 1: got %+v", d2t1)
+	}
+	// Verify disc 2 track 3 (last track).
+	d2t3 := got.Tracks[5]
+	if d2t3.DiscNumber != 2 || d2t3.TrackNumber != 3 || d2t3.Title != "Nobody Home" || d2t3.RecordingMBID != "rec-d2-3" {
+		t.Fatalf("disc 2 track 3: got %+v", d2t3)
+	}
+}
+
+func TestMusicBrainzReleaseEmptyMBIDSkipsRequest(t *testing.T) {
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls.Add(1)
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.ReleaseMBID != "" || calls.Load() != 0 {
+		t.Fatalf("expected no request and a zero release, got %+v after %d calls", got, calls.Load())
+	}
+}
+
+func TestMusicBrainzReleaseUpstreamError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	if _, err := m.Release(context.Background(), "rel-1"); err == nil {
+		t.Fatal("expected an error for a 500 response")
+	}
+}

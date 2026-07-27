@@ -9,13 +9,21 @@ import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import { useConfirm } from 'primevue/useconfirm'
 import { useLibraries } from '@/composables/useLibraries'
-import { useTracks, useMetadataCapabilities, useIdentifyTracks } from '@/composables/useMetadataEditor'
-import { useEditSession, candidateToOverlay } from '@/composables/useEditSession'
+import { useTracks, useMetadataCapabilities, useIdentifyTracks, useIdentifyAlbum } from '@/composables/useMetadataEditor'
+import { useEditSession, candidateToOverlay, albumPickToOverlay } from '@/composables/useEditSession'
 import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
 import IdentifyReviewDialog from './metadata-editor/IdentifyReviewDialog.vue'
-import type { IdentifyPick, IdentifyTrackResult, Track, TrackOverlay } from '@/types/metadata'
+import IdentifyAlbumDialog from './metadata-editor/IdentifyAlbumDialog.vue'
+import type {
+    AlbumIdentifyPick,
+    AlbumOption,
+    IdentifyPick,
+    IdentifyTrackResult,
+    Track,
+    TrackOverlay
+} from '@/types/metadata'
 
 const { data: libraries } = useLibraries()
 const selectedLibraryId = ref<number | null>(null)
@@ -145,18 +153,54 @@ const identifyUnavailableReason = computed(() => {
     )
 })
 const identifyMutation = useIdentifyTracks()
+const identifyAlbumMutation = useIdentifyAlbum()
 
 const identifyResults = ref<IdentifyTrackResult[]>([])
+const identifyPendingTracks = ref<Track[]>([])
 const identifyDialog = ref(false)
+
+// The controller for the request currently in flight, so Cancel can abort it.
+let identifyAbort: AbortController | null = null
 
 async function identify(tracks: Track[]) {
     if (selectedLibraryId.value === null || tracks.length === 0) return
-    const results = await identifyMutation.mutateAsync({
-        library_id: selectedLibraryId.value,
-        paths: tracks.map((t) => t.path)
-    })
-    identifyResults.value = results
+
+    // Open on click, before the request resolves: each file costs a fingerprint
+    // run plus a rate-limited AcoustID call, so a button that looks inert that
+    // long reads as broken. The dialog shows its own progress state and Cancel.
+    identifyPendingTracks.value = tracks
+    identifyResults.value = []
     identifyDialog.value = true
+
+    const abort = new AbortController()
+    identifyAbort = abort
+    try {
+        const results = await identifyMutation.mutateAsync({
+            body: {
+                library_id: selectedLibraryId.value,
+                paths: tracks.map((t) => t.path)
+            },
+            signal: abort.signal
+        })
+        // A response that arrives after the user cancelled (or started another
+        // run) must not repopulate a dialog they already dismissed.
+        if (identifyAbort !== abort) return
+        identifyResults.value = results
+    } catch {
+        // The mutation toasts real failures and stays silent on a cancel; either
+        // way there is nothing to review, so close rather than show an empty
+        // dialog the user has to dismiss.
+        if (identifyAbort === abort) identifyDialog.value = false
+    } finally {
+        if (identifyAbort === abort) identifyAbort = null
+    }
+}
+
+// Cancel means stop the work, not just hide the dialog: the request is holding a
+// fingerprint pass and rate-limited AcoustID lookups open.
+function onIdentifyCancel() {
+    identifyAbort?.abort()
+    identifyAbort = null
 }
 
 function onIdentifyApply(picks: IdentifyPick[]) {
@@ -165,6 +209,70 @@ function onIdentifyApply(picks: IdentifyPick[]) {
     )
     session.stageOverlays(entries)
     identifyDialog.value = false
+    // New array reference so EditPanel's selection watcher refreshes its edit
+    // buffers with the just-staged values.
+    selection.value = [...selection.value]
+}
+
+// ----- Identify album -----
+
+const albumOptions = ref<AlbumOption[]>([])
+const albumIdentifiedTracks = ref<Track[]>([])
+const albumPathErrors = ref<Array<{ path: string; error: string }>>([])
+const albumDialog = ref(false)
+
+// The controller for the request currently in flight, so Cancel can abort it.
+let albumIdentifyAbort: AbortController | null = null
+
+async function identifyAlbum(tracks: Track[]) {
+    if (selectedLibraryId.value === null || tracks.length < 2) return
+
+    // Open on click, before the request resolves: identification takes tens of
+    // seconds for a full album, and a button that looks inert that long reads as
+    // broken. The dialog shows its own progress state and offers Cancel.
+    albumIdentifiedTracks.value = tracks
+    albumOptions.value = []
+    albumPathErrors.value = []
+    albumDialog.value = true
+
+    const abort = new AbortController()
+    albumIdentifyAbort = abort
+    try {
+        const out = await identifyAlbumMutation.mutateAsync({
+            body: {
+                library_id: selectedLibraryId.value,
+                paths: tracks.map((t) => t.path)
+            },
+            signal: abort.signal
+        })
+        // A response that arrives after the user cancelled (or started another
+        // run) must not repopulate a dialog they already dismissed.
+        if (albumIdentifyAbort !== abort) return
+        albumOptions.value = out.options
+        albumPathErrors.value = out.errors
+    } catch {
+        // The mutation toasts real failures and stays silent on a cancel; either
+        // way there is nothing to review, so close rather than show an empty
+        // dialog the user has to dismiss.
+        if (albumIdentifyAbort === abort) albumDialog.value = false
+    } finally {
+        if (albumIdentifyAbort === abort) albumIdentifyAbort = null
+    }
+}
+
+// Cancel means stop the work, not just hide the dialog: the request is holding a
+// fingerprint pass and rate-limited upstream lookups open.
+function onAlbumIdentifyCancel() {
+    albumIdentifyAbort?.abort()
+    albumIdentifyAbort = null
+}
+
+function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
+    const entries = new Map<string, TrackOverlay>(
+        picks.map((p) => [p.path, albumPickToOverlay(p)])
+    )
+    session.stageOverlays(entries)
+    albumDialog.value = false
     // New array reference so EditPanel's selection watcher refreshes its edit
     // buffers with the just-staged values.
     selection.value = [...selection.value]
@@ -190,7 +298,15 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                 @click="onReload"
             />
             <span class="header-spacer"></span>
-            <span v-if="session.hasStagedChanges.value" class="unsaved-note" data-test="unsaved-note">
+            <span v-if="session.isSaving.value" class="saving-note" data-test="saving-note">
+                <i class="pi pi-spin pi-spinner"></i>
+                Saving and re-indexing…
+            </span>
+            <span
+                v-else-if="session.hasStagedChanges.value"
+                class="unsaved-note"
+                data-test="unsaved-note"
+            >
                 Unsaved changes
             </span>
             <Button
@@ -230,7 +346,9 @@ function onIdentifyApply(picks: IdentifyPick[]) {
                     :canIdentify="canIdentify"
                     :identifyUnavailableReason="identifyUnavailableReason"
                     :isIdentifying="identifyMutation.isPending.value"
+                    :isIdentifyingAlbum="identifyAlbumMutation.isPending.value"
                     @identify="identify"
+                    @identify-album="identifyAlbum"
                 />
             </SplitterPanel>
         </Splitter>
@@ -262,7 +380,20 @@ function onIdentifyApply(picks: IdentifyPick[]) {
             v-model:visible="identifyDialog"
             :results="identifyResults"
             :tracks="tracksQuery.data.value ?? []"
+            :loading="identifyMutation.isPending.value"
+            :pending="identifyPendingTracks"
             @apply="onIdentifyApply"
+            @cancel="onIdentifyCancel"
+        />
+
+        <IdentifyAlbumDialog
+            v-model:visible="albumDialog"
+            :options="albumOptions"
+            :tracks="albumIdentifiedTracks"
+            :pathErrors="albumPathErrors"
+            :loading="identifyAlbumMutation.isPending.value"
+            @apply="onAlbumIdentifyApply"
+            @cancel="onAlbumIdentifyCancel"
         />
 
         <ConfirmDialog />
@@ -312,6 +443,17 @@ function onIdentifyApply(picks: IdentifyPick[]) {
     border: 1px solid var(--app-staged);
     border-radius: 1rem;
     padding: 0.15rem 0.6rem;
+    white-space: nowrap;
+}
+
+/* A save also re-indexes the written files server-side, so it takes noticeably
+   longer than a plain tag write; the note keeps that wait reading as progress. */
+.saving-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
     white-space: nowrap;
 }
 

@@ -76,12 +76,23 @@ func makeWalkFn(lib model.Library, excludes []*regexp.Regexp, followSymlinks boo
 // skipped wholesale.
 func matchExcludes(root, path string, d fs.DirEntry, excludes []*regexp.Regexp) (skip, skipDir bool) {
 	relPath, _ := filepath.Rel(root, path)
-	for _, ex := range excludes {
-		if ex.MatchString(relPath) || ex.MatchString(d.Name()) {
-			return true, d.IsDir()
-		}
+	if matchesExclude(excludes, relPath, d.Name()) {
+		return true, d.IsDir()
 	}
 	return false, false
+}
+
+// matchesExclude is the per-entry exclude test the walk applies: an entry is
+// excluded when a pattern matches either its path relative to the library root
+// or its bare name. Shared with the rescan's admission check so the two cannot
+// drift apart.
+func matchesExclude(excludes []*regexp.Regexp, relPath, name string) bool {
+	for _, ex := range excludes {
+		if ex.MatchString(relPath) || ex.MatchString(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // walkSymlinkEntry handles a symlink encountered during a top-level walk:

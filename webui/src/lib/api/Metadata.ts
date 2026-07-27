@@ -2,6 +2,9 @@ import { apiClient } from '@/lib/api/client'
 import type {
     ApplyPictureResult,
     CoverCandidate,
+    DeletePictureResult,
+    IdentifyAlbumRequest,
+    IdentifyAlbumResponse,
     IdentifyRequest,
     IdentifyResponse,
     ListFoldersResponse,
@@ -29,9 +32,11 @@ export async function listTracks(libraryId: number, path: string) {
     return data.tracks
 }
 
-export async function updateTracks(body: UpdateTracksRequest) {
+// updateTracks returns the whole response, not just the per-path results: the
+// server also reports whether its post-write re-index succeeded.
+export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTracksResponse> {
     const { data } = await apiClient.put<UpdateTracksResponse>('/metadata/tracks', body)
-    return data.results
+    return data
 }
 
 // getRawTags reads the complete tag map of the given files, including keys
@@ -52,9 +57,27 @@ export async function getMetadataCapabilities() {
 // identifyTracks resolves the given files to MusicBrainz recording candidates
 // by acoustic fingerprint. Slow: each path costs a fingerprint run plus a
 // rate-limited AcoustID call on the server.
-export async function identifyTracks(body: IdentifyRequest) {
-    const { data } = await apiClient.post<IdentifyResponse>('/metadata/identify', body)
+// signal aborts the request: the server fingerprints the paths in a loop driven
+// by the request context, so cancelling stops it part-way instead of running the
+// remaining files for a response nobody will read.
+export async function identifyTracks(body: IdentifyRequest, signal?: AbortSignal) {
+    const { data } = await apiClient.post<IdentifyResponse>('/metadata/identify', body, { signal })
     return data.results
+}
+
+// identifyAlbum maps a multi-file selection onto a single release. Slower than
+// identifyTracks: the server fingerprints every file and then fetches
+// MusicBrainz tracklists for the best candidate releases.
+// signal aborts the request: the server threads the request context through
+// fpcalc and the AcoustID/MusicBrainz lookups, so cancelling really does stop
+// the work rather than just abandoning the response.
+export async function identifyAlbum(body: IdentifyAlbumRequest, signal?: AbortSignal) {
+    const { data } = await apiClient.post<IdentifyAlbumResponse>(
+        '/metadata/identify-album',
+        body,
+        { signal }
+    )
+    return data
 }
 
 // getPictureUrl builds the URL of one picture type+slot cell for use as an
@@ -117,16 +140,18 @@ export async function getPictures(
 }
 
 // deletePicture removes one picture type+slot cell. For 'embedded', paths are
-// the selected tracks the removal applies to.
+// the selected tracks the removal applies to. Returns the whole response, not
+// just ok: the server also reports whether its post-write re-index succeeded.
 export async function deletePicture(
     libraryId: number,
     path: string,
     type: string,
     slot: PictureSlot,
     paths?: string[]
-) {
-    await apiClient.delete('/metadata/pictures', {
+): Promise<DeletePictureResult> {
+    const { data } = await apiClient.delete<DeletePictureResult>('/metadata/pictures', {
         params: { library_id: libraryId, path, type, slot, paths },
         paramsSerializer: { indexes: null } // repeat paths= for arrays
     })
+    return data
 }

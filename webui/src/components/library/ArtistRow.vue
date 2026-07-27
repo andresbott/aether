@@ -2,13 +2,15 @@
 import { computed } from 'vue'
 import type { Artist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{ artist?: Artist }>()
 
 const coverUrl = computed(() => {
     const art = props.artist?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 80)
+    // Same cache-bust as the detail view, so editing a cover updates the list too.
+    return versionedCoverUrl(subsonicClient.getCoverArtUrl(art, 80), art)
 })
 </script>
 

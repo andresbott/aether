@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
@@ -42,8 +43,10 @@ type coverMeta struct {
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
 // (auto-fetched or a manual upload made while the artist was matched) takes
-// precedence; fall back to the DB-ID slot used for manual uploads on unmatched
-// artists.
+// precedence; then the DB-ID slot used for manual uploads on unmatched artists;
+// then an image found next to the artist's albums on disk (`ImagePath`, set by
+// the scanner for `<collection>/<artist>/<album>` layouts). Nothing found means
+// the name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	meta := coverMeta{seed: artist.NameNorm}
 	if artist.MBArtistID != "" {
@@ -55,6 +58,9 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
 			meta.coverPath = p
 		}
+	}
+	if meta.coverPath == "" {
+		meta.coverPath = artist.ImagePath
 	}
 	return meta
 }
@@ -163,8 +169,15 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 
 	if meta.coverPath != "" {
-		if _, err := os.Stat(meta.coverPath); err == nil {
-			http.ServeFile(w, r, meta.coverPath)
+		if info, err := os.Stat(meta.coverPath); err == nil {
+			// Validate on *which* file is served, not on how old it is.
+			// http.ServeFile alone sends Last-Modified from the mtime and honors
+			// If-Modified-Since, so falling back to an older file (deleting an
+			// upload uncovers the music-folder image) would answer 304 and leave
+			// the client showing the image that was just removed. An ETag over
+			// path+size+mtime changes whenever the served file does, and dropping
+			// Last-Modified keeps the date-based check out of the picture.
+			serveCoverFile(w, r, meta.coverPath, info)
 			return
 		}
 	}
@@ -187,7 +200,34 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cover generation failed", http.StatusInternalServerError)
 		return
 	}
-	http.ServeFile(w, r, cachePath)
+	info, err := os.Stat(cachePath)
+	if err != nil {
+		http.Error(w, "cover generation failed", http.StatusInternalServerError)
+		return
+	}
+	serveCoverFile(w, r, cachePath, info)
+}
+
+// serveCoverFile serves path with an ETag identifying that exact file, and no
+// Last-Modified. Cover URLs are stable while the file behind them is not — and
+// the replacement is not always newer (removing an uploaded image falls back to
+// an older folder image or to a long-cached generated avatar), so a date-based
+// validator can wrongly answer 304 and pin a stale image in the browser until a
+// hard refresh.
+func serveCoverFile(w http.ResponseWriter, r *http.Request, path string, info os.FileInfo) {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())))
+	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
+
+	f, err := os.Open(path) //nolint:gosec // G304: path comes from the cover resolver (asset store, scanner-detected image, or the generated-cover cache), never from the request
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer func() { _ = f.Close() }()
+
+	// A zero modtime tells ServeContent to omit Last-Modified, leaving the ETag
+	// as the only validator. ServeContent still handles If-None-Match and Range.
+	http.ServeContent(w, r, filepath.Base(path), time.Time{}, f)
 }
 
 // quantizeCoverSize rounds the requested size up to the nearest supported

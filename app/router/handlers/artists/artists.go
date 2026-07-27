@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
@@ -40,6 +42,13 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/musicbrainz/release-groups/{mbid}/genres").Methods(http.MethodGet).HandlerFunc(h.releaseGroupGenres)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
+	r.Path("/artists/{id:[0-9]+}/image-source").Methods(http.MethodGet).HandlerFunc(h.getImageSource)
+	// Manual online image search: preview by MBID (no artist context needed),
+	// then store the pick for a specific artist. Registered before the {id}
+	// route above would shadow it — "image-preview" is not a numeric id, so the
+	// {id:[0-9]+} pattern already excludes it.
+	r.Path("/artists/image-preview").Methods(http.MethodGet).HandlerFunc(h.previewImage)
+	r.Path("/artists/{id:[0-9]+}/image-from-search").Methods(http.MethodPut).HandlerFunc(h.setImageFromSearch)
 }
 
 type apiError struct {
@@ -173,7 +182,182 @@ func (h *Handler) getMBID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, mbidResponse{MBArtistID: artist.MBArtistID})
 }
 
+// imageSourceResponse tells the UI where the image getCoverArt currently serves
+// for this artist comes from, so the editor can name it instead of showing a
+// bare "No file chosen". Source is one of:
+//
+//	"upload"  — an image the user uploaded, held in aether's asset store
+//	"fetched" — an image aether auto-fetched from an image provider
+//	"folder"  — an artist.jpg/folder.jpg next to the artist's albums; Path set
+//	"none"    — nothing on file; getCoverArt serves the generated avatar
+//
+// Filename names the image file in every case but "none": the stored file for
+// upload/fetched, the on-disk file for folder.
+//
+// This is a filesystem detail of the server, hence `/api/v1` rather than a
+// non-standard field on the Subsonic artist response.
+type imageSourceResponse struct {
+	Source   string `json:"source"`
+	Path     string `json:"path"`
+	Filename string `json:"filename"`
+}
+
+// storedImageSource builds the response for an image held in aether's asset
+// store, distinguishing a user upload from an auto-fetched one.
+func storedImageSource(path string, manual bool) imageSourceResponse {
+	source := "fetched"
+	if manual {
+		source = "upload"
+	}
+	return imageSourceResponse{Source: source, Filename: filepath.Base(path)}
+}
+
+// getImageSource mirrors artistCoverMeta's precedence in handlers/subsonic:
+// asset store first, then the scanner-detected folder image. Keep the two in
+// step, or the note will describe an image the user isn't looking at.
+func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	artist, _, err := h.Store.GetArtist(id)
+	if err != nil {
+		status, code := mapStoreError(err)
+		writeError(w, status, code, err.Error())
+		return
+	}
+
+	if artist.MBArtistID != "" {
+		if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, artist.MBArtistID); ok {
+			writeJSON(w, http.StatusOK, storedImageSource(p, manual))
+			return
+		}
+	}
+	if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+		writeJSON(w, http.StatusOK, storedImageSource(p, manual))
+		return
+	}
+	// A recorded path whose file has gone away is not the served image —
+	// getCoverArt falls through to the generated avatar, so report "none".
+	if scanner.IsUsableArtistImagePath(artist.ImagePath) {
+		writeJSON(w, http.StatusOK, imageSourceResponse{
+			Source:   "folder",
+			Path:     artist.ImagePath,
+			Filename: filepath.Base(artist.ImagePath),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, imageSourceResponse{Source: "none"})
+}
+
 var mbidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// artistCoverKey is the asset-store key a manual image for this artist goes
+// under: the MusicBrainz ID when matched, otherwise the DB ID. Mirrors the
+// identically named helper in handlers/subsonic (which serves these files) —
+// cover resolution reads the MBID slot first, so both sides must agree on the
+// slot or a manual pick loses to an auto-fetched image.
+func artistCoverKey(a *model.Artist) string {
+	if a.MBArtistID != "" {
+		return a.MBArtistID
+	}
+	return strconv.FormatUint(uint64(a.ID), 10)
+}
+
+// fetchImageForMBID runs the configured provider chain for an arbitrary MBID —
+// the same fetch the `fetch-artist-images` job uses, but driven by the user's own
+// MusicBrainz pick instead of the artist's stored match. It writes the error
+// response itself and returns ok=false on failure.
+func (h *Handler) fetchImageForMBID(w http.ResponseWriter, r *http.Request, mbid string) (data []byte, ext string, ok bool) {
+	if !mbidRe.MatchString(mbid) {
+		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		return nil, "", false
+	}
+	if h.Fetcher == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_configured",
+			"Artist image fetching is not configured. Add an image-provider API key to use it.")
+		return nil, "", false
+	}
+	data, ext, err := h.Fetcher.Fetch(r.Context(), mbid)
+	if err != nil {
+		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		return nil, "", false
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusNotFound, "not_found", "No image found for this artist.")
+		return nil, "", false
+	}
+	return data, ext, true
+}
+
+// previewImage streams the provider image for a MusicBrainz artist so the user
+// can see what they are about to save. Nothing is stored; the pick is committed
+// separately via setImageFromSearch.
+func (h *Handler) previewImage(w http.ResponseWriter, r *http.Request) {
+	// The provider's extension only matters when storing; here the sniffed type
+	// governs what the browser is told.
+	data, _, ok := h.fetchImageForMBID(w, r, r.URL.Query().Get("mbid"))
+	if !ok {
+		return
+	}
+	// Sniff the bytes rather than trusting the provider's extension, and refuse
+	// anything that is not an image: these bytes come from a third-party API and
+	// are echoed straight back to the browser.
+	contentType := http.DetectContentType(data)
+	if !strings.HasPrefix(contentType, "image/") {
+		writeError(w, http.StatusBadGateway, "upstream_error",
+			"The image provider returned something that is not an image.")
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// A preview is a transient view of an upstream image, not aether state.
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data) //nolint:gosec // G705: sniffed image bytes served with a non-HTML content type + nosniff
+}
+
+type imageFromSearchRequest struct {
+	MBID string `json:"mbid"`
+}
+
+// setImageFromSearch stores the image of a user-chosen MusicBrainz artist for
+// this artist, as a **manual** upload so it outranks whatever the auto-fetch job
+// puts in the auto slot and survives the job running again.
+//
+// It must land in the same slot a normal upload would (the artist's own MBID when
+// matched, else its DB ID): cover resolution checks the MBID slot *first*, so a
+// pick filed under the DB ID would lose to an auto-fetched image in the MBID
+// slot. The *chosen* MBID is only used to fetch — writing it to
+// artist.MBArtistID is deliberately avoided, since picking a portrait is not the
+// same as asserting a metadata match.
+func (h *Handler) setImageFromSearch(w http.ResponseWriter, r *http.Request) {
+	id, err := parseID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	var in imageFromSearchRequest
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		return
+	}
+	artist, _, err := h.Store.GetArtist(id)
+	if err != nil {
+		status, code := mapStoreError(err)
+		writeError(w, status, code, err.Error())
+		return
+	}
+	data, ext, ok := h.fetchImageForMBID(w, r, in.MBID)
+	if !ok {
+		return
+	}
+	if err := h.Assets.PutManual(assetstore.KindArtist, artistCoverKey(artist), ext, data); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"stored": true})
+}
 
 type setMBIDRequest struct {
 	MBID string `json:"mbid"`
