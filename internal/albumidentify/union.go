@@ -24,7 +24,15 @@ func unionReleases(results []fileResult) []*AlbumOption {
 			continue
 		}
 		best := bestPerRelease(res.recordings)
-		for mbid, m := range best {
+		// Sort the release MBIDs to ensure deterministic order when a file
+		// matches multiple releases.
+		mbids := make([]string, 0, len(best))
+		for mbid := range best {
+			mbids = append(mbids, mbid)
+		}
+		sort.Strings(mbids)
+		for _, mbid := range mbids {
+			m := best[mbid]
 			opt, ok := byMBID[mbid]
 			if !ok {
 				opt = &AlbumOption{

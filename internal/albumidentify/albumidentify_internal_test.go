@@ -139,3 +139,38 @@ func TestUnionSkipsReleasesWithoutMBID(t *testing.T) {
 		t.Fatalf("expected no options, got %+v", opts)
 	}
 }
+
+func TestUnionDeterministicOrderingWhenFileMatchesMultipleReleases(t *testing.T) {
+	// One file matching several releases must produce a stable order.
+	// Without sorting the release MBIDs, map iteration would randomize this.
+	results := []fileResult{
+		{
+			input: Input{Path: "track.flac"},
+			recordings: []acoustid.Recording{
+				rec(0.8, "rec-1", "Song",
+					rel("rel-E", "Release E", 2005, 1, 1),
+					rel("rel-A", "Release A", 2001, 1, 1),
+					rel("rel-D", "Release D", 2004, 1, 1),
+					rel("rel-C", "Release C", 2003, 1, 1),
+					rel("rel-B", "Release B", 2002, 1, 1),
+				),
+			},
+		},
+	}
+
+	// Run the union multiple times to catch nondeterminism (though Go's map
+	// iteration is already randomized, so even one run is usually enough).
+	for i := 0; i < 10; i++ {
+		opts := unionReleases(results)
+		if len(opts) != 5 {
+			t.Fatalf("run %d: expected 5 options, got %d", i, len(opts))
+		}
+		// Expect alphabetical order by release MBID.
+		expected := []string{"rel-A", "rel-B", "rel-C", "rel-D", "rel-E"}
+		for j, mbid := range expected {
+			if opts[j].ReleaseMBID != mbid {
+				t.Fatalf("run %d: expected opts[%d].ReleaseMBID=%q, got %q", i, j, mbid, opts[j].ReleaseMBID)
+			}
+		}
+	}
+}
