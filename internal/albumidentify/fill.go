@@ -19,6 +19,13 @@ const durationToleranceSeconds = 12.0
 // because the user may not notice it.
 const minFillScore = 0.35
 
+// minAccumulatedWeight is the minimum sum of weights that must participate in
+// a placement decision. A bare track-number agreement (weight 0.1) is the
+// weakest evidence and is exactly what a mis-ripped file gets wrong; at least
+// one stronger signal (duration or title) must have participated for a
+// placement to be proposed.
+const minAccumulatedWeight = 0.3
+
 // fillGaps assigns the files that no fingerprint placed on this release to its
 // remaining tracklist slots, appending one assignment per input so every
 // selected file has a row. Slots already claimed by a fingerprint match, or by
@@ -113,8 +120,10 @@ func fillScore(res fileResult, s Slot) float64 {
 		weight += 0.6
 	}
 
-	if title := strings.TrimSpace(res.input.CurrentTitle); title != "" && s.Title != "" {
-		score += 0.3 * titleSimilarity(title, s.Title)
+	fileTitle := normalizeTitle(res.input.CurrentTitle)
+	slotTitle := normalizeTitle(s.Title)
+	if fileTitle != "" && slotTitle != "" {
+		score += 0.3 * titleSimilarity(fileTitle, slotTitle)
 		weight += 0.3
 	}
 
@@ -125,26 +134,25 @@ func fillScore(res fileResult, s Slot) float64 {
 		weight += 0.1
 	}
 
-	if weight == 0 {
+	if weight < minAccumulatedWeight {
 		return 0
 	}
 	// Normalise so a file missing a signal is judged on the ones it has.
 	return score / weight
 }
 
-// titleSimilarity is a cheap 0..1 agreement between two titles: 1 for an exact
-// (case- and space-insensitive) match, otherwise the share of the shorter
-// title's words that appear in the longer one. Good enough to separate
-// "In Bloom" from "Polly" without pulling in an edit-distance dependency.
+// titleSimilarity is a cheap 0..1 agreement between two already-normalized
+// titles: 1 for an exact match, otherwise the share of the shorter title's
+// words that appear in the longer one. Good enough to separate "In Bloom" from
+// "Polly" without pulling in an edit-distance dependency.
 func titleSimilarity(a, b string) float64 {
-	na, nb := normalizeTitle(a), normalizeTitle(b)
-	if na == "" || nb == "" {
+	if a == "" || b == "" {
 		return 0
 	}
-	if na == nb {
+	if a == b {
 		return 1
 	}
-	wa, wb := strings.Fields(na), strings.Fields(nb)
+	wa, wb := strings.Fields(a), strings.Fields(b)
 	if len(wa) > len(wb) {
 		wa, wb = wb, wa
 	}

@@ -371,14 +371,15 @@ func TestFillGapsNeverReusesASlot(t *testing.T) {
 		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
 		Tracks: []Slot{
 			slot(1, 1, "One", 200, "rec-1"),
-			slot(1, 2, "Two", 201, "rec-2"),
+			slot(1, 2, "Two", 220, "rec-2"),
 		},
 	}
-	// Both files are the same length, so both prefer the same slot; the second
-	// must take the remaining one.
+	// File a has a very close duration match to slot 1 (delta 1s); file b has a
+	// weaker match to slot 1 (delta 19s) but a perfect match to slot 2. The
+	// best-first ordering must let a claim slot 1, forcing b to take slot 2.
 	results := []fileResult{
-		{input: Input{Path: "a.flac"}, duration: 200},
-		{input: Input{Path: "b.flac"}, duration: 200},
+		{input: Input{Path: "a.flac"}, duration: 201},
+		{input: Input{Path: "b.flac"}, duration: 220},
 	}
 
 	fillGaps(o, results)
@@ -387,8 +388,8 @@ func TestFillGapsNeverReusesASlot(t *testing.T) {
 	if a == nil || b == nil {
 		t.Fatalf("expected both files assigned, got %+v", o.Assignments)
 	}
-	if a.TrackNumber == b.TrackNumber {
-		t.Fatalf("two files took the same slot: %+v / %+v", a, b)
+	if a.TrackNumber != 1 || b.TrackNumber != 2 {
+		t.Fatalf("expected best-first: a→1, b→2, got a→%d, b→%d", a.TrackNumber, b.TrackNumber)
 	}
 }
 
@@ -418,22 +419,58 @@ func TestFillGapsSkipsSlotsTakenByFingerprintMatches(t *testing.T) {
 	}
 }
 
+func TestFillGapsRejectsBareTrackNumberAgreement(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
+		Tracks: []Slot{
+			slot(1, 1, "Alpha", 200, "rec-1"),
+			slot(1, 2, "Beta", 205, "rec-2"),
+		},
+	}
+	results := []fileResult{
+		// This file has a matching track number but no duration and no title:
+		// a bare track-number agreement is too weak to justify placement.
+		{input: Input{Path: "weak.flac", CurrentTrackNumber: 1}},
+		// This file has a good duration match: it should be placed.
+		{input: Input{Path: "strong.flac"}, duration: 204},
+	}
+
+	fillGaps(o, results)
+
+	weak := assignmentFor(o, "weak.flac")
+	if weak == nil || weak.Source != SourceNone {
+		t.Fatalf("expected bare track-number file to be SourceNone, got %+v", weak)
+	}
+	strong := assignmentFor(o, "strong.flac")
+	if strong == nil || strong.Source != SourceInferred || strong.TrackNumber != 2 {
+		t.Fatalf("expected duration-matched file to be placed, got %+v", strong)
+	}
+}
+
 func TestFillGapsUsesCurrentTrackNumberWhenNothingElseSeparates(t *testing.T) {
 	o := &AlbumOption{
 		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
-		// Identical durations and unrelated titles: only the file's existing
-		// track number can decide.
+		// Identical durations and unrelated titles: two files compete, each with
+		// a matching track number plus duration evidence.
 		Tracks: []Slot{
 			slot(1, 1, "Alpha", 200, "rec-1"),
 			slot(1, 2, "Beta", 200, "rec-2"),
 		},
 	}
-	results := []fileResult{{input: Input{Path: "b.flac", CurrentTrackNumber: 2}, duration: 200}}
+	results := []fileResult{
+		{input: Input{Path: "a.flac", CurrentTrackNumber: 1}, duration: 200},
+		{input: Input{Path: "b.flac", CurrentTrackNumber: 2}, duration: 200},
+	}
 
 	fillGaps(o, results)
 
-	if a := assignmentFor(o, "b.flac"); a == nil || a.TrackNumber != 2 {
-		t.Fatalf("expected track 2 from the current tag, got %+v", a)
+	a := assignmentFor(o, "a.flac")
+	if a == nil || a.TrackNumber != 1 {
+		t.Fatalf("expected track 1 from the current tag, got %+v", a)
+	}
+	b := assignmentFor(o, "b.flac")
+	if b == nil || b.TrackNumber != 2 {
+		t.Fatalf("expected track 2 from the current tag, got %+v", b)
 	}
 }
 
