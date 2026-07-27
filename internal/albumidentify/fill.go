@@ -120,8 +120,11 @@ func fillScore(res fileResult, s Slot) float64 {
 		weight += 0.6
 	}
 
-	fileTitle := normalizeText(res.input.CurrentTitle)
-	slotTitle := normalizeText(s.Title)
+	// Full-strength normalisation: parenthetical annotations must survive here,
+	// or a live/remix variant scores identically to the studio take and this term
+	// stops separating them. See normalizeTitleText.
+	fileTitle := normalizeTitleText(res.input.CurrentTitle)
+	slotTitle := normalizeTitleText(s.Title)
 	if fileTitle != "" && slotTitle != "" {
 		score += 0.3 * titleSimilarity(fileTitle, slotTitle)
 		weight += 0.3

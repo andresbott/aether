@@ -434,6 +434,60 @@ func TestRankFullCoverageWinsOverMultiDiscPartialWithContiguityFixed(t *testing.
 	}
 }
 
+// A multi-disc compilation matching exactly one file per disc is the scatter
+// this term exists to punish. Pre-fix, contiguity averaged the per-disc values
+// (each a lone position = 1.0) and handed it the full 8-point weight, tying a
+// perfectly contiguous full-album match.
+func TestRankContiguityDeniesCreditToOneFilePerDisc(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "box-set",
+		Assignments: []Assignment{
+			{Path: "a.flac", DiscNumber: 1, TrackNumber: 4, Source: SourceFingerprint},
+			{Path: "b.flac", DiscNumber: 2, TrackNumber: 7, Source: SourceFingerprint},
+			{Path: "c.flac", DiscNumber: 3, TrackNumber: 2, Source: SourceFingerprint},
+			{Path: "d.flac", DiscNumber: 4, TrackNumber: 9, Source: SourceFingerprint},
+			{Path: "e.flac", DiscNumber: 5, TrackNumber: 1, Source: SourceFingerprint},
+		},
+		MatchedCount: 5,
+	}
+	got := contiguity(o)
+	if got > 0.6 {
+		t.Fatalf("one file per disc must not earn near-full contiguity credit, got %v", got)
+	}
+	// A contiguous single-disc run with the same coverage must still outrank it.
+	inputs := []Input{{Path: "a.flac"}, {Path: "b.flac"}, {Path: "c.flac"}, {Path: "d.flac"}, {Path: "e.flac"}}
+	album := opt("album", "Album", 1991, []int{1, 2, 3, 4, 5}, 0.8)
+	o.MeanScore = 0.8
+	opts := []*AlbumOption{o, album}
+	rankOptions(opts, inputs)
+	if opts[0].ReleaseMBID != "album" {
+		t.Fatalf("expected the contiguous album to outrank the one-per-disc box set, got %v", mbids(opts))
+	}
+}
+
+// Adding a scattered file on a fresh disc must not multiply the credit the same
+// scatter earns on one disc: pre-fix the unweighted per-disc mean turned
+// {1,5,9} (0.333) plus one stray into 0.667.
+func TestRankContiguityIsMonotoneInScatter(t *testing.T) {
+	scattered := &AlbumOption{
+		ReleaseMBID: "one-disc",
+		Assignments: []Assignment{
+			{Path: "a.flac", DiscNumber: 1, TrackNumber: 1, Source: SourceFingerprint},
+			{Path: "b.flac", DiscNumber: 1, TrackNumber: 5, Source: SourceFingerprint},
+			{Path: "c.flac", DiscNumber: 1, TrackNumber: 9, Source: SourceFingerprint},
+		},
+	}
+	plusStray := &AlbumOption{
+		ReleaseMBID: "two-disc",
+		Assignments: append(append([]Assignment{}, scattered.Assignments...),
+			Assignment{Path: "d.flac", DiscNumber: 2, TrackNumber: 4, Source: SourceFingerprint}),
+	}
+	base, withStray := contiguity(scattered), contiguity(plusStray)
+	if withStray > base*1.5 {
+		t.Fatalf("a stray file on a second disc inflated contiguity from %v to %v", base, withStray)
+	}
+}
+
 func slot(disc, track int, title string, dur float64, recMBID string) Slot {
 	return Slot{
 		DiscNumber: disc, TrackNumber: track, Title: title,
@@ -627,6 +681,49 @@ func TestFillGapsRequiresDiscAgreementForTrackNumberHint(t *testing.T) {
 	d2 := assignmentFor(o, "d2-t3.flac")
 	if d2 == nil || d2.DiscNumber != 2 || d2.TrackNumber != 3 {
 		t.Fatalf("expected disc 2 track 3, got %+v", d2)
+	}
+}
+
+// Pre-fix, gap-fill normalised titles with the album normaliser, which deletes
+// parenthesised content: "Song (Live)" and "Song (Remix)" both became "song" and
+// scored a perfect 1.0, so the title term provided no separation at all.
+func TestFillTitleSimilaritySeparatesParentheticalVariants(t *testing.T) {
+	live := normalizeTitleText("Song (Live)")
+	remix := normalizeTitleText("Song (Remix)")
+	if live == remix {
+		t.Fatalf("parenthetical variants must not normalise identically, both became %q", live)
+	}
+	if got := titleSimilarity(live, remix); got >= 1.0 {
+		t.Fatalf("expected the variants to score below 1.0, got %v", got)
+	}
+	// A wholly parenthetical title must keep some text, or the title term's
+	// weight silently drops out of the placement decision.
+	if got := normalizeTitleText("(Untitled)"); got == "" {
+		t.Fatalf("a wholly parenthetical title must not normalise to empty")
+	}
+}
+
+// The same separation must survive the real placement path: a studio and a live
+// take within the duration tolerance must be told apart by title.
+func TestFillGapsPlacesTheRightParentheticalVariant(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
+		// Durations 3s apart, well inside the 12s tolerance, so only the title
+		// can separate these two slots.
+		Tracks: []Slot{
+			slot(1, 1, "Song (Live)", 200, "rec-live"),
+			slot(1, 2, "Song (Remix)", 203, "rec-remix"),
+		},
+	}
+	results := []fileResult{
+		{input: Input{Path: "remix.flac", CurrentTitle: "Song (Remix)"}, duration: 201},
+	}
+
+	fillGaps(o, results)
+
+	a := assignmentFor(o, "remix.flac")
+	if a == nil || a.RecordingMBID != "rec-remix" {
+		t.Fatalf("expected the remix slot to win on title, got %+v", a)
 	}
 }
 
