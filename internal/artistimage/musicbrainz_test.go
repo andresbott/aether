@@ -369,6 +369,63 @@ func TestMusicBrainzReleaseParsesTracklist(t *testing.T) {
 	}
 }
 
+func TestMusicBrainzReleaseMultiDiscConstructsPositionsProperly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"id": "rel-multi",
+			"title": "The Wall",
+			"date": "1979-11-30",
+			"release-group": {"id": "rg-multi"},
+			"artist-credit": [{"name": "Pink Floyd", "joinphrase": "", "artist": {"id": "art-pf"}}],
+			"media": [
+				{
+					"position": 1,
+					"track-count": 3,
+					"tracks": [
+						{"position": 1, "title": "In The Flesh?", "length": 200000, "recording": {"id": "rec-d1-1"}},
+						{"position": 2, "title": "The Thin Ice", "length": 150000, "recording": {"id": "rec-d1-2"}},
+						{"position": 3, "title": "Another Brick 1", "length": 180000, "recording": {"id": "rec-d1-3"}}
+					]
+				},
+				{
+					"position": 2,
+					"track-count": 3,
+					"tracks": [
+						{"position": 1, "title": "Hey You", "length": 270000, "recording": {"id": "rec-d2-1"}},
+						{"position": 2, "title": "Is There Anybody Out There?", "length": 160000, "recording": {"id": "rec-d2-2"}},
+						{"position": 3, "title": "Nobody Home", "length": 200000, "recording": {"id": "rec-d2-3"}}
+					]
+				}
+			]
+		}`))
+	}))
+	defer srv.Close()
+
+	m := newTestSearch(t, srv)
+	got, err := m.Release(context.Background(), "rel-multi")
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if got.TrackCount != 6 || got.DiscCount != 2 {
+		t.Fatalf("expected 6 tracks on 2 discs, got %d/%d", got.TrackCount, got.DiscCount)
+	}
+	// Verify disc 1 track 3.
+	d1t3 := got.Tracks[2]
+	if d1t3.DiscNumber != 1 || d1t3.TrackNumber != 3 || d1t3.Title != "Another Brick 1" || d1t3.RecordingMBID != "rec-d1-3" {
+		t.Fatalf("disc 1 track 3: got %+v", d1t3)
+	}
+	// Verify disc 2 track 1.
+	d2t1 := got.Tracks[3]
+	if d2t1.DiscNumber != 2 || d2t1.TrackNumber != 1 || d2t1.Title != "Hey You" || d2t1.RecordingMBID != "rec-d2-1" {
+		t.Fatalf("disc 2 track 1: got %+v", d2t1)
+	}
+	// Verify disc 2 track 3 (last track).
+	d2t3 := got.Tracks[5]
+	if d2t3.DiscNumber != 2 || d2t3.TrackNumber != 3 || d2t3.Title != "Nobody Home" || d2t3.RecordingMBID != "rec-d2-3" {
+		t.Fatalf("disc 2 track 3: got %+v", d2t3)
+	}
+}
+
 func TestMusicBrainzReleaseEmptyMBIDSkipsRequest(t *testing.T) {
 	var calls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
