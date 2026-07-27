@@ -125,8 +125,11 @@ func TestIdentifyFileWithDurationReturnsFpcalcDuration(t *testing.T) {
 
 func TestIdentifyFileWithDurationFingerprintError(t *testing.T) {
 	id := New(fpcalc.New(filepath.Join(t.TempDir(), "does-not-exist")), acoustid.New("k", "ua"))
-	_, _, err := id.IdentifyFileWithDuration(context.Background(), "/some/file.mp3")
+	_, dur, err := id.IdentifyFileWithDuration(context.Background(), "/some/file.mp3")
 	if err == nil || !strings.Contains(err.Error(), "fingerprint:") {
 		t.Fatalf("expected fingerprint error, got %v", err)
+	}
+	if dur != 0 {
+		t.Fatalf("expected duration 0 on fingerprint error, got %v", dur)
 	}
 }
