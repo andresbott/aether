@@ -1,9 +1,13 @@
 package albumidentify
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 
+	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/libs/acoustid"
 )
 
@@ -530,5 +534,201 @@ func TestFillGapsWithoutTracklistMarksEverythingNone(t *testing.T) {
 		if a.Source != SourceNone {
 			t.Fatalf("expected all none, got %+v", a)
 		}
+	}
+}
+
+type fakeFileIdentifier struct {
+	// byPath maps an absolute path to its fingerprint outcome.
+	byPath map[string]fileResult
+}
+
+func (f fakeFileIdentifier) IdentifyFileWithDuration(
+	_ context.Context, absPath string,
+) ([]acoustid.Recording, float64, error) {
+	res := f.byPath[absPath]
+	return res.recordings, res.duration, res.err
+}
+
+type fakeReleaseLookup struct {
+	mu      sync.Mutex
+	calls   []string
+	byMBID  map[string]artistimage.ReleaseDetail
+	failFor map[string]bool
+}
+
+func (f *fakeReleaseLookup) Release(
+	_ context.Context, mbid string,
+) (artistimage.ReleaseDetail, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, mbid)
+	f.mu.Unlock()
+	if f.failFor[mbid] {
+		return artistimage.ReleaseDetail{}, errFake
+	}
+	return f.byMBID[mbid], nil
+}
+
+func TestResolveEnrichesAndFillsTheBestOption(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
+			duration:   180,
+		},
+		// No fingerprint match; its duration matches track 2.
+		"/lib/02.flac": {duration: 200},
+	}}
+	releases := &fakeReleaseLookup{byMBID: map[string]artistimage.ReleaseDetail{
+		"rel-A": {
+			ReleaseMBID: "rel-A", ReleaseGroupMBID: "rg-A", Title: "Album A", Date: "1991-09-24",
+			Artists:    []artistimage.ReleaseArtistCredit{{Name: "Artist", MBID: "art-1"}},
+			TrackCount: 2, DiscCount: 1,
+			Tracks: []artistimage.ReleaseTrack{
+				{DiscNumber: 1, TrackNumber: 1, Title: "One", DurationSeconds: 180, RecordingMBID: "rec-1"},
+				{DiscNumber: 1, TrackNumber: 2, Title: "Two", DurationSeconds: 200, RecordingMBID: "rec-2"},
+			},
+		},
+	}}
+
+	r := New(ident, releases)
+	opts, err := r.Resolve(context.Background(), []Input{
+		{Path: "01.flac", AbsPath: "/lib/01.flac"},
+		{Path: "02.flac", AbsPath: "/lib/02.flac"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("expected 1 option, got %d", len(opts))
+	}
+	o := opts[0]
+	if !o.Enriched || o.TrackCount != 2 || o.DiscCount != 1 {
+		t.Fatalf("expected an enriched option, got %+v", o)
+	}
+	if len(o.Artists) != 1 || o.Artists[0].MBID != "art-1" {
+		t.Fatalf("expected release artists from MusicBrainz, got %+v", o.Artists)
+	}
+	if o.Year != 1991 {
+		t.Fatalf("expected the year parsed from the MB date, got %d", o.Year)
+	}
+	if len(o.Assignments) != 2 {
+		t.Fatalf("expected an assignment per input, got %+v", o.Assignments)
+	}
+	var fp, inferred int
+	for _, a := range o.Assignments {
+		switch a.Source {
+		case SourceFingerprint:
+			fp++
+		case SourceInferred:
+			inferred++
+		}
+	}
+	if fp != 1 || inferred != 1 {
+		t.Fatalf("expected 1 fingerprint + 1 inferred, got %d/%d", fp, inferred)
+	}
+}
+
+func TestResolveCapsEnrichmentAtMaxEnrichedOptions(t *testing.T) {
+	// 20 distinct releases, one per song, so the union has 20 options.
+	byPath := map[string]fileResult{}
+	inputs := make([]Input, 0, 20)
+	byMBID := map[string]artistimage.ReleaseDetail{}
+	for i := 0; i < 20; i++ {
+		p := fmt.Sprintf("/lib/%02d.flac", i)
+		mbid := fmt.Sprintf("rel-%02d", i)
+		byPath[p] = fileResult{
+			recordings: []acoustid.Recording{
+				rec(0.9, fmt.Sprintf("rec-%02d", i), "Song", rel(mbid, "Album "+mbid, 1991, 1, i+1)),
+			},
+			duration: 180,
+		}
+		inputs = append(inputs, Input{Path: fmt.Sprintf("%02d.flac", i), AbsPath: p})
+		byMBID[mbid] = artistimage.ReleaseDetail{
+			ReleaseMBID: mbid, Title: "Album " + mbid, TrackCount: 1, DiscCount: 1,
+		}
+	}
+	releases := &fakeReleaseLookup{byMBID: byMBID}
+
+	r := New(fakeFileIdentifier{byPath: byPath}, releases)
+	opts, err := r.Resolve(context.Background(), inputs)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(opts) != 20 {
+		t.Fatalf("expected all 20 options returned, got %d", len(opts))
+	}
+	if len(releases.calls) != MaxEnrichedOptions {
+		t.Fatalf("expected %d enrichment calls, got %d", MaxEnrichedOptions, len(releases.calls))
+	}
+	var enriched int
+	for _, o := range opts {
+		if o.Enriched {
+			enriched++
+		}
+	}
+	if enriched != MaxEnrichedOptions {
+		t.Fatalf("expected %d enriched options, got %d", MaxEnrichedOptions, enriched)
+	}
+}
+
+func TestResolveDegradesAFailedEnrichment(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
+			duration:   180,
+		},
+	}}
+	releases := &fakeReleaseLookup{failFor: map[string]bool{"rel-A": true}}
+
+	r := New(ident, releases)
+	opts, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
+	if err != nil {
+		t.Fatalf("Resolve must not fail when MusicBrainz does: %v", err)
+	}
+	if len(opts) != 1 || opts[0].Enriched {
+		t.Fatalf("expected one un-enriched option, got %+v", opts)
+	}
+	// The fingerprint data still stands on its own.
+	if opts[0].Album != "Album A" || len(opts[0].Assignments) != 1 {
+		t.Fatalf("unexpected degraded option: %+v", opts[0])
+	}
+}
+
+func TestResolveReportsPerFileFailuresWithoutFailing(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{
+		"/lib/01.flac": {
+			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
+			duration:   180,
+		},
+		"/lib/bad.flac": {err: errFake},
+	}}
+	releases := &fakeReleaseLookup{byMBID: map[string]artistimage.ReleaseDetail{
+		"rel-A": {ReleaseMBID: "rel-A", Title: "Album A", TrackCount: 1, DiscCount: 1,
+			Tracks: []artistimage.ReleaseTrack{{DiscNumber: 1, TrackNumber: 1, Title: "One",
+				DurationSeconds: 180, RecordingMBID: "rec-1"}}},
+	}}
+
+	r := New(ident, releases)
+	opts, err := r.Resolve(context.Background(), []Input{
+		{Path: "01.flac", AbsPath: "/lib/01.flac"},
+		{Path: "bad.flac", AbsPath: "/lib/bad.flac"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	a := assignmentFor(&opts[0], "bad.flac")
+	if a == nil || a.Source != SourceNone || a.Error == "" {
+		t.Fatalf("expected the failure carried on the row, got %+v", a)
+	}
+}
+
+func TestResolveWithNoMatchesReturnsNoOptions(t *testing.T) {
+	ident := fakeFileIdentifier{byPath: map[string]fileResult{"/lib/01.flac": {duration: 180}}}
+	r := New(ident, &fakeReleaseLookup{})
+	opts, err := r.Resolve(context.Background(), []Input{{Path: "01.flac", AbsPath: "/lib/01.flac"}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("expected no options, got %+v", opts)
 	}
 }
