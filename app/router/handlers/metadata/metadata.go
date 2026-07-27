@@ -49,6 +49,10 @@ type Handler struct {
 	// through /metadata/capabilities so the UI can say what is missing instead
 	// of silently hiding the feature. Ignored when Identifier is set.
 	IdentifyUnavailableReason string
+	// AlbumIdentifier maps a multi-file selection onto one release. Optional:
+	// nil makes /metadata/identify-album answer 503, exactly as a nil
+	// Identifier does for /metadata/identify.
+	AlbumIdentifier AlbumIdentifyService
 	// RawTagReader reads a file's complete tag map; nil defaults to
 	// taglib.ReadTags. Overridable for tests.
 	RawTagReader func(absPath string) (map[string][]string, error)
@@ -130,6 +134,7 @@ func incompleteRescanMessage(stats scanner.ScanStats, total int) string {
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/capabilities").Methods(http.MethodGet).HandlerFunc(h.capabilities)
 	r.Path("/metadata/identify").Methods(http.MethodPost).HandlerFunc(h.identify)
+	r.Path("/metadata/identify-album").Methods(http.MethodPost).HandlerFunc(h.identifyAlbum)
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
 	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
