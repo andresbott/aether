@@ -1,5 +1,5 @@
-import { computed, unref } from 'vue'
-import type { Ref, ComputedRef } from 'vue'
+import { computed, toValue, unref } from 'vue'
+import type { MaybeRefOrGetter, Ref, ComputedRef } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { UseQueryOptions, UseMutationOptions } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
@@ -52,24 +52,26 @@ export function useMusicFolders() {
     })
 }
 
+// The id may be reactive (and empty) so callers that follow a changing album —
+// e.g. the now-playing card — refetch as it changes and stay idle until there
+// is one to load.
 export function useAlbum(
-    id: string,
+    id: MaybeRefOrGetter<string | undefined>,
     options?: Omit<UseQueryOptions<AlbumWithSongs | null>, 'queryKey' | 'queryFn'>
 ) {
+    const albumId = computed(() => toValue(id) ?? '')
     return useQuery({
-        queryKey: queryKeys.album(id),
-        queryFn: () => subsonicClient.getAlbum(id),
+        queryKey: computed(() => queryKeys.album(albumId.value)),
+        queryFn: () => subsonicClient.getAlbum(albumId.value),
         staleTime: 5 * 60 * 1000,
+        enabled: computed(() => albumId.value.length > 0),
         ...options
     })
 }
 
 export function useArtist(
     id: string,
-    options?: Omit<
-        UseQueryOptions<(Artist & { album?: Album[] }) | null>,
-        'queryKey' | 'queryFn'
-    >
+    options?: Omit<UseQueryOptions<(Artist & { album?: Album[] }) | null>, 'queryKey' | 'queryFn'>
 ) {
     return useQuery({
         queryKey: queryKeys.artist(id),
@@ -131,9 +133,7 @@ export function useRadioStations() {
     })
 }
 
-export function useSetCredentials(
-    options?: UseMutationOptions<void, Error, SubsonicCredentials>
-) {
+export function useSetCredentials(options?: UseMutationOptions<void, Error, SubsonicCredentials>) {
     const queryClient = useQueryClient()
 
     return useMutation({
@@ -179,11 +179,7 @@ export function useUpdateArtistCover() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (params: { artistId: string; coverFile?: File; coverClear?: boolean }) =>
-            subsonicClient.updateArtistCover(
-                params.artistId,
-                params.coverFile,
-                params.coverClear
-            ),
+            subsonicClient.updateArtistCover(params.artistId, params.coverFile, params.coverClear),
         onSuccess: (_data, params) => {
             // Every cached surface that renders this artist's cover has to go:
             // the detail view, the library index (list/grid), and search results.
@@ -244,9 +240,7 @@ export function useToggleStar() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (params: { id: string; starred: boolean }) =>
-            params.starred
-                ? subsonicClient.unstar(params.id)
-                : subsonicClient.star(params.id),
+            params.starred ? subsonicClient.unstar(params.id) : subsonicClient.star(params.id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['subsonic'] })
         }
@@ -258,11 +252,8 @@ export function useRandomSongs(
     musicFolderId?: number | Ref<number | undefined> | ComputedRef<number | undefined>
 ) {
     return useQuery({
-        queryKey: computed(() =>
-            queryKeys.randomSongs(unref(size), unref(musicFolderId))
-        ),
-        queryFn: () =>
-            subsonicClient.getRandomSongs(unref(size), unref(musicFolderId)),
+        queryKey: computed(() => queryKeys.randomSongs(unref(size), unref(musicFolderId))),
+        queryFn: () => subsonicClient.getRandomSongs(unref(size), unref(musicFolderId)),
         staleTime: 2 * 60 * 1000
     })
 }

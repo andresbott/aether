@@ -224,8 +224,36 @@ func albumToMap(al *model.Album) map[string]any {
 			dur += t.Duration
 		}
 		m["duration"] = dur
+		m["discTitles"] = discTitles(al.Tracks)
 	}
 	return m
+}
+
+// discTitles collects the album's disc subtitles as OpenSubsonic DiscTitle
+// entries, one per disc that carries a subtitle, ordered by disc number. Discs
+// without a subtitle are omitted; the first subtitle seen for a disc wins.
+func discTitles(tracks []*model.Track) []map[string]any {
+	seen := map[int]string{}
+	discs := make([]int, 0, 2)
+	for _, t := range tracks {
+		if t.DiscSubtitle == "" {
+			continue
+		}
+		if _, ok := seen[t.DiscNumber]; ok {
+			continue
+		}
+		seen[t.DiscNumber] = t.DiscSubtitle
+		discs = append(discs, t.DiscNumber)
+	}
+	sort.Ints(discs)
+	out := make([]map[string]any, 0, len(discs))
+	for _, disc := range discs {
+		out = append(out, map[string]any{
+			"disc":  disc,
+			"title": seen[disc],
+		})
+	}
+	return out
 }
 
 func trackToChild(t *model.Track, album *model.Album) map[string]any {
