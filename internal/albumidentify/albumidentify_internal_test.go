@@ -311,3 +311,187 @@ func TestRankContiguityHandlesZeroAndSinglePosition(t *testing.T) {
 		t.Fatalf("expected contiguity=1.0 for single position, got %v", got)
 	}
 }
+
+func slot(disc, track int, title string, dur float64, recMBID string) Slot {
+	return Slot{
+		DiscNumber: disc, TrackNumber: track, Title: title,
+		DurationSeconds: dur, RecordingMBID: recMBID,
+	}
+}
+
+func assignmentFor(o *AlbumOption, path string) *Assignment {
+	for i := range o.Assignments {
+		if o.Assignments[i].Path == path {
+			return &o.Assignments[i]
+		}
+	}
+	return nil
+}
+
+func TestFillGapsPlacesUnmatchedByDurationAndTitle(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Album: "Album A", Enriched: true, TrackCount: 3, DiscCount: 1,
+		Tracks: []Slot{
+			slot(1, 1, "One", 180, "rec-1"),
+			slot(1, 2, "Two", 200, "rec-2"),
+			slot(1, 3, "Three", 300, "rec-3"),
+		},
+		Assignments: []Assignment{{
+			Path: "01.flac", Source: SourceFingerprint, Title: "One",
+			RecordingMBID: "rec-1", DiscNumber: 1, TrackNumber: 1, Score: 0.9,
+		}},
+		MatchedCount: 1,
+	}
+	results := []fileResult{
+		{input: Input{Path: "01.flac"}, duration: 180},
+		// No fingerprint match, but its duration and title point at track 3.
+		{input: Input{Path: "03.flac", CurrentTitle: "Three"}, duration: 299},
+	}
+
+	fillGaps(o, results)
+
+	a := assignmentFor(o, "03.flac")
+	if a == nil {
+		t.Fatal("expected an assignment for 03.flac")
+	}
+	if a.Source != SourceInferred {
+		t.Fatalf("expected an inferred source, got %q", a.Source)
+	}
+	if a.TrackNumber != 3 || a.DiscNumber != 1 || a.Title != "Three" || a.RecordingMBID != "rec-3" {
+		t.Fatalf("unexpected inferred assignment: %+v", a)
+	}
+	// Coverage counts fingerprint matches only: an inference is not evidence.
+	if o.MatchedCount != 1 {
+		t.Fatalf("expected MatchedCount to stay 1, got %d", o.MatchedCount)
+	}
+}
+
+func TestFillGapsNeverReusesASlot(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
+		Tracks: []Slot{
+			slot(1, 1, "One", 200, "rec-1"),
+			slot(1, 2, "Two", 201, "rec-2"),
+		},
+	}
+	// Both files are the same length, so both prefer the same slot; the second
+	// must take the remaining one.
+	results := []fileResult{
+		{input: Input{Path: "a.flac"}, duration: 200},
+		{input: Input{Path: "b.flac"}, duration: 200},
+	}
+
+	fillGaps(o, results)
+
+	a, b := assignmentFor(o, "a.flac"), assignmentFor(o, "b.flac")
+	if a == nil || b == nil {
+		t.Fatalf("expected both files assigned, got %+v", o.Assignments)
+	}
+	if a.TrackNumber == b.TrackNumber {
+		t.Fatalf("two files took the same slot: %+v / %+v", a, b)
+	}
+}
+
+func TestFillGapsSkipsSlotsTakenByFingerprintMatches(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
+		Tracks: []Slot{
+			slot(1, 1, "One", 200, "rec-1"),
+			slot(1, 2, "Two", 205, "rec-2"),
+		},
+		Assignments: []Assignment{{
+			Path: "01.flac", Source: SourceFingerprint, DiscNumber: 1, TrackNumber: 1,
+		}},
+		MatchedCount: 1,
+	}
+	// Duration fits slot 1 best, but the fingerprint already owns it, so the
+	// file must fall through to the next plausible slot.
+	results := []fileResult{
+		{input: Input{Path: "01.flac"}, duration: 200},
+		{input: Input{Path: "x.flac"}, duration: 200},
+	}
+
+	fillGaps(o, results)
+
+	if a := assignmentFor(o, "x.flac"); a == nil || a.TrackNumber != 2 {
+		t.Fatalf("expected the free slot 2, got %+v", a)
+	}
+}
+
+func TestFillGapsUsesCurrentTrackNumberWhenNothingElseSeparates(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 2, DiscCount: 1,
+		// Identical durations and unrelated titles: only the file's existing
+		// track number can decide.
+		Tracks: []Slot{
+			slot(1, 1, "Alpha", 200, "rec-1"),
+			slot(1, 2, "Beta", 200, "rec-2"),
+		},
+	}
+	results := []fileResult{{input: Input{Path: "b.flac", CurrentTrackNumber: 2}, duration: 200}}
+
+	fillGaps(o, results)
+
+	if a := assignmentFor(o, "b.flac"); a == nil || a.TrackNumber != 2 {
+		t.Fatalf("expected track 2 from the current tag, got %+v", a)
+	}
+}
+
+func TestFillGapsMarksHopelessFilesAsNone(t *testing.T) {
+	o := &AlbumOption{
+		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 1, DiscCount: 1,
+		Tracks:      []Slot{slot(1, 1, "One", 180, "rec-1")},
+		Assignments: []Assignment{{
+			Path: "01.flac", Source: SourceFingerprint, DiscNumber: 1, TrackNumber: 1,
+		}},
+		MatchedCount: 1,
+	}
+	// The only slot is taken, so this file has nowhere to go.
+	results := []fileResult{
+		{input: Input{Path: "01.flac"}, duration: 180},
+		{input: Input{Path: "extra.flac"}, duration: 999},
+	}
+
+	fillGaps(o, results)
+
+	a := assignmentFor(o, "extra.flac")
+	if a == nil || a.Source != SourceNone {
+		t.Fatalf("expected a none-source assignment, got %+v", a)
+	}
+	if a.TrackNumber != 0 || a.Title != "" {
+		t.Fatalf("a none assignment must carry no position or title: %+v", a)
+	}
+}
+
+func TestFillGapsCarriesFingerprintErrors(t *testing.T) {
+	o := &AlbumOption{ReleaseMBID: "rel-A", Enriched: true, Tracks: []Slot{slot(1, 1, "One", 180, "rec-1")}}
+	results := []fileResult{{input: Input{Path: "bad.flac"}, err: errFake}}
+
+	fillGaps(o, results)
+
+	a := assignmentFor(o, "bad.flac")
+	if a == nil || a.Source != SourceNone || a.Error == "" {
+		t.Fatalf("expected a none assignment carrying the error, got %+v", a)
+	}
+}
+
+// An un-enriched option has no tracklist, so nothing can be inferred — but
+// every file must still appear, or the dialog would silently drop rows.
+func TestFillGapsWithoutTracklistMarksEverythingNone(t *testing.T) {
+	o := &AlbumOption{ReleaseMBID: "rel-A"}
+	results := []fileResult{
+		{input: Input{Path: "a.flac"}, duration: 180},
+		{input: Input{Path: "b.flac"}, duration: 200},
+	}
+
+	fillGaps(o, results)
+
+	if len(o.Assignments) != 2 {
+		t.Fatalf("expected 2 assignments, got %+v", o.Assignments)
+	}
+	for _, a := range o.Assignments {
+		if a.Source != SourceNone {
+			t.Fatalf("expected all none, got %+v", a)
+		}
+	}
+}
