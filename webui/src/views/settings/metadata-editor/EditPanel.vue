@@ -29,9 +29,11 @@ const props = defineProps<{
     // false (e.g. fpcalc missing on the server). Empty when identify works.
     identifyUnavailableReason?: string
     isIdentifying: boolean
+    isIdentifyingAlbum: boolean
 }>()
 const emit = defineEmits<{
     (e: 'identify', tracks: Track[]): void
+    (e: 'identify-album', tracks: Track[]): void
 }>()
 
 type Scope = 'artist' | 'album_artist'
@@ -389,6 +391,30 @@ const identifyTooltip = computed(() => {
     return 'Look up these tracks on AcoustID by acoustic fingerprint'
 })
 
+// Album identification only makes sense for a set of files, so the button
+// appears from two selected tracks up — below that, per-track Identify is
+// strictly better and this button would just be a worse duplicate.
+const showAlbumIdentify = computed(() => props.selection.length > 1)
+const albumIdentifyDisabled = computed(
+    () =>
+        !props.canIdentify ||
+        identifiable.value.length < 2 ||
+        props.isIdentifying ||
+        props.isIdentifyingAlbum
+)
+const albumIdentifyTooltip = computed(() => {
+    if (!props.canIdentify) {
+        return (
+            props.identifyUnavailableReason ||
+            'Audio identification is not available on this server.'
+        )
+    }
+    if (identifiable.value.length < 2) {
+        return 'At least two readable tracks are needed to identify an album'
+    }
+    return 'Map these tracks onto a single album on MusicBrainz'
+})
+
 // Raw mode swaps the form body for the raw tag editor; the panel header (count
 // + Identify + Raw buttons) stays so mode switching is always reachable.
 const rawMode = ref(false)
@@ -402,6 +428,22 @@ const rawMode = ref(false)
                 {{ isMass ? `Editing ${selection.length} tracks` : 'Editing 1 track' }}
             </h3>
             <div class="panel-header-actions">
+                <span
+                    v-if="!rawMode && showAlbumIdentify"
+                    v-tooltip.left="albumIdentifyTooltip"
+                    class="identify-wrap"
+                >
+                    <Button
+                        :label="`Identify album (${identifiable.length})`"
+                        icon="pi pi-compact-disc"
+                        size="small"
+                        outlined
+                        data-test="identify-album-button"
+                        :disabled="albumIdentifyDisabled"
+                        :loading="isIdentifyingAlbum"
+                        @click="emit('identify-album', identifiable)"
+                    />
+                </span>
                 <span v-if="!rawMode" v-tooltip.left="identifyTooltip" class="identify-wrap">
                     <Button
                         :label="isMass ? `Identify ${identifiable.length} tracks` : 'Identify'"
