@@ -41,8 +41,15 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 	return artists, nil
 }
 
+// GetArtists returns the artist index: artists credited on at least one album
+// (album_artists). Track-only credits — compilation contributors, featured
+// guests — are deliberately excluded so no index entry ever shows zero albums;
+// those artists stay reachable through search and song credits, and GetArtist
+// resolves their appearances.
 func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
-	q := s.db.Model(&model.Artist{})
+	q := s.db.Model(&model.Artist{}).
+		Distinct().
+		Joins("JOIN album_artists ON album_artists.artist_id = artists.id")
 	if filter != nil && filter.LibraryID != nil {
 		// Check if this specific library is hidden
 		var lib model.Library
@@ -51,9 +58,7 @@ func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 			return []model.Artist{}, nil
 		}
 		q = q.
-			Distinct().
-			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
-			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
+			Joins("JOIN tracks ON tracks.album_id = album_artists.album_id").
 			Where("tracks.library_id = ?", *filter.LibraryID)
 	} else {
 		// No library filter: exclude artists that ONLY appear in hidden libraries
@@ -69,12 +74,16 @@ func (s *Store) GetArtist(id uint) (*model.Artist, []model.Album, error) {
 	if err := s.db.First(&artist, id).Error; err != nil {
 		return nil, nil, err
 	}
+	// Albums the artist owns (album_artists) plus albums they appear on via
+	// track credits only — a guest artist's page must not come up empty.
 	var albums []model.Album
 	err := s.db.
 		Preload("Artists").
 		Preload("Genres").
-		Joins("JOIN album_artists ON album_artists.album_id = albums.id").
-		Where("album_artists.artist_id = ?", id).
+		Where(`albums.id IN (SELECT album_id FROM album_artists WHERE artist_id = ?)
+			OR albums.id IN (SELECT t.album_id FROM tracks t
+				JOIN track_artists ta ON ta.track_id = t.id
+				WHERE ta.artist_id = ?)`, id, id).
 		Order("albums.year DESC, albums.name_norm ASC").
 		Find(&albums).Error
 	if err != nil {
@@ -88,16 +97,27 @@ func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error
 		ArtistID uint
 		Count    int
 	}
+	// Count both ownership credits (album_artists) and appearance credits
+	// (track_artists → tracks → albums), matching what GetArtist returns.
 	var rows []row
-	q := s.db.
+	credits := s.db.
 		Table("album_artists").
-		Select("album_artists.artist_id AS artist_id, COUNT(DISTINCT album_artists.album_id) AS count")
+		Select("album_artists.artist_id AS artist_id, album_artists.album_id AS album_id")
+	appearances := s.db.
+		Table("track_artists").
+		Select("track_artists.artist_id AS artist_id, tracks.album_id AS album_id").
+		Joins("JOIN tracks ON tracks.id = track_artists.track_id")
 	if filter != nil && filter.LibraryID != nil {
-		q = q.
+		credits = credits.
 			Joins("JOIN tracks ON tracks.album_id = album_artists.album_id").
 			Where("tracks.library_id = ?", *filter.LibraryID)
+		appearances = appearances.Where("tracks.library_id = ?", *filter.LibraryID)
 	}
-	err := q.Group("album_artists.artist_id").Find(&rows).Error
+	err := s.db.
+		Table("(? UNION ?) AS credits", credits, appearances).
+		Select("artist_id, COUNT(DISTINCT album_id) AS count").
+		Group("artist_id").
+		Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
