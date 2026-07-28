@@ -22,7 +22,6 @@
 - [ ] Transcoding — identify formats browsers can't play natively and add FFmpeg transcoding
 - [ ] CUE sheet support — single audio file + `.cue` sidecar (DJ mixes, EAC FLAC/APE rips) exposed as regular per-track albums with seamless web-UI playback; virtual tracks (file + time region), scanner pairing, ffmpeg remux slicing for third-party clients, OpenSubsonic extension for region offsets. Full assessment: `docs/cue-playing.md`
 - [ ] setRating persistence — add rating column to tracks/albums when needed (handler exists in annotation.go but no rating column yet, so not persisted)
-- [x] ~~`getStarred` — folder-based starred list~~ — done as `getStarred2` (`lists.go:108`, backed by `store.GetStarred` with library filter); single-user so no `user_id` yet
 - [ ] getArtistInfo / getAlbumInfo — external metadata (MusicBrainz bios, similar artists)
 - [ ] getTopSongs / getSimilarSongs — requires external data or play history analysis
 - [ ] Podcasts, Bookmarks, Sharing, Chat, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
@@ -36,18 +35,15 @@
 ## Backend — Data Integrity & Scanning
 
 - [ ] Favorites schema — three junction tables (`album_stars`, `artist_stars`, `track_stars`), each with composite PK `(user_id, item_id)`, a `starred_at` timestamp, and cascade deletes on user/item removal; replace the current single `starred_items` table if one exists
-- [x] ~~Cleanup orphaned `playlist_tracks`, star rows, and `play_histories` when tracks/albums/artists are deleted during scan cleanup~~ — done in `DeleteOrphanedAggregates` (`internal/store/scan_helpers.go:54`), covered by tests (uses the single `starred_items` table, not per-entity star tables)
 - [ ] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors
-- [ ] `store.GetArtist` doesn't reliably populate each album's `Artists` — it combines `Preload("Artists")` with a manual `Joins("JOIN album_artists ...")` on the same many-to-many, which can return empty `Artists` (GORM gotcha). Result: `getArtist`'s album children omit `artist`/`artistId`, leaving the artist page's album-card subtitle blank (worked around in `ArtistView.vue` by falling back to the artist name). Fix the query so `Artists` preloads cleanly — e.g. filter album IDs via a subquery instead of a manual JOIN, then Preload.
 - [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
+      (partial: the *associations* are already rebuilt, not merged — `Association("Artists"/"Genres").Replace(...)` for the album in `reconcile.go:116` and for the track in `UpsertTrack` (`internal/store/track.go:12`), with `Cleanup` sweeping the orphans afterwards. What remains is album-level scalar fields, which are still updated in place on the row found by `(name_norm, album_artist_norm, mb_release_id)`.)
 - [ ] Album cover on the library grid can show another album's image after metadata edits + rescan (works correctly on the album detail view). Root causes:
     - ~~`internal/scanner/reconcile.go` only sets `album.CoverPath` when empty; it's never re-evaluated~~ — fixed: reconcile re-checks the stored path every pass via `IsUsableCoverPath` (`reconcile.go:106`, `cover.go:42`), repointing when the file is gone or its name isn't front art; regression tests in `reconcile_test.go`. Two albums sharing a directory can still both point at the same `cover.jpg`.
     - Embedded-cover lookup `internal/store/track.go:113` (`GetCoverTrackPath`) returns the *first* track with `has_embedded_cover=true`, with no ordering — which track wins is unstable across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums.
-    - ~~No `Cache-Control`/ETag on `getCoverArt` responses~~ (partially addressed: `Cache-Control: no-cache` is now set on every `getCoverArt` response, `media.go:142`; no ETag yet).
-  Still open: pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`) in `GetCoverTrackPath`; have `DeleteOrphanedAggregates` revalidate `CoverPath` for surviving albums; add a stable ETag (album `updated_at`) so edits immediately invalidate client caches.
-- [x] ~~After metadata-editor changes, re-run the metadata extract and invalidate the TanStack caches so an edit shows up without running a scan task~~ — done: `Scanner.RescanPaths` re-indexes the written files synchronously inside the save request (`internal/scanner/rescan.go`), the three metadata write endpoints report it in a non-fatal `rescan` field, and `invalidateAfterMetadataWrite` drops the `['subsonic']` tree; see [scanning.md](docs/agents/scanning.md)
-- [] Make obserbaility endpoint optional by passing or not passing the IP
+    - ~~No `Cache-Control`/ETag on `getCoverArt` responses~~ — done: `Cache-Control: no-cache` on every response (`media.go:169`) plus an ETag over path+size+mtime with `Last-Modified` deliberately omitted (`serveCoverFile`, `media.go:217`), so swapping to an *older* file still invalidates; `If-None-Match` → 304 covered in `media_test.go:610`.
+  Still open: pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`) in `GetCoverTrackPath` (`internal/store/track.go:130` has no `Order`); have `DeleteOrphanedAggregates` revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68`).
 
 ## Frontend — Music Browsing & Features
 
@@ -58,13 +54,16 @@
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
       (partial: Library now has an Artists tab with grid and virtualized list views + alphabet rail — `ArtistGrid`/`ArtistListView` — but it's still rows of artists that navigate to `ArtistView`, not the grouped artist-header + albums layout)
 - [ ] Spotify-style hover selection in song list — on row hover, show a checkbox next to the duration for multi-select
+      (a checkbox-in-the-index-cell pattern already exists in queue *edit* mode — `QueueRow.vue:65` — but the browsing song lists (`AlbumTrackRow`, `GenreTrackRow`) select by plain/ctrl/shift click with no hover affordance)
 - [ ] Album cover drag and drop in the album view
-- [x] ~~Improve the hero view of the album with details and actions~~ — `HeroHeader` + `HeroActions` (play/queue/star) now used on `AlbumView` and `ArtistView`
-- [x] ~~Improve CRUD and views of playlists (check if playlist is part of the OpenSubsonic API)~~ — full playlist CRUD implemented under `/rest/` (get/create/update/delete + cover upload) with reworked `PlaylistsView`/`PlaylistDetailView` (inline rename, batched track edit; see `2026-07-15-playlist-ui-rework` plan)
 - [ ] Better genre handling
-- [x] ~~Remove podcast placeholder~~ — no podcast references remain anywhere in `webui/src`
-- [] errors when creating library is not propagated back to user in ui => check for other errors ont printed in user dialog
 
+## Frontend — Metadata editor
+- [ ] make the path that is visible in the top ( on the side of choose folder) asa fast way to load libraries
+- [] make it easeir / faster to load a folder
+- [] check if we can add comments to metadata as part of the sandard ( e..g the unreleased alesiah dixon fon 4 u i love
+- add a toolip to let t he users kjnow that albums are groped by release id
+- when i identify multiple songs i might want to only stage a subset of the changes, e.g. genre
 
 ## Frontend — Player & Controls
 
@@ -73,20 +72,18 @@
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
+- [] All music should also contain playlists, and add filters by genre and star valuation, move the libraries at same level, if only one library make it automatic; move all music to a new entry "discover"
+- the aeteher icon shoul go to play now if playing otherwise go to discover 
 
 ## Frontend — Branding & Layout
 
 - [ ] Create an app icon / logo — favicon, PWA icons (various sizes), and a wordmark for the topbar
 - [ ] Improve icon theme
-- [x] ~~Unify the "Now Playing" / Queue view (`QueueView.vue`) onto the shared scaffold component~~ — done: the full variant renders `ContentScaffold`; the sidebar variant keeps its compact side-panel header. Body extracted to `QueueBody.vue`, shared actions to `QueueHeaderActions.vue`.
 
 ## Metadata & External Integrations
 
-- [x] ~~Metadata editor for identifying songs~~ — done: metadata editor at `/settings/metadata` with MusicBrainz identify flow (`identify.go`, `IdentifyReviewDialog.vue`, `useEditSession` staged overlays)
-- [x] ~~Tag editor ↔ MusicBrainz/DB sync~~ — done: identify flow writes MusicBrainz IDs (artist/album-artist/release/recording) into tags, `MusicBrainzArtistPicker`/`MusicBrainzAlbumPicker` + `SetArtistMBID` correct the artist MBID that drives image fetching (see `2026-07-11-metadata-editor-musicbrainz-ids` and `2026-07-05-artist-musicbrainz-match` plans)
 - [ ] Last.fm scrobbling — explore Last.fm API integration for external scrobbling
 - [ ] DLNA / UPnP endpoint — expose the library as a DLNA MediaServer so devices on the LAN (TVs, receivers, stock media players) can browse and stream without the Subsonic client
 
 
 
-~~Radio stations Grid do not share style => verify that all grid items use the same component~~ — done: `RadioStationGrid`, `AlbumGrid`, and `ArtistGrid` all render through the shared `VirtualCardGrid`
