@@ -4,13 +4,14 @@ import Dialog from 'primevue/dialog'
 import Dropdown from 'primevue/dropdown'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
-import RadioButton from 'primevue/radiobutton'
 import type {
     IdentifyCandidate,
     IdentifyPick,
     IdentifyTrackResult,
     Track
 } from '@/types/metadata'
+import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
+import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 
 // A candidate above this score is considered a confident match and its track
 // is pre-accepted when the dialog opens.
@@ -31,7 +32,9 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    (e: 'apply', picks: IdentifyPick[]): void
+    // `fields` is which of the match's values to stage; everything else on the
+    // accepted tracks is left as it is on disk.
+    (e: 'apply', picks: IdentifyPick[], fields: IdentifyFieldId[]): void
     // Cancel is not just "close": it aborts the in-flight identify request, so
     // the parent needs to hear it rather than only observing visible: false.
     (e: 'cancel'): void
@@ -46,6 +49,11 @@ interface RowState {
 }
 
 const rows = ref(new Map<string, RowState>())
+
+// Which of the match's fields get staged. All selected by default — the common
+// case is "take the match"; narrowing it is the deliberate act (e.g. stage only
+// the album on a batch of files and leave their titles alone).
+const selectedFields = ref<IdentifyFieldId[]>([...ALL_IDENTIFY_FIELD_IDS])
 
 watch(
     () => props.results,
@@ -74,9 +82,26 @@ function rowState(path: string): RowState {
     return rows.value.get(path) ?? { accepted: false, candidateIndex: 0, releaseIndex: 0 }
 }
 
+// A row is reviewable when identification actually produced something to accept;
+// the rest render as inert rows carrying their reason.
+function isReviewable(result: IdentifyTrackResult): boolean {
+    return !result.error && result.candidates.length > 0
+}
+
+// The file name identifies the row: it is unambiguous even for a file whose title
+// tag is missing, wrong, or identical to another file's. The current title tag is
+// still reachable — it is named in the Title cell's tooltip.
+function fileName(path: string): string {
+    return trackByPath.value.get(path)?.name || path
+}
+
 function currentTitle(path: string): string {
-    const t = trackByPath.value.get(path)
-    return t?.title || '(no title)'
+    return trackByPath.value.get(path)?.title ?? ''
+}
+
+function currentArtist(path: string): string {
+    const names = (trackByPath.value.get(path)?.artists ?? []).filter((n) => n !== '')
+    return names.join(', ')
 }
 
 function scorePct(score: number): string {
@@ -88,18 +113,67 @@ function candidateLabel(c: IdentifyCandidate): string {
     return artists ? `${c.title} — ${artists}` : c.title
 }
 
-function releaseOptions(c: IdentifyCandidate) {
-    return c.releases.map((r, i) => {
+// The candidate the row would stage, and the release its album fields come from.
+function chosenCandidate(path: string): IdentifyCandidate | null {
+    const result = props.results.find((r) => r.path === path)
+    return result?.candidates[rowState(path).candidateIndex] ?? null
+}
+
+// ----- current vs target -----
+// Only the target renders as a column. When it differs from the file's current
+// value it is highlighted and carries a tooltip naming what it replaces, so a
+// rename is visible at a glance without spending a column on the old value.
+
+function targetTitle(path: string): string {
+    return chosenCandidate(path)?.title ?? ''
+}
+
+function titleChanged(path: string): boolean {
+    const target = targetTitle(path)
+    return target !== '' && target !== currentTitle(path)
+}
+
+function targetArtist(path: string): string {
+    const names = (chosenCandidate(path)?.artists ?? []).map((a) => a.name).filter((n) => n !== '')
+    return names.join(', ')
+}
+
+function artistChanged(path: string): boolean {
+    const target = targetArtist(path)
+    return target !== '' && target !== currentArtist(path)
+}
+
+// The tooltip on a changed cell: what the value is now, since the column shows
+// what it will become. This is the ONLY place the file's existing title and
+// artist tags are shown — the File column identifies the file, not its tags — so
+// an absent tag has to say so rather than render as a blank tooltip.
+function replacesTooltip(current: string): string {
+    return current === '' ? 'Currently: (no value)' : `Currently: ${current}`
+}
+
+function candidateChoices(result: IdentifyTrackResult) {
+    return result.candidates.map((c, i) => ({
+        label: `${scorePct(c.score)} · ${candidateLabel(c)}`,
+        value: i
+    }))
+}
+
+function releaseChoices(path: string) {
+    const candidate = chosenCandidate(path)
+    if (!candidate) return []
+    return candidate.releases.map((r, i) => {
         let label = r.year > 0 ? `${r.album} (${r.year})` : r.album
         if (r.track_number > 0) label += ` · track ${r.track_number}`
         return { label, value: i }
     })
 }
 
-function onCandidateChange(path: string) {
-    // A different candidate has its own release list; restart at the first.
+function onCandidateChange(path: string, index: number) {
     const state = rows.value.get(path)
-    if (state) state.releaseIndex = 0
+    if (!state) return
+    state.candidateIndex = index
+    // A different candidate has its own release list; restart at the first.
+    state.releaseIndex = 0
 }
 
 const acceptedCount = computed(
@@ -119,7 +193,7 @@ function apply() {
             release: candidate.releases[state.releaseIndex] ?? null
         })
     }
-    emit('apply', picks)
+    emit('apply', picks, [...selectedFields.value])
 }
 
 // One exit path for Cancel, the header X and an Escape press: all three mean
@@ -132,12 +206,17 @@ function cancel() {
 </script>
 
 <template>
+    <!-- Same near-full-screen footprint as the album dialog: a review pass over a
+         multi-file selection is the same job at the same scale, and reviewing
+         candidates plus their release dropdowns through a keyhole is worse here
+         than there, not better. -->
     <Dialog
         :visible="visible"
         @update:visible="(v) => !v && cancel()"
         header="Identify tracks"
         modal
-        :style="{ width: '72rem', maxWidth: '95vw' }"
+        :style="{ width: '96vw', maxWidth: '96vw', height: '92vh' }"
+        class="song-identify-dialog"
     >
         <div v-if="loading" class="identify-loading" data-test="identify-loading">
             <i class="pi pi-spin pi-spinner"></i>
@@ -155,84 +234,139 @@ function cancel() {
             </div>
         </div>
 
-        <div v-else class="identify-list">
+        <IdentifyFieldSelect v-else v-model="selectedFields" testPrefix="identify" />
+
+        <div v-if="!loading" class="track-list">
+            <div class="track-list-header">
+                <span class="col-include" aria-label="Accept"></span>
+                <span class="col-current">File</span>
+                <span class="col-target">Title</span>
+                <span class="col-target">Artist</span>
+                <span class="col-choice">Recording</span>
+                <span class="col-choice">Release</span>
+            </div>
+
             <div
-                v-for="result in results"
+                v-for="(result, i) in results"
                 :key="result.path"
-                class="identify-row"
+                class="identify-track-row"
+                :class="{
+                    striped: i % 2 === 1,
+                    unmatched: !isReviewable(result),
+                    excluded: isReviewable(result) && !rowState(result.path).accepted
+                }"
                 :data-test="`identify-row-${result.path}`"
             >
-                <div class="row-header">
+                <span class="col-include">
                     <Checkbox
-                        v-if="!result.error && result.candidates.length > 0"
+                        v-if="isReviewable(result)"
                         :modelValue="rowState(result.path).accepted"
                         @update:modelValue="(v: boolean) => (rowState(result.path).accepted = v)"
                         :binary="true"
                         :inputId="`accept-${result.path}`"
                     />
-                    <label :for="`accept-${result.path}`" class="row-title">
-                        <span class="row-path">{{ result.path }}</span>
-                        <span class="row-current">current: {{ currentTitle(result.path) }}</span>
-                    </label>
-                </div>
+                </span>
 
-                <small v-if="result.error" class="row-error" data-test="identify-error">
-                    {{ result.error }}
-                </small>
-                <small
-                    v-else-if="result.candidates.length === 0"
-                    class="row-nomatch"
-                    data-test="identify-nomatch"
+                <label
+                    :for="`accept-${result.path}`"
+                    class="col-current cell-current"
+                    :data-test="`identify-file-${result.path}`"
                 >
-                    No match found.
-                </small>
-
-                <div v-else class="candidates">
-                    <div
-                        v-for="(candidate, ci) in result.candidates"
-                        :key="candidate.recording_mbid"
-                        class="candidate"
+                    <span v-tooltip.top="result.path" class="cell-value file-name">
+                        {{ fileName(result.path) }}
+                    </span>
+                    <!-- Why this row cannot be staged, in the column that names
+                         the file: an unfingerprintable file and one AcoustID
+                         simply does not know are different problems. -->
+                    <small v-if="result.error" class="row-error" data-test="identify-error">
+                        {{ result.error }}
+                    </small>
+                    <small
+                        v-else-if="result.candidates.length === 0"
+                        class="row-nomatch"
+                        data-test="identify-nomatch"
                     >
-                        <RadioButton
-                            :modelValue="rowState(result.path).candidateIndex"
-                            @update:modelValue="
-                                (v: number) => {
-                                    rowState(result.path).candidateIndex = v
-                                    onCandidateChange(result.path)
-                                }
-                            "
-                            :value="ci"
-                            :inputId="`cand-${result.path}-${ci}`"
-                        />
-                        <label :for="`cand-${result.path}-${ci}`" class="candidate-label">
-                            <span class="candidate-score">{{ scorePct(candidate.score) }}</span>
-                            {{ candidateLabel(candidate) }}
-                        </label>
-                        <Dropdown
-                            v-if="
-                                ci === rowState(result.path).candidateIndex &&
-                                candidate.releases.length > 1
-                            "
-                            class="release-select"
-                            :modelValue="rowState(result.path).releaseIndex"
-                            @update:modelValue="
-                                (v: number) => (rowState(result.path).releaseIndex = v)
-                            "
-                            :options="releaseOptions(candidate)"
-                            optionLabel="label"
-                            optionValue="value"
-                        />
-                        <span
-                            v-else-if="
-                                ci === rowState(result.path).candidateIndex &&
-                                candidate.releases.length === 1
-                            "
-                            class="release-single"
-                        >
-                            {{ releaseOptions(candidate)[0].label }}
-                        </span>
-                    </div>
-                </div>
+                        No match found.
+                    </small>
+                </label>
+
+                <span
+                    class="col-target cell-target"
+                    :class="{ changed: titleChanged(result.path) }"
+                    :data-test="`identify-title-${result.path}`"
+                >
+                    <span
+                        v-if="targetTitle(result.path) !== ''"
+                        v-tooltip.top="
+                            titleChanged(result.path)
+                                ? replacesTooltip(currentTitle(result.path))
+                                : ''
+                        "
+                        class="cell-value"
+                        >{{ targetTitle(result.path) }}</span
+                    >
+                    <span v-else class="cell-unchanged">unchanged</span>
+                </span>
+
+                <span
+                    class="col-target cell-target"
+                    :class="{ changed: artistChanged(result.path) }"
+                    :data-test="`identify-artist-${result.path}`"
+                >
+                    <span
+                        v-if="targetArtist(result.path) !== ''"
+                        v-tooltip.top="
+                            artistChanged(result.path)
+                                ? replacesTooltip(currentArtist(result.path))
+                                : ''
+                        "
+                        class="cell-value"
+                        >{{ targetArtist(result.path) }}</span
+                    >
+                    <span v-else class="cell-unchanged">unchanged</span>
+                </span>
+
+                <!-- Candidate and release as dropdowns rather than a radio list:
+                     AcoustID routinely returns several recordings each with a
+                     dozen releases, which as stacked radios turns one file into
+                     half a screen. One row per file keeps the table scannable. -->
+                <Dropdown
+                    v-if="isReviewable(result)"
+                    class="col-choice row-choice"
+                    :data-test="`identify-candidate-${result.path}`"
+                    :modelValue="rowState(result.path).candidateIndex"
+                    @update:modelValue="(v: number) => onCandidateChange(result.path, v)"
+                    :options="candidateChoices(result)"
+                    optionLabel="label"
+                    optionValue="value"
+                />
+                <span v-else class="col-choice"></span>
+
+                <Dropdown
+                    v-if="isReviewable(result) && releaseChoices(result.path).length > 1"
+                    class="col-choice row-choice"
+                    :data-test="`identify-release-${result.path}`"
+                    :modelValue="rowState(result.path).releaseIndex"
+                    @update:modelValue="(v: number) => (rowState(result.path).releaseIndex = v)"
+                    :options="releaseChoices(result.path)"
+                    optionLabel="label"
+                    optionValue="value"
+                />
+                <span
+                    v-else-if="isReviewable(result) && releaseChoices(result.path).length === 1"
+                    class="col-choice cell-release-single"
+                    :data-test="`identify-release-single-${result.path}`"
+                >
+                    <span class="cell-value">{{ releaseChoices(result.path)[0].label }}</span>
+                </span>
+                <span
+                    v-else-if="isReviewable(result)"
+                    class="col-choice cell-release-single"
+                    :data-test="`identify-release-none-${result.path}`"
+                >
+                    <span class="cell-unchanged">no release</span>
+                </span>
+                <span v-else class="col-choice"></span>
             </div>
         </div>
 
@@ -243,7 +377,7 @@ function cancel() {
                 :label="`Stage ${acceptedCount} track${acceptedCount === 1 ? '' : 's'}`"
                 icon="pi pi-check"
                 data-test="identify-apply"
-                :disabled="acceptedCount === 0"
+                :disabled="acceptedCount === 0 || selectedFields.length === 0"
                 @click="apply"
             />
         </template>
@@ -274,87 +408,159 @@ function cancel() {
 .loading-note {
     color: var(--app-text-secondary);
 }
-.identify-list {
+/* A fixed-height dialog only pays off if the body actually fills it: make the
+   PrimeVue content region a flex column so the row list absorbs the leftover
+   height and scrolls internally, instead of the whole dialog overflowing. Needs
+   :deep() because these are PrimeVue's own elements, not ours. */
+.song-identify-dialog:deep(.p-dialog-content) {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    max-height: 75vh;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+/* One row per file, styled as the album dialog's track table: a shared grid
+   template for the header and every row, uppercase column labels, zebra striping,
+   and the same current-vs-target column pairs. Kept as a local copy of the
+   pattern rather than extracted — the two tables share a look, not a data shape
+   (no disc grouping or tracklist gaps here; a recording/release pair instead of a
+   position dropdown). */
+.track-list {
+    /* accept · file · title · artist · recording · release. Only the
+       target side of each pair gets a column — the file's own title and artist
+       tags live in the target cell's "Currently: …" tooltip, which keeps the
+       table narrow enough for the two choice columns to show their long labels
+       (the recording label carries the match score). */
+    --identify-track-cols: 2.2rem minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr)
+        minmax(0, 1.5fr) minmax(0, 1.5fr);
+    display: flex;
+    flex-direction: column;
+    /* Takes the height the field row leaves over and scrolls on its own, so the
+       "Stage fields" checkboxes stay pinned while the results scroll under them. */
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
 }
-.identify-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    padding: 0.6rem;
-    border: 1px solid var(--app-border);
-    border-radius: 6px;
+.track-list-header {
+    display: grid;
+    grid-template-columns: var(--identify-track-cols);
+    column-gap: 0.75rem;
+    padding: 0 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--app-border);
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+    /* The header stays put while a long result list scrolls under it. */
+    position: sticky;
+    top: 0;
+    background: var(--app-surface, #fff);
+    z-index: 1;
 }
-.row-header {
-    display: flex;
+.identify-track-row {
+    display: grid;
+    grid-template-columns: var(--identify-track-cols);
     align-items: center;
-    gap: 0.5rem;
+    column-gap: 0.75rem;
+    width: 100%;
+    min-height: 56px;
+    padding: 0 0.5rem;
+    box-sizing: border-box;
 }
-.row-title {
+.identify-track-row.striped {
+    background-color: rgba(0, 0, 0, 0.025);
+}
+.identify-track-row:hover {
+    background-color: var(--app-hover);
+}
+/* A file identification could not place at all. Inert and greyed: there is
+   nothing to accept or re-point, so it reads as a hole in the batch rather than a
+   row the user forgot to tick. */
+.identify-track-row.unmatched {
+    opacity: 0.55;
+}
+.identify-track-row.unmatched:hover {
+    background-color: transparent;
+}
+.identify-track-row.unmatched.striped:hover {
+    background-color: rgba(0, 0, 0, 0.025);
+}
+/* An unaccepted row stages nothing; dim it so the accepted set reads clearly. */
+.identify-track-row.excluded .col-current,
+.identify-track-row.excluded .col-target {
+    opacity: 0.5;
+}
+/* The File column (muted — it is context) and the target columns (emphasised,
+   since that is what a save writes) share a layout. */
+.col-current,
+.col-target {
     display: flex;
     flex-direction: column;
     min-width: 0;
+}
+/* The File cell is a label for the row's accept checkbox, so it clicks. */
+.col-current {
     cursor: pointer;
 }
-.row-path {
-    font-size: 0.85rem;
-    font-weight: 600;
+.cell-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.row-current {
+.cell-current .cell-value {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+/* The file name identifies the row, so it reads as a path rather than prose, and
+   hovering shows the full path relative to the library. */
+.file-name {
+    font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    font-size: 0.8rem;
+    cursor: help;
+}
+.cell-target .cell-value {
+    font-size: 0.9rem;
+    color: var(--app-text-primary);
+}
+/* A value that actually differs from the file's own: emphasised, and the only one
+   that carries the "Currently: …" tooltip. --app-staged is the editor's
+   established colour for a pending tag change (see EditPanel's .field-dirty
+   rows), which is exactly what this is. */
+.cell-target.changed .cell-value {
+    font-weight: 600;
+    color: var(--app-staged);
+    cursor: help;
+}
+.cell-unchanged {
+    font-size: 0.8rem;
+    font-style: italic;
+    color: var(--app-text-secondary);
+    opacity: 0.7;
+}
+.row-error {
+    font-size: 0.75rem;
+    color: var(--p-red-600, #dc2626);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.row-nomatch {
     font-size: 0.75rem;
     color: var(--app-text-secondary);
 }
-.row-error {
-    color: var(--p-red-600, #dc2626);
+.row-choice {
+    /* The grid column already sizes these; keep them from overflowing on a long
+       recording or release label. */
+    min-width: 0;
+    max-width: 100%;
 }
-.row-nomatch {
-    color: var(--app-text-secondary);
-}
-.candidates {
+.cell-release-single {
     display: flex;
     flex-direction: column;
-    gap: 0.3rem;
-    padding-left: 1.6rem;
-}
-.candidate {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
     min-width: 0;
-}
-.candidate-label {
-    font-size: 0.85rem;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-}
-.candidate-score {
-    display: inline-block;
-    min-width: 2.6rem;
-    font-variant-numeric: tabular-nums;
-    color: var(--app-accent);
-    font-weight: 600;
-}
-.release-select {
-    margin-left: auto;
-    max-width: 16rem;
-}
-.release-single {
-    margin-left: auto;
     font-size: 0.8rem;
     color: var(--app-text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 16rem;
 }
 </style>

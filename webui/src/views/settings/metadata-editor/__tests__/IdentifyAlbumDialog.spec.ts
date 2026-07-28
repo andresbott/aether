@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import IdentifyAlbumDialog from '@/views/settings/metadata-editor/IdentifyAlbumDialog.vue'
+import { ALL_IDENTIFY_FIELD_IDS, IDENTIFY_FIELDS } from '@/lib/identifyFields'
 import type { AlbumOption, Track } from '@/types/metadata'
 
 const stubs = {
@@ -52,6 +53,13 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
 })
 
 const tracks = [mkTrack({ path: '01.mp3' }), mkTrack({ path: '02.mp3' })]
+
+// A row's include checkbox, by the file it belongs to. Queried by id rather than
+// by position among all checkboxes: the field-selection row above the table has
+// checkboxes too, so an index would silently drift onto one of those.
+function includeBox(w: ReturnType<typeof mount>, path: string) {
+    return w.find(`#album-include-${path.replace('.', '\\.')}`)
+}
 
 const albumA: AlbumOption = {
     release_mbid: 'rel-A',
@@ -182,16 +190,20 @@ function mountDialog(
 }
 
 describe('IdentifyAlbumDialog track table', () => {
-    it('renders a current/target column pair for both title and artist', () => {
+    it('names the staged columns after the fields they write, with no current-value pair', () => {
         const w = mountDialog([albumA])
         const header = w.find('.track-list-header')
         expect(header.exists()).toBe(true)
         const text = header.text()
         expect(text).toContain('#')
         expect(text).toContain('File')
-        expect(text).toContain('New title')
+        expect(text).toContain('Title')
         expect(text).toContain('Artist')
-        expect(text).toContain('New artist')
+        expect(text).toContain('Album')
+        expect(text).toContain('Year')
+        // The current tags are in the cells' tooltips, not in columns of their
+        // own, so nothing is labelled as the "new" value of a pair.
+        expect(text).not.toContain('New')
     })
 
     it('shows the proposed track number in the index column', () => {
@@ -221,12 +233,72 @@ describe('IdentifyAlbumDialog track table', () => {
         expect(w.find('[data-test="album-title-01.mp3"]').text()).toContain('One')
     })
 
-    it('reports the current title tag in the new-title tooltip', () => {
+    it('reports the current title tag in the Title cell tooltip', () => {
         // With the title tag off the table, the tooltip is the only place it
         // appears — so it has to carry it rather than merely flag a change.
         const w = mountDialog([albumA])
         const cell = w.find('[data-test="album-title-01.mp3"]').find('.cell-value')
         expect(cell.attributes('data-pd-tooltip')).toBeDefined()
+    })
+
+    it('shows the release album and year on every row, from the chosen option', () => {
+        // Both are release-level, so each row stages the same value — but they are
+        // shown per row because whether they CHANGE anything is per row.
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-album-01.mp3"]').text()).toBe('Album A')
+        expect(w.find('[data-test="album-album-02.mp3"]').text()).toBe('Album A')
+        expect(w.find('[data-test="album-year-01.mp3"]').text()).toBe('1991')
+        expect(w.find('[data-test="album-year-02.mp3"]').text()).toBe('1991')
+    })
+
+    it('flags album and year per row, so a mixed selection reads correctly', () => {
+        // 01.mp3 already carries the release's album and year, 02.mp3 carries
+        // neither: the same staged value is a change for one row and not the other.
+        const mixed = [
+            mkTrack({ path: '01.mp3', album: 'Album A', year: 1991 }),
+            mkTrack({ path: '02.mp3' })
+        ]
+        const w = mountDialog([albumA], mixed)
+        expect(w.find('[data-test="album-album-01.mp3"]').classes()).not.toContain('changed')
+        expect(w.find('[data-test="album-year-01.mp3"]').classes()).not.toContain('changed')
+        expect(w.find('[data-test="album-album-02.mp3"]').classes()).toContain('changed')
+        expect(w.find('[data-test="album-year-02.mp3"]').classes()).toContain('changed')
+        // And the tooltip only rides the cells that replace something.
+        expect(
+            w.find('[data-test="album-album-01.mp3"]').find('.cell-value').attributes('data-pd-tooltip')
+        ).toBeUndefined()
+        expect(
+            w.find('[data-test="album-album-02.mp3"]').find('.cell-value').attributes('data-pd-tooltip')
+        ).toBeDefined()
+    })
+
+    it('stages album and year on a row with no position at all', () => {
+        // albumB's 02.mp3 has source 'none', so it stages no title — but the
+        // release-level fields still apply to it.
+        const w = mountDialog([albumB])
+        expect(w.find('[data-test="album-title-02.mp3"]').text()).toContain('unchanged')
+        expect(w.find('[data-test="album-album-02.mp3"]').text()).toBe('Best Of')
+        expect(w.find('[data-test="album-year-02.mp3"]').text()).toBe('2005')
+    })
+
+    it('marks a release with no year as unchanged rather than showing a zero', () => {
+        const noYear: AlbumOption = { ...albumA, year: 0 }
+        const w = mountDialog([noYear])
+        const cell = w.find('[data-test="album-year-01.mp3"]')
+        expect(cell.text()).toBe('unchanged')
+        expect(cell.classes()).not.toContain('changed')
+    })
+
+    it('re-derives album and year when another release is chosen', async () => {
+        const w = mountDialog([albumA, albumB])
+        expect(w.find('[data-test="album-album-01.mp3"]').text()).toBe('Album A')
+
+        const select = w.find('[data-test="album-select"]')
+        ;(select.element as HTMLSelectElement).selectedIndex = 1
+        await select.trigger('change')
+
+        expect(w.find('[data-test="album-album-01.mp3"]').text()).toBe('Best Of')
+        expect(w.find('[data-test="album-year-01.mp3"]').text()).toBe('2005')
     })
 
     it('falls back to the release artist when a row carries no credits', () => {
@@ -251,6 +323,9 @@ describe('IdentifyAlbumDialog track table', () => {
 
         const artist = w.find('[data-test="album-artist-01.mp3"]')
         expect(artist.classes()).toContain('changed')
+        // Same contract as the title: with no current-artist column, the tooltip is
+        // the only place the credit being replaced is shown, so it must be attached.
+        expect(artist.find('.cell-value').attributes('data-pd-tooltip')).toBeDefined()
     })
 
     it('does not flag a target equal to the value the file already has', () => {
@@ -473,8 +548,7 @@ describe('IdentifyAlbumDialog', () => {
 
     it('excludes an unchecked song from the picks', async () => {
         const w = mountDialog([albumA])
-        const boxes = w.findAll('input[type="checkbox"]')
-        await boxes[0].setValue(false)
+        await includeBox(w, '01.mp3').setValue(false)
         await w.find('[data-test="album-apply"]').trigger('click')
         const picks = w.emitted('apply')![0][0] as any[]
         expect(picks.map((p: any) => p.path)).toEqual(['02.mp3'])
@@ -483,7 +557,7 @@ describe('IdentifyAlbumDialog', () => {
     it('labels the apply button with the included count', async () => {
         const w = mountDialog([albumA])
         expect(w.find('[data-test="album-apply"]').text()).toBe('Stage 2 songs')
-        await w.findAll('input[type="checkbox"]')[0].setValue(false)
+        await includeBox(w, '01.mp3').setValue(false)
         expect(w.find('[data-test="album-apply"]').text()).toBe('Stage 1 song')
     })
 
@@ -593,8 +667,7 @@ describe('IdentifyAlbumDialog', () => {
     it('multi-disc: re-pointing to disc 2 track 1 stages disc 2 metadata', async () => {
         const w = mountDialog([multiDisc])
         // Uncheck 02.mp3 first so disc 2 track 1 becomes available for 01.mp3.
-        const boxes = w.findAll('input[type="checkbox"]')
-        await boxes[1].setValue(false)
+        await includeBox(w, '02.mp3').setValue(false)
 
         // Now 01.mp3's dropdown offers disc 2 track 1 (it was taken by 02.mp3 before).
         const rowSelect = w.find('[data-test="album-slot-01.mp3"]')
@@ -630,12 +703,94 @@ describe('IdentifyAlbumDialog', () => {
         expect(values).not.toContain('1-1')
 
         // Uncheck 01.mp3 to free disc 1 track 1.
-        const boxes = w.findAll('input[type="checkbox"]')
-        await boxes[0].setValue(false)
+        await includeBox(w, '01.mp3').setValue(false)
 
         // Now 02.mp3's dropdown offers disc 1 track 1.
         options = row2Select.findAll('option')
         values = options.map(o => o.element.value)
         expect(values).toContain('1-1')
+    })
+})
+
+describe('IdentifyAlbumDialog field selection', () => {
+    it('offers a checkbox per stageable field, all selected by default', async () => {
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-fields"]').exists()).toBe(true)
+        for (const field of IDENTIFY_FIELDS) {
+            const box = w.find(`[data-test="album-field-${field.id}"]`)
+            expect(box.exists()).toBe(true)
+            expect((box.element as HTMLInputElement).checked).toBe(true)
+        }
+
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect(w.emitted('apply')![0][1]).toEqual([...ALL_IDENTIFY_FIELD_IDS])
+    })
+
+    it('hides the field row while the request is still in flight', () => {
+        const w = mountDialog([], tracks, [], true)
+        expect(w.find('[data-test="album-fields"]').exists()).toBe(false)
+    })
+
+    it('emits only the fields left checked', async () => {
+        // The album case this exists for: a rip whose titles are already right,
+        // where only the release-level tags should be taken from the match.
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-field-title"]').setValue(false)
+        await w.find('[data-test="album-field-track_number"]').setValue(false)
+
+        await w.find('[data-test="album-apply"]').trigger('click')
+        const fields = w.emitted('apply')![0][1] as string[]
+        expect(fields).not.toContain('title')
+        expect(fields).not.toContain('track_number')
+        expect(fields).toContain('album')
+        // The picks are unaffected: narrowing is about which values get staged,
+        // not which songs were included.
+        expect((w.emitted('apply')![0][0] as any[]).map((p: any) => p.path)).toEqual([
+            '01.mp3',
+            '02.mp3'
+        ])
+    })
+
+    it('None clears every field and blocks apply until something is picked', async () => {
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-fields-none"]').trigger('click')
+        expect(w.find('[data-test="album-apply"]').attributes('disabled')).toBeDefined()
+
+        await w.find('[data-test="album-field-album"]').setValue(true)
+        expect(w.find('[data-test="album-apply"]').attributes('disabled')).toBeUndefined()
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect(w.emitted('apply')![0][1]).toEqual(['album'])
+    })
+
+    it('All restores the full selection after narrowing it', async () => {
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-fields-none"]').trigger('click')
+        await w.find('[data-test="album-fields-all"]').trigger('click')
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect(w.emitted('apply')![0][1]).toEqual([...ALL_IDENTIFY_FIELD_IDS])
+    })
+
+    it('emits the fields in registry order regardless of click order', async () => {
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-fields-none"]').trigger('click')
+        await w.find('[data-test="album-field-year"]').setValue(true)
+        await w.find('[data-test="album-field-album"]').setValue(true)
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect(w.emitted('apply')![0][1]).toEqual(['album', 'year'])
+    })
+
+    it('keeps the selection when another album is chosen', async () => {
+        // Switching releases resets the per-row positions, but which FIELDS to
+        // stage is a preference about the tags, not about the tracklist.
+        const w = mountDialog([albumA, albumB])
+        await w.find('[data-test="album-fields-none"]').trigger('click')
+        await w.find('[data-test="album-field-album"]').setValue(true)
+
+        const select = w.find('[data-test="album-select"]')
+        ;(select.element as HTMLSelectElement).selectedIndex = 1
+        await select.trigger('change')
+
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect(w.emitted('apply')![0][1]).toEqual(['album'])
     })
 })

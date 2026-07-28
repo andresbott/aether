@@ -16,6 +16,7 @@ import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
 import IdentifyReviewDialog from './metadata-editor/IdentifyReviewDialog.vue'
 import IdentifyAlbumDialog from './metadata-editor/IdentifyAlbumDialog.vue'
+import { pickOverlayFields, type IdentifyFieldId } from '@/lib/identifyFields'
 import type {
     AlbumIdentifyPick,
     AlbumOption,
@@ -203,9 +204,12 @@ function onIdentifyCancel() {
     identifyAbort = null
 }
 
-function onIdentifyApply(picks: IdentifyPick[]) {
+function onIdentifyApply(picks: IdentifyPick[], fields: IdentifyFieldId[]) {
     const entries = new Map<string, TrackOverlay>(
-        picks.map((p) => [p.path, candidateToOverlay(p.candidate, p.release)])
+        picks.map((p) => [
+            p.path,
+            pickOverlayFields(candidateToOverlay(p.candidate, p.release), fields)
+        ])
     )
     session.stageOverlays(entries)
     identifyDialog.value = false
@@ -267,9 +271,9 @@ function onAlbumIdentifyCancel() {
     albumIdentifyAbort = null
 }
 
-function onAlbumIdentifyApply(picks: AlbumIdentifyPick[]) {
+function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldId[]) {
     const entries = new Map<string, TrackOverlay>(
-        picks.map((p) => [p.path, albumPickToOverlay(p)])
+        picks.map((p) => [p.path, pickOverlayFields(albumPickToOverlay(p), fields)])
     )
     session.stageOverlays(entries)
     albumDialog.value = false
