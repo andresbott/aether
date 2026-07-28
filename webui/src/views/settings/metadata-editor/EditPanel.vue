@@ -672,7 +672,24 @@ const rawMode = ref(false)
             </template>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('album') }">
-                <label>Name</label>
+                <label>
+                    Name
+                    <i
+                        class="pi pi-exclamation-circle field-warn"
+                        v-tooltip.right="{
+                            value:
+                                'Songs form one album when their album name, album artist and ' +
+                                'Release ID all match. Upper/lower case and accents don\'t ' +
+                                'matter.\n\n' +
+                                'An empty Release ID is treated as a value too, so songs ' +
+                                'without one still group together — but they never join songs ' +
+                                'that have one. Set the Release ID on all songs of an album or ' +
+                                'on none; filling it for only some splits the album in two.',
+                            class: 'wide-tooltip'
+                        }"
+                        data-test="album-grouping-help"
+                    ></i>
+                </label>
                 <InputText
                     class="album-name"
                     v-model="values.album"
@@ -692,22 +709,7 @@ const rawMode = ref(false)
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_id') }">
-                <label>
-                    Release ID
-                    <i
-                        class="pi pi-exclamation-circle field-warn"
-                        v-tooltip.right="
-                            'Songs end up in the same album when three things match: the album ' +
-                            'name, the album artist and this Release ID (capitalisation and ' +
-                            'accents are ignored). Leaving it empty is fine — songs with no ' +
-                            'Release ID are grouped by album name and album artist alone. But ' +
-                            'an empty ID never matches a filled-in one, so if only some songs ' +
-                            'of an album carry it, that album shows up twice in the library. ' +
-                            'Set it on every song of the album, or on none of them.'
-                        "
-                        data-test="release-id-help"
-                    ></i>
-                </label>
+                <label>Release ID</label>
                 <InputText
                     class="album-mbid"
                     v-model="values.mb_release_id"

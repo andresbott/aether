@@ -62,7 +62,7 @@
 - [ ] make the path that is visible in the top ( on the side of choose folder) asa fast way to load libraries
 - [] make it easeir / faster to load a folder
 - [] check if we can add comments to metadata as part of the sandard ( e..g the unreleased alesiah dixon fon 4 u i love
-- [x] ~~add a toolip to let t he users kjnow that albums are groped by release id~~ — done: `!` marker on the Release ID field in `EditPanel.vue` spelling out the `(album name, album artist, release ID)` identity and the empty-ID-splits-the-album trap
+- [x] ~~add a toolip to let t he users kjnow that albums are groped by release id~~ — done: `!` marker on the album Name field in `EditPanel.vue` spelling out the `(album name, album artist, release ID)` identity and the empty-ID-splits-the-album trap
 - when i identify multiple songs i might want to only stage a subset of the changes, e.g. genre
 
 ## Frontend — Player & Controls

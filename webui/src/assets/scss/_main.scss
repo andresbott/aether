@@ -84,6 +84,15 @@ a:hover {
     justify-content: flex-start;
 }
 
+/* Opt-in wider tooltip for explanatory help text that reads as a short
+   paragraph rather than a label. The theme caps .p-tooltip at
+   tooltip.max.width (~12.5rem), which wraps prose into a tall narrow ribbon.
+   Global because a tooltip renders in a body-level overlay, out of reach of the
+   originating component's scoped styles. */
+.p-tooltip.wide-tooltip {
+    max-width: 26rem;
+}
+
 /* Shared centered content column for main content views. Content inside is at
    most --app-content-max-width wide; the gutter keeps it off the edges when
    the pane is narrower. See docs/architecture/main-content-view-layout.md. */
