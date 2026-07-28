@@ -260,6 +260,13 @@ describe('EditPanel album section', () => {
         expect(text).toContain('empty')
         expect(text).toContain('splits the album')
     })
+
+    it('widens the album artists help tooltip too', () => {
+        const { wrapper } = mountPanel([mkTrack()])
+        const marker = wrapper.find('[data-test="album-artists-help"]')
+        expect(marker.attributes('data-tooltip-class')).toBe('wide-tooltip')
+        expect(marker.attributes('data-tooltip')).toContain('filed under')
+    })
 })
 
 describe('EditPanel staging and undo', () => {

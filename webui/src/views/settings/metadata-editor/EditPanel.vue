@@ -777,12 +777,14 @@ const rawMode = ref(false)
                     Album artists
                     <i
                         class="pi pi-question-circle field-help"
-                        v-tooltip.right="
-                            'The main artist the whole album is filed under, used for grouping ' +
-                            'in the library. Usually one per album — it stays the same even when ' +
-                            'individual tracks credit featured guests or, on compilations, ' +
-                            'is “Various Artists”.'
-                        "
+                        v-tooltip.right="{
+                            value:
+                                'The main artist the whole album is filed under, used for ' +
+                                'grouping in the library. Usually one per album — it stays the ' +
+                                'same even when individual tracks credit featured guests or, on ' +
+                                'compilations, is “Various Artists”.',
+                            class: 'wide-tooltip'
+                        }"
                         data-test="album-artists-help"
                     ></i>
                     <Button
