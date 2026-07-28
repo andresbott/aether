@@ -29,7 +29,7 @@ const mountLayout = () =>
     mount(SettingsLayout, {
         global: {
             directives: { tooltip: {} },
-            stubs: { RouterView: true }
+            stubs: { RouterView: true, Toast: { template: '<div class="toast-outlet" />' } }
         }
     })
 
@@ -84,6 +84,14 @@ describe('SettingsLayout', () => {
     it('checks the screen width on mount to auto-collapse on narrow screens', () => {
         mountLayout()
         expect(checkScreenWidth).toHaveBeenCalled()
+    })
+
+    // Settings views report failures through useToast (library CRUD, task
+    // actions). PrimeVue drops any toast raised with no Toast component mounted,
+    // and the only other outlet is in PlayerLayout, which never renders under
+    // /settings — so without this outlet those errors are silently swallowed.
+    it('mounts a Toast outlet so settings views can surface errors', () => {
+        expect(mountLayout().find('.toast-outlet').exists()).toBe(true)
     })
 
     it('runs the logout placeholder from the Account area without navigating', async () => {

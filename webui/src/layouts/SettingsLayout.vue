@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import Toast from 'primevue/toast'
 import { useUiStore } from '@/store/uiStore'
 import { useVersion } from '@/composables/useVersion'
 
@@ -141,6 +142,12 @@ onUnmounted(() => {
         <main class="settings-content">
             <RouterView />
         </main>
+
+        <!-- Every settings view reports failures through useToast (library CRUD,
+             task actions). Without a Toast outlet in this layout those messages
+             are raised and silently dropped, since the only other outlet lives
+             in PlayerLayout, which is not mounted under /settings. -->
+        <Toast />
     </div>
 </template>
 

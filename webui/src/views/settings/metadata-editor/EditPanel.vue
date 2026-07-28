@@ -672,7 +672,24 @@ const rawMode = ref(false)
             </template>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('album') }">
-                <label>Name</label>
+                <label>
+                    Name
+                    <i
+                        class="pi pi-exclamation-circle field-warn"
+                        v-tooltip.right="{
+                            value:
+                                'Songs form one album when their album name, album artist and ' +
+                                'Release ID all match. Upper/lower case and accents don\'t ' +
+                                'matter.\n\n' +
+                                'An empty Release ID is treated as a value too, so songs ' +
+                                'without one still group together — but they never join songs ' +
+                                'that have one. Set the Release ID on all songs of an album or ' +
+                                'on none; filling it for only some splits the album in two.',
+                            class: 'wide-tooltip'
+                        }"
+                        data-test="album-grouping-help"
+                    ></i>
+                </label>
                 <InputText
                     class="album-name"
                     v-model="values.album"
@@ -760,12 +777,14 @@ const rawMode = ref(false)
                     Album artists
                     <i
                         class="pi pi-question-circle field-help"
-                        v-tooltip.right="
-                            'The main artist the whole album is filed under, used for grouping ' +
-                            'in the library. Usually one per album — it stays the same even when ' +
-                            'individual tracks credit featured guests or, on compilations, ' +
-                            'is “Various Artists”.'
-                        "
+                        v-tooltip.right="{
+                            value:
+                                'The main artist the whole album is filed under, used for ' +
+                                'grouping in the library. Usually one per album — it stays the ' +
+                                'same even when individual tracks credit featured guests or, on ' +
+                                'compilations, is “Various Artists”.',
+                            class: 'wide-tooltip'
+                        }"
                         data-test="album-artists-help"
                     ></i>
                     <Button
@@ -1099,6 +1118,15 @@ const rawMode = ref(false)
 .field-help {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+    cursor: help;
+    vertical-align: middle;
+    margin-left: 0.15rem;
+}
+/* Same affordance as .field-help, but flagged rather than merely explanatory:
+   getting this field wrong silently splits an album in two in the library. */
+.field-warn {
+    font-size: 0.8rem;
+    color: var(--app-staged);
     cursor: help;
     vertical-align: middle;
     margin-left: 0.15rem;

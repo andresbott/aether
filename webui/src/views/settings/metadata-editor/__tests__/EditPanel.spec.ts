@@ -108,13 +108,35 @@ const stubs = {
 }
 
 // Stands in for PrimeVue's v-tooltip and mirrors the bound text onto the
-// element so tests can assert what the user would read on hover.
+// element so tests can assert what the user would read on hover. Handles both
+// binding shapes the real directive accepts: a bare string, and the options
+// object used when a tooltip also needs a class (see the album grouping help).
+type TooltipBinding = { value: unknown }
+
+function tooltipText(binding: TooltipBinding): string {
+    const v = binding.value
+    if (v && typeof v === 'object' && 'value' in v) {
+        return String((v as { value: unknown }).value ?? '')
+    }
+    return String(v ?? '')
+}
+
+function tooltipClass(binding: TooltipBinding): string {
+    const v = binding.value
+    if (v && typeof v === 'object' && 'class' in v) {
+        return String((v as { class: unknown }).class ?? '')
+    }
+    return ''
+}
+
 const tooltipRecorder = {
-    mounted(el: HTMLElement, binding: { value: unknown }) {
-        el.setAttribute('data-tooltip', String(binding.value ?? ''))
+    mounted(el: HTMLElement, binding: TooltipBinding) {
+        el.setAttribute('data-tooltip', tooltipText(binding))
+        el.setAttribute('data-tooltip-class', tooltipClass(binding))
     },
-    updated(el: HTMLElement, binding: { value: unknown }) {
-        el.setAttribute('data-tooltip', String(binding.value ?? ''))
+    updated(el: HTMLElement, binding: TooltipBinding) {
+        el.setAttribute('data-tooltip', tooltipText(binding))
+        el.setAttribute('data-tooltip-class', tooltipClass(binding))
     }
 }
 
@@ -214,6 +236,36 @@ describe('EditPanel song section', () => {
         expect((input.element as HTMLInputElement).value).toBe('old-rec')
         await input.setValue('new-rec')
         expect(stagedPatch(session, track).mb_recording_id).toBe('new-rec')
+    })
+})
+
+describe('EditPanel album section', () => {
+    // Album identity in the store is (album name, album artist, release ID) —
+    // see store.FindOrCreateAlbum. An empty release ID is a value like any
+    // other, not a wildcard, so a partially-tagged album splits into two rows in
+    // the library. That trap is invisible from the form, hence the marker.
+    it('explains the album grouping rules on the album name field', () => {
+        const { wrapper } = mountPanel([mkTrack()])
+        const marker = wrapper.find('[data-test="album-grouping-help"]')
+        expect(marker.exists()).toBe(true)
+        expect(marker.classes()).toContain('pi-exclamation-circle')
+        // Prose needs more room than the theme's default tooltip width.
+        expect(marker.attributes('data-tooltip-class')).toBe('wide-tooltip')
+
+        const text = marker.attributes('data-tooltip') ?? ''
+        // The three grouping keys, and what an empty release ID does.
+        expect(text).toContain('album name')
+        expect(text).toContain('album artist')
+        expect(text).toContain('Release ID')
+        expect(text).toContain('empty')
+        expect(text).toContain('splits the album')
+    })
+
+    it('widens the album artists help tooltip too', () => {
+        const { wrapper } = mountPanel([mkTrack()])
+        const marker = wrapper.find('[data-test="album-artists-help"]')
+        expect(marker.attributes('data-tooltip-class')).toBe('wide-tooltip')
+        expect(marker.attributes('data-tooltip')).toContain('filed under')
     })
 })
 
