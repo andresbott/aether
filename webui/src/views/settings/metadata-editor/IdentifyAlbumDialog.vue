@@ -10,6 +10,8 @@ import type {
     AlbumOption,
     Track
 } from '@/types/metadata'
+import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
+import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 
 // Sentinel slot values for the per-row re-point dropdown: keep the server's
 // proposal, or drop the position entirely (album fields only).
@@ -33,7 +35,9 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
-    (e: 'apply', picks: AlbumIdentifyPick[]): void
+    // `fields` is which of the release's values to stage; everything else on the
+    // included songs is left as it is on disk.
+    (e: 'apply', picks: AlbumIdentifyPick[], fields: IdentifyFieldId[]): void
     // Cancel is not just "close": it aborts the in-flight identify request, so
     // the parent needs to hear it rather than only observing visible: false.
     (e: 'cancel'): void
@@ -49,6 +53,11 @@ interface RowState {
 
 const selectedMbid = ref('')
 const rows = ref(new Map<string, RowState>())
+
+// Which of the release's fields get staged. All selected by default — the common
+// case is "take the release"; narrowing it is the deliberate act (e.g. stage the
+// album and year over a rip whose titles are already right).
+const selectedFields = ref<IdentifyFieldId[]>([...ALL_IDENTIFY_FIELD_IDS])
 
 const selectedOption = computed<AlbumOption | undefined>(() =>
     props.options.find((o) => o.release_mbid === selectedMbid.value)
@@ -140,10 +149,10 @@ function rowError(path: string): string {
     return assignmentByPath.value.get(path)?.error ?? ''
 }
 
-// The file name, which is what the Song column shows: it identifies the row
+// The file name, which is what the File column shows: it identifies the row
 // unambiguously even for a file whose title tag is missing, wrong, or identical
 // to another file's. The current title tag is still reachable — it is named in
-// the new-title cell's tooltip.
+// the Title cell's tooltip.
 function fileName(path: string): string {
     return trackByPath.value.get(path)?.name || path
 }
@@ -155,16 +164,29 @@ function currentTitle(path: string): string {
     return t?.title ?? ''
 }
 
-// The artist the file carries today, for the current-artist column.
+// The artist the file carries today. Like currentTitle, not a column of its own:
+// it is what a proposed artist is compared against and what the tooltip reports.
 function currentArtist(path: string): string {
     const names = (trackByPath.value.get(path)?.artists ?? []).filter((n) => n !== '')
     return names.length > 0 ? names.join(', ') : ''
 }
 
+function currentAlbum(path: string): string {
+    return trackByPath.value.get(path)?.album ?? ''
+}
+
+// Rendered as a string so an absent year is '' like every other missing tag,
+// rather than a 0 the user has to interpret.
+function currentYear(path: string): string {
+    const year = trackByPath.value.get(path)?.year ?? 0
+    return year > 0 ? String(year) : ''
+}
+
 // ----- current vs target -----
-// Each pair renders as two columns. When the target differs from the current
-// value the target is highlighted and carries a tooltip naming what it replaces,
-// so a rename is visible at a glance without reading both columns side by side.
+// The table shows only what a save would write. When the target differs from the
+// value on disk the cell is highlighted and carries a tooltip naming what it
+// replaces, so a rename is visible at a glance without spending a column on the
+// old value.
 
 // targetTitle is what the row would write, or '' when it stages no title (an
 // unplaced row keeps the file's own).
@@ -193,9 +215,33 @@ function artistChanged(path: string): boolean {
     return target !== '' && target !== currentArtist(path)
 }
 
+// Album and year come from the chosen release, so every row stages the same
+// value — but whether it CHANGES anything is per row: a selection can mix files
+// that already carry the album with files that do not, and only the latter should
+// light up. They are also staged for a row with no position at all, which is why
+// they read from the option rather than from `resolved`.
+function targetAlbum(): string {
+    return selectedOption.value?.album ?? ''
+}
+
+function albumChanged(path: string): boolean {
+    const target = targetAlbum()
+    return target !== '' && target !== currentAlbum(path)
+}
+
+function targetYear(): string {
+    const year = selectedOption.value?.year ?? 0
+    return year > 0 ? String(year) : ''
+}
+
+function yearChanged(path: string): boolean {
+    const target = targetYear()
+    return target !== '' && target !== currentYear(path)
+}
+
 // The tooltip on a changed cell: what the value is now, since the column shows
 // what it will become. This is the ONLY place the file's existing title and
-// artist tags are shown — the Song column identifies the file, not its tags — so
+// artist tags are shown — the File column identifies the file, not its tags — so
 // an absent tag has to say so rather than render as a blank tooltip.
 function replacesTooltip(current: string): string {
     return current === '' ? 'Currently: (no value)' : `Currently: ${current}`
@@ -381,7 +427,10 @@ const canApply = computed(
     () =>
         selectedOption.value !== undefined &&
         includedPaths.value.length > 0 &&
-        conflictingPositions.value.length === 0
+        conflictingPositions.value.length === 0 &&
+        // Every field unchecked would stage nothing at all, so the button has
+        // nothing to do rather than silently applying an empty overlay.
+        selectedFields.value.length > 0
 )
 
 function apply() {
@@ -392,7 +441,7 @@ function apply() {
         option,
         assignment: resolved(path)
     }))
-    emit('apply', picks)
+    emit('apply', picks, [...selectedFields.value])
 }
 
 // One exit path for Cancel, the header X and an Escape press: all three mean
@@ -486,14 +535,24 @@ function cancel() {
                 Two songs are on the same track position. Change one before staging.
             </p>
 
+            <IdentifyFieldSelect
+                v-model="selectedFields"
+                testPrefix="album"
+            />
+
             <div class="track-list">
                 <div class="track-list-header">
                     <span class="col-include" aria-label="Include"></span>
                     <span class="col-index">#</span>
                     <span class="col-current">File</span>
-                    <span class="col-target">New title</span>
-                    <span class="col-current">Artist</span>
-                    <span class="col-target">New artist</span>
+                    <!-- The target columns are the whole point of the table, so they
+                         carry the plain field names; each cell that would overwrite
+                         something names the current value in its tooltip, which is
+                         why no "current artist" column is needed beside them. -->
+                    <span class="col-target">Title</span>
+                    <span class="col-target">Artist</span>
+                    <span class="col-target">Album</span>
+                    <span class="col-target col-year">Year</span>
                     <span class="col-source">Match</span>
                     <span class="col-slot">Position</span>
                 </div>
@@ -530,8 +589,11 @@ function cancel() {
                             <span class="col-target cell-target">
                                 <span class="cell-value gap-title">{{ row.title }}</span>
                             </span>
-                            <span class="col-current"></span>
+                            <!-- Artist, album and year stay blank: no file is being
+                                 written here, so there is nothing to stage. -->
                             <span class="col-target"></span>
+                            <span class="col-target"></span>
+                            <span class="col-target col-year"></span>
                             <span class="col-source"></span>
                             <span class="col-slot"></span>
                         </div>
@@ -588,9 +650,6 @@ function cancel() {
                             <span v-else class="cell-unchanged">unchanged</span>
                         </span>
 
-                        <span class="col-current cell-current">
-                            <span class="cell-value">{{ currentArtist(row.path) || '—' }}</span>
-                        </span>
                         <span
                             class="col-target cell-target"
                             :class="{ changed: artistChanged(row.path) }"
@@ -603,6 +662,37 @@ function cancel() {
                                 "
                                 class="cell-value"
                                 >{{ targetArtist(row.path) }}</span
+                            >
+                            <span v-else class="cell-unchanged">unchanged</span>
+                        </span>
+
+                        <span
+                            class="col-target cell-target"
+                            :class="{ changed: albumChanged(row.path) }"
+                            :data-test="`album-album-${row.path}`"
+                        >
+                            <span
+                                v-if="targetAlbum() !== ''"
+                                v-tooltip.top="
+                                    albumChanged(row.path) ? replacesTooltip(currentAlbum(row.path)) : ''
+                                "
+                                class="cell-value"
+                                >{{ targetAlbum() }}</span
+                            >
+                            <span v-else class="cell-unchanged">unchanged</span>
+                        </span>
+                        <span
+                            class="col-target col-year cell-target"
+                            :class="{ changed: yearChanged(row.path) }"
+                            :data-test="`album-year-${row.path}`"
+                        >
+                            <span
+                                v-if="targetYear() !== ''"
+                                v-tooltip.top="
+                                    yearChanged(row.path) ? replacesTooltip(currentYear(row.path)) : ''
+                                "
+                                class="cell-value"
+                                >{{ targetYear() }}</span
                             >
                             <span v-else class="cell-unchanged">unchanged</span>
                         </span>
@@ -739,12 +829,13 @@ function cancel() {
    match badge, a position dropdown) over identify results. */
 .track-list {
     /* Shared grid template so the header and every row align. */
-    /* include · # · file · new title · artist · new artist · match · position.
-       Each current/target pair shares one width so a rename reads as a straight
-       left-to-right comparison; match and position are fixed since their content
-       is bounded. */
-    --album-track-cols: 2.2rem 34px minmax(0, 1.5fr) minmax(0, 1.5fr) minmax(0, 1fr)
-        minmax(0, 1fr) 7rem 15rem;
+    /* include · # · file · title · artist · album · year · match · position. The
+       file and the free-text staged values share the flexible width; the current
+       tags live in the target cells' tooltips instead of columns of their own.
+       Year, match and position are fixed since their content is bounded — a year
+       is always four digits, so a flexible track would only add dead space. */
+    --album-track-cols: 2.2rem 34px minmax(0, 1.4fr) minmax(0, 1.4fr) minmax(0, 1.1fr)
+        minmax(0, 1.1fr) 3.5rem 7rem 15rem;
     display: flex;
     flex-direction: column;
     /* Fills the dialog's remaining height rather than a fixed viewport slice, so
@@ -844,14 +935,20 @@ function cancel() {
 .col-index {
     text-align: right;
 }
+/* A year is a number in a narrow column: tabular figures so the digits line up
+   down the table the way the track numbers do. */
+.col-year .cell-value {
+    font-variant-numeric: tabular-nums;
+}
 .track-number {
     font-size: 0.85rem;
     color: var(--app-text-secondary);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
-/* The current/target column pair. The current side is muted (it is context) and
-   the target side carries the emphasis, since that is what a save writes. */
+/* The File column (context, muted) and the staged-value columns (emphasised,
+   since that is what a save writes). .col-current is the file cell only — it is a
+   <label> for the row checkbox, hence the pointer. */
 .col-current,
 .col-target {
     display: flex;

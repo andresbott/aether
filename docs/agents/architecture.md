@@ -121,7 +121,14 @@ starting with `@` load the referenced file's contents (used for gitignored
   gets a nil identifier plus a user-facing reason, which
   `GET /api/v1/metadata/capabilities` returns as `identify: false` +
   `identify_unavailable_reason` so the editor can grey out Identify and say
-  what is missing rather than hiding it.
+  what is missing rather than hiding it. What a confirmed match actually stages
+  is the user's choice: both identify dialogs render the same
+  `IdentifyFieldSelect` row (all fields on by default) and the view narrows each
+  overlay through `pickOverlayFields` (`webui/src/lib/identifyFields.ts`), so a
+  match can fill one field across a batch without touching the rest. Add a field
+  to `candidateToOverlay` or `albumPickToOverlay` and you must add it to
+  `IDENTIFY_FIELDS` too — an uncovered overlay key is silently dropped from every
+  apply in both dialogs (a unit test guards this).
 - **Album identification** (`internal/albumidentify`) answers the album question
   the editor asks when tagging a rip: which single release explains this whole
   selection, and where does each file sit on it. It fingerprints every file
