@@ -217,6 +217,27 @@ describe('EditPanel song section', () => {
     })
 })
 
+describe('EditPanel album section', () => {
+    // Album identity in the store is (album name, album artist, release ID) —
+    // see store.FindOrCreateAlbum. An empty release ID is a value like any
+    // other, not a wildcard, so a partially-tagged album splits into two rows in
+    // the library. That trap is invisible from the form, hence the marker.
+    it('explains the album grouping rules on the release ID field', () => {
+        const { wrapper } = mountPanel([mkTrack()])
+        const marker = wrapper.find('[data-test="release-id-help"]')
+        expect(marker.exists()).toBe(true)
+        expect(marker.classes()).toContain('pi-exclamation-circle')
+
+        const text = marker.attributes('data-tooltip') ?? ''
+        // The three grouping keys, and what an empty ID does.
+        expect(text).toContain('album name')
+        expect(text).toContain('album artist')
+        expect(text).toContain('Release ID')
+        expect(text).toContain('empty')
+        expect(text).toContain('twice')
+    })
+})
+
 describe('EditPanel staging and undo', () => {
     it('marks a field dirty and stages its value on edit', async () => {
         const track = mkTrack()

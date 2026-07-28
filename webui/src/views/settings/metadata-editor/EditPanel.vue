@@ -692,7 +692,22 @@ const rawMode = ref(false)
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_id') }">
-                <label>Release ID</label>
+                <label>
+                    Release ID
+                    <i
+                        class="pi pi-exclamation-circle field-warn"
+                        v-tooltip.right="
+                            'Songs end up in the same album when three things match: the album ' +
+                            'name, the album artist and this Release ID (capitalisation and ' +
+                            'accents are ignored). Leaving it empty is fine — songs with no ' +
+                            'Release ID are grouped by album name and album artist alone. But ' +
+                            'an empty ID never matches a filled-in one, so if only some songs ' +
+                            'of an album carry it, that album shows up twice in the library. ' +
+                            'Set it on every song of the album, or on none of them.'
+                        "
+                        data-test="release-id-help"
+                    ></i>
+                </label>
                 <InputText
                     class="album-mbid"
                     v-model="values.mb_release_id"
@@ -1099,6 +1114,15 @@ const rawMode = ref(false)
 .field-help {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+    cursor: help;
+    vertical-align: middle;
+    margin-left: 0.15rem;
+}
+/* Same affordance as .field-help, but flagged rather than merely explanatory:
+   getting this field wrong silently splits an album in two in the library. */
+.field-warn {
+    font-size: 0.8rem;
+    color: var(--app-staged);
     cursor: help;
     vertical-align: middle;
     margin-left: 0.15rem;
