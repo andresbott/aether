@@ -39,7 +39,19 @@ When a view diverges from these registries, the registry wins.
 - `composables/` — all non-trivial logic. Server state goes through
   TanStack query composables (`useSubsonicQueries.ts` with a central
   `queryKeys` map — add new keys there, don't inline key arrays).
-  `usePlayer.ts` is module-scoped singleton state.
+  `usePlayer.ts` is module-scoped singleton state, as is
+  `useIdentifyCache.ts` — the metadata editor's identify answers are cached
+  per (library, path) and per selection set, LRU-capped, so reopening an
+  identify dialog costs no fingerprint pass. It is deliberately not a
+  vue-query cache: identification is a POST over a path list with no stable
+  query key, and reuse is per path, not per request. `useIdentifyRuns.ts`
+  owns both identify flows over it (dialog state, abort controllers,
+  cache reads); the way past a cached answer is the dialogs' Re-identify
+  action or the editor's Reload, which clears the cache. This is the outer of
+  two cache layers — the server shares the per-file fingerprint pass between
+  both identify flows (`identify.Cache`, see
+  [architecture.md](architecture.md)), so a Re-identify that misses here can
+  still be answered from the server's cache without re-fingerprinting.
   After any metadata-editor write, call `invalidateAfterMetadataWrite(qc)`
   from `useMetadataEditor.ts` rather than inlining keys. It drops
   `['metadata','tracks']` and `['metadata','raw']` (the editor's own views)

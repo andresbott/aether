@@ -38,6 +38,9 @@ const emit = defineEmits<{
     // Cancel is not just "close": it aborts the in-flight identify request, so
     // the parent needs to hear it rather than only observing visible: false.
     (e: 'cancel'): void
+    // Discard the cached answers for these files and fingerprint them again.
+    // The dialog stays open: the fresh run repopulates it in place.
+    (e: 'reidentify'): void
 }>()
 
 // Per-track review state: whether the user accepts the match, which candidate
@@ -372,6 +375,19 @@ function cancel() {
 
         <template #footer>
             <Button label="Cancel" text data-test="identify-cancel" @click="cancel" />
+            <!-- Results can be served from the session's identify cache, which
+                 makes reopening this dialog instant but also means a run that was
+                 rate-limited or looked at the wrong file would otherwise be
+                 unrepeatable. This is the way back to a fresh lookup. -->
+            <Button
+                v-if="!loading"
+                label="Re-identify"
+                icon="pi pi-refresh"
+                text
+                v-tooltip.top="'Ignore the cached answer and fingerprint these files again'"
+                data-test="identify-reidentify"
+                @click="emit('reidentify')"
+            />
             <Button
                 v-if="!loading"
                 :label="`Stage ${acceptedCount} track${acceptedCount === 1 ? '' : 's'}`"

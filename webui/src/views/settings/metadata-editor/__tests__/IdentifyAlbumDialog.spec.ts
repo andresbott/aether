@@ -794,3 +794,31 @@ describe('IdentifyAlbumDialog field selection', () => {
         expect(w.emitted('apply')![0][1]).toEqual(['album'])
     })
 })
+
+describe('IdentifyAlbumDialog re-identify', () => {
+    it('offers a re-identify action once options are on screen', async () => {
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-reidentify"]').trigger('click')
+        expect(w.emitted('reidentify')).toHaveLength(1)
+    })
+
+    it('offers nothing to re-run while the request is still in flight', () => {
+        const w = mountDialog([], tracks, [], true)
+        expect(w.find('[data-test="album-reidentify"]').exists()).toBe(false)
+    })
+
+    it('offers a re-identify action even when nothing matched', async () => {
+        // A run that found no release is exactly the one worth retrying — the
+        // upstream lookup may simply have been rate-limited.
+        const w = mountDialog([])
+        await w.find('[data-test="album-reidentify"]').trigger('click')
+        expect(w.emitted('reidentify')).toHaveLength(1)
+    })
+
+    it('does not close the dialog: the fresh run repopulates it in place', async () => {
+        const w = mountDialog([albumA])
+        await w.find('[data-test="album-reidentify"]').trigger('click')
+        expect(w.emitted('update:visible')).toBeUndefined()
+        expect(w.emitted('cancel')).toBeUndefined()
+    })
+})

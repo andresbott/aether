@@ -41,6 +41,9 @@ const emit = defineEmits<{
     // Cancel is not just "close": it aborts the in-flight identify request, so
     // the parent needs to hear it rather than only observing visible: false.
     (e: 'cancel'): void
+    // Discard the cached answer for this selection and identify it again. The
+    // dialog stays open: the fresh run repopulates it in place.
+    (e: 'reidentify'): void
 }>()
 
 // Per-song review state. `slot` is the tracklist position the user settled on:
@@ -722,6 +725,19 @@ function cancel() {
 
         <template #footer>
             <Button label="Cancel" text data-test="album-cancel" @click="cancel" />
+            <!-- Options can be served from the session's identify cache, which
+                 makes reopening this dialog instant but also means an answer that
+                 came back empty or rate-limited would otherwise be unrepeatable.
+                 Offered even with no options for exactly that case. -->
+            <Button
+                v-if="!loading"
+                label="Re-identify"
+                icon="pi pi-refresh"
+                text
+                v-tooltip.top="'Ignore the cached answer and identify these files again'"
+                data-test="album-reidentify"
+                @click="emit('reidentify')"
+            />
             <Button
                 v-if="!loading && options.length > 0"
                 :label="`Stage ${includedPaths.length} song${includedPaths.length === 1 ? '' : 's'}`"

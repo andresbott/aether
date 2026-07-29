@@ -160,6 +160,10 @@ func runServer(configFile string) error {
 	default:
 		userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
 		identifier = identify.New(fpcalc.New(""), acoustid.New(acoustIDAppKey, userAgent))
+		// One cache on the shared identifier, so the per-track and album
+		// endpoints reuse each other's fingerprint pass rather than each paying
+		// an fpcalc run plus a rate-limited AcoustID call per file.
+		identifier.Cache = identify.NewCache(identify.DefaultCacheSize)
 	}
 
 	// Register tasks — scan and metadata fetch are independent tasks; a scan
