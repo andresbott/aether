@@ -43,6 +43,7 @@ const folderItems = computed<NavItem[]>(() => {
 })
 
 const libraryExtras: NavItem[] = [
+    { label: 'Discover', icon: 'pi pi-compass', route: '/discover', routeName: 'discover' },
     { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
     { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
 ]

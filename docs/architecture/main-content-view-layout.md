@@ -239,6 +239,8 @@ chrome like the queue sidebar.
 | Artist detail (`ArtistView`) | `/artist/:id` | ✅ `ContentScaffold` |
 | Playlists (`PlaylistsView`) | `/playlists` | ✅ `ContentScaffold` |
 | Playlist detail (`PlaylistDetailView`) | `/playlist/:id` | ✅ `ContentScaffold` |
+| Discovery (`DiscoveryView`) | `/discover` | ✅ `ContentScaffold` (Recipe B body, five shelves) |
+| Discovery section (`DiscoverySectionView`) | `/discover/:section` | ✅ `ContentScaffold` (`showBack`) |
 | Genres (`GenresView`) | `/genres` | ✅ `ContentScaffold` (stub body) |
 | Podcasts (`PodcastsView`) | `/podcasts` | ✅ `ContentScaffold` |
 | Podcast channel (`PodcastChannelView`) | `/podcast/:id` | ✅ `ContentScaffold` (cover in body hero) |

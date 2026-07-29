@@ -14,10 +14,10 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Streaming | Implemented, original file only | `subsonic/media.go` — `http.ServeFile` with range support; no transcoding |
 | Cover art (albums/artists/playlists/radio/genres) | Implemented | `subsonic/media.go` + `assetstore` + `covergen` fallback (deterministic generated covers) |
 | Playlists CRUD + cover upload | Implemented | `subsonic/playlists.go` |
-| Star/unstar, scrobble (play history) | Implemented | `subsonic/annotation.go`; single-user `StarredItem` |
+| Star/unstar, scrobble (play history) | Implemented | `subsonic/annotation.go`; single-user `StarredItem`. Playlists are starrable (`playlistStar`) and scrobbleable as a unit (`playlistScrobble` → `model.PlaylistPlay`); the web player now scrobbles tracks at 50%/4min |
 | setRating | Handler only — **not persisted** | `subsonic/annotation.go`; no rating column yet (TODO.md) |
 | Internet radio CRUD | Implemented | `subsonic/radio.go`; writes currently open to all (admin-gating waits on user auth) |
-| OpenSubsonic extensions | Implemented (8) | `subsonic/extensions.go` — musicFolderDefaultView/ShowArtists/Icon, albumList2Index, internetRadio/playlist/artist/genre CoverArt |
+| OpenSubsonic extensions | Implemented (11) | `subsonic/extensions.go` — musicFolderDefaultView/ShowArtists/Icon, albumList2Index, internetRadio/playlist/artist/genre CoverArt, playlistStar, playlistScrobble, playlistStats |
 | XML responses (`f=xml`) | Rejected by design (for now) | middleware in `subsonic/subsonic.go` returns an error; TODO.md tracks third-party client compat |
 | Transcoding | Not implemented | TODO.md (FFmpeg planned) |
 | getArtistInfo/getAlbumInfo, getTopSongs/getSimilarSongs | Not implemented | TODO.md — needs external metadata / play-history analysis |
@@ -62,7 +62,8 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Metadata editor UI | Implemented | `/settings/metadata`, `useEditSession` staged overlays |
 | Identify result cache (reopening a dialog costs no lookup) | Implemented | `useIdentifyCache` (module-scoped LRU) + `useIdentifyRuns` (both flows, dialog state, aborts); Re-identify in both dialogs and the editor's Reload bypass it. Paired with the server-side fingerprint cache below |
 | Release-group genre cache (both identify dialogs) | Implemented | `useReleaseGroupGenres` — module-scoped LRU keyed by release-group MBID, with in-flight dedupe so a folder of songs from one album costs ONE request against MusicBrainz's 1 req/sec throttle. Failures are not cached (a rate-limited lookup must stay retryable); an empty answer is |
-| Favorites UI | Partial | album/artist/now-playing toggles done; track-row stars, grid badges, starred browse section missing (TODO.md) |
+| Favorites UI | Partial | album/artist/now-playing toggles done; playlist stars done (card/list/detail, `playlistStar` extension); track-row stars and grid badges still missing (TODO.md) |
+| Discovery view (5 album+playlist sections, grid+list) | Implemented | `DiscoveryView` + `DiscoverySectionView` + `DiscoverySection`, section registry in `composables/useDiscovery.ts`; sections are `newest`/`starred`/`frequent`/`recent`/`random` album lists plus the shared `getPlaylists` sorted five ways client-side |
 | Search, genres, settings shell | Implemented | `SearchView`, `GenresView`/`GenreDetailView`, `SettingsLayout` |
 
 ## Not implemented (catalogued in TODO.md — read it first)
