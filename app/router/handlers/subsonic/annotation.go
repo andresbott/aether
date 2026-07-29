@@ -58,7 +58,7 @@ func (h *Handler) scrobble(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
+	itemType, id, err := decodeID(idStr)
 	if err != nil {
 		writeError(w, 0, "invalid id")
 		return
@@ -69,7 +69,15 @@ func (h *Handler) scrobble(w http.ResponseWriter, r *http.Request) {
 			playedAt = time.UnixMilli(ms)
 		}
 	}
-	if err := h.store.RecordPlay(id, playedAt); err != nil {
+	// Playlists are played as a unit and counted separately from their tracks
+	// ("playlistScrobble" extension); every other id type is a track play.
+	switch itemType {
+	case "playlist":
+		err = h.store.RecordPlaylistPlay(id, playedAt)
+	default:
+		err = h.store.RecordPlay(id, playedAt)
+	}
+	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}

@@ -413,3 +413,53 @@ func TestDeletePlaylistNotFound(t *testing.T) {
 		t.Fatalf("expected code 70, got %+v", env.SubsonicResponse.Error)
 	}
 }
+
+func TestScrobblePlaylistRecordsPlay(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	pl, err := s.CreatePlaylist("Mix", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/scrobble.view?id=pl-%d", srv.URL, pl.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+
+	stats, err := s.PlaylistStats([]uint{pl.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stats[pl.ID].PlayCount; got != 1 {
+		t.Fatalf("PlayCount = %d, want 1", got)
+	}
+}
+
+func TestScrobbleTrackStillRecordsTrackPlay(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/scrobble.view?id=tr-%d", srv.URL, tracks[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+
+	var n int64
+	s.DB().Model(&model.PlayHistory{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("expected 1 track play, got %d", n)
+	}
+}
