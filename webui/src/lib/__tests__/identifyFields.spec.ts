@@ -14,6 +14,7 @@ const full: TrackOverlay = {
     artists: [{ name: 'Artist', mbid: 'artist-id' }],
     album_artists: [{ name: 'Album Artist', mbid: 'album-artist-id' }],
     album: 'Album',
+    genres: ['Grunge', 'Alternative Rock'],
     year: 1999,
     track_number: 3,
     disc_number: 1,
@@ -35,6 +36,10 @@ describe('overlayKeysForFields', () => {
         expect(overlayKeysForFields([]).size).toBe(0)
     })
 
+    it('maps the Genres choice onto the genres key', () => {
+        expect([...overlayKeysForFields(['genres'])]).toEqual(['genres'])
+    })
+
     it('covers track and album credits with the one Artists choice', () => {
         // An album identify derives both from the single release the user picked,
         // so splitting them would offer a distinction the data does not have.
@@ -52,6 +57,14 @@ describe('pickOverlayFields', () => {
 
     it('keeps only the selected field — the fill-one-field case', () => {
         expect(pickOverlayFields(full, ['album'])).toEqual({ album: 'Album' })
+    })
+
+    it('keeps only the genres when that is the one selected field', () => {
+        // The "fill in the genres of an album whose tags are otherwise right"
+        // case, which is what the genre lookup exists for.
+        expect(pickOverlayFields(full, ['genres'])).toEqual({
+            genres: ['Grunge', 'Alternative Rock']
+        })
     })
 
     it('stages nothing when no field is selected', () => {

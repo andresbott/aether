@@ -1,8 +1,24 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+
+// Genres are looked up per release group when an option is selected; drive that
+// through a spy so the specs can assert what was asked for and how often.
+const genresMock = vi.fn()
+vi.mock('@/lib/api/Artists', () => ({
+    getReleaseGroupGenres: (...args: unknown[]) => genresMock(...args)
+}))
+
 import IdentifyAlbumDialog from '@/views/settings/metadata-editor/IdentifyAlbumDialog.vue'
 import { ALL_IDENTIFY_FIELD_IDS, IDENTIFY_FIELDS } from '@/lib/identifyFields'
+import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 import type { AlbumOption, Track } from '@/types/metadata'
+
+beforeEach(() => {
+    genresMock.mockReset()
+    genresMock.mockResolvedValue([])
+    // Module-scoped cache: without this, one spec's answers serve the next.
+    useReleaseGroupGenres().clear()
+})
 
 const stubs = {
     Dialog: {
@@ -792,6 +808,116 @@ describe('IdentifyAlbumDialog field selection', () => {
 
         await w.find('[data-test="album-apply"]').trigger('click')
         expect(w.emitted('apply')![0][1]).toEqual(['album'])
+    })
+})
+
+describe('IdentifyAlbumDialog genres', () => {
+    it('looks up the genres of the preselected option release group', async () => {
+        genresMock.mockResolvedValue(['Grunge', 'Alternative Rock'])
+        mountDialog([albumA])
+        await flushPromises()
+        expect(genresMock).toHaveBeenCalledWith('rg-A')
+    })
+
+    it('shows the genres it will stage', async () => {
+        genresMock.mockResolvedValue(['Grunge', 'Alternative Rock'])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        expect(w.find('[data-test="album-genres"]').text()).toContain('Grunge')
+        expect(w.find('[data-test="album-genres"]').text()).toContain('Alternative Rock')
+    })
+
+    it('carries the genres on every pick', async () => {
+        genresMock.mockResolvedValue(['Grunge'])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        await w.find('[data-test="album-apply"]').trigger('click')
+        const picks = w.emitted('apply')![0][0] as any[]
+        expect(picks).toHaveLength(2)
+        for (const p of picks) expect(p.genres).toEqual(['Grunge'])
+    })
+
+    it('re-looks-up when the user picks another album', async () => {
+        genresMock.mockResolvedValueOnce(['Grunge'])
+        genresMock.mockResolvedValueOnce(['Compilation Rock'])
+        const w = mountDialog([albumA, albumB])
+        await flushPromises()
+
+        const select = w.find('[data-test="album-select"]')
+        ;(select.element as HTMLSelectElement).selectedIndex = 1
+        await select.trigger('change')
+        await flushPromises()
+
+        expect(genresMock).toHaveBeenCalledWith('rg-B')
+        await w.find('[data-test="album-apply"]').trigger('click')
+        const picks = w.emitted('apply')![0][0] as any[]
+        expect(picks[0].genres).toEqual(['Compilation Rock'])
+    })
+
+    it('does not re-request a release group it already looked up', async () => {
+        // MusicBrainz is throttled to one request per second, so switching back
+        // and forth between two options must not queue a request each time.
+        genresMock.mockResolvedValue(['Grunge'])
+        const w = mountDialog([albumA, albumB])
+        await flushPromises()
+        const select = w.find('[data-test="album-select"]')
+        ;(select.element as HTMLSelectElement).selectedIndex = 1
+        await select.trigger('change')
+        await flushPromises()
+        ;(select.element as HTMLSelectElement).selectedIndex = 0
+        await select.trigger('change')
+        await flushPromises()
+
+        expect(genresMock).toHaveBeenCalledTimes(2)
+        expect(genresMock).toHaveBeenNthCalledWith(1, 'rg-A')
+        expect(genresMock).toHaveBeenNthCalledWith(2, 'rg-B')
+    })
+
+    it('stages no genres and hides the row when the lookup fails', async () => {
+        // A failed genre lookup must not block the apply: the rest of the match
+        // is still worth staging.
+        genresMock.mockRejectedValue(new Error('rate limited'))
+        const w = mountDialog([albumA])
+        await flushPromises()
+        expect(w.find('[data-test="album-genres"]').exists()).toBe(false)
+        await w.find('[data-test="album-apply"]').trigger('click')
+        expect((w.emitted('apply')![0][0] as any[])[0].genres).toEqual([])
+    })
+
+    it('hides the row when MusicBrainz holds no genres for the group', async () => {
+        genresMock.mockResolvedValue([])
+        const w = mountDialog([albumA])
+        await flushPromises()
+        expect(w.find('[data-test="album-genres"]').exists()).toBe(false)
+    })
+
+    it('makes no request while the identify run is still in flight', async () => {
+        // There is no option to look genres up for yet.
+        mountDialog([], tracks, [], true)
+        await flushPromises()
+        expect(genresMock).not.toHaveBeenCalled()
+    })
+
+    it('does not show a stale answer after the user switched albums', async () => {
+        // rg-A resolves AFTER the user has already moved to rg-B; the late answer
+        // belongs to an option that is no longer selected.
+        let resolveA: (v: string[]) => void = () => {}
+        genresMock.mockImplementationOnce(
+            () => new Promise<string[]>((res) => (resolveA = res))
+        )
+        genresMock.mockResolvedValueOnce(['Compilation Rock'])
+
+        const w = mountDialog([albumA, albumB])
+        const select = w.find('[data-test="album-select"]')
+        ;(select.element as HTMLSelectElement).selectedIndex = 1
+        await select.trigger('change')
+        await flushPromises()
+
+        resolveA(['Grunge'])
+        await flushPromises()
+
+        expect(w.find('[data-test="album-genres"]').text()).toContain('Compilation Rock')
+        expect(w.find('[data-test="album-genres"]').text()).not.toContain('Grunge')
     })
 })
 

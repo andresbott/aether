@@ -12,6 +12,7 @@ import type {
 } from '@/types/metadata'
 import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
+import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 
 // Sentinel slot values for the per-row re-point dropdown: keep the server's
 // proposal, or drop the position entirely (album fields only).
@@ -370,6 +371,33 @@ const selectedDetail = computed(() =>
     selectedOption.value ? albumDetail(selectedOption.value) : ''
 )
 
+// ----- Genres -----
+// The identify response carries no genres: MusicBrainz keeps genre votes on the
+// release GROUP, and the resolver only fetches the release's tracklist. So they
+// are looked up separately for whichever option the user has settled on, through
+// a shared cache — the lookup is throttled to one request per second server-side,
+// and the same group comes up again every time this dialog is reopened.
+const genreCache = useReleaseGroupGenres()
+const selectedGenres = ref<string[]>([])
+
+watch(
+    selectedOption,
+    (option) => {
+        const mbid = option?.release_group_mbid ?? ''
+        // A group already in the cache renders immediately: no request, and no
+        // empty row flashing before the answer arrives.
+        selectedGenres.value = genreCache.cached(mbid) ?? []
+        if (mbid === '' || selectedGenres.value.length > 0) return
+        void genreCache.lookup(mbid).then((genres) => {
+            // Guard against a slow answer landing after the user moved on: it
+            // belongs to an option that is no longer selected.
+            if (selectedOption.value?.release_group_mbid !== mbid) return
+            selectedGenres.value = genres
+        })
+    },
+    { immediate: true }
+)
+
 const includedPaths = computed(() =>
     props.tracks.map((t) => t.path).filter((p) => rowState(p).included)
 )
@@ -442,7 +470,10 @@ function apply() {
     const picks: AlbumIdentifyPick[] = includedPaths.value.map((path) => ({
         path,
         option,
-        assignment: resolved(path)
+        assignment: resolved(path),
+        // Album-level, like the album name itself: every included song gets the
+        // release group's genres.
+        genres: [...selectedGenres.value]
     }))
     emit('apply', picks, [...selectedFields.value])
 }
@@ -533,6 +564,17 @@ function cancel() {
                 />
                 <small class="album-detail">{{ selectedDetail }}</small>
             </div>
+
+            <!-- What the Genres checkbox would write, shown because it is the one
+                 staged value with no column in the table below: genres are
+                 album-level, identical on every row, and they come from a
+                 separate release-group lookup rather than from the match. Absent
+                 when the lookup found nothing or failed — there is then nothing
+                 to stage and nothing to preview. -->
+            <p v-if="selectedGenres.length > 0" class="album-genres" data-test="album-genres">
+                <span class="album-genres-label">Genres</span>
+                <span class="album-genres-value">{{ selectedGenres.join(', ') }}</span>
+            </p>
 
             <p v-if="conflictingPositions.length > 0" class="album-conflict" data-test="album-conflict">
                 Two songs are on the same track position. Change one before staging.
@@ -824,6 +866,27 @@ function cancel() {
 .album-conflict {
     margin: 0 0 0.6rem;
     color: var(--p-red-600, #dc2626);
+}
+/* The genre preview reads as one more staged value, so the list is styled like a
+   target cell in the table below (--app-staged = a pending tag change) behind a
+   muted label matching the table's column headers. */
+.album-genres {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin: 0 0 0.8rem;
+    font-size: 0.85rem;
+}
+.album-genres-label {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    color: var(--app-text-secondary);
+}
+.album-genres-value {
+    color: var(--app-staged);
+    font-weight: 600;
 }
 /* A fixed-height dialog only pays off if the body actually fills it: make the
    PrimeVue content region a flex column so the track table absorbs the leftover

@@ -1,8 +1,24 @@
-import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+
+// Genres are looked up per release group of the releases the rows point at; drive
+// that through a spy so the specs can assert what was asked for and how often.
+const genresMock = vi.fn()
+vi.mock('@/lib/api/Artists', () => ({
+    getReleaseGroupGenres: (...args: unknown[]) => genresMock(...args)
+}))
+
 import IdentifyReviewDialog from '@/views/settings/metadata-editor/IdentifyReviewDialog.vue'
 import { ALL_IDENTIFY_FIELD_IDS, IDENTIFY_FIELDS } from '@/lib/identifyFields'
+import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 import type { IdentifyTrackResult, Track } from '@/types/metadata'
+
+beforeEach(() => {
+    genresMock.mockReset()
+    genresMock.mockResolvedValue([])
+    // Module-scoped cache: without this, one spec's answers serve the next.
+    useReleaseGroupGenres().clear()
+})
 
 const stubs = {
     // Render dialog content inline so the body and footer are queryable.
@@ -287,7 +303,15 @@ describe('IdentifyReviewDialog table', () => {
             .find('.track-list-header')
             .findAll('span')
             .map((s) => s.text())
-        expect(columns).toEqual(['', 'File', 'Title', 'Artist', 'Recording', 'Release'])
+        expect(columns).toEqual([
+            '',
+            'File',
+            'Title',
+            'Artist',
+            'Genres',
+            'Recording',
+            'Release'
+        ])
         const row = w.find('[data-test="identify-row-a.mp3"]').text()
         expect(row).not.toContain('Old Artist')
         expect(row).not.toContain('Current Title')
@@ -402,6 +426,117 @@ describe('IdentifyReviewDialog field selection', () => {
         await w.find('[data-test="identify-field-title"]').setValue(true)
         await w.find('[data-test="identify-apply"]').trigger('click')
         expect(w.emitted('apply')![0][1]).toEqual(['title', 'year'])
+    })
+})
+
+describe('IdentifyReviewDialog genres', () => {
+    it('looks up the genres of the release group each accepted row points at', async () => {
+        genresMock.mockResolvedValue(['Grunge'])
+        mountDialog([highResult])
+        await flushPromises()
+        // The preselected release is rel-1, whose group is rg-1.
+        expect(genresMock).toHaveBeenCalledWith('rg-1')
+    })
+
+    it('carries the genres of its own release on each pick', async () => {
+        genresMock.mockResolvedValue(['Grunge'])
+        const w = mountDialog([highResult])
+        await flushPromises()
+        await w.find('[data-test="identify-apply"]').trigger('click')
+        const picks = w.emitted('apply')![0][0] as any[]
+        expect(picks[0].genres).toEqual(['Grunge'])
+    })
+
+    it('picks up the genres of another release when the row is re-pointed', async () => {
+        genresMock.mockImplementation((mbid: string) =>
+            Promise.resolve(mbid === 'rg-1' ? ['Grunge'] : ['Compilation Rock'])
+        )
+        const w = mountDialog([highResult])
+        await flushPromises()
+
+        // rel-2 belongs to release group rg-2.
+        await w.find('[data-test="identify-release-a.mp3"]').setValue(1)
+        await flushPromises()
+
+        expect(genresMock).toHaveBeenCalledWith('rg-2')
+        await w.find('[data-test="identify-apply"]').trigger('click')
+        expect((w.emitted('apply')![0][0] as any[])[0].genres).toEqual(['Compilation Rock'])
+    })
+
+    it('asks once for a release group several rows share', async () => {
+        // The common case: a whole folder identified song by song, every match on
+        // the same album. MusicBrainz is throttled to one request per second, so
+        // one request per FILE would make a 12-song folder take 12 seconds.
+        genresMock.mockResolvedValue(['Grunge'])
+        const second: IdentifyTrackResult = { ...highResult, path: 'b.mp3' }
+        mountDialog([highResult, second], [mkTrack(), mkTrack({ path: 'b.mp3', name: 'b.mp3' })])
+        await flushPromises()
+        expect(genresMock.mock.calls.filter(([mbid]) => mbid === 'rg-1')).toHaveLength(1)
+    })
+
+    it('shows the genres it will stage in its own column', async () => {
+        genresMock.mockResolvedValue(['Grunge', 'Alternative Rock'])
+        const w = mountDialog([highResult])
+        await flushPromises()
+        const cell = w.find('[data-test="identify-genres-a.mp3"]')
+        expect(cell.text()).toContain('Grunge, Alternative Rock')
+        // Genres the file does not carry: a change, marked like the other targets.
+        expect(cell.classes()).toContain('changed')
+    })
+
+    it('does not mark genres the file already carries', async () => {
+        genresMock.mockResolvedValue(['Grunge'])
+        const w = mountDialog([highResult], [mkTrack({ genres: ['Grunge'] })])
+        await flushPromises()
+        const cell = w.find('[data-test="identify-genres-a.mp3"]')
+        expect(cell.classes()).not.toContain('changed')
+    })
+
+    it('reads unchanged when there are no genres to stage', async () => {
+        genresMock.mockResolvedValue([])
+        const w = mountDialog([highResult])
+        await flushPromises()
+        expect(w.find('[data-test="identify-genres-a.mp3"]').text()).toBe('unchanged')
+    })
+
+    it('stages no genres for a candidate with no release', async () => {
+        genresMock.mockResolvedValue(['Grunge'])
+        const w = mountDialog([highResult])
+        await flushPromises()
+        // rec-2 carries no releases, so there is no release group to ask about.
+        await w.find('[data-test="identify-candidate-a.mp3"]').setValue(1)
+        await w.find('#accept-a\\.mp3').setValue(true)
+        await flushPromises()
+        await w.find('[data-test="identify-apply"]').trigger('click')
+        expect((w.emitted('apply')![0][0] as any[])[0].genres).toEqual([])
+    })
+
+    it('stages no genres when the lookup fails', async () => {
+        // A failed genre lookup must not block the apply.
+        genresMock.mockRejectedValue(new Error('rate limited'))
+        const w = mountDialog([highResult])
+        await flushPromises()
+        await w.find('[data-test="identify-apply"]').trigger('click')
+        expect((w.emitted('apply')![0][0] as any[])[0].genres).toEqual([])
+    })
+
+    it('makes no request while the identify run is still in flight', async () => {
+        mountDialog([], [mkTrack()], true)
+        await flushPromises()
+        expect(genresMock).not.toHaveBeenCalled()
+    })
+
+    it('looks up nothing for rows that cannot be staged', async () => {
+        // An unfingerprintable file and a no-match have no release to ask about.
+        mountDialog(
+            [
+                { path: 'err.mp3', candidates: [], error: 'fingerprint failed' },
+                { path: 'none.mp3', candidates: [] }
+            ],
+            [mkTrack({ path: 'err.mp3' }), mkTrack({ path: 'none.mp3' })]
+        )
+        await flushPromises()
+        expect(genresMock).not.toHaveBeenCalled()
     })
 })
 

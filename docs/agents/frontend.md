@@ -52,6 +52,18 @@ When a view diverges from these registries, the registry wins.
   both identify flows (`identify.Cache`, see
   [architecture.md](architecture.md)), so a Re-identify that misses here can
   still be answered from the server's cache without re-fingerprinting.
+  `useReleaseGroupGenres.ts` is module-scoped for the same reason: neither
+  identify response carries genres (MusicBrainz keeps genre votes on the
+  release **group**, and the resolver only fetches the release's tracklist),
+  so both dialogs look them up for the group the user settled on and stage
+  them through the `genres` field checkbox. It is an LRU keyed by
+  release-group MBID **with in-flight dedupe** — MusicBrainz allows 1 req/sec,
+  and identifying a folder song by song means every row usually lands on the
+  same album, which must cost one request rather than one per file. It never
+  rejects: a failed lookup resolves to `[]` so the apply still stages the rest
+  of the match, and a failure is not cached (a rate-limited lookup stays
+  retryable) while an empty answer is. An empty list stages **nothing** —
+  staging `[]` would wipe genres the file already carries.
   After any metadata-editor write, call `invalidateAfterMetadataWrite(qc)`
   from `useMetadataEditor.ts` rather than inlining keys. It drops
   `['metadata','tracks']` and `['metadata','raw']` (the editor's own views)

@@ -164,7 +164,7 @@ function onIdentifyApply(picks: IdentifyPick[], fields: IdentifyFieldId[]) {
     const entries = new Map<string, TrackOverlay>(
         picks.map((p) => [
             p.path,
-            pickOverlayFields(candidateToOverlay(p.candidate, p.release), fields)
+            pickOverlayFields(candidateToOverlay(p.candidate, p.release, p.genres), fields)
         ])
     )
     session.stageOverlays(entries)
@@ -176,7 +176,7 @@ function onIdentifyApply(picks: IdentifyPick[], fields: IdentifyFieldId[]) {
 
 function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldId[]) {
     const entries = new Map<string, TrackOverlay>(
-        picks.map((p) => [p.path, pickOverlayFields(albumPickToOverlay(p), fields)])
+        picks.map((p) => [p.path, pickOverlayFields(albumPickToOverlay(p, p.genres), fields)])
     )
     session.stageOverlays(entries)
     runs.albumDialog.value = false

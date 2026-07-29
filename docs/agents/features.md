@@ -46,6 +46,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Album identify (map a multi-file selection onto one release) | Implemented, key-gated | `POST /metadata/identify-album` → `internal/albumidentify`; `IdentifyAlbumDialog.vue` ([architecture.md](architecture.md)) |
 | Shared per-file fingerprint cache (both identify flows) | Implemented | `identify.Cache` on the one `*identify.Identifier` both endpoints resolve through (`app/router/api_v1.go`); keyed path+size+mtime, LRU. Per-track and album identify reuse each other's fpcalc/AcoustID pass |
 | MusicBrainz tracklist cache (album identify) | Implemented | `albumidentify.CachingReleaseLookup`, keyed by release MBID, wrapped **in front of** the 1 req/sec throttle — without it a repeat album identify still waited ~8s enriching options ([architecture.md](architecture.md)) |
+| Genres from identify (both flows) | Implemented | Frontend-only: reuses `GET /musicbrainz/release-groups/{mbid}/genres`. Genre votes live on the release GROUP, not the release, so the identify response carries none; each dialog looks them up for the group the user settled on. No backend change — enriching server-side would cost a second throttled request per option (~8s per cold album identify, 7 of 8 wasted) and still leave the per-song flow uncovered |
 | Radio-browser station import | Implemented | `handlers/radiobrowser` (server-side proxy) |
 | Prometheus metrics | Implemented, opt-in | separate observability server, off unless `Observability.Enabled` (`:9009` default), `handlers/admin.go` |
 
@@ -60,6 +61,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Radio UI | Implemented | `RadioView`, `RadioStationDetailView` (`/radio/new` create mode) |
 | Metadata editor UI | Implemented | `/settings/metadata`, `useEditSession` staged overlays |
 | Identify result cache (reopening a dialog costs no lookup) | Implemented | `useIdentifyCache` (module-scoped LRU) + `useIdentifyRuns` (both flows, dialog state, aborts); Re-identify in both dialogs and the editor's Reload bypass it. Paired with the server-side fingerprint cache below |
+| Release-group genre cache (both identify dialogs) | Implemented | `useReleaseGroupGenres` — module-scoped LRU keyed by release-group MBID, with in-flight dedupe so a folder of songs from one album costs ONE request against MusicBrainz's 1 req/sec throttle. Failures are not cached (a rate-limited lookup must stay retryable); an empty answer is |
 | Favorites UI | Partial | album/artist/now-playing toggles done; track-row stars, grid badges, starred browse section missing (TODO.md) |
 | Search, genres, settings shell | Implemented | `SearchView`, `GenresView`/`GenreDetailView`, `SettingsLayout` |
 
