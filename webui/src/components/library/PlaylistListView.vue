@@ -54,6 +54,7 @@ const play = async (event: Event, id: string): Promise<void> => {
             <span class="col-star">
                 <button
                     class="row-star"
+                    :class="{ 'is-starred': !!pl.starred }"
                     type="button"
                     :aria-label="pl.starred ? 'Unstar playlist' : 'Star playlist'"
                     @click="star($event, pl)"
@@ -83,9 +84,10 @@ const play = async (event: Event, id: string): Promise<void> => {
 .col-count { text-align: right; color: var(--app-text-secondary); font-size: 0.85rem; }
 .col-star { display: flex; justify-content: center; }
 .row-star { border: none; background: none; color: var(--app-text-secondary); font-size: 1rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
-.playlist-row:hover .row-star { opacity: 1; }
+.playlist-row:hover .row-star,
+.row-star.is-starred { opacity: 1; }
+.row-star.is-starred { color: var(--app-accent); }
 .row-star:hover { color: var(--app-accent); }
-.row-star .pi-star-fill { opacity: 1; color: var(--app-accent); }
 .col-play { display: flex; justify-content: center; }
 .row-play { border: none; background: none; color: var(--app-text-secondary); font-size: 1.1rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .playlist-row:hover .row-play { opacity: 1; }

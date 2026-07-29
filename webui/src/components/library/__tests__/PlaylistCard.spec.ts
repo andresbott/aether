@@ -52,6 +52,12 @@ describe('PlaylistCard star toggle', () => {
         expect(starred.find('.card-star i').classes()).toContain('pi-star-fill')
     })
 
+    it('keeps a starred playlist star visible without hover', () => {
+        expect(mountCard(playlist({ starred: '2026-02-01T00:00:00Z' })).find('.card-star').classes())
+            .toContain('is-starred')
+        expect(mountCard(playlist()).find('.card-star').classes()).not.toContain('is-starred')
+    })
+
     it('toggles the star with the playlist id and its current state', async () => {
         const w = mountCard(playlist({ starred: '2026-02-01T00:00:00Z' }))
         await w.find('.card-star').trigger('click')
