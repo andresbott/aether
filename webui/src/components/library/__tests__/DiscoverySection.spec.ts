@@ -150,6 +150,24 @@ describe('DiscoverySection', () => {
         expect(w.find('.section-error').exists()).toBe(false)
     })
 
+    // The mirror of the test above, and the case that let a real bug through: an
+    // album-only failure with nothing to show in either block must surface the
+    // album error, never "Nothing here yet".
+    it('shows the album error when albums fail and there are no playlists', () => {
+        albumsError.value = true
+        const w = mountSection()
+        expect(w.find('.section-albums-error').exists()).toBe(true)
+        expect(w.find('.section-empty').exists()).toBe(false)
+        expect(w.find('.section-error').exists()).toBe(false)
+    })
+
+    it('shows the album loading state when albums load and there are no playlists', () => {
+        albumsLoading.value = true
+        const w = mountSection()
+        expect(w.find('.section-albums-loading').exists()).toBe(true)
+        expect(w.find('.section-empty').exists()).toBe(false)
+    })
+
     it('passes SHELF_ALBUM_COUNT (12) to the composable', () => {
         mountSection()
         expect(albumSize.value).toBe(12)

@@ -30,10 +30,16 @@ const shownPlaylists = computed(() => playlists.value.slice(0, SHELF_PLAYLIST_CO
 
 const isLoading = computed(() => albumsLoading.value && playlistsLoading.value)
 const isError = computed(() => albumsError.value && playlistsError.value)
+// "Nothing here yet" may only win when NEITHER block has anything to say — so it
+// is gated on the per-block flags, not on the combined AND-flags above. Gating on
+// `isError` alone would let an album-only failure (with no playlists to show)
+// render as an empty section and hide the album error branch entirely.
 const isEmpty = computed(
     () =>
-        !isLoading.value &&
-        !isError.value &&
+        !albumsLoading.value &&
+        !albumsError.value &&
+        !playlistsLoading.value &&
+        !playlistsError.value &&
         shownAlbums.value.length === 0 &&
         shownPlaylists.value.length === 0
 )
