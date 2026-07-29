@@ -76,6 +76,7 @@ func (s *Store) DeleteOrphanedAggregates() error {
 		`DELETE FROM genres WHERE id NOT IN (SELECT DISTINCT genre_id FROM track_genres) AND id NOT IN (SELECT DISTINCT genre_id FROM album_genres)`,
 		`DELETE FROM playlist_tracks WHERE track_id NOT IN (SELECT id FROM tracks)`,
 		`DELETE FROM play_histories WHERE track_id NOT IN (SELECT id FROM tracks)`,
+		`DELETE FROM playlist_plays WHERE playlist_id NOT IN (SELECT id FROM playlists)`,
 		`DELETE FROM starred_items WHERE item_type = 'track' AND item_id NOT IN (SELECT id FROM tracks)`,
 		`DELETE FROM starred_items WHERE item_type = 'album' AND item_id NOT IN (SELECT id FROM albums)`,
 		`DELETE FROM starred_items WHERE item_type = 'artist' AND item_id NOT IN (SELECT id FROM artists)`,
