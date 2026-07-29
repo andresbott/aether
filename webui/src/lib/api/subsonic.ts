@@ -407,6 +407,17 @@ class SubsonicClient {
         await this.request('unstar.view', { id })
     }
 
+    // Fire-and-forget: a failed scrobble must never interrupt playback, so this
+    // swallows every error instead of propagating it to the caller.
+    async scrobble(id: string): Promise<void> {
+        if (!this.isConfigured()) return
+        try {
+            await this.request('scrobble.view', { id, submission: true })
+        } catch (err) {
+            console.warn('scrobble failed', err)
+        }
+    }
+
     async getRandomSongs(size = 50, musicFolderId?: number): Promise<Song[]> {
         if (!this.isConfigured()) return []
         const params: Record<string, string | number | undefined> = { size }

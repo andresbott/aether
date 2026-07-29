@@ -39,7 +39,7 @@ export function useAlbumTable(
             const fid = unref(folderId)
             try {
                 const albums = await queryClient.fetchQuery({
-                    queryKey: queryKeys.albumList('alphabeticalByName', offset, fid),
+                    queryKey: queryKeys.albumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
                     queryFn: () =>
                         subsonicClient.getAlbumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
                     staleTime: 2 * 60 * 1000

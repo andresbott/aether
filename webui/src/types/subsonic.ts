@@ -84,6 +84,11 @@ export interface Playlist {
     created: string
     changed?: string
     coverArt?: string
+    // Aether's "playlistStar" extension: RFC3339, absent when not starred.
+    starred?: string
+    // Aether's "playlistStats" extension.
+    playCount?: number
+    played?: string
 }
 
 export interface Genre {

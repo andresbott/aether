@@ -18,8 +18,8 @@ import type {
 export const queryKeys = {
     ping: ['subsonic', 'ping'] as const,
     musicFolders: ['subsonic', 'musicFolders'] as const,
-    albumList: (type: string, offset: number, musicFolderId?: number) =>
-        ['subsonic', 'albumList', type, offset, musicFolderId] as const,
+    albumList: (type: string, size: number, offset: number, musicFolderId?: number) =>
+        ['subsonic', 'albumList', type, size, offset, musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     search: (query: string) => ['subsonic', 'search', query] as const,
@@ -310,6 +310,36 @@ export function useDeleteRadioStation() {
         mutationFn: (id: string) => subsonicClient.deleteInternetRadioStation(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
+        }
+    })
+}
+
+// type and size are reactive so a section page can follow a changing route param
+// without remounting (vue-router reuses the component when only the param
+// changes, and random's page size differs from every other section's).
+export function useAlbumListByType(
+    type: MaybeRefOrGetter<string>,
+    size: MaybeRefOrGetter<number>
+) {
+    const listType = computed(() => toValue(type))
+    const listSize = computed(() => toValue(size))
+    return useQuery({
+        queryKey: computed(() => queryKeys.albumList(listType.value, listSize.value, 0)),
+        queryFn: () => subsonicClient.getAlbumList(listType.value, listSize.value, 0),
+        // Random reshuffles server-side on every request; a short stale window
+        // keeps a shelf from reshuffling under the user while they scroll.
+        staleTime: 2 * 60 * 1000
+    })
+}
+
+export function useTogglePlaylistStar() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { id: string; starred: boolean }) =>
+            params.starred ? subsonicClient.unstar(params.id) : subsonicClient.star(params.id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
         }
     })
 }
