@@ -26,52 +26,98 @@ type StarredResult struct {
 func (s *Store) GetStarred(filter *StarredFilter) (*StarredResult, error) {
 	result := &StarredResult{}
 
+	var err error
+	result.Artists, err = s.starredArtists(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	result.Albums, err = s.starredAlbums(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	result.Tracks, err = s.starredTracks(filter)
+	if err != nil {
+		return nil, err
+	}
+
+	result.Playlists, err = s.starredPlaylists()
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+func (s *Store) starredArtists(filter *StarredFilter) ([]model.Artist, error) {
 	var artistIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'artist'").Pluck("item_id", &artistIDs).Error; err != nil {
 		return nil, err
 	}
-	if len(artistIDs) > 0 {
-		q := s.db.Model(&model.Artist{}).Where("artists.id IN ?", artistIDs)
-		if filter != nil && filter.LibraryID != nil {
-			q = q.
-				Distinct().
-				Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
-				Joins("JOIN tracks ON tracks.id = track_artists.track_id").
-				Where("tracks.library_id = ?", *filter.LibraryID)
-		}
-		if err := q.Find(&result.Artists).Error; err != nil {
-			return nil, err
-		}
+	if len(artistIDs) == 0 {
+		return []model.Artist{}, nil
 	}
 
+	q := s.db.Model(&model.Artist{}).Where("artists.id IN ?", artistIDs)
+	if filter != nil && filter.LibraryID != nil {
+		q = q.
+			Distinct().
+			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
+			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
+			Where("tracks.library_id = ?", *filter.LibraryID)
+	}
+
+	var artists []model.Artist
+	if err := q.Find(&artists).Error; err != nil {
+		return nil, err
+	}
+	return artists, nil
+}
+
+func (s *Store) starredAlbums(filter *StarredFilter) ([]model.Album, error) {
 	var albumIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'album'").Pluck("item_id", &albumIDs).Error; err != nil {
 		return nil, err
 	}
-	if len(albumIDs) > 0 {
-		q := s.db.Preload("Artists").Where("albums.id IN ?", albumIDs)
-		if filter != nil && filter.LibraryID != nil {
-			q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
-		}
-		if err := q.Find(&result.Albums).Error; err != nil {
-			return nil, err
-		}
+	if len(albumIDs) == 0 {
+		return []model.Album{}, nil
 	}
 
+	q := s.db.Preload("Artists").Where("albums.id IN ?", albumIDs)
+	if filter != nil && filter.LibraryID != nil {
+		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
+
+	var albums []model.Album
+	if err := q.Find(&albums).Error; err != nil {
+		return nil, err
+	}
+	return albums, nil
+}
+
+func (s *Store) starredTracks(filter *StarredFilter) ([]model.Track, error) {
 	var trackIDs []uint
 	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'track'").Pluck("item_id", &trackIDs).Error; err != nil {
 		return nil, err
 	}
-	if len(trackIDs) > 0 {
-		q := s.db.Preload("Album").Preload("Album.Artists").Preload("Artists").Preload("Genres").Where("tracks.id IN ?", trackIDs)
-		if filter != nil && filter.LibraryID != nil {
-			q = q.Where("tracks.library_id = ?", *filter.LibraryID)
-		}
-		if err := q.Find(&result.Tracks).Error; err != nil {
-			return nil, err
-		}
+	if len(trackIDs) == 0 {
+		return []model.Track{}, nil
 	}
 
+	q := s.db.Preload("Album").Preload("Album.Artists").Preload("Artists").Preload("Genres").Where("tracks.id IN ?", trackIDs)
+	if filter != nil && filter.LibraryID != nil {
+		q = q.Where("tracks.library_id = ?", *filter.LibraryID)
+	}
+
+	var tracks []model.Track
+	if err := q.Find(&tracks).Error; err != nil {
+		return nil, err
+	}
+	return tracks, nil
+}
+
+func (s *Store) starredPlaylists() ([]model.Playlist, error) {
 	// Playlists are not scoped to a library — a playlist can hold tracks from
 	// several — so StarredFilter.LibraryID deliberately does not apply here.
 	var playlistStars []model.StarredItem
@@ -80,26 +126,31 @@ func (s *Store) GetStarred(filter *StarredFilter) (*StarredResult, error) {
 		Find(&playlistStars).Error; err != nil {
 		return nil, err
 	}
-	if len(playlistStars) > 0 {
-		playlistIDs := make([]uint, 0, len(playlistStars))
-		for _, st := range playlistStars {
-			playlistIDs = append(playlistIDs, st.ItemID)
-		}
-		var playlists []model.Playlist
-		if err := s.db.Where("id IN ?", playlistIDs).Find(&playlists).Error; err != nil {
-			return nil, err
-		}
-		byID := make(map[uint]model.Playlist, len(playlists))
-		for _, pl := range playlists {
-			byID[pl.ID] = pl
-		}
-		// Re-apply the star order the IN query lost, skipping stars whose
-		// playlist no longer exists.
-		result.Playlists = make([]model.Playlist, 0, len(playlists))
-		for _, id := range playlistIDs {
-			if pl, ok := byID[id]; ok {
-				result.Playlists = append(result.Playlists, pl)
-			}
+	if len(playlistStars) == 0 {
+		return []model.Playlist{}, nil
+	}
+
+	playlistIDs := make([]uint, 0, len(playlistStars))
+	for _, st := range playlistStars {
+		playlistIDs = append(playlistIDs, st.ItemID)
+	}
+
+	var playlists []model.Playlist
+	if err := s.db.Where("id IN ?", playlistIDs).Find(&playlists).Error; err != nil {
+		return nil, err
+	}
+
+	byID := make(map[uint]model.Playlist, len(playlists))
+	for _, pl := range playlists {
+		byID[pl.ID] = pl
+	}
+
+	// Re-apply the star order the IN query lost, skipping stars whose
+	// playlist no longer exists.
+	result := make([]model.Playlist, 0, len(playlists))
+	for _, id := range playlistIDs {
+		if pl, ok := byID[id]; ok {
+			result = append(result, pl)
 		}
 	}
 	return result, nil
