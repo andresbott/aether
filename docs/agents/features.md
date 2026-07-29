@@ -44,6 +44,8 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Manual artist image search (same providers, user-picked MusicBrainz match) | Implemented, key-gated | `ArtistImageSearchDialog`, `/artists/image-preview` + `/artists/{id}/image-from-search` ([scanning.md](scanning.md)) |
 | Metadata editor (tags, pictures, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` |
 | Album identify (map a multi-file selection onto one release) | Implemented, key-gated | `POST /metadata/identify-album` → `internal/albumidentify`; `IdentifyAlbumDialog.vue` ([architecture.md](architecture.md)) |
+| Shared per-file fingerprint cache (both identify flows) | Implemented | `identify.Cache` on the one `*identify.Identifier` both endpoints resolve through (`app/router/api_v1.go`); keyed path+size+mtime, LRU. Per-track and album identify reuse each other's fpcalc/AcoustID pass |
+| MusicBrainz tracklist cache (album identify) | Implemented | `albumidentify.CachingReleaseLookup`, keyed by release MBID, wrapped **in front of** the 1 req/sec throttle — without it a repeat album identify still waited ~8s enriching options ([architecture.md](architecture.md)) |
 | Radio-browser station import | Implemented | `handlers/radiobrowser` (server-side proxy) |
 | Prometheus metrics | Implemented, opt-in | separate observability server, off unless `Observability.Enabled` (`:9009` default), `handlers/admin.go` |
 
@@ -57,6 +59,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Playlists UI (inline rename, batched track edit) | Implemented | `PlaylistsView`, `PlaylistDetailView` |
 | Radio UI | Implemented | `RadioView`, `RadioStationDetailView` (`/radio/new` create mode) |
 | Metadata editor UI | Implemented | `/settings/metadata`, `useEditSession` staged overlays |
+| Identify result cache (reopening a dialog costs no lookup) | Implemented | `useIdentifyCache` (module-scoped LRU) + `useIdentifyRuns` (both flows, dialog state, aborts); Re-identify in both dialogs and the editor's Reload bypass it. Paired with the server-side fingerprint cache below |
 | Favorites UI | Partial | album/artist/now-playing toggles done; track-row stars, grid badges, starred browse section missing (TODO.md) |
 | Search, genres, settings shell | Implemented | `SearchView`, `GenresView`/`GenreDetailView`, `SettingsLayout` |
 

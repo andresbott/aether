@@ -129,6 +129,30 @@ starting with `@` load the referenced file's contents (used for gitignored
   to `candidateToOverlay` or `albumPickToOverlay` and you must add it to
   `IDENTIFY_FIELDS` too — an uncovered overlay key is silently dropped from every
   apply in both dialogs (a unit test guards this).
+  **Identification is cached in three layers, and each covers a different
+  cost.** `identify.Cache`
+  (LRU, keyed path + size + mtime) sits on the single `*identify.Identifier` that
+  BOTH endpoints resolve through, so per-track and album identify share one
+  fingerprint pass: identifying songs and then identifying them as an album pays
+  no second fpcalc run or AcoustID call. Only successful answers are stored — a
+  rate-limited lookup must stay retryable — while an empty match is stored, being
+  the most expensive answer to re-derive. A tag save moves mtime and so costs a
+  re-fingerprint; that is deliberate, since no stat can tell a tag rewrite from a
+  re-encode.
+  `albumidentify.CachingReleaseLookup` covers the OTHER half of the album flow's
+  cost and is the layer people forget: `Resolve` enriches up to
+  `MaxEnrichedOptions` (8) options with their MusicBrainz tracklist, and that
+  client is throttled to **one request per second**, so a repeat album identify
+  waited ~8s even with every fingerprint cached. It wraps the `ReleaseLookup`
+  *in front of* the throttle — a hit must not consume a rate-limiter token, or
+  the wait (which is the whole cost) is still paid.
+  Finally the frontend's `useIdentifyCache` holds the shaped responses so
+  reopening a dialog is zero-network (the two response shapes are not
+  interconvertible — an `AlbumOption`'s assignments carry no scores or
+  alternative candidates — which is why cross-flow sharing lives on the server
+  primitive, not in the browser).
+  All three are in-memory: a backend restart clears the first two, a page reload
+  the third, so the first run after either is legitimately slow.
 - **Album identification** (`internal/albumidentify`) answers the album question
   the editor asks when tagging a rip: which single release explains this whole
   selection, and where does each file sit on it. It fingerprints every file

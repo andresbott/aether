@@ -53,6 +53,9 @@ func asUpstream(err error) error {
 type Identifier struct {
 	Fp     *fpcalc.Client
 	Acoust *acoustid.Client
+	// Cache remembers per-file identifications across calls and across both
+	// identify flows. Optional: nil means every call fingerprints and looks up.
+	Cache *Cache
 }
 
 // New returns an Identifier from an fpcalc client and an AcoustID client.
@@ -72,9 +75,18 @@ func (i *Identifier) IdentifyFile(ctx context.Context, absPath string) ([]acoust
 // measured, in seconds. Callers that map several files onto one album use it to
 // place a file the fingerprint did not match: its duration against a release's
 // tracklist is the strongest remaining signal.
+// A cached answer short-circuits both steps, which is the whole cost of
+// identification: the per-track and album flows call this same method, so one
+// run's fingerprint pass serves the other (see Cache).
 func (i *Identifier) IdentifyFileWithDuration(
 	ctx context.Context, absPath string,
 ) ([]acoustid.Recording, float64, error) {
+	key, cacheable := keyFor(absPath)
+	if cacheable {
+		if hit, ok := i.Cache.get(key); ok {
+			return hit.recordings, hit.duration, nil
+		}
+	}
 	fp, err := i.Fp.Fingerprint(ctx, absPath)
 	if err != nil {
 		return nil, 0, fmt.Errorf("fingerprint: %w", err)
@@ -85,6 +97,12 @@ func (i *Identifier) IdentifyFileWithDuration(
 		// to *upstream.Error and tell an AcoustID outage (a request-level
 		// failure) from a per-file problem like an undecodable track.
 		return nil, fp.Duration, fmt.Errorf("acoustid: %w", asUpstream(err))
+	}
+	// Only a successful answer is stored — a rate-limited or failed lookup has to
+	// stay retryable. An empty match IS a successful answer, and the most
+	// expensive kind to re-derive.
+	if cacheable {
+		i.Cache.put(key, cacheEntry{recordings: recs, duration: fp.Duration})
 	}
 	return recs, fp.Duration, nil
 }

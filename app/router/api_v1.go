@@ -71,9 +71,17 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				mh.Identifier = h.identifier
 				// Album identification needs the same fingerprinting the
 				// per-file identify uses, plus MusicBrainz for tracklists.
+				// The tracklist lookup is cached IN FRONT of the throttle:
+				// MusicBrainz allows one request per second and a run enriches
+				// up to MaxEnrichedOptions releases, so without this a repeat
+				// identify of the same album still waits several seconds even
+				// though the fingerprint pass is already cached.
 				mh.AlbumIdentifier = albumidentify.New(
 					h.identifier,
-					artistimage.NewMusicBrainzSearch(userAgent),
+					albumidentify.NewCachingReleaseLookup(
+						artistimage.NewMusicBrainzSearch(userAgent),
+						albumidentify.DefaultReleaseCacheSize,
+					),
 				)
 			}
 			mh.Routes(r)

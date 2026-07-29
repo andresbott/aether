@@ -404,3 +404,23 @@ describe('IdentifyReviewDialog field selection', () => {
         expect(w.emitted('apply')![0][1]).toEqual(['title', 'year'])
     })
 })
+
+describe('IdentifyReviewDialog re-identify', () => {
+    it('offers a re-identify action once results are on screen', async () => {
+        const w = mountDialog([highResult])
+        await w.find('[data-test="identify-reidentify"]').trigger('click')
+        expect(w.emitted('reidentify')).toHaveLength(1)
+    })
+
+    it('offers nothing to re-run while the request is still in flight', () => {
+        const w = mountDialog([], [mkTrack()], true)
+        expect(w.find('[data-test="identify-reidentify"]').exists()).toBe(false)
+    })
+
+    it('does not close the dialog: the fresh run repopulates it in place', async () => {
+        const w = mountDialog([highResult])
+        await w.find('[data-test="identify-reidentify"]').trigger('click')
+        expect(w.emitted('update:visible')).toBeUndefined()
+        expect(w.emitted('cancel')).toBeUndefined()
+    })
+})
