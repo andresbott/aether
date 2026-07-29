@@ -40,4 +40,15 @@ describe('AppSidebar Discover entry', () => {
         await item!.trigger('click')
         expect(pushSpy).toHaveBeenCalledWith('/discover')
     })
+
+    it('places Discover first in the Library group, above Playlists', () => {
+        const w = mount(AppSidebar, { global: { directives: { tooltip: {} } } })
+        const labels = w.findAll('.nav-item').map((n) => n.text())
+        const discover = labels.findIndex((l) => l.includes('Discover'))
+        const playlists = labels.findIndex((l) => l.includes('Playlists'))
+        const genres = labels.findIndex((l) => l.includes('Genres'))
+        expect(discover).toBeGreaterThan(-1)
+        expect(discover).toBeLessThan(playlists)
+        expect(playlists).toBeLessThan(genres)
+    })
 })

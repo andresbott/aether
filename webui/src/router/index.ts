@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
         props: true,
         meta: { flush: true }
     },
+    // Discovery routes: static /discover before /discover/:section — vue-router matches in declaration order
     {
         path: '/discover',
         name: 'discover',
