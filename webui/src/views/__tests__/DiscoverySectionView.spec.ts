@@ -4,12 +4,12 @@ import { computed, ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import type { Album, Playlist } from '@/types/subsonic'
 
-const pushSpy = vi.fn()
+const backSpy = vi.fn()
 const replaceSpy = vi.fn()
 const route = { query: {} as Record<string, unknown> }
 vi.mock('vue-router', () => ({
     useRoute: () => route,
-    useRouter: () => ({ push: pushSpy, replace: replaceSpy })
+    useRouter: () => ({ back: backSpy, replace: replaceSpy })
 }))
 
 const albums = ref<Album[]>([])
@@ -72,7 +72,7 @@ const mountView = (section = 'favorites') =>
 beforeEach(() => {
     albums.value = []
     playlists.value = []
-    pushSpy.mockReset()
+    backSpy.mockReset()
     replaceSpy.mockReset()
     refetchAlbums.mockReset()
     route.query = {}
@@ -113,5 +113,15 @@ describe('DiscoverySectionView', () => {
     it('redirects to discovery for an unknown section', () => {
         mountView('nope')
         expect(replaceSpy).toHaveBeenCalledWith({ name: 'discover' })
+    })
+
+    it('re-derives data when the section prop changes without remounting', async () => {
+        const w = mountView('favorites')
+        expect(w.text()).toContain('Favorites')
+        expect(w.find('.section-shuffle').exists()).toBe(false)
+
+        await w.setProps({ section: 'random' })
+        expect(w.text()).toContain('Random')
+        expect(w.find('.section-shuffle').exists()).toBe(true)
     })
 })

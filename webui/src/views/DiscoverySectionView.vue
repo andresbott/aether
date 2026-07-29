@@ -70,9 +70,6 @@ const summary = computed(() => {
     return parts.join(' • ')
 })
 
-function goBack(): void {
-    router.push({ name: 'discover' })
-}
 </script>
 
 <template>
@@ -80,7 +77,7 @@ function goBack(): void {
         :title="def?.title ?? 'Discovery'"
         :summary="summary"
         showBack
-        @back="goBack"
+        @back="router.back()"
     >
         <template #actions>
             <SelectButton
