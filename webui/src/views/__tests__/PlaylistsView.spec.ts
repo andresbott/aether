@@ -6,7 +6,8 @@ import PrimeVue from 'primevue/config'
 const playlists = ref<any[]>([])
 vi.mock('@/composables/useSubsonicQueries', () => ({
     usePlaylists: () => ({ data: playlists, isLoading: ref(false) }),
-    useCreatePlaylist: () => ({ mutate: vi.fn(), isPending: ref(false) })
+    useCreatePlaylist: () => ({ mutate: vi.fn(), isPending: ref(false) }),
+    useTogglePlaylistStar: () => ({ mutate: vi.fn() })
 }))
 
 const replaceSpy = vi.fn()
@@ -17,7 +18,7 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getPlaylist: vi.fn() }
+    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getPlaylist: vi.fn(), scrobble: vi.fn() }
 }))
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum: vi.fn() }) }))
 

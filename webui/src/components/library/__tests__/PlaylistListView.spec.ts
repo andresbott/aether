@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { getPlaylist, playAlbum } = vi.hoisted(() => ({
+const { getPlaylist, playAlbum, scrobble } = vi.hoisted(() => ({
     getPlaylist: vi.fn(),
-    playAlbum: vi.fn()
+    playAlbum: vi.fn(),
+    scrobble: vi.fn()
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getPlaylist }
+    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getPlaylist, scrobble }
 }))
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum }) }))
+vi.mock('@/composables/useSubsonicQueries', () => ({
+    useTogglePlaylistStar: () => ({ mutate: vi.fn() })
+}))
 
 import PlaylistListView from '@/components/library/PlaylistListView.vue'
 
@@ -22,6 +26,7 @@ const playlists = [
 beforeEach(() => {
     getPlaylist.mockReset()
     playAlbum.mockReset()
+    scrobble.mockReset()
 })
 
 describe('PlaylistListView', () => {
