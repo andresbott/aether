@@ -209,10 +209,16 @@ export function groupPatches(
 /**
  * candidateToOverlay converts an accepted identify candidate (and the release
  * the user picked, if any) into staged field values.
+ *
+ * `genres` comes from the caller rather than from the candidate: the fingerprint
+ * match carries no genres, so the dialog looks them up for the picked release's
+ * release group and passes the answer in. An empty list stages nothing — staging
+ * [] would wipe genres the file already has.
  */
 export function candidateToOverlay(
     candidate: IdentifyCandidate,
-    release: IdentifyRelease | null
+    release: IdentifyRelease | null,
+    genres: string[] = []
 ): TrackOverlay {
     const out: TrackOverlay = {
         title: candidate.title,
@@ -229,18 +235,25 @@ export function candidateToOverlay(
         if (release.track_number > 0) out.track_number = release.track_number
         if (release.disc_number > 0) out.disc_number = release.disc_number
     }
+    if (genres.length > 0) out.genres = [...genres]
     return out
 }
 
 /**
  * albumPickToOverlay converts an accepted album identify pick into staged field
  * values. Stages the album-level fields on every accepted song, plus the song's
- * own recording fields when a position was resolved. Genres, compilation and
- * disc subtitle are deliberately left alone: identification says nothing
- * reliable about them.
+ * own recording fields when a position was resolved. Compilation and disc
+ * subtitle are deliberately left alone: identification says nothing reliable
+ * about them.
+ *
+ * `genres` comes from the caller for the same reason as in candidateToOverlay:
+ * the identify response carries no genres, so the dialog looks them up for the
+ * chosen option's release group. An empty list stages nothing rather than
+ * clearing the files' existing genres.
  */
 export function albumPickToOverlay(
-    pick: import('@/types/metadata').AlbumIdentifyPick
+    pick: import('@/types/metadata').AlbumIdentifyPick,
+    genres: string[] = []
 ): TrackOverlay {
     const { option, assignment } = pick
     const out: TrackOverlay = {}
@@ -254,6 +267,7 @@ export function albumPickToOverlay(
     if (albumArtists.length > 0) {
         out.album_artists = albumArtists.map((a) => ({ name: a.name, mbid: a.mbid }))
     }
+    if (genres.length > 0) out.genres = [...genres]
     if (assignment) {
         if (assignment.title !== '') out.title = assignment.title
         if (assignment.recording_mbid !== '') out.mb_recording_id = assignment.recording_mbid

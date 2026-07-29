@@ -12,6 +12,7 @@ import type {
 } from '@/types/metadata'
 import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
+import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 
 // A candidate above this score is considered a confident match and its track
 // is pre-accepted when the dialog opens.
@@ -146,6 +147,19 @@ function artistChanged(path: string): boolean {
     return target !== '' && target !== currentArtist(path)
 }
 
+function currentGenres(path: string): string {
+    return (trackByPath.value.get(path)?.genres ?? []).filter((g) => g !== '').join(', ')
+}
+
+function targetGenres(path: string): string {
+    return rowGenres(path).join(', ')
+}
+
+function genresChanged(path: string): boolean {
+    const target = targetGenres(path)
+    return target !== '' && target !== currentGenres(path)
+}
+
 // The tooltip on a changed cell: what the value is now, since the column shows
 // what it will become. This is the ONLY place the file's existing title and
 // artist tags are shown — the File column identifies the file, not its tags — so
@@ -183,6 +197,65 @@ const acceptedCount = computed(
     () => [...rows.value.values()].filter((s) => s.accepted).length
 )
 
+// ----- Genres -----
+// A fingerprint match carries no genres: MusicBrainz keeps genre votes on the
+// release GROUP. So they are looked up for the group of whichever release each
+// row points at, through a shared cache — the lookup is throttled to one request
+// per second server-side, and identifying a folder song by song means every row
+// usually lands on the SAME album, which the cache collapses into one request.
+const genreCache = useReleaseGroupGenres()
+// Release group mbid -> its genres, for the groups the rows currently point at.
+const genresByGroup = ref(new Map<string, string[]>())
+
+// The release group a row would stage from, or '' when it has no release.
+function chosenGroup(path: string): string {
+    const candidate = chosenCandidate(path)
+    if (!candidate) return ''
+    return candidate.releases[rowState(path).releaseIndex]?.release_group_mbid ?? ''
+}
+
+// The genres a row would stage. Empty until its lookup lands, and stays empty for
+// a row with no release group or whose lookup failed.
+function rowGenres(path: string): string[] {
+    return genresByGroup.value.get(chosenGroup(path)) ?? []
+}
+
+// The distinct release groups the reviewable rows point at right now. Deduped, so
+// a folder of songs from one album costs ONE lookup rather than one per file.
+const neededGroups = computed(() => {
+    const groups = new Set<string>()
+    for (const r of props.results) {
+        if (!isReviewable(r)) continue
+        const mbid = chosenGroup(r.path)
+        if (mbid !== '') groups.add(mbid)
+    }
+    return [...groups]
+})
+
+// Fetch whatever the current rows need and nothing else. Re-runs when a row is
+// re-pointed at another release or a fresh identify run replaces the results; the
+// cache absorbs the repeats, so switching back and forth costs no requests.
+watch(
+    neededGroups,
+    (groups) => {
+        for (const mbid of groups) {
+            if (genresByGroup.value.has(mbid)) continue
+            const hit = genreCache.cached(mbid)
+            if (hit !== undefined) {
+                genresByGroup.value.set(mbid, hit)
+                continue
+            }
+            // Claim the key before awaiting so a re-point back to this group
+            // during the request does not queue a second one.
+            genresByGroup.value.set(mbid, [])
+            void genreCache.lookup(mbid).then((genres) => {
+                genresByGroup.value.set(mbid, genres)
+            })
+        }
+    },
+    { immediate: true }
+)
+
 function apply() {
     const picks: IdentifyPick[] = []
     for (const r of props.results) {
@@ -193,7 +266,8 @@ function apply() {
         picks.push({
             path: r.path,
             candidate,
-            release: candidate.releases[state.releaseIndex] ?? null
+            release: candidate.releases[state.releaseIndex] ?? null,
+            genres: rowGenres(r.path)
         })
     }
     emit('apply', picks, [...selectedFields.value])
@@ -245,6 +319,7 @@ function cancel() {
                 <span class="col-current">File</span>
                 <span class="col-target">Title</span>
                 <span class="col-target">Artist</span>
+                <span class="col-target">Genres</span>
                 <span class="col-choice">Recording</span>
                 <span class="col-choice">Release</span>
             </div>
@@ -325,6 +400,28 @@ function cancel() {
                         "
                         class="cell-value"
                         >{{ targetArtist(result.path) }}</span
+                    >
+                    <span v-else class="cell-unchanged">unchanged</span>
+                </span>
+
+                <!-- Genres do not come from the fingerprint match: they are
+                     looked up for the picked release's group, so this cell fills
+                     in a moment after the row appears. Empty reads as "unchanged"
+                     like every other target that stages nothing. -->
+                <span
+                    class="col-target cell-target"
+                    :class="{ changed: genresChanged(result.path) }"
+                    :data-test="`identify-genres-${result.path}`"
+                >
+                    <span
+                        v-if="targetGenres(result.path) !== ''"
+                        v-tooltip.top="
+                            genresChanged(result.path)
+                                ? replacesTooltip(currentGenres(result.path))
+                                : ''
+                        "
+                        class="cell-value"
+                        >{{ targetGenres(result.path) }}</span
                     >
                     <span v-else class="cell-unchanged">unchanged</span>
                 </span>
@@ -442,13 +539,14 @@ function cancel() {
    (no disc grouping or tracklist gaps here; a recording/release pair instead of a
    position dropdown). */
 .track-list {
-    /* accept · file · title · artist · recording · release. Only the
-       target side of each pair gets a column — the file's own title and artist
-       tags live in the target cell's "Currently: …" tooltip, which keeps the
+    /* accept · file · title · artist · genres · recording · release. Only the
+       target side of each pair gets a column — the file's own title, artist and
+       genre tags live in the target cell's "Currently: …" tooltip, which keeps the
        table narrow enough for the two choice columns to show their long labels
-       (the recording label carries the match score). */
+       (the recording label carries the match score). Genres get the narrowest
+       target column: a release group carries a handful of short names. */
     --identify-track-cols: 2.2rem minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr)
-        minmax(0, 1.5fr) minmax(0, 1.5fr);
+        minmax(0, 0.9fr) minmax(0, 1.5fr) minmax(0, 1.5fr);
     display: flex;
     flex-direction: column;
     /* Takes the height the field row leaves over and scrolls on its own, so the

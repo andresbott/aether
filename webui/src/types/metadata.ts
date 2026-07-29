@@ -178,10 +178,16 @@ export interface IdentifyTrackResult {
 
 // One confirmed identify pick from the review dialog: the accepted candidate
 // and the release the user chose (null when the candidate has no releases).
+//
+// `genres` are the release group's genres, looked up by the dialog rather than
+// returned by identification (AcoustID carries none). Empty when the pick has no
+// release group, when the lookup failed, or when MusicBrainz holds no genres for
+// it — in every one of those cases the apply stages no genres at all.
 export interface IdentifyPick {
     path: string
     candidate: IdentifyCandidate
     release: IdentifyRelease | null
+    genres: string[]
 }
 
 export interface IdentifyRequest {
@@ -256,11 +262,13 @@ export interface IdentifyAlbumResponse {
 
 // One song's confirmed placement from the album dialog: the album the user
 // picked plus the position they accepted for this file (null = album-level
-// fields only).
+// fields only). `genres` are the chosen option's release-group genres, looked up
+// by the dialog — see IdentifyPick.
 export interface AlbumIdentifyPick {
     path: string
     option: AlbumOption
     assignment: AlbumAssignment | null
+    genres: string[]
 }
 
 export interface UpdateTracksRequest {

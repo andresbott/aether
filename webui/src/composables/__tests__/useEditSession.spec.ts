@@ -720,6 +720,23 @@ describe('candidateToOverlay', () => {
         expect(overlay.disc_number).toBe(1)
     })
 
+    it('stages the release-group genres when the dialog resolved some', () => {
+        // Genres are not in the fingerprint match: the dialog looks them up for
+        // the release group of the release the user picked, then hands them over.
+        const overlay = candidateToOverlay(candidate, candidate.releases[0], [
+            'Grunge',
+            'Alternative Rock'
+        ])
+        expect(overlay.genres).toEqual(['Grunge', 'Alternative Rock'])
+    })
+
+    it('stages no genres when the lookup produced none', () => {
+        // An empty list must stay ABSENT rather than stage []: staging an empty
+        // array would wipe genres the file already carries.
+        expect(candidateToOverlay(candidate, candidate.releases[0], []).genres).toBeUndefined()
+        expect(candidateToOverlay(candidate, candidate.releases[0]).genres).toBeUndefined()
+    })
+
     it('omits artists, year and positions when absent', () => {
         const overlay = candidateToOverlay(
             { ...candidate, artists: [] },
@@ -755,6 +772,17 @@ describe('albumPickToOverlay', () => {
         assignments: []
     }
 
+    // Most cases here are about the option/assignment mapping, not about genres,
+    // so they take the no-genres default the dialog produces when a release group
+    // has none. The genre cases pass their own list.
+    const mkPick = (over: Partial<AlbumIdentifyPick> = {}): AlbumIdentifyPick => ({
+        path: 'a.mp3',
+        option,
+        assignment: null,
+        genres: [],
+        ...over
+    })
+
     // A Go nil slice marshals to JSON null, so `artists` can arrive null even
     // though the type declares an array. That must degrade to "no artists
     // staged", never throw and lose the whole apply.
@@ -784,9 +812,7 @@ describe('albumPickToOverlay', () => {
     })
 
     it('stages both album-level and song-level fields when assignment is present', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+        const pick = mkPick({
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -797,7 +823,7 @@ describe('albumPickToOverlay', () => {
                 track_number: 5,
                 score: 0.95
             }
-        }
+        })
         const overlay = albumPickToOverlay(pick)
         expect(overlay.album).toBe('Album')
         expect(overlay.mb_release_id).toBe('rel-id')
@@ -812,12 +838,7 @@ describe('albumPickToOverlay', () => {
     })
 
     it('stages ONLY album-level fields when assignment is null', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
-            assignment: null
-        }
-        const overlay = albumPickToOverlay(pick)
+        const overlay = albumPickToOverlay(mkPick())
         expect(overlay.album).toBe('Album')
         expect(overlay.mb_release_id).toBe('rel-id')
         expect(overlay.mb_release_group_id).toBe('rg-id')
@@ -831,20 +852,13 @@ describe('albumPickToOverlay', () => {
     })
 
     it('omits year when zero', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option: { ...option, year: 0 },
-            assignment: null
-        }
-        const overlay = albumPickToOverlay(pick)
+        const overlay = albumPickToOverlay(mkPick({ option: { ...option, year: 0 } }))
         expect(overlay.year).toBeUndefined()
         expect(overlay.album).toBe('Album')
     })
 
     it('omits track_number and disc_number when zero', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+        const pick = mkPick({
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -855,28 +869,32 @@ describe('albumPickToOverlay', () => {
                 track_number: 0,
                 score: 0.95
             }
-        }
+        })
         const overlay = albumPickToOverlay(pick)
         expect(overlay.track_number).toBeUndefined()
         expect(overlay.disc_number).toBeUndefined()
         expect(overlay.title).toBe('Song')
     })
 
+    it('stages the release-group genres when the dialog resolved some', () => {
+        const overlay = albumPickToOverlay(mkPick(), ['Grunge', 'Alternative Rock'])
+        expect(overlay.genres).toEqual(['Grunge', 'Alternative Rock'])
+    })
+
+    it('stages no genres when the lookup produced none', () => {
+        // Absent, not []: an empty stage would wipe the file's existing genres.
+        expect(albumPickToOverlay(mkPick(), []).genres).toBeUndefined()
+        expect(albumPickToOverlay(mkPick()).genres).toBeUndefined()
+    })
+
     it('omits empty album string', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option: { ...option, album: '' },
-            assignment: null
-        }
-        const overlay = albumPickToOverlay(pick)
+        const overlay = albumPickToOverlay(mkPick({ option: { ...option, album: '' } }))
         expect(overlay.album).toBeUndefined()
         expect(overlay.mb_release_id).toBe('rel-id')
     })
 
     it('omits empty title string', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+        const pick = mkPick({
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -887,16 +905,14 @@ describe('albumPickToOverlay', () => {
                 track_number: 1,
                 score: 0.95
             }
-        }
+        })
         const overlay = albumPickToOverlay(pick)
         expect(overlay.title).toBeUndefined()
         expect(overlay.mb_recording_id).toBe('rec-id')
     })
 
     it('omits empty recording_mbid string', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+        const pick = mkPick({
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -907,39 +923,29 @@ describe('albumPickToOverlay', () => {
                 track_number: 1,
                 score: 0.95
             }
-        }
+        })
         const overlay = albumPickToOverlay(pick)
         expect(overlay.mb_recording_id).toBeUndefined()
         expect(overlay.title).toBe('Song')
     })
 
     it('omits empty release_mbid and release_group_mbid strings', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option: { ...option, release_mbid: '', release_group_mbid: '' },
-            assignment: null
-        }
-        const overlay = albumPickToOverlay(pick)
+        const overlay = albumPickToOverlay(
+            mkPick({ option: { ...option, release_mbid: '', release_group_mbid: '' } })
+        )
         expect(overlay.mb_release_id).toBeUndefined()
         expect(overlay.mb_release_group_id).toBeUndefined()
         expect(overlay.album).toBe('Album')
     })
 
     it('omits album_artists when the list is empty', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option: { ...option, artists: [] },
-            assignment: null
-        }
-        const overlay = albumPickToOverlay(pick)
+        const overlay = albumPickToOverlay(mkPick({ option: { ...option, artists: [] } }))
         expect(overlay.album_artists).toBeUndefined()
         expect(overlay.album).toBe('Album')
     })
 
     it('omits artists when the assignment list is empty', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+        const pick = mkPick({
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -950,16 +956,17 @@ describe('albumPickToOverlay', () => {
                 track_number: 1,
                 score: 0.95
             }
-        }
+        })
         const overlay = albumPickToOverlay(pick)
         expect(overlay.artists).toBeUndefined()
         expect(overlay.title).toBe('Song')
     })
 
-    it('never stages genres, compilation or disc_subtitle', () => {
-        const pick: AlbumIdentifyPick = {
-            path: 'a.mp3',
-            option,
+    it('never stages compilation or disc_subtitle', () => {
+        // Identification says nothing reliable about either. Genres are NOT in
+        // this list: they come from a release-group lookup the dialog performs.
+        const pick = mkPick({
+            genres: ['Grunge'],
             assignment: {
                 path: 'a.mp3',
                 source: 'fingerprint',
@@ -970,10 +977,10 @@ describe('albumPickToOverlay', () => {
                 track_number: 1,
                 score: 0.95
             }
-        }
-        const overlay = albumPickToOverlay(pick)
-        expect(overlay.genres).toBeUndefined()
+        })
+        const overlay = albumPickToOverlay(pick, pick.genres)
         expect(overlay.compilation).toBeUndefined()
         expect(overlay.disc_subtitle).toBeUndefined()
+        expect(overlay.genres).toEqual(['Grunge'])
     })
 })
