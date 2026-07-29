@@ -15,14 +15,28 @@ const props = defineProps<{ sectionKey: string; layout: 'grid' | 'list' }>()
 // those own a full-height scroller and an alphabet rail, which cannot nest in a
 // shelf. A capped shelf gains nothing from virtualisation.
 // Getter, not props.sectionKey: the composable's key must stay reactive.
-const { section, albums, playlists, isLoading, isError } = useDiscoverySection(
-    () => props.sectionKey,
-    SHELF_ALBUM_COUNT
-)
+const {
+    section,
+    albums,
+    playlists,
+    albumsLoading,
+    albumsError,
+    playlistsLoading,
+    playlistsError
+} = useDiscoverySection(() => props.sectionKey, SHELF_ALBUM_COUNT)
 
 const shownAlbums = computed(() => albums.value.slice(0, SHELF_ALBUM_COUNT))
 const shownPlaylists = computed(() => playlists.value.slice(0, SHELF_PLAYLIST_COUNT))
-const isEmpty = computed(() => shownAlbums.value.length === 0 && shownPlaylists.value.length === 0)
+
+const isLoading = computed(() => albumsLoading.value && playlistsLoading.value)
+const isError = computed(() => albumsError.value && playlistsError.value)
+const isEmpty = computed(
+    () =>
+        !isLoading.value &&
+        !isError.value &&
+        shownAlbums.value.length === 0 &&
+        shownPlaylists.value.length === 0
+)
 </script>
 
 <template>
@@ -45,7 +59,7 @@ const isEmpty = computed(() => shownAlbums.value.length === 0 && shownPlaylists.
             <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
         </div>
 
-        <div v-else-if="isError" class="section-error content-col">
+        <div v-else-if="isError" class="section-error section-error-all content-col">
             <i class="pi pi-exclamation-triangle"></i>
             <span>Could not load this section</span>
         </div>
@@ -55,7 +69,21 @@ const isEmpty = computed(() => shownAlbums.value.length === 0 && shownPlaylists.
         </div>
 
         <template v-else>
-            <div v-if="shownAlbums.length > 0" class="section-albums content-col" :class="layout">
+            <div
+                v-if="albumsLoading"
+                class="section-loading section-albums-loading content-col"
+            >
+                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            </div>
+            <div v-else-if="albumsError" class="section-albums-error content-col">
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>Could not load albums</span>
+            </div>
+            <div
+                v-else-if="shownAlbums.length > 0"
+                class="section-albums content-col"
+                :class="layout"
+            >
                 <template v-if="layout === 'grid'">
                     <AlbumCard v-for="al in shownAlbums" :key="al.id" :album="al" />
                 </template>
@@ -65,7 +93,20 @@ const isEmpty = computed(() => shownAlbums.value.length === 0 && shownPlaylists.
             </div>
 
             <div
-                v-if="shownPlaylists.length > 0"
+                v-if="playlistsLoading"
+                class="section-loading section-playlists-loading content-col"
+            >
+                <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            </div>
+            <div
+                v-else-if="playlistsError"
+                class="section-playlists-error content-col"
+            >
+                <i class="pi pi-exclamation-triangle"></i>
+                <span>Could not load playlists</span>
+            </div>
+            <div
+                v-else-if="shownPlaylists.length > 0"
                 class="section-playlists content-col"
                 :class="layout"
             >

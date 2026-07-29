@@ -14,7 +14,12 @@ vi.mock('vue-router', () => ({
 
 const albums = ref<Album[]>([])
 const playlists = ref<Playlist[]>([])
-const refetchAlbums = vi.fn()
+const albumsLoading = ref(false)
+const albumsError = ref(false)
+const playlistsLoading = ref(false)
+const playlistsError = ref(false)
+const reshuffle = vi.fn()
+const albumSize = ref(100)
 
 vi.mock('@/composables/useDiscovery', async () => {
     const actual = await vi.importActual<typeof import('@/composables/useDiscovery')>(
@@ -22,16 +27,31 @@ vi.mock('@/composables/useDiscovery', async () => {
     )
     return {
         ...actual,
-        useDiscoverySection: (key: string | (() => string)) => ({
-            section: computed(() =>
-                actual.findSection(typeof key === 'function' ? key() : key)
-            ),
-            albums: computed(() => albums.value),
-            playlists: computed(() => playlists.value),
-            isLoading: computed(() => false),
-            isError: computed(() => false),
-            refetchAlbums
-        })
+        useDiscoverySection: (
+            key: string | (() => string),
+            size: number | (() => number) | { value: number }
+        ) => {
+            // Extract the size value: could be a number, a function, or a computed ref
+            const sizeValue =
+                typeof size === 'function'
+                    ? size()
+                    : typeof size === 'object' && 'value' in size
+                      ? size.value
+                      : size
+            albumSize.value = sizeValue
+            return {
+                section: computed(() =>
+                    actual.findSection(typeof key === 'function' ? key() : key)
+                ),
+                albums: computed(() => albums.value),
+                playlists: computed(() => playlists.value),
+                albumsLoading: computed(() => albumsLoading.value),
+                albumsError: computed(() => albumsError.value),
+                playlistsLoading: computed(() => playlistsLoading.value),
+                playlistsError: computed(() => playlistsError.value),
+                reshuffle
+            }
+        }
     }
 })
 
@@ -72,10 +92,15 @@ const mountView = (section = 'favorites') =>
 beforeEach(() => {
     albums.value = []
     playlists.value = []
+    albumsLoading.value = false
+    albumsError.value = false
+    playlistsLoading.value = false
+    playlistsError.value = false
     backSpy.mockReset()
     replaceSpy.mockReset()
-    refetchAlbums.mockReset()
+    reshuffle.mockReset()
     route.query = {}
+    albumSize.value = 100
 })
 
 describe('DiscoverySectionView', () => {
@@ -103,11 +128,11 @@ describe('DiscoverySectionView', () => {
         expect(w.find('.section-load-more').exists()).toBe(false)
     })
 
-    it('refetches when shuffle is clicked', async () => {
+    it('reshuffles when shuffle is clicked', async () => {
         albums.value = [album('al-1')]
         const w = mountView('random')
         await w.find('.section-shuffle').trigger('click')
-        expect(refetchAlbums).toHaveBeenCalled()
+        expect(reshuffle).toHaveBeenCalled()
     })
 
     it('redirects to discovery for an unknown section', () => {
@@ -123,5 +148,24 @@ describe('DiscoverySectionView', () => {
         await w.setProps({ section: 'random' })
         expect(w.text()).toContain('Random')
         expect(w.find('.section-shuffle').exists()).toBe(true)
+    })
+
+    it('passes SECTION_PAGE_ALBUM_COUNT (100) for non-random sections', () => {
+        mountView('favorites')
+        expect(albumSize.value).toBe(100)
+    })
+
+    it('passes RANDOM_PAGE_ALBUM_COUNT (200) for the random section', () => {
+        mountView('random')
+        expect(albumSize.value).toBe(200)
+    })
+
+    it('renders albums even when the playlist query fails', () => {
+        albums.value = [album('al-1'), album('al-2')]
+        playlistsError.value = true
+        const w = mountView('favorites')
+        expect(w.findAll('.album-card')).toHaveLength(2)
+        expect(w.text()).toContain('Could not load playlists')
+        expect(w.text()).not.toContain('Could not load this section')
     })
 })

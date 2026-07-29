@@ -1,4 +1,4 @@
-import { computed, toValue } from 'vue'
+import { computed, ref, toValue } from 'vue'
 import type { MaybeRefOrGetter } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 import { useAlbumListByType, usePlaylists } from '@/composables/useSubsonicQueries'
@@ -40,11 +40,25 @@ export function findSection(key: string): DiscoverySectionDef | undefined {
 const byTimeDesc = (a?: string, b?: string): number =>
     new Date(b ?? 0).getTime() - new Date(a ?? 0).getTime()
 
+// Seeded random number generator using a simple LCG (Linear Congruential Generator).
+// Returns a deterministic pseudo-random value in [0, 1) for a given seed.
+function seededRandom(seed: number): () => number {
+    let state = seed
+    return () => {
+        state = (state * 1103515245 + 12345) & 0x7fffffff
+        return state / 0x7fffffff
+    }
+}
+
 // Pure: returns a new array and never mutates the caller's. Sections whose
 // signal is optional (starred, playCount, played) drop the playlists that lack
 // it rather than ranking them last — an unstarred playlist does not belong in
 // Favorites at all.
-export function sortPlaylistsForSection(playlists: Playlist[], key: string): Playlist[] {
+export function sortPlaylistsForSection(
+    playlists: Playlist[],
+    key: string,
+    randomSeed?: number
+): Playlist[] {
     const all = [...playlists]
     switch (key) {
         case 'recently-added':
@@ -57,8 +71,10 @@ export function sortPlaylistsForSection(playlists: Playlist[], key: string): Pla
                 .sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0))
         case 'recently-played':
             return all.filter((p) => !!p.played).sort((a, b) => byTimeDesc(a.played, b.played))
-        case 'random':
-            return all.sort(() => Math.random() - 0.5)
+        case 'random': {
+            const rng = seededRandom(randomSeed ?? Date.now())
+            return all.sort(() => rng() - 0.5)
+        }
         default:
             return []
     }
@@ -81,14 +97,24 @@ export function useDiscoverySection(
     )
     const playlistQuery = usePlaylists()
 
+    // Seed for the random section's playlist shuffle. Only changes when the user
+    // explicitly reshuffles, so the order stays stable across unrelated cache
+    // invalidations.
+    const randomSeed = ref(Date.now())
+
     return {
         section,
         albums: computed(() => albumQuery.data.value ?? []),
         playlists: computed(() =>
-            sortPlaylistsForSection(playlistQuery.data.value ?? [], toValue(key))
+            sortPlaylistsForSection(playlistQuery.data.value ?? [], toValue(key), randomSeed.value)
         ),
-        isLoading: computed(() => albumQuery.isLoading.value || playlistQuery.isLoading.value),
-        isError: computed(() => albumQuery.isError.value || playlistQuery.isError.value),
-        refetchAlbums: () => albumQuery.refetch()
+        albumsLoading: computed(() => albumQuery.isLoading.value),
+        albumsError: computed(() => albumQuery.isError.value),
+        playlistsLoading: computed(() => playlistQuery.isLoading.value),
+        playlistsError: computed(() => playlistQuery.isError.value),
+        reshuffle: () => {
+            randomSeed.value = Date.now()
+            albumQuery.refetch()
+        }
     }
 }

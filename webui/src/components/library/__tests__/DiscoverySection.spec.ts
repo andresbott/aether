@@ -5,8 +5,11 @@ import type { Album, Playlist } from '@/types/subsonic'
 
 const albums = ref<Album[]>([])
 const playlists = ref<Playlist[]>([])
-const isLoading = ref(false)
-const isError = ref(false)
+const albumsLoading = ref(false)
+const albumsError = ref(false)
+const playlistsLoading = ref(false)
+const playlistsError = ref(false)
+const albumSize = ref(12)
 
 vi.mock('@/composables/useDiscovery', async () => {
     const actual = await vi.importActual<typeof import('@/composables/useDiscovery')>(
@@ -16,16 +19,26 @@ vi.mock('@/composables/useDiscovery', async () => {
         ...actual,
         // The real composable takes a MaybeRefOrGetter and returns `section` as a
         // ComputedRef — the stub matches that shape.
-        useDiscoverySection: (key: string | (() => string)) => ({
-            section: computed(() =>
-                actual.findSection(typeof key === 'function' ? key() : key)
-            ),
-            albums: computed(() => albums.value),
-            playlists: computed(() => playlists.value),
-            isLoading: computed(() => isLoading.value),
-            isError: computed(() => isError.value),
-            refetchAlbums: vi.fn()
-        })
+        useDiscoverySection: (
+            key: string | (() => string),
+            size: number | (() => number) | { value: number }
+        ) => {
+            // Extract the size value: could be a number, a function, or a constant
+            const sizeValue = typeof size === 'function' ? size() : size
+            albumSize.value = typeof sizeValue === 'object' && 'value' in sizeValue ? sizeValue.value : sizeValue
+            return {
+                section: computed(() =>
+                    actual.findSection(typeof key === 'function' ? key() : key)
+                ),
+                albums: computed(() => albums.value),
+                playlists: computed(() => playlists.value),
+                albumsLoading: computed(() => albumsLoading.value),
+                albumsError: computed(() => albumsError.value),
+                playlistsLoading: computed(() => playlistsLoading.value),
+                playlistsError: computed(() => playlistsError.value),
+                reshuffle: vi.fn()
+            }
+        }
     }
 })
 
@@ -66,8 +79,11 @@ const mountSection = (layout: 'grid' | 'list' = 'grid') =>
 beforeEach(() => {
     albums.value = []
     playlists.value = []
-    isLoading.value = false
-    isError.value = false
+    albumsLoading.value = false
+    albumsError.value = false
+    playlistsLoading.value = false
+    playlistsError.value = false
+    albumSize.value = 12
 })
 
 describe('DiscoverySection', () => {
@@ -95,14 +111,16 @@ describe('DiscoverySection', () => {
     })
 
     it('shows a loading state while loading', () => {
-        isLoading.value = true
+        albumsLoading.value = true
+        playlistsLoading.value = true
         const w = mountSection()
         expect(w.find('.section-loading').exists()).toBe(true)
         expect(w.find('.section-empty').exists()).toBe(false)
     })
 
     it('shows an error state that is distinct from the empty state', () => {
-        isError.value = true
+        albumsError.value = true
+        playlistsError.value = true
         const w = mountSection()
         expect(w.find('.section-error').exists()).toBe(true)
         expect(w.find('.section-empty').exists()).toBe(false)
@@ -120,5 +138,20 @@ describe('DiscoverySection', () => {
         expect(w.find('.section-albums').exists()).toBe(true)
         expect(w.find('.section-playlists').exists()).toBe(false)
         expect(w.find('.section-empty').exists()).toBe(false)
+    })
+
+    it('renders albums even when the playlist query fails', () => {
+        albums.value = [album('al-1'), album('al-2')]
+        playlistsError.value = true
+        const w = mountSection()
+        expect(w.find('.section-albums').exists()).toBe(true)
+        expect(w.findAll('.album-card')).toHaveLength(2)
+        expect(w.find('.section-playlists-error').exists()).toBe(true)
+        expect(w.find('.section-error').exists()).toBe(false)
+    })
+
+    it('passes SHELF_ALBUM_COUNT (12) to the composable', () => {
+        mountSection()
+        expect(albumSize.value).toBe(12)
     })
 })

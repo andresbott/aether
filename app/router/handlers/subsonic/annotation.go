@@ -66,7 +66,15 @@ func (h *Handler) scrobble(w http.ResponseWriter, r *http.Request) {
 	playedAt := time.Now()
 	if tStr := paramStr(r, "time"); tStr != "" {
 		if ms, err := strconv.ParseInt(tStr, 10, 64); err == nil {
-			playedAt = time.UnixMilli(ms)
+			candidate := time.UnixMilli(ms)
+			// Reject timestamps more than a day in the future or before Unix epoch.
+			// A malformed timestamp must not corrupt the stored data and make the
+			// endpoints fail permanently.
+			if candidate.After(time.Now().Add(24*time.Hour)) || candidate.Before(time.Unix(0, 0)) {
+				playedAt = time.Now()
+			} else {
+				playedAt = candidate
+			}
 		}
 	}
 	// Playlists are played as a unit and counted separately from their tracks

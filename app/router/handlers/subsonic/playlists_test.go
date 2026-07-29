@@ -542,3 +542,32 @@ func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
 		t.Fatalf("getPlaylist starred=%q played=%q playCount=%d", got.Starred, got.Played, got.PlayCount)
 	}
 }
+
+// TestScrobbleAbsurdTimeBounded verifies that a scrobble request with an absurd
+// `time` parameter (far future or pre-epoch) does not break getPlaylists.
+func TestScrobbleAbsurdTimeBounded(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	pl := model.Playlist{Name: "ScrobbleTest"}
+	db.Create(&pl)
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	// Scrobble with a far-future epoch-ms timestamp (year 10000).
+	// The handler must accept it and bound it to a sane range.
+	farFuture := "253402300800000"
+	scrobbleEnv := getJSON(t, srv.URL, fmt.Sprintf("/rest/scrobble.view?id=pl-%d&time=%s", pl.ID, farFuture))
+	if scrobbleEnv.SubsonicResponse.Status != "ok" {
+		t.Fatalf("scrobble failed: %+v", scrobbleEnv.SubsonicResponse.Error)
+	}
+
+	// getPlaylists must remain working even if the stored timestamp is malformed.
+	listEnv := getJSON(t, srv.URL, "/rest/getPlaylists.view")
+	if listEnv.SubsonicResponse.Status != "ok" {
+		t.Fatalf("getPlaylists failed after absurd scrobble: %+v", listEnv.SubsonicResponse.Error)
+	}
+	if len(listEnv.SubsonicResponse.Playlists.Playlist) != 1 {
+		t.Fatalf("expected 1 playlist, got %d", len(listEnv.SubsonicResponse.Playlists.Playlist))
+	}
+}

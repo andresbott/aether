@@ -22,9 +22,9 @@ type PlaylistStat struct {
 
 // playlistStatRow is a temporary struct for scanning raw query results.
 type playlistStatRow struct {
-	PlaylistID uint      `gorm:"column:playlist_id"`
-	PlayCount  int       `gorm:"column:play_count"`
-	LastPlayed string    `gorm:"column:last_played"`
+	PlaylistID uint   `gorm:"column:playlist_id"`
+	PlayCount  int    `gorm:"column:play_count"`
+	LastPlayed string `gorm:"column:last_played"`
 }
 
 // PlaylistStats returns play count and last-played time per playlist for the
@@ -37,26 +37,25 @@ func (s *Store) PlaylistStats(playlistIDs []uint) (map[uint]PlaylistStat, error)
 	}
 	var rows []playlistStatRow
 	if err := s.db.Model(&model.PlaylistPlay{}).
-		Select("playlist_id, COUNT(*) AS play_count, MAX(played_at) AS last_played").
+		Select("playlist_id, COUNT(*) AS play_count, datetime(MAX(played_at)) AS last_played").
 		Where("playlist_id IN ?", playlistIDs).
 		Group("playlist_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		t, err := time.Parse("2006-01-02 15:04:05-07:00", r.LastPlayed)
-		if err != nil {
-			// Try alternative format without timezone
-			t, err = time.Parse("2006-01-02 15:04:05", r.LastPlayed)
-			if err != nil {
-				return nil, err
-			}
-		}
-		out[r.PlaylistID] = PlaylistStat{
+		stat := PlaylistStat{
 			PlaylistID: r.PlaylistID,
 			PlayCount:  r.PlayCount,
-			LastPlayed: t,
 		}
+		// datetime() in SQLite normalizes the timestamp to "YYYY-MM-DD HH:MM:SS" format.
+		// If the string is malformed (e.g. a far-future year unparseable by Go's time
+		// package), degrade gracefully: keep the play count and leave LastPlayed zero.
+		t, err := time.Parse("2006-01-02 15:04:05", r.LastPlayed)
+		if err == nil {
+			stat.LastPlayed = t
+		}
+		out[r.PlaylistID] = stat
 	}
 	return out, nil
 }

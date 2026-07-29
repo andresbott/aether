@@ -31,10 +31,13 @@ const albumSize = computed(() =>
     isRandom.value ? RANDOM_PAGE_ALBUM_COUNT : SECTION_PAGE_ALBUM_COUNT
 )
 
-const { albums, playlists, isLoading, isError, refetchAlbums } = useDiscoverySection(
+const { albums, playlists, albumsLoading, albumsError, playlistsLoading, playlistsError, reshuffle } = useDiscoverySection(
     () => props.section,
     albumSize
 )
+
+const isLoading = computed(() => albumsLoading.value && playlistsLoading.value)
+const isError = computed(() => albumsError.value && playlistsError.value)
 
 // immediate so an unknown key redirects on first render, and re-checked because
 // the param can change without remounting.
@@ -101,7 +104,7 @@ const summary = computed(() => {
                 rounded
                 v-tooltip.bottom="'Shuffle'"
                 aria-label="Shuffle"
-                @click="refetchAlbums"
+                @click="reshuffle"
             />
         </template>
 
@@ -116,7 +119,14 @@ const summary = computed(() => {
             </div>
 
             <template v-else>
-                <div v-if="albums.length > 0" class="block content-col" :class="layout">
+                <div v-if="albumsLoading" class="state content-col">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                </div>
+                <div v-else-if="albumsError" class="state content-col">
+                    <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+                    <p>Could not load albums</p>
+                </div>
+                <div v-else-if="albums.length > 0" class="block content-col" :class="layout">
                     <template v-if="layout === 'grid'">
                         <AlbumCard v-for="al in albums" :key="al.id" :album="al" />
                     </template>
@@ -125,12 +135,19 @@ const summary = computed(() => {
                     </template>
                 </div>
 
-                <div v-if="playlists.length > 0" class="block content-col" :class="layout">
+                <div v-if="playlistsLoading" class="state content-col">
+                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                </div>
+                <div v-else-if="playlistsError" class="state content-col">
+                    <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+                    <p>Could not load playlists</p>
+                </div>
+                <div v-else-if="playlists.length > 0" class="block content-col" :class="layout">
                     <PlaylistCard v-for="pl in playlists" :key="pl.id" :playlist="pl" />
                 </div>
 
                 <div
-                    v-if="albums.length === 0 && playlists.length === 0"
+                    v-if="!albumsLoading && !albumsError && !playlistsLoading && !playlistsError && albums.length === 0 && playlists.length === 0"
                     class="state content-col"
                 >
                     <i class="pi pi-compass" style="font-size: 2rem"></i>
