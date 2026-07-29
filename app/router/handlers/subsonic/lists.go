@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/andresbott/aether/internal/store"
 )
@@ -126,11 +127,41 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	for _, t := range starred.Tracks {
 		songs = append(songs, trackToChild(&t, t.Album))
 	}
+	playlistIDs := make([]uint, 0, len(starred.Playlists))
+	for i := range starred.Playlists {
+		playlistIDs = append(playlistIDs, starred.Playlists[i].ID)
+	}
+	plStarredAt, err := h.store.PlaylistStarredAt(playlistIDs)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	plStats, err := h.store.PlaylistStats(playlistIDs)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	playlists := make([]map[string]any, 0, len(starred.Playlists))
+	for i := range starred.Playlists {
+		pl := starred.Playlists[i]
+		count, _ := h.store.GetPlaylistTrackCount(pl.ID)
+		dur, _ := h.store.GetPlaylistDuration(pl.ID)
+		var starPtr *time.Time
+		if ts, ok := plStarredAt[pl.ID]; ok {
+			starPtr = &ts
+		}
+		var statPtr *store.PlaylistStat
+		if st, ok := plStats[pl.ID]; ok {
+			statPtr = &st
+		}
+		playlists = append(playlists, playlistToMap(&pl, int(count), dur, starPtr, statPtr))
+	}
 	writeResponse(w, map[string]any{
 		"starred2": map[string]any{
-			"artist": artists,
-			"album":  albums,
-			"song":   songs,
+			"artist":   artists,
+			"album":    albums,
+			"song":     songs,
+			"playlist": playlists,
 		},
 	})
 }

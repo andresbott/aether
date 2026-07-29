@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
@@ -25,6 +26,9 @@ type playlistObj struct {
 	Public    bool            `json:"public"`
 	SongCount int             `json:"songCount"`
 	Duration  int             `json:"duration"`
+	Starred   string          `json:"starred"`
+	PlayCount int             `json:"playCount"`
+	Played    string          `json:"played"`
 	Entry     []playlistEntry `json:"entry"`
 }
 
@@ -461,5 +465,80 @@ func TestScrobbleTrackStillRecordsTrackPlay(t *testing.T) {
 	s.DB().Model(&model.PlayHistory{}).Count(&n)
 	if n != 1 {
 		t.Fatalf("expected 1 track play, got %d", n)
+	}
+}
+
+func TestGetPlaylistsIncludesStarAndPlayFields(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 2)
+	starredPl, err := s.CreatePlaylist("Fav", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainPl, err := s.CreatePlaylist("Plain", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Star("playlist", starredPl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPlaylistPlay(starredPl.ID, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	body := getJSON(t, srv.URL, "/rest/getPlaylists.view")
+	byName := map[string]playlistObj{}
+	for _, pl := range body.SubsonicResponse.Playlists.Playlist {
+		byName[pl.Name] = pl
+	}
+
+	fav := byName["Fav"]
+	if fav.Starred == "" {
+		t.Fatal("starred playlist must carry a starred timestamp")
+	}
+	if fav.PlayCount != 1 {
+		t.Fatalf("Fav playCount = %d, want 1", fav.PlayCount)
+	}
+	if fav.Played == "" {
+		t.Fatal("played playlist must carry a played timestamp")
+	}
+
+	plain := byName["Plain"]
+	if plain.Starred != "" {
+		t.Fatalf("unstarred playlist must omit starred, got %q", plain.Starred)
+	}
+	if plain.PlayCount != 0 {
+		t.Fatalf("Plain playCount = %d, want 0", plain.PlayCount)
+	}
+	if plain.Played != "" {
+		t.Fatalf("never-played playlist must omit played, got %q", plain.Played)
+	}
+	_ = plainPl
+}
+
+func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	pl, err := s.CreatePlaylist("Solo", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Star("playlist", pl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPlaylistPlay(pl.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	body := getJSON(t, srv.URL, fmt.Sprintf("/rest/getPlaylist.view?id=pl-%d", pl.ID))
+	got := body.SubsonicResponse.Playlist
+	if got.Starred == "" || got.Played == "" || got.PlayCount != 1 {
+		t.Fatalf("getPlaylist starred=%q played=%q playCount=%d", got.Starred, got.Played, got.PlayCount)
 	}
 }

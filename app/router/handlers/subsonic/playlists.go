@@ -4,8 +4,11 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 )
 
 // playlistCoverKey is the asset-store key for a playlist's manually uploaded
@@ -14,28 +17,71 @@ func playlistCoverKey(id uint) string {
 	return strconv.FormatUint(uint64(id), 10)
 }
 
+// playlistToMap builds the Subsonic playlist object shared by getPlaylists and
+// getPlaylist. starredAt and stat are nil when the playlist is not starred /
+// never played, in which case "starred" and "played" are omitted — matching how
+// albums omit "starred". playCount is always present (0 when never played).
+func playlistToMap(pl *model.Playlist, songCount, duration int, starredAt *time.Time, stat *store.PlaylistStat) map[string]any {
+	m := map[string]any{
+		"id":        encodePlaylistID(pl.ID),
+		"name":      pl.Name,
+		"comment":   pl.Comment,
+		"owner":     pl.Owner,
+		"public":    pl.Public,
+		"songCount": songCount,
+		"duration":  duration,
+		"coverArt":  encodePlaylistID(pl.ID),
+		"created":   pl.CreatedAt,
+		"changed":   pl.UpdatedAt,
+		"playCount": 0,
+	}
+	if starredAt != nil {
+		m["starred"] = starredAt.Format(time.RFC3339)
+	}
+	if stat != nil {
+		m["playCount"] = stat.PlayCount
+		m["played"] = stat.LastPlayed.Format(time.RFC3339)
+	}
+	return m
+}
+
 func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 	playlists, err := h.store.GetPlaylists()
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
+	// One batched lookup each for stars and play stats — the per-playlist track
+	// count/duration calls below are the pre-existing N+1 (TODO.md); do not add
+	// two more queries per row on top of it.
+	ids := make([]uint, 0, len(playlists))
+	for i := range playlists {
+		ids = append(ids, playlists[i].ID)
+	}
+	starredAt, err := h.store.PlaylistStarredAt(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	stats, err := h.store.PlaylistStats(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
 	items := make([]map[string]any, 0, len(playlists))
-	for _, pl := range playlists {
+	for i := range playlists {
+		pl := playlists[i]
 		count, _ := h.store.GetPlaylistTrackCount(pl.ID)
 		dur, _ := h.store.GetPlaylistDuration(pl.ID)
-		items = append(items, map[string]any{
-			"id":        encodePlaylistID(pl.ID),
-			"name":      pl.Name,
-			"comment":   pl.Comment,
-			"owner":     pl.Owner,
-			"public":    pl.Public,
-			"songCount": count,
-			"duration":  dur,
-			"coverArt":  encodePlaylistID(pl.ID),
-			"created":   pl.CreatedAt,
-			"changed":   pl.UpdatedAt,
-		})
+		var starPtr *time.Time
+		if ts, ok := starredAt[pl.ID]; ok {
+			starPtr = &ts
+		}
+		var statPtr *store.PlaylistStat
+		if st, ok := stats[pl.ID]; ok {
+			statPtr = &st
+		}
+		items = append(items, playlistToMap(&pl, int(count), dur, starPtr, statPtr))
 	}
 	writeResponse(w, map[string]any{
 		"playlists": map[string]any{
@@ -78,21 +124,27 @@ func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
 		songs = append(songs, trackToChild(&t, t.Album))
 		dur += t.Duration
 	}
-	writeResponse(w, map[string]any{
-		"playlist": map[string]any{
-			"id":        encodePlaylistID(pl.ID),
-			"name":      pl.Name,
-			"comment":   pl.Comment,
-			"owner":     pl.Owner,
-			"public":    pl.Public,
-			"songCount": len(tracks),
-			"duration":  dur,
-			"coverArt":  encodePlaylistID(pl.ID),
-			"created":   pl.CreatedAt,
-			"changed":   pl.UpdatedAt,
-			"entry":     songs,
-		},
-	})
+	starredAt, err := h.store.PlaylistStarredAt([]uint{pl.ID})
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	stats, err := h.store.PlaylistStats([]uint{pl.ID})
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	var starPtr *time.Time
+	if ts, ok := starredAt[pl.ID]; ok {
+		starPtr = &ts
+	}
+	var statPtr *store.PlaylistStat
+	if st, ok := stats[pl.ID]; ok {
+		statPtr = &st
+	}
+	m := playlistToMap(pl, len(tracks), dur, starPtr, statPtr)
+	m["entry"] = songs
+	writeResponse(w, map[string]any{"playlist": m})
 }
 
 // createPlaylist creates a new playlist or, when playlistId is supplied, updates
