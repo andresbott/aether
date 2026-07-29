@@ -80,6 +80,7 @@ func (s *Store) DeleteOrphanedAggregates() error {
 		`DELETE FROM starred_items WHERE item_type = 'track' AND item_id NOT IN (SELECT id FROM tracks)`,
 		`DELETE FROM starred_items WHERE item_type = 'album' AND item_id NOT IN (SELECT id FROM albums)`,
 		`DELETE FROM starred_items WHERE item_type = 'artist' AND item_id NOT IN (SELECT id FROM artists)`,
+		`DELETE FROM starred_items WHERE item_type = 'playlist' AND item_id NOT IN (SELECT id FROM playlists)`,
 	}
 	for _, q := range queries {
 		if err := s.db.Exec(q).Error; err != nil {
