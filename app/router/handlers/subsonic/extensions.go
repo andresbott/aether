@@ -49,6 +49,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "playlistStats",
 				"versions": []int{1},
 			},
+			{
+				"name":     "discovery",
+				"versions": []int{1},
+			},
 		},
 	})
 }

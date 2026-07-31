@@ -64,6 +64,9 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCach
 	register("getStarred2", h.getStarred2)
 	register("getNowPlaying", h.getNowPlaying)
 
+	// Discovery ("discovery" extension; no standard ranked-feed endpoint exists)
+	register("getDiscovery", h.getDiscovery)
+
 	// Search
 	register("search3", h.search3)
 
