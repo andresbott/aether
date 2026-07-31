@@ -133,13 +133,58 @@ func TestScoreIsTheWeightedSum(t *testing.T) {
 	}
 }
 
-func TestScoreWeightsFavoriteHighest(t *testing.T) {
+// Every weight's exact value, not just their sum and not just a partial ordering.
+// A compensating swap (e.g. familiarity 0.20 <-> recency 0.15) keeps the sum at 1.0
+// and would otherwise pass the suite while silently inverting the spec's intent:
+// "played often" must outweigh "played recently".
+func TestScoreWeightsAreExact(t *testing.T) {
+	cases := []struct {
+		name  string
+		terms discovery.Terms
+		want  float64
+	}{
+		{"favorite", discovery.Terms{Favorite: 1}, 0.25},
+		{"addedRecency", discovery.Terms{AddedRecency: 1}, 0.20},
+		{"playFamiliarity", discovery.Terms{PlayFamiliarity: 1}, 0.20},
+		{"playRecency", discovery.Terms{PlayRecency: 1}, 0.15},
+		{"genreAffinity", discovery.Terms{GenreAffinity: 1}, 0.15},
+		{"jitter", discovery.Terms{Jitter: 1}, 0.05},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.terms.Score(); math.Abs(got-tc.want) > eps {
+				t.Fatalf("%s weight = %v, want %v", tc.name, got, tc.want)
+			}
+		})
+	}
+}
+
+// The ordering the spec depends on, stated as relations rather than values so the
+// intent survives a future retune: favorites lead, familiarity ties added-recency
+// and must not fall below play-recency, and jitter is always the smallest.
+func TestScoreWeightOrdering(t *testing.T) {
 	fav := discovery.Terms{Favorite: 1}.Score()
 	added := discovery.Terms{AddedRecency: 1}.Score()
+	familiarity := discovery.Terms{PlayFamiliarity: 1}.Score()
+	recency := discovery.Terms{PlayRecency: 1}.Score()
 	genre := discovery.Terms{GenreAffinity: 1}.Score()
 	jitter := discovery.Terms{Jitter: 1}.Score()
-	if !(fav > added && added > genre && genre > jitter) {
-		t.Fatalf("weight order wrong: fav=%v added=%v genre=%v jitter=%v", fav, added, genre, jitter)
+
+	if fav <= added {
+		t.Fatalf("favorite (%v) must outweigh addedRecency (%v)", fav, added)
+	}
+	if math.Abs(familiarity-added) > eps {
+		t.Fatalf("playFamiliarity (%v) must equal addedRecency (%v)", familiarity, added)
+	}
+	if familiarity <= recency {
+		t.Fatalf("playFamiliarity (%v) must outweigh playRecency (%v) — "+
+			"played often beats played recently", familiarity, recency)
+	}
+	if math.Abs(recency-genre) > eps {
+		t.Fatalf("playRecency (%v) must equal genreAffinity (%v)", recency, genre)
+	}
+	if jitter >= genre {
+		t.Fatalf("jitter (%v) must be the smallest weight, below genre (%v)", jitter, genre)
 	}
 }
 
