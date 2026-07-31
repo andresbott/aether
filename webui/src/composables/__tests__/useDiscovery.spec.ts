@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
     flattenDiscoveryPages,
     nextDiscoveryOffset,
-    DISCOVERY_PAGE_SIZE
+    discoverySeedForTime,
+    DISCOVERY_PAGE_SIZE,
+    DISCOVERY_SEED_WINDOW_MS
 } from '@/composables/useDiscovery'
 import type { DiscoveryPage } from '@/types/subsonic'
 
@@ -145,5 +147,40 @@ describe('nextDiscoveryOffset', () => {
             playlist: [playlist('pl-1', DISCOVERY_PAGE_SIZE - 2)]
         }
         expect(nextDiscoveryOffset(nearly, [nearly])).toBeUndefined()
+    })
+})
+
+describe('discoverySeedForTime', () => {
+    // Fixed epoch ms so the test never depends on when it runs.
+    const BASE = 1_767_225_600_000 // an exact 12h boundary
+    const HOUR = 60 * 60 * 1000
+
+    it('uses a 12-hour window', () => {
+        expect(DISCOVERY_SEED_WINDOW_MS).toBe(12 * 60 * 60 * 1000)
+    })
+
+    it('returns the same seed everywhere inside one window', () => {
+        const seed = discoverySeedForTime(BASE)
+        for (const offset of [0, 1, HOUR, 6 * HOUR, 11 * HOUR, 12 * HOUR - 1]) {
+            expect(discoverySeedForTime(BASE + offset)).toBe(seed)
+        }
+    })
+
+    it('changes at the window boundary', () => {
+        const before = discoverySeedForTime(BASE + 12 * HOUR - 1)
+        const after = discoverySeedForTime(BASE + 12 * HOUR)
+        expect(after).not.toBe(before)
+        expect(after).toBe(before + 1)
+    })
+
+    // Two visits an hour apart must produce the SAME feed — that is the whole point
+    // of the change. Previously the seed was the current second, so every visit
+    // reshuffled.
+    it('gives two visits within the window an identical seed', () => {
+        expect(discoverySeedForTime(BASE + HOUR)).toBe(discoverySeedForTime(BASE + 2 * HOUR))
+    })
+
+    it('advances by one per window across a day', () => {
+        expect(discoverySeedForTime(BASE + 24 * HOUR)).toBe(discoverySeedForTime(BASE) + 2)
     })
 })

@@ -54,8 +54,9 @@
   - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
         (FULLY OPEN again. This used to be partially answered by the Discovery "Favorites" section at
         `/discover/favorites`, but that route was deleted when Discovery became a single ranked feed.
-        Favorites are now a scoring term and a "Favorite" badge inside the feed — a boost, not a
-        browsable list. Nothing browses starred items today: no albums, no artists, no tracks.)
+        Favorites are now only a scoring term in that feed — a ranking boost, not visible or
+        browsable (the reason badge that used to surface it was removed too). Nothing browses starred
+        items today: no albums, no artists, no tracks.)
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
       (partial: Library now has an Artists tab with grid and virtualized list views + alphabet rail — `ArtistGrid`/`ArtistListView` — but it's still rows of artists that navigate to `ArtistView`, not the grouped artist-header + albums layout)
 - [ ] Spotify-style hover selection in song list — on row hover, show a checkbox next to the duration for multi-select
@@ -84,6 +85,7 @@
       the library-level restructuring are still open)
 - the aeteher icon shoul go to play now if playing otherwise go to discover 
 - [] search should also return genres 
+- [] sen't cover images are full images instead of optimized and cached
 
 ## Frontend — Branding & Layout
 
