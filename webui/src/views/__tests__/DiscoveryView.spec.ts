@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import type { DiscoveryFeedEntry } from '@/types/subsonic'
 
 const replaceSpy = vi.fn()
@@ -152,5 +152,51 @@ describe('DiscoveryView', () => {
         expect(mountView().find('.discovery-sentinel').exists()).toBe(false)
         feed.hasNextPage.value = true
         expect(mountView().find('.discovery-sentinel').exists()).toBe(true)
+    })
+})
+
+describe('DiscoveryView intersection observer', () => {
+    let observes = 0
+    let disconnects = 0
+
+    beforeEach(() => {
+        observes = 0
+        disconnects = 0
+        // jsdom has no IntersectionObserver, and the view guards on its absence —
+        // so injecting a counting fake is what makes the lifecycle observable.
+        ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
+            class {
+                constructor(_cb: unknown) {}
+                observe(): void {
+                    observes++
+                }
+                disconnect(): void {
+                    disconnects++
+                }
+                unobserve(): void {}
+                takeRecords(): [] {
+                    return []
+                }
+                root = null
+                rootMargin = ''
+                thresholds = []
+            }
+        feed.items.value = [albumEntry(0)]
+        feed.hasNextPage.value = true
+    })
+
+    it('observes the sentinel while more pages remain', async () => {
+        mountView()
+        await nextTick()
+        expect(observes).toBeGreaterThan(0)
+    })
+
+    // A live observer after teardown keeps a reference to the unmounted component.
+    it('disconnects the observer on unmount', async () => {
+        const w = mountView()
+        await nextTick()
+        const before = disconnects
+        w.unmount()
+        expect(disconnects).toBeGreaterThan(before)
     })
 })
