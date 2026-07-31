@@ -1,31 +1,20 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import PlaylistCard from '@/components/library/PlaylistCard.vue'
 import PlaylistRow from '@/components/library/PlaylistRow.vue'
-import type { DiscoveryFeedEntry, DiscoveryReason } from '@/types/subsonic'
+import type { DiscoveryFeedEntry } from '@/types/subsonic'
 
-const props = defineProps<{ entry: DiscoveryFeedEntry; layout: 'grid' | 'list' }>()
-
-// With the five themed shelves gone, the badge is the only thing left telling
-// the user why an item surfaced. The wrapper owns it so no discovery concept
-// leaks into cards shared with /library and /playlists.
-const REASON_LABELS: Record<DiscoveryReason, string> = {
-    favorite: 'Favorite',
-    recentlyAdded: 'Recently added',
-    mostPlayed: 'Most played',
-    recentlyPlayed: 'Recently played',
-    genreMatch: 'Your genres',
-    rediscover: 'Rediscover'
-}
-
-const reasonLabel = computed(() => REASON_LABELS[props.entry.reason])
+// Dispatches one feed entry to the right card or row. `entry.reason` is deliberately
+// NOT rendered: the server still reports why an item surfaced (it is part of the
+// `discovery` extension and other clients may use it), but showing it on every item
+// added noise rather than information — on a lightly-played library nearly every
+// item reads the same. The feed's ordering already expresses the ranking.
+defineProps<{ entry: DiscoveryFeedEntry; layout: 'grid' | 'list' }>()
 </script>
 
 <template>
     <div class="discovery-feed-item" :class="layout">
-        <span class="discovery-reason-badge">{{ reasonLabel }}</span>
         <!-- Both types honour the layout: cards in grid, rows in list. A playlist
              rendered as a card inside a list would tower over the album rows beside
              it, which is why PlaylistRow exists. -->
@@ -58,42 +47,13 @@ const reasonLabel = computed(() => REASON_LABELS[props.entry.reason])
    it sizes to its longest unbreakable text and overflows the 1fr cell — which is
    what made one item render bigger than its neighbours. The cards are shared with
    /library and must not be edited, so the constraint is applied from here. */
-.discovery-feed-item.grid > :not(.discovery-reason-badge) {
+.discovery-feed-item.grid > * {
     min-width: 0;
     max-width: 100%;
 }
 
-.discovery-reason-badge {
-    position: absolute;
-    top: 0.4rem;
-    left: 0.4rem;
-    z-index: 1;
-    padding: 0.15rem 0.45rem;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--app-surface) 80%, transparent);
-    color: var(--app-text-secondary);
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 1.4;
-    pointer-events: none;
-}
-
-/* In list layout the row is full-width and short, so the badge sits inline at
-   the right instead of over the cover. */
-.discovery-feed-item.list {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.discovery-feed-item.list > :not(.discovery-reason-badge) {
-    flex: 1;
+/* In list layout the row fills the feed's width. */
+.discovery-feed-item.list > * {
     min-width: 0;
-}
-
-.discovery-feed-item.list .discovery-reason-badge {
-    position: static;
-    order: 2;
-    flex-shrink: 0;
 }
 </style>
