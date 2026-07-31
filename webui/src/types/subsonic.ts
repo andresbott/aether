@@ -91,6 +91,31 @@ export interface Playlist {
     played?: string
 }
 
+// Aether's "discovery" extension. The server owns the cross-type ranking and
+// reports it as an absolute `rank` on each entity, so the client merges the two
+// arrays with a sort rather than reimplementing the formula.
+export type DiscoveryReason =
+    | 'favorite'
+    | 'recentlyAdded'
+    | 'mostPlayed'
+    | 'recentlyPlayed'
+    | 'genreMatch'
+    | 'rediscover'
+
+export type DiscoveryAlbum = Album & { rank: number; reason: DiscoveryReason }
+export type DiscoveryPlaylist = Playlist & { rank: number; reason: DiscoveryReason }
+
+export interface DiscoveryPage {
+    album: DiscoveryAlbum[]
+    playlist: DiscoveryPlaylist[]
+}
+
+// One flattened feed entry. The discriminated union keeps the rendering
+// dispatcher type-safe without casts.
+export type DiscoveryFeedEntry =
+    | { type: 'album'; rank: number; reason: DiscoveryReason; album: DiscoveryAlbum }
+    | { type: 'playlist'; rank: number; reason: DiscoveryReason; playlist: DiscoveryPlaylist }
+
 export interface Genre {
     value: string
     songCount: number

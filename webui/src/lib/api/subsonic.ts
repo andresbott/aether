@@ -13,7 +13,8 @@ import type {
     Playlist,
     MusicFolder,
     Genre,
-    InternetRadioStation
+    InternetRadioStation,
+    DiscoveryPage
 } from '@/types/subsonic'
 
 class SubsonicClient {
@@ -142,6 +143,27 @@ class SubsonicClient {
             params
         )
         return response.albumList2Index ?? { total: 0, index: [] }
+    }
+
+    async getDiscovery(
+        size: number,
+        offset: number,
+        seed: number,
+        musicFolderId?: number
+    ): Promise<DiscoveryPage> {
+        if (!this.isConfigured()) return { album: [], playlist: [] }
+        const params: Record<string, string | number | undefined> = { size, offset, seed }
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{ discovery?: DiscoveryPage }>(
+            'getDiscovery.view',
+            params
+        )
+        return {
+            album: response.discovery?.album ?? [],
+            playlist: response.discovery?.playlist ?? []
+        }
     }
 
     async getAlbum(id: string): Promise<AlbumWithSongs | null> {
