@@ -1,120 +1,75 @@
-import { computed, ref, toValue } from 'vue'
-import type { MaybeRefOrGetter } from 'vue'
-import type { Playlist } from '@/types/subsonic'
-import { useAlbumListByType, usePlaylists } from '@/composables/useSubsonicQueries'
+import { computed, ref } from 'vue'
+import { useInfiniteQuery } from '@tanstack/vue-query'
+import { subsonicClient } from '@/lib/api/subsonic'
+import { queryKeys } from '@/composables/useSubsonicQueries'
+import type { DiscoveryPage, DiscoveryFeedEntry } from '@/types/subsonic'
 
-export interface DiscoverySectionDef {
-    key: string
-    title: string
-    // getAlbumList2 "type" parameter backing this section's album block.
-    albumListType: string
-    icon: string
-}
+export const DISCOVERY_PAGE_SIZE = 48
 
-// The single source of truth for what Discovery shows. Both DiscoveryView and
-// DiscoverySectionView read the sections from here.
-export const DISCOVERY_SECTIONS: readonly DiscoverySectionDef[] = [
-    { key: 'recently-added', title: 'Recently added', albumListType: 'newest', icon: 'pi pi-clock' },
-    { key: 'favorites', title: 'Favorites', albumListType: 'starred', icon: 'pi pi-heart' },
-    { key: 'most-played', title: 'Most played', albumListType: 'frequent', icon: 'pi pi-chart-bar' },
-    {
-        key: 'recently-played',
-        title: 'Recently played',
-        albumListType: 'recent',
-        icon: 'pi pi-history'
-    },
-    { key: 'random', title: 'Random', albumListType: 'random', icon: 'pi pi-sparkles' }
-] as const
-
-export const SHELF_ALBUM_COUNT = 12
-export const SHELF_PLAYLIST_COUNT = 6
-export const SECTION_PAGE_ALBUM_COUNT = 100
-// Random reshuffles per request, so its full page cannot be offset-paged — it
-// fetches one larger batch and offers a refetch instead.
-export const RANDOM_PAGE_ALBUM_COUNT = 200
-
-export function findSection(key: string): DiscoverySectionDef | undefined {
-    return DISCOVERY_SECTIONS.find((s) => s.key === key)
-}
-
-const byTimeDesc = (a?: string, b?: string): number =>
-    new Date(b ?? 0).getTime() - new Date(a ?? 0).getTime()
-
-// Seeded random number generator using a simple LCG (Linear Congruential Generator).
-// Returns a deterministic pseudo-random value in [0, 1) for a given seed.
-function seededRandom(seed: number): () => number {
-    let state = seed
-    return () => {
-        state = (state * 1103515245 + 12345) & 0x7fffffff
-        return state / 0x7fffffff
-    }
-}
-
-// Pure: returns a new array and never mutates the caller's. Sections whose
-// signal is optional (starred, playCount, played) drop the playlists that lack
-// it rather than ranking them last — an unstarred playlist does not belong in
-// Favorites at all.
-export function sortPlaylistsForSection(
-    playlists: Playlist[],
-    key: string,
-    randomSeed?: number
-): Playlist[] {
-    const all = [...playlists]
-    switch (key) {
-        case 'recently-added':
-            return all.sort((a, b) => byTimeDesc(a.created, b.created))
-        case 'favorites':
-            return all.filter((p) => !!p.starred).sort((a, b) => byTimeDesc(a.starred, b.starred))
-        case 'most-played':
-            return all
-                .filter((p) => (p.playCount ?? 0) > 0)
-                .sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0))
-        case 'recently-played':
-            return all.filter((p) => !!p.played).sort((a, b) => byTimeDesc(a.played, b.played))
-        case 'random': {
-            const rng = seededRandom(randomSeed ?? Date.now())
-            return all.sort(() => rng() - 0.5)
-        }
-        default:
-            return []
-    }
-}
-
-// One section's data: its album query plus the shared playlist query sorted for
-// this section. Every section reuses the same cached getPlaylists result.
+// Pure: flattens the server's two per-type arrays into one feed ordered by the
+// server-assigned rank. The ranking is authoritative and cross-type, so merging
+// is a sort — the client never re-scores or re-weights anything.
 //
-// `key` is reactive because vue-router reuses a route component when only a
-// param changes — /discover/favorites -> /discover/random must reload, and
-// setup() will not re-run.
-export function useDiscoverySection(
-    key: MaybeRefOrGetter<string>,
-    albumSize: MaybeRefOrGetter<number>
-) {
-    const section = computed(() => findSection(toValue(key)))
-    const albumQuery = useAlbumListByType(
-        () => section.value?.albumListType ?? 'newest',
-        albumSize
-    )
-    const playlistQuery = usePlaylists()
+// Deduped by id, keeping the lowest rank. The server pins the candidate pool so
+// pages cannot drift on their own, but scores are still computed against live
+// data: starring an album mid-scroll raises its favorite term and can move it into
+// a range an earlier page already showed, where it would otherwise appear twice.
+// No stateless design prevents that, so the client absorbs it — a silent skip
+// beats a visible duplicate.
+export function flattenDiscoveryPages(pages: DiscoveryPage[]): DiscoveryFeedEntry[] {
+    const entries: DiscoveryFeedEntry[] = []
+    for (const page of pages) {
+        for (const al of page.album) {
+            entries.push({ type: 'album', rank: al.rank, reason: al.reason, album: al })
+        }
+        for (const pl of page.playlist) {
+            entries.push({ type: 'playlist', rank: pl.rank, reason: pl.reason, playlist: pl })
+        }
+    }
+    entries.sort((a, b) => a.rank - b.rank)
+    const seen = new Set<string>()
+    return entries.filter((e) => {
+        const id = e.type === 'album' ? e.album.id : e.playlist.id
+        if (seen.has(id)) return false
+        seen.add(id)
+        return true
+    })
+}
 
-    // Seed for the random section's playlist shuffle. Only changes when the user
-    // explicitly reshuffles, so the order stays stable across unrelated cache
-    // invalidations.
-    const randomSeed = ref(Date.now())
+// The ranked Discovery feed. The seed is part of the query key, so Refresh is a
+// cache miss rather than a manual invalidation — and every page of one visit
+// shares a seed, which is what keeps the sequence gap-free.
+export function useDiscoveryFeed() {
+    const seed = ref(Math.floor(Date.now() / 1000))
+
+    const query = useInfiniteQuery({
+        queryKey: computed(() => queryKeys.discovery(seed.value)),
+        queryFn: ({ pageParam }) =>
+            subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed.value),
+        initialPageParam: 0,
+        // A short page means the ranking is exhausted; anything else would page
+        // forever against a library smaller than the feed.
+        getNextPageParam: (lastPage: DiscoveryPage, allPages: DiscoveryPage[]) => {
+            const got = lastPage.album.length + lastPage.playlist.length
+            if (got < DISCOVERY_PAGE_SIZE) return undefined
+            return allPages.length * DISCOVERY_PAGE_SIZE
+        },
+        staleTime: 5 * 60 * 1000
+    })
 
     return {
-        section,
-        albums: computed(() => albumQuery.data.value ?? []),
-        playlists: computed(() =>
-            sortPlaylistsForSection(playlistQuery.data.value ?? [], toValue(key), randomSeed.value)
-        ),
-        albumsLoading: computed(() => albumQuery.isLoading.value),
-        albumsError: computed(() => albumQuery.isError.value),
-        playlistsLoading: computed(() => playlistQuery.isLoading.value),
-        playlistsError: computed(() => playlistQuery.isError.value),
-        reshuffle: () => {
-            randomSeed.value = Date.now()
-            albumQuery.refetch()
+        items: computed(() => flattenDiscoveryPages(query.data.value?.pages ?? [])),
+        isLoading: computed(() => query.isLoading.value),
+        isError: computed(() => query.isError.value),
+        hasNextPage: computed(() => !!query.hasNextPage.value),
+        isFetchingNextPage: computed(() => query.isFetchingNextPage.value),
+        fetchNextPage: () => {
+            if (query.hasNextPage.value && !query.isFetchingNextPage.value) {
+                void query.fetchNextPage()
+            }
+        },
+        refresh: () => {
+            seed.value = Math.floor(Date.now() / 1000)
         }
     }
 }

@@ -32,7 +32,9 @@ export const queryKeys = {
         ['subsonic', 'genreSongs', genre, offset] as const,
     radioStations: ['subsonic', 'radioStations'] as const,
     randomSongs: (size: number, musicFolderId?: number) =>
-        ['subsonic', 'randomSongs', size, musicFolderId] as const
+        ['subsonic', 'randomSongs', size, musicFolderId] as const,
+    discovery: (seed: number, musicFolderId?: number) =>
+        ['subsonic', 'discovery', seed, musicFolderId] as const
 }
 
 export function usePing() {
