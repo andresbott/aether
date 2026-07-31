@@ -102,9 +102,12 @@ onBeforeUnmount(stopObserving)
 
             <template v-else>
                 <div class="discovery-feed content-col" :class="layout">
+                    <!-- Key on entity id, not rank — rank is a position, so a rank shift would
+                         destroy and recreate rather than move. Id is what flattenDiscoveryPages
+                         dedupes on and is prefixed per type, so cannot collide. -->
                     <DiscoveryFeedItem
                         v-for="entry in items"
-                        :key="`${entry.type}-${entry.rank}`"
+                        :key="entry.type === 'album' ? entry.album.id : entry.playlist.id"
                         :entry="entry"
                         :layout="layout"
                     />

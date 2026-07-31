@@ -153,6 +153,32 @@ describe('DiscoveryView', () => {
         feed.hasNextPage.value = true
         expect(mountView().find('.discovery-sentinel').exists()).toBe(true)
     })
+
+    it('keys feed items by entity id so a rank shift moves rather than recreates them', async () => {
+        // Build entries with fixed ids and different ranks.
+        const entryA: DiscoveryFeedEntry = {
+            type: 'album',
+            rank: 0,
+            reason: 'favorite',
+            album: { id: 'al-100', name: 'Album A', rank: 0, reason: 'favorite' }
+        }
+        const entryB: DiscoveryFeedEntry = {
+            type: 'album',
+            rank: 1,
+            reason: 'favorite',
+            album: { id: 'al-200', name: 'Album B', rank: 1, reason: 'favorite' }
+        }
+        feed.items.value = [entryA, entryB]
+        const w = mountView()
+        const firstBefore = w.findAll('.stub-feed-item')[0].element
+        // Same entities, shifted ranks — the DOM nodes must be reused.
+        entryA.rank = 1
+        entryB.rank = 0
+        feed.items.value = [entryB, entryA]
+        await nextTick()
+        const nodes = w.findAll('.stub-feed-item').map((n) => n.element)
+        expect(nodes).toContain(firstBefore)
+    })
 })
 
 describe('DiscoveryView intersection observer', () => {

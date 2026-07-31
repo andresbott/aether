@@ -316,24 +316,6 @@ export function useDeleteRadioStation() {
     })
 }
 
-// type and size are reactive so a section page can follow a changing route param
-// without remounting (vue-router reuses the component when only the param
-// changes, and random's page size differs from every other section's).
-export function useAlbumListByType(
-    type: MaybeRefOrGetter<string>,
-    size: MaybeRefOrGetter<number>
-) {
-    const listType = computed(() => toValue(type))
-    const listSize = computed(() => toValue(size))
-    return useQuery({
-        queryKey: computed(() => queryKeys.albumList(listType.value, listSize.value, 0)),
-        queryFn: () => subsonicClient.getAlbumList(listType.value, listSize.value, 0),
-        // Random reshuffles server-side on every request; a short stale window
-        // keeps a shelf from reshuffling under the user while they scroll.
-        staleTime: 2 * 60 * 1000
-    })
-}
-
 export function useTogglePlaylistStar() {
     const queryClient = useQueryClient()
     return useMutation({

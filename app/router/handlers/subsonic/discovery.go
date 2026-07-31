@@ -138,9 +138,13 @@ func (h *Handler) discoveryPlaylists(ids []uint, ranks map[uint]store.DiscoveryI
 	if len(ids) == 0 {
 		return out, nil
 	}
+	// A star lookup failure degrades to "no star state" rather than failing the
+	// whole feed — same convention as newStarLookup on the album path above and
+	// as documented in docs/agents/subsonic-api.md. An annotation must not take
+	// down the response it decorates.
 	starredAt, err := h.store.StarredAt("playlist", ids)
 	if err != nil {
-		return nil, err
+		starredAt = map[uint]time.Time{}
 	}
 	stats, err := h.store.PlaylistStats(ids)
 	if err != nil {

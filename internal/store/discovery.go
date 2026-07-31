@@ -84,9 +84,10 @@ func (s *Store) DiscoveryFeed(size, offset int, seed int64, filter *DiscoveryFil
 }
 
 // tasteProfile builds the genre weight vector from play history inside the
-// horizon plus every starred album's genres. The played_at cutoff is a WHERE
-// predicate so SQLite uses the play_histories index instead of scanning history
-// that decayed to nothing years ago.
+// horizon plus every starred album's genres. The cutoff is a WHERE predicate so
+// the horizon bounds how many play rows we scan and decode. Note play_histories
+// indexes only track_id, so this is a bounded scan rather than an index seek —
+// adding a played_at index would be a separate optimization.
 func (s *Store) tasteProfile(now time.Time) (discovery.TasteProfile, error) {
 	cutoff := now.Add(-discovery.TasteHorizon)
 
