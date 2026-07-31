@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import SelectButton from 'primevue/selectbutton'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import CardGrid from '@/components/library/CardGrid.vue'
 import DiscoveryFeedItem from '@/components/library/DiscoveryFeedItem.vue'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
 
@@ -37,6 +38,15 @@ const summary = computed(() => {
 })
 
 const isEmpty = computed(() => !isLoading.value && !isError.value && items.value.length === 0)
+
+// CardGrid keys its cells by `id`, so wrap each entry with the entity id it already
+// dedupes on. Ids are prefixed per type (`al-`/`pl-`) and so cannot collide.
+const gridItems = computed(() =>
+    items.value.map((entry) => ({
+        id: entry.type === 'album' ? entry.album.id : entry.playlist.id,
+        entry
+    }))
+)
 
 // Intersection observer over a sentinel at the end of the feed. Attached only
 // while more pages remain, so a fully-loaded feed holds no observer.
@@ -101,7 +111,22 @@ onBeforeUnmount(stopObserving)
             </div>
 
             <template v-else>
-                <div class="discovery-feed content-col" :class="layout">
+                <!-- Grid uses the app's shared CardGrid layout — the same component
+                     /library's VirtualCardGrid builds its rows from — so the column
+                     math and the min-width:0 constraint that keeps every cell the
+                     same width live in one place. List is a plain column, matching
+                     the other *ListView components. -->
+                <CardGrid
+                    v-if="layout === 'grid'"
+                    class="discovery-feed content-col"
+                    :items="gridItems"
+                >
+                    <template #card="{ item }">
+                        <DiscoveryFeedItem v-if="item" :entry="item.entry" layout="grid" />
+                    </template>
+                </CardGrid>
+
+                <div v-else class="discovery-feed discovery-feed-list content-col">
                     <!-- Key on entity id, not rank — rank is a position, so a rank shift would
                          destroy and recreate rather than move. Id is what flattenDiscoveryPages
                          dedupes on and is prefixed per type, so cannot collide. -->
@@ -109,7 +134,7 @@ onBeforeUnmount(stopObserving)
                         v-for="entry in items"
                         :key="entry.type === 'album' ? entry.album.id : entry.playlist.id"
                         :entry="entry"
-                        :layout="layout"
+                        layout="list"
                     />
                 </div>
 
@@ -138,15 +163,13 @@ onBeforeUnmount(stopObserving)
     box-sizing: border-box;
 }
 
-.discovery-feed.grid {
+/* No grid-template-columns here by design: CardGrid owns the column math for the
+   whole app. This only adds the feed's own spacing. */
+.discovery-feed {
     padding-top: 1rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1.5rem;
 }
 
-.discovery-feed.list {
-    padding-top: 1rem;
+.discovery-feed-list {
     display: flex;
     flex-direction: column;
 }
