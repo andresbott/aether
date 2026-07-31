@@ -171,11 +171,18 @@ describe('DiscoveryView', () => {
         feed.items.value = [entryA, entryB]
         const w = mountView()
         const firstBefore = w.findAll('.stub-feed-item')[0].element
-        // Same entities, shifted ranks — the DOM nodes must be reused.
-        entryA.rank = 1
-        entryB.rank = 0
-        feed.items.value = [entryB, entryA]
+
+        // The SAME entities, both SHIFTED to new ranks — not swapped. A swap would
+        // leave the set of rank-derived keys unchanged ({0,1} either way), so Vue
+        // would reuse the nodes even with a rank key and the test would prove
+        // nothing. Shifting to ranks nothing previously held is what distinguishes
+        // an identity key from a positional one: under a rank key every key is new,
+        // so every node is destroyed and recreated.
+        entryA.rank = 7
+        entryB.rank = 8
+        feed.items.value = [entryA, entryB]
         await nextTick()
+
         const nodes = w.findAll('.stub-feed-item').map((n) => n.element)
         expect(nodes).toContain(firstBefore)
     })
