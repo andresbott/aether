@@ -30,6 +30,7 @@ function sampleLibrary(): Library {
         show_artists: true,
         default_view: 'artists',
         icon: 'folder',
+        cover_style: 'auto',
         last_scan_started_at: null,
         created_at: '',
         updated_at: '',
@@ -44,7 +45,8 @@ const sampleInput: LibraryInput = {
     follow_symlinks: true,
     show_artists: true,
     default_view: 'artists',
-    icon: 'folder'
+    icon: 'folder',
+    cover_style: 'auto'
 }
 
 /** Mounts a mutation composable inside a real vue-query context and returns the mutation + the invalidate spy. */

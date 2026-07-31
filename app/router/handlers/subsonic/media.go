@@ -39,6 +39,10 @@ type coverMeta struct {
 	coverPath string
 	albumID   uint
 	seed      string
+	// styleFor resolves the configured covergen style for the entity when
+	// the generated-cover fallback is reached; nil means "auto". Deferred so
+	// requests served from a real cover skip the library lookup.
+	styleFor func() (string, error)
 }
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
@@ -48,7 +52,10 @@ type coverMeta struct {
 // the scanner for `<collection>/<artist>/<album>` layouts). Nothing found means
 // the name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
-	meta := coverMeta{seed: artist.NameNorm}
+	id := artist.ID
+	meta := coverMeta{seed: artist.NameNorm, styleFor: func() (string, error) {
+		return h.store.CoverStyleForArtist(id)
+	}}
 	if artist.MBArtistID != "" {
 		if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
 			meta.coverPath = p
@@ -76,7 +83,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			writeError(w, 70, "album not found")
 			return coverMeta{}, false
 		}
-		meta := coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm}
+		meta := coverMeta{coverPath: album.CoverPath, albumID: album.ID, seed: album.AlbumArtistNorm + "|" + album.NameNorm, styleFor: h.albumStyleFor(album.ID)}
 		// A cover saved to aether's managed store (metadata editor "save to DB"
 		// target) takes precedence over the folder file and embedded art.
 		if p, ok := h.assets.Get(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)); ok {
@@ -90,7 +97,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 			return coverMeta{}, false
 		}
 		if song.Album != nil {
-			return coverMeta{coverPath: song.Album.CoverPath, albumID: song.Album.ID, seed: song.Album.AlbumArtistNorm + "|" + song.Album.NameNorm}, true
+			return coverMeta{coverPath: song.Album.CoverPath, albumID: song.Album.ID, seed: song.Album.AlbumArtistNorm + "|" + song.Album.NameNorm, styleFor: h.albumStyleFor(song.Album.ID)}, true
 		}
 		return coverMeta{}, true
 	case "artist":
@@ -195,7 +202,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	size := quantizeCoverSize(paramInt(r, "size", 512))
-	cachePath, err := h.generatedCoverPath(meta.seed, size)
+	cachePath, err := h.generatedCoverPath(meta.seed, size, resolveCoverStyle(meta.styleFor))
 	if err != nil {
 		http.Error(w, "cover generation failed", http.StatusInternalServerError)
 		return
@@ -245,13 +252,35 @@ func quantizeCoverSize(requested int) int {
 	return buckets[len(buckets)-1]
 }
 
+// albumStyleFor returns a deferred cover-style resolver for an album.
+func (h *Handler) albumStyleFor(albumID uint) func() (string, error) {
+	return func() (string, error) { return h.store.CoverStyleForAlbum(albumID) }
+}
+
+// resolveCoverStyle runs the deferred resolver and maps its result to a
+// covergen style name, degrading to "auto" when the resolver is absent,
+// fails, or names an unknown style.
+func resolveCoverStyle(styleFor func() (string, error)) string {
+	if styleFor == nil {
+		return "auto"
+	}
+	name, err := styleFor()
+	if err != nil || name == "" || name == "auto" {
+		return "auto"
+	}
+	if _, ok := covergen.ParseStyle(name); !ok {
+		return "auto"
+	}
+	return name
+}
+
 // generatedCoverPath returns the filesystem path of a generated cover for
-// seed at size. The file is created on demand; concurrent callers may both
-// generate and rename — the final os.Rename is atomic so the served file is
-// always a complete PNG.
-func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
+// seed at size in the given style ("auto" = per-seed pick). The file is
+// created on demand; concurrent callers may both generate and rename — the
+// final os.Rename is atomic so the served file is always a complete PNG.
+func (h *Handler) generatedCoverPath(seed string, size int, style string) (string, error) {
 	hash := sha256.Sum256([]byte(seed))
-	name := fmt.Sprintf("%s_%d.png", hex.EncodeToString(hash[:6]), size)
+	name := fmt.Sprintf("%s_%s_%d.png", hex.EncodeToString(hash[:6]), style, size)
 	path := filepath.Join(h.coverCacheDir, name)
 
 	if _, err := os.Stat(path); err == nil {
@@ -261,7 +290,13 @@ func (h *Handler) generatedCoverPath(seed string, size int) (string, error) {
 	if err := os.MkdirAll(h.coverCacheDir, 0750); err != nil {
 		return "", fmt.Errorf("create cover cache dir: %w", err)
 	}
-	data, err := covergen.Generate(seed, size)
+	var data []byte
+	var err error
+	if st, ok := covergen.ParseStyle(style); ok {
+		data, err = covergen.GenerateStyle(seed, size, st)
+	} else {
+		data, err = covergen.Generate(seed, size)
+	}
 	if err != nil {
 		return "", fmt.Errorf("generate cover (size=%d): %w", size, err)
 	}

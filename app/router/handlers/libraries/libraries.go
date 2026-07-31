@@ -27,6 +27,7 @@ type libraryDTO struct {
 	ShowArtists       *bool      `json:"show_artists"`
 	DefaultView       string     `json:"default_view"`
 	Icon              string     `json:"icon"`
+	CoverStyle        string     `json:"cover_style"`
 	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
@@ -72,6 +73,10 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if icon == "" {
 		icon = "folder"
 	}
+	cs := lib.CoverStyle
+	if cs == "" {
+		cs = "auto"
+	}
 	// Convert HideArtists (internal, inverted bool) to ShowArtists (API, positive bool).
 	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
 	// HideArtists=true means artists are hidden, so ShowArtists=false.
@@ -85,6 +90,7 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		ShowArtists:       &showArtists,
 		DefaultView:       dv,
 		Icon:              icon,
+		CoverStyle:        cs,
 		LastScanStartedAt: lib.LastScanStartedAt,
 		CreatedAt:         lib.CreatedAt,
 		UpdatedAt:         lib.UpdatedAt,
@@ -188,6 +194,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateCoverStyle(in.CoverStyle); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -202,6 +212,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if icon == "" {
 		icon = "folder"
 	}
+	cs := in.CoverStyle
+	if cs == "" {
+		cs = "auto"
+	}
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
 	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
@@ -213,6 +227,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		HideArtists:     hideArtists,
 		DefaultView:     dv,
 		Icon:            icon,
+		CoverStyle:      cs,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -266,6 +281,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateCoverStyle(in.CoverStyle); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -292,6 +311,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		icon = "folder"
 	}
 	existing.Icon = icon
+	cs := in.CoverStyle
+	if cs == "" {
+		cs = "auto"
+	}
+	existing.CoverStyle = cs
 
 	err = h.Store.Transaction(func(tx *store.Store) error {
 		if pathChanged {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/andresbott/aether/internal/covergen"
 )
 
 func validatePath(path string) (string, error) {
@@ -61,6 +63,20 @@ func validateDefaultView(v string) error {
 	default:
 		return fmt.Errorf("invalid default_view: %q (allowed: albums, artists)", v)
 	}
+}
+
+func validateCoverStyle(v string) error {
+	if v == "" || v == "auto" {
+		return nil
+	}
+	if _, ok := covergen.ParseStyle(v); !ok {
+		names := make([]string, 0, len(covergen.Styles()))
+		for _, s := range covergen.Styles() {
+			names = append(names, s.String())
+		}
+		return fmt.Errorf("invalid cover_style: %q (allowed: auto, %s)", v, strings.Join(names, ", "))
+	}
+	return nil
 }
 
 // iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".

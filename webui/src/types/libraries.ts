@@ -1,5 +1,14 @@
 export type LibraryDefaultView = 'albums' | 'artists'
 
+export type LibraryCoverStyle =
+    | 'auto'
+    | 'classic'
+    | 'bauhaus'
+    | 'rings'
+    | 'waves'
+    | 'poster'
+    | 'remix'
+
 export interface Library {
     id: number
     name: string
@@ -9,6 +18,7 @@ export interface Library {
     show_artists: boolean
     default_view: LibraryDefaultView
     icon: string
+    cover_style: LibraryCoverStyle
     last_scan_started_at: string | null
     created_at: string
     updated_at: string
@@ -24,6 +34,7 @@ export interface LibraryInput {
     show_artists: boolean
     default_view: LibraryDefaultView
     icon: string
+    cover_style: LibraryCoverStyle
 }
 
 export interface ListLibrariesResponse {
