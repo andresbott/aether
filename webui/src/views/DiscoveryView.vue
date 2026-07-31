@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import Button from 'primevue/button'
 import SelectButton from 'primevue/selectbutton'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import CardGrid from '@/components/library/CardGrid.vue'
@@ -28,7 +27,7 @@ const layout = computed<Layout>({
     }
 })
 
-const { items, isLoading, isError, hasNextPage, isFetchingNextPage, fetchNextPage, refresh } =
+const { items, isLoading, isError, hasNextPage, isFetchingNextPage, fetchNextPage } =
     useDiscoveryFeed()
 
 const summary = computed(() => {
@@ -73,14 +72,6 @@ onBeforeUnmount(stopObserving)
 <template>
     <ContentScaffold title="Discovery" :summary="summary">
         <template #actions>
-            <Button
-                class="discovery-refresh"
-                icon="pi pi-refresh"
-                text
-                rounded
-                aria-label="Refresh"
-                @click="refresh"
-            />
             <SelectButton
                 v-model="layout"
                 :options="layoutOptions"

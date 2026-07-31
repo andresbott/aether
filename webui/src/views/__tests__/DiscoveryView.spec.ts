@@ -17,8 +17,7 @@ const feed = {
     isError: ref(false),
     hasNextPage: ref(false),
     isFetchingNextPage: ref(false),
-    fetchNextPage: vi.fn(),
-    refresh: vi.fn()
+    fetchNextPage: vi.fn()
 }
 vi.mock('@/composables/useDiscovery', () => ({
     DISCOVERY_PAGE_SIZE: 48,
@@ -28,8 +27,7 @@ vi.mock('@/composables/useDiscovery', () => ({
         isError: computed(() => feed.isError.value),
         hasNextPage: computed(() => feed.hasNextPage.value),
         isFetchingNextPage: computed(() => feed.isFetchingNextPage.value),
-        fetchNextPage: feed.fetchNextPage,
-        refresh: feed.refresh
+        fetchNextPage: feed.fetchNextPage
     })
 }))
 
@@ -57,7 +55,6 @@ const mountView = () =>
 beforeEach(() => {
     replaceSpy.mockReset()
     feed.fetchNextPage.mockReset()
-    feed.refresh.mockReset()
     route.query = {}
     feed.items.value = []
     feed.isLoading.value = false
@@ -140,11 +137,13 @@ describe('DiscoveryView', () => {
         expect(mountView().find('.discovery-feed').exists()).toBe(false)
     })
 
-    it('refreshes the feed when the refresh action is clicked', async () => {
+    // There is no manual reshuffle: the feed's seed is the 12-hour window and
+    // nothing else, so it rolls on its own and cannot be nudged by hand.
+    it('offers no refresh action', () => {
         feed.items.value = [albumEntry(0)]
         const w = mountView()
-        await w.find('.discovery-refresh').trigger('click')
-        expect(feed.refresh).toHaveBeenCalledOnce()
+        expect(w.find('.discovery-refresh').exists()).toBe(false)
+        expect(w.find('.pi-refresh').exists()).toBe(false)
     })
 
     it('renders the sentinel only while more pages remain', () => {

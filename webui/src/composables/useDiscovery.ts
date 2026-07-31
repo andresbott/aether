@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { queryKeys } from '@/composables/useSubsonicQueries'
@@ -54,14 +54,9 @@ export function nextDiscoveryOffset(
 
 export const DISCOVERY_SEED_WINDOW_MS = 12 * 60 * 60 * 1000
 
-// Refresh has to change the seed or the query key would not change and nothing
-// would reload. Multiplying the window out leaves room for reshuffles underneath
-// it, so a refreshed feed is never accidentally the feed some future window would
-// have produced on its own.
-const DISCOVERY_RESHUFFLE_STRIDE = 1000
-
-// Which 12-hour window a moment falls in — the feed's seed, so the ranking holds
-// still for twelve hours instead of reshuffling on every visit.
+// Which 12-hour window a moment falls in — the feed's seed, and its ONLY input.
+// The ranking therefore holds still for twelve hours and then rolls on its own;
+// there is deliberately no way to reshuffle it by hand.
 //
 // Pure and exported so the windowing is testable without mounting a query client
 // or faking timers.
@@ -69,30 +64,23 @@ export function discoverySeedForTime(nowMs: number): number {
     return Math.floor(nowMs / DISCOVERY_SEED_WINDOW_MS)
 }
 
-// The ranked Discovery feed. The seed is part of the query key, so Refresh is a
-// cache miss rather than a manual invalidation — and every page of one visit
-// shares a seed, which is what keeps the sequence gap-free.
+// The ranked Discovery feed. Every page of one visit shares one seed, which is
+// what keeps the rank sequence gap-free.
 //
 // The window is captured once per mount rather than read reactively: a feed the
 // user is currently scrolling must not reshuffle underneath them just because a
 // 12-hour boundary passed mid-session. The next visit picks up the new window.
 export function useDiscoveryFeed() {
-    const windowSeed = discoverySeedForTime(Date.now())
-    const reshuffles = ref(0)
-    const seed = computed(
-        () => windowSeed * DISCOVERY_RESHUFFLE_STRIDE + reshuffles.value
-    )
+    const seed = discoverySeedForTime(Date.now())
 
     const query = useInfiniteQuery({
-        queryKey: computed(() => queryKeys.discovery(seed.value)),
+        queryKey: queryKeys.discovery(seed),
         queryFn: ({ pageParam }) =>
-            subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed.value),
+            subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed),
         initialPageParam: 0,
         getNextPageParam: nextDiscoveryOffset,
-        // Matches the seed window: within one window the server would return the
-        // same ranking anyway, so refetching earlier only costs requests. Refresh
-        // still reloads immediately, because it changes the key rather than
-        // invalidating this entry.
+        // Matches the seed window: within one window the server returns the same
+        // ranking anyway, so refetching earlier only costs requests.
         staleTime: DISCOVERY_SEED_WINDOW_MS
     })
 
@@ -106,12 +94,6 @@ export function useDiscoveryFeed() {
             if (query.hasNextPage.value && !query.isFetchingNextPage.value) {
                 void query.fetchNextPage()
             }
-        },
-        // Advances the reshuffle counter rather than re-reading the clock: within a
-        // 12-hour window the time-derived part is constant, so a clock-based seed
-        // would not change the query key and Refresh would do nothing.
-        refresh: () => {
-            reshuffles.value += 1
         }
     }
 }
