@@ -253,30 +253,29 @@ func TestDiscoveryFeedPagedMatchesSingleShot(t *testing.T) {
 // No ORDER BY RANDOM() anywhere in candidate gathering: repeated identical
 // requests must return byte-identical results.
 //
-// The fixture must exceed discoveryPoolSize for this to bite. With fewer albums
-// than the pool, every candidate reaches the ranking regardless of gathering
-// order, so a random ORDER BY would be invisible. discoveryPoolSize is 2000, so
-// this seeds more than that — deliberately the largest fixture in the suite.
+// A small fixture is deliberate. Mutating the never-played query to ORDER BY
+// RANDOM() does NOT change the output at discoveryPoolSize = 2000, at any fixture
+// size — `newest` alone gathers 2000 candidates, so every never-played album that
+// could win the ranking is already in the pool and the sampled ordering is
+// redundant. Verified up to 6000 albums. What this test actually guards is the
+// cheap, valuable property: that two identical requests agree.
 func TestDiscoveryFeedCandidateGatheringIsDeterministic(t *testing.T) {
 	s := testStore(t)
-	const albums = 2100
-	for i := 0; i < albums; i++ {
-		al := seedAlbum(t, s, fmt.Sprintf("Album%04d", i))
+	for i := 0; i < 30; i++ {
+		al := seedAlbum(t, s, fmt.Sprintf("Album%02d", i))
 		tr := seedTrack(t, s, al, 0)
-		// Leave most never-played so the never-played query's limit binds, and
-		// give a slice of them play history so the play-driven orderings differ.
 		if i%5 == 0 {
 			if err := s.RecordPlay(tr.ID, time.Now().Add(-time.Duration(i)*time.Minute)); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	first, err := s.DiscoveryFeed(30, 0, 7, nil)
+	first, err := s.DiscoveryFeed(10, 0, 7, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for attempt := 0; attempt < 5; attempt++ {
-		again, err := s.DiscoveryFeed(30, 0, 7, nil)
+		again, err := s.DiscoveryFeed(10, 0, 7, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
