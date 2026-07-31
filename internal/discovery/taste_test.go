@@ -125,3 +125,41 @@ func TestAffinityOfNoGenresIsZero(t *testing.T) {
 		t.Fatalf("Affinity(nil) = %v, want 0", got)
 	}
 }
+
+// A play at exactly the horizon is retained, not dropped: the store's SQL
+// predicate is `played_at >= cutoff`, so the pure code must agree at the
+// boundary or the two disagree about one edge play.
+func TestPlayExactlyAtHorizonIsRetained(t *testing.T) {
+	now := time.Now()
+	plays := []discovery.GenrePlay{{GenreID: 1, PlayedAt: now.Add(-discovery.TasteHorizon)}}
+	p := discovery.BuildTasteProfile(plays, nil, now)
+	if got := p.Affinity([]uint{1}); got == 0 {
+		t.Fatal("play at exactly TasteHorizon was dropped; SQL uses >= cutoff so it must be kept")
+	}
+}
+
+// Later tasks pass a zero-value TasteProfile deliberately (e.g. when the taste
+// query failed and the feed degrades to no genre signal). A nil map must read as
+// zero affinity, not panic.
+func TestAffinityOnZeroValueProfileIsZero(t *testing.T) {
+	var p discovery.TasteProfile
+	if got := p.Affinity([]uint{1, 2, 3}); got != 0 {
+		t.Fatalf("zero-value profile Affinity = %v, want 0", got)
+	}
+}
+
+// A star must count as exactly one full-weight unit, not merely "more than an old
+// play". With one star and one fresh play on different genres, each holds half the
+// normalised weight — which only holds if a star weighs exactly 1.
+func TestStarWeighsExactlyOneUnit(t *testing.T) {
+	now := time.Now()
+	plays := []discovery.GenrePlay{{GenreID: 1, PlayedAt: now}}
+	stars := []discovery.GenreStar{{GenreID: 2}}
+	p := discovery.BuildTasteProfile(plays, stars, now)
+	if math.Abs(p.Affinity([]uint{1})-0.5) > eps {
+		t.Fatalf("fresh play weight = %v, want 0.5", p.Affinity([]uint{1}))
+	}
+	if math.Abs(p.Affinity([]uint{2})-0.5) > eps {
+		t.Fatalf("star weight = %v, want 0.5", p.Affinity([]uint{2}))
+	}
+}
