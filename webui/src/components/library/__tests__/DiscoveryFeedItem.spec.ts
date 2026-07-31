@@ -77,7 +77,15 @@ describe('DiscoveryFeedItem', () => {
         }
     })
 
-    it('exposes the stable hook class', () => {
-        expect(mountItem(albumEntry()).find('.discovery-feed-item').exists()).toBe(true)
+    it('puts the stable hook class on the root element', () => {
+        const w = mountItem(albumEntry())
+        // classList on the root, not find() over the subtree: find() would pass
+        // even if the class had drifted onto a child, and Task 10 targets the root.
+        expect(w.element.classList.contains('discovery-feed-item')).toBe(true)
+    })
+
+    it('carries the layout as a modifier class on the root', () => {
+        expect(mountItem(albumEntry(), 'grid').element.classList.contains('grid')).toBe(true)
+        expect(mountItem(albumEntry(), 'list').element.classList.contains('list')).toBe(true)
     })
 })
