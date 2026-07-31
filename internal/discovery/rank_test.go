@@ -66,8 +66,14 @@ func TestRankIsDeterministicForOneSeed(t *testing.T) {
 	}
 }
 
-// The paging guarantee: a wider pool (what a deeper offset gathers) must not
-// reorder ranks already served on an earlier page.
+// Windowing one FIXED candidate set into pages must reproduce the unpaged
+// sequence exactly — no gap, no overlap, no renumbering.
+//
+// Note what this does NOT prove: all three calls share one `cands` slice, so it
+// says nothing about a pool that varies between requests. Ranking is a sort, so a
+// pool that grew with offset WOULD reorder already-served ranks; that property is
+// the store's to guarantee (fixed discoveryPoolSize, no ORDER BY RANDOM()) and is
+// tested there, in Task 5.
 func TestPagesDoNotOverlapOrGap(t *testing.T) {
 	now := time.Now()
 	cands := append(albumCands(30, now), unplayedCands(10, now, 100)...)
@@ -205,16 +211,31 @@ func TestQuotaEveryIsFour(t *testing.T) {
 // change order across different seeds.
 func TestRediscoveryOrderChangesWithJitter(t *testing.T) {
 	now := time.Now()
-	// Two unplayed albums with identical signals except jitter
+	// Identical unplayed candidates: with the jitter term dropped they would score
+	// identically and hold input order for every seed.
 	cands := []discovery.Candidate{
 		{Kind: discovery.KindAlbum, ID: 1, CreatedAt: now.Add(-400 * 24 * time.Hour)},
 		{Kind: discovery.KindAlbum, ID: 2, CreatedAt: now.Add(-400 * 24 * time.Hour)},
 	}
-	seed1 := discovery.Rank(cands, discovery.TasteProfile{}, 100, now, 0, 2)
-	seed2 := discovery.Rank(cands, discovery.TasteProfile{}, 200, now, 0, 2)
-	// At least one seed should produce a different ordering than input order
-	if seed1[0].ID == 1 && seed2[0].ID == 1 {
-		t.Fatal("both seeds produced input order; jitter may not be influencing rediscovery ranking")
+	// Two seeds must disagree about the order somewhere, and each must be
+	// reproducible on its own.
+	var differs bool
+	for _, pair := range [][2]int64{{100, 200}, {1, 2}, {7, 8}, {42, 99}, {1000, 2000}} {
+		a := discovery.Rank(cands, discovery.TasteProfile{}, pair[0], now, 0, 2)
+		b := discovery.Rank(cands, discovery.TasteProfile{}, pair[1], now, 0, 2)
+		aAgain := discovery.Rank(cands, discovery.TasteProfile{}, pair[0], now, 0, 2)
+		for i := range a {
+			if a[i] != aAgain[i] {
+				t.Fatalf("seed %d not reproducible at rank %d: %+v vs %+v", pair[0], i, a[i], aAgain[i])
+			}
+		}
+		if a[0].ID != b[0].ID {
+			differs = true
+			break
+		}
+	}
+	if !differs {
+		t.Fatal("no seed pair produced a different rediscovery order; jitter is not influencing the ranking")
 	}
 }
 

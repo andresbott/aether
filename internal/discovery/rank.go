@@ -34,10 +34,16 @@ type scored struct {
 // with absolute ranks.
 //
 // The window is cut after the full interleave rather than during it, so the
-// sequence is a pure function of (candidates, seed, now). A deeper offset
-// gathers a wider candidate pool, which is a superset of the previous page's —
-// it re-scores to the same values and therefore cannot reorder ranks already
-// served.
+// sequence is a pure function of (candidates, seed, now): the same inputs always
+// produce the same ordering, and windowing one candidate set into pages reproduces
+// the unpaged sequence exactly.
+//
+// CALLER OBLIGATION: the candidate set must be IDENTICAL across the pages of one
+// feed. Ranking is a sort, so adding candidates moves the ones already there — a
+// caller that gathered a larger pool for a later page would displace ranks it had
+// already served, and the user would watch items repeat or vanish while scrolling.
+// The store satisfies this with a fixed-size pool and no ORDER BY RANDOM(); see
+// discoveryPoolSize in internal/store/discovery.go.
 func Rank(cands []Candidate, p TasteProfile, seed int64, now time.Time, offset, size int) []Ranked {
 	var main, rediscover []scored
 	for _, c := range cands {
