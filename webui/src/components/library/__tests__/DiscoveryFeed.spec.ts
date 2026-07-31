@@ -4,12 +4,10 @@ import PrimeVue from 'primevue/config'
 import { ref, computed, nextTick } from 'vue'
 import type { DiscoveryFeedEntry } from '@/types/subsonic'
 
-const replaceSpy = vi.fn()
-const route = { query: {} as Record<string, unknown> }
-vi.mock('vue-router', () => ({
-    useRoute: () => route,
-    useRouter: () => ({ replace: replaceSpy, push: vi.fn() })
-}))
+// Ported from the deleted DiscoveryView.spec.ts: the feed BODY behaviour moved into
+// this component when the standalone /discover view was folded into LibraryView's
+// Discover tab. The header concerns that lived alongside it (title, count summary,
+// layout toggle) are now covered by LibraryView.spec.ts.
 
 const feed = {
     items: ref<DiscoveryFeedEntry[]>([]),
@@ -39,7 +37,7 @@ vi.mock('@/components/library/DiscoveryFeedItem.vue', () => ({
     }
 }))
 
-import DiscoveryView from '@/views/DiscoveryView.vue'
+import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
 
 const albumEntry = (rank: number): DiscoveryFeedEntry => ({
     type: 'album',
@@ -49,13 +47,14 @@ const albumEntry = (rank: number): DiscoveryFeedEntry => ({
 })
 
 const stubs = { RouterLink: { template: '<a><slot /></a>' } }
-const mountView = () =>
-    mount(DiscoveryView, { global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs } })
+const mountFeed = (layout: 'grid' | 'list' = 'grid') =>
+    mount(DiscoveryFeed, {
+        props: { layout },
+        global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs }
+    })
 
 beforeEach(() => {
-    replaceSpy.mockReset()
     feed.fetchNextPage.mockReset()
-    route.query = {}
     feed.items.value = []
     feed.isLoading.value = false
     feed.isError.value = false
@@ -63,94 +62,70 @@ beforeEach(() => {
     feed.isFetchingNextPage.value = false
 })
 
-describe('DiscoveryView', () => {
-    it('renders the Discovery title', () => {
-        expect(mountView().text()).toContain('Discovery')
-    })
-
+describe('DiscoveryFeed', () => {
     it('renders one feed item per entry', () => {
         feed.items.value = [albumEntry(0), albumEntry(1), albumEntry(2)]
-        expect(mountView().findAll('.stub-feed-item')).toHaveLength(3)
+        expect(mountFeed().findAll('.stub-feed-item')).toHaveLength(3)
     })
 
     it('renders items in rank order', () => {
         feed.items.value = [albumEntry(0), albumEntry(1), albumEntry(2)]
-        const ranks = mountView()
+        const ranks = mountFeed()
             .findAll('.stub-feed-item')
             .map((n) => n.attributes('data-rank'))
         expect(ranks).toEqual(['0', '1', '2'])
     })
 
-    it('passes the grid layout by default', () => {
+    it('passes the layout prop through to each item', () => {
         feed.items.value = [albumEntry(0)]
-        expect(mountView().find('.stub-feed-item').attributes('data-layout')).toBe('grid')
-    })
-
-    it('passes the list layout when the query says list', () => {
-        route.query = { view: 'list' }
-        feed.items.value = [albumEntry(0)]
-        expect(mountView().find('.stub-feed-item').attributes('data-layout')).toBe('list')
-    })
-
-    it('summarises the item count, pluralised', () => {
-        feed.items.value = [albumEntry(0), albumEntry(1)]
-        expect(mountView().text()).toContain('2 items')
-    })
-
-    it('uses the singular for one item', () => {
-        feed.items.value = [albumEntry(0)]
-        expect(mountView().text()).toContain('1 item')
-        expect(mountView().text()).not.toContain('1 items')
-    })
-
-    it('omits the summary at zero', () => {
-        expect(mountView().text()).not.toContain('0 item')
+        expect(mountFeed('grid').find('.stub-feed-item').attributes('data-layout')).toBe('grid')
+        expect(mountFeed('list').find('.stub-feed-item').attributes('data-layout')).toBe('list')
     })
 
     it('shows a loading state', () => {
         feed.isLoading.value = true
-        expect(mountView().find('.pi-spinner').exists()).toBe(true)
+        expect(mountFeed().find('.pi-spinner').exists()).toBe(true)
     })
 
     it('shows an error state', () => {
         feed.isError.value = true
-        expect(mountView().text()).toContain('Could not load')
+        expect(mountFeed().text()).toContain('Could not load')
     })
 
     it('hides the error when loading', () => {
         feed.isError.value = true
         feed.isLoading.value = true
-        expect(mountView().text()).not.toContain('Could not load')
+        expect(mountFeed().text()).not.toContain('Could not load')
     })
 
     it('shows an empty state when the feed is empty', () => {
-        expect(mountView().text()).toContain('Nothing here yet')
+        expect(mountFeed().text()).toContain('Nothing here yet')
     })
 
     it('does not show the empty state while loading', () => {
         feed.isLoading.value = true
-        expect(mountView().text()).not.toContain('Nothing here yet')
+        expect(mountFeed().text()).not.toContain('Nothing here yet')
     })
 
     it('hides the feed during the initial loading state', () => {
         feed.isLoading.value = true
-        expect(mountView().find('.discovery-feed').exists()).toBe(false)
+        expect(mountFeed().find('.discovery-feed').exists()).toBe(false)
     })
 
     // There is no manual reshuffle: the feed's seed is the 12-hour window and
     // nothing else, so it rolls on its own and cannot be nudged by hand.
     it('offers no refresh action', () => {
         feed.items.value = [albumEntry(0)]
-        const w = mountView()
+        const w = mountFeed()
         expect(w.find('.discovery-refresh').exists()).toBe(false)
         expect(w.find('.pi-refresh').exists()).toBe(false)
     })
 
     it('renders the sentinel only while more pages remain', () => {
         feed.items.value = [albumEntry(0)]
-        expect(mountView().find('.discovery-sentinel').exists()).toBe(false)
+        expect(mountFeed().find('.discovery-sentinel').exists()).toBe(false)
         feed.hasNextPage.value = true
-        expect(mountView().find('.discovery-sentinel').exists()).toBe(true)
+        expect(mountFeed().find('.discovery-sentinel').exists()).toBe(true)
     })
 
     it('keys feed items by entity id so a rank shift moves rather than recreates them', async () => {
@@ -168,7 +143,7 @@ describe('DiscoveryView', () => {
             album: { id: 'al-200', name: 'Album B', rank: 1, reason: 'favorite' }
         }
         feed.items.value = [entryA, entryB]
-        const w = mountView()
+        const w = mountFeed()
         const firstBefore = w.findAll('.stub-feed-item')[0].element
 
         // The SAME entities, both SHIFTED to new ranks — not swapped. A swap would
@@ -187,45 +162,44 @@ describe('DiscoveryView', () => {
     })
 })
 
-describe('DiscoveryView intersection observer', () => {
+describe('DiscoveryFeed intersection observer', () => {
     let observes = 0
     let disconnects = 0
 
     beforeEach(() => {
         observes = 0
         disconnects = 0
-        // jsdom has no IntersectionObserver, and the view guards on its absence —
+        // jsdom has no IntersectionObserver, and the component guards on its absence —
         // so injecting a counting fake is what makes the lifecycle observable.
-        ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
-            class {
-                constructor(_cb: unknown) {}
-                observe(): void {
-                    observes++
-                }
-                disconnect(): void {
-                    disconnects++
-                }
-                unobserve(): void {}
-                takeRecords(): [] {
-                    return []
-                }
-                root = null
-                rootMargin = ''
-                thresholds = []
+        ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class {
+            constructor(_cb: unknown) {}
+            observe(): void {
+                observes++
             }
+            disconnect(): void {
+                disconnects++
+            }
+            unobserve(): void {}
+            takeRecords(): [] {
+                return []
+            }
+            root = null
+            rootMargin = ''
+            thresholds = []
+        }
         feed.items.value = [albumEntry(0)]
         feed.hasNextPage.value = true
     })
 
     it('observes the sentinel while more pages remain', async () => {
-        mountView()
+        mountFeed()
         await nextTick()
         expect(observes).toBeGreaterThan(0)
     })
 
     // A live observer after teardown keeps a reference to the unmounted component.
     it('disconnects the observer on unmount', async () => {
-        const w = mountView()
+        const w = mountFeed()
         await nextTick()
         const before = disconnects
         w.unmount()

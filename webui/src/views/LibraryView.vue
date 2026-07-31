@@ -7,20 +7,18 @@ import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlbumGrid from '@/components/library/AlbumGrid.vue'
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import ArtistGrid from '@/components/library/ArtistGrid.vue'
+import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
 import { useAlbumIndex } from '@/composables/useAlbumIndex'
 import { useArtistTable } from '@/composables/useArtistTable'
+import { useDiscoveryFeed } from '@/composables/useDiscovery'
 
-type ViewMode = 'albums' | 'artists'
+type ViewMode = 'discover' | 'albums' | 'artists'
 type Layout = 'grid' | 'list'
 
 const route = useRoute()
 const router = useRouter()
 
-const viewOptions = [
-    { label: 'Albums', value: 'albums' },
-    { label: 'Artists', value: 'artists' }
-]
 const layoutOptions = [
     { label: 'List', value: 'list', icon: 'pi pi-list' },
     { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
@@ -39,20 +37,46 @@ const folder = computed(() => folders.value?.find((f) => f.id === folderId.value
 const folderName = computed(() =>
     folderId.value === undefined ? 'Library' : (folder.value?.name ?? 'Library')
 )
-const serverDefault = computed<ViewMode>(() => folder.value?.defaultView ?? 'albums')
+
+// The Discovery ranking is cross-collection, so the tab exists only on the root
+// route (no folderId). A per-library discovery feed is deliberately not a thing —
+// see DiscoveryFeed.vue. This tab is also the ONLY way to reach the feed: there is
+// no standalone /discover route.
+const discoverTabVisible = computed(() => folderId.value === undefined)
 
 const artistsTabVisible = computed(() => {
     if (folderId.value === undefined) return true
     return folder.value?.showArtists !== false
 })
 
+const viewOptions = computed(() => [
+    ...(discoverTabVisible.value ? [{ label: 'Discover', value: 'discover' }] : []),
+    { label: 'Albums', value: 'albums' },
+    ...(artistsTabVisible.value ? [{ label: 'Artists', value: 'artists' }] : [])
+])
+
+// On the root route, Discover is the default; a folder keeps its configured
+// default_view, which the server only ever reports as albums/artists.
+const serverDefault = computed<ViewMode>(() => {
+    if (discoverTabVisible.value) return 'discover'
+    return folder.value?.defaultView ?? 'albums'
+})
+
 const hashView = computed<ViewMode | null>(() => {
     const h = route.hash.replace('#', '')
-    return h === 'albums' || h === 'artists' ? h : null
+    return h === 'discover' || h === 'albums' || h === 'artists' ? h : null
 })
 
 const viewMode = computed<ViewMode>({
-    get: () => (artistsTabVisible.value ? (hashView.value ?? serverDefault.value) : 'albums'),
+    get: () => {
+        const wanted = hashView.value ?? serverDefault.value
+        // A hash for a tab this route does not offer (a folder deep-linked to
+        // #discover, or #artists on a library with showArtists=false) falls back
+        // to albums rather than rendering a tab with no toggle to leave it.
+        if (wanted === 'discover' && !discoverTabVisible.value) return 'albums'
+        if (wanted === 'artists' && !artistsTabVisible.value) return 'albums'
+        return wanted
+    },
     set: (v) => {
         router.replace({ hash: `#${v}`, query: route.query })
     }
@@ -75,8 +99,15 @@ const { total: albumTotal } = useAlbumIndex(folderId, {
 const { total: artistTotal } = useArtistTable(folderId, {
     enabled: computed(() => viewMode.value === 'artists')
 })
+// Shares its query cache entry with the DiscoveryFeed in the body, so reading the
+// count here costs no extra request.
+const { items: discoveryItems } = useDiscoveryFeed()
 
 const summary = computed(() => {
+    if (viewMode.value === 'discover') {
+        const n = discoveryItems.value.length
+        return n > 0 ? `${n} item${n === 1 ? '' : 's'}` : ''
+    }
     if (viewMode.value === 'albums') {
         return albumTotal.value > 0
             ? `${albumTotal.value} ${albumTotal.value === 1 ? 'album' : 'albums'}`
@@ -105,7 +136,7 @@ const summary = computed(() => {
                 </template>
             </SelectButton>
             <SelectButton
-                v-if="artistsTabVisible"
+                v-if="viewOptions.length > 1"
                 v-model="viewMode"
                 :options="viewOptions"
                 optionLabel="label"
@@ -114,7 +145,11 @@ const summary = computed(() => {
             />
         </template>
 
-        <AlbumListView v-if="viewMode === 'albums' && layout === 'list'" :folderId="folderId" />
+        <DiscoveryFeed v-if="viewMode === 'discover'" :layout="layout" />
+        <AlbumListView
+            v-else-if="viewMode === 'albums' && layout === 'list'"
+            :folderId="folderId"
+        />
         <AlbumGrid v-else-if="viewMode === 'albums'" :folderId="folderId" />
         <ArtistListView v-else-if="layout === 'list'" :folderId="folderId" />
         <ArtistGrid v-else :folderId="folderId" />

@@ -36,12 +36,6 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/discover',
-        name: 'discover',
-        component: () => import('@/views/DiscoveryView.vue'),
-        meta: { flush: true }
-    },
-    {
         path: '/playlists',
         name: 'playlists',
         component: () => import('@/views/PlaylistsView.vue'),

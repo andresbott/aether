@@ -44,6 +44,7 @@
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums.
     - ~~No `Cache-Control`/ETag on `getCoverArt` responses~~ — done: `Cache-Control: no-cache` on every response (`media.go:169`) plus an ETag over path+size+mtime with `Last-Modified` deliberately omitted (`serveCoverFile`, `media.go:217`), so swapping to an *older* file still invalidates; `If-None-Match` → 304 covered in `media_test.go:610`.
   Still open: pick a deterministic embedded-cover track (e.g. lowest `(disc, track)`) in `GetCoverTrackPath` (`internal/store/track.go:130` has no `Order`); have `DeleteOrphanedAggregates` revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68`).
+- [] add statistics in backend library: e.g. albums, artists, songs, genres, disk space used
 
 ## Frontend — Music Browsing & Features
 

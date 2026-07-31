@@ -10,7 +10,7 @@ import { computeColumnWidth, computeGridColumns } from '@/utils/cardGrid'
  * consumers share it:
  *   - `VirtualCardGrid` wraps it per row inside a VirtualScroller for
  *     index-addressed lists (`/library`: known total, alphabet rail, jump to "S").
- *   - `DiscoveryView` renders it once for the whole cursor-paged feed (no total,
+ *   - `DiscoveryFeed` renders it once for the whole cursor-paged feed (no total,
  *     no rail, an IntersectionObserver appends pages).
  *
  * Keeping the column math here is not cosmetic. `grid-template-columns` with a
