@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Button from 'primevue/button'
 
-withDefaults(
+// The props keep the Subsonic wire vocabulary (`starred`, `star`); the visible
+// wording is "favorite" to match the heart icon used everywhere.
+const props = withDefaults(
     defineProps<{
         playLabel?: string
         playDisabled?: boolean
@@ -18,6 +21,10 @@ withDefaults(
         canStar: false,
         starred: false
     }
+)
+
+const favoriteLabel = computed(() =>
+    props.starred ? 'Remove from favorites' : 'Add to favorites'
 )
 
 const emit = defineEmits<{
@@ -49,10 +56,11 @@ const emit = defineEmits<{
         <Button
             v-if="canStar"
             class="hero-action-star"
-            :icon="starred ? 'pi pi-star-fill' : 'pi pi-star'"
+            :icon="starred ? 'pi pi-heart-fill' : 'pi pi-heart'"
+            :aria-label="favoriteLabel"
             text
             rounded
-            v-tooltip.bottom="'Toggle star'"
+            v-tooltip.bottom="favoriteLabel"
             @click="emit('star')"
         />
     </div>

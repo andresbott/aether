@@ -156,16 +156,17 @@ func (s *Store) starredPlaylists() ([]model.Playlist, error) {
 	return result, nil
 }
 
-// PlaylistStarredAt returns when each of the given playlists was starred, in one
-// query. Playlists that are not starred are absent from the map.
-func (s *Store) PlaylistStarredAt(playlistIDs []uint) (map[uint]time.Time, error) {
+// StarredAt returns when each of the given items of itemType was starred, in one
+// query. Items that are not starred are absent from the map. Ids are only unique
+// per type, so itemType is part of the lookup — never drop it.
+func (s *Store) StarredAt(itemType string, itemIDs []uint) (map[uint]time.Time, error) {
 	out := map[uint]time.Time{}
-	if len(playlistIDs) == 0 {
+	if len(itemIDs) == 0 {
 		return out, nil
 	}
 	var stars []model.StarredItem
 	if err := s.db.
-		Where("item_type = 'playlist' AND item_id IN ?", playlistIDs).
+		Where("item_type = ? AND item_id IN ?", itemType, itemIDs).
 		Find(&stars).Error; err != nil {
 		return nil, err
 	}

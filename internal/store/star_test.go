@@ -153,7 +153,7 @@ func TestGetStarredIncludesPlaylistsNewestFirst(t *testing.T) {
 	}
 }
 
-func TestPlaylistStarredAt(t *testing.T) {
+func TestStarredAt(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	starredPl := model.Playlist{Name: "Fav"}
@@ -164,7 +164,7 @@ func TestPlaylistStarredAt(t *testing.T) {
 	at := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
 	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: starredPl.ID, CreatedAt: at})
 
-	got, err := s.PlaylistStarredAt([]uint{starredPl.ID, plainPl.ID})
+	got, err := s.StarredAt("playlist", []uint{starredPl.ID, plainPl.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +173,48 @@ func TestPlaylistStarredAt(t *testing.T) {
 	}
 	if _, ok := got[plainPl.ID]; ok {
 		t.Fatal("unstarred playlist must be absent from the map")
+	}
+}
+
+// Ids collide across item types (album 1 and track 1 both exist), so the lookup
+// must filter on item_type or an album's star would leak onto a song.
+func TestStarredAtIsScopedToItemType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "a"}
+	db.Create(&album)
+	track := model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/1.mp3"}
+	db.Create(&track)
+
+	if err := s.Star("album", album.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	albums, err := s.StarredAt("album", []uint{album.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := albums[album.ID]; !ok {
+		t.Fatal("starred album must be present in the album lookup")
+	}
+
+	tracks, err := s.StarredAt("track", []uint{track.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tracks[track.ID]; ok {
+		t.Fatal("an album star must not surface in the track lookup")
+	}
+}
+
+func TestStarredAtWithNoIDs(t *testing.T) {
+	s := testStore(t)
+	got, err := s.StarredAt("album", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty map, got %v", got)
 	}
 }
 

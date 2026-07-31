@@ -55,7 +55,9 @@ vi.mock('@/composables/useAlbumDrag', () => ({
     useAlbumDrag: () => ({ start: vi.fn(), end: vi.fn() })
 }))
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useTogglePlaylistStar: () => ({ mutate: vi.fn() })
+    useTogglePlaylistStar: () => ({ mutate: vi.fn() }),
+    // AlbumCard's favorite toggle; this spec mounts the real card.
+    useToggleStar: () => ({ mutate: vi.fn() })
 }))
 
 import DiscoverySection from '@/components/library/DiscoverySection.vue'

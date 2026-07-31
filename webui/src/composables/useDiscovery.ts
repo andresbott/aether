@@ -15,7 +15,7 @@ export interface DiscoverySectionDef {
 // DiscoverySectionView read the sections from here.
 export const DISCOVERY_SECTIONS: readonly DiscoverySectionDef[] = [
     { key: 'recently-added', title: 'Recently added', albumListType: 'newest', icon: 'pi pi-clock' },
-    { key: 'favorites', title: 'Favorites', albumListType: 'starred', icon: 'pi pi-star' },
+    { key: 'favorites', title: 'Favorites', albumListType: 'starred', icon: 'pi pi-heart' },
     { key: 'most-played', title: 'Most played', albumListType: 'frequent', icon: 'pi pi-chart-bar' },
     {
         key: 'recently-played',

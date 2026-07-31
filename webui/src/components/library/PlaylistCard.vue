@@ -56,10 +56,10 @@ const onPlay = async (event: Event): Promise<void> => {
                 class="card-star"
                 :class="{ 'is-starred': isStarred }"
                 type="button"
-                :aria-label="isStarred ? 'Unstar playlist' : 'Star playlist'"
+                :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-star-fill' : 'pi pi-star'"></i>
+                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
             </button>
             <button class="card-play" type="button" aria-label="Play playlist" @click="onPlay">
                 <i class="pi pi-play"></i>

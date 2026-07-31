@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Eight extensions exist today — copy their shape.
+  Eleven extensions exist today — copy their shape.
 - **Never route music features through `/api/v1`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -37,6 +37,39 @@ Endpoints that accept a generic `id` (e.g. `star`, `getCoverArt`) dispatch on
 the decoded type. **Any new entity exposed over `/rest` needs its own prefix
 here**, and the frontend types (`webui/src/types/subsonic.ts`) consume these
 strings verbatim.
+
+A decodable id is not automatically a *valid* id for an endpoint: `decodeID`
+accepts every prefix, so an endpoint that only handles some types must check the
+returned type itself. `starItems` (`annotation.go`) is the reference — see below.
+
+## Favorites (`star` / `unstar` / `starred`)
+
+- **Only four types are starrable**: artist, album and track from the spec's
+  `id`/`albumId`/`artistId` parameters, plus playlist via the `playlistStar`
+  extension. `starrableTypes` (`annotation.go`) is the allowlist; genre and radio
+  ids decode fine but are dropped, because `getStarred2`, `getGenres` and
+  `getInternetRadioStations` have no field to report them and a stored row would
+  be permanently unreadable. Do not "just persist it" for a future UI.
+- `albumId` and `artistId` are *typed* parameters, so an id of another kind is
+  dropped rather than starring the row with that numeric id under the
+  parameter's own type.
+- **Every response carrying an artist, album, song or playlist emits `starred`**
+  as an RFC3339 timestamp, and **omits the key entirely when unstarred** —
+  clients test for presence, so never write `""` or `null`. `AlbumID3`,
+  `ArtistID3` and `Child` all define the field in the spec; on `Playlist` it is
+  the `playlistStar` extension.
+- Build the state with `starred.go`: `newStarLookup(h.store, artistIDs, albumIDs,
+  trackIDs)` runs **one** `Store.StarredAt` per non-empty id set, then
+  `applyArtist`/`applyAlbum`/`applyTrack` decorate the already-built entity maps.
+  For a flat song list use `starredSongList(h.store, tracks)`. Never look a star
+  up per row — a 500-album list would issue 500 queries.
+- `Store.StarredAt(itemType, ids)` is keyed by type *and* id: ids are only unique
+  per type, so dropping `itemType` would leak an album's star onto the song with
+  the same numeric id.
+- A star lookup failure is deliberately non-fatal — the response degrades to "no
+  star state" rather than failing an entire browse over an annotation.
+- Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions)
+  and `annotation_test.go` (the allowlist).
 
 ## Parameter conventions
 

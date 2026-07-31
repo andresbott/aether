@@ -35,6 +35,10 @@ describe('DISCOVERY_SECTIONS', () => {
         })
     })
 
+    it('marks favorites with the heart icon used by every favorite toggle', () => {
+        expect(findSection('favorites')?.icon).toBe('pi pi-heart')
+    })
+
     it('resolves a known key and rejects an unknown one', () => {
         expect(findSection('favorites')?.title).toBe('Favorites')
         expect(findSection('nope')).toBeUndefined()

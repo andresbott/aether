@@ -58,7 +58,7 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 	for i := range playlists {
 		ids = append(ids, playlists[i].ID)
 	}
-	starredAt, err := h.store.PlaylistStarredAt(ids)
+	starredAt, err := h.store.StarredAt("playlist", ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -118,13 +118,12 @@ func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := make([]map[string]any, 0, len(tracks))
+	songs := starredSongList(h.store, tracks)
 	var dur int
-	for _, t := range tracks {
-		songs = append(songs, trackToChild(&t, t.Album))
-		dur += t.Duration
+	for i := range tracks {
+		dur += tracks[i].Duration
 	}
-	starredAt, err := h.store.PlaylistStarredAt([]uint{pl.ID})
+	starredAt, err := h.store.StarredAt("playlist", []uint{pl.ID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return

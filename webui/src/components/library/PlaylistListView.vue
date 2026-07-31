@@ -56,10 +56,10 @@ const play = async (event: Event, id: string): Promise<void> => {
                     class="row-star"
                     :class="{ 'is-starred': !!pl.starred }"
                     type="button"
-                    :aria-label="pl.starred ? 'Unstar playlist' : 'Star playlist'"
+                    :aria-label="pl.starred ? 'Remove from favorites' : 'Add to favorites'"
                     @click="star($event, pl)"
                 >
-                    <i :class="pl.starred ? 'pi pi-star-fill' : 'pi pi-star'"></i>
+                    <i :class="pl.starred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
                 </button>
             </span>
             <span class="col-play">

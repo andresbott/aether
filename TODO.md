@@ -47,9 +47,10 @@
 
 ## Frontend — Music Browsing & Features
 
-- [ ] Favorites/starring: (partial — album detail & artist view toggles done; player now-playing has a like; playlist stars done via the `playlistStar` extension)
+- [ ] Favorites/starring: (partial — album detail, artist view and song-detail toggles done; player now-playing has a like; playlist stars done via the `playlistStar` extension. Every toggle now uses the `pi pi-heart(-fill)` icon with "Add to/Remove from favorites" wording, and `/rest` emits `starred` on artists/albums/songs/playlists so state survives a reload)
   - [ ] Star/unstar toggle on track rows (album view and queue)
-  - [ ] Starred indicator on album grid cards in library view
+  - [x] Starred indicator on album grid cards in library view — `AlbumCard`/`ArtistCard` carry a
+        hover-revealed heart that stays visible while favorited, same pattern as `PlaylistCard`
   - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
         (partial: starred albums and playlists are browsable as the Discovery "Favorites" section at
         `/discover/favorites`, backed by `getAlbumList2?type=starred` plus a client-side playlist filter —

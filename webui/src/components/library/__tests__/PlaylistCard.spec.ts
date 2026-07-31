@@ -46,10 +46,21 @@ beforeEach(() => {
 })
 
 describe('PlaylistCard star toggle', () => {
-    it('shows an outline star when unstarred and a filled one when starred', () => {
-        expect(mountCard(playlist()).find('.card-star i').classes()).toContain('pi-star')
+    it('shows an outline heart when unstarred and a filled one when starred', () => {
+        expect(mountCard(playlist()).find('.card-star i').classes()).toContain('pi-heart')
         const starred = mountCard(playlist({ starred: '2026-02-01T00:00:00Z' }))
-        expect(starred.find('.card-star i').classes()).toContain('pi-star-fill')
+        expect(starred.find('.card-star i').classes()).toContain('pi-heart-fill')
+    })
+
+    it('labels the favorite toggle for screen readers', () => {
+        expect(mountCard(playlist()).find('.card-star').attributes('aria-label')).toBe(
+            'Add to favorites'
+        )
+        expect(
+            mountCard(playlist({ starred: '2026-02-01T00:00:00Z' }))
+                .find('.card-star')
+                .attributes('aria-label')
+        ).toBe('Remove from favorites')
     })
 
     it('keeps a starred playlist star visible without hover', () => {

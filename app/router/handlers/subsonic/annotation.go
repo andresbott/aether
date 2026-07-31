@@ -16,38 +16,44 @@ func (h *Handler) unstar(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, nil)
 }
 
+// starrableTypes are the item types star/unstar accept. Songs, albums and
+// artists come from the Subsonic spec; playlists are Aether's "playlistStar"
+// extension. Genres and radio stations are starrable in neither, so their ids
+// are ignored — persisting them would write rows no endpoint can read back.
+var starrableTypes = map[string]bool{
+	"artist":   true,
+	"album":    true,
+	"track":    true,
+	"playlist": true,
+}
+
 func starItems(h *Handler, r *http.Request, doStar bool) {
-	for _, idStr := range paramStrSlice(r, "id") {
+	// The spec's albumId/artistId parameters are typed, so an id of any other
+	// kind is a client error and gets dropped rather than starring the wrong row.
+	starParam(h, r, doStar, "id", "")
+	starParam(h, r, doStar, "albumId", "album")
+	starParam(h, r, doStar, "artistId", "artist")
+}
+
+// starParam stars every id in the given request parameter. When want is
+// non-empty, only ids of that item type are accepted; when empty, any starrable
+// type is.
+func starParam(h *Handler, r *http.Request, doStar bool, param, want string) {
+	for _, idStr := range paramStrSlice(r, param) {
 		itemType, id, err := decodeID(idStr)
 		if err != nil {
+			continue
+		}
+		if want != "" && itemType != want {
+			continue
+		}
+		if !starrableTypes[itemType] {
 			continue
 		}
 		if doStar {
 			_ = h.store.Star(itemType, id)
 		} else {
 			_ = h.store.Unstar(itemType, id)
-		}
-	}
-	for _, idStr := range paramStrSlice(r, "albumId") {
-		_, id, err := decodeID(idStr)
-		if err != nil {
-			continue
-		}
-		if doStar {
-			_ = h.store.Star("album", id)
-		} else {
-			_ = h.store.Unstar("album", id)
-		}
-	}
-	for _, idStr := range paramStrSlice(r, "artistId") {
-		_, id, err := decodeID(idStr)
-		if err != nil {
-			continue
-		}
-		if doStar {
-			_ = h.store.Star("artist", id)
-		} else {
-			_ = h.store.Unstar("artist", id)
 		}
 	}
 }
