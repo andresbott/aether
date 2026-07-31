@@ -36,6 +36,22 @@ export function flattenDiscoveryPages(pages: DiscoveryPage[]): DiscoveryFeedEntr
     })
 }
 
+// The terminal condition for the infinite feed, extracted so it is directly
+// testable: a page that comes back SHORT means the ranking is exhausted. Without
+// this check the feed would page forever against a library smaller than one page,
+// and (because the server caps the pool) past the end every request would return
+// an empty page that the client kept asking for again.
+//
+// Returns the next offset, or undefined to stop.
+export function nextDiscoveryOffset(
+    lastPage: DiscoveryPage,
+    allPages: DiscoveryPage[]
+): number | undefined {
+    const got = lastPage.album.length + lastPage.playlist.length
+    if (got < DISCOVERY_PAGE_SIZE) return undefined
+    return allPages.length * DISCOVERY_PAGE_SIZE
+}
+
 // The ranked Discovery feed. The seed is part of the query key, so Refresh is a
 // cache miss rather than a manual invalidation — and every page of one visit
 // shares a seed, which is what keeps the sequence gap-free.
@@ -47,13 +63,7 @@ export function useDiscoveryFeed() {
         queryFn: ({ pageParam }) =>
             subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed.value),
         initialPageParam: 0,
-        // A short page means the ranking is exhausted; anything else would page
-        // forever against a library smaller than the feed.
-        getNextPageParam: (lastPage: DiscoveryPage, allPages: DiscoveryPage[]) => {
-            const got = lastPage.album.length + lastPage.playlist.length
-            if (got < DISCOVERY_PAGE_SIZE) return undefined
-            return allPages.length * DISCOVERY_PAGE_SIZE
-        },
+        getNextPageParam: nextDiscoveryOffset,
         staleTime: 5 * 60 * 1000
     })
 

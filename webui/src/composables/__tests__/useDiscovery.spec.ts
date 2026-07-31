@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { flattenDiscoveryPages, DISCOVERY_PAGE_SIZE } from '@/composables/useDiscovery'
+import {
+    flattenDiscoveryPages,
+    nextDiscoveryOffset,
+    DISCOVERY_PAGE_SIZE
+} from '@/composables/useDiscovery'
 import type { DiscoveryPage } from '@/types/subsonic'
 
 const album = (id: string, rank: number, reason = 'genreMatch') =>
@@ -100,5 +104,46 @@ describe('flattenDiscoveryPages', () => {
             playlist: [playlist('pl-1', 1), playlist('pl-1', 3)]
         }
         expect(flattenDiscoveryPages([page])).toHaveLength(2)
+    })
+})
+
+describe('nextDiscoveryOffset', () => {
+    // A page holding exactly DISCOVERY_PAGE_SIZE items — the "keep going" case.
+    const full = (): DiscoveryPage => ({
+        album: Array.from({ length: DISCOVERY_PAGE_SIZE }, (_, i) => album(`al-${i}`, i)),
+        playlist: []
+    })
+
+    it('advances by one page while pages come back full', () => {
+        expect(nextDiscoveryOffset(full(), [full()])).toBe(DISCOVERY_PAGE_SIZE)
+        expect(nextDiscoveryOffset(full(), [full(), full()])).toBe(2 * DISCOVERY_PAGE_SIZE)
+    })
+
+    // The terminal signal. Without it the feed pages forever on a small library.
+    it('stops on a short page', () => {
+        const short: DiscoveryPage = { album: [album('al-1', 0)], playlist: [] }
+        expect(nextDiscoveryOffset(short, [short])).toBeUndefined()
+    })
+
+    it('stops on an empty page', () => {
+        expect(nextDiscoveryOffset({ album: [], playlist: [] }, [])).toBeUndefined()
+    })
+
+    // Fullness is measured ACROSS BOTH ARRAYS, not per array: the server splits one
+    // ranking into two per-type arrays, so either alone is meaningless.
+    it('counts albums and playlists together when judging fullness', () => {
+        const split: DiscoveryPage = {
+            album: Array.from({ length: DISCOVERY_PAGE_SIZE - 1 }, (_, i) => album(`al-${i}`, i)),
+            playlist: [playlist('pl-1', DISCOVERY_PAGE_SIZE - 1)]
+        }
+        expect(nextDiscoveryOffset(split, [split])).toBe(DISCOVERY_PAGE_SIZE)
+    })
+
+    it('stops when the two arrays together fall one short', () => {
+        const nearly: DiscoveryPage = {
+            album: Array.from({ length: DISCOVERY_PAGE_SIZE - 2 }, (_, i) => album(`al-${i}`, i)),
+            playlist: [playlist('pl-1', DISCOVERY_PAGE_SIZE - 2)]
+        }
+        expect(nextDiscoveryOffset(nearly, [nearly])).toBeUndefined()
     })
 })
