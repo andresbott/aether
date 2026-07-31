@@ -35,18 +35,10 @@ const routes: RouteRecordRaw[] = [
         props: true,
         meta: { flush: true }
     },
-    // Discovery routes: static /discover before /discover/:section — vue-router matches in declaration order
     {
         path: '/discover',
         name: 'discover',
         component: () => import('@/views/DiscoveryView.vue'),
-        meta: { flush: true }
-    },
-    {
-        path: '/discover/:section',
-        name: 'discover-section',
-        component: () => import('@/views/DiscoverySectionView.vue'),
-        props: true,
         meta: { flush: true }
     },
     {
