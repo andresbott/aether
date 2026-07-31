@@ -39,8 +39,7 @@ Routes are defined in `webui/src/router/index.ts`. There are two categories:
 |------|-------|---------|
 | `HomeView` | `/` | Landing / home |
 | `SearchView` | `/search` | Search results |
-| `DiscoveryView` | `/discover` | Themed album + playlist sections (recently added, favorites, most/recently played, random) |
-| `DiscoverySectionView` | `/discover/:section` | One discovery section, full page |
+| `DiscoveryView` | `/discover` | One ranked feed of albums + playlists (`getDiscovery` extension), infinite scroll |
 | `LibraryView` | `/library/:folderId?` | Browse the music library by folder |
 | `AlbumView` | `/album/:id` | Single album detail |
 | `ArtistView` | `/artist/:id` | Single artist detail |

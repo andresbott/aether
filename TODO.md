@@ -52,9 +52,10 @@
   - [x] Starred indicator on album grid cards in library view — `AlbumCard`/`ArtistCard` carry a
         hover-revealed heart that stays visible while favorited, same pattern as `PlaylistCard`
   - [ ] Starred library section — browse starred albums, artists, and tracks (backed by `getStarred2`)
-        (partial: starred albums and playlists are browsable as the Discovery "Favorites" section at
-        `/discover/favorites`, backed by `getAlbumList2?type=starred` plus a client-side playlist filter —
-        not `getStarred2`. Starred artists and tracks remain unbrowsable.)
+        (FULLY OPEN again. This used to be partially answered by the Discovery "Favorites" section at
+        `/discover/favorites`, but that route was deleted when Discovery became a single ranked feed.
+        Favorites are now a scoring term and a "Favorite" badge inside the feed — a boost, not a
+        browsable list. Nothing browses starred items today: no albums, no artists, no tracks.)
 - [ ] Artists tab in Library — replace the grid-of-artist-cards + drill-down into a single scrollable page grouped by artist: one header per artist (alphabetical), followed by that artist's albums sorted by year; no per-artist navigation step
       (partial: Library now has an Artists tab with grid and virtualized list views + alphabet rail — `ArtistGrid`/`ArtistListView` — but it's still rows of artists that navigate to `ArtistView`, not the grouped artist-header + albums layout)
 - [ ] Spotify-style hover selection in song list — on row hover, show a checkbox next to the duration for multi-select
@@ -78,7 +79,9 @@
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
 - [] All music should also contain playlists, and add filters by genre and star valuation, move the libraries at same level, if only one library make it automatic; move all music to a new entry "discover"
-      (partial: `/discover` now exists with album+playlist sections — `DiscoveryView`; folding Library's "All Music" into it, the genre/star filters and the library-level restructuring are still open)
+      (partial: `/discover` now exists as a single ranked album+playlist feed — `DiscoveryView`, served
+      by the `getDiscovery` extension; folding Library's "All Music" into it, the genre/star filters and
+      the library-level restructuring are still open)
 - the aeteher icon shoul go to play now if playing otherwise go to discover 
 - [] search should also return genres 
 

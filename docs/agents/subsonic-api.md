@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Eleven extensions exist today — copy their shape.
+  Twelve extensions exist today — copy their shape.
 - **Never route music features through `/api/v1`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -70,6 +70,39 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
   star state" rather than failing an entire browse over an annotation.
 - Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions)
   and `annotation_test.go` (the allowlist).
+
+## Discovery feed (`getDiscovery`, the `discovery` extension)
+
+`discovery.go` serves the ranked Discovery feed. It is the one endpoint whose
+response shape was a deliberate design decision, so the reasoning is recorded here
+(full spec: `docs/superpowers/specs/2026-07-31-discovery-ranked-feed-design.md`).
+
+- **Per-type arrays plus a `rank` field, NOT a mixed `item[]` union.** Every
+  container in the spec is per-type (`albumList2 { album[] }`,
+  `starred2 { artist[], album[], song[] }`), so a heterogeneous array with a
+  `type` discriminator is a shape no Subsonic client parses. Instead the response
+  is `discovery { album[], playlist[] }` of otherwise-standard `AlbumID3` /
+  `Playlist` objects, each carrying two additive fields: `rank` (absolute position
+  in ONE cross-type ordering) and `reason` (why it surfaced). A client ignoring
+  both still gets two valid lists; a client that understands `rank` merges them
+  with a one-line sort. That keeps the ranking authoritative and server-owned.
+- **The internal score is deliberately NOT exposed.** `rank` carries everything a
+  client needs, and publishing scores invites clients to re-sort or re-weight.
+- **Params:** `size` (default 48, cap 200), `offset`, `seed`, `musicFolderId`. A
+  malformed `seed` falls back to a day-derived default rather than erroring — a bad
+  seed should still yield a feed.
+- **Scoring lives in `internal/discovery`, which has no DB access**, so the formula
+  is unit-testable without SQLite; `Store.DiscoveryFeed` gathers signals and calls
+  in. Do not move arithmetic into SQL.
+- **The candidate pool size is a constant (`discoveryPoolSize`), never derived from
+  `offset`/`size`, and no gathering query may use `ORDER BY RANDOM()`.** Ranking is
+  a sort, so a pool that grew with offset would let a newcomer displace ranks an
+  earlier page already served, and the user would watch items repeat or vanish
+  while scrolling. Variety comes from the seeded jitter term instead. Regression
+  tests: `TestDiscoveryFeedRanksStayStableAcrossOffsets`,
+  `TestDiscoveryFeedCandidateGatheringIsDeterministic`.
+- Albums render via a batched `GetAlbumsByIDs` + `AlbumTrackStats`; playlists reuse
+  the same per-row pattern as `getPlaylists` (the pre-existing N+1 TODO.md tracks).
 
 ## Parameter conventions
 
