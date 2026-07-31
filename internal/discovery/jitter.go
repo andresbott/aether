@@ -19,7 +19,10 @@ func Jitter(seed int64, kind string, id uint) float64 {
 	_, _ = h.Write([]byte(strconv.FormatInt(seed, 10)))
 	_, _ = h.Write([]byte(kind))
 	_, _ = h.Write([]byte(strconv.FormatUint(uint64(id), 10)))
-	// Drop the top bit before converting: uint64 -> float64 is exact only up to
-	// 2^53, and dividing by 2^63 keeps the result strictly below 1.
-	return float64(h.Sum64()&0x7fffffffffffffff) / float64(1<<63)
+	// Take the low 53 bits and divide by 2^53. float64 represents every integer
+	// below 2^53 exactly, so the quotient is exactly in [0,1). Masking to 63 bits
+	// and dividing by 2^63 would NOT be safe: float64(2^63-1) rounds UP to 2^63
+	// (round-to-nearest, not toward zero), yielding exactly 1.0.
+	const mask53 = uint64(1)<<53 - 1
+	return float64(h.Sum64()&mask53) / float64(uint64(1)<<53)
 }
