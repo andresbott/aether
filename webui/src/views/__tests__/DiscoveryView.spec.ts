@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
+import { ref, computed } from 'vue'
+import type { DiscoveryFeedEntry } from '@/types/subsonic'
 
 const replaceSpy = vi.fn()
 const route = { query: {} as Record<string, unknown> }
@@ -9,15 +11,44 @@ vi.mock('vue-router', () => ({
     useRouter: () => ({ replace: replaceSpy, push: vi.fn() })
 }))
 
-vi.mock('@/components/library/DiscoverySection.vue', () => ({
+const feed = {
+    items: ref<DiscoveryFeedEntry[]>([]),
+    isLoading: ref(false),
+    isError: ref(false),
+    hasNextPage: ref(false),
+    isFetchingNextPage: ref(false),
+    fetchNextPage: vi.fn(),
+    refresh: vi.fn()
+}
+vi.mock('@/composables/useDiscovery', () => ({
+    DISCOVERY_PAGE_SIZE: 48,
+    useDiscoveryFeed: () => ({
+        items: computed(() => feed.items.value),
+        isLoading: computed(() => feed.isLoading.value),
+        isError: computed(() => feed.isError.value),
+        hasNextPage: computed(() => feed.hasNextPage.value),
+        isFetchingNextPage: computed(() => feed.isFetchingNextPage.value),
+        fetchNextPage: feed.fetchNextPage,
+        refresh: feed.refresh
+    })
+}))
+
+vi.mock('@/components/library/DiscoveryFeedItem.vue', () => ({
     default: {
-        name: 'DiscoverySection',
-        props: ['sectionKey', 'layout'],
-        template: '<div class="stub-section" :data-key="sectionKey" :data-layout="layout"></div>'
+        name: 'DiscoveryFeedItem',
+        props: ['entry', 'layout'],
+        template: '<div class="stub-feed-item" :data-layout="layout" :data-rank="entry.rank" />'
     }
 }))
 
 import DiscoveryView from '@/views/DiscoveryView.vue'
+
+const albumEntry = (rank: number): DiscoveryFeedEntry => ({
+    type: 'album',
+    rank,
+    reason: 'favorite',
+    album: { id: `al-${rank}`, name: `Album ${rank}`, rank, reason: 'favorite' }
+})
 
 const stubs = { RouterLink: { template: '<a><slot /></a>' } }
 const mountView = () =>
@@ -25,7 +56,14 @@ const mountView = () =>
 
 beforeEach(() => {
     replaceSpy.mockReset()
+    feed.fetchNextPage.mockReset()
+    feed.refresh.mockReset()
     route.query = {}
+    feed.items.value = []
+    feed.isLoading.value = false
+    feed.isError.value = false
+    feed.hasNextPage.value = false
+    feed.isFetchingNextPage.value = false
 })
 
 describe('DiscoveryView', () => {
@@ -33,31 +71,86 @@ describe('DiscoveryView', () => {
         expect(mountView().text()).toContain('Discovery')
     })
 
-    it('renders one shelf per section in registry order', () => {
-        const keys = mountView()
-            .findAll('.stub-section')
-            .map((n) => n.attributes('data-key'))
-        expect(keys).toEqual([
-            'recently-added',
-            'favorites',
-            'most-played',
-            'recently-played',
-            'random'
-        ])
+    it('renders one feed item per entry', () => {
+        feed.items.value = [albumEntry(0), albumEntry(1), albumEntry(2)]
+        expect(mountView().findAll('.stub-feed-item')).toHaveLength(3)
     })
 
-    it('passes the grid layout to every shelf by default', () => {
-        const layouts = mountView()
-            .findAll('.stub-section')
-            .map((n) => n.attributes('data-layout'))
-        expect(new Set(layouts)).toEqual(new Set(['grid']))
+    it('renders items in rank order', () => {
+        feed.items.value = [albumEntry(0), albumEntry(1), albumEntry(2)]
+        const ranks = mountView()
+            .findAll('.stub-feed-item')
+            .map((n) => n.attributes('data-rank'))
+        expect(ranks).toEqual(['0', '1', '2'])
     })
 
-    it('passes the list layout to every shelf when the query says list', () => {
+    it('passes the grid layout by default', () => {
+        feed.items.value = [albumEntry(0)]
+        expect(mountView().find('.stub-feed-item').attributes('data-layout')).toBe('grid')
+    })
+
+    it('passes the list layout when the query says list', () => {
         route.query = { view: 'list' }
-        const layouts = mountView()
-            .findAll('.stub-section')
-            .map((n) => n.attributes('data-layout'))
-        expect(new Set(layouts)).toEqual(new Set(['list']))
+        feed.items.value = [albumEntry(0)]
+        expect(mountView().find('.stub-feed-item').attributes('data-layout')).toBe('list')
+    })
+
+    it('summarises the item count, pluralised', () => {
+        feed.items.value = [albumEntry(0), albumEntry(1)]
+        expect(mountView().text()).toContain('2 items')
+    })
+
+    it('uses the singular for one item', () => {
+        feed.items.value = [albumEntry(0)]
+        expect(mountView().text()).toContain('1 item')
+        expect(mountView().text()).not.toContain('1 items')
+    })
+
+    it('omits the summary at zero', () => {
+        expect(mountView().text()).not.toContain('0 item')
+    })
+
+    it('shows a loading state', () => {
+        feed.isLoading.value = true
+        expect(mountView().find('.pi-spinner').exists()).toBe(true)
+    })
+
+    it('shows an error state', () => {
+        feed.isError.value = true
+        expect(mountView().text()).toContain('Could not load')
+    })
+
+    it('hides the error when loading', () => {
+        feed.isError.value = true
+        feed.isLoading.value = true
+        expect(mountView().text()).not.toContain('Could not load')
+    })
+
+    it('shows an empty state when the feed is empty', () => {
+        expect(mountView().text()).toContain('Nothing here yet')
+    })
+
+    it('does not show the empty state while loading', () => {
+        feed.isLoading.value = true
+        expect(mountView().text()).not.toContain('Nothing here yet')
+    })
+
+    it('hides the feed during the initial loading state', () => {
+        feed.isLoading.value = true
+        expect(mountView().find('.discovery-feed').exists()).toBe(false)
+    })
+
+    it('refreshes the feed when the refresh action is clicked', async () => {
+        feed.items.value = [albumEntry(0)]
+        const w = mountView()
+        await w.find('.discovery-refresh').trigger('click')
+        expect(feed.refresh).toHaveBeenCalledOnce()
+    })
+
+    it('renders the sentinel only while more pages remain', () => {
+        feed.items.value = [albumEntry(0)]
+        expect(mountView().find('.discovery-sentinel').exists()).toBe(false)
+        feed.hasNextPage.value = true
+        expect(mountView().find('.discovery-sentinel').exists()).toBe(true)
     })
 })
