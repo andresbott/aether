@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/andresbott/aether/internal/store"
 )
@@ -28,18 +29,16 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	ids := make([]uint, 0, len(albums))
-	for i := range albums {
-		ids = append(ids, albums[i].ID)
-	}
+	ids := albumIDs(albums)
 	stats, err := h.store.AlbumTrackStats(ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
+	stars := newStarLookup(h.store, nil, ids, nil)
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		m := albumToMap(&al)
+		m := stars.applyAlbum(albumToMap(&al), al.ID)
 		if st, ok := stats[al.ID]; ok {
 			m["songCount"] = st.Count
 			m["duration"] = st.Duration
@@ -69,10 +68,7 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := make([]map[string]any, 0, len(tracks))
-	for _, t := range tracks {
-		songs = append(songs, trackToChild(&t, t.Album))
-	}
+	songs := starredSongList(h.store, tracks)
 	writeResponse(w, map[string]any{
 		"randomSongs": map[string]any{
 			"song": songs,
@@ -94,10 +90,7 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := make([]map[string]any, 0, len(tracks))
-	for _, t := range tracks {
-		songs = append(songs, trackToChild(&t, t.Album))
-	}
+	songs := starredSongList(h.store, tracks)
 	writeResponse(w, map[string]any{
 		"songsByGenre": map[string]any{
 			"song": songs,
@@ -111,26 +104,57 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
+	stars := newStarLookup(h.store, artistIDs(starred.Artists), albumIDs(starred.Albums), trackIDs(starred.Tracks))
 	artists := make([]map[string]any, 0, len(starred.Artists))
 	for _, a := range starred.Artists {
-		artists = append(artists, map[string]any{
+		artists = append(artists, stars.applyArtist(map[string]any{
 			"id":   encodeArtistID(a.ID),
 			"name": a.Name,
-		})
+		}, a.ID))
 	}
 	albums := make([]map[string]any, 0, len(starred.Albums))
 	for _, al := range starred.Albums {
-		albums = append(albums, albumToMap(&al))
+		albums = append(albums, stars.applyAlbum(albumToMap(&al), al.ID))
 	}
 	songs := make([]map[string]any, 0, len(starred.Tracks))
 	for _, t := range starred.Tracks {
-		songs = append(songs, trackToChild(&t, t.Album))
+		songs = append(songs, stars.applyTrack(trackToChild(&t, t.Album), t.ID))
+	}
+	playlistIDs := make([]uint, 0, len(starred.Playlists))
+	for i := range starred.Playlists {
+		playlistIDs = append(playlistIDs, starred.Playlists[i].ID)
+	}
+	plStarredAt, err := h.store.StarredAt("playlist", playlistIDs)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	plStats, err := h.store.PlaylistStats(playlistIDs)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	playlists := make([]map[string]any, 0, len(starred.Playlists))
+	for i := range starred.Playlists {
+		pl := starred.Playlists[i]
+		count, _ := h.store.GetPlaylistTrackCount(pl.ID)
+		dur, _ := h.store.GetPlaylistDuration(pl.ID)
+		var starPtr *time.Time
+		if ts, ok := plStarredAt[pl.ID]; ok {
+			starPtr = &ts
+		}
+		var statPtr *store.PlaylistStat
+		if st, ok := plStats[pl.ID]; ok {
+			statPtr = &st
+		}
+		playlists = append(playlists, playlistToMap(&pl, int(count), dur, starPtr, statPtr))
 	}
 	writeResponse(w, map[string]any{
 		"starred2": map[string]any{
-			"artist": artists,
-			"album":  albums,
-			"song":   songs,
+			"artist":   artists,
+			"album":    albums,
+			"song":     songs,
+			"playlist": playlists,
 		},
 	})
 }
@@ -164,11 +188,9 @@ func (h *Handler) getNowPlaying(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	entries := make([]map[string]any, 0, len(tracks))
-	for _, t := range tracks {
-		entry := trackToChild(&t, t.Album)
+	entries := starredSongList(h.store, tracks)
+	for _, entry := range entries {
 		entry["username"] = "admin"
-		entries = append(entries, entry)
 	}
 	writeResponse(w, map[string]any{
 		"nowPlaying": map[string]any{

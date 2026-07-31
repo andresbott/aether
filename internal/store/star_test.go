@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -121,5 +122,118 @@ func TestGetStarredByLibrary(t *testing.T) {
 	}
 	if len(all.Artists) != 2 || len(all.Albums) != 2 || len(all.Tracks) != 2 {
 		t.Fatalf("expected all starred items with nil filter, got %+v", all)
+	}
+}
+
+func TestGetStarredIncludesPlaylistsNewestFirst(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	older := model.Playlist{Name: "Older"}
+	newer := model.Playlist{Name: "Newer"}
+	unstarred := model.Playlist{Name: "Plain"}
+	db.Create(&older)
+	db.Create(&newer)
+	db.Create(&unstarred)
+
+	// Explicit CreatedAt values: two stars created in the same test tick would
+	// otherwise tie and make the order arbitrary.
+	base := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: older.ID, CreatedAt: base})
+	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: newer.ID, CreatedAt: base.Add(time.Hour)})
+
+	starred, err := s.GetStarred(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(starred.Playlists) != 2 {
+		t.Fatalf("expected 2 starred playlists, got %d", len(starred.Playlists))
+	}
+	if starred.Playlists[0].Name != "Newer" || starred.Playlists[1].Name != "Older" {
+		t.Fatalf("expected [Newer Older], got [%s %s]", starred.Playlists[0].Name, starred.Playlists[1].Name)
+	}
+}
+
+func TestStarredAt(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	starredPl := model.Playlist{Name: "Fav"}
+	plainPl := model.Playlist{Name: "Plain"}
+	db.Create(&starredPl)
+	db.Create(&plainPl)
+
+	at := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
+	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: starredPl.ID, CreatedAt: at})
+
+	got, err := s.StarredAt("playlist", []uint{starredPl.ID, plainPl.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts, ok := got[starredPl.ID]; !ok || !ts.Equal(at) {
+		t.Fatalf("starred playlist timestamp = %v (ok=%v), want %v", ts, ok, at)
+	}
+	if _, ok := got[plainPl.ID]; ok {
+		t.Fatal("unstarred playlist must be absent from the map")
+	}
+}
+
+// Ids collide across item types (album 1 and track 1 both exist), so the lookup
+// must filter on item_type or an album's star would leak onto a song.
+func TestStarredAtIsScopedToItemType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "a"}
+	db.Create(&album)
+	track := model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/1.mp3"}
+	db.Create(&track)
+
+	if err := s.Star("album", album.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	albums, err := s.StarredAt("album", []uint{album.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := albums[album.ID]; !ok {
+		t.Fatal("starred album must be present in the album lookup")
+	}
+
+	tracks, err := s.StarredAt("track", []uint{track.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tracks[track.ID]; ok {
+		t.Fatal("an album star must not surface in the track lookup")
+	}
+}
+
+func TestStarredAtWithNoIDs(t *testing.T) {
+	s := testStore(t)
+	got, err := s.StarredAt("album", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected empty map, got %v", got)
+	}
+}
+
+func TestOrphanedPlaylistStarsAreRemoved(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	pl := model.Playlist{Name: "Gone"}
+	db.Create(&pl)
+	if err := s.Star("playlist", pl.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.Delete(&model.Playlist{}, pl.ID)
+
+	if err := s.DeleteOrphanedAggregates(); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&model.StarredItem{}).Where("item_type = 'playlist'").Count(&n)
+	if n != 0 {
+		t.Fatalf("expected orphaned playlist stars removed, %d remain", n)
 	}
 }

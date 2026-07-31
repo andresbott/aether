@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -95,5 +96,51 @@ func TestGetAlbumList2Index(t *testing.T) {
 	}
 	if idx.Index[0].Name != "A" || idx.Index[0].Offset != 0 || idx.Index[0].Count != 1 {
 		t.Fatalf("first bucket = %+v, want {A 0 1}", idx.Index[0])
+	}
+}
+
+func TestGetStarred2IncludesPlaylists(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	a := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
+	db.Create(&a)
+	tr := model.Track{AlbumID: a.ID, Filename: "1.mp3", FilePath: "/1.mp3", Duration: 100}
+	db.Create(&tr)
+	pl, err := s.CreatePlaylist("Starred Mix", "admin", true, []uint{tr.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Star("playlist", pl.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getStarred2.view")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			Starred2 struct {
+				Playlist []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"playlist"`
+			} `json:"starred2"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	got := body.SubsonicResponse.Starred2.Playlist
+	if len(got) != 1 || got[0].Name != "Starred Mix" {
+		t.Fatalf("expected 1 starred playlist named 'Starred Mix', got %+v", got)
+	}
+	if got[0].ID != fmt.Sprintf("pl-%d", pl.ID) {
+		t.Fatalf("id = %q, want pl-%d", got[0].ID, pl.ID)
 	}
 }

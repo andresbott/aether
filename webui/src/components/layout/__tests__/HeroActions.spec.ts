@@ -18,7 +18,7 @@ describe('HeroActions', () => {
         expect(w.emitted('play')).toHaveLength(1)
     })
 
-    it('omits Add to queue and Star by default', () => {
+    it('omits Add to queue and Favorite by default', () => {
         const w = mountActions()
         expect(w.find('.hero-action-queue').exists()).toBe(false)
         expect(w.find('.hero-action-star').exists()).toBe(false)
@@ -32,19 +32,26 @@ describe('HeroActions', () => {
         expect(w.emitted('queue')).toHaveLength(1)
     })
 
-    it('renders Star when canStar, reflects starred, and emits star', async () => {
+    it('renders a filled heart when canStar and starred, and emits star', async () => {
         const w = mountActions({ canStar: true, starred: true })
         const star = w.find('.hero-action-star')
         expect(star.exists()).toBe(true)
-        expect(star.find('.pi-star-fill').exists()).toBe(true)
+        expect(star.find('.pi-heart-fill').exists()).toBe(true)
         await star.trigger('click')
         expect(w.emitted('star')).toHaveLength(1)
     })
 
-    it('shows the outline star when not starred', () => {
+    it('shows the outline heart when not starred', () => {
         const w = mountActions({ canStar: true, starred: false })
-        expect(w.find('.hero-action-star .pi-star').exists()).toBe(true)
-        expect(w.find('.hero-action-star .pi-star-fill').exists()).toBe(false)
+        expect(w.find('.hero-action-star .pi-heart').exists()).toBe(true)
+        expect(w.find('.hero-action-star .pi-heart-fill').exists()).toBe(false)
+    })
+
+    it('labels the favorite toggle for screen readers', () => {
+        const off = mountActions({ canStar: true, starred: false })
+        expect(off.find('.hero-action-star').attributes('aria-label')).toBe('Add to favorites')
+        const on = mountActions({ canStar: true, starred: true })
+        expect(on.find('.hero-action-star').attributes('aria-label')).toBe('Remove from favorites')
     })
 
     it('disables Play when playDisabled', () => {

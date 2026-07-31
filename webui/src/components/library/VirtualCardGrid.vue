@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import VirtualScroller from 'primevue/virtualscroller'
 import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
+import CardGrid from '@/components/library/CardGrid.vue'
 import type { AlbumLetter } from '@/types/subsonic'
 import {
     chunkRows,
@@ -42,9 +43,6 @@ const columnWidth = computed(() => computeColumnWidth(availableWidth.value, colu
 const itemSize = computed(() => Math.max(1, columnWidth.value + infoHeight.value + props.gap))
 const rows = computed(() => chunkRows(props.items, columns.value))
 const rowStyle = computed(() => ({
-    display: 'grid',
-    gridTemplateColumns: `repeat(${columns.value}, minmax(0, 1fr))`,
-    gap: `${props.gap}px`,
     // VirtualScroller lays rows out in normal flow and only uses itemSize for the
     // scroll spacer/offset, so rows would otherwise stack flush (no vertical gap).
     // A bottom margin of `gap` gives the vertical spacing AND makes each row's flow
@@ -145,15 +143,20 @@ watch(
             @lazy-load="onLazyLoad"
         >
             <template #item="{ item: row }">
-                <div class="grid-row" :style="rowStyle">
-                    <div
-                        v-for="(cell, i) in (row as (T | undefined)[])"
-                        :key="cell?.id ?? `ph-${i}`"
-                        class="grid-cell"
-                    >
-                        <slot name="card" :item="cell" />
-                    </div>
-                </div>
+                <!-- One CardGrid per virtual row: the shared layout owns the column
+                     math and the min-width:0 constraint, this component only adds
+                     virtualization, row spacing and the alphabet rail on top. -->
+                <CardGrid
+                    class="grid-row"
+                    :style="rowStyle"
+                    :items="(row as (T | undefined)[])"
+                    :minColWidth="minColWidth"
+                    :gap="gap"
+                >
+                    <template #card="{ item }">
+                        <slot name="card" :item="item as T | undefined" />
+                    </template>
+                </CardGrid>
             </template>
         </VirtualScroller>
         <AlphabetRail v-if="showRail" :letters="letters" @select="onSelect" />

@@ -23,7 +23,8 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
         mutate: replaceMutate,
         mutateAsync: replaceAsync,
         isPending: replaceIsPending
-    })
+    }),
+    useTogglePlaylistStar: () => ({ mutate: vi.fn() })
 }))
 const updateMutate = vi.fn()
 // Invokes onSuccess so the component can re-baseline (clear dirty) after a save.
@@ -45,7 +46,8 @@ vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum, addMu
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
-        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`
+        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`,
+        scrobble: vi.fn()
     }
 }))
 vi.mock('sortablejs', () => ({ default: { create: () => ({ destroy: vi.fn() }) } }))

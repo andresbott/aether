@@ -33,21 +33,22 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stars := newStarLookup(h.store, artistIDs(artists), albumIDs(albums), trackIDs(songs))
 	artistList := make([]map[string]any, 0, len(artists))
 	for _, a := range artists {
-		artistList = append(artistList, map[string]any{
+		artistList = append(artistList, stars.applyArtist(map[string]any{
 			"id":       encodeArtistID(a.ID),
 			"name":     a.Name,
 			"coverArt": encodeArtistID(a.ID),
-		})
+		}, a.ID))
 	}
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, albumToMap(&al))
+		albumList = append(albumList, stars.applyAlbum(albumToMap(&al), al.ID))
 	}
 	songList := make([]map[string]any, 0, len(songs))
 	for _, t := range songs {
-		songList = append(songList, trackToChild(&t, t.Album))
+		songList = append(songList, stars.applyTrack(trackToChild(&t, t.Album), t.ID))
 	}
 
 	writeResponse(w, map[string]any{

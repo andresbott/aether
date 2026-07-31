@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
@@ -25,6 +26,9 @@ type playlistObj struct {
 	Public    bool            `json:"public"`
 	SongCount int             `json:"songCount"`
 	Duration  int             `json:"duration"`
+	Starred   string          `json:"starred"`
+	PlayCount int             `json:"playCount"`
+	Played    string          `json:"played"`
 	Entry     []playlistEntry `json:"entry"`
 }
 
@@ -411,5 +415,159 @@ func TestDeletePlaylistNotFound(t *testing.T) {
 	env := getJSON(t, srv.URL, "/rest/deletePlaylist.view?id=pl-9999")
 	if env.SubsonicResponse.Error.Code != 70 {
 		t.Fatalf("expected code 70, got %+v", env.SubsonicResponse.Error)
+	}
+}
+
+func TestScrobblePlaylistRecordsPlay(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	pl, err := s.CreatePlaylist("Mix", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/scrobble.view?id=pl-%d", srv.URL, pl.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+
+	stats, err := s.PlaylistStats([]uint{pl.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stats[pl.ID].PlayCount; got != 1 {
+		t.Fatalf("PlayCount = %d, want 1", got)
+	}
+}
+
+func TestScrobbleTrackStillRecordsTrackPlay(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/scrobble.view?id=tr-%d", srv.URL, tracks[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+
+	var n int64
+	s.DB().Model(&model.PlayHistory{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("expected 1 track play, got %d", n)
+	}
+}
+
+func TestGetPlaylistsIncludesStarAndPlayFields(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 2)
+	starredPl, err := s.CreatePlaylist("Fav", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainPl, err := s.CreatePlaylist("Plain", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Star("playlist", starredPl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPlaylistPlay(starredPl.ID, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	body := getJSON(t, srv.URL, "/rest/getPlaylists.view")
+	byName := map[string]playlistObj{}
+	for _, pl := range body.SubsonicResponse.Playlists.Playlist {
+		byName[pl.Name] = pl
+	}
+
+	fav := byName["Fav"]
+	if fav.Starred == "" {
+		t.Fatal("starred playlist must carry a starred timestamp")
+	}
+	if fav.PlayCount != 1 {
+		t.Fatalf("Fav playCount = %d, want 1", fav.PlayCount)
+	}
+	if fav.Played == "" {
+		t.Fatal("played playlist must carry a played timestamp")
+	}
+
+	plain := byName["Plain"]
+	if plain.Starred != "" {
+		t.Fatalf("unstarred playlist must omit starred, got %q", plain.Starred)
+	}
+	if plain.PlayCount != 0 {
+		t.Fatalf("Plain playCount = %d, want 0", plain.PlayCount)
+	}
+	if plain.Played != "" {
+		t.Fatalf("never-played playlist must omit played, got %q", plain.Played)
+	}
+	_ = plainPl
+}
+
+func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 1)
+	pl, err := s.CreatePlaylist("Solo", "admin", true, tracks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Star("playlist", pl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPlaylistPlay(pl.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	body := getJSON(t, srv.URL, fmt.Sprintf("/rest/getPlaylist.view?id=pl-%d", pl.ID))
+	got := body.SubsonicResponse.Playlist
+	if got.Starred == "" || got.Played == "" || got.PlayCount != 1 {
+		t.Fatalf("getPlaylist starred=%q played=%q playCount=%d", got.Starred, got.Played, got.PlayCount)
+	}
+}
+
+// TestScrobbleAbsurdTimeBounded verifies that a scrobble request with an absurd
+// `time` parameter (far future or pre-epoch) does not break getPlaylists.
+func TestScrobbleAbsurdTimeBounded(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	pl := model.Playlist{Name: "ScrobbleTest"}
+	db.Create(&pl)
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	// Scrobble with a far-future epoch-ms timestamp (year 10000).
+	// The handler must accept it and bound it to a sane range.
+	farFuture := "253402300800000"
+	scrobbleEnv := getJSON(t, srv.URL, fmt.Sprintf("/rest/scrobble.view?id=pl-%d&time=%s", pl.ID, farFuture))
+	if scrobbleEnv.SubsonicResponse.Status != "ok" {
+		t.Fatalf("scrobble failed: %+v", scrobbleEnv.SubsonicResponse.Error)
+	}
+
+	// getPlaylists must remain working even if the stored timestamp is malformed.
+	listEnv := getJSON(t, srv.URL, "/rest/getPlaylists.view")
+	if listEnv.SubsonicResponse.Status != "ok" {
+		t.Fatalf("getPlaylists failed after absurd scrobble: %+v", listEnv.SubsonicResponse.Error)
+	}
+	if len(listEnv.SubsonicResponse.Playlists.Playlist) != 1 {
+		t.Fatalf("expected 1 playlist, got %d", len(listEnv.SubsonicResponse.Playlists.Playlist))
 	}
 }

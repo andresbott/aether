@@ -18,36 +18,49 @@ interface NavItem {
     folderId?: number
 }
 
+// "Library" is the cross-collection entry (`/library`, no folderId): it opens on the
+// Discovery feed, which is why it carries the compass rather than a browse icon. It
+// sits with Now Playing among the primary destinations — it is where you land, not a
+// heading for the per-folder entries below.
+const libraryRoot: NavItem = {
+    label: 'Library',
+    icon: 'pi pi-compass',
+    route: '/library',
+    routeName: 'library'
+}
+
 const primaryItems: NavItem[] = [
     { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
+    libraryRoot,
     { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search' }
 ]
 
 const { data: musicFolders } = useMusicFolders()
 
+// The per-folder entries only — the root moved up to `primaryItems`. They sit at the
+// SAME level as every other entry: no indentation and no section header, since each
+// library is a peer nav destination rather than a child of a browse mode. A single
+// library needs no entry of its own (the Library entry already covers it), so this
+// is empty below two.
 const folderItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
-    if (folders.length <= 1) {
-        return [{ label: 'Library', icon: 'pi pi-headphones', route: '/library', routeName: 'library' }]
-    }
-    return [
-        { label: 'All Music', icon: 'pi pi-headphones', route: '/library', routeName: 'library' },
-        ...folders.map((folder) => ({
-            label: folder.name,
-            icon: `pi pi-${folder.icon || 'folder'}`,
-            route: `/library/${folder.id}`,
-            routeName: 'library',
-            folderId: folder.id
-        }))
-    ]
+    if (folders.length <= 1) return []
+    return folders.map((folder) => ({
+        label: folder.name,
+        icon: `pi pi-${folder.icon || 'folder'}`,
+        route: `/library/${folder.id}`,
+        routeName: 'library',
+        folderId: folder.id
+    }))
 })
 
+// One flat group below the separator: the per-folder entries lead it, then the
+// browse destinations, then Radio. No standalone Discover entry (the feed lives
+// inside Library as its default tab, and a second door would only split the
+// navigation) and no "Streaming" header — Radio is just another destination.
 const libraryExtras: NavItem[] = [
     { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
-    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' }
-]
-
-const streamingItems: NavItem[] = [
+    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' },
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
@@ -160,24 +173,13 @@ onBeforeUnmount(resetEgg)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
-            <div class="nav-separator" :class="{ 'has-label': !collapsed }">
-                <span v-if="!collapsed" class="nav-section-label">Library</span>
-            </div>
+            <!-- The nav's only body separator, and label-less: both section headers
+                 ("Library", "Streaming") are gone, but the spacing break between the
+                 primary destinations and everything else stays. -->
+            <div class="nav-separator"></div>
 
             <button
                 v-for="item in folderItems"
-                :key="item.route"
-                class="nav-item"
-                :class="{ active: isActive(item), 'sub-item': item.folderId !== undefined }"
-                @click="navigateTo(item)"
-                v-tooltip.right="collapsed ? item.label : undefined"
-            >
-                <i :class="item.icon"></i>
-                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
-            </button>
-
-            <button
-                v-for="item in libraryExtras"
                 :key="item.route"
                 class="nav-item"
                 :class="{ active: isActive(item) }"
@@ -188,13 +190,9 @@ onBeforeUnmount(resetEgg)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
-            <div class="nav-separator" :class="{ 'has-label': !collapsed }">
-                <span v-if="!collapsed" class="nav-section-label">Streaming</span>
-            </div>
-
             <button
-                v-for="item in streamingItems"
-                :key="item.routeName"
+                v-for="item in libraryExtras"
+                :key="item.route"
                 class="nav-item"
                 :class="{ active: isActive(item) }"
                 @click="navigateTo(item)"
@@ -293,11 +291,6 @@ onBeforeUnmount(resetEgg)
     background-color: var(--app-accent-soft-hover);
 }
 
-.nav-item.sub-item {
-    padding-left: 2.5rem;
-    font-size: 0.85rem;
-}
-
 .nav-item i {
     font-size: 1.1rem;
     flex-shrink: 0;
@@ -390,19 +383,6 @@ onBeforeUnmount(resetEgg)
 
 .sidebar.collapsed .sidebar-footer-nav .nav-separator {
     margin: 0.25rem 0.75rem;
-}
-
-.nav-separator.has-label {
-    padding-left: 1rem;
-}
-
-.nav-section-label {
-    display: block;
-    font-size: 0.7rem;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--app-nav-text-dim);
 }
 
 @media (max-width: 768px) {

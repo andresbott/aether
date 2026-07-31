@@ -44,10 +44,30 @@ let standbyEl: HTMLAudioElement | null = null
 let preloadedUrl: string | null = null
 let playNextFn: (() => void) | null = null
 
+// Scrobble bookkeeping. Last.fm's rule: a play counts once it passes half the
+// track or four minutes, whichever comes first. Tracks under 30s never count.
+// `scrobbledTrackId` makes it once-per-loaded-track, so seeking back and forth
+// across the threshold cannot double-submit.
+const SCROBBLE_MIN_DURATION = 30
+const SCROBBLE_CAP_SECONDS = 240
+let scrobbledTrackId: string | null = null
+
+const maybeScrobble = (el: HTMLAudioElement): void => {
+    const track = currentTrack.value
+    if (!track || scrobbledTrackId === track.id) return
+    const total = el.duration || track.duration || 0
+    if (total < SCROBBLE_MIN_DURATION) return
+    const threshold = Math.min(total / 2, SCROBBLE_CAP_SECONDS)
+    if ((el.currentTime || 0) < threshold) return
+    scrobbledTrackId = track.id
+    void subsonicClient.scrobble(track.id)
+}
+
 const attachListeners = (el: HTMLAudioElement): void => {
     el.addEventListener('timeupdate', () => {
         if (el !== activeEl) return
         currentTime.value = el.currentTime || 0
+        maybeScrobble(el)
     })
     el.addEventListener('durationchange', () => {
         if (el !== activeEl) return
@@ -277,6 +297,7 @@ export function usePlayer() {
         currentIndex.value = index
         currentTrack.value = queue.value[index] || null
         currentTime.value = 0
+        scrobbledTrackId = null
         const url = getTrackUrl(currentTrack.value)
         if (url && activeEl) {
             activeEl.src = url
@@ -298,6 +319,7 @@ export function usePlayer() {
             swapToStandby()
             currentIndex.value = nextIndex
             currentTrack.value = queue.value[nextIndex] || null
+            scrobbledTrackId = null
             // The swapped-in element already buffered its metadata while on
             // standby (its durationchange fired before it was active), so pull
             // the timeline straight off it instead of waiting for a new event.

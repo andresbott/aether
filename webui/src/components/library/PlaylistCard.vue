@@ -3,9 +3,11 @@ import { computed } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { usePlayer } from '@/composables/usePlayer'
+import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
 
 const props = defineProps<{ playlist: Playlist }>()
 const player = usePlayer()
+const toggleStar = useTogglePlaylistStar()
 
 const coverUrl = computed(() => {
     const art = props.playlist.coverArt
@@ -13,11 +15,24 @@ const coverUrl = computed(() => {
     return subsonicClient.getCoverArtUrl(art, 200)
 })
 
+const isStarred = computed(() => !!props.playlist.starred)
+
+const onStar = (event: Event): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    toggleStar.mutate({ id: props.playlist.id, starred: isStarred.value })
+}
+
 const onPlay = async (event: Event): Promise<void> => {
     event.preventDefault()
     event.stopPropagation()
     const full = await subsonicClient.getPlaylist(props.playlist.id)
-    if (full?.entry?.length) player.playAlbum(full.entry)
+    if (full?.entry?.length) {
+        player.playAlbum(full.entry)
+        // Playlist plays are counted per playlist, so the play site records it —
+        // usePlayer only ever sees a flat Song[].
+        void subsonicClient.scrobble(props.playlist.id)
+    }
 }
 </script>
 
@@ -37,6 +52,15 @@ const onPlay = async (event: Event): Promise<void> => {
                 <div class="card-title">{{ playlist.name }}</div>
                 <div class="card-subtitle">{{ playlist.songCount }} songs</div>
             </div>
+            <button
+                class="card-star"
+                :class="{ 'is-starred': isStarred }"
+                type="button"
+                :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
+                @click="onStar"
+            >
+                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+            </button>
             <button class="card-play" type="button" aria-label="Play playlist" @click="onPlay">
                 <i class="pi pi-play"></i>
             </button>
@@ -54,6 +78,11 @@ const onPlay = async (event: Event): Promise<void> => {
 .card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .card-title { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-subtitle { font-size: 0.8rem; color: var(--app-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-star { flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: none; background: none; padding: 0 0.15rem; line-height: 1; color: var(--app-text-secondary); font-size: 1.1rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
+.playlist-card:hover .card-star,
+.card-star.is-starred { opacity: 1; }
+.card-star.is-starred { color: var(--app-accent); }
+.card-star:hover { color: var(--app-accent); }
 .card-play { flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: none; background: none; padding: 0 0.15rem; line-height: 1; color: var(--app-text-secondary); font-size: 2rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .playlist-card:hover .card-play { opacity: 1; }
 .card-play:hover { color: var(--app-accent); }

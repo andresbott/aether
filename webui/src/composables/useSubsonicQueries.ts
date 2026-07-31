@@ -18,8 +18,8 @@ import type {
 export const queryKeys = {
     ping: ['subsonic', 'ping'] as const,
     musicFolders: ['subsonic', 'musicFolders'] as const,
-    albumList: (type: string, offset: number, musicFolderId?: number) =>
-        ['subsonic', 'albumList', type, offset, musicFolderId] as const,
+    albumList: (type: string, size: number, offset: number, musicFolderId?: number) =>
+        ['subsonic', 'albumList', type, size, offset, musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     search: (query: string) => ['subsonic', 'search', query] as const,
@@ -32,7 +32,9 @@ export const queryKeys = {
         ['subsonic', 'genreSongs', genre, offset] as const,
     radioStations: ['subsonic', 'radioStations'] as const,
     randomSongs: (size: number, musicFolderId?: number) =>
-        ['subsonic', 'randomSongs', size, musicFolderId] as const
+        ['subsonic', 'randomSongs', size, musicFolderId] as const,
+    discovery: (seed: number, musicFolderId?: number) =>
+        ['subsonic', 'discovery', seed, musicFolderId] as const
 }
 
 export function usePing() {
@@ -310,6 +312,18 @@ export function useDeleteRadioStation() {
         mutationFn: (id: string) => subsonicClient.deleteInternetRadioStation(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
+        }
+    })
+}
+
+export function useTogglePlaylistStar() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { id: string; starred: boolean }) =>
+            params.starred ? subsonicClient.unstar(params.id) : subsonicClient.star(params.id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
         }
     })
 }

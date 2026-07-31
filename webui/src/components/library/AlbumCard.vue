@@ -4,6 +4,7 @@ import type { Album } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { usePlayer } from '@/composables/usePlayer'
+import { useToggleStar } from '@/composables/useSubsonicQueries'
 
 const props = defineProps<{
     album?: Album
@@ -11,6 +12,18 @@ const props = defineProps<{
 
 const albumDrag = useAlbumDrag()
 const player = usePlayer()
+const toggleStar = useToggleStar()
+
+const isStarred = computed(() => !!props.album?.starred)
+
+// The card is a router-link, so the toggle has to swallow the click or it would
+// navigate to the album detail view.
+const onStar = (event: Event): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!props.album) return
+    toggleStar.mutate({ id: props.album.id, starred: isStarred.value })
+}
 
 // Play from the card without navigating: album summaries carry no tracks, so
 // fetch the full album first, then queue it.
@@ -62,6 +75,15 @@ const onCardDragStart = (event: DragEvent): void => {
                 <div class="card-title">{{ album.name }}</div>
                 <div class="card-subtitle">{{ album.artist }}</div>
             </div>
+            <button
+                class="card-star"
+                :class="{ 'is-starred': isStarred }"
+                type="button"
+                :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
+                @click="onStar"
+            >
+                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+            </button>
             <button class="card-play" type="button" aria-label="Play album" @click="onPlay">
                 <i class="pi pi-play"></i>
             </button>
@@ -143,6 +165,40 @@ const onCardDragStart = (event: DragEvent): void => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/*
+ * Favorite toggle, revealed on hover like the play icon — except when the album
+ * IS a favorite, where it stays visible so the grid reads as a set of favorites
+ * at a glance. Mirrors PlaylistCard.
+ */
+.card-star {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
+    color: var(--app-text-secondary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.album-card:hover .card-star,
+.card-star.is-starred {
+    opacity: 1;
+}
+
+.card-star.is-starred {
+    color: var(--app-accent);
+}
+
+.card-star:hover {
+    color: var(--app-accent);
 }
 
 /* Inline play icon spanning the height of both text lines, revealed on hover. */

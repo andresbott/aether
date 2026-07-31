@@ -108,3 +108,23 @@ describe('SongDetail disc label', () => {
         expect(useAlbumIds).toEqual(['al1'])
     })
 })
+
+describe('SongDetail favorite toggle', () => {
+    it('labels the toggle by the current state', () => {
+        expect(mountCard(song()).find('.card-actions button').text()).toContain('Add to favorites')
+        expect(
+            mountCard(song({ starred: '2026-02-01T00:00:00Z' }))
+                .find('.card-actions button')
+                .text()
+        ).toContain('Remove from favorites')
+    })
+
+    it('reflects the starred state in the heart icon', () => {
+        expect(mountCard(song()).find('.card-actions .pi-heart').exists()).toBe(true)
+        expect(
+            mountCard(song({ starred: '2026-02-01T00:00:00Z' }))
+                .find('.card-actions .pi-heart-fill')
+                .exists()
+        ).toBe(true)
+    })
+})

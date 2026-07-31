@@ -111,7 +111,7 @@ const summary = computed(() => {
 })
 ```
 
-- Library: `"1240 albums"` / `"87 artists"`; Radio: `"5 stations"`; Now Playing:
+- Library: `"1240 albums"` / `"87 artists"` / `"48 items"` (Discover); Radio: `"5 stations"`; Now Playing:
   `"27 tracks • 1 hr 34 min"` (an extra `• duration` segment, omitted when duration is 0).
 - Pre-build multi-part summaries as one string (no stray whitespace between number and
   unit) so `.text()` assertions stay reliable.
@@ -232,7 +232,7 @@ chrome like the queue sidebar.
 | View | Route | Conforms? |
 | --- | --- | --- |
 | Now Playing (`QueueView` full) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
-| Library (album/artist × list/grid) | `/library` | ✅ `ContentScaffold` |
+| Library (discover/album/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
 | Album detail (`AlbumView`) | `/album/:id` | ✅ `ContentScaffold` (cover in body hero) |

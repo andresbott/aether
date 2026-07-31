@@ -1,10 +1,15 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, RouterLinkStub } from '@vue/test-utils'
 
 const start = vi.fn()
 const end = vi.fn()
 vi.mock('@/composables/useAlbumDrag', () => ({
     useAlbumDrag: () => ({ start, end })
+}))
+
+const starMutate = vi.fn()
+vi.mock('@/composables/useSubsonicQueries', () => ({
+    useToggleStar: () => ({ mutate: starMutate })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -25,11 +30,15 @@ const album: Album = {
     songCount: 9
 }
 
-const mountCard = () =>
+const mountCard = (over: Partial<Album> = {}) =>
     mount(AlbumCard, {
-        props: { album },
+        props: { album: { ...album, ...over } },
         global: { stubs: { RouterLink: RouterLinkStub } }
     })
+
+beforeEach(() => {
+    starMutate.mockReset()
+})
 
 describe('AlbumCard drag source', () => {
     it('makes the card draggable and the cover image non-draggable', () => {
@@ -56,6 +65,43 @@ describe('AlbumCard drag source', () => {
     })
 })
 
+describe('AlbumCard favorite toggle', () => {
+    it('shows an outline heart when unstarred and a filled one when starred', () => {
+        expect(mountCard().find('.card-star i').classes()).toContain('pi-heart')
+        expect(mountCard({ starred: '2026-02-01T00:00:00Z' }).find('.card-star i').classes()).toContain(
+            'pi-heart-fill'
+        )
+    })
+
+    it('labels the toggle by the current state', () => {
+        expect(mountCard().find('.card-star').attributes('aria-label')).toBe('Add to favorites')
+        expect(
+            mountCard({ starred: '2026-02-01T00:00:00Z' }).find('.card-star').attributes('aria-label')
+        ).toBe('Remove from favorites')
+    })
+
+    it('keeps a starred album heart visible without hover', () => {
+        expect(mountCard({ starred: '2026-02-01T00:00:00Z' }).find('.card-star').classes()).toContain(
+            'is-starred'
+        )
+        expect(mountCard().find('.card-star').classes()).not.toContain('is-starred')
+    })
+
+    it('toggles with the album id and its current state', async () => {
+        const w = mountCard({ starred: '2026-02-01T00:00:00Z' })
+        await w.find('.card-star').trigger('click')
+        expect(starMutate).toHaveBeenCalledWith({ id: 'al1', starred: true })
+    })
+
+    // The card is a router-link, so the toggle must not navigate to the album.
+    it('does not navigate when the heart is clicked', async () => {
+        const w = mountCard()
+        const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+        w.find('.card-star').element.dispatchEvent(click)
+        expect(click.defaultPrevented).toBe(true)
+    })
+})
+
 describe('AlbumCard placeholder', () => {
     it('renders a placeholder with no link or image when album is undefined', () => {
         const w = mount(AlbumCard, {
@@ -65,5 +111,13 @@ describe('AlbumCard placeholder', () => {
         expect(w.find('.album-card.placeholder').exists()).toBe(true)
         expect(w.findComponent(RouterLinkStub).exists()).toBe(false)
         expect(w.find('img').exists()).toBe(false)
+    })
+
+    it('renders no favorite toggle on the placeholder', () => {
+        const w = mount(AlbumCard, {
+            props: {},
+            global: { stubs: { RouterLink: RouterLinkStub } }
+        })
+        expect(w.find('.card-star').exists()).toBe(false)
     })
 })

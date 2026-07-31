@@ -13,7 +13,8 @@ import type {
     Playlist,
     MusicFolder,
     Genre,
-    InternetRadioStation
+    InternetRadioStation,
+    DiscoveryPage
 } from '@/types/subsonic'
 
 class SubsonicClient {
@@ -142,6 +143,27 @@ class SubsonicClient {
             params
         )
         return response.albumList2Index ?? { total: 0, index: [] }
+    }
+
+    async getDiscovery(
+        size: number,
+        offset: number,
+        seed: number,
+        musicFolderId?: number
+    ): Promise<DiscoveryPage> {
+        if (!this.isConfigured()) return { album: [], playlist: [] }
+        const params: Record<string, string | number | undefined> = { size, offset, seed }
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{ discovery?: DiscoveryPage }>(
+            'getDiscovery.view',
+            params
+        )
+        return {
+            album: response.discovery?.album ?? [],
+            playlist: response.discovery?.playlist ?? []
+        }
     }
 
     async getAlbum(id: string): Promise<AlbumWithSongs | null> {
@@ -405,6 +427,17 @@ class SubsonicClient {
     async unstar(id: string): Promise<void> {
         if (!this.isConfigured()) return
         await this.request('unstar.view', { id })
+    }
+
+    // Fire-and-forget: a failed scrobble must never interrupt playback, so this
+    // swallows every error instead of propagating it to the caller.
+    async scrobble(id: string): Promise<void> {
+        if (!this.isConfigured()) return
+        try {
+            await this.request('scrobble.view', { id, submission: true })
+        } catch (err) {
+            console.warn('scrobble failed', err)
+        }
     }
 
     async getRandomSongs(size = 50, musicFolderId?: number): Promise<Song[]> {

@@ -182,7 +182,7 @@ const toggleLike = () => {
                     <div class="card-actions">
                         <Button
                             :icon="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"
-                            label="Like"
+                            :label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                             :severity="isStarred ? 'danger' : 'secondary'"
                             outlined
                             @click="toggleLike"

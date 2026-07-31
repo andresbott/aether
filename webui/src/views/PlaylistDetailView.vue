@@ -16,7 +16,8 @@ import {
     useUpdatePlaylist,
     useUpdatePlaylistCover,
     useDeletePlaylist,
-    useReplacePlaylistTracks
+    useReplacePlaylistTracks,
+    useTogglePlaylistStar
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
@@ -40,6 +41,7 @@ const updatePlaylist = useUpdatePlaylist()
 const updateCover = useUpdatePlaylistCover()
 const deletePlaylist = useDeletePlaylist()
 const replaceTracks = useReplacePlaylistTracks()
+const toggleStar = useTogglePlaylistStar()
 
 // Edit mode covers the hero (name + description + cover) and the track list,
 // which swaps from playable rows to the reorderable/deletable editor.
@@ -134,11 +136,20 @@ const summary = computed(() => {
 })
 
 const playAll = (): void => {
-    if (working.value.length) player.playAlbum(working.value)
+    if (!working.value.length) return
+    player.playAlbum(working.value)
+    // Counted per playlist, so the play site records it — usePlayer only sees
+    // a flat Song[].
+    if (playlist.value) void subsonicClient.scrobble(playlist.value.id)
 }
 
 const queueAll = (): void => {
     if (working.value.length) player.addMultipleToQueue(working.value)
+}
+
+const onStar = (): void => {
+    if (!playlist.value) return
+    toggleStar.mutate({ id: playlist.value.id, starred: !!playlist.value.starred })
 }
 
 // --- View-mode song list (album-style rows with a cover column) ---
@@ -353,8 +364,11 @@ onUnmounted(() => {
                             <HeroActions
                                 :play-disabled="working.length === 0"
                                 can-queue
+                                can-star
+                                :starred="!!playlist?.starred"
                                 @play="playAll"
                                 @queue="queueAll"
+                                @star="onStar"
                             />
                         </template>
                     </HeroHeader>

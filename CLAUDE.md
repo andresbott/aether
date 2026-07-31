@@ -39,7 +39,7 @@ Routes are defined in `webui/src/router/index.ts`. There are two categories:
 |------|-------|---------|
 | `HomeView` | `/` | Landing / home |
 | `SearchView` | `/search` | Search results |
-| `LibraryView` | `/library/:folderId?` | Browse the music library by folder |
+| `LibraryView` | `/library/:folderId?` | Browse the music library by folder. Tabs: Discover / Albums / Artists. Discover is a ranked feed of albums + playlists (`getDiscovery` extension, infinite scroll, `DiscoveryFeed` component) and is the default tab on the root `/library` only — the ranking is cross-collection, so discovery is never library-scoped. There is deliberately no standalone `/discover` route |
 | `AlbumView` | `/album/:id` | Single album detail |
 | `ArtistView` | `/artist/:id` | Single artist detail |
 | `PlaylistsView` | `/playlists` | List of playlists |

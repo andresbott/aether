@@ -21,8 +21,10 @@ first one mandatory:
    use `EditActionBar` (pencil → Delete/Save/Cancel, confirm-first dialog
    ordering via one global SCSS rule, Esc semantics, `dirty` prop).
 3. **`docs/architecture/unified-play-experience.md`** — read-mode
-   Play/Queue/Star live in `HeroActions` inside `HeroHeader`, never in the
-   scaffold action bar; hidden in edit mode.
+   Play/Queue/Favorite live in `HeroActions` inside `HeroHeader`, never in the
+   scaffold action bar; hidden in edit mode. Also pins the one favorite
+   affordance used app-wide: `pi pi-heart(-fill)` with "Add to/Remove from
+   favorites".
 
 When a view diverges from these registries, the registry wins.
 

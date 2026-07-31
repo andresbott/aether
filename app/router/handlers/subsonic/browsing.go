@@ -61,15 +61,16 @@ func (h *Handler) writeArtistIndex(w http.ResponseWriter, r *http.Request, key s
 	if err != nil {
 		albumCounts = make(map[uint]int)
 	}
+	stars := newStarLookup(h.store, artistIDs(artists), nil, nil)
 	indexMap := make(map[string][]map[string]any)
 	for _, a := range artists {
 		letter := firstLetter(a.Name)
-		indexMap[letter] = append(indexMap[letter], map[string]any{
+		indexMap[letter] = append(indexMap[letter], stars.applyArtist(map[string]any{
 			"id":         encodeArtistID(a.ID),
 			"name":       a.Name,
 			"coverArt":   encodeArtistID(a.ID),
 			"albumCount": albumCounts[a.ID],
-		})
+		}, a.ID))
 	}
 	letters := make([]string, 0, len(indexMap))
 	for letter := range indexMap {
@@ -106,17 +107,18 @@ func (h *Handler) getArtist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 70, "artist not found")
 		return
 	}
+	stars := newStarLookup(h.store, []uint{artist.ID}, albumIDs(albums), nil)
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, albumToMap(&al))
+		albumList = append(albumList, stars.applyAlbum(albumToMap(&al), al.ID))
 	}
 	writeResponse(w, map[string]any{
-		"artist": map[string]any{
+		"artist": stars.applyArtist(map[string]any{
 			"id":       encodeArtistID(artist.ID),
 			"name":     artist.Name,
 			"coverArt": encodeArtistID(artist.ID),
 			"album":    albumList,
-		},
+		}, artist.ID),
 	})
 }
 
@@ -136,11 +138,12 @@ func (h *Handler) getAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 70, "album not found")
 		return
 	}
+	stars := newStarLookup(h.store, nil, []uint{album.ID}, trackPtrIDs(album.Tracks))
 	songs := make([]map[string]any, 0, len(album.Tracks))
 	for _, t := range album.Tracks {
-		songs = append(songs, trackToChild(t, album))
+		songs = append(songs, stars.applyTrack(trackToChild(t, album), t.ID))
 	}
-	result := albumToMap(album)
+	result := stars.applyAlbum(albumToMap(album), album.ID)
 	result["song"] = songs
 	writeResponse(w, map[string]any{
 		"album": result,
@@ -163,8 +166,9 @@ func (h *Handler) getSong(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 70, "song not found")
 		return
 	}
+	stars := newStarLookup(h.store, nil, nil, []uint{track.ID})
 	writeResponse(w, map[string]any{
-		"song": trackToChild(track, track.Album),
+		"song": stars.applyTrack(trackToChild(track, track.Album), track.ID),
 	})
 }
 
