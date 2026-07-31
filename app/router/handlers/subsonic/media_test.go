@@ -639,3 +639,77 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 		t.Errorf("expected the folder JPEG after removal, got %q", body2[:min(8, len(body2))])
 	}
 }
+
+func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	lib := model.Library{Name: "Styled", Path: "/styled", CoverStyle: "bauhaus"}
+	if err := db.Create(&lib).Error; err != nil {
+		t.Fatalf("create library: %v", err)
+	}
+	album := model.Album{Name: "19", NameNorm: "19", AlbumArtistNorm: "adele"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+	track := model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "a.mp3", FilePath: "/styled/a.mp3"}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatalf("create track: %v", err)
+	}
+
+	cacheDir := t.TempDir() + "/generated-covers"
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	fetch := func() []byte {
+		t.Helper()
+		resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=128", srv.URL, album.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+
+	styled := fetch()
+
+	// The cache file must carry the style in its name so config changes
+	// cannot serve stale covers.
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		t.Fatalf("read cache dir: %v", err)
+	}
+	var foundStyled bool
+	for _, e := range entries {
+		if strings.Contains(e.Name(), "_bauhaus_128") {
+			foundStyled = true
+		}
+	}
+	if !foundStyled {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("no _bauhaus_128 cache file in %s; got %v", cacheDir, names)
+	}
+
+	// Switching the library to auto must change the served bytes (unless the
+	// auto pick for this seed happens to be bauhaus — it is "waves" here,
+	// pinned by the seed hash, so the bytes must differ).
+	if err := db.Model(&model.Library{}).Where("id = ?", lib.ID).Update("cover_style", "auto").Error; err != nil {
+		t.Fatal(err)
+	}
+	auto := fetch()
+	if bytes.Equal(styled, auto) {
+		t.Fatal("bauhaus-styled and auto covers are byte-identical; style config had no effect")
+	}
+}

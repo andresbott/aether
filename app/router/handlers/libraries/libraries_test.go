@@ -427,3 +427,76 @@ func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
 		t.Fatalf("expected show_artists=false (hidden state preserved on omitted key), got %v", got["show_artists"])
 	}
 }
+
+func TestCreateLibraryCoverStyle(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `","cover_style":"bauhaus"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["cover_style"] != "bauhaus" {
+		t.Fatalf("expected cover_style=bauhaus, got %v", got["cover_style"])
+	}
+}
+
+func TestCreateLibraryCoverStyleDefaultsToAuto(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if got["cover_style"] != "auto" {
+		t.Fatalf("expected cover_style=auto, got %v", got["cover_style"])
+	}
+}
+
+func TestCreateLibraryRejectsBadCoverStyle(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	dir := t.TempDir()
+	body := `{"name":"X","path":"` + dir + `","cover_style":"vaporwave"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateLibraryCoverStyle(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	dir := t.TempDir()
+	lib := &model.Library{Name: "X", Path: dir, CoverStyle: "auto"}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"X","path":"` + dir + `","cover_style":"rings"}`
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	got, err := s.GetLibrary(lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CoverStyle != "rings" {
+		t.Fatalf("expected stored cover_style=rings, got %q", got.CoverStyle)
+	}
+}

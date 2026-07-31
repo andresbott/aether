@@ -3,6 +3,7 @@ package covergen_test
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"image/png"
 	"os"
 	"testing"
@@ -64,10 +65,91 @@ func TestGenerateRejectsNonPositiveSize(t *testing.T) {
 	}
 }
 
-func TestGenerateBackgroundVaries(t *testing.T) {
-	data, err := covergen.Generate("gradient test", 256)
+func TestGenerateUsesStyleFromSeedHash(t *testing.T) {
+	// Generate must equal GenerateStyle with the style StyleFor reports,
+	// proving the auto-pick is pure seed-hash dispatch.
+	for _, seed := range []string{"adele|19", "miles davis|kind of blue", "x", ""} {
+		auto, err := covergen.Generate(seed, 128)
+		if err != nil {
+			t.Fatalf("Generate(%q): %v", seed, err)
+		}
+		style := covergen.StyleFor(seed)
+		explicit, err := covergen.GenerateStyle(seed, 128, style)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%q, %v): %v", seed, style, err)
+		}
+		if !bytes.Equal(auto, explicit) {
+			t.Errorf("seed %q: Generate != GenerateStyle(%v)", seed, style)
+		}
+	}
+}
+
+func TestStyleForCoversAllStyles(t *testing.T) {
+	// With enough seeds every style must be reachable; also sanity-check
+	// the distribution isn't collapsed onto one style.
+	got := map[covergen.Style]int{}
+	for i := 0; i < 256; i++ {
+		got[covergen.StyleFor(fmt.Sprintf("seed-%d", i))]++
+	}
+	for _, s := range covergen.Styles() {
+		if got[s] == 0 {
+			t.Errorf("style %v never selected across 256 seeds", s)
+		}
+	}
+}
+
+func TestGenerateStyleAllStylesRenderAndDiffer(t *testing.T) {
+	const seed = "style matrix seed"
+	rendered := map[string][]byte{}
+	for _, s := range covergen.Styles() {
+		data, err := covergen.GenerateStyle(seed, 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v): %v", s, err)
+		}
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("style %v: png.Decode: %v", s, err)
+		}
+		if b := img.Bounds(); b.Dx() != 128 || b.Dy() != 128 {
+			t.Errorf("style %v: expected 128x128, got %dx%d", s, b.Dx(), b.Dy())
+		}
+		for name, other := range rendered {
+			if bytes.Equal(data, other) {
+				t.Errorf("styles %v and %s produced identical bytes", s, name)
+			}
+		}
+		rendered[s.String()] = data
+	}
+}
+
+func TestGenerateStyleDeterministic(t *testing.T) {
+	for _, s := range covergen.Styles() {
+		a, err := covergen.GenerateStyle("det seed", 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v) a: %v", s, err)
+		}
+		b, err := covergen.GenerateStyle("det seed", 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v) b: %v", s, err)
+		}
+		if !bytes.Equal(a, b) {
+			t.Errorf("style %v: same seed+size produced different bytes", s)
+		}
+	}
+}
+
+func TestGenerateStyleRejectsUnknownStyle(t *testing.T) {
+	for _, s := range []covergen.Style{-1, covergen.Style(len(covergen.Styles()))} {
+		if _, err := covergen.GenerateStyle("seed", 128, s); err == nil {
+			t.Errorf("GenerateStyle(seed, 128, %d) returned nil error; want error", int(s))
+		}
+	}
+}
+
+func TestClassicBackgroundVaries(t *testing.T) {
+	data, err := covergen.GenerateStyle("gradient test", 256, covergen.StyleClassic)
 	if err != nil {
-		t.Fatalf("Generate: %v", err)
+		t.Fatalf("GenerateStyle: %v", err)
 	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -81,20 +163,18 @@ func TestGenerateBackgroundVaries(t *testing.T) {
 	}
 }
 
-func TestGenerateHasForeground(t *testing.T) {
+func TestClassicHasForeground(t *testing.T) {
 	// The centre pixel and a corner pixel should differ: a shape near the
 	// centre should paint over the gradient, producing a different colour
 	// there than the gradient alone would produce.
-	data, err := covergen.Generate("shape test alpha", 256)
+	data, err := covergen.GenerateStyle("shape test alpha", 256, covergen.StyleClassic)
 	if err != nil {
-		t.Fatalf("Generate: %v", err)
+		t.Fatalf("GenerateStyle: %v", err)
 	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// Sample several seeds; at least one must show a centre/edge colour diff
-	// > threshold, proving shapes draw.
 	centre := img.At(128, 128)
 	edge := img.At(10, 10)
 	if colorDist(centre, edge) < 5 {

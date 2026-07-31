@@ -9,7 +9,7 @@ import Dropdown from 'primevue/dropdown'
 import Message from 'primevue/message'
 import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
-import type { Library, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryCoverStyle, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
@@ -31,6 +31,7 @@ interface FormState {
     show_artists: boolean
     default_view: 'albums' | 'artists'
     icon: string
+    cover_style: LibraryCoverStyle
 }
 
 function emptyForm(): FormState {
@@ -41,7 +42,8 @@ function emptyForm(): FormState {
         follow_symlinks: true,
         show_artists: true,
         default_view: 'albums',
-        icon: 'folder'
+        icon: 'folder',
+        cover_style: 'auto'
     }
 }
 
@@ -62,7 +64,8 @@ watch(
                 follow_symlinks: lib.follow_symlinks,
                 show_artists: lib.show_artists,
                 default_view: lib.default_view,
-                icon: lib.icon || 'folder'
+                icon: lib.icon || 'folder',
+                cover_style: lib.cover_style || 'auto'
             }
             initialPath.value = lib.path
         } else {
@@ -88,7 +91,8 @@ function buildInput(): LibraryInput {
         follow_symlinks: form.value.follow_symlinks,
         show_artists: form.value.show_artists,
         default_view: form.value.default_view,
-        icon: form.value.icon
+        icon: form.value.icon,
+        cover_style: form.value.cover_style
     }
 }
 
@@ -104,6 +108,18 @@ function onCancel() {
 const defaultViewOptions = [
     { label: 'Albums', value: 'albums' },
     { label: 'Artists', value: 'artists' }
+]
+
+// Rendering styles for generated (placeholder) covers; "Auto" picks a style
+// per album/artist deterministically.
+const coverStyleOptions = [
+    { label: 'Auto (varied)', value: 'auto' },
+    { label: 'Classic', value: 'classic' },
+    { label: 'Bauhaus', value: 'bauhaus' },
+    { label: 'Rings', value: 'rings' },
+    { label: 'Waves', value: 'waves' },
+    { label: 'Poster', value: 'poster' },
+    { label: 'Remix', value: 'remix' }
 ]
 </script>
 
@@ -151,6 +167,14 @@ const defaultViewOptions = [
 
             <label>Icon</label>
             <IconSelect v-model="form.icon" />
+
+            <label>Generated cover style</label>
+            <Dropdown
+                v-model="form.cover_style"
+                :options="coverStyleOptions"
+                optionLabel="label"
+                optionValue="value"
+            />
 
             <label>Exclude patterns</label>
             <Textarea
