@@ -84,8 +84,8 @@ func TestUpdateGenreUploadsCover(t *testing.T) {
 	if _, ok := as.Get(assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10)); !ok {
 		t.Fatal("expected cover under DB-ID key")
 	}
-	if !servesPNG(t, srv.URL, encodeGenreID(genre.ID)) {
-		t.Fatal("getCoverArt should serve the uploaded png")
+	if !servesUploadedCover(t, srv.URL, encodeGenreID(genre.ID)) {
+		t.Fatal("getCoverArt should serve the uploaded cover")
 	}
 }
 
@@ -124,8 +124,8 @@ func TestGetCoverArtGenreGeneratedFallback(t *testing.T) {
 	srv := newTestServer(t, s)
 	defer srv.Close()
 
-	if !servesPNG(t, srv.URL, encodeGenreID(genre.ID)) {
-		t.Fatal("getCoverArt should serve a generated png")
+	if servesUploadedCover(t, srv.URL, encodeGenreID(genre.ID)) {
+		t.Fatal("getCoverArt served an uploaded cover; want the generated fallback")
 	}
 }
 

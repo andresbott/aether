@@ -1,7 +1,9 @@
 package subsonic
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
 	"io"
 	"net/http"
 	"strconv"
@@ -33,7 +35,11 @@ func postArtist(t *testing.T, srvURL string, body io.Reader, contentType string)
 	return env.SubsonicResponse.Status, env.SubsonicResponse.Error.Code
 }
 
-func servesPNG(t *testing.T, srvURL, id string) bool {
+// servesUploadedCover reports whether getCoverArt answers with the uploaded
+// image rather than the generated fallback. The served bytes are a re-encoded
+// derivative, not the upload verbatim, so the check is on dimensions: uploads in
+// these tests are tiny, and a generated cover is always full-size.
+func servesUploadedCover(t *testing.T, srvURL, id string) bool {
 	t.Helper()
 	resp, err := http.Get(srvURL + "/rest/getCoverArt.view?id=" + id)
 	if err != nil {
@@ -44,8 +50,17 @@ func servesPNG(t *testing.T, srvURL, id string) bool {
 		t.Fatalf("getCoverArt status=%d", resp.StatusCode)
 	}
 	data, _ := io.ReadAll(resp.Body)
-	return detectImageContentType(data) == "image/png"
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("served cover is not a decodable image: %v", err)
+	}
+	return cfg.Width == uploadedCoverEdge && cfg.Height == uploadedCoverEdge
 }
+
+// uploadedCoverEdge is the edge length of the pngBytes fixture the multipart
+// upload helpers post. Sources are never upscaled, so a derivative of it keeps
+// these dimensions.
+const uploadedCoverEdge = 2
 
 func TestUpdateArtistMatchedUploadsUnderMBID(t *testing.T) {
 	s := testStore(t)
@@ -63,7 +78,7 @@ func TestUpdateArtistMatchedUploadsUnderMBID(t *testing.T) {
 	if _, ok := as.Get(assetstore.KindArtist, "mbid-up"); !ok {
 		t.Fatal("expected cover under MBID key")
 	}
-	if !servesPNG(t, srv.URL, encodeArtistID(artist.ID)) {
+	if !servesUploadedCover(t, srv.URL, encodeArtistID(artist.ID)) {
 		t.Fatal("getCoverArt should serve the uploaded png")
 	}
 }
@@ -85,7 +100,7 @@ func TestUpdateArtistUnmatchedUploadsUnderDBID(t *testing.T) {
 	if _, ok := as.Get(assetstore.KindArtist, dbKey); !ok {
 		t.Fatal("expected cover under DB-ID key")
 	}
-	if !servesPNG(t, srv.URL, encodeArtistID(artist.ID)) {
+	if !servesUploadedCover(t, srv.URL, encodeArtistID(artist.ID)) {
 		t.Fatal("getCoverArt should serve the uploaded png")
 	}
 }

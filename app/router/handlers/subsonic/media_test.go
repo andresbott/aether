@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/gorilla/mux"
 	"go.senan.xyz/taglib"
@@ -38,7 +39,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -52,31 +53,22 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/png") {
-		t.Errorf("Content-Type = %q, want image/png*", ct)
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "image/jpeg") {
+		t.Errorf("Content-Type = %q, want image/jpeg* (this client sent no Accept)", ct)
 	}
-	if _, err := png.Decode(resp.Body); err != nil {
-		t.Errorf("response body is not a valid PNG: %v", err)
+	cfg, format := decodeServedCover(t, resp)
+	if format != "jpeg" {
+		t.Errorf("format = %q, want jpeg", format)
+	}
+	// 200 quantizes up to the 256 bucket.
+	if want := quantizeCoverSize(200); cfg.Width != want {
+		t.Errorf("generated cover width = %d, want %d", cfg.Width, want)
 	}
 
-	// Cache file must exist for size bucket 256 (200 quantizes up to 256).
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		t.Fatalf("read cache dir: %v", err)
-	}
-	var found bool
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_256.png") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Errorf("no _256.png cached in %s; got %v", cacheDir, names)
+	// The derivative is cached under the album's identity, in the size bucket.
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10))
+	if len(names) != 1 || !strings.HasSuffix(names[0], ".256.jpg") {
+		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.jpg", names)
 	}
 }
 
@@ -97,7 +89,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -109,8 +101,11 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if _, err := png.Decode(resp.Body); err != nil {
-		t.Errorf("response body is not a valid PNG: %v", err)
+	// The uploaded 4x4 image is never upscaled, so its derivative keeps those
+	// dimensions — proof the upload was served rather than the generated cover.
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width != 4 || cfg.Height != 4 {
+		t.Errorf("served %dx%d, want 4x4 (a derivative of the uploaded image)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -120,7 +115,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -132,23 +127,13 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if _, err := png.Decode(resp.Body); err != nil {
-		t.Errorf("response body is not a valid PNG: %v", err)
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width != 256 {
+		t.Errorf("generated cover width = %d, want 256", cfg.Width)
 	}
-	// Verify a cache file landed in the generated-covers dir.
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_256.png") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected generated-cover cache file in %s, got: %v", cacheDir, entries)
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindRadio, strconv.FormatUint(uint64(st.ID), 10))
+	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") {
+		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.<ext>", names)
 	}
 }
 
@@ -164,7 +149,7 @@ func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -176,22 +161,13 @@ func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if _, err := png.Decode(resp.Body); err != nil {
-		t.Errorf("response body is not a valid PNG: %v", err)
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width != 256 {
+		t.Errorf("generated cover width = %d, want 256", cfg.Width)
 	}
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_256.png") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected generated-cover cache file in %s, got: %v", cacheDir, entries)
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindPlaylist, strconv.FormatUint(uint64(pl.ID), 10))
+	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") {
+		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.<ext>", names)
 	}
 }
 
@@ -210,7 +186,7 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -263,15 +239,17 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 		t.Fatalf("create artist: %v", err)
 	}
 
-	// Put a PNG image into the asset store for this artist.
+	// Put an image into the asset store for this artist. Distinctive dimensions
+	// identify it in the response: served covers are re-encoded derivatives, so
+	// the source bytes never come back verbatim.
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
-	if err := as.PutAuto(assetstore.KindArtist, "mbid-art", "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+	if err := as.PutAuto(assetstore.KindArtist, "mbid-art", "png", realPNG(t, 300, 150)); err != nil {
 		t.Fatalf("PutAuto: %v", err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -284,12 +262,10 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(body), "\x89PNG") {
-		t.Errorf("response body does not start with PNG magic bytes; got %q", body[:min(8, len(body))])
+	// 300x150 is under the cap, so it is served at its own size and 2:1 shape —
+	// a generated cover would be square and full-size.
+	if cfg, _ := decodeServedCover(t, resp); cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("served %dx%d, want 300x150 (the stored artist image)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -305,12 +281,12 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	// A cover saved to aether's managed store for this album.
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", realPNG(t, 300, 150)); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -323,12 +299,8 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(body), "\x89PNG") {
-		t.Errorf("response body does not start with PNG magic bytes; got %q", body[:min(8, len(body))])
+	if cfg, _ := decodeServedCover(t, resp); cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("served %dx%d, want 300x150 (the managed-store cover)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -365,8 +337,10 @@ func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	front := []byte("\x89PNG\r\n\x1a\nFRONT")
-	back := []byte("\x89PNG\r\n\x1a\nBACK")
+	// Distinct shapes tell the two apart in the response: covers are served as
+	// re-encoded derivatives, never as the embedded bytes verbatim.
+	front := realPNG(t, 300, 150) // 2:1
+	back := realPNG(t, 150, 300)  // 1:2
 	trackPath := embeddedFixture(t, t.TempDir(), "01.flac",
 		embeddedPic{"Back Cover", back},
 		embeddedPic{"Front Cover", front},
@@ -382,7 +356,7 @@ func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -391,15 +365,12 @@ func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) == string(back) {
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width == 150 && cfg.Height == 300 {
 		t.Fatal("served the embedded BACK cover; want the front cover")
 	}
-	if string(body) != string(front) {
-		t.Errorf("served %q, want the embedded front cover", body[:min(16, len(body))])
+	if cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("served %dx%d, want 300x150 (the embedded front cover)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -409,7 +380,8 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	back := []byte("\x89PNG\r\n\x1a\nBACK")
+	// 1:2, so a served derivative of it would be unmistakably non-square.
+	back := realPNG(t, 150, 300)
 	trackPath := embeddedFixture(t, t.TempDir(), "01.flac", embeddedPic{"Back Cover", back})
 
 	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", HasEmbeddedCover: true}
@@ -422,7 +394,7 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -431,15 +403,13 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) == string(back) {
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width == 150 && cfg.Height == 300 {
 		t.Fatal("served the embedded back cover; want the generated fallback cover")
 	}
-	if _, err := png.Decode(bytes.NewReader(body)); err != nil {
-		t.Errorf("expected a decodable generated PNG, got %v", err)
+	// Generated covers are square, at the requested bucket.
+	if want := quantizeCoverSize(128); cfg.Width != want || cfg.Height != want {
+		t.Errorf("served %dx%d, want %dx%d (the generated fallback)", cfg.Width, cfg.Height, want, want)
 	}
 }
 
@@ -451,7 +421,8 @@ func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
 
 	musicDir := t.TempDir()
 	imgPath := filepath.Join(musicDir, "artist.jpg")
-	if err := os.WriteFile(imgPath, []byte("\xff\xd8\xffFAKEJPEG"), 0o600); err != nil {
+	// 2:1, so a derivative of it is unmistakably not the square generated avatar.
+	if err := os.WriteFile(imgPath, realPNG(t, 300, 150), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -461,7 +432,7 @@ func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -474,12 +445,8 @@ func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(body), "\xff\xd8\xff") {
-		t.Errorf("response body is not the folder JPEG; got %q", body[:min(8, len(body))])
+	if cfg, _ := decodeServedCover(t, resp); cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("served %dx%d, want 300x150 (the artist-folder image)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -490,7 +457,8 @@ func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
 
 	musicDir := t.TempDir()
 	imgPath := filepath.Join(musicDir, "artist.jpg")
-	if err := os.WriteFile(imgPath, []byte("\xff\xd8\xffFAKEJPEG"), 0o600); err != nil {
+	// The two candidates get distinct shapes so the response says which won.
+	if err := os.WriteFile(imgPath, realPNG(t, 300, 150), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,12 +468,12 @@ func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
 	}
 
 	as := assetstore.New(t.TempDir())
-	if err := as.PutAuto(assetstore.KindArtist, "mbid-pf", "png", []byte("\x89PNG\r\n\x1a\nFAKE")); err != nil {
+	if err := as.PutAuto(assetstore.KindArtist, "mbid-pf", "png", realPNG(t, 150, 300)); err != nil {
 		t.Fatalf("PutAuto: %v", err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -515,12 +483,9 @@ func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(body), "\x89PNG") {
-		t.Errorf("stored image should win over the folder image; got %q", body[:min(8, len(body))])
+	if cfg, _ := decodeServedCover(t, resp); cfg.Width != 150 || cfg.Height != 300 {
+		t.Errorf("served %dx%d, want 150x300: the stored image should win over the folder image",
+			cfg.Width, cfg.Height)
 	}
 }
 
@@ -540,7 +505,7 @@ func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -553,8 +518,10 @@ func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if _, err := png.Decode(resp.Body); err != nil {
-		t.Errorf("expected a generated PNG avatar: %v", err)
+	// Generated avatars are square at the requested bucket.
+	cfg, _ := decodeServedCover(t, resp)
+	if want := quantizeCoverSize(200); cfg.Width != want || cfg.Height != want {
+		t.Errorf("served %dx%d, want a %d square generated avatar", cfg.Width, cfg.Height, want)
 	}
 }
 
@@ -569,7 +536,9 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 
 	musicDir := t.TempDir()
 	folderImg := filepath.Join(musicDir, "artist.jpg")
-	if err := os.WriteFile(folderImg, []byte("\xff\xd8\xffFOLDER"), 0o600); err != nil {
+	// Distinct shapes identify which file was served; covers come back as
+	// re-encoded derivatives, not as the source bytes.
+	if err := os.WriteFile(folderImg, realPNG(t, 300, 150), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Make the folder image clearly older than any uploaded one.
@@ -586,12 +555,12 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
 	key := strconv.FormatUint(uint64(artist.ID), 10)
-	if err := as.PutManual(assetstore.KindArtist, key, "png", []byte("\x89PNG\r\n\x1a\nUPLOAD")); err != nil {
+	if err := as.PutManual(assetstore.KindArtist, key, "png", realPNG(t, 150, 300)); err != nil {
 		t.Fatal(err)
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -602,11 +571,10 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if !strings.HasPrefix(string(body), "\x89PNG") {
-		t.Fatalf("expected the uploaded PNG first, got %q", body[:min(8, len(body))])
+	if cfg, _ := decodeServedCover(t, resp); cfg.Width != 150 || cfg.Height != 300 {
+		t.Fatalf("served %dx%d first, want 150x300 (the upload)", cfg.Width, cfg.Height)
 	}
+	_ = resp.Body.Close()
 	etag := resp.Header.Get("ETag")
 	if etag == "" {
 		t.Fatal("no ETag on the cover response; conditional requests cannot be keyed on the served file")
@@ -634,9 +602,8 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	if resp2.StatusCode == http.StatusNotModified {
 		t.Fatal("got 304 after the served file changed; the stale image stays until a hard refresh")
 	}
-	body2, _ := io.ReadAll(resp2.Body)
-	if !strings.HasPrefix(string(body2), "\xff\xd8\xff") {
-		t.Errorf("expected the folder JPEG after removal, got %q", body2[:min(8, len(body2))])
+	if cfg, _ := decodeServedCover(t, resp2); cfg.Width != 300 || cfg.Height != 150 {
+		t.Errorf("served %dx%d after removal, want 300x150 (the folder image)", cfg.Width, cfg.Height)
 	}
 }
 
@@ -659,7 +626,7 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), cacheDir)
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -682,24 +649,14 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 
 	styled := fetch()
 
-	// The cache file must carry the style in its name so config changes
-	// cannot serve stale covers.
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		t.Fatalf("read cache dir: %v", err)
-	}
-	var foundStyled bool
-	for _, e := range entries {
-		if strings.Contains(e.Name(), "_bauhaus_128") {
-			foundStyled = true
-		}
-	}
-	if !foundStyled {
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Fatalf("no _bauhaus_128 cache file in %s; got %v", cacheDir, names)
+	// One generated derivative is cached for the album at this size bucket. The
+	// style is part of the derivative's source fingerprint (not its filename),
+	// so switching styles supersedes this file instead of serving it stale —
+	// which the auto-vs-bauhaus comparison below proves.
+	albumKey := strconv.FormatUint(uint64(album.ID), 10)
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindAlbum, albumKey)
+	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") || !strings.Contains(names[0], ".160.") {
+		t.Fatalf("cached derivatives = %v, want one generated.<fingerprint>.160.<ext>", names)
 	}
 
 	// Switching the library to auto must change the served bytes (unless the

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
@@ -52,7 +53,7 @@ func newRadioServer(t *testing.T, s *store.Store) (*httptest.Server, *assetstore
 	t.Helper()
 	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, as, t.TempDir())
+	Register(r, s, as, imagecache.New(t.TempDir()))
 	return httptest.NewServer(r), as
 }
 

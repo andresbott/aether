@@ -10,6 +10,7 @@ import (
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
@@ -41,6 +42,10 @@ type Handler struct {
 	Reader   tags.Reader
 	Assets   *assetstore.Store
 	CoverArt CoverArtClient
+	// Images serves display-sized copies of the editor's picture cells, so a
+	// grid of thumbnails does not download full-resolution scans. Optional: nil
+	// makes every cell serve its original.
+	Images *imagecache.Cache
 	// Identifier is optional: nil disables the identify endpoint and is
 	// reported through /metadata/capabilities.
 	Identifier IdentifyService

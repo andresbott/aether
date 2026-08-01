@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -9,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -327,14 +330,119 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 
 	rp, ok := h.pictureForSlot(lib, abs, pt, slot, r.URL.Query()["paths"])
-	switch {
-	case !ok:
+	if !ok {
 		http.NotFound(w, r)
-	case rp.filePath != "":
-		http.ServeFile(w, r, rp.filePath)
-	default:
-		writeImage(w, rp.data)
+		return
 	}
+
+	// A size means "this is a grid thumbnail" — serve an optimized derivative.
+	// Without one the original is served verbatim, because the editor also
+	// fetches this URL to copy an image into another slot, and a copy must carry
+	// the full-fidelity bytes rather than a downscaled re-encode.
+	if size := requestedPictureSize(r); size > 0 && h.Images != nil {
+		if h.servePictureThumb(w, r, pt, slot, rp, size) {
+			return
+		}
+	}
+
+	if rp.filePath != "" {
+		http.ServeFile(w, r, rp.filePath)
+		return
+	}
+	writeImage(w, rp.data)
+}
+
+// maxPictureThumbSize caps the thumbnail size a client can ask for; larger
+// requests are served at the cap rather than rendered on demand.
+const maxPictureThumbSize = 1024
+
+// requestedPictureSize parses the optional size parameter, clamped to the cap.
+// Zero means "no thumbnail requested".
+func requestedPictureSize(r *http.Request) int {
+	raw := r.URL.Query().Get("size")
+	if raw == "" {
+		return 0
+	}
+	size, err := strconv.Atoi(raw)
+	if err != nil || size <= 0 {
+		return 0
+	}
+	return min(size, maxPictureThumbSize)
+}
+
+// servePictureThumb serves a cached, display-sized copy of the resolved picture.
+// It reports false when no derivative could be produced (an undecodable or
+// unreadable source), leaving the caller to serve the original.
+func (h *Handler) servePictureThumb(
+	w http.ResponseWriter, r *http.Request, pt metadataedit.PictureType, slot string, rp resolvedPicture, size int,
+) bool {
+	// Keyed by the picture's identity — type and slot — under a kind of its own,
+	// so editor thumbnails never collide with the covers served by /rest.
+	name := pt.FileBase + "_" + slot
+	fingerprint, load := pictureCacheSource(rp)
+	if load == nil {
+		return false
+	}
+	format := imagecache.FormatForAccept(r.Header.Get("Accept"))
+	path, err := h.Images.Path(imagecache.Request{
+		Kind:        pictureThumbKind,
+		Key:         pictureThumbKey(rp),
+		Name:        name,
+		Size:        size,
+		Format:      format,
+		Fingerprint: fingerprint,
+		Load:        load,
+	})
+	if err != nil {
+		return false
+	}
+	f, err := os.Open(path) //nolint:gosec // G304: path is built by the image cache from a validated kind/key, never from the request
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	w.Header().Set("Content-Type", format.ContentType())
+	w.Header().Set("Vary", "Accept")
+	// A zero modtime omits Last-Modified: Cache-Control is already no-cache and
+	// the editor busts the URL explicitly after every change.
+	http.ServeContent(w, r, filepath.Base(path), time.Time{}, f)
+	return true
+}
+
+// pictureThumbKind files editor thumbnails apart from the entity covers the
+// music API caches.
+const pictureThumbKind = "editor"
+
+// pictureThumbKey identifies the source image the thumbnail is built from. A
+// file gets a hash of its path; embedded bytes get a hash of the bytes, since
+// they have no path of their own.
+func pictureThumbKey(rp resolvedPicture) string {
+	if rp.filePath != "" {
+		sum := sha256.Sum256([]byte(rp.filePath))
+		return hex.EncodeToString(sum[:8])
+	}
+	sum := sha256.Sum256(rp.data)
+	return hex.EncodeToString(sum[:8])
+}
+
+// pictureCacheSource returns the fingerprint and lazy loader for a resolved
+// picture, or a nil loader when it holds neither a readable file nor bytes.
+func pictureCacheSource(rp resolvedPicture) (string, func() ([]byte, error)) {
+	if rp.filePath != "" {
+		info, err := os.Stat(rp.filePath)
+		if err != nil {
+			return "", nil
+		}
+		path := rp.filePath
+		return fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
+			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (asset store or album directory), never from the request
+	}
+	if len(rp.data) > 0 {
+		data := rp.data
+		sum := sha256.Sum256(data)
+		return "bytes|" + hex.EncodeToString(sum[:12]), func() ([]byte, error) { return data, nil }
+	}
+	return "", nil
 }
 
 func validSlot(slot string) bool {

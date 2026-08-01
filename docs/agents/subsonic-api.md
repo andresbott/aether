@@ -116,10 +116,39 @@ convention).
 
 `media.go`: `stream` serves the original file via `http.ServeFile` (range
 requests work; no transcoding). `getCoverArt` resolves, in order: assetstore
-image → embedded/folder cover from disk → deterministic generated cover
-(`internal/covergen`, cached under `<DataDir>/generated-covers`). Responses
-carry `Cache-Control: no-cache`; there is no ETag yet (known TODO — stale
-covers after retags are a catalogued bug in TODO.md with root-cause notes).
+image → folder cover from disk → embedded front cover → deterministic generated
+cover (`internal/covergen`).
+
+**No cover is ever served as its original bytes.** Every response is a
+display-sized, re-encoded derivative from `internal/imagecache`, cached under
+`<DataDir>/image-cache/<kind>/<key>/`. Details that matter when changing this:
+
+- **Sizes are quantized** to `coverSizeBuckets` (48/96/160/256/512/1024) so the
+  cache stays a handful of files per entity rather than one per size any client
+  invents. A request with no `size` gets `maxCoverSize` (1024) — never the
+  original, which is the traffic the cache exists to avoid.
+- **Format is negotiated** on `Accept`: WebP when the client names it, JPEG
+  otherwise (a bare `*/*` means JPEG — plenty of Subsonic clients send it with no
+  WebP decoder). Responses carry `Vary: Accept`.
+- **Derivatives are keyed by a source fingerprint** (path+size+mtime for files,
+  seed+style for generated covers), so a changed cover produces a new derivative
+  instead of serving the old one, and building one sweeps the entry's superseded
+  derivatives. Cover URLs are stable while the image behind them is not, and the
+  replacement is not always *newer*.
+- **Sources are tried in order, degrading on failure**: a truncated cover file or
+  a track re-tagged since the scan falls through to the next candidate rather
+  than answering 500, which would leave a broken image in every grid cell.
+- Aspect ratio is preserved (`size` is a bounding box) and sources smaller than
+  the box are never upscaled.
+- Responses carry `Cache-Control: no-cache` plus an ETag over the served file's
+  path+size+mtime, with `Last-Modified` deliberately omitted so falling back to
+  an *older* file still invalidates.
+
+Embedded art used to be re-extracted from the audio file on every request; it is
+now extracted once per (file, size, format) and served from the cache afterwards.
+The editor's `/api/v1/metadata/pictures/image` takes an **optional** `size` with
+the same meaning — omitting it serves the original, which the picture picker
+relies on when copying an image into another slot.
 
 **Only front-cover art may be served as a cover.** Files and folders routinely
 hold several images (back cover, disc label, booklet, artist photo); the metadata
