@@ -71,6 +71,7 @@
 - [ ] Album cover drag and drop in the album view
 - [ ] Better genre handling
 - [x] ~~generated images should be stored as webp not png~~ — done: generated covers go through `internal/imagecache` like every other cover, stored as WebP (JPEG for clients that don't accept WebP). `covergen` still renders PNG internally; nothing serves it directly
+- [ ] Playlist edit is not a nice experience fow now 
 
 ## Frontend — Metadata editor
 - [ ] make the path that is visible in the top ( on the side of choose folder) asa fast way to load libraries
