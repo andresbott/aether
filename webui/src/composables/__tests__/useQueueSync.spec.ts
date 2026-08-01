@@ -4,6 +4,7 @@ import type { Song } from '@/types/subsonic'
 
 const savePlayQueueMock = vi.fn(() => Promise.resolve())
 const getPlayQueueMock = vi.fn(() => Promise.resolve(null as unknown))
+const savePlayQueueBeaconMock = vi.fn(() => true)
 
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
@@ -11,6 +12,7 @@ vi.mock('@/lib/api/subsonic', () => ({
         getStreamUrl: (id: string) => `https://example.test/stream/${id}`,
         scrobble: vi.fn(() => Promise.resolve()),
         savePlayQueue: savePlayQueueMock,
+        savePlayQueueBeacon: savePlayQueueBeaconMock,
         getPlayQueue: getPlayQueueMock
     }
 }))
@@ -47,6 +49,8 @@ const song = (id: string): Song => ({ id, title: `Song ${id}`, duration: 600 })
 
 let usePlayer: (typeof import('@/composables/usePlayer'))['usePlayer']
 let useQueueSync: (typeof import('@/composables/useQueueSync'))['useQueueSync']
+// The sync started by the test under way, torn down in afterEach (see below).
+let activeSync: { start: () => void; stop: () => void } | null = null
 
 beforeEach(async () => {
     vi.useFakeTimers()
@@ -54,6 +58,7 @@ beforeEach(async () => {
     vi.stubGlobal('Audio', FakeAudio)
     localStorage.clear()
     savePlayQueueMock.mockClear()
+    savePlayQueueBeaconMock.mockClear()
     getPlayQueueMock.mockClear()
     getPlayQueueMock.mockResolvedValue(null)
     vi.resetModules()
@@ -62,16 +67,27 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+    // Each test gets a fresh module via resetModules(), but jsdom's window is shared
+    // across the file — so a sync left running would leave its pagehide listener
+    // attached and every later test would see extra beacons.
+    activeSync?.stop()
+    activeSync = null
     vi.useRealTimers()
     vi.unstubAllGlobals()
 })
 
 const activeAudio = () => FakeAudio.instances[0]
 
+// Every sync a test creates goes through here so afterEach can tear it down.
+const startSync = () => {
+    activeSync = useQueueSync()
+    return activeSync as ReturnType<typeof useQueueSync>
+}
+
 describe('useQueueSync saving', () => {
     it('saves the queue after an edit', async () => {
         const player = usePlayer()
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
 
         player.addMultipleToQueue([song('tr-1'), song('tr-2')])
@@ -88,7 +104,7 @@ describe('useQueueSync saving', () => {
     // fire one request per mutation.
     it('coalesces a burst of edits into a single save', async () => {
         const player = usePlayer()
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
 
         player.addToQueue(song('tr-1'))
@@ -105,7 +121,7 @@ describe('useQueueSync saving', () => {
     it('saves when the current track changes', async () => {
         const player = usePlayer()
         player.playAlbum([song('tr-1'), song('tr-2')])
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
         await nextTick()
         await vi.runOnlyPendingTimersAsync()
@@ -124,7 +140,7 @@ describe('useQueueSync saving', () => {
     it('saves the playback position every 30 seconds while playing', async () => {
         const player = usePlayer()
         player.playAlbum([song('tr-1')])
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
         await nextTick()
         await vi.runOnlyPendingTimersAsync()
@@ -150,27 +166,30 @@ describe('useQueueSync saving', () => {
         expect(later).toBe(155_000)
     })
 
-    // A paused player is not moving, so re-saving the same position every 30s
-    // would be pure noise.
-    it('does not tick while paused', async () => {
+    // The pause itself saves (above), but a paused player is not moving — so the
+    // ticker must not keep re-sending that same offset every 30s afterwards.
+    it('does not keep ticking while paused', async () => {
         const player = usePlayer()
         player.playAlbum([song('tr-1')])
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
         await nextTick()
         await vi.runOnlyPendingTimersAsync()
         savePlayQueueMock.mockClear()
 
         activeAudio().dispatch('pause')
-        await vi.advanceTimersByTimeAsync(90_000)
+        await vi.runOnlyPendingTimersAsync()
+        const afterPause = savePlayQueueMock.mock.calls.length
+        expect(afterPause).toBe(1) // the pause save
 
-        expect(savePlayQueueMock).not.toHaveBeenCalled()
+        await vi.advanceTimersByTimeAsync(90_000)
+        expect(savePlayQueueMock.mock.calls.length).toBe(afterPause)
     })
 
     it('stops ticking after stop()', async () => {
         const player = usePlayer()
         player.playAlbum([song('tr-1')])
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
         await nextTick()
         await vi.runOnlyPendingTimersAsync()
@@ -183,12 +202,157 @@ describe('useQueueSync saving', () => {
         expect(savePlayQueueMock).not.toHaveBeenCalled()
     })
 
+    // Pausing is the moment a listener stops, and no tick runs while paused — so
+    // without this the saved offset stays at the last tick, up to 30s behind where
+    // the user actually stopped.
+    it('saves the position immediately on pause', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1')])
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        const el = activeAudio()
+        el.duration = 600
+        el.dispatch('play')
+        el.currentTime = 105
+        el.dispatch('timeupdate')
+        savePlayQueueMock.mockClear()
+
+        el.dispatch('pause')
+        await vi.runOnlyPendingTimersAsync()
+
+        expect(savePlayQueueMock).toHaveBeenCalledTimes(1)
+        const [, index, position] = savePlayQueueMock.mock.calls[0] as unknown as [
+            string[],
+            number,
+            number
+        ]
+        expect(index).toBe(0)
+        expect(position).toBe(105_000)
+    })
+
+    // The pause save must not be debounced away by the edit path, and it must not
+    // be skipped just because the queue shape is unchanged — only the position moved.
+    it('saves on pause even though the queue shape did not change', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1'), song('tr-2')])
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        const el = activeAudio()
+        el.duration = 600
+        el.dispatch('play')
+        el.currentTime = 42
+        el.dispatch('timeupdate')
+        savePlayQueueMock.mockClear()
+
+        el.dispatch('pause')
+        await vi.runOnlyPendingTimersAsync()
+
+        expect(savePlayQueueMock).toHaveBeenCalledTimes(1)
+        const [, , position] = savePlayQueueMock.mock.calls[0] as unknown as [
+            string[],
+            number,
+            number
+        ]
+        expect(position).toBe(42_000)
+    })
+
+    // Closing the tab cancels in-flight fetches, so the final write has to go out
+    // as a beacon or it never lands.
+    it('beacons the position when the page is hidden', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1')])
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        const el = activeAudio()
+        el.duration = 600
+        el.dispatch('play')
+        el.currentTime = 200
+        el.dispatch('timeupdate')
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        expect(savePlayQueueBeaconMock).toHaveBeenCalledTimes(1)
+        const [ids, index, position] = savePlayQueueBeaconMock.mock.calls[0] as unknown as [
+            string[],
+            number,
+            number
+        ]
+        expect(ids).toEqual(['tr-1'])
+        expect(index).toBe(0)
+        expect(position).toBe(200_000)
+    })
+
+    // An empty queue has nothing to report; beaconing on every tab close would
+    // clobber a queue saved from another device with an empty one.
+    it('does not beacon when the queue is empty', async () => {
+        usePlayer()
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        expect(savePlayQueueBeaconMock).not.toHaveBeenCalled()
+    })
+
+    // After stop() the layout is gone; a beacon fired then would write state the
+    // player no longer owns.
+    it('stops beaconing after stop()', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1')])
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        sync.stop()
+        window.dispatchEvent(new Event('pagehide'))
+
+        expect(savePlayQueueBeaconMock).not.toHaveBeenCalled()
+    })
+
+    // start() after a stop() must work: the layout unmounts and remounts on any
+    // navigation into /settings and back, and a sync that stayed dead would silently
+    // stop persisting the queue for the rest of the session.
+    it('resumes syncing after stop() then start()', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1')])
+        const sync = startSync()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        sync.stop()
+        sync.start()
+        savePlayQueueMock.mockClear()
+        savePlayQueueBeaconMock.mockClear()
+
+        // The ticker is live again...
+        activeAudio().dispatch('play')
+        await vi.advanceTimersByTimeAsync(30_000)
+        expect(savePlayQueueMock).toHaveBeenCalled()
+
+        // ...and so is the unload beacon, exactly once.
+        window.dispatchEvent(new Event('pagehide'))
+        expect(savePlayQueueBeaconMock).toHaveBeenCalledTimes(1)
+    })
+
     // Clearing the queue is a real state change and must reach the server, or the
     // next device would restore a queue the user deliberately emptied.
     it('saves an empty queue when the queue is cleared', async () => {
         const player = usePlayer()
         player.playAlbum([song('tr-1')])
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
         await nextTick()
         await vi.runOnlyPendingTimersAsync()
@@ -214,7 +378,7 @@ describe('useQueueSync restoring', () => {
     it('adopts the saved queue and seeks the current track to its position', async () => {
         getPlayQueueMock.mockResolvedValue(savedQueue)
         const player = usePlayer()
-        const sync = useQueueSync()
+        const sync = startSync()
 
         await sync.restore()
 
@@ -229,7 +393,7 @@ describe('useQueueSync restoring', () => {
     it('restores paused', async () => {
         getPlayQueueMock.mockResolvedValue(savedQueue)
         const player = usePlayer()
-        await useQueueSync().restore()
+        await startSync().restore()
 
         expect(player.isPlaying.value).toBe(false)
     })
@@ -239,7 +403,7 @@ describe('useQueueSync restoring', () => {
     it('applies the position to the current track only', async () => {
         getPlayQueueMock.mockResolvedValue(savedQueue)
         const player = usePlayer()
-        await useQueueSync().restore()
+        await startSync().restore()
         expect(player.currentTime.value).toBe(90)
 
         player.playQueueItem(2)
@@ -253,7 +417,7 @@ describe('useQueueSync restoring', () => {
     // and clobber the very state we just adopted.
     it('does not save the queue it just restored', async () => {
         getPlayQueueMock.mockResolvedValue(savedQueue)
-        const sync = useQueueSync()
+        const sync = startSync()
         sync.start()
 
         await sync.restore()
@@ -268,7 +432,7 @@ describe('useQueueSync restoring', () => {
         const player = usePlayer()
         player.playAlbum([song('tr-local')])
 
-        await useQueueSync().restore()
+        await startSync().restore()
 
         expect(player.queue.value.map((s) => s.id)).toEqual(['tr-local'])
     })
@@ -282,7 +446,7 @@ describe('useQueueSync restoring', () => {
             position: 0
         })
         const player = usePlayer()
-        await useQueueSync().restore()
+        await startSync().restore()
 
         expect(player.currentIndex.value).toBe(0)
         expect(player.currentTime.value).toBe(0)
@@ -297,7 +461,7 @@ describe('useQueueSync restoring', () => {
             position: 5_000
         })
         const player = usePlayer()
-        await useQueueSync().restore()
+        await startSync().restore()
 
         expect(player.currentIndex.value).toBe(1)
     })

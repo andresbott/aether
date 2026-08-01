@@ -471,6 +471,28 @@ class SubsonicClient {
         }
     }
 
+    // The unload-safe variant of savePlayQueue. A normal fetch is cancelled when the
+    // tab goes away, so the last write of a session has to leave as a beacon or the
+    // position never lands. Returns whether the beacon was handed off.
+    //
+    // Never throws: this runs during unload, where an exception can hold up the page
+    // closing and there is no UI left to report it to. An empty queue sends nothing —
+    // it would clobber a queue saved from another device.
+    savePlayQueueBeacon(songIds: string[], currentIndex: number, positionMs: number): boolean {
+        if (!this.isConfigured()) return false
+        if (songIds.length === 0) return false
+        try {
+            if (typeof navigator?.sendBeacon !== 'function') return false
+            const url = new URL(this.buildUrl('savePlayQueueByIndex.view'))
+            songIds.forEach((id) => url.searchParams.append('id', id))
+            url.searchParams.append('currentIndex', String(currentIndex))
+            url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
+            return navigator.sendBeacon(url.toString())
+        } catch {
+            return false
+        }
+    }
+
     // Returns null when nothing is saved (a fresh account) or the request fails —
     // both mean "no session to restore", and neither should block startup.
     async getPlayQueue(): Promise<SavedPlayQueue | null> {

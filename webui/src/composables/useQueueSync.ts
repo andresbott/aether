@@ -16,7 +16,13 @@ const EDIT_DEBOUNCE_MS = 500
 // components must not run two tickers against one queue.
 let ticker: ReturnType<typeof setInterval> | null = null
 let editTimer: ReturnType<typeof setTimeout> | null = null
-let watchersBound = false
+// The watch() stop handles. Held so stop() can fully unbind: PlayerLayout unmounts
+// and remounts on every trip through /settings, and a start() that found stale
+// watchers still "bound" would silently stop persisting for the rest of the session.
+let stopWatchers: Array<() => void> = []
+// Bound in start(), removed in stop(), so a beacon never fires for a player the
+// layout no longer owns.
+let unloadHandler: (() => void) | null = null
 // The queue shape (ids + playing slot) last known to match the server, either
 // because we saved it or because we just restored it. An edit whose shape equals
 // this is not a change worth a request.
@@ -49,25 +55,51 @@ export function useQueueSync() {
     }
 
     const start = (): void => {
-        if (watchersBound) return
-        watchersBound = true
+        // Idempotent: two mounted components must not run two tickers against one
+        // queue. stop() clears these, so a remount rebinds cleanly.
+        if (stopWatchers.length > 0) return
 
         // Queue content and the playing slot are the two things a restoring device
         // needs; both are saved on change. The position is NOT watched — it changes
         // every quarter second and is covered by the tick below.
-        watch(player.queue, scheduleSave, { deep: true })
-        watch(player.currentIndex, scheduleSave)
+        stopWatchers.push(watch(player.queue, scheduleSave, { deep: true }))
+        stopWatchers.push(watch(player.currentIndex, scheduleSave))
+
+        // Pausing is where a listener actually stops, and no tick runs while paused —
+        // so without this the stored offset stays at the last tick, up to 30s behind.
+        // It bypasses scheduleSave deliberately: that path skips saves whose queue
+        // shape is unchanged, and on a pause only the position moved.
+        stopWatchers.push(
+            watch(player.isPlaying, (playing) => {
+                if (playing) return
+                if (player.queue.value.length === 0) return
+                pushQueue()
+            })
+        )
 
         ticker = setInterval(() => {
             // A paused player is not moving, so re-saving the same offset every
-            // 30s would be pure noise.
+            // 30s would be pure noise — and the pause itself already saved.
             if (!player.isPlaying.value) return
             if (player.queue.value.length === 0) return
             pushQueue()
         }, POSITION_TICK_MS)
+
+        // Closing the tab cancels in-flight fetches, so the final write leaves as a
+        // beacon. `pagehide` rather than `beforeunload`: it fires on mobile/back-forward
+        // cache navigations too, which is exactly when a session gets abandoned.
+        unloadHandler = (): void => {
+            if (player.queue.value.length === 0) return
+            const ids = player.queue.value.map((s) => s.id)
+            const positionMs = Math.round(player.currentTime.value * 1000)
+            subsonicClient.savePlayQueueBeacon(ids, player.currentIndex.value, positionMs)
+        }
+        window.addEventListener('pagehide', unloadHandler)
     }
 
     const stop = (): void => {
+        stopWatchers.forEach((off) => off())
+        stopWatchers = []
         if (ticker) {
             clearInterval(ticker)
             ticker = null
@@ -75,6 +107,10 @@ export function useQueueSync() {
         if (editTimer) {
             clearTimeout(editTimer)
             editTimer = null
+        }
+        if (unloadHandler) {
+            window.removeEventListener('pagehide', unloadHandler)
+            unloadHandler = null
         }
     }
 

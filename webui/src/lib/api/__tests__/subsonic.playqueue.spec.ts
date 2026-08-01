@@ -53,6 +53,42 @@ describe('subsonicClient.savePlayQueue', () => {
     })
 })
 
+describe('subsonicClient.savePlayQueueBeacon', () => {
+    // A normal fetch is cancelled when the tab goes away, so the final write has to
+    // go through sendBeacon to survive unload.
+    it('sends the queue through navigator.sendBeacon', () => {
+        const beacon = vi.fn((_url: string) => true)
+        vi.stubGlobal('navigator', { sendBeacon: beacon })
+
+        const ok = subsonicClient.savePlayQueueBeacon(['tr-1', 'tr-2'], 1, 105000)
+
+        expect(ok).toBe(true)
+        expect(beacon).toHaveBeenCalledTimes(1)
+        const url = new URL(beacon.mock.calls[0][0])
+        expect(url.pathname).toContain('savePlayQueueByIndex.view')
+        expect(url.searchParams.getAll('id')).toEqual(['tr-1', 'tr-2'])
+        expect(url.searchParams.get('currentIndex')).toBe('1')
+        expect(url.searchParams.get('position')).toBe('105000')
+    })
+
+    // An empty queue would clobber a queue saved from another device, and there is
+    // nothing to report anyway.
+    it('sends nothing for an empty queue', () => {
+        const beacon = vi.fn((_url: string) => true)
+        vi.stubGlobal('navigator', { sendBeacon: beacon })
+
+        expect(subsonicClient.savePlayQueueBeacon([], -1, 0)).toBe(false)
+        expect(beacon).not.toHaveBeenCalled()
+    })
+
+    // Unload-time code must never throw: an exception here can block the page from
+    // closing cleanly, and there is no UI left to report it to.
+    it('returns false instead of throwing when sendBeacon is unavailable', () => {
+        vi.stubGlobal('navigator', {})
+        expect(subsonicClient.savePlayQueueBeacon(['tr-1'], 0, 1000)).toBe(false)
+    })
+})
+
 describe('subsonicClient.getPlayQueue', () => {
     it('returns the queue entries, current index and position', async () => {
         vi.stubGlobal(
