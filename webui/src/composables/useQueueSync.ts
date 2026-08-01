@@ -23,6 +23,15 @@ let stopWatchers: Array<() => void> = []
 // Bound in start(), removed in stop(), so a beacon never fires for a player the
 // layout no longer owns.
 let unloadHandler: (() => void) | null = null
+// Whether THIS tab has played anything, i.e. whether its position is its own or
+// just whatever restore() handed it.
+//
+// Load-bearing for the unload beacon: a tab that only ever restored someone else's
+// queue must stay silent on unload. Its position is the *restored* one, so writing
+// it back overwrites a newer save from another browser with a stale offset — and a
+// beacon lands ~10ms after that save, so it reliably wins the race. Symptom: pause
+// in browser A, open browser B, and A's pause point is gone.
+let playedHere = false
 // The queue shape (ids + playing slot) last known to match the server, either
 // because we saved it or because we just restored it. An edit whose shape equals
 // this is not a change worth a request.
@@ -69,12 +78,28 @@ export function useQueueSync() {
         // so without this the stored offset stays at the last tick, up to 30s behind.
         // It bypasses scheduleSave deliberately: that path skips saves whose queue
         // shape is unchanged, and on a pause only the position moved.
+        // `immediate` matters: the layout can mount while audio is already playing, in
+        // which case there is no false→true transition to observe and playedHere would
+        // stay false forever, silencing the unload beacon for a tab that does own its
+        // position.
         stopWatchers.push(
-            watch(player.isPlaying, (playing) => {
-                if (playing) return
-                if (player.queue.value.length === 0) return
-                pushQueue()
-            })
+            watch(
+                player.isPlaying,
+                (playing) => {
+                    if (playing) {
+                        // From here on this tab owns the position, so its unload beacon
+                        // is authoritative rather than an echo of a restore.
+                        playedHere = true
+                        return
+                    }
+                    // Only a pause that follows real playback here is worth saving; a
+                    // restore lands paused and must not be echoed back.
+                    if (!playedHere) return
+                    if (player.queue.value.length === 0) return
+                    pushQueue()
+                },
+                { immediate: true }
+            )
         )
 
         ticker = setInterval(() => {
@@ -90,6 +115,14 @@ export function useQueueSync() {
         // cache navigations too, which is exactly when a session gets abandoned.
         unloadHandler = (): void => {
             if (player.queue.value.length === 0) return
+            // Only a tab that played owns its position — see playedHere. Note this
+            // also fires on reload, where an unconditional beacon would replay a
+            // restored offset over a newer one from another browser.
+            //
+            // isPlaying is read directly rather than trusting the watcher alone: the
+            // watcher is async, so a tab closed moments after playback started would
+            // otherwise lose the write.
+            if (!playedHere && !player.isPlaying.value) return
             const ids = player.queue.value.map((s) => s.id)
             const positionMs = Math.round(player.currentTime.value * 1000)
             subsonicClient.savePlayQueueBeacon(ids, player.currentIndex.value, positionMs)
@@ -112,6 +145,7 @@ export function useQueueSync() {
             window.removeEventListener('pagehide', unloadHandler)
             unloadHandler = null
         }
+        playedHere = false
     }
 
     // Adopts the queue saved by another browser or device. Deliberately restores

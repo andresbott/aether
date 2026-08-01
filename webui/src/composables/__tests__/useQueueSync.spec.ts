@@ -291,6 +291,60 @@ describe('useQueueSync saving', () => {
         expect(position).toBe(200_000)
     })
 
+    // THE REGRESSION: a tab that only ever restored somebody else's queue must not
+    // beacon on unload. Its position is whatever restore() handed it, so writing it
+    // back overwrites a newer save from another browser with a stale offset — and a
+    // beacon lands ~10ms after that save, so it always wins the race.
+    it('does not beacon when this tab never played anything', async () => {
+        getPlayQueueMock.mockResolvedValue({
+            entry: [song('tr-1'), song('tr-2')],
+            currentIndex: 0,
+            position: 8_669
+        })
+        usePlayer()
+        const sync = startSync()
+        await sync.restore()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        expect(savePlayQueueBeaconMock).not.toHaveBeenCalled()
+    })
+
+    // A tab that DID play is the authority on its own position, so it must still
+    // beacon — that is the whole point of the unload save.
+    it('beacons after this tab actually played', async () => {
+        getPlayQueueMock.mockResolvedValue({
+            entry: [song('tr-1')],
+            currentIndex: 0,
+            position: 8_669
+        })
+        usePlayer()
+        const sync = startSync()
+        await sync.restore()
+        sync.start()
+        await nextTick()
+        await vi.runOnlyPendingTimersAsync()
+
+        const el = activeAudio()
+        el.duration = 600
+        el.dispatch('play')
+        el.currentTime = 250
+        el.dispatch('timeupdate')
+
+        window.dispatchEvent(new Event('pagehide'))
+
+        expect(savePlayQueueBeaconMock).toHaveBeenCalledTimes(1)
+        const [, , position] = savePlayQueueBeaconMock.mock.calls[0] as unknown as [
+            string[],
+            number,
+            number
+        ]
+        expect(position).toBe(250_000)
+    })
+
     // An empty queue has nothing to report; beaconing on every tab close would
     // clobber a queue saved from another device with an empty one.
     it('does not beacon when the queue is empty', async () => {
