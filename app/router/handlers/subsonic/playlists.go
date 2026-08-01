@@ -203,10 +203,16 @@ func (h *Handler) recreatePlaylist(w http.ResponseWriter, r *http.Request, idStr
 
 // decodeTrackIDs turns Subsonic song IDs into internal track IDs, silently
 // dropping any that fail to decode.
+//
+// The type check is load-bearing: decodeID accepts every prefix, so an album or
+// playlist id would otherwise contribute its bare number and silently enqueue the
+// TRACK sharing that numeric id. Every caller here takes a typed song-id
+// parameter (songId, songIdToAdd, the play queue's id), so non-track ids are a
+// client error and get dropped.
 func decodeTrackIDs(songIDs []string) []uint {
 	trackIDs := make([]uint, 0, len(songIDs))
 	for _, s := range songIDs {
-		if _, id, err := decodeID(s); err == nil {
+		if kind, id, err := decodeID(s); err == nil && kind == "track" {
 			trackIDs = append(trackIDs, id)
 		}
 	}

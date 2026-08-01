@@ -82,6 +82,13 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	register("updatePlaylist", h.updatePlaylist)
 	register("deletePlaylist", h.deletePlaylist)
 
+	// Play queue (savePlayQueue/getPlayQueue are spec; the ByIndex pair is the
+	// "indexBasedQueue" extension — both read and write the SAME stored queue)
+	register("savePlayQueue", h.savePlayQueue)
+	register("getPlayQueue", h.getPlayQueue)
+	register("savePlayQueueByIndex", h.savePlayQueueByIndex)
+	register("getPlayQueueByIndex", h.getPlayQueueByIndex)
+
 	// Annotation
 	register("star", h.star)
 	register("unstar", h.unstar)

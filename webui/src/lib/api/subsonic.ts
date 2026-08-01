@@ -14,7 +14,8 @@ import type {
     MusicFolder,
     Genre,
     InternetRadioStation,
-    DiscoveryPage
+    DiscoveryPage,
+    SavedPlayQueue
 } from '@/types/subsonic'
 
 class SubsonicClient {
@@ -437,6 +438,75 @@ class SubsonicClient {
             await this.request('scrobble.view', { id, submission: true })
         } catch (err) {
             console.warn('scrobble failed', err)
+        }
+    }
+
+    // Persists the queue so another browser or device can resume the session.
+    // Uses the index-based variant ("indexBasedQueue" extension) rather than the
+    // id-based one: a queue may hold the same track twice, and `current` as a
+    // track id could not say which copy is playing.
+    //
+    // An empty queue is the spec's clear call — no `id`, and `currentIndex` must
+    // be omitted entirely or the server rejects it.
+    //
+    // Fire-and-forget, like scrobble: queue persistence is a background
+    // convenience and must never break playback.
+    async savePlayQueue(songIds: string[], currentIndex: number, positionMs: number): Promise<void> {
+        if (!this.isConfigured()) return
+        try {
+            const url = new URL(this.buildUrl('savePlayQueueByIndex.view'))
+            songIds.forEach((id) => url.searchParams.append('id', id))
+            if (songIds.length > 0) {
+                url.searchParams.append('currentIndex', String(currentIndex))
+                url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
+            }
+            const response = await fetch(url.toString())
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+            const data = await response.json()
+            if (data['subsonic-response'].status === 'failed') {
+                throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            }
+        } catch (err) {
+            console.warn('savePlayQueue failed', err)
+        }
+    }
+
+    // The unload-safe variant of savePlayQueue. A normal fetch is cancelled when the
+    // tab goes away, so the last write of a session has to leave as a beacon or the
+    // position never lands. Returns whether the beacon was handed off.
+    //
+    // Never throws: this runs during unload, where an exception can hold up the page
+    // closing and there is no UI left to report it to. An empty queue sends nothing —
+    // it would clobber a queue saved from another device.
+    savePlayQueueBeacon(songIds: string[], currentIndex: number, positionMs: number): boolean {
+        if (!this.isConfigured()) return false
+        if (songIds.length === 0) return false
+        try {
+            if (typeof navigator?.sendBeacon !== 'function') return false
+            const url = new URL(this.buildUrl('savePlayQueueByIndex.view'))
+            songIds.forEach((id) => url.searchParams.append('id', id))
+            url.searchParams.append('currentIndex', String(currentIndex))
+            url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
+            return navigator.sendBeacon(url.toString())
+        } catch {
+            return false
+        }
+    }
+
+    // Returns null when nothing is saved (a fresh account) or the request fails —
+    // both mean "no session to restore", and neither should block startup.
+    async getPlayQueue(): Promise<SavedPlayQueue | null> {
+        if (!this.isConfigured()) return null
+        try {
+            const response = await this.request<{ playQueueByIndex?: SavedPlayQueue }>(
+                'getPlayQueueByIndex.view'
+            )
+            const queue = response.playQueueByIndex
+            if (!queue || !queue.entry || queue.entry.length === 0) return null
+            return queue
+        } catch (err) {
+            console.warn('getPlayQueue failed', err)
+            return null
         }
     }
 

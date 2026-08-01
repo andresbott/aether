@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Twelve extensions exist today — copy their shape.
+  Thirteen extensions exist today — copy their shape.
 - **Never route music features through `/api/v1`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -70,6 +70,45 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
   star state" rather than failing an entire browse over an annotation.
 - Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions)
   and `annotation_test.go` (the allowlist).
+
+## Play queue (`savePlayQueue` / `getPlayQueue` + the `indexBasedQueue` extension)
+
+`playqueue.go` stores the cross-device playback session: the queue, which slot is
+playing, and the offset within that track. Four endpoints, **one stored queue** —
+the ByIndex pair is a different *view* of the same row, not a second queue.
+
+- **The current track is stored as an INDEX, never a track id.** A queue may hold
+  the same track in several slots, and an id cannot say which copy is playing.
+  The spec's id-based `savePlayQueue` resolves `current` to the **first matching
+  slot** at the handler boundary and rejects (code 10) an id that is not in the
+  queue at all; clients that need the exact slot use `savePlayQueueByIndex`.
+  Regression: `TestSavePlayQueueResolvesCurrentToFirstMatchingSlot`,
+  `TestBothQueueVariantsShareOneStoredQueue`.
+- **A save with no `id` clears the queue** (the spec's clear call), and
+  `currentIndex` must then be absent — `savePlayQueueByIndex` errors 10 on an
+  out-of-range index, so sending `-1` would fail. The SPA relies on this.
+- `current`/`currentIndex` is required as soon as ids are present ("required
+  unless `id` is empty"); a missing `position` means 0.
+- **`getPlayQueue` omits the whole `playQueue` element when nothing is saved.**
+  Clients test for presence, so an empty container would read as "a queue with no
+  tracks". Same for `playQueueByIndex`.
+- **The store heals a queue whose tracks were deleted by a rescan**
+  (`Store.GetPlayQueue`): missing tracks drop out, `CurrentIndex` follows the
+  survivors, and `PositionMs` **resets to 0 when the current track itself is
+  gone** — resuming 90s into a different song would be worse than restarting.
+  `DeleteOrphanedAggregates` also sweeps `play_queue_entries`.
+- Entries are full `Child` objects built through `starredSongList`, so a restoring
+  client rebuilds its queue from one request instead of re-fetching every track.
+- Owner is hardcoded to `admin` (`playQueueOwner`) until auth lands, but the row
+  is already keyed by owner — same pre-wiring as `Playlist.Owner`.
+- `decodeTrackIDs` (shared with `createPlaylist`) **checks the id type**: without
+  it `pl-1`/`al-1` would contribute their bare number and enqueue the *track*
+  with that id. Regression: `TestSavePlayQueueIgnoresNonTrackIds`,
+  `TestCreatePlaylistIgnoresNonTrackSongIds`.
+
+Bookmarks are deliberately not implemented — see
+[features.md](features.md); `position` here already covers resume-within-song,
+and a bookmark must never become a second source of truth for it.
 
 ## Discovery feed (`getDiscovery`, the `discovery` extension)
 

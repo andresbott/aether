@@ -490,6 +490,36 @@ export function usePlayer() {
         play()
     }
 
+    // Adopts a queue saved elsewhere (see useQueueSync), positioning the current
+    // track at `seconds` without starting playback — browsers block autoplay, and
+    // resuming audio unprompted on load is hostile.
+    //
+    // The offset is applied here rather than via seek() so it survives loadTrack's
+    // reset: `seconds` belongs to THIS track only, and stepping to any other slot
+    // goes through the normal loadTrack path and starts at 0.
+    const restoreSession = (songs: Song[], index: number, seconds: number): void => {
+        if (songs.length === 0) return
+        queue.value = [...songs]
+        shuffleOrder.value = []
+        const clamped = Math.max(0, Math.min(index, songs.length - 1))
+        loadTrack(clamped)
+        if (shuffle.value) rebuildShuffleOrder(songs[clamped]?.id)
+        if (seconds > 0) {
+            currentTime.value = seconds
+            // The element may not have metadata yet, so the assignment can be
+            // dropped by the browser; the timeline still reads correct and the
+            // pending seek is re-applied once the track is loadable.
+            if (activeEl) {
+                const el = activeEl
+                const applySeek = (): void => {
+                    el.currentTime = seconds
+                }
+                applySeek()
+                el.addEventListener('loadedmetadata', applySeek, { once: true })
+            }
+        }
+    }
+
     playNextFn = playNext
 
     return {
@@ -525,6 +555,7 @@ export function usePlayer() {
         moveInQueue,
         insertIntoQueue,
         clearQueue,
-        playQueueItem
+        playQueueItem,
+        restoreSession
     }
 }
