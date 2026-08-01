@@ -60,6 +60,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				Reader:                    h.tagReader,
 				Assets:                    h.assets,
 				CoverArt:                  coverart.New(userAgent),
+				Images:                    h.images,
 				IdentifyUnavailableReason: h.identifyOff,
 				Rescan:                    h.rescanner,
 			}

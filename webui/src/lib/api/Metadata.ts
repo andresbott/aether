@@ -84,18 +84,25 @@ export async function identifyAlbum(body: IdentifyAlbumRequest, signal?: AbortSi
 // <img> src. The optional bust value forces a reload after a change (the
 // endpoint sets Cache-Control: no-cache but the URL is otherwise unchanged).
 // For the embedded slot, paths narrow the probe to the selected tracks.
+//
+// size requests an optimized, display-sized copy instead of the original — pass
+// it for grid thumbnails. Omit it when the bytes themselves matter (copying a
+// picture into another slot, see fetchPictureFile), since a derivative is a
+// downscaled re-encode of the source.
 export function getPictureUrl(
     libraryId: number,
     path: string,
     type: string,
     slot: PictureSlot,
     bust?: number,
-    paths?: string[]
+    paths?: string[],
+    size?: number
 ): string {
     const base = apiClient.defaults.baseURL ?? ''
     const params = new URLSearchParams({ library_id: String(libraryId), path, type, slot })
     if (bust !== undefined) params.set('t', String(bust))
     for (const p of paths ?? []) params.append('paths', p)
+    if (size) params.set('size', String(size))
     return `${base}/metadata/pictures/image?${params.toString()}`
 }
 

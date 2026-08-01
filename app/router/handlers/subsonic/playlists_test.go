@@ -3,7 +3,6 @@ package subsonic
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -333,19 +332,10 @@ func TestUpdatePlaylistMultipartWithCover(t *testing.T) {
 		t.Fatal("expected cover in asset store after upload")
 	}
 
-	// getCoverArt must serve the uploaded image (an actual PNG), not a
+	// getCoverArt must serve a derivative of the uploaded image, not the
 	// generated fallback.
-	cov, err := http.Get(srv.URL + "/rest/getCoverArt.view?id=" + encodePlaylistID(pl.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cov.Body.Close() }()
-	if cov.StatusCode != http.StatusOK {
-		t.Fatalf("getCoverArt status=%d", cov.StatusCode)
-	}
-	data, _ := io.ReadAll(cov.Body)
-	if detectImageContentType(data) != "image/png" {
-		t.Fatalf("expected served png, got content-type %q", detectImageContentType(data))
+	if !servesUploadedCover(t, srv.URL, encodePlaylistID(pl.ID)) {
+		t.Fatal("getCoverArt should serve the uploaded cover")
 	}
 }
 

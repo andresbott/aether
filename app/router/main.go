@@ -11,12 +11,19 @@ import (
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/gorilla/mux"
 )
+
+// imageCacheDir holds the display-sized, re-encoded copies of entity images
+// (see internal/imagecache). It is a pure cache: deleting it costs nothing but
+// the work to rebuild, which is why it lives outside metadata/ — that tree holds
+// the only copy of manually uploaded art and must never be cleared.
+const imageCacheDir = "image-cache"
 
 type Cfg struct {
 	Logger        *slog.Logger
@@ -51,6 +58,7 @@ type MainAppHandler struct {
 	tagReader     tags.Reader
 	artistFetcher tasks.Fetcher
 	assets        *assetstore.Store
+	images        *imagecache.Cache
 	identifier    *identify.Identifier
 	identifyOff   string
 	rescanner     metadataHandler.TrackRescanner
@@ -74,6 +82,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		tagReader:     cfg.TagReader,
 		artistFetcher: cfg.ArtistFetcher,
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
+		images:        imagecache.New(filepath.Join(cfg.DataDir, imageCacheDir)),
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
 		rescanner:     cfg.Rescanner,
@@ -96,7 +105,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		subsonic.Register(app.router, app.store, app.assets, filepath.Join(app.dataDir, "generated-covers"))
+		subsonic.Register(app.router, app.store, app.assets, app.images)
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

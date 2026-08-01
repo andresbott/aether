@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
@@ -55,7 +56,7 @@ func newDiscoveryStore(t *testing.T) *store.Store {
 func newDiscoveryServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), t.TempDir())
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
 	return httptest.NewServer(r)
 }
 

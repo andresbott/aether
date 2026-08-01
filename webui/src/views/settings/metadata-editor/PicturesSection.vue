@@ -166,10 +166,22 @@ function serverHas(type: string, slot: PictureSlot): boolean {
     return serverSlotDetail.value.get(type)?.has(slot) ?? false
 }
 
+// PICTURE_CELL_SIZE is the pixel size grid thumbnails are requested at. The
+// cells render at roughly 160 CSS pixels; 320 keeps them sharp on 2x displays
+// while staying a fraction of a full cover scan.
+const PICTURE_CELL_SIZE = 320
+
 function cellThumbUrl(type: string, slot: PictureSlot): string | null {
     const op = stagedOp(type, slot)
     if (op?.kind === 'set') return op.preview
     if (op?.kind === 'remove') return null
+    return serverPictureUrl(type, slot, PICTURE_CELL_SIZE)
+}
+
+// serverPictureUrl builds the endpoint URL for a server-held cell. size omitted
+// means the original bytes — required when the image is copied into another
+// slot rather than displayed.
+function serverPictureUrl(type: string, slot: PictureSlot, size?: number): string | null {
     if (!serverHas(type, slot) || props.libraryId === null || pictureDir.value === null) return null
     return getPictureUrl(
         props.libraryId,
@@ -180,7 +192,8 @@ function cellThumbUrl(type: string, slot: PictureSlot): string | null {
         // Embedded: narrow the probe to the selected tracks. Folder: name the
         // directories the album spans, since the art may sit in a later disc
         // folder than the primary one this URL is anchored on.
-        slot === 'db' ? undefined : selectionPaths.value
+        slot === 'db' ? undefined : selectionPaths.value,
+        size
     )
 }
 
@@ -243,8 +256,10 @@ const copySources = computed<PictureCopySource[]>(() => {
                 file: op?.kind === 'set' ? op.file : null,
                 imageUrl: op?.kind === 'set' ? op.imageUrl : null,
                 // Only server-held images need a download; a staged op already
-                // carries its bytes (file) or its remote URL.
-                fetchUrl: op?.kind === 'set' ? null : thumb
+                // carries its bytes (file) or its remote URL. The download URL
+                // deliberately carries no size: copying a picture into another
+                // slot must store the original, not the grid thumbnail.
+                fetchUrl: op?.kind === 'set' ? null : serverPictureUrl(type, slot)
             })
         }
     }

@@ -7,18 +7,19 @@ import (
 	"strings"
 
 	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
 )
 
 type Handler struct {
-	store         *store.Store
-	assets        *assetstore.Store
-	coverCacheDir string
+	store  *store.Store
+	assets *assetstore.Store
+	images *imagecache.Cache
 }
 
-func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, coverCacheDir string) {
-	h := &Handler{store: s, assets: assets, coverCacheDir: coverCacheDir}
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache) {
+	h := &Handler{store: s, assets: assets, images: images}
 	sub := r.PathPrefix("/rest").Subrouter()
 
 	sub.Use(func(next http.Handler) http.Handler {

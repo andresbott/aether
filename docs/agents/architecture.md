@@ -98,7 +98,16 @@ artist-image fetch** — they are deliberately independent.
 `DataDir` (default `./data`) holds: `aether.db` (SQLite), `metadata/`
 (assetstore: `<kind>/<key>/<name>[.auto].<ext>` — a plain `<name>.<ext>` is a
 manual upload the fetcher must never overwrite; `.auto.` marks fetched
-images), `generated-covers/` (covergen cache), `task-logs/`.
+images), `image-cache/` (imagecache), `task-logs/`.
+
+`metadata/` and `image-cache/` are deliberately separate trees with opposite
+guarantees. `metadata/` is **authoritative**: it holds the only copy of manually
+uploaded art, so nothing may clear it. `image-cache/` is **pure cache** —
+display-sized re-encodes of covers, generated art included, keyed
+`<kind>/<key>/<name>.<source fingerprint>.<size>.<webp|jpg>`. Deleting it costs
+only the CPU to rebuild, which makes it the safe thing to wipe when covers look
+wrong. There is no `generated-covers/` tree any more; generated covers are
+rendered once at full size and cached as ordinary derivatives.
 
 ## Configuration
 

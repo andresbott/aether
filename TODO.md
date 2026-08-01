@@ -30,7 +30,7 @@
 
 - [ ] `getPlaylists` N+1 queries — each playlist triggers separate count and duration queries; consider a single annotated query (still present: `playlists.go:25-26`)
 - [ ] `albumToMap` missing `songCount`/`duration` when tracks are not preloaded — album list endpoints don't preload tracks, so these fields are absent in list responses
-- [ ] cover art is extacted from the file on the fly, it might perform better if we extract at scannnig
+- [x] ~~cover art is extacted from the file on the fly, it might perform better if we extract at scannnig~~ — addressed by caching instead of scan-time extraction: the first request for an (audio file, size, format) extracts and re-encodes, every later one is served from `<DataDir>/image-cache` (`internal/imagecache`, `media.go:coverSources`). Extracting at scan time is no longer needed for performance
 
 ## Backend — Data Integrity & Scanning
 
@@ -64,6 +64,7 @@
       (a checkbox-in-the-index-cell pattern already exists in queue *edit* mode — `QueueRow.vue:65` — but the browsing song lists (`AlbumTrackRow`, `GenreTrackRow`) select by plain/ctrl/shift click with no hover affordance)
 - [ ] Album cover drag and drop in the album view
 - [ ] Better genre handling
+- [x] ~~generated images should be stored as webp not png~~ — done: generated covers go through `internal/imagecache` like every other cover, stored as WebP (JPEG for clients that don't accept WebP). `covergen` still renders PNG internally; nothing serves it directly
 
 ## Frontend — Metadata editor
 - [ ] make the path that is visible in the top ( on the side of choose folder) asa fast way to load libraries
@@ -86,7 +87,7 @@
       the library-level restructuring are still open)
 - the aeteher icon shoul go to play now if playing otherwise go to discover 
 - [] search should also return genres 
-- [] sen't cover images are full images instead of optimized and cached
+- [x] ~~sen't cover images are full images instead of optimized and cached~~ — done: `getCoverArt` never serves an original. Every response is a size-bucketed WebP/JPEG derivative from `<DataDir>/image-cache` (`internal/imagecache`), keyed by a source fingerprint so a changed cover rebuilds. Same mechanism, opt-in via `size`, for the editor's picture cells
 
 ## Frontend — Branding & Layout
 
