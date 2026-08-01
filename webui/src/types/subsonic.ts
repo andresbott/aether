@@ -204,6 +204,18 @@ export interface QueueItem extends Song {
     queueId: string
 }
 
+// The saved cross-device playback session (getPlayQueueByIndex, the
+// "indexBasedQueue" extension). currentIndex is a queue slot rather than a track
+// id, because a queue may hold the same track more than once. position is the
+// offset in ms within that slot's track — the field that resumes mid-song.
+export interface SavedPlayQueue {
+    entry: Song[]
+    currentIndex: number
+    position: number
+    changedBy?: string
+    changed?: string
+}
+
 export interface InternetRadioStation {
     id: string
     name: string

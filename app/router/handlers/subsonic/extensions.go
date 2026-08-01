@@ -53,6 +53,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "discovery",
 				"versions": []int{1},
 			},
+			{
+				"name":     "indexBasedQueue",
+				"versions": []int{1},
+			},
 		},
 	})
 }

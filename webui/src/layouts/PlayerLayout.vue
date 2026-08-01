@@ -7,18 +7,27 @@ import PlayerControls from '@/components/layout/PlayerControls.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
+import { useQueueSync } from '@/composables/useQueueSync'
 
 const uiStore = useUiStore()
 const route = useRoute()
 const scrollbarWidth = useScrollbarWidth()
+const queueSync = useQueueSync()
 
-onMounted(() => {
+onMounted(async () => {
     uiStore.checkScreenWidth()
     window.addEventListener('resize', uiStore.checkScreenWidth)
+
+    // Adopt the queue saved from another browser/device before arming the save
+    // side: starting first would let a debounced local save race the state
+    // arriving from the server.
+    await queueSync.restore()
+    queueSync.start()
 })
 
 onUnmounted(() => {
     window.removeEventListener('resize', uiStore.checkScreenWidth)
+    queueSync.stop()
 })
 </script>
 

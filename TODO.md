@@ -24,13 +24,19 @@
 - [ ] setRating persistence — add rating column to tracks/albums when needed (handler exists in annotation.go but no rating column yet, so not persisted)
 - [ ] getArtistInfo / getAlbumInfo — external metadata (MusicBrainz bios, similar artists)
 - [ ] getTopSongs / getSimilarSongs — requires external data or play history analysis
-- [ ] Podcasts, Bookmarks, Sharing, Chat, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
+- [ ] Podcasts, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
+- [x] ~~Play queue — cross-device session resume~~ — `savePlayQueue`/`getPlayQueue` plus the `indexBasedQueue` extension (`subsonic/playqueue.go`), wired into the SPA via `useQueueSync` (saves on edits, 30s position tick). See `docs/agents/subsonic-api.md`
+- [ ] Bookmarks — **not needed for resume**, `savePlayQueue`'s `position` already covers it. Only worth adding for per-track offsets that survive a queue replacement (audiobooks, long sets). If added, the play queue stays the single source of truth for the *current* track's position — do not write both on the same tick
+- **Sharing and Chat — not planned, will not be implemented.** Sharing exists to hand out public unauthenticated links (`/share.php?id=…&secret=…` + an HTML landing page) that bypass auth by design; Chat is a global message wall with no rooms or delivery, vestigial in the ecosystem and pointless on a single-user server. Don't add them, and don't file them as gaps again
 
 ## Backend — Performance
 
 - [ ] `getPlaylists` N+1 queries — each playlist triggers separate count and duration queries; consider a single annotated query (still present: `playlists.go:25-26`)
 - [ ] `albumToMap` missing `songCount`/`duration` when tracks are not preloaded — album list endpoints don't preload tracks, so these fields are absent in list responses
 - [x] ~~cover art is extacted from the file on the fly, it might perform better if we extract at scannnig~~ — addressed by caching instead of scan-time extraction: the first request for an (audio file, size, format) extracts and re-encodes, every later one is served from `<DataDir>/image-cache` (`internal/imagecache`, `media.go:coverSources`). Extracting at scan time is no longer needed for performance
+- [ ] Nothing ever evicts from the image cache — `imagecache.Delete(kind, key)` exists (`internal/imagecache/imagecache.go`) but has **zero production callers**, so deleting an entity leaves its derivative directory behind forever. Superseded *fingerprints* of a still-live entry are already swept on rebuild (`Cache.sweep`), so this is only about entities that go away. Wire `Delete` in alongside the existing `assets.Delete` calls: `subsonic/artists.go:67`, `subsonic/genres.go:56`, `subsonic/playlists.go:330,355`, `subsonic/radio.go:226-274`, plus album deletion in the scanner's orphan cleanup (`store.DeleteOrphanedAggregates`, which has no assetstore counterpart today). Two traps:
+    - **The cache key is not always the assetstore key.** imagecache always keys on the DB ID (`media.go` `cacheKey:` sites), while assetstore keys can be an MBID (artist) or `RadioKey(streamURL)` (radio). Copying the key from the adjacent `assets.Delete` call would silently delete nothing — pass the DB ID.
+    - **Editor thumbnails (`kind: "editor"`) can't be swept this way at all** — `pictureThumbKey` keys them by a hash of the file path or the image bytes (`metadata/pictures.go:419`), which is not derivable from an entity id. They need either a different key scheme or an age-based sweep, so a periodic prune task in `app/tasks` may be the better shape for the whole problem than per-deletion hooks.
 
 ## Backend — Data Integrity & Scanning
 

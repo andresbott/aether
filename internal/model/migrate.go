@@ -19,6 +19,8 @@ func Migrate(db *gorm.DB) error {
 		&PlayHistory{},
 		&PlaylistPlay{},
 		&InternetRadioStation{},
+		&PlayQueue{},
+		&PlayQueueEntry{},
 	)
 	if err != nil {
 		return err

@@ -164,6 +164,34 @@ func TestCreatePlaylistWithPlaylistIdReplacesTracks(t *testing.T) {
 	}
 }
 
+// songId is a typed parameter: only track ids belong in a playlist. Ids of other
+// kinds decode to a bare number, so accepting them would add the TRACK that
+// happens to share that numeric id.
+func TestCreatePlaylistIgnoresNonTrackSongIds(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 2)
+	other, _ := s.CreatePlaylist("Other", "admin", false, nil)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	q := url.Values{}
+	q.Set("name", "Mix")
+	q.Add("songId", encodeTrackID(tracks[0]))
+	q.Add("songId", encodePlaylistID(other.ID))
+	q.Add("songId", encodeAlbumID(1))
+	env := getJSON(t, srv.URL, "/rest/createPlaylist.view?"+q.Encode())
+	if env.SubsonicResponse.Status != "ok" {
+		t.Fatalf("status=%s err=%+v", env.SubsonicResponse.Status, env.SubsonicResponse.Error)
+	}
+	got := env.SubsonicResponse.Playlist
+	if got.SongCount != 1 || len(got.Entry) != 1 {
+		t.Fatalf("expected only the track id kept, got %+v", got)
+	}
+	if got.Entry[0].ID != encodeTrackID(tracks[0]) {
+		t.Fatalf("entry = %q, want %q", got.Entry[0].ID, encodeTrackID(tracks[0]))
+	}
+}
+
 func TestCreatePlaylistWithPlaylistIdNotFound(t *testing.T) {
 	s := testStore(t)
 	srv := newTestServer(t, s)
