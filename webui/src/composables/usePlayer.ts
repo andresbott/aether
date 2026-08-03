@@ -185,6 +185,23 @@ const swapToStandby = (): void => {
     const previousActive = activeEl
     activeEl = standbyEl
     standbyEl = previousActive
+    // Silence the outgoing element. On the `ended` path it has already stopped,
+    // but a SKIP hands over mid-playback and would otherwise leave it sounding
+    // underneath the new track. That went unnoticed anywhere but the end of the
+    // queue: the following updatePreload() re-points this element's src, which
+    // stops it as a side effect — except when there is nothing left to preload,
+    // where updatePreload() bails early on `url === preloadedUrl` (both null) and
+    // never touches it.
+    //
+    // Deliberately AFTER the swap: `previousActive` is now `standbyEl`, so the
+    // 'pause' listener's `el !== activeEl` guard drops the event. Pausing before
+    // the swap would set isPlaying=false, and since browsers fire 'pause'
+    // asynchronously it could land after the incoming play() and leave the UI
+    // showing a play icon over a playing track.
+    previousActive?.pause()
+    // Back to the start, so re-selecting this track later plays it from the top
+    // rather than resuming where the skip cut it off.
+    if (previousActive) previousActive.currentTime = 0
     // The element that is now standby no longer holds the upcoming track, so
     // force the next updatePreload() to re-point it.
     preloadedUrl = null
