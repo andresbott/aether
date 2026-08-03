@@ -102,6 +102,44 @@ deferred** — `docs/gapless-playback-web-audio.md` records the Web-Audio
 design; don't re-derive it. Queue/volume/shuffle/repeat persist to
 localStorage.
 
+Mute is derived, not a flag: `isMuted` is `volume === 0`, so silence reached by
+dragging the rail down and silence reached by clicking the speaker are the same
+state. `toggleMute` restores `unmutedVolume` — the last non-zero volume, recorded
+by the volume watcher and persisted under `musicPlayer:unmutedVolume` so a
+session left muted still knows where to return (falling back to full volume if it
+is itself 0). That watcher flushes **sync**: a mute in the same tick as a volume
+change has to see the new level, and the audible volume should follow the rail
+without waiting for a tick.
+
+In `PlayerControls.vue`, `useRailDrag` owns both rails' pointer handling *and*
+their interaction state, exposed as `active` (hovered or dragging) and rendered
+as a `rail-active` class on the wrapper. An inactive bar carries no colour: the
+knob is faded out and the fill uses `--app-player-range` instead of
+`--app-accent`. Hover alone can't drive this in CSS — dragging past the bar's
+edge fires `mouseleave` while the grab is still on, and the rail must not go
+neutral mid-drag.
+
+The knob is faded with **opacity only** — `visibility: hidden`/`display: none`
+would drop the handle out of the tab order, and it is the slider's focusable
+element (`tabindex=0`, `role=slider`), so that would make volume and seek
+unreachable by keyboard; focus lights both the knob and the fill for the same
+reason. `--app-player-range` must be defined by every palette that repaints
+`--app-player-track` (both hidden themes use their dim variant, so the bright
+accent stays the hover state).
+
+The speaker has three states — loud / quiet / silent. PrimeIcons ships no
+slashed-speaker glyph (`pi-volume-off` is a bare cone that reads as "quiet"
+beside `pi-volume-down`), so silence is that glyph plus a `muted` class whose
+`::after` draws the strike in `currentColor`. Every dimension of it is in `em`,
+including the knockout ring: a px ring tuned at 40px swallows the cone at the
+bar's actual 1rem.
+
+Two style specs guard this, because scoped SFC styles never apply under
+vue-test-utils — no mounted test can catch a colour regression:
+`PlayerControls.railStyles.spec.ts` parses the SFC's style block, and
+`assets/scss/__tests__/player-tokens.spec.ts` compiles the palettes and checks
+the token is present in each.
+
 ## Styling
 
 SCSS under `assets/scss/`; shared tokens in `_variables.scss` — notably

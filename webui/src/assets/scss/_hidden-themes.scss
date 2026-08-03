@@ -58,6 +58,9 @@
     --app-player-text: #00ff00;
     --app-player-dim: #007c00;
     --app-player-track: rgba(0, 255, 0, 0.22);
+    /* An idle rail is the LCD's dim green — the bright #00ff00 is the hover
+       state, matching how the original skin lit only what you were touching. */
+    --app-player-range: #007c00;
     --app-player-time-font: var(--font-mono);
 
     /* PrimeVue primary ramp — the LCD green, stepped down to near-black. */
@@ -121,6 +124,8 @@
     --app-player-text: #33ff66;
     --app-player-dim: #1f9944;
     --app-player-track: rgba(51, 255, 102, 0.2);
+    /* Dim phosphor when idle; the mint accent is the hover state. */
+    --app-player-range: #1f9944;
     --app-player-time-font: var(--font-mono);
 
     /* PrimeVue primary ramp — the phosphor mint of --app-accent. */

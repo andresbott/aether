@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import PlayerControls from '@/components/layout/PlayerControls.vue'
 
@@ -14,6 +14,8 @@ const currentTime = ref(0)
 const seek = vi.fn((t: number) => {
     currentTime.value = t
 })
+const isMuted = computed(() => volume.value === 0)
+const toggleMute = vi.fn()
 
 vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({
@@ -22,6 +24,8 @@ vi.mock('@/composables/usePlayer', () => ({
         currentTime,
         duration: ref(100),
         volume,
+        isMuted,
+        toggleMute,
         shuffle: ref(false),
         repeat: ref('none'),
         hasNext: ref(false),
@@ -85,6 +89,102 @@ describe('PlayerControls now-playing', () => {
         expect(mutate).toHaveBeenCalledWith({ id: 's1', starred: false })
         await w.vm.$nextTick()
         expect(w.find('.now-like .pi-heart-fill').exists()).toBe(true)
+    })
+})
+
+describe('PlayerControls mute button', () => {
+    beforeEach(() => {
+        volume.value = 1
+        toggleMute.mockClear()
+    })
+
+    it('mutes the player when the speaker is clicked', async () => {
+        const w = mountBar()
+        await w.find('.volume-toggle').trigger('click')
+        expect(toggleMute).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows a muted speaker and an unmute label while silent', async () => {
+        const w = mountBar()
+        const button = w.find('.volume-toggle')
+        expect(button.attributes('aria-label')).toBe('Mute')
+
+        volume.value = 0
+        await w.vm.$nextTick()
+        expect(button.find('.pi-volume-off').exists()).toBe(true)
+        expect(button.attributes('aria-label')).toBe('Unmute')
+    })
+
+    // The three loudness steps must be told apart at a glance. PrimeIcons has no
+    // slashed-speaker glyph, so silence is `pi-volume-off` (a bare cone) plus a
+    // `muted` class the stylesheet draws the slash from — without that class the
+    // muted state would look like the quiet one.
+    it('marks silence with its own icon, distinct from the quiet and loud states', async () => {
+        const w = mountBar()
+        const icon = () => w.find('.volume-toggle i')
+
+        volume.value = 1
+        await w.vm.$nextTick()
+        const loud = icon().classes()
+
+        volume.value = 0.2
+        await w.vm.$nextTick()
+        const quiet = icon().classes()
+
+        volume.value = 0
+        await w.vm.$nextTick()
+        const silent = icon().classes()
+
+        expect(loud).toContain('pi-volume-up')
+        expect(quiet).toContain('pi-volume-down')
+        expect(silent).toContain('pi-volume-off')
+        // The slash is what separates silence from quiet; the others must not carry it.
+        expect(silent).toContain('muted')
+        expect(loud).not.toContain('muted')
+        expect(quiet).not.toContain('muted')
+    })
+})
+
+// `.rail-active` is what the stylesheet keys the knob and the accent fill off,
+// so these assert the state, not the paint (scoped styles never apply here —
+// PlayerControls.railStyles.spec.ts covers what the class actually does).
+describe('PlayerControls rail active state', () => {
+    beforeEach(() => {
+        volume.value = 1
+    })
+
+    it.each([
+        ['volume', '.volume-slider'],
+        ['progress', '.progress-slider']
+    ])('marks the %s rail active only while it is hovered', async (_name, selector) => {
+        const w = mountBar()
+        const wrapper = w.find(selector)
+        expect(wrapper.classes()).not.toContain('rail-active')
+
+        await wrapper.trigger('mouseenter')
+        expect(wrapper.classes()).toContain('rail-active')
+
+        await wrapper.trigger('mouseleave')
+        expect(wrapper.classes()).not.toContain('rail-active')
+    })
+
+    it.each([
+        ['volume', '.volume-slider'],
+        ['progress', '.progress-slider']
+    ])('keeps the %s rail active while dragging away from it', async (_name, selector) => {
+        const w = mountBar()
+        const wrapper = w.find(selector)
+        stubRailRect(w.find(`${selector} .p-slider`).element)
+
+        await wrapper.trigger('mouseenter')
+        await wrapper.trigger('mousedown', { button: 0, clientX: 150 })
+        // Dragging past the bar's edge fires mouseleave, but the grab is still on.
+        await wrapper.trigger('mouseleave')
+        expect(wrapper.classes()).toContain('rail-active')
+
+        document.dispatchEvent(new MouseEvent('mouseup'))
+        await w.vm.$nextTick()
+        expect(wrapper.classes()).not.toContain('rail-active')
     })
 })
 

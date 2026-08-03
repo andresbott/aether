@@ -13,6 +13,7 @@ import {
 const STORAGE_KEY_QUEUE = 'musicPlayer:queue'
 const STORAGE_KEY_CURRENT_INDEX = 'musicPlayer:currentIndex'
 const STORAGE_KEY_VOLUME = 'musicPlayer:volume'
+const STORAGE_KEY_UNMUTED_VOLUME = 'musicPlayer:unmutedVolume'
 const STORAGE_KEY_REPEAT = 'musicPlayer:repeat'
 const STORAGE_KEY_SHUFFLE = 'musicPlayer:shuffle'
 const STORAGE_KEY_SHUFFLE_ORDER = 'musicPlayer:shuffleOrder'
@@ -22,6 +23,11 @@ const queue = ref<Song[]>(loadFromLocalStorage<Song[]>(STORAGE_KEY_QUEUE, []))
 const currentIndex = ref<number>(loadFromLocalStorage<number>(STORAGE_KEY_CURRENT_INDEX, 0))
 const isPlaying = ref<boolean>(false)
 const volume = ref<number>(loadFromLocalStorage<number>(STORAGE_KEY_VOLUME, 1))
+// The volume the speaker button comes back to. Every non-zero volume is recorded
+// here, so silence reached by dragging the rail to 0 unmutes just like silence
+// reached by clicking the speaker. Persisted separately from `volume` so a
+// session that was left muted still knows where to return.
+const unmutedVolume = ref<number>(loadFromLocalStorage<number>(STORAGE_KEY_UNMUTED_VOLUME, 1))
 const repeat = ref<'none' | 'all'>(loadFromLocalStorage<'none' | 'all'>(STORAGE_KEY_REPEAT, 'none'))
 const shuffle = ref<boolean>(loadFromLocalStorage<boolean>(STORAGE_KEY_SHUFFLE, false))
 const currentTime = ref<number>(0)
@@ -261,11 +267,24 @@ export function usePlayer() {
         return currentIndex.value > 0
     })
 
-    watch(volume, (newVolume) => {
-        if (activeEl) activeEl.volume = newVolume
-        if (standbyEl) standbyEl.volume = newVolume
-        saveToLocalStorage(STORAGE_KEY_VOLUME, newVolume)
-    })
+    const isMuted = computed(() => volume.value === 0)
+
+    // Sync flush: the audible level should follow the rail without waiting for a
+    // tick, and `unmutedVolume` has to be current the instant the volume lands so
+    // a mute in the same tick still knows where to come back to.
+    watch(
+        volume,
+        (newVolume) => {
+            if (activeEl) activeEl.volume = newVolume
+            if (standbyEl) standbyEl.volume = newVolume
+            saveToLocalStorage(STORAGE_KEY_VOLUME, newVolume)
+            if (newVolume > 0) {
+                unmutedVolume.value = newVolume
+                saveToLocalStorage(STORAGE_KEY_UNMUTED_VOLUME, newVolume)
+            }
+        },
+        { flush: 'sync' }
+    )
 
     const play = (): void => {
         if (!currentTrack.value && queue.value.length > 0) {
@@ -357,6 +376,12 @@ export function usePlayer() {
 
     const setVolume = (newVolume: number): void => {
         volume.value = Math.max(0, Math.min(1, newVolume))
+    }
+
+    const toggleMute = (): void => {
+        // Restore to full volume when the remembered level is itself silent —
+        // clicking the speaker must always produce sound.
+        setVolume(isMuted.value ? unmutedVolume.value || 1 : 0)
     }
 
     const toggleRepeat = (): void => {
@@ -529,6 +554,7 @@ export function usePlayer() {
         currentIndex,
         isPlaying,
         volume,
+        isMuted,
         repeat,
         shuffle,
         currentTime,
@@ -544,6 +570,7 @@ export function usePlayer() {
         playPrevious,
         seek,
         setVolume,
+        toggleMute,
         toggleRepeat,
         toggleShuffle,
         addToQueue,

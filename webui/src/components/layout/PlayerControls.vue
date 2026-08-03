@@ -48,8 +48,12 @@ const onProgressChange = (value: number | number[]) => {
     }
 }
 
+// Three loudness steps that have to be told apart at a glance. PrimeIcons has no
+// slashed-speaker glyph — `pi-volume-off` is a bare cone, which reads as "quiet"
+// next to `pi-volume-down`, not as "muted". The `muted` class carries the strike
+// the stylesheet draws over the cone, giving silence a distinct icon.
 const volumeIcon = computed(() => {
-    if (player.volume.value === 0) return 'pi pi-volume-off'
+    if (player.isMuted.value) return 'pi pi-volume-off muted'
     if (player.volume.value < 0.5) return 'pi pi-volume-down'
     return 'pi pi-volume-up'
 })
@@ -64,8 +68,17 @@ const volumePercent = computed({
 // moving from there doesn't update anything until release. We take over the
 // rail-press path: apply the value on mousedown and keep following the pointer
 // until mouseup, which is what dragging the handle already does.
+//
+// The same wrapper reports whether its rail is "active" — hovered or being
+// dragged. An inactive bar is fully neutral: no knob, and a grey fill instead of
+// the accent, so a resting player bar carries no colour. Hover alone can't drive
+// this in CSS — dragging past the bar's edge fires mouseleave while the grab is
+// still on, and the rail must not go neutral mid-drag.
 const useRailDrag = (apply: (percent: number) => void) => {
     const rail = ref<HTMLElement | null>(null)
+    const hovered = ref(false)
+    const dragging = ref(false)
+    const active = computed(() => hovered.value || dragging.value)
 
     const onDrag = (event: MouseEvent): void => {
         const track = rail.value?.querySelector('.p-slider')
@@ -79,31 +92,52 @@ const useRailDrag = (apply: (percent: number) => void) => {
     }
 
     const stop = (): void => {
+        dragging.value = false
         document.removeEventListener('mousemove', onDrag)
         document.removeEventListener('mouseup', stop)
     }
 
     const onMouseDown = (event: MouseEvent): void => {
+        if (event.button !== 0) return
+        dragging.value = true
+        document.addEventListener('mouseup', stop)
         // Let PrimeVue own presses that start on the handle — that path already
-        // tracks the pointer correctly.
+        // tracks the pointer correctly. We still follow the drag for the active
+        // state.
         const target = event.target as HTMLElement | null
         if (target?.closest('.p-slider-handle')) return
-        if (event.button !== 0) return
         onDrag(event)
         document.addEventListener('mousemove', onDrag)
-        document.addEventListener('mouseup', stop)
     }
 
     onBeforeUnmount(stop)
 
-    return { rail, onMouseDown }
+    return {
+        rail,
+        active,
+        onMouseDown,
+        onMouseEnter: () => (hovered.value = true),
+        onMouseLeave: () => (hovered.value = false)
+    }
 }
 
-const { rail: volumeRail, onMouseDown: onVolumeRailMouseDown } = useRailDrag((percent) => {
+const {
+    rail: volumeRail,
+    active: volumeRailActive,
+    onMouseDown: onVolumeRailMouseDown,
+    onMouseEnter: onVolumeRailEnter,
+    onMouseLeave: onVolumeRailLeave
+} = useRailDrag((percent) => {
     volumePercent.value = percent
 })
 
-const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag((percent) => {
+const {
+    rail: progressRail,
+    active: progressRailActive,
+    onMouseDown: onProgressRailMouseDown,
+    onMouseEnter: onProgressRailEnter,
+    onMouseLeave: onProgressRailLeave
+} = useRailDrag((percent) => {
     onProgressChange(percent)
 })
 </script>
@@ -174,20 +208,34 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
                 <div
                     ref="progressRail"
                     class="progress-slider"
+                    :class="{ 'rail-active': progressRailActive }"
                     @mousedown="onProgressRailMouseDown"
+                    @mouseenter="onProgressRailEnter"
+                    @mouseleave="onProgressRailLeave"
                 >
-                    <Slider
-                        :modelValue="progressPercent"
-                        @update:modelValue="onProgressChange"
-                    />
+                    <Slider :modelValue="progressPercent" @update:modelValue="onProgressChange" />
                 </div>
                 <span class="time-label">{{ formatTime(player.duration.value) }}</span>
             </div>
         </div>
 
         <div class="player-right">
-            <i :class="volumeIcon" class="volume-icon"></i>
-            <div ref="volumeRail" class="volume-slider" @mousedown="onVolumeRailMouseDown">
+            <button
+                class="control-btn volume-toggle"
+                type="button"
+                :aria-label="player.isMuted.value ? 'Unmute' : 'Mute'"
+                @click="player.toggleMute"
+            >
+                <i :class="volumeIcon"></i>
+            </button>
+            <div
+                ref="volumeRail"
+                class="volume-slider"
+                :class="{ 'rail-active': volumeRailActive }"
+                @mousedown="onVolumeRailMouseDown"
+                @mouseenter="onVolumeRailEnter"
+                @mouseleave="onVolumeRailLeave"
+            >
                 <Slider v-model="volumePercent" />
             </div>
             <button
@@ -285,7 +333,9 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     font-size: 1rem;
     padding: 0.4rem;
     border-radius: 50%;
-    transition: color 0.2s, background-color 0.2s;
+    transition:
+        color 0.2s,
+        background-color 0.2s;
 }
 
 .now-like:hover {
@@ -322,7 +372,9 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     color: var(--app-player-dim);
     cursor: pointer;
     border-radius: 50%;
-    transition: color 0.2s, background-color 0.2s;
+    transition:
+        color 0.2s,
+        background-color 0.2s;
     position: relative;
     font-size: 1.1rem;
 }
@@ -413,11 +465,6 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     bottom: -11px;
 }
 
-.progress-slider :deep(.p-slider-range) {
-    background: var(--app-accent);
-    border-radius: 99px;
-}
-
 .progress-slider :deep(.p-slider-handle),
 .volume-slider :deep(.p-slider-handle) {
     width: 14px;
@@ -436,6 +483,45 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     background: var(--app-accent);
 }
 
+/* An idle bar carries no colour and no knob: the fill is the neutral player
+   token and the handle is faded out. Both take the accent only while the rail is
+   hovered or dragged — the wrapper carries .rail-active then. The fill stays
+   brighter than the groove so the position is readable without hovering. */
+.progress-slider :deep(.p-slider-range),
+.volume-slider :deep(.p-slider-range) {
+    background: var(--app-player-range);
+    border-radius: 99px;
+    transition: background-color 0.15s;
+}
+
+.progress-slider.rail-active :deep(.p-slider-range),
+.volume-slider.rail-active :deep(.p-slider-range) {
+    background: var(--app-accent);
+}
+
+/* The knob is faded with opacity alone — deliberately not `visibility` or
+   `display`, which would drop the handle out of the tab order. It is the
+   slider's focusable element (tabindex=0, role=slider), so hiding it that way
+   would make volume and seek unreachable by keyboard. Focus reveals it (and its
+   rail's accent) for the same reason. */
+.progress-slider :deep(.p-slider-handle),
+.volume-slider :deep(.p-slider-handle) {
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.progress-slider.rail-active :deep(.p-slider-handle),
+.volume-slider.rail-active :deep(.p-slider-handle),
+.progress-slider :deep(.p-slider-handle:focus),
+.volume-slider :deep(.p-slider-handle:focus) {
+    opacity: 1;
+}
+
+.progress-slider :deep(.p-slider:focus-within .p-slider-range),
+.volume-slider :deep(.p-slider:focus-within .p-slider-range) {
+    background: var(--app-accent);
+}
+
 .player-right {
     flex: 1;
     display: flex;
@@ -448,9 +534,36 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     margin-left: 0.5rem;
 }
 
-.volume-icon {
+/* Narrower than the playback controls: the speaker sits right next to its rail,
+   so a 38px circle would push the two apart. */
+.volume-toggle {
+    width: 30px;
+    height: 30px;
     font-size: 1rem;
-    color: var(--app-player-dim);
+}
+
+/* The muted state's own icon. PrimeIcons has no slashed speaker — `pi-volume-off`
+   is a bare cone that reads as "quiet" beside `pi-volume-down` — so the strike is
+   drawn here, over the cone, in the icon's own colour.
+   Every dimension is in `em`, including the knockout ring: the glyph is 1rem in
+   the bar but resizes, and a px ring that looks tight at 40px swallows the cone at
+   16px. The ring is the bar's own background, so the line stays legible where it
+   crosses the cone's strokes without hiding them. */
+.volume-toggle i.muted {
+    position: relative;
+}
+
+.volume-toggle i.muted::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0.8em;
+    height: 0.105em;
+    border-radius: 0.105em;
+    background: currentColor;
+    box-shadow: 0 0 0 0.11em var(--app-player-bg);
+    transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 /* Wide enough that each 1% volume step is ~1.5px of travel, so the rail can be
@@ -476,11 +589,6 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
     bottom: -11px;
 }
 
-.volume-slider :deep(.p-slider-range) {
-    background: var(--app-accent);
-    border-radius: 99px;
-}
-
 /* Below this the wider rail starts squeezing the centered playback column, so
    fall back to the compact width. */
 @media (max-width: 1100px) {
@@ -503,7 +611,7 @@ const { rail: progressRail, onMouseDown: onProgressRailMouseDown } = useRailDrag
         display: none;
     }
 
-    .volume-icon {
+    .volume-toggle {
         display: none;
     }
 }
