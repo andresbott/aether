@@ -81,8 +81,9 @@ const onPlay = async (event: Event): Promise<void> => {
 .card-star { flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: none; background: none; padding: 0 0.15rem; line-height: 1; color: var(--app-text-secondary); font-size: 1.1rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .playlist-card:hover .card-star,
 .card-star.is-starred { opacity: 1; }
-.card-star.is-starred { color: var(--app-accent); }
-.card-star:hover { color: var(--app-accent); }
+/* A favorite reads as favorite by the FILL alone, not by colour — see
+   TrackFavoriteButton and unified-play-experience.md. */
+.card-star:hover { color: var(--app-text-primary); }
 .card-play { flex-shrink: 0; display: flex; align-items: center; justify-content: center; border: none; background: none; padding: 0 0.15rem; line-height: 1; color: var(--app-text-secondary); font-size: 2rem; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .playlist-card:hover .card-play { opacity: 1; }
 .card-play:hover { color: var(--app-accent); }

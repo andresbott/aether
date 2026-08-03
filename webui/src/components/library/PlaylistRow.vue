@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
-import { usePlayer } from '@/composables/usePlayer'
 import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
 import { formatDuration } from '@/utils/formatDuration'
 
@@ -10,14 +9,13 @@ import { formatDuration } from '@/utils/formatDuration'
  * One playlist as a list row — the playlist counterpart to `AlbumRow`, and the
  * single row rendering for playlists in the app.
  *
- * It deliberately mirrors AlbumRow's grid template (48px 2fr 1.5fr 4rem 5rem) so a
+ * It deliberately mirrors AlbumRow's grid template (48px 2fr 1.5fr 2rem 4rem 5rem) so a
  * feed that interleaves albums and playlists lines its columns up. `PlaylistListView`
  * supplies its own header for those columns; the Discovery feed has no header, which
  * is fine because each cell still reads as label + value.
  */
 const props = defineProps<{ playlist?: Playlist }>()
 
-const player = usePlayer()
 const toggleStar = useTogglePlaylistStar()
 
 const coverUrl = computed(() => {
@@ -28,26 +26,13 @@ const coverUrl = computed(() => {
 
 const isStarred = computed(() => !!props.playlist?.starred)
 
-// The row is a router-link, so both actions must swallow the click or they would
+// The row is a router-link, so the toggle must swallow the click or it would
 // navigate to the playlist detail view instead.
 const onStar = (event: Event): void => {
     event.preventDefault()
     event.stopPropagation()
     if (!props.playlist) return
     toggleStar.mutate({ id: props.playlist.id, starred: isStarred.value })
-}
-
-const onPlay = async (event: Event): Promise<void> => {
-    event.preventDefault()
-    event.stopPropagation()
-    if (!props.playlist) return
-    const full = await subsonicClient.getPlaylist(props.playlist.id)
-    if (full?.entry?.length) {
-        player.playAlbum(full.entry)
-        // Playlist plays are counted per playlist, so the play site records it —
-        // usePlayer only ever sees a flat Song[].
-        void subsonicClient.scrobble(props.playlist.id)
-    }
 }
 </script>
 
@@ -66,7 +51,12 @@ const onPlay = async (event: Event): Promise<void> => {
             <div v-else class="cover-placeholder"><i class="pi pi-list"></i></div>
         </div>
         <div class="col-title">{{ playlist.name }}</div>
-        <div class="col-actions">
+        <!-- Empty, standing in for AlbumRow's artist column (a playlist has no
+             artist) so the two row types keep identical column edges in a mixed
+             feed. There is deliberately no play button here: AlbumRow has none
+             either, and the row itself opens the playlist. -->
+        <div class="col-artist"></div>
+        <div class="col-star">
             <button
                 class="row-star"
                 :class="{ 'is-starred': isStarred }"
@@ -76,9 +66,6 @@ const onPlay = async (event: Event): Promise<void> => {
             >
                 <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
             </button>
-            <button class="row-play" type="button" aria-label="Play playlist" @click="onPlay">
-                <i class="pi pi-play"></i>
-            </button>
         </div>
         <div class="col-songs">{{ playlist.songCount }}</div>
         <div class="col-duration">{{ formatDuration(playlist.duration) }}</div>
@@ -86,10 +73,12 @@ const onPlay = async (event: Event): Promise<void> => {
 </template>
 
 <style scoped>
-/* Same template as AlbumRow so albums and playlists align in a mixed list. */
+/* Same template as AlbumRow so albums and playlists align in a mixed list —
+   including the 2rem favorite column. Change one, change both (plus the two list
+   headers); see unified-play-experience.md. */
 .playlist-row {
     display: grid;
-    grid-template-columns: 48px 2fr 1.5fr 4rem 5rem;
+    grid-template-columns: 48px 2fr 1.5fr 2rem 4rem 5rem;
     align-items: center;
     gap: 1rem;
     height: 56px;
@@ -136,42 +125,41 @@ const onPlay = async (event: Event): Promise<void> => {
     text-overflow: ellipsis;
 }
 
-/* Occupies AlbumRow's artist column: a playlist has no artist, so the row's
-   actions live here rather than adding a sixth column that albums would leave empty. */
-.col-actions {
+/* The heart's column, matching AlbumRow's. */
+.col-star {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-}
-
-.row-star,
-.row-play {
-    border: none;
-    background: none;
-    color: var(--app-text-secondary);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s;
+    justify-content: center;
 }
 
 .row-star {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0;
+    line-height: 1;
+    color: var(--app-text-secondary);
     font-size: 1rem;
-}
-
-.row-play {
-    font-size: 1.1rem;
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity 0.15s,
+        color 0.15s;
 }
 
 .playlist-row:hover .row-star,
-.playlist-row:hover .row-play,
 .row-star.is-starred {
     opacity: 1;
 }
 
-.row-star.is-starred,
+/* Grey-but-filled, no accent: a favorite reads as favorite by the FILL alone —
+   see TrackFavoriteButton and unified-play-experience.md. */
 .row-star:hover,
-.row-play:hover {
-    color: var(--app-accent);
+.row-star:focus-visible {
+    opacity: 1;
+    color: var(--app-text-primary);
 }
 
 .col-songs,

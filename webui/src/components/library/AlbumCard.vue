@@ -193,12 +193,10 @@ const onCardDragStart = (event: DragEvent): void => {
     opacity: 1;
 }
 
-.card-star.is-starred {
-    color: var(--app-accent);
-}
-
+/* A favorite reads as favorite by the FILL alone, not by colour — see
+   TrackFavoriteButton and unified-play-experience.md. */
 .card-star:hover {
-    color: var(--app-accent);
+    color: var(--app-text-primary);
 }
 
 /* Inline play icon spanning the height of both text lines, revealed on hover. */

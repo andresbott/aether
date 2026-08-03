@@ -33,6 +33,10 @@ function onSelectLetter(offset: number): void {
                 <div class="header-row">
                     <div class="col-avatar"></div>
                     <div class="col-name">Artist</div>
+                    <!-- The favorite column is hover-revealed per row, so its header
+                         stays blank rather than labelling a usually-invisible
+                         control. -->
+                    <div class="col-star"></div>
                     <div class="col-count">Albums</div>
                 </div>
             </div>
@@ -64,16 +68,19 @@ function onSelectLetter(offset: number): void {
     flex-direction: column;
 }
 
+/* The top padding is the shared list-header gap — see --app-list-header-top. */
 .list-header {
     flex-shrink: 0;
     box-sizing: border-box;
+    padding-top: var(--app-list-header-top);
     padding-left: var(--app-content-gutter);
     padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
+/* Mirrors ArtistRow's grid template, favorite column included. */
 .header-row {
     display: grid;
-    grid-template-columns: 48px 1fr 7rem;
+    grid-template-columns: 48px 1fr 2rem 7rem;
     align-items: center;
     gap: 1rem;
     height: 36px;

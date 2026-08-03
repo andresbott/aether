@@ -53,11 +53,17 @@ const emit = defineEmits<{
             text
             @click="emit('queue')"
         />
+        <!-- `secondary` like the queue action beside it: a favorite reads as
+             favorite by the FILLED icon alone, not by colour — without a severity
+             this rendered in the primary accent in BOTH states, which said nothing
+             about the state and competed with the accent's real jobs (what is
+             playing, what is actionable). See unified-play-experience.md. -->
         <Button
             v-if="canStar"
             class="hero-action-star"
             :icon="starred ? 'pi pi-heart-fill' : 'pi pi-heart'"
             :aria-label="favoriteLabel"
+            severity="secondary"
             text
             rounded
             v-tooltip.bottom="favoriteLabel"

@@ -346,6 +346,10 @@ const {
     background-color: rgba(255, 255, 255, 0.07);
 }
 
+/* The one heart that KEEPS the accent. Everywhere else a favorite reads by the
+   fill alone (see TrackFavoriteButton), but this is a single heart on dark player
+   chrome rather than one of a list, so there is no row of accents to compete with
+   — and the accent is what makes it findable down there. */
 .now-like.liked {
     color: var(--app-accent);
 }

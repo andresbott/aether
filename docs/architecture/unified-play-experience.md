@@ -25,9 +25,20 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   toggle in the app uses that same icon pair and wording (`AlbumCard`, `ArtistCard`,
   `PlaylistCard`, `PlaylistListView`, `SongDetail`, `PlayerControls`, the Discovery
   *Favorites* section icon) — do not introduce a star glyph or "Like"/"Star" label.
+  The button is `severity="secondary"`: without one it rendered in the primary accent
+  in **both** states, saying nothing about the state.
+- **A favorite is signalled by the FILL, not by colour.** `pi-heart-fill` in the
+  same grey as the outline state (`--app-text-secondary`, hover
+  `--app-text-primary`) — no accent, no `danger` red. The accent has two other jobs
+  (what is playing, what is actionable) and a list of accent hearts competed with
+  both. **One deliberate exception:** `PlayerControls`' `.now-like.liked` keeps
+  `--app-accent`, because it is a single heart on dark player chrome rather than one
+  of a list, so nothing competes and the accent is what makes it findable. Don't
+  "unify" that one away, and don't reintroduce colour anywhere else.
 - **Grid cards** (`AlbumCard`, `ArtistCard`, `PlaylistCard`) share one `.card-star`
   pattern: `opacity: 0` by default, revealed by `.<entity>-card:hover`, and pinned
-  visible via `.is-starred` so a grid reads as a set of favorites at a glance. The cards
+  visible via `.is-starred` so a grid reads as a set of favorites at a glance.
+  `.is-starred` now controls **visibility only** — the fill carries the state. The cards
   are `router-link`s, so the handler must `preventDefault()` **and**
   `stopPropagation()` or the click navigates. Copy an existing card rather than
   inventing a fourth variant.
@@ -40,6 +51,26 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   `AlbumTrackRow`, `GenreTrackRow` (genre detail, search, playlist detail) and
   `QueueRow` in view mode. Edit mode gets no heart — that mode is for reordering
   and removal.
+- **Entity rows** (`AlbumRow`, `ArtistRow`, `PlaylistRow`) each own an inline
+  `.row-star` button rather than `TrackFavoriteButton`: they take an album/artist/
+  playlist, not a `Song`, and they need no optimistic flip — all three are
+  query-backed, so `useToggleStar`'s invalidation refreshes the heart. Same look and
+  wording, and the same swallow-the-click requirement (they are `router-link`s).
+  Playlists use `useTogglePlaylistStar` (the `playlistStar` extension), the other
+  two `useToggleStar`.
+- **The favorite column is a `2rem` grid track** in every list, and the row's
+  template must be mirrored by its list header or the columns drift apart. Four
+  pairs to keep in step: `AlbumRow` + `PlaylistRow` (identical
+  `48px 2fr 1.5fr 2rem 4rem 5rem`, so a Discovery feed interleaving them aligns)
+  against `AlbumListView`'s and `PlaylistListView`'s headers plus `DiscoveryFeed`'s
+  list header; and `ArtistRow` (`48px 1fr 2rem 7rem`) against `ArtistListView`'s.
+  A header cell for the star column stays **blank** — labelling a hover-revealed
+  control teaches nothing. Cells that a row might otherwise omit have to render
+  empty rather than `v-if` away (see `ArtistRow`'s album count), or the heart slides
+  into the next column.
+- **Entity rows carry no play button.** `PlaylistRow` had one and it was removed:
+  `AlbumRow` and `ArtistRow` have none, the row itself opens the entity, and play
+  lives on the grid cards and the detail hero.
 - **`useSongFavorite(song)`** — the one place a song's `starred` is read and
   written, behind every heart above plus `SongDetail` and (via
   `useCurrentTrackFavorite`) the player bar and the `L` shortcut. It flips

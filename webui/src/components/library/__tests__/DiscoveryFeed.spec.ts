@@ -128,6 +128,27 @@ describe('DiscoveryFeed', () => {
         expect(mountFeed().find('.discovery-sentinel').exists()).toBe(true)
     })
 
+    // The rows are the same AlbumRow/PlaylistRow the Albums tab uses, so the list
+    // needs the same column header — without it the columns are unlabelled.
+    it('renders a column header in list layout only', () => {
+        feed.items.value = [albumEntry(0)]
+        const list = mountFeed('list')
+        const header = list.find('.discovery-feed-list .list-header')
+        expect(header.exists()).toBe(true)
+        expect(header.text()).toContain('Title')
+        expect(header.text()).toContain('Artist')
+        expect(header.text()).toContain('Songs')
+        expect(header.text()).toContain('Duration')
+        // Grid layout has cards, not columns.
+        expect(mountFeed('grid').find('.list-header').exists()).toBe(false)
+    })
+
+    it('renders no header when there is nothing to list', () => {
+        expect(mountFeed('list').find('.list-header').exists()).toBe(false)
+        feed.isLoading.value = true
+        expect(mountFeed('list').find('.list-header').exists()).toBe(false)
+    })
+
     it('keys feed items by entity id so a rank shift moves rather than recreates them', async () => {
         // Build entries with fixed ids and different ranks.
         const entryA: DiscoveryFeedEntry = {

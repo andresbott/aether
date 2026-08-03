@@ -64,14 +64,17 @@ const onClick = (event: Event): void => {
         color 0.15s;
 }
 
+/* A favorite reads as favorite by the FILL alone, not by colour — the accent is
+   reserved for what is playing and for interactive affordances, and a list of
+   accent-coloured hearts competed with it. Same rule for every heart in the app;
+   see unified-play-experience.md. */
 .row-star.is-starred {
     opacity: 1;
-    color: var(--app-accent);
 }
 
 .row-star:hover,
 .row-star:focus-visible {
     opacity: 1;
-    color: var(--app-accent);
+    color: var(--app-text-primary);
 }
 </style>

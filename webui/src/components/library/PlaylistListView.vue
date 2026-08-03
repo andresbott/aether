@@ -2,7 +2,7 @@
 import type { Playlist } from '@/types/subsonic'
 import PlaylistRow from '@/components/library/PlaylistRow.vue'
 
-// Row rendering (cover, title, star, play, counts) lives in PlaylistRow so this
+// Row rendering (cover, title, star, counts) lives in PlaylistRow so this
 // view and the Discovery feed share one playlist row. This view only adds the
 // column header and the scroll container.
 defineProps<{ playlists: Playlist[] }>()
@@ -14,7 +14,10 @@ defineProps<{ playlists: Playlist[] }>()
         <div class="list-header">
             <span class="col-cover"></span>
             <span class="col-name">Playlist</span>
-            <span class="col-actions"></span>
+            <!-- Empty: stands in for AlbumRow's artist column, which a playlist has
+                 no value for, and for the hover-revealed favorite column. -->
+            <span class="col-artist"></span>
+            <span class="col-star"></span>
             <span class="col-count">Songs</span>
             <span class="col-duration">Length</span>
         </div>
@@ -28,7 +31,7 @@ defineProps<{ playlists: Playlist[] }>()
 .playlist-list { padding-top: 0; padding-bottom: 0; }
 .list-header {
     display: grid;
-    grid-template-columns: 48px 2fr 1.5fr 4rem 5rem;
+    grid-template-columns: 48px 2fr 1.5fr 2rem 4rem 5rem;
     align-items: center;
     gap: 1rem;
     padding: 0 0.5rem;

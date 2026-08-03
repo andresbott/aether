@@ -67,6 +67,14 @@
        rail (1.75rem) + its 1rem gap — also on views without a rail, so the
        content column sits at the same x on every view. */
     --app-rail-clearance: 2.75rem;
+    /* Breathing room above a list view's column header (Library → Albums /
+       Artists, Discover in list layout). It is applied INSIDE the header block,
+       not as padding on the scroll container above it: Discover's header is
+       `position: sticky`, and container padding would scroll away and collapse
+       the gap the moment the list moved. Keeping it on the header means the gap
+       is identical scrolled and unscrolled, and identical across all three
+       views. */
+    --app-list-header-top: 1rem;
 }
 
 /* Dark mode overrides. Only the colour tokens change; dimensions are inherited
