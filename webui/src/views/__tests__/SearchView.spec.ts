@@ -31,7 +31,10 @@ vi.mock('@/composables/useSubsonicQueries', async (importOriginal) => ({
     useSearch: (params: Ref<SearchParams>) => {
         lastSearchParams = params
         return { data: searchResult, isLoading, error: searchError }
-    }
+    },
+    // The song rows carry a favorite toggle, whose real mutation needs a
+    // VueQueryPlugin-provided client this spec has no use for.
+    useToggleStar: () => ({ mutate: vi.fn() })
 }))
 
 vi.mock('@/composables/usePlayer', () => ({

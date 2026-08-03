@@ -24,7 +24,10 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
         mutateAsync: replaceAsync,
         isPending: replaceIsPending
     }),
-    useTogglePlaylistStar: () => ({ mutate: vi.fn() })
+    useTogglePlaylistStar: () => ({ mutate: vi.fn() }),
+    // The track rows carry a favorite toggle of their own (per-song, not the
+    // playlist's), whose real mutation needs a query client this spec lacks.
+    useToggleStar: () => ({ mutate: vi.fn() })
 }))
 const updateMutate = vi.fn()
 // Invokes onSuccess so the component can re-baseline (clear dirty) after a save.

@@ -6,26 +6,54 @@ vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
 }))
 
+// The view-mode row carries a favorite toggle, whose real mutation needs a
+// vue-query client; `TrackFavoriteButton` has its own spec for the toggle itself.
+const starMutate = vi.fn()
+vi.mock('@/composables/useSubsonicQueries', () => ({
+    useToggleStar: () => ({ mutate: starMutate })
+}))
+
 import QueueRow from '@/components/layout/QueueRow.vue'
 import type { Song } from '@/types/subsonic'
 
 const song: Song = { id: '1', title: 'Track', artist: 'Artist', duration: 60 }
 
-const mountRow = (props: Record<string, unknown>) =>
+const mountRow = (props: Record<string, unknown>, over: Partial<Song> = {}) =>
     mount(QueueRow, {
-        props: { song, queueIndex: 4, ...props },
+        props: { song: { ...song, ...over }, queueIndex: 4, ...props },
         global: { plugins: [PrimeVue], directives: { tooltip: {} } }
     })
 
+// The view-mode row hosts the favorite toggle, so it cannot be a <button> (nested
+// buttons are invalid HTML) — it is a role="button" div instead.
+const viewRow = (w: ReturnType<typeof mountRow>) => w.find('div.queue-row[role="button"]')
+
 describe('QueueRow', () => {
-    it('normal mode renders a play button with no remove/delete control', async () => {
+    it('normal mode renders a play affordance with no remove/delete control', async () => {
         const w = mountRow({ editing: false })
-        expect(w.find('button.queue-row').exists()).toBe(true)
+        expect(viewRow(w).exists()).toBe(true)
+        expect(w.find('button.queue-row').exists()).toBe(false)
         expect(w.find('.delete-button').exists()).toBe(false)
         expect(w.find('input[type="checkbox"]').exists()).toBe(false)
         expect(w.find('.track-number').text()).toBe('5') // queueIndex 4 → position 5
-        await w.find('button.queue-row').trigger('click')
+        await viewRow(w).trigger('click')
         expect(w.emitted('play')).toHaveLength(1)
+    })
+
+    // The div replaced a real <button>, which activated on Enter/Space for free.
+    it('normal mode is keyboard-activatable like the button it replaced', async () => {
+        const w = mountRow({ editing: false })
+        expect(viewRow(w).attributes('tabindex')).toBe('0')
+        await viewRow(w).trigger('keydown', { key: 'Enter' })
+        await viewRow(w).trigger('keydown', { key: ' ' })
+        expect(w.emitted('play')).toHaveLength(2)
+    })
+
+    it('normal mode ignores other keys', async () => {
+        const w = mountRow({ editing: false })
+        await viewRow(w).trigger('keydown', { key: 'a' })
+        await viewRow(w).trigger('keydown', { key: 'ArrowDown' })
+        expect(w.emitted('play')).toBeUndefined()
     })
 
     it('edit mode renders a checkbox indicator, drag handle and delete, with no play affordance', () => {
@@ -117,9 +145,11 @@ describe('QueueRow', () => {
         expect(w.find('[role="option"]').attributes('aria-selected')).toBe('true')
     })
 
+    // useQueueDrop resolves drop positions from `[data-queue-index]` rects, so the
+    // attribute has to survive the button→div change.
     it('exposes the queue index on the normal-mode row for drop targeting', () => {
         const w = mountRow({ editing: false })
-        expect(w.find('button.queue-row').attributes('data-queue-index')).toBe('4')
+        expect(viewRow(w).attributes('data-queue-index')).toBe('4')
     })
 
     it('stacks the artist under the title by default', () => {
@@ -132,5 +162,47 @@ describe('QueueRow', () => {
         expect(view.find('.row-info').classes()).toContain('row-info--columns')
         const edit = mountRow({ editing: true, artistColumn: true })
         expect(edit.find('.row-info').classes()).toContain('row-info--columns')
+    })
+})
+
+describe('QueueRow favorite toggle', () => {
+    // Its own cell, not inside `.row-end` with the duration: two fixed-width
+    // columns line up down the list, one flex group drifts with each duration's
+    // text width.
+    it('renders the shared favorite toggle in its own cell in view mode', () => {
+        const w = mountRow({ editing: false })
+        expect(w.find('.row-star-cell .row-star').exists()).toBe(true)
+        expect(w.find('.row-end .row-star').exists()).toBe(false)
+    })
+
+    // The full Now Playing view is a real multi-column table, so the star column
+    // gets wider gutters there than in the narrow sidebar.
+    it('marks the row for the wider column layout with artistColumn', () => {
+        expect(
+            mountRow({ editing: false, artistColumn: true }).find('.queue-row').classes()
+        ).toContain('queue-row--columns')
+        expect(mountRow({ editing: false }).find('.queue-row').classes()).not.toContain(
+            'queue-row--columns'
+        )
+    })
+
+    // Edit mode is for reordering and removal; its row-end holds the drag handle
+    // and delete instead.
+    it('renders no favorite toggle in edit mode', () => {
+        expect(mountRow({ editing: true }).find('.row-star').exists()).toBe(false)
+    })
+
+    it('toggles the song with its current state', async () => {
+        const w = mountRow({ editing: false }, { starred: '2026-02-01T00:00:00Z' })
+        await w.find('.row-star').trigger('click')
+        expect(starMutate).toHaveBeenCalledWith({ id: '1', starred: true })
+    })
+
+    // The whole view-mode row is the play affordance, so the heart must swallow
+    // its click or starring would also start playback.
+    it('does not play the row when the heart is used', async () => {
+        const w = mountRow({ editing: false })
+        await w.find('.row-star').trigger('click')
+        expect(w.emitted('play')).toBeUndefined()
     })
 })

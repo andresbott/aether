@@ -259,10 +259,12 @@ registry** by `place` — `PlayerControls.shortcutAnchors.spec.ts` asserts every
 above-placed anchor, `AppSidebar.shortcutAnchor.spec.ts` every side-placed one —
 both derived from `SHORTCUTS`, so a newly added anchor cannot be missed by both.
 
-The favorite action is shared: `useCurrentTrackFavorite` owns the optimistic
-`starred` flip so the bar's heart and the `L` key cannot diverge. Anchors are
-asserted against the registry in `PlayerControls.shortcutAnchors.spec.ts`, so a
-renamed control cannot silently lose its badge.
+The favorite action is shared: `useSongFavorite` owns the optimistic `starred`
+flip, and `useCurrentTrackFavorite` is just that composable bound to the playing
+track, so the bar's heart, the `L` key and every track row's heart cannot
+diverge. Anchors are asserted against the registry in
+`PlayerControls.shortcutAnchors.spec.ts`, so a renamed control cannot silently
+lose its badge.
 
 ## Styling
 

@@ -31,6 +31,23 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   are `router-link`s, so the handler must `preventDefault()` **and**
   `stopPropagation()` or the click navigates. Copy an existing card rather than
   inventing a fourth variant.
+- **Track rows** render **`TrackFavoriteButton`** (`components/library/`) — one
+  component, not a per-row copy of the card pattern. It owns the icon pair, the
+  wording, the `.row-star`/`.is-starred` classes and the click swallowing (both
+  `click` and `dblclick`: rows select on one and play on the other). Each host row
+  supplies only its own reveal rule (`.<row>:hover .row-star { opacity: 1 }`),
+  because the hover selector is row-specific while nothing else is. Hosts:
+  `AlbumTrackRow`, `GenreTrackRow` (genre detail, search, playlist detail) and
+  `QueueRow` in view mode. Edit mode gets no heart — that mode is for reordering
+  and removal.
+- **`useSongFavorite(song)`** — the one place a song's `starred` is read and
+  written, behind every heart above plus `SongDetail` and (via
+  `useCurrentTrackFavorite`) the player bar and the `L` shortcut. It flips
+  `song.starred` locally as well as mutating, because the play queue is plain
+  reactive state with no query to refetch. **That means a row must be handed the
+  actual song object** — `QueueBody` passes `{ song, queueIndex }` rather than
+  spreading the song, or the optimistic write would land on a throwaway copy and
+  the heart would snap back.
 - **`HeroHeader` `#actions` slot** — the placement + the read-mode `v-if` gate.
 
 ## Applicability per view
@@ -47,6 +64,11 @@ songs and playlists. Genres and radio stations are **not** starrable in the Open
 standard or in any Aether extension, so they get no toggle (see
 [`../agents/subsonic-api.md`](../agents/subsonic-api.md), "Favorites"). Add-to-queue only
 where the entity expands to a track list (albums, artists, playlists).
+
+A hero Favorite and a track-row Favorite are **different entities** on the same view:
+AlbumView's hero star is the album's, its row hearts are each track's. A view listing
+songs therefore has row hearts regardless of whether it has a hero — Search and the
+queue have no hero and still star their tracks.
 
 ## Deliberately out of scope
 

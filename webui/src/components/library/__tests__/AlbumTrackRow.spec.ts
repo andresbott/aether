@@ -1,15 +1,27 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+
+// The row's favorite toggle mutates through vue-query; stub it so the row needs
+// no VueQueryPlugin. `TrackFavoriteButton` has its own spec for the toggle.
+const starMutate = vi.fn()
+vi.mock('@/composables/useSubsonicQueries', () => ({
+    useToggleStar: () => ({ mutate: starMutate })
+}))
+
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import type { Song } from '@/types/subsonic'
 
 const song = { id: 's1', title: 'Song One', artist: 'The Artist', duration: 125, track: 4 } as Song
 
-const mountRow = (props: Partial<{ selected: boolean }> = {}) =>
+const mountRow = (props: Partial<{ selected: boolean }> = {}, over: Partial<Song> = {}) =>
     mount(AlbumTrackRow, {
-        props: { song, index: 0, ...props },
+        props: { song: { ...song, ...over }, index: 0, ...props },
         global: { directives: { tooltip: {} } }
     })
+
+beforeEach(() => {
+    starMutate.mockReset()
+})
 
 describe('AlbumTrackRow', () => {
     it('is draggable and shows track number, title, artist and duration columns', () => {
@@ -56,5 +68,28 @@ describe('AlbumTrackRow', () => {
         await w.trigger('dragend')
         expect(w.emitted('dragstart')).toHaveLength(1)
         expect(w.emitted('dragend')).toHaveLength(1)
+    })
+})
+
+describe('AlbumTrackRow favorite toggle', () => {
+    it('renders the shared favorite toggle in its own column', () => {
+        const w = mountRow()
+        expect(w.find('.col-star .row-star').exists()).toBe(true)
+    })
+
+    it('toggles the song with its current state', async () => {
+        const w = mountRow({}, { starred: '2026-02-01T00:00:00Z' })
+        await w.find('.row-star').trigger('click')
+        expect(starMutate).toHaveBeenCalledWith({ id: 's1', starred: true })
+    })
+
+    // The row selects on click and plays on double-click, so the heart must
+    // swallow both or starring would also select or start playback.
+    it('does not select or play the row when the heart is used', async () => {
+        const w = mountRow()
+        await w.find('.row-star').trigger('click')
+        await w.find('.row-star').trigger('dblclick')
+        expect(w.emitted('select')).toBeUndefined()
+        expect(w.emitted('play')).toBeUndefined()
     })
 })

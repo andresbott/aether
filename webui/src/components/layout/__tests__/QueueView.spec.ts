@@ -44,6 +44,12 @@ vi.mock('@/lib/api/subsonic', () => ({
 
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
+// Queue rows carry a favorite toggle, whose real mutation needs a
+// VueQueryPlugin-provided client this spec has no use for.
+vi.mock('@/composables/useSubsonicQueries', () => ({
+    useToggleStar: () => ({ mutate: vi.fn() })
+}))
+
 const sortableCreate = vi.fn(() => ({ destroy: vi.fn() }))
 vi.mock('sortablejs', () => ({
     default: { create: (...args: unknown[]) => sortableCreate(...(args as [])) }
@@ -136,6 +142,49 @@ describe('QueueView', () => {
         const w = mountView('sidebar')
         await w.find('.queue-upcoming .queue-row').trigger('click')
         expect(playQueueItem).toHaveBeenCalledWith(2)
+    })
+
+    // The rows must be handed the queue's own song objects, not `{ ...song }`
+    // copies: the favorite toggle writes `starred` straight onto them, because the
+    // queue is plain reactive state with no query to refetch.
+    it('starring a queue row writes through to the queue song', async () => {
+        const w = mountView('sidebar')
+        await w.find('.queue-upcoming .row-star').trigger('click')
+        expect(typeof queue.value[2].starred).toBe('string')
+        expect(queue.value[0].starred).toBeUndefined()
+    })
+
+    it('a starred queue row renders a filled heart', () => {
+        queue.value = [song('1'), song('2'), song('3', { starred: '2026-02-01T00:00:00Z' })]
+        const w = mountView('sidebar')
+        const heart = w.find('.queue-upcoming .row-star')
+        expect(heart.classes()).toContain('is-starred')
+        expect(heart.find('i').classes()).toContain('pi-heart-fill')
+    })
+
+    // The now-playing track is a track like any other and needs the same heart;
+    // the compact strip is a hand-rolled row, so it does not get one from QueueRow.
+    // It sits inside `.strip-info`, on its own line below the title/artist/album
+    // stack rather than in a star column — the strip is a stacked block, not a row.
+    it('the sidebar now-playing strip carries a favorite toggle under its text', async () => {
+        const w = mountView('sidebar')
+        expect(w.find('.strip-info .strip-star .row-star').exists()).toBe(true)
+        await w.find('.now-playing-strip .row-star').trigger('click')
+        expect(typeof queue.value[1].starred).toBe('string')
+    })
+
+    it('the strip heart reflects the current track state', () => {
+        queue.value = [song('1'), song('2', { starred: '2026-02-01T00:00:00Z' }), song('3')]
+        const w = mountView('sidebar') // currentIndex = 1
+        expect(w.find('.strip-star .row-star i').classes()).toContain('pi-heart-fill')
+    })
+
+    // The full variant's SongDetail card carries its own, so a second one here
+    // would be a duplicate affordance for the same track.
+    it('the full variant has no strip star (SongDetail owns it there)', () => {
+        const w = mountView('full')
+        expect(w.find('.now-playing-strip').exists()).toBe(false)
+        expect(w.find('.strip-star').exists()).toBe(false)
     })
 
     it('has no per-row remove control outside edit mode', () => {

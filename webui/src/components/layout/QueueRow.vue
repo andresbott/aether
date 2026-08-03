@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Button from 'primevue/button'
+import TrackFavoriteButton from '@/components/library/TrackFavoriteButton.vue'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
@@ -41,6 +42,16 @@ const formatDuration = (seconds?: number): string => {
 
 const onRowClick = (event: MouseEvent): void => {
     emit('select', { additive: event.ctrlKey || event.metaKey, range: event.shiftKey })
+}
+
+// The view-mode row is a `role="button"` div rather than a real <button>, because
+// it now contains the favorite toggle and nested buttons are invalid HTML (and
+// swallow clicks unpredictably). Enter/Space are therefore wired by hand — a
+// real button got them for free.
+const onRowKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    emit('play')
 }
 </script>
 
@@ -99,12 +110,20 @@ const onRowClick = (event: MouseEvent): void => {
         </span>
     </div>
 
-    <button
+    <!-- A div with role="button", not a <button>: the favorite toggle is a button
+         itself, and nesting one inside another is invalid HTML. onRowKeydown
+         restores the Enter/Space activation a real button provided. Edit mode
+         above keeps its own row and gets no heart — that mode is for reordering
+         and removal. -->
+    <div
         v-else
-        type="button"
+        role="button"
+        tabindex="0"
         class="queue-row"
+        :class="{ 'queue-row--columns': artistColumn }"
         :data-queue-index="queueIndex"
         @click="emit('play')"
+        @keydown="onRowKeydown"
         @mouseenter="hovered = true"
         @mouseleave="hovered = false"
     >
@@ -120,10 +139,14 @@ const onRowClick = (event: MouseEvent): void => {
             <span class="row-title">{{ song.title }}</span>
             <span class="row-artist">{{ song.artist || 'Unknown' }}</span>
         </span>
+        <!-- Two separate cells, not one flex group: the heart and the duration are
+             each their own fixed-width column, so they line up down the list
+             instead of drifting with each duration's text width. -->
+        <span class="row-star-cell"><TrackFavoriteButton :song="song" /></span>
         <span class="row-end">
             <span class="row-duration">{{ formatDuration(song.duration) }}</span>
         </span>
-    </button>
+    </div>
 </template>
 
 <style scoped>
@@ -143,6 +166,13 @@ const onRowClick = (event: MouseEvent): void => {
 
 .queue-row:hover {
     background-color: var(--app-hover);
+}
+
+/* The view-mode row is a focusable div (see template), so it needs the focus
+   ring a real <button> would have drawn. */
+.queue-row:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: -2px;
 }
 
 .queue-row--editing {
@@ -261,17 +291,48 @@ const onRowClick = (event: MouseEvent): void => {
     text-overflow: ellipsis;
 }
 
-.row-end {
-    position: relative;
-    width: 56px;
+/* The favorite toggle's own column, sized like the album/genre views' star column
+   so every track list in the app puts its heart at the same width. Separated from
+   the duration by the row gap, which is what makes it read as a column.
+   `queue-row--columns` widens it in the full Now Playing view, where the row is a
+   real multi-column table (artist beside the title) and the tighter sidebar
+   spacing reads as two glyphs crowded together rather than as columns. */
+.row-star-cell {
+    width: 2rem;
     flex-shrink: 0;
-    text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.row-end--editing {
+.row-end {
+    position: relative;
+    width: 40px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: flex-end;
+}
+
+/* Full Now Playing view: wider gutters around the star column so it reads as its
+   own column in a row that already has three text columns. */
+.queue-row--columns .row-star-cell {
+    width: 3rem;
+    margin-left: 0.75rem;
+}
+
+.queue-row--columns .row-end {
+    width: 56px;
+}
+
+.queue-row:hover :deep(.row-star),
+.queue-row:focus-visible :deep(.row-star) {
+    opacity: 1;
+}
+
+/* Edit mode carries the drag handle and delete instead of heart + duration, and
+   sizes to them rather than to the fixed view-mode width. */
+.row-end--editing {
     gap: 0.25rem;
     width: auto;
 }
