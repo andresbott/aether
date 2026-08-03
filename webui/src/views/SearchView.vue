@@ -2,19 +2,25 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import InputText from 'primevue/inputtext'
-import Checkbox from 'primevue/checkbox'
 import SelectButton from 'primevue/selectbutton'
+import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
+import GenreCard from '@/components/library/GenreCard.vue'
 import ArtistRow from '@/components/library/ArtistRow.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
+import GenreRow from '@/components/library/GenreRow.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
-import { useSearch } from '@/composables/useSubsonicQueries'
+import {
+    useSearch,
+    searchTermIsLongEnough,
+    MIN_SEARCH_LENGTH
+} from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
-import type { Album, Artist, Song } from '@/types/subsonic'
+import type { Album, Artist, Genre, Song } from '@/types/subsonic'
 
 type Layout = 'grid' | 'list'
 
@@ -27,13 +33,36 @@ const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelec
 
 const query = ref('')
 
-const searchArtists = ref(true)
-const searchAlbums = ref(true)
-const searchSongs = ref(true)
+// The scope is single-select: exactly one is always active, so unlike the old
+// checkboxes there is no "nothing selected" state to guard against.
+type Scope = 'all' | 'artists' | 'albums' | 'genres' | 'songs'
 
-const anyTypeSelected = computed(
-    () => searchArtists.value || searchAlbums.value || searchSongs.value
-)
+const scopeOptions: { label: string; value: Scope }[] = [
+    { label: 'All', value: 'all' },
+    { label: 'Artists', value: 'artists' },
+    { label: 'Albums', value: 'albums' },
+    { label: 'Genres', value: 'genres' },
+    { label: 'Songs', value: 'songs' }
+]
+
+const scope = ref<Scope>('all')
+
+const shows = (type: Exclude<Scope, 'all'>): boolean =>
+    scope.value === 'all' || scope.value === type
+
+// Reset puts the page back to how it loads: empty term, scope back to All.
+// Layout is deliberately left alone — it is a display preference the user set
+// (and it lives in the URL), not part of the search itself.
+const isPristine = computed(() => query.value === '' && scope.value === 'all')
+
+const resetSearch = (): void => {
+    query.value = ''
+    scope.value = 'all'
+    // The songs watcher only fires when the list actually changes, so clear the
+    // row selection here too — resetting from an empty result set must not leave
+    // stale indices behind.
+    clearSelection()
+}
 
 const layoutOptions = [
     { label: 'List', value: 'list', icon: 'pi pi-list' },
@@ -50,42 +79,68 @@ const layout = computed<Layout>({
     }
 })
 
+// A narrowed scope asks for MORE of the one type it shows: with the whole page
+// to itself, 24 albums would leave most of it empty. A zeroed count tells the
+// server to skip that query entirely.
 const searchParams = computed(() => ({
-    // An empty query keeps the search disabled when no type is selected.
-    query: anyTypeSelected.value ? query.value : '',
-    artistCount: searchArtists.value ? 24 : 0,
-    albumCount: searchAlbums.value ? 24 : 0,
-    songCount: searchSongs.value ? 50 : 0
+    query: query.value,
+    artistCount: shows('artists') ? (scope.value === 'all' ? 24 : 48) : 0,
+    albumCount: shows('albums') ? (scope.value === 'all' ? 24 : 48) : 0,
+    songCount: shows('songs') ? (scope.value === 'all' ? 50 : 100) : 0,
+    // "searchGenres" extension: 0 tells the server to omit genres entirely.
+    genreCount: shows('genres') ? (scope.value === 'all' ? 24 : 48) : 0
 }))
 
 const { data: results, isLoading, error } = useSearch(searchParams)
 
-const artists = computed<Artist[]>(() =>
-    searchArtists.value ? results.value?.artist || [] : []
-)
-const albums = computed<Album[]>(() =>
-    searchAlbums.value ? results.value?.album || [] : []
-)
-const songs = computed<Song[]>(() => (searchSongs.value ? results.value?.song || [] : []))
+// Gate on the scope as well as the payload: a scope change re-renders before the
+// narrowed request resolves, so the previous scope's cached results would flash
+// on screen for a frame.
+const artists = computed<Artist[]>(() => (shows('artists') ? results.value?.artist || [] : []))
+const albums = computed<Album[]>(() => (shows('albums') ? results.value?.album || [] : []))
+const songs = computed<Song[]>(() => (shows('songs') ? results.value?.song || [] : []))
+const genres = computed<Genre[]>(() => (shows('genres') ? results.value?.genre || [] : []))
 
-const hasQuery = computed(() => query.value.trim().length > 0 && anyTypeSelected.value)
+// A term shorter than the threshold is treated as "not searching yet", so the
+// view shows the prompt rather than a spurious "No results found".
+const hasQuery = computed(() => searchTermIsLongEnough(query.value))
+
+// Distinguishes "typed too little" from "typed nothing" so the prompt can say
+// what is missing instead of leaving the user waiting on a search that will
+// never fire.
+const termTooShort = computed(
+    () => query.value.trim().length > 0 && !searchTermIsLongEnough(query.value)
+)
 const hasResults = computed(
-    () => artists.value.length > 0 || albums.value.length > 0 || songs.value.length > 0
+    () =>
+        artists.value.length > 0 ||
+        albums.value.length > 0 ||
+        songs.value.length > 0 ||
+        genres.value.length > 0
+)
+
+// With a narrowed scope there is only ever one section, and the active button
+// already names it — a heading above it would just repeat the label.
+const showSectionLabels = computed(() => scope.value === 'all')
+
+// Naming the scope makes the empty state actionable ("no *artists*" invites
+// switching to All, where a plain "no results" reads as an empty library).
+const emptyMessage = computed(() =>
+    scope.value === 'all'
+        ? 'No results found'
+        : `No ${scopeOptions.find((o) => o.value === scope.value)?.label.toLowerCase()} found`
 )
 
 const summary = computed(() => {
     if (!hasQuery.value || isLoading.value || error.value) return ''
-    const parts: string[] = []
-    if (artists.value.length > 0) {
-        parts.push(`${artists.value.length} ${artists.value.length === 1 ? 'artist' : 'artists'}`)
-    }
-    if (albums.value.length > 0) {
-        parts.push(`${albums.value.length} ${albums.value.length === 1 ? 'album' : 'albums'}`)
-    }
-    if (songs.value.length > 0) {
-        parts.push(`${songs.value.length} ${songs.value.length === 1 ? 'song' : 'songs'}`)
-    }
-    return parts.join(' • ')
+    const counted = (n: number, singular: string, plural: string) =>
+        n > 0 ? [`${n} ${n === 1 ? singular : plural}`] : []
+    return [
+        ...counted(artists.value.length, 'artist', 'artists'),
+        ...counted(albums.value.length, 'album', 'albums'),
+        ...counted(genres.value.length, 'genre', 'genres'),
+        ...counted(songs.value.length, 'song', 'songs')
+    ].join(' • ')
 })
 
 // --- Song results (album-style rows with a cover column, as in the playlist view) ---
@@ -130,32 +185,50 @@ watch(songs, () => clearSelection())
                     <i class="pi pi-search search-icon"></i>
                     <InputText
                         v-model="query"
-                        placeholder="Search artists, albums, songs..."
+                        placeholder="Search artists, albums, genres, songs..."
                         class="search-input"
+                        :class="{ 'has-reset': !isPristine }"
                         autofocus
                     />
+                    <!-- Clears the term AND the type filters, so it stays useful
+                         when only a filter was changed; hidden when there is
+                         nothing to clear rather than sitting there disabled.
+                         The positioning lives on this span, not on the Button:
+                         PrimeVue's ripple directive writes `position: relative`
+                         as an INLINE style, which no stylesheet rule can beat,
+                         so an absolutely-positioned Button silently lays out in
+                         the flex flow and juts past the input's right edge. -->
+                    <span v-if="!isPristine" class="reset-search-slot">
+                        <Button
+                            class="reset-search"
+                            icon="pi pi-times"
+                            text
+                            rounded
+                            v-tooltip.bottom="'Reset search'"
+                            aria-label="Reset search"
+                            @click="resetSearch"
+                        />
+                    </span>
                 </span>
-                <div class="search-filters" role="group" aria-label="Search in">
-                    <label class="filter-option">
-                        <Checkbox v-model="searchArtists" binary inputId="search-artists" />
-                        <span>Artists</span>
-                    </label>
-                    <label class="filter-option">
-                        <Checkbox v-model="searchAlbums" binary inputId="search-albums" />
-                        <span>Albums</span>
-                    </label>
-                    <label class="filter-option">
-                        <Checkbox v-model="searchSongs" binary inputId="search-songs" />
-                        <span>Song titles</span>
-                    </label>
-                </div>
+                <SelectButton
+                    v-model="scope"
+                    :options="scopeOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    :allowEmpty="false"
+                    dataKey="value"
+                    class="search-filters"
+                    aria-label="Search in"
+                />
             </div>
 
             <div class="search-scroll">
                 <div v-if="!hasQuery" class="state-message">
                     <i class="pi pi-search" style="font-size: 3rem"></i>
-                    <p v-if="!anyTypeSelected">Select at least one type to search</p>
-                    <p v-else>Search your library by artist, album, or song</p>
+                    <p v-if="termTooShort">
+                        Keep typing — at least {{ MIN_SEARCH_LENGTH }} characters
+                    </p>
+                    <p v-else>Search your library by artist, album, genre, or song</p>
                 </div>
 
                 <div v-else-if="isLoading" class="state-message">
@@ -169,12 +242,12 @@ watch(songs, () => clearSelection())
 
                 <div v-else-if="!hasResults" class="state-message">
                     <i class="pi pi-search" style="font-size: 3rem"></i>
-                    <p>No results found</p>
+                    <p>{{ emptyMessage }}</p>
                 </div>
 
                 <div v-else class="search-content content-col">
                     <section v-if="artists.length > 0" class="result-section">
-                        <h2 class="section-label">Artists</h2>
+                        <h2 v-if="showSectionLabels" class="section-label">Artists</h2>
                         <div v-if="layout === 'grid'" class="artist-grid">
                             <ArtistCard v-for="artist in artists" :key="artist.id" :artist="artist" />
                         </div>
@@ -184,7 +257,7 @@ watch(songs, () => clearSelection())
                     </section>
 
                     <section v-if="albums.length > 0" class="result-section">
-                        <h2 class="section-label">Albums</h2>
+                        <h2 v-if="showSectionLabels" class="section-label">Albums</h2>
                         <div v-if="layout === 'grid'" class="album-grid">
                             <AlbumCard v-for="album in albums" :key="album.id" :album="album" />
                         </div>
@@ -193,8 +266,18 @@ watch(songs, () => clearSelection())
                         </div>
                     </section>
 
+                    <section v-if="genres.length > 0" class="result-section">
+                        <h2 v-if="showSectionLabels" class="section-label">Genres</h2>
+                        <div v-if="layout === 'grid'" class="genre-grid">
+                            <GenreCard v-for="genre in genres" :key="genre.value" :genre="genre" />
+                        </div>
+                        <div v-else class="row-list">
+                            <GenreRow v-for="genre in genres" :key="genre.value" :genre="genre" />
+                        </div>
+                    </section>
+
                     <section v-if="songs.length > 0" class="result-section">
-                        <h2 class="section-label">Songs</h2>
+                        <h2 v-if="showSectionLabels" class="section-label">Songs</h2>
                         <div class="track-list">
                             <div class="track-list-header">
                                 <span class="col-cover"></span>
@@ -268,22 +351,31 @@ watch(songs, () => clearSelection())
     border-radius: 9999px;
 }
 
-.search-filters {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 1.5rem;
+/* Keep the term clear of the reset button, which only exists while it can act. */
+.search-input.has-reset {
+    padding-right: 3.25rem;
 }
 
-.filter-option {
+/* Overlay the button on the input's right edge. This must sit on the wrapper
+   span rather than the Button — see the template comment. */
+.reset-search-slot {
+    position: absolute;
+    right: 0.5rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
+}
+
+.reset-search {
+    width: 2.25rem;
+    height: 2.25rem;
     color: var(--app-text-secondary);
-    cursor: pointer;
-    user-select: none;
+}
+
+/* Wraps on narrow viewports rather than overflowing the hero. */
+.search-filters {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 .search-scroll {
@@ -324,7 +416,8 @@ watch(songs, () => clearSelection())
 }
 
 .artist-grid,
-.album-grid {
+.album-grid,
+.genre-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     gap: 2rem;

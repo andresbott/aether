@@ -15,6 +15,13 @@ import type {
     InternetRadioStation
 } from '@/types/subsonic'
 
+// The subset of SearchParams that changes WHICH types a response carries, and so
+// has to take part in the search cache key.
+type SearchCounts = Pick<
+    SearchParams,
+    'artistCount' | 'albumCount' | 'songCount' | 'genreCount'
+>
+
 export const queryKeys = {
     ping: ['subsonic', 'ping'] as const,
     musicFolders: ['subsonic', 'musicFolders'] as const,
@@ -22,7 +29,20 @@ export const queryKeys = {
         ['subsonic', 'albumList', type, size, offset, musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
-    search: (query: string) => ['subsonic', 'search', query] as const,
+    // The requested per-type counts are part of the key, not just the term: a
+    // scoped search asks for a SUBSET (zeroed counts), so keying on the term
+    // alone would let a "songs only" response satisfy a later "everything"
+    // request from cache and permanently hide the other types.
+    search: (query: string, counts?: SearchCounts) =>
+        [
+            'subsonic',
+            'search',
+            query,
+            counts?.artistCount ?? 0,
+            counts?.albumCount ?? 0,
+            counts?.songCount ?? 0,
+            counts?.genreCount ?? 0
+        ] as const,
     // Prefix of every per-query search cache entry, for invalidating them all.
     searchAll: ['subsonic', 'search'] as const,
     playlists: ['subsonic', 'playlists'] as const,
@@ -83,11 +103,23 @@ export function useArtist(
     })
 }
 
+// Shortest term that hits the server. Every match is a leading-substring scan
+// (`%term%` over the *_norm columns), so one or two letters match most of the
+// library and cost a query per keystroke for a result nobody can use.
+export const MIN_SEARCH_LENGTH = 3
+
+// Trimmed, because whitespace is not a search term: "  a " must not read as 4
+// characters. The query key uses the same trimmed value so "rock" and "rock "
+// share one cache entry instead of issuing two identical requests.
+export function searchTermIsLongEnough(query: string): boolean {
+    return query.trim().length >= MIN_SEARCH_LENGTH
+}
+
 export function useSearch(params: Ref<SearchParams> | ComputedRef<SearchParams>) {
     return useQuery({
-        queryKey: computed(() => queryKeys.search(unref(params).query)),
-        queryFn: () => subsonicClient.search(unref(params)),
-        enabled: computed(() => unref(params).query.length > 0),
+        queryKey: computed(() => queryKeys.search(unref(params).query.trim(), unref(params))),
+        queryFn: () => subsonicClient.search({ ...unref(params), query: unref(params).query.trim() }),
+        enabled: computed(() => searchTermIsLongEnough(unref(params).query)),
         staleTime: 2 * 60 * 1000
     })
 }

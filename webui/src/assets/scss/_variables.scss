@@ -40,8 +40,12 @@
     --app-player-text: #d3dae2;
     /* Muted controls in the player bar (consumed in Step 4). */
     --app-player-dim: #6f7b88;
-    /* Scrubber / volume rail. */
+    /* Scrubber / volume rail: the unfilled groove, and the filled portion of an
+       idle rail. The fill only takes the accent while its rail is hovered or
+       dragged, so a resting player bar stays neutral — brighter than the groove
+       so the position is still readable without hovering. */
     --app-player-track: rgba(255, 255, 255, 0.18);
+    --app-player-range: #8b97a4;
     /* Font for the elapsed/total clock in the player bar. The hardware-flavoured
        hidden themes swap this for the mono stack. */
     --app-player-time-font: var(--font-sans);
@@ -89,4 +93,5 @@
     --app-player-text: #d7dee6;
     --app-player-dim: #6a7681;
     --app-player-track: rgba(255, 255, 255, 0.14);
+    --app-player-range: #7b8794;
 }

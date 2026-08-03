@@ -57,6 +57,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "indexBasedQueue",
 				"versions": []int{1},
 			},
+			{
+				"name":     "searchGenres",
+				"versions": []int{1},
+			},
 		},
 	})
 }

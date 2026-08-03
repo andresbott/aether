@@ -14,6 +14,10 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	albumOffset := paramInt(r, "albumOffset", 0)
 	songCount := paramInt(r, "songCount", 20)
 	songOffset := paramInt(r, "songOffset", 0)
+	// "searchGenres" extension. Default 0 so a client unaware of the extension
+	// never pays for a query whose results it cannot render.
+	genreCount := paramInt(r, "genreCount", 0)
+	genreOffset := paramInt(r, "genreOffset", 0)
 
 	filter := &store.SearchFilter{LibraryID: paramLibraryID(r)}
 
@@ -31,6 +35,14 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
+	}
+	var genres []store.GenreWithCounts
+	if genreCount > 0 {
+		genres, err = h.store.SearchGenres(query, genreCount, genreOffset, filter)
+		if err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
 	}
 
 	stars := newStarLookup(h.store, artistIDs(artists), albumIDs(albums), trackIDs(songs))
@@ -51,11 +63,23 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 		songList = append(songList, stars.applyTrack(trackToChild(&t, t.Album), t.ID))
 	}
 
+	result := map[string]any{
+		"artist": artistList,
+		"album":  albumList,
+		"song":   songList,
+	}
+	// The spec's SearchResult3 has no genre field, so the array is added only for
+	// a client that asked via the "searchGenres" extension; the standard shape
+	// stays byte-identical for everyone else.
+	if genreCount > 0 {
+		genreList := make([]map[string]any, 0, len(genres))
+		for _, g := range genres {
+			genreList = append(genreList, genreToMap(g))
+		}
+		result["genre"] = genreList
+	}
+
 	writeResponse(w, map[string]any{
-		"searchResult3": map[string]any{
-			"artist": artistList,
-			"album":  albumList,
-			"song":   songList,
-		},
+		"searchResult3": result,
 	})
 }

@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Thirteen extensions exist today — copy their shape.
+  Fourteen extensions exist today — copy their shape.
 - **Never route music features through `/api/v1`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -142,6 +142,38 @@ response shape was a deliberate design decision, so the reasoning is recorded he
   `TestDiscoveryFeedCandidateGatheringIsDeterministic`.
 - Albums render via a batched `GetAlbumsByIDs` + `AlbumTrackStats`; playlists reuse
   the same per-row pattern as `getPlaylists` (the pre-existing N+1 TODO.md tracks).
+
+## Search (`search3` + the `searchGenres` extension)
+
+`search.go` searches artists, albums and songs on a normalized substring match
+(`unidecode.Normalize` over the `*_norm` columns), each with its own
+`count`/`offset` pair. Genres are the one non-spec result type:
+
+- **`SearchResult3` has no `genre` field in the spec**, so genres are gated behind
+  the advertised `searchGenres` extension and a `genreCount` parameter that
+  **defaults to 0**. Without it the response is byte-identical to the standard
+  shape — *the `genre` key is absent entirely, not an empty array* — so a
+  third-party client neither pays for the query nor sees a field it cannot parse.
+  An explicit `genreCount` always emits the array, empty or not, so a client that
+  asked can tell "no matches" from "not supported". Regressions:
+  `TestSearch3OmitsGenresWithoutGenreCount`,
+  `TestSearch3EmitsEmptyGenreArrayWhenAsked`.
+- Entries are standard spec `Genre` objects built by `genreToMap`
+  (`browsing.go`), shared with `getGenres` so a genre looks identical wherever it
+  surfaces — including the `genreCoverArt` extension's `coverArt` id.
+- **`model.Genre` has no `name_norm` column, deliberately** — it is the one entity
+  whose search matches and sorts in Go (`Store.SearchGenres` normalizes with
+  `unidecode.Normalize` per row). Genres are few enough that `GetGenres` already
+  loads the whole table on every genres-view load, and a column would have to be
+  kept in step by every writer that renames a genre. Do not "optimize" this into a
+  column without a backfill: SQLite cannot `ALTER TABLE ... ADD NOT NULL` on an
+  existing table, and a nullable one would leave every existing genre
+  unsearchable until a rescan.
+- `song_count`/`album_count` come from `genreCountsSelect` (`store/genre.go`) and
+  are **library-independent by design**: a `musicFolderId` filter decides *which
+  genres match*, but a matched genre still reports its whole footprint, the same
+  number the genre pages show. Regression: `TestSearchGenresFiltersByLibrary`.
+- Genres are not starrable and carry no star state — see the favorites section.
 
 ## Parameter conventions
 
