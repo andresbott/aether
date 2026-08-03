@@ -49,25 +49,43 @@ vi.mock('@/composables/useArtistTable', () => ({
         error: ref(null)
     })
 }))
+const starredAlbumTotal = ref(4)
+const starredArtistTotal = ref(2)
+vi.mock('@/composables/useStarred', () => ({
+    useStarredAlbums: () => ({
+        total: computed(() => starredAlbumTotal.value),
+        letters: ref([]),
+        items: ref([]),
+        isLoading: ref(false),
+        error: ref(null)
+    }),
+    useStarredArtists: () => ({
+        total: computed(() => starredArtistTotal.value),
+        letters: ref([]),
+        items: ref([]),
+        isLoading: ref(false),
+        error: ref(null)
+    })
+}))
 
 const AlbumListStub = {
     name: 'AlbumListView',
-    props: ['folderId'],
+    props: ['folderId', 'favoritesOnly'],
     template: '<div class="album-list-stub" />'
 }
 const AlbumGridStub = {
     name: 'AlbumGrid',
-    props: ['folderId'],
+    props: ['folderId', 'favoritesOnly'],
     template: '<div class="album-grid-stub" />'
 }
 const ArtistListStub = {
     name: 'ArtistListView',
-    props: ['folderId'],
+    props: ['folderId', 'favoritesOnly'],
     template: '<div class="artist-list-stub" />'
 }
 const ArtistGridStub = {
     name: 'ArtistGrid',
-    props: ['folderId'],
+    props: ['folderId', 'favoritesOnly'],
     template: '<div class="artist-grid-stub" />'
 }
 const DiscoveryFeedStub = {
@@ -83,6 +101,7 @@ const mountView = () =>
     mount(LibraryView, {
         global: {
             plugins: [PrimeVue],
+            directives: { tooltip: {} },
             stubs: {
                 AlbumListView: AlbumListStub,
                 AlbumGrid: AlbumGridStub,
@@ -92,6 +111,16 @@ const mountView = () =>
             }
         }
     })
+
+// PrimeVue's SelectButton renders a ToggleButton per option, so finding by
+// component type would match the layout/tab toggles too — target the stable hook
+// class, and drive it with a real click rather than a synthetic emit.
+const favoritesToggle = (w: ReturnType<typeof mountView>) =>
+    w.find('.library-favorites-filter')
+
+// PrimeVue renders the on/off icon as a span, not an <i>.
+const favoriteIcon = (w: ReturnType<typeof mountView>) =>
+    favoritesToggle(w).find('.p-togglebutton-icon')
 
 const albumEntry = (rank: number): DiscoveryFeedEntry => ({
     type: 'album',
@@ -107,6 +136,8 @@ beforeEach(() => {
     route.query = {}
     foldersRef.value = [{ id: 1, name: 'Main' }]
     discoveryItems.value = []
+    starredAlbumTotal.value = 4
+    starredArtistTotal.value = 2
 })
 
 describe('LibraryView', () => {
@@ -179,6 +210,111 @@ describe('LibraryView', () => {
         foldersRef.value = [{ id: 1, name: 'Main', showArtists: true }]
         const w = mountView()
         expect(w.findAllComponents(SelectButton).length).toBe(2)
+    })
+})
+
+// The favorites filter is URL state (?favorites=1) like the layout, so it survives
+// a reload and is linkable, and it applies to Albums and Artists but not Discover.
+describe('LibraryView favorites filter', () => {
+    it('is off by default and passes favoritesOnly=false to the body', () => {
+        const w = mountView()
+        // Outline heart while off, filled while on — the app-wide favorites signal.
+        expect(favoriteIcon(w).classes()).toContain('pi-heart')
+        expect(favoriteIcon(w).classes()).not.toContain('pi-heart-fill')
+        expect(favoritesToggle(w).attributes('aria-pressed')).toBe('false')
+        expect(w.findComponent(AlbumGridStub).props('favoritesOnly')).toBe(false)
+    })
+
+    it('fills the heart while the filter is on', () => {
+        route.query = { favorites: '1' }
+        const w = mountView()
+        expect(favoriteIcon(w).classes()).toContain('pi-heart-fill')
+        expect(favoritesToggle(w).attributes('aria-pressed')).toBe('true')
+    })
+
+    it('labels the toggle by what clicking it will do', () => {
+        expect(favoritesToggle(mountView()).attributes('aria-label')).toBe('Show favorites only')
+        route.query = { favorites: '1' }
+        expect(favoritesToggle(mountView()).attributes('aria-label')).toBe('Show all')
+    })
+
+    it('reads ?favorites=1 and passes it to whichever body is active', () => {
+        route.query = { favorites: '1' }
+        expect(mountView().findComponent(AlbumGridStub).props('favoritesOnly')).toBe(true)
+
+        route.query = { favorites: '1', view: 'list' }
+        expect(mountView().findComponent(AlbumListStub).props('favoritesOnly')).toBe(true)
+
+        route.hash = '#artists'
+        route.query = { favorites: '1' }
+        expect(mountView().findComponent(ArtistGridStub).props('favoritesOnly')).toBe(true)
+
+        route.query = { favorites: '1', view: 'list' }
+        expect(mountView().findComponent(ArtistListStub).props('favoritesOnly')).toBe(true)
+    })
+
+    it('writes ?favorites=1 on enable and drops the key on disable, keeping the hash', async () => {
+        const w = mountView()
+        await favoritesToggle(w).trigger('click')
+        expect(replace).toHaveBeenCalledWith({
+            hash: '#albums',
+            query: { favorites: '1' }
+        })
+
+        replace.mockReset()
+        route.query = { favorites: '1' }
+        const on = mountView()
+        await favoritesToggle(on).trigger('click')
+        expect(replace).toHaveBeenCalledWith({ hash: '#albums', query: {} })
+    })
+
+    it('preserves the layout when the filter is toggled', async () => {
+        route.query = { view: 'list' }
+        const w = mountView()
+        await favoritesToggle(w).trigger('click')
+        expect(replace).toHaveBeenCalledWith({
+            hash: '#albums',
+            query: { view: 'list', favorites: '1' }
+        })
+    })
+
+    // "6 favorites", not "6 favorite albums": the active tab names the type, and the
+    // root header has no room for the longer form.
+    it('summarises the favorites count, pluralised', () => {
+        route.query = { favorites: '1' }
+        const albums = mountView().text()
+        expect(albums).toContain('4 favorites')
+        // Never the unfiltered library count while filtered.
+        expect(albums).not.toContain('1240')
+
+        starredAlbumTotal.value = 1
+        const single = mountView().text()
+        expect(single).toContain('1 favorite')
+        expect(single).not.toContain('1 favorites')
+
+        route.hash = '#artists'
+        const artists = mountView().text()
+        expect(artists).toContain('2 favorites')
+        expect(artists).not.toContain('87')
+    })
+
+    it('omits the summary when nothing is favorited', () => {
+        route.query = { favorites: '1' }
+        starredAlbumTotal.value = 0
+        const text = mountView().text()
+        expect(text).not.toContain('0 favorite')
+        // And it must not fall back to the unfiltered library count.
+        expect(text).not.toContain('1240')
+    })
+
+    it('hides the filter on Discover and ignores a stale ?favorites=1 there', () => {
+        route.params = {}
+        route.hash = '#discover'
+        route.query = { favorites: '1' }
+        const w = mountView()
+        expect(favoritesToggle(w).exists()).toBe(false)
+        // The feed is unfiltered, so the count is the feed's, not a favorites count.
+        expect(w.findComponent(DiscoveryFeedStub).exists()).toBe(true)
     })
 })
 

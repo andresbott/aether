@@ -99,7 +99,8 @@ const onCardDragStart = (event: DragEvent): void => {
     background: var(--app-bg-subtle);
 }
 
-/* Simple play icon spanning the height of both text lines, revealed on hover. */
+/* Simple play icon spanning the height of both text lines, dimmed until hover —
+   a card whose actions only appear on hover doesn't advertise that it has any. */
 .card-play {
     flex-shrink: 0;
     display: flex;
@@ -112,7 +113,7 @@ const onCardDragStart = (event: DragEvent): void => {
     color: var(--app-text-secondary);
     font-size: 2rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.4;
     transition: opacity 0.15s, color 0.15s;
 }
 

@@ -10,7 +10,13 @@ const state = {
     isLoading: ref(false),
     error: ref(null)
 }
-vi.mock('@/composables/useArtistTable', () => ({ useArtistTable: () => state }))
+const favoritesFlags: boolean[] = []
+vi.mock('@/composables/useLibrarySource', () => ({
+    useArtistSource: (_folderId: unknown, favoritesOnly: { value: boolean }) => {
+        favoritesFlags.push(favoritesOnly.value)
+        return state
+    }
+}))
 vi.mock('@/composables/useScrollbarWidth', () => ({ useScrollbarWidth: () => ref(10) }))
 
 const VirtualScrollerStub = {
@@ -25,15 +31,16 @@ const VirtualScrollerStub = {
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 
-const mountView = () =>
+const mountView = (props: { folderId?: number; favoritesOnly?: boolean } = { folderId: 1 }) =>
     mount(ArtistListView, {
-        props: { folderId: 1 },
+        props,
         global: { stubs: { VirtualScroller: VirtualScrollerStub } }
     })
 
 describe('ArtistListView', () => {
     beforeEach(() => {
         scrollToIndex.mockClear()
+        favoritesFlags.length = 0
     })
 
     it('passes the index letters to the alphabet rail', () => {
@@ -60,5 +67,20 @@ describe('ArtistListView', () => {
         const w = mountView()
         expect(w.text()).toContain('No artists found')
         state.total.value = 2
+    })
+
+    it('names the favorites filter in the empty state rather than claiming no artists exist', () => {
+        state.total.value = 0
+        const w = mountView({ folderId: 1, favoritesOnly: true })
+        expect(w.text()).toContain('No favorite artists yet')
+        expect(w.text()).not.toContain('No artists found')
+        state.total.value = 2
+    })
+
+    it('passes favoritesOnly through to the source (defaulting to false)', () => {
+        mountView({ folderId: 1 })
+        expect(favoritesFlags.at(-1)).toBe(false)
+        mountView({ folderId: 1, favoritesOnly: true })
+        expect(favoritesFlags.at(-1)).toBe(true)
     })
 })

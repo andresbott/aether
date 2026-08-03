@@ -68,8 +68,24 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
   the same numeric id.
 - A star lookup failure is deliberately non-fatal — the response degrades to "no
   star state" rather than failing an entire browse over an annotation.
-- Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions)
-  and `annotation_test.go` (the allowlist).
+- **`getStarred2` is a full browse response, not a bare id list.** Its albums
+  carry `songCount`/`duration` (via `AlbumTrackStats`) and its artists carry
+  `coverArt`/`albumCount` (via `GetArtistAlbumCounts`) — the same fields
+  `getAlbumList2` and `getArtists` emit, because the web UI's favorites filter
+  renders this response with the *same* rows and cards as the full library and
+  their count columns would otherwise be blank. If you add a field to those
+  endpoints' entities, add it here too.
+- **`getStarred2`'s albums and artists are `name_norm ASC`**, matching
+  `getAlbumList2`'s `alphabeticalByName` (`store.starredAlbums`/`starredArtists`).
+  This is load-bearing: the client derives the alphabet rail's letter buckets from
+  the returned order, so an unordered response silently breaks the rail. Starred
+  *playlists* keep their own order — star recency (`store/star.go`) — and are
+  deliberately **not** library-scoped, since a playlist can span libraries.
+- `getStarred2` is **unpaginated by the spec** — no `size`/`offset`. Don't add
+  them, and don't design a client view around them.
+- Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions,
+  plus the `getStarred2` enrichment/order and library-scoping cases) and
+  `annotation_test.go` (the allowlist).
 
 ## Play queue (`savePlayQueue` / `getPlayQueue` + the `indexBasedQueue` extension)
 

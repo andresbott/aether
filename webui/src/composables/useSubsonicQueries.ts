@@ -53,6 +53,9 @@ export const queryKeys = {
     radioStations: ['subsonic', 'radioStations'] as const,
     randomSongs: (size: number, musicFolderId?: number) =>
         ['subsonic', 'randomSongs', size, musicFolderId] as const,
+    // One entry per library scope covers every starred type: getStarred2 returns
+    // albums, artists, songs and playlists in a single unpaginated response.
+    starred: (musicFolderId?: number) => ['subsonic', 'starred', musicFolderId] as const,
     discovery: (seed: number, musicFolderId?: number) =>
         ['subsonic', 'discovery', seed, musicFolderId] as const
 }

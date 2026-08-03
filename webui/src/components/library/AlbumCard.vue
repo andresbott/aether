@@ -168,9 +168,10 @@ const onCardDragStart = (event: DragEvent): void => {
 }
 
 /*
- * Favorite toggle, revealed on hover like the play icon — except when the album
- * IS a favorite, where it stays visible so the grid reads as a set of favorites
- * at a glance. Mirrors PlaylistCard.
+ * Favorite toggle, always present but dimmed like the play icon until the card
+ * is hovered — a card whose actions only appear on hover doesn't advertise that
+ * it has any. A favorite is dimmed too: the FILL alone tells it apart, at any
+ * opacity. Mirrors PlaylistCard.
  */
 .card-star {
     flex-shrink: 0;
@@ -184,12 +185,11 @@ const onCardDragStart = (event: DragEvent): void => {
     color: var(--app-text-secondary);
     font-size: 1.1rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.4;
     transition: opacity 0.15s, color 0.15s;
 }
 
-.album-card:hover .card-star,
-.card-star.is-starred {
+.album-card:hover .card-star {
     opacity: 1;
 }
 
@@ -199,7 +199,7 @@ const onCardDragStart = (event: DragEvent): void => {
     color: var(--app-text-primary);
 }
 
-/* Inline play icon spanning the height of both text lines, revealed on hover. */
+/* Inline play icon spanning the height of both text lines, dimmed until hover. */
 .card-play {
     flex-shrink: 0;
     display: flex;
@@ -212,7 +212,7 @@ const onCardDragStart = (event: DragEvent): void => {
     color: var(--app-text-secondary);
     font-size: 2rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.4;
     transition: opacity 0.15s, color 0.15s;
 }
 

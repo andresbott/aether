@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import SelectButton from 'primevue/selectbutton'
+import ToggleButton from 'primevue/togglebutton'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlbumGrid from '@/components/library/AlbumGrid.vue'
@@ -11,6 +12,7 @@ import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
 import { useAlbumIndex } from '@/composables/useAlbumIndex'
 import { useArtistTable } from '@/composables/useArtistTable'
+import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
 
 type ViewMode = 'discover' | 'albums' | 'artists'
@@ -92,12 +94,33 @@ const layout = computed<Layout>({
     }
 })
 
-// Header counts — only the active tab's index is fetched (dedups with the body view).
+// Favorites filter, in the URL like the layout so it survives a reload and is
+// linkable. It applies to the Albums and Artists tabs only: Discover is a ranked
+// feed in which favorites are already a scoring term, not a filterable list.
+const favoritesOnly = computed<boolean>({
+    get: () => route.query.favorites === '1' && viewMode.value !== 'discover',
+    set: (v) => {
+        const query = { ...route.query }
+        if (v) query.favorites = '1'
+        else delete query.favorites
+        router.replace({ hash: route.hash, query })
+    }
+})
+
+// Header counts — only the active tab's ACTIVE SOURCE is fetched, so the count
+// never costs a request the body isn't already making (the pairs share a query
+// cache entry with the grid/list below).
 const { total: albumTotal } = useAlbumIndex(folderId, {
-    enabled: computed(() => viewMode.value === 'albums')
+    enabled: computed(() => viewMode.value === 'albums' && !favoritesOnly.value)
 })
 const { total: artistTotal } = useArtistTable(folderId, {
-    enabled: computed(() => viewMode.value === 'artists')
+    enabled: computed(() => viewMode.value === 'artists' && !favoritesOnly.value)
+})
+const { total: starredAlbumTotal } = useStarredAlbums(folderId, {
+    enabled: computed(() => viewMode.value === 'albums' && favoritesOnly.value)
+})
+const { total: starredArtistTotal } = useStarredArtists(folderId, {
+    enabled: computed(() => viewMode.value === 'artists' && favoritesOnly.value)
 })
 // Shares its query cache entry with the DiscoveryFeed in the body, so reading the
 // count here costs no extra request.
@@ -107,6 +130,14 @@ const summary = computed(() => {
     if (viewMode.value === 'discover') {
         const n = discoveryItems.value.length
         return n > 0 ? `${n} item${n === 1 ? '' : 's'}` : ''
+    }
+    // Filtered, the count is of favorites, and a bare "6 albums" would read as the
+    // whole library. "6 favorites" rather than "6 favorite albums" because the
+    // active tab already names the type, and the root route's header — three tabs
+    // plus two toggles — has no room for the longer form.
+    if (favoritesOnly.value) {
+        const n = viewMode.value === 'albums' ? starredAlbumTotal.value : starredArtistTotal.value
+        return n > 0 ? `${n} favorite${n === 1 ? '' : 's'}` : ''
     }
     if (viewMode.value === 'albums') {
         return albumTotal.value > 0
@@ -122,6 +153,22 @@ const summary = computed(() => {
 <template>
     <ContentScaffold :title="folderName" :summary="summary">
         <template #actions>
+            <!-- Favorites filter, first in the bar because it changes WHAT is
+                 listed while the two SelectButtons only change how. Hidden on
+                 Discover, which has no filterable list. Same heart pair and
+                 wording as every other favorite affordance. -->
+            <ToggleButton
+                v-if="viewMode !== 'discover'"
+                v-model="favoritesOnly"
+                class="library-favorites-filter"
+                onIcon="pi pi-heart-fill"
+                offIcon="pi pi-heart"
+                onLabel=""
+                offLabel=""
+                :aria-label="favoritesOnly ? 'Show all' : 'Show favorites only'"
+                :aria-pressed="favoritesOnly"
+                v-tooltip.bottom="favoritesOnly ? 'Show all' : 'Show favorites only'"
+            />
             <SelectButton
                 v-model="layout"
                 :options="layoutOptions"
@@ -149,9 +196,50 @@ const summary = computed(() => {
         <AlbumListView
             v-else-if="viewMode === 'albums' && layout === 'list'"
             :folderId="folderId"
+            :favoritesOnly="favoritesOnly"
         />
-        <AlbumGrid v-else-if="viewMode === 'albums'" :folderId="folderId" />
-        <ArtistListView v-else-if="layout === 'list'" :folderId="folderId" />
-        <ArtistGrid v-else :folderId="folderId" />
+        <AlbumGrid
+            v-else-if="viewMode === 'albums'"
+            :folderId="folderId"
+            :favoritesOnly="favoritesOnly"
+        />
+        <ArtistListView
+            v-else-if="layout === 'list'"
+            :folderId="folderId"
+            :favoritesOnly="favoritesOnly"
+        />
+        <ArtistGrid v-else :folderId="folderId" :favoritesOnly="favoritesOnly" />
     </ContentScaffold>
 </template>
+
+<style scoped>
+/* The filter is a state toggle, not a destructive action: it reads as one of the
+   header's controls, in the same grey as the unfilled hearts elsewhere, and only
+   the FILL says it is on — the app-wide favorites rule (see
+   docs/architecture/unified-play-experience.md). PrimeVue's checked ToggleButton
+   would otherwise come up in the primary accent, which is reserved for what is
+   playing and what is actionable. */
+.library-favorites-filter :deep(.p-togglebutton-content) {
+    color: var(--app-text-secondary);
+}
+
+.library-favorites-filter.p-togglebutton-checked :deep(.p-togglebutton-content) {
+    color: var(--app-text-primary);
+}
+
+/* An empty on/offLabel still renders a &nbsp; span, which would pad the button
+   wider than the icon-only SelectButtons beside it. Removing it (plus the label
+   gap and the default min-width) is what keeps the four header controls on one
+   line on the root route, which offers three tabs rather than two. */
+.library-favorites-filter :deep(.p-togglebutton-label) {
+    display: none;
+}
+
+.library-favorites-filter {
+    min-width: 0;
+}
+
+.library-favorites-filter :deep(.p-togglebutton-content) {
+    gap: 0;
+}
+</style>

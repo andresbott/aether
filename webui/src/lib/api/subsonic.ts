@@ -15,7 +15,8 @@ import type {
     Genre,
     InternetRadioStation,
     DiscoveryPage,
-    SavedPlayQueue
+    SavedPlayQueue,
+    Starred2
 } from '@/types/subsonic'
 
 class SubsonicClient {
@@ -144,6 +145,28 @@ class SubsonicClient {
             params
         )
         return response.albumList2Index ?? { total: 0, index: [] }
+    }
+
+    // Every favorite in one response — getStarred2 takes no size/offset by spec.
+    // The server orders albums and artists by name_norm ASC, matching
+    // getAlbumList2's alphabeticalByName, so the library views' alphabet rail
+    // works over the result unchanged.
+    async getStarred(musicFolderId?: number): Promise<Starred2> {
+        if (!this.isConfigured()) return { artist: [], album: [], song: [], playlist: [] }
+        const params: Record<string, string | number | undefined> = {}
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{ starred2?: Partial<Starred2> }>(
+            'getStarred2.view',
+            params
+        )
+        return {
+            artist: response.starred2?.artist ?? [],
+            album: response.starred2?.album ?? [],
+            song: response.starred2?.song ?? [],
+            playlist: response.starred2?.playlist ?? []
+        }
     }
 
     async getDiscovery(

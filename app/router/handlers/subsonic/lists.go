@@ -99,22 +99,43 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
-	starred, err := h.store.GetStarred(&store.StarredFilter{LibraryID: paramLibraryID(r)})
+	libraryID := paramLibraryID(r)
+	starred, err := h.store.GetStarred(&store.StarredFilter{LibraryID: libraryID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	stars := newStarLookup(h.store, artistIDs(starred.Artists), albumIDs(starred.Albums), trackIDs(starred.Tracks))
+	albumIDList := albumIDs(starred.Albums)
+	stars := newStarLookup(h.store, artistIDs(starred.Artists), albumIDList, trackIDs(starred.Tracks))
+	// Album/artist counts, the same ones getAlbumList2 and getArtists emit: the
+	// favorites list is rendered by the same rows/cards as the full library, and
+	// without these their count columns would sit empty.
+	albumCounts, err := h.store.GetArtistAlbumCounts(&store.ArtistsFilter{LibraryID: libraryID})
+	if err != nil {
+		albumCounts = make(map[uint]int)
+	}
 	artists := make([]map[string]any, 0, len(starred.Artists))
 	for _, a := range starred.Artists {
 		artists = append(artists, stars.applyArtist(map[string]any{
-			"id":   encodeArtistID(a.ID),
-			"name": a.Name,
+			"id":         encodeArtistID(a.ID),
+			"name":       a.Name,
+			"coverArt":   encodeArtistID(a.ID),
+			"albumCount": albumCounts[a.ID],
 		}, a.ID))
+	}
+	albumStats, err := h.store.AlbumTrackStats(albumIDList)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
 	}
 	albums := make([]map[string]any, 0, len(starred.Albums))
 	for _, al := range starred.Albums {
-		albums = append(albums, stars.applyAlbum(albumToMap(&al), al.ID))
+		m := stars.applyAlbum(albumToMap(&al), al.ID)
+		if st, ok := albumStats[al.ID]; ok {
+			m["songCount"] = st.Count
+			m["duration"] = st.Duration
+		}
+		albums = append(albums, m)
 	}
 	songs := make([]map[string]any, 0, len(starred.Tracks))
 	for _, t := range starred.Tracks {

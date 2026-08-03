@@ -38,6 +38,15 @@ When a view diverges from these registries, the registry wins.
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
   RadioStationGrid…) — don't fork a new grid.
+  The four library bodies (`AlbumGrid`, `AlbumListView`, `ArtistGrid`,
+  `ArtistListView`) take their data from **`useAlbumSource`/`useArtistSource`**
+  (`composables/useLibrarySource.ts`), not from `useAlbumTable`/`useArtistTable`
+  directly: those pick between the full library and the favorites subset
+  (`getStarred2`) behind one shared shape, so the components render either without
+  knowing which they got and the `favoritesOnly` prop is their only concession to
+  it. Both sources are instantiated and gated on `enabled` — composables can't be
+  called conditionally, and the source nobody is viewing must not fetch. Add a new
+  source (a genre filter, say) there rather than branching inside a body.
 - `composables/` — all non-trivial logic. Server state goes through
   TanStack query composables (`useSubsonicQueries.ts` with a central
   `queryKeys` map — add new keys there, don't inline key arrays).

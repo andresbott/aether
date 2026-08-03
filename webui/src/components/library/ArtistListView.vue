@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import VirtualScroller from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import ArtistRow from '@/components/library/ArtistRow.vue'
-import { useArtistTable } from '@/composables/useArtistTable'
+import { useArtistSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
 
-const { total, letters, items, isLoading, error } = useArtistTable(toRef(props, 'folderId'))
+const { total, letters, items, isLoading, error } = useArtistSource(
+    toRef(props, 'folderId'),
+    computed(() => props.favoritesOnly === true)
+)
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onSelectLetter(offset: number): void {
@@ -25,8 +28,9 @@ function onSelectLetter(offset: number): void {
             <p>Could not load artists</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i class="pi pi-users" style="font-size: 3rem"></i>
-            <p>No artists found</p>
+            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-users'" style="font-size: 3rem"></i>
+            <p v-if="favoritesOnly">No favorite artists yet</p>
+            <p v-else>No artists found</p>
         </div>
         <div v-else class="list-body">
             <div class="list-header">
@@ -40,8 +44,11 @@ function onSelectLetter(offset: number): void {
                     <div class="col-count">Albums</div>
                 </div>
             </div>
+            <!-- Keyed on folder + source: each is a different dataset, and a
+                 retained scroll offset from the previous one lands nowhere. -->
             <VirtualScroller
                 ref="scroller"
+                :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
                 :items="items"
                 :itemSize="56"
                 class="list-scroller"

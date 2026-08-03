@@ -291,6 +291,106 @@ func TestGetStarred2EmitsStarred(t *testing.T) {
 	wantStarred(t, res.Song, "Starred Song", "", f.at)
 }
 
+// The library views render the favorites list with the SAME rows and cards as the
+// full library, whose count columns and alphabet rail need these fields — so
+// getStarred2 has to carry them, not just id/name/starred.
+func TestGetStarred2EnrichesAlbumsAndArtists(t *testing.T) {
+	f := newStarFixture(t)
+	// Star the second album too, out of alphabetical order, to pin the ordering.
+	db := f.store.DB()
+	db.Create(&model.StarredItem{ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
+
+	srv := newTestServer(t, f.store)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Starred2 struct {
+				Artist []struct {
+					ID         string `json:"id"`
+					Name       string `json:"name"`
+					CoverArt   string `json:"coverArt"`
+					AlbumCount int    `json:"albumCount"`
+				} `json:"artist"`
+				Album []struct {
+					Name      string `json:"name"`
+					Artist    string `json:"artist"`
+					SongCount int    `json:"songCount"`
+					Duration  int    `json:"duration"`
+				} `json:"album"`
+			} `json:"starred2"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getStarred2.view", &body)
+	res := body.SubsonicResponse.Starred2
+
+	if len(res.Artist) != 1 {
+		t.Fatalf("expected 1 starred artist, got %+v", res.Artist)
+	}
+	artist := res.Artist[0]
+	if artist.CoverArt != encodeArtistID(f.artist.ID) {
+		t.Errorf("artist coverArt = %q, want %q", artist.CoverArt, encodeArtistID(f.artist.ID))
+	}
+	// Both fixture tracks live on album 1 and credit the starred artist.
+	if artist.AlbumCount != 1 {
+		t.Errorf("artist albumCount = %d, want 1", artist.AlbumCount)
+	}
+
+	if len(res.Album) != 2 {
+		t.Fatalf("expected 2 starred albums, got %+v", res.Album)
+	}
+	// name_norm ASC, so "Plain Album" precedes "Starred Album" — the same order
+	// getAlbumList2's alphabeticalByName uses, which the alphabet rail assumes.
+	if res.Album[0].Name != "Plain Album" || res.Album[1].Name != "Starred Album" {
+		t.Fatalf("albums not name-ordered: %+v", res.Album)
+	}
+	starredAlbum := res.Album[1]
+	if starredAlbum.SongCount != 2 {
+		t.Errorf("album songCount = %d, want 2", starredAlbum.SongCount)
+	}
+	if starredAlbum.Artist != "Starred Artist" {
+		t.Errorf("album artist = %q, want %q", starredAlbum.Artist, "Starred Artist")
+	}
+}
+
+// The favorites filter inside a library scopes by musicFolderId, so an entity with
+// no track in that library must drop out.
+func TestGetStarred2ScopesByLibrary(t *testing.T) {
+	f := newStarFixture(t)
+	db := f.store.DB()
+	db.Create(&model.Library{Name: "Other", Path: "/o"})
+	// album2 is starred but has no tracks at all, so no library claims it.
+	db.Create(&model.StarredItem{ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
+
+	srv := newTestServer(t, f.store)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Starred2 struct {
+				Artist []starredItem `json:"artist"`
+				Album  []starredItem `json:"album"`
+			} `json:"starred2"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getStarred2.view?musicFolderId=1", &body)
+	res := body.SubsonicResponse.Starred2
+
+	if len(res.Album) != 1 || res.Album[0].Name != "Starred Album" {
+		t.Fatalf("library 1 albums = %+v, want only 'Starred Album'", res.Album)
+	}
+	if len(res.Artist) != 1 || res.Artist[0].Name != "Starred Artist" {
+		t.Fatalf("library 1 artists = %+v, want only 'Starred Artist'", res.Artist)
+	}
+
+	// Library 2 holds no tracks, so nothing starred belongs to it.
+	decodeJSON(t, srv.URL+"/rest/getStarred2.view?musicFolderId=2", &body)
+	res = body.SubsonicResponse.Starred2
+	if len(res.Album) != 0 || len(res.Artist) != 0 {
+		t.Fatalf("library 2 should hold no favorites, got albums=%+v artists=%+v", res.Album, res.Artist)
+	}
+}
+
 func TestGetRandomSongsEmitStarred(t *testing.T) {
 	f := newStarFixture(t)
 	srv := newTestServer(t, f.store)
