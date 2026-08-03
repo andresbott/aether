@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useUiStore } from '@/store/uiStore'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
 
 const route = useRoute()
@@ -86,7 +87,20 @@ const navigateTo = (item: NavItem) => {
 
 const collapsed = computed(() => uiStore.sidebarCollapsed)
 
-// --- Easter egg: the wordmark's "e" unlocks the hidden themes -----------------
+// --- Brand: the header doubles as the "take me back" destination --------------
+// With something queued the natural home is Now Playing; with nothing queued
+// that view has nothing to show, so the library is the useful landing spot.
+const { queue } = usePlayer()
+
+const brandLabel = computed(() =>
+    queue.value.length > 0 ? 'Aether — go to Now Playing' : 'Aether — go to Library'
+)
+
+const goHome = (): void => {
+    router.push(queue.value.length > 0 ? '/' : '/library')
+}
+
+// --- Easter egg: the diamond mark unlocks the hidden themes -------------------
 // Five clicks inside EGG_WINDOW_MS reveal them in Settings → Profile and switch
 // to the first; every further burst cycles to the next. The burst window means
 // idle curiosity (a stray click) never trips it.
@@ -105,7 +119,10 @@ const resetEgg = (): void => {
     eggClicks.value = 0
 }
 
-const onBrandAccentClick = (): void => {
+// Deliberately does not stop propagation: the mark still navigates like the rest
+// of the brand, so the trigger stays indistinguishable from ordinary header
+// clicks. The repeated same-route pushes it causes are no-ops.
+const onBrandMarkClick = (): void => {
     clearTimeout(eggTimer)
     eggClicks.value += 1
 
@@ -137,16 +154,21 @@ onBeforeUnmount(resetEgg)
         <div class="sidebar-header">
             <template v-if="!collapsed">
                 <div class="header-content">
-                    <div class="brand">
-                        <span class="brand-mark">◈</span>
-                        <!-- The "e" is the easter-egg trigger. Left as a plain
-                             span, not a button: it must not be focusable or
-                             announced, or it stops being hidden. -->
-                        <h1 class="logo">A<span
-                            class="logo-accent"
-                            @click="onBrandAccentClick"
-                        >e</span>ther</h1>
-                    </div>
+                    <!-- The whole brand is the way back: Now Playing when there
+                         is a queue, the library when there is not. -->
+                    <button
+                        class="brand"
+                        type="button"
+                        :aria-label="brandLabel"
+                        @click="goHome"
+                    >
+                        <!-- The diamond is also the easter-egg trigger. It stays
+                             a plain span inside the button so it is neither
+                             separately focusable nor announced — advertising it
+                             would stop it being hidden. -->
+                        <span class="brand-mark" @click="onBrandMarkClick">◈</span>
+                        <span class="logo">A<span class="logo-accent">e</span>ther</span>
+                    </button>
                 </div>
             </template>
             <button
@@ -340,6 +362,12 @@ onBeforeUnmount(resetEgg)
     display: flex;
     align-items: center;
     gap: 0.625rem;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
 }
 
 .brand-mark {
@@ -357,9 +385,6 @@ onBeforeUnmount(resetEgg)
     white-space: nowrap;
 }
 
-/* Only the colour differs from the rest of the wordmark: no cursor or
-   selection override, so the click target is indistinguishable from ordinary
-   text and stays unadvertised. */
 .logo-accent {
     color: var(--app-nav-brand-alt);
 }

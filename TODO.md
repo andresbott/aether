@@ -88,14 +88,6 @@
 - [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
-- [] All music should also contain playlists, and add filters by genre and star valuation, move the libraries at same level, if only one library make it automatic; move all music to a new entry "discover"
-      (partial: `/discover` now exists as a single ranked album+playlist feed — `DiscoveryView`, served
-      by the `getDiscovery` extension; folding Library's "All Music" into it, the genre/star filters and
-      the library-level restructuring are still open)
-- the aeteher icon shoul go to play now if playing otherwise go to discover 
-- [x] search should also return genres 
-- [x] ~~sen't cover images are full images instead of optimized and cached~~ — done: `getCoverArt` never serves an original. Every response is a size-bucketed WebP/JPEG derivative from `<DataDir>/image-cache` (`internal/imagecache`), keyed by a source fingerprint so a changed cover rebuilds. Same mechanism, opt-in via `size`, for the editor's picture cells
-- [x] ~~change volume and progress to show handle only on hover~~ — done: an idle rail carries no colour at all — no knob, and the fill uses the neutral `--app-player-range` instead of the accent. Both take the accent only while the wrapper carries `rail-active` (hover or drag; `useRailDrag` in `PlayerControls.vue`). The speaker is now a mute toggle that restores the last non-zero volume (`toggleMute`/`isMuted` in `usePlayer.ts`)
 
 ## Frontend — Branding & Layout
 
