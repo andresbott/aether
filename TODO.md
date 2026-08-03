@@ -83,9 +83,6 @@
 
 ## Frontend — Player & Controls
 
-- [x] ~~Improve execution history and runtime task management~~ — done: `ExecutionHistory.vue` shows status/cancel per run, backend persists executions with list/cancel/logs endpoints (`/api/v1/tasks/executions`, `taskrunner` persistence)
-- [x] ~~Mute support in the player — clicking the volume icon toggles mute (preserving the previous volume level to restore on unmute)~~
-- [ ] Keyboard shortcuts — play/pause (space), next/previous track, volume up/down, mute, seek, toggle queue sidebar; add a help overlay listing them
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
 

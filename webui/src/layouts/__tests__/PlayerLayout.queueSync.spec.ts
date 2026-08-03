@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { reactive, ref } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 
 const route = reactive({ name: 'library', meta: { flush: true } })
 vi.mock('vue-router', () => ({
     useRoute: () => route,
+    // The layout's `/` shortcut navigates to the search view.
+    useRouter: () => ({ push: vi.fn() }),
     RouterView: { template: '<div class="router-outlet" />' },
     RouterLink: { template: '<a><slot /></a>' }
 }))
@@ -27,9 +30,21 @@ vi.mock('@/composables/useQueueSync', () => ({
 
 import PlayerLayout from '@/layouts/PlayerLayout.vue'
 
+// The layout's keyboard shortcuts reach the favorite mutation, which needs a
+// query client — the app installs VueQueryPlugin globally (main.ts).
 const mountLayout = () =>
     mount(PlayerLayout, {
         global: {
+            plugins: [
+                [
+                    VueQueryPlugin,
+                    {
+                        queryClient: new QueryClient({
+                            defaultOptions: { queries: { retry: false } }
+                        })
+                    }
+                ]
+            ],
             directives: { tooltip: {} },
             stubs: {
                 AppSidebar: true,

@@ -5,14 +5,20 @@ import Toast from 'primevue/toast'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import PlayerControls from '@/components/layout/PlayerControls.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
+import ShortcutHelpOverlay from '@/components/layout/ShortcutHelpOverlay.vue'
 import { useUiStore } from '@/store/uiStore'
 import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import { useQueueSync } from '@/composables/useQueueSync'
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
 
 const uiStore = useUiStore()
 const route = useRoute()
 const scrollbarWidth = useScrollbarWidth()
 const queueSync = useQueueSync()
+
+// Bound here rather than globally: these are player actions, and the settings
+// shell is a separate layout that deliberately gets none of them.
+useKeyboardShortcuts()
 
 onMounted(async () => {
     uiStore.checkScreenWidth()
@@ -37,10 +43,7 @@ onUnmounted(() => {
             <AppSidebar />
 
             <div class="content-area" :style="{ '--sb-w': scrollbarWidth + 'px' }">
-                <main
-                    class="main-content"
-                    :class="{ 'main-content--flush': route.meta.flush }"
-                >
+                <main class="main-content" :class="{ 'main-content--flush': route.meta.flush }">
                     <RouterView />
                 </main>
                 <QueueSidebar v-if="route.name !== 'home'" />
@@ -48,6 +51,8 @@ onUnmounted(() => {
         </div>
 
         <PlayerControls />
+        <!-- Last, so its badges measure a player bar that is already laid out. -->
+        <ShortcutHelpOverlay />
         <Toast />
     </div>
 </template>

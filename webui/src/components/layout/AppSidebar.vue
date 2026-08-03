@@ -85,6 +85,26 @@ const navigateTo = (item: NavItem) => {
     router.push(item.route)
 }
 
+// The keyboard-shortcut badge anchors. None of the nav shortcuts has a control in
+// the player bar, so the help overlay pins their badges to these nav entries and
+// finds them by `data-shortcut`.
+//
+// Applied to `primaryItems` and `libraryExtras`, and deliberately NOT to
+// `folderItems`: the per-folder entries share `routeName: 'library'` with the
+// root, so anchoring them too would let the overlay badge whichever it happened to
+// find first instead of the cross-collection root. That is also why this stays a
+// routeName lookup applied per loop rather than one blanket attribute.
+const NAV_SHORTCUT_ANCHORS: Record<string, string> = {
+    home: 'now-playing',
+    library: 'library',
+    search: 'search',
+    playlists: 'playlists',
+    genres: 'genres',
+    radio: 'radio'
+}
+
+const shortcutAnchor = (item: NavItem): string | undefined => NAV_SHORTCUT_ANCHORS[item.routeName]
+
 const collapsed = computed(() => uiStore.sidebarCollapsed)
 
 // --- Brand: the header doubles as the "take me back" destination --------------
@@ -183,10 +203,15 @@ onBeforeUnmount(resetEgg)
         </div>
 
         <nav class="sidebar-nav">
+            <!-- These entries carry the shortcut badges the help overlay pins:
+                 they are the only affordances that open those views (see
+                 NAV_SHORTCUT_ANCHORS). The per-folder loop below deliberately
+                 gets none. -->
             <button
                 v-for="item in primaryItems"
                 :key="item.routeName"
                 class="nav-item"
+                :data-shortcut="shortcutAnchor(item)"
                 :class="{ active: isActive(item) }"
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
@@ -216,6 +241,7 @@ onBeforeUnmount(resetEgg)
                 v-for="item in libraryExtras"
                 :key="item.route"
                 class="nav-item"
+                :data-shortcut="shortcutAnchor(item)"
                 :class="{ active: isActive(item) }"
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"

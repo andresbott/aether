@@ -3,12 +3,13 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import Slider from 'primevue/slider'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSidebar } from '@/composables/useQueueSidebar'
-import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { useCurrentTrackFavorite } from '@/composables/useCurrentTrackFavorite'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
 const { sidebarCollapsed, toggleSidebar } = useQueueSidebar()
-const toggleStar = useToggleStar()
+// Shared with the `L` shortcut so the heart and the key flip the same state.
+const { isStarred, toggleFavorite } = useCurrentTrackFavorite()
 
 const currentTrack = computed(() => player.currentTrack.value)
 
@@ -17,17 +18,6 @@ const nowCoverUrl = computed(() => {
     if (!art || !subsonicClient.isConfigured()) return null
     return subsonicClient.getCoverArtUrl(art, 96)
 })
-
-const isStarred = computed(() => !!currentTrack.value?.starred)
-
-const toggleLike = (): void => {
-    const track = currentTrack.value
-    if (!track) return
-    toggleStar.mutate({ id: track.id, starred: isStarred.value })
-    // Optimistic local flip so the heart updates immediately (currentTrack isn't
-    // query-backed, so it wouldn't otherwise reflect the change until reload).
-    track.starred = isStarred.value ? undefined : new Date().toISOString()
-}
 
 const formatTime = (seconds: number): string => {
     if (!seconds || !isFinite(seconds)) return '0:00'
@@ -156,12 +146,16 @@ const {
                     <div class="now-title">{{ currentTrack.title }}</div>
                     <div class="now-artist">{{ currentTrack.artist || 'Unknown' }}</div>
                 </div>
+                <!-- data-shortcut anchors the help overlay's key badge to this
+                     control; the overlay measures it live, so nothing here has
+                     to know about the badge. -->
                 <button
                     class="now-like"
+                    data-shortcut="favorite"
                     :class="{ liked: isStarred }"
                     type="button"
                     :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
-                    @click="toggleLike"
+                    @click="toggleFavorite"
                 >
                     <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
                 </button>
@@ -179,16 +173,18 @@ const {
                 </button>
                 <button
                     class="control-btn"
+                    data-shortcut="previous"
                     :disabled="!player.hasPrevious.value"
                     @click="player.playPrevious"
                 >
                     <i class="pi pi-step-backward"></i>
                 </button>
-                <button class="play-btn" @click="player.togglePlayPause">
+                <button class="play-btn" data-shortcut="play-pause" @click="player.togglePlayPause">
                     <i :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"></i>
                 </button>
                 <button
                     class="control-btn"
+                    data-shortcut="next"
                     :disabled="!player.hasNext.value"
                     @click="player.playNext"
                 >
@@ -205,9 +201,13 @@ const {
 
             <div class="progress-row">
                 <span class="time-label">{{ formatTime(player.currentTime.value) }}</span>
+                <!-- The anchor is the rail itself, not the row: the row also holds
+                     the two time labels, so a badge centred on it would miss the
+                     bar the arrows actually scrub. -->
                 <div
                     ref="progressRail"
                     class="progress-slider"
+                    data-shortcut="progress"
                     :class="{ 'rail-active': progressRailActive }"
                     @mousedown="onProgressRailMouseDown"
                     @mouseenter="onProgressRailEnter"
@@ -222,6 +222,7 @@ const {
         <div class="player-right">
             <button
                 class="control-btn volume-toggle"
+                data-shortcut="mute"
                 type="button"
                 :aria-label="player.isMuted.value ? 'Unmute' : 'Mute'"
                 @click="player.toggleMute"
@@ -231,6 +232,7 @@ const {
             <div
                 ref="volumeRail"
                 class="volume-slider"
+                data-shortcut="volume"
                 :class="{ 'rail-active': volumeRailActive }"
                 @mousedown="onVolumeRailMouseDown"
                 @mouseenter="onVolumeRailEnter"
@@ -240,6 +242,7 @@ const {
             </div>
             <button
                 class="control-btn queue-toggle"
+                data-shortcut="queue"
                 :class="{ active: !sidebarCollapsed }"
                 @click="toggleSidebar"
             >
