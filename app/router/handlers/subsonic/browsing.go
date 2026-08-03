@@ -180,13 +180,7 @@ func (h *Handler) getGenres(w http.ResponseWriter, r *http.Request) {
 	}
 	genreList := make([]map[string]any, 0, len(genres))
 	for _, g := range genres {
-		genreList = append(genreList, map[string]any{
-			"value":      g.Name,
-			"songCount":  g.SongCount,
-			"albumCount": g.AlbumCount,
-			// OpenSubsonic "genreCoverArt" extension: a cover-art id per genre.
-			"coverArt": encodeGenreID(g.ID),
-		})
+		genreList = append(genreList, genreToMap(g))
 	}
 	writeResponse(w, map[string]any{
 		"genres": map[string]any{
@@ -204,6 +198,18 @@ func firstLetter(name string) string {
 		}
 	}
 	return "#"
+}
+
+// genreToMap builds a spec Genre entry. Shared by getGenres and search3 so a
+// genre looks identical wherever it surfaces.
+func genreToMap(g store.GenreWithCounts) map[string]any {
+	return map[string]any{
+		"value":      g.Name,
+		"songCount":  g.SongCount,
+		"albumCount": g.AlbumCount,
+		// OpenSubsonic "genreCoverArt" extension: a cover-art id per genre.
+		"coverArt": encodeGenreID(g.ID),
+	}
 }
 
 func albumToMap(al *model.Album) map[string]any {

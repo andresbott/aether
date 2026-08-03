@@ -54,6 +54,7 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 		"playlistStats",
 		"discovery",
 		"indexBasedQueue",
+		"searchGenres",
 	}
 	if len(exts) != len(expected) {
 		t.Fatalf("expected %d extensions, got %d: %+v", len(expected), len(exts), exts)

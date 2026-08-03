@@ -137,6 +137,9 @@ export interface SearchResult3 {
     artist?: Artist[]
     album?: Album[]
     song?: Song[]
+    // Aether's "searchGenres" OpenSubsonic extension: present only when the
+    // request asked for genres via genreCount.
+    genre?: Genre[]
 }
 
 export interface AlbumList {
@@ -186,6 +189,9 @@ export interface SearchParams {
     albumOffset?: number
     songCount?: number
     songOffset?: number
+    // Aether's "searchGenres" OpenSubsonic extension; omitted/0 means no genres.
+    genreCount?: number
+    genreOffset?: number
 }
 
 export interface PlayerState {
