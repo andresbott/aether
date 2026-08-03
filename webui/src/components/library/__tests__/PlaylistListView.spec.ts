@@ -1,16 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-
-const { getPlaylist, playAlbum, scrobble } = vi.hoisted(() => ({
-    getPlaylist: vi.fn(),
-    playAlbum: vi.fn(),
-    scrobble: vi.fn()
-}))
+import { describe, it, expect, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
 
 vi.mock('@/lib/api/subsonic', () => ({
-    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '', getPlaylist, scrobble }
+    subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
 }))
-vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum }) }))
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useTogglePlaylistStar: () => ({ mutate: vi.fn() })
 }))
@@ -22,12 +15,6 @@ const playlists = [
     { id: 'pl1', name: 'Mix One', songCount: 3, duration: 600, created: '2025-01-01T00:00:00Z' },
     { id: 'pl2', name: 'Mix Two', songCount: 5, duration: 1200, created: '2025-01-02T00:00:00Z' }
 ]
-
-beforeEach(() => {
-    getPlaylist.mockReset()
-    playAlbum.mockReset()
-    scrobble.mockReset()
-})
 
 describe('PlaylistListView', () => {
     it('renders a row per playlist', () => {
@@ -54,12 +41,10 @@ describe('PlaylistListView', () => {
         expect(rows[1].find('.row-star').attributes('aria-label')).toBe('Remove from favorites')
     })
 
-    it('the row play button fetches and plays that playlist', async () => {
-        getPlaylist.mockResolvedValue({ id: 'pl2', entry: [{ id: 's9' }] })
+    // Removed deliberately: AlbumRow has no play button either, and the row itself
+    // opens the playlist. Play lives on the cards and on the detail view's hero.
+    it('has no per-row play button', () => {
         const w = mount(PlaylistListView, { props: { playlists }, global: { stubs } })
-        await w.findAll('.playlist-row')[1].find('.row-play').trigger('click')
-        await flushPromises()
-        expect(getPlaylist).toHaveBeenCalledWith('pl2')
-        expect(playAlbum).toHaveBeenCalledWith([{ id: 's9' }])
+        expect(w.find('.row-play').exists()).toBe(false)
     })
 })

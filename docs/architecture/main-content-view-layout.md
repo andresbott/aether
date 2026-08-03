@@ -133,7 +133,21 @@ handle scrollbar compensation at different depths.
 | `--app-content-max-width` | `1320px` | Inner content-box width of the column |
 | `--app-content-gutter` | `1rem` | Horizontal padding inside the column |
 | `--app-rail-clearance` | `2.75rem` | Alphabet-rail slot: rail 1.75rem + 1rem gap |
+| `--app-list-header-top` | `1rem` | Gap above a list view's column header |
 | `--sb-w` | measured px | Native scrollbar width |
+
+**`--app-list-header-top` goes on the header element, never on the scroll container
+above it.** Library → Albums and Artists have fixed headers where either would look
+the same, but Discover's list header is `position: sticky`: container padding
+scrolls away, so the gap would collapse the moment the list moved. Keeping it on the
+header makes the gap identical scrolled and unscrolled, and identical across all
+three views. On the sticky one that padding is also part of the header's opaque box,
+which is what masks rows sliding underneath — so the column underline sits on the
+inner `.header-row`, hugging the labels rather than the bottom of the padded box,
+and the container's own `padding-top` is zeroed so the two don't stack. Guarded off
+disk by `components/library/__tests__/list-header-padding.spec.ts` (scoped styles
+never apply under vue-test-utils, so no mounted test can catch it — and this
+particular regression looks correct on load and only breaks on scroll).
 
 **Global utility** (defined in `_main.scss`):
 

@@ -12,8 +12,12 @@ const state = {
     isLoading: ref(false),
     error: ref<unknown>(null)
 }
-vi.mock('@/composables/useArtistTable', () => ({
-    useArtistTable: () => ({ ...state })
+const favoritesFlags: boolean[] = []
+vi.mock('@/composables/useLibrarySource', () => ({
+    useArtistSource: (_folderId: unknown, favoritesOnly: { value: boolean }) => {
+        favoritesFlags.push(favoritesOnly.value)
+        return { ...state }
+    }
 }))
 
 let mountCount = 0
@@ -31,9 +35,9 @@ const VirtualCardGridStub = {
 
 import ArtistGrid from '@/components/library/ArtistGrid.vue'
 
-const mountGrid = () =>
+const mountGrid = (props: { folderId?: number; favoritesOnly?: boolean } = { folderId: 1 }) =>
     mount(ArtistGrid, {
-        props: { folderId: 1 },
+        props,
         global: { stubs: { VirtualCardGrid: VirtualCardGridStub, ArtistCard: true } }
     })
 
@@ -47,6 +51,7 @@ describe('ArtistGrid', () => {
         state.isLoading.value = false
         state.error.value = null
         mountCount = 0
+        favoritesFlags.length = 0
     })
 
     it('renders an ArtistCard per item through VirtualCardGrid', () => {
@@ -68,12 +73,32 @@ describe('ArtistGrid', () => {
 
     it('re-mounts the grid when the folder changes', async () => {
         mountCount = 0
-        const w = mount(ArtistGrid, {
-            props: { folderId: 1 },
-            global: { stubs: { VirtualCardGrid: VirtualCardGridStub, ArtistCard: true } }
-        })
+        const w = mountGrid({ folderId: 1 })
         expect(mountCount).toBe(1)
         await w.setProps({ folderId: 2 })
+        expect(mountCount).toBe(2)
+    })
+
+    it('names the favorites filter in the empty state rather than claiming no artists exist', () => {
+        state.total.value = 0
+        state.items.value = []
+        const w = mountGrid({ folderId: 1, favoritesOnly: true })
+        expect(w.text()).toContain('No favorite artists yet')
+        expect(w.text()).not.toContain('No artists found')
+    })
+
+    it('passes favoritesOnly through to the source (defaulting to false)', () => {
+        mountGrid({ folderId: 1 })
+        expect(favoritesFlags.at(-1)).toBe(false)
+        mountGrid({ folderId: 1, favoritesOnly: true })
+        expect(favoritesFlags.at(-1)).toBe(true)
+    })
+
+    it('re-mounts the grid when the favorites filter flips', async () => {
+        mountCount = 0
+        const w = mountGrid({ folderId: 1 })
+        expect(mountCount).toBe(1)
+        await w.setProps({ favoritesOnly: true })
         expect(mountCount).toBe(2)
     })
 })

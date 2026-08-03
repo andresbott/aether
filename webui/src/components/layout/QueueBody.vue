@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import SongDetail from '@/components/library/SongDetail.vue'
+import TrackFavoriteButton from '@/components/library/TrackFavoriteButton.vue'
 import QueueRow from '@/components/layout/QueueRow.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import { usePlayer } from '@/composables/usePlayer'
@@ -26,16 +27,21 @@ const {
 
 const trackCount = computed(() => player.queue.value.length)
 
+// The song is carried by REFERENCE, not spread into the row object: it is a
+// reactive member of the queue, and the row's favorite toggle writes `starred`
+// straight onto it (the queue is not query-backed, so nothing else would refresh
+// the heart). A `{ ...song }` copy would take that write to a throwaway object
+// and the heart would snap back on the next recompute.
 const historyRows = computed(() =>
     player.queue.value
         .slice(0, player.currentIndex.value)
-        .map((song, i) => ({ ...song, queueIndex: i }))
+        .map((song, i) => ({ song, queueIndex: i }))
 )
 
 const upcomingRows = computed(() =>
     player.queue.value
         .slice(player.currentIndex.value + 1)
-        .map((song, i) => ({ ...song, queueIndex: player.currentIndex.value + 1 + i }))
+        .map((song, i) => ({ song, queueIndex: player.currentIndex.value + 1 + i }))
 )
 
 const currentSong = computed(() => player.queue.value[player.currentIndex.value] ?? null)
@@ -130,8 +136,8 @@ onMounted(() => scrollCurrentIntoView('center'))
             <div v-if="historyRows.length" class="queue-history">
                 <QueueRow
                     v-for="row in historyRows"
-                    :key="row.id + ':' + row.queueIndex"
-                    :song="row"
+                    :key="row.song.id + ':' + row.queueIndex"
+                    :song="row.song"
                     :queue-index="row.queueIndex"
                     :artist-column="variant === 'full'"
                     @play="onPlayRow(row.queueIndex)"
@@ -167,6 +173,13 @@ onMounted(() => scrollCurrentIntoView('center'))
                         <div v-if="currentSong.album" class="strip-album">
                             {{ currentSong.album }}
                         </div>
+                        <!-- The now-playing track is a track like any other in the
+                             list, so it gets the same heart — but on its own line
+                             under the text rather than in a star column: the strip
+                             is a stacked block, not a table row, and the sidebar is
+                             too narrow to spend a column on it. The full variant
+                             needs none, since SongDetail's card carries its own. -->
+                        <span class="strip-star"><TrackFavoriteButton :song="currentSong" /></span>
                     </div>
                 </div>
             </div>
@@ -174,8 +187,8 @@ onMounted(() => scrollCurrentIntoView('center'))
             <div v-if="upcomingRows.length" class="queue-upcoming">
                 <QueueRow
                     v-for="row in upcomingRows"
-                    :key="row.id + ':' + row.queueIndex"
-                    :song="row"
+                    :key="row.song.id + ':' + row.queueIndex"
+                    :song="row.song"
                     :queue-index="row.queueIndex"
                     :artist-column="variant === 'full'"
                     @play="onPlayRow(row.queueIndex)"
@@ -385,5 +398,20 @@ onMounted(() => scrollCurrentIntoView('center'))
 .strip-album {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+}
+
+/* Own line below the title/artist/album stack, left-aligned with them. Always
+   visible — there is no row to hover here, and the strip is a single persistent
+   block rather than one of a list, so a hidden-until-hover heart would just be
+   hard to find. */
+.strip-star {
+    display: flex;
+    align-items: center;
+    margin-top: 0.35rem;
+}
+
+.strip-star :deep(.row-star) {
+    opacity: 1;
+    font-size: 1.1rem;
 }
 </style>

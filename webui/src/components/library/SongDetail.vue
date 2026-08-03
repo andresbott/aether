@@ -4,7 +4,8 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import type { Song } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
-import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
+import { useAlbum } from '@/composables/useSubsonicQueries'
+import { useSongFavorite } from '@/composables/useSongFavorite'
 
 const props = defineProps<{
     song: Song
@@ -98,11 +99,10 @@ const discLabel = computed(() => {
     return parts.join(' · ')
 })
 
-const toggleStar = useToggleStar()
-const isStarred = computed(() => !!props.song.starred)
-const toggleLike = () => {
-    toggleStar.mutate({ id: props.song.id, starred: isStarred.value })
-}
+// Shared with the player bar, the `L` shortcut and every track row, so the card's
+// heart and the row hearts cannot diverge — and so the now-playing card responds
+// on the tick even though the queue is not query-backed.
+const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.song)
 </script>
 
 <template>
@@ -179,11 +179,14 @@ const toggleLike = () => {
                         </div>
                     </dl>
 
+                    <!-- `secondary` in both states: a favorite reads as favorite by
+                         the FILLED icon alone, not by colour (it used to turn
+                         `danger` red) — see unified-play-experience.md. -->
                     <div class="card-actions">
                         <Button
                             :icon="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"
                             :label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
-                            :severity="isStarred ? 'danger' : 'secondary'"
+                            severity="secondary"
                             outlined
                             @click="toggleLike"
                         />

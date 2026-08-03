@@ -11,9 +11,13 @@ const state = {
     isLoading: ref(false),
     error: ref(null)
 }
-vi.mock('@/composables/useAlbumTable', () => ({
-    ALBUM_PAGE_SIZE: 100,
-    useAlbumTable: () => ({ ...state, ensureRange })
+vi.mock('@/composables/useAlbumTable', () => ({ ALBUM_PAGE_SIZE: 100 }))
+const favoritesFlags: boolean[] = []
+vi.mock('@/composables/useLibrarySource', () => ({
+    useAlbumSource: (_folderId: unknown, favoritesOnly: { value: boolean }) => {
+        favoritesFlags.push(favoritesOnly.value)
+        return { ...state, ensureRange }
+    }
 }))
 vi.mock('@/composables/useScrollbarWidth', () => ({ useScrollbarWidth: () => ref(10) }))
 
@@ -31,9 +35,9 @@ const VirtualScrollerStub = {
 import AlbumListView from '@/components/library/AlbumListView.vue'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 
-const mountView = () =>
+const mountView = (props: { folderId?: number; favoritesOnly?: boolean } = { folderId: 1 }) =>
     mount(AlbumListView, {
-        props: { folderId: 1 },
+        props,
         global: { stubs: { VirtualScroller: VirtualScrollerStub } }
     })
 
@@ -42,6 +46,7 @@ describe('AlbumListView', () => {
         state.total.value = 3
         ensureRange.mockClear()
         scrollToIndex.mockClear()
+        favoritesFlags.length = 0
     })
 
     it('renders the alphabet rail with the index letters', () => {
@@ -73,5 +78,19 @@ describe('AlbumListView', () => {
     it('runs the virtual scroller in lazy mode', () => {
         const w = mountView()
         expect(w.findComponent(VirtualScrollerStub).props('lazy')).toBe(true)
+    })
+
+    it('names the favorites filter in the empty state rather than claiming no albums exist', () => {
+        state.total.value = 0
+        const w = mountView({ folderId: 1, favoritesOnly: true })
+        expect(w.text()).toContain('No favorite albums yet')
+        expect(w.text()).not.toContain('No albums found')
+    })
+
+    it('passes favoritesOnly through to the source (defaulting to false)', () => {
+        mountView({ folderId: 1 })
+        expect(favoritesFlags.at(-1)).toBe(false)
+        mountView({ folderId: 1, favoritesOnly: true })
+        expect(favoritesFlags.at(-1)).toBe(true)
     })
 })

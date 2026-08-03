@@ -163,6 +163,15 @@ export interface ArtistIndex {
     items: Artist[]
 }
 
+// getStarred2. Unpaginated by spec — the whole favorites set arrives in one
+// response, so nothing built on it may assume an offset param exists.
+export interface Starred2 {
+    artist: Artist[]
+    album: Album[]
+    song: Song[]
+    playlist: Playlist[]
+}
+
 export interface ArtistInfo {
     biography?: string
     musicBrainzId?: string

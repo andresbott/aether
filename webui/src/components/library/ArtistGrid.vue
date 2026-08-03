@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
 import VirtualCardGrid from '@/components/library/VirtualCardGrid.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
-import { useArtistTable } from '@/composables/useArtistTable'
+import { useArtistSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
 
-const { total, letters, items, isLoading, error } = useArtistTable(toRef(props, 'folderId'))
+const { total, letters, items, isLoading, error } = useArtistSource(
+    toRef(props, 'folderId'),
+    computed(() => props.favoritesOnly === true)
+)
 </script>
 
 <template>
@@ -19,11 +22,20 @@ const { total, letters, items, isLoading, error } = useArtistTable(toRef(props, 
             <p>Could not load artists</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i class="pi pi-users" style="font-size: 3rem"></i>
-            <p>No artists found</p>
+            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-users'" style="font-size: 3rem"></i>
+            <p v-if="favoritesOnly">No favorite artists yet</p>
+            <p v-else>No artists found</p>
         </div>
-        <!-- lazyLoad not handled: useArtistTable returns a fully-materialized Artist[] with no paging. -->
-        <VirtualCardGrid v-else :key="folderId" :items="items" :letters="letters" :total="total">
+        <!-- lazyLoad not handled: both artist sources return a fully-materialized
+             Artist[] with no paging. Keyed on the source as well as the folder, so
+             switching to favorites remeasures instead of keeping the old range. -->
+        <VirtualCardGrid
+            v-else
+            :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
+            :items="items"
+            :letters="letters"
+            :total="total"
+        >
             <template #card="{ item }">
                 <ArtistCard v-if="item" :artist="item" />
             </template>

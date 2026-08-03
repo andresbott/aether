@@ -134,8 +134,9 @@ const onStar = (event: Event): void => {
 }
 
 /*
- * Favorite toggle, revealed on hover — except when the artist IS a favorite,
- * where it stays visible so the grid reads as a set of favorites at a glance.
+ * Favorite toggle, always present but dimmed until the card is hovered — a card
+ * whose actions only appear on hover doesn't advertise that it has any. A
+ * favorite is dimmed too: the FILL alone tells it apart, at any opacity.
  * Mirrors AlbumCard and PlaylistCard.
  */
 .card-star {
@@ -150,20 +151,17 @@ const onStar = (event: Event): void => {
     color: var(--app-text-secondary);
     font-size: 1.1rem;
     cursor: pointer;
-    opacity: 0;
+    opacity: 0.4;
     transition: opacity 0.15s, color 0.15s;
 }
 
-.artist-card:hover .card-star,
-.card-star.is-starred {
+.artist-card:hover .card-star {
     opacity: 1;
 }
 
-.card-star.is-starred {
-    color: var(--app-accent);
-}
-
+/* A favorite reads as favorite by the FILL alone, not by colour — see
+   TrackFavoriteButton and unified-play-experience.md. */
 .card-star:hover {
-    color: var(--app-accent);
+    color: var(--app-text-primary);
 }
 </style>

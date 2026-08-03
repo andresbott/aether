@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import TrackFavoriteButton from '@/components/library/TrackFavoriteButton.vue'
 import type { Song } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 
@@ -78,6 +79,7 @@ const onAlbumClick = (event: MouseEvent): void => {
             </router-link>
             <template v-else>{{ song.album }}</template>
         </span>
+        <span class="col-star"><TrackFavoriteButton :song="song" /></span>
         <span class="col-duration row-duration">{{ formatDuration(song.duration) }}</span>
     </div>
 </template>
@@ -154,6 +156,18 @@ const onAlbumClick = (event: MouseEvent): void => {
     justify-content: center;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: rgba(255, 255, 255, 0.8);
+}
+
+/* The favorite toggle is revealed by hovering the row; a track that IS a
+   favorite keeps its heart visible (`.is-starred`, styled in the button). */
+.col-star {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.genre-track-row:hover .col-star :deep(.row-star) {
+    opacity: 1;
 }
 
 .col-title,

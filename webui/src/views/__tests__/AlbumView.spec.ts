@@ -197,3 +197,23 @@ describe('AlbumView hero actions', () => {
         expect(w.find('.hero-header .hero-action-play').exists()).toBe(true)
     })
 })
+
+describe('AlbumView track favorites', () => {
+    it('gives every track row its own favorite toggle', () => {
+        const w = mountView()
+        expect(w.findAll('.album-track-row .row-star')).toHaveLength(2)
+    })
+
+    // The hero star is the ALBUM's; a row star is that track's. Sharing a mutation
+    // makes it easy to send the wrong id, so this pins the distinction.
+    it('a row heart stars the track, not the album', async () => {
+        const w = mountView()
+        await w.findAll('.album-track-row .row-star')[1].trigger('click')
+        expect(toggleStarMutate).toHaveBeenCalledWith({ id: 's2', starred: false })
+    })
+
+    it('the star column has a header cell so rows stay aligned', () => {
+        const w = mountView()
+        expect(w.find('.track-list-header .col-star').exists()).toBe(true)
+    })
+})

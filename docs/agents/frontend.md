@@ -38,6 +38,15 @@ When a view diverges from these registries, the registry wins.
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
   RadioStationGrid…) — don't fork a new grid.
+  The four library bodies (`AlbumGrid`, `AlbumListView`, `ArtistGrid`,
+  `ArtistListView`) take their data from **`useAlbumSource`/`useArtistSource`**
+  (`composables/useLibrarySource.ts`), not from `useAlbumTable`/`useArtistTable`
+  directly: those pick between the full library and the favorites subset
+  (`getStarred2`) behind one shared shape, so the components render either without
+  knowing which they got and the `favoritesOnly` prop is their only concession to
+  it. Both sources are instantiated and gated on `enabled` — composables can't be
+  called conditionally, and the source nobody is viewing must not fetch. Add a new
+  source (a genre filter, say) there rather than branching inside a body.
 - `composables/` — all non-trivial logic. Server state goes through
   TanStack query composables (`useSubsonicQueries.ts` with a central
   `queryKeys` map — add new keys there, don't inline key arrays).
@@ -259,10 +268,12 @@ registry** by `place` — `PlayerControls.shortcutAnchors.spec.ts` asserts every
 above-placed anchor, `AppSidebar.shortcutAnchor.spec.ts` every side-placed one —
 both derived from `SHORTCUTS`, so a newly added anchor cannot be missed by both.
 
-The favorite action is shared: `useCurrentTrackFavorite` owns the optimistic
-`starred` flip so the bar's heart and the `L` key cannot diverge. Anchors are
-asserted against the registry in `PlayerControls.shortcutAnchors.spec.ts`, so a
-renamed control cannot silently lose its badge.
+The favorite action is shared: `useSongFavorite` owns the optimistic `starred`
+flip, and `useCurrentTrackFavorite` is just that composable bound to the playing
+track, so the bar's heart, the `L` key and every track row's heart cannot
+diverge. Anchors are asserted against the registry in
+`PlayerControls.shortcutAnchors.spec.ts`, so a renamed control cannot silently
+lose its badge.
 
 ## Styling
 

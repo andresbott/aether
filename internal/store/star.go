@@ -69,7 +69,9 @@ func (s *Store) starredArtists(filter *StarredFilter) ([]model.Artist, error) {
 	}
 
 	var artists []model.Artist
-	if err := q.Find(&artists).Error; err != nil {
+	// Same name_norm ASC order as GetArtists: the favorites list is rendered by
+	// the same views as the full library, whose alphabet rail assumes it.
+	if err := q.Order("name_norm ASC").Find(&artists).Error; err != nil {
 		return nil, err
 	}
 	return artists, nil
@@ -90,7 +92,9 @@ func (s *Store) starredAlbums(filter *StarredFilter) ([]model.Album, error) {
 	}
 
 	var albums []model.Album
-	if err := q.Find(&albums).Error; err != nil {
+	// Same name_norm ASC order as GetAlbumList's alphabeticalByName, for the same
+	// reason as starredArtists.
+	if err := q.Order("name_norm ASC").Find(&albums).Error; err != nil {
 		return nil, err
 	}
 	return albums, nil

@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, toRef } from 'vue'
+import { computed, ref, toRef } from 'vue'
 import VirtualScroller from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import ArtistRow from '@/components/library/ArtistRow.vue'
-import { useArtistTable } from '@/composables/useArtistTable'
+import { useArtistSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
 
-const { total, letters, items, isLoading, error } = useArtistTable(toRef(props, 'folderId'))
+const { total, letters, items, isLoading, error } = useArtistSource(
+    toRef(props, 'folderId'),
+    computed(() => props.favoritesOnly === true)
+)
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
 function onSelectLetter(offset: number): void {
@@ -25,19 +28,27 @@ function onSelectLetter(offset: number): void {
             <p>Could not load artists</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i class="pi pi-users" style="font-size: 3rem"></i>
-            <p>No artists found</p>
+            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-users'" style="font-size: 3rem"></i>
+            <p v-if="favoritesOnly">No favorite artists yet</p>
+            <p v-else>No artists found</p>
         </div>
         <div v-else class="list-body">
             <div class="list-header">
                 <div class="header-row">
                     <div class="col-avatar"></div>
                     <div class="col-name">Artist</div>
+                    <!-- The favorite column is hover-revealed per row, so its header
+                         stays blank rather than labelling a usually-invisible
+                         control. -->
+                    <div class="col-star"></div>
                     <div class="col-count">Albums</div>
                 </div>
             </div>
+            <!-- Keyed on folder + source: each is a different dataset, and a
+                 retained scroll offset from the previous one lands nowhere. -->
             <VirtualScroller
                 ref="scroller"
+                :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
                 :items="items"
                 :itemSize="56"
                 class="list-scroller"
@@ -64,16 +75,19 @@ function onSelectLetter(offset: number): void {
     flex-direction: column;
 }
 
+/* The top padding is the shared list-header gap — see --app-list-header-top. */
 .list-header {
     flex-shrink: 0;
     box-sizing: border-box;
+    padding-top: var(--app-list-header-top);
     padding-left: var(--app-content-gutter);
     padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px) + var(--app-content-gutter));
 }
 
+/* Mirrors ArtistRow's grid template, favorite column included. */
 .header-row {
     display: grid;
-    grid-template-columns: 48px 1fr 7rem;
+    grid-template-columns: 48px 1fr 2rem 7rem;
     align-items: center;
     gap: 1rem;
     height: 36px;

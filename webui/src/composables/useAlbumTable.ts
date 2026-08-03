@@ -1,5 +1,5 @@
 import { ref, unref, watch } from 'vue'
-import type { Ref, ComputedRef } from 'vue'
+import type { Ref, ComputedRef, MaybeRefOrGetter } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { queryKeys } from '@/composables/useSubsonicQueries'
@@ -9,11 +9,12 @@ import { useAlbumIndex } from '@/composables/useAlbumIndex'
 export const ALBUM_PAGE_SIZE = 100
 
 export function useAlbumTable(
-    folderId: Ref<number | undefined> | ComputedRef<number | undefined>
+    folderId: Ref<number | undefined> | ComputedRef<number | undefined>,
+    options?: { enabled?: MaybeRefOrGetter<boolean> }
 ) {
     const queryClient = useQueryClient()
 
-    const { total, letters, isLoading, error } = useAlbumIndex(folderId)
+    const { total, letters, isLoading, error } = useAlbumIndex(folderId, options)
 
     const items = ref<(Album | undefined)[]>([])
     let loadedPages = new Set<number>()

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import TrackFavoriteButton from '@/components/library/TrackFavoriteButton.vue'
 import type { Song } from '@/types/subsonic'
 
 const props = defineProps<{
@@ -52,6 +53,7 @@ const onClick = (event: MouseEvent): void => {
         <!-- .row-title is read by the multi-song drag image builder. -->
         <span class="col-title row-title">{{ song.title }}</span>
         <span class="col-artist">{{ song.artist || 'Unknown' }}</span>
+        <span class="col-star"><TrackFavoriteButton :song="song" /></span>
         <span class="col-duration row-duration">{{ formatDuration(song.duration) }}</span>
     </div>
 </template>
@@ -114,6 +116,18 @@ const onClick = (event: MouseEvent): void => {
 
 .col-index {
     text-align: right;
+}
+
+/* The favorite toggle is revealed by hovering the row; a track that IS a
+   favorite keeps its heart visible (`.is-starred`, styled in the button). */
+.col-star {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.album-track-row:hover .col-star :deep(.row-star) {
+    opacity: 1;
 }
 
 .track-number {

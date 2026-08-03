@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { computed, toRef } from 'vue'
 import VirtualCardGrid from '@/components/library/VirtualCardGrid.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
-import { useAlbumTable, ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
+import { ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
+import { useAlbumSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
 
-const { total, letters, items, isLoading, error, ensureRange } = useAlbumTable(
-    toRef(props, 'folderId')
+const { total, letters, items, isLoading, error, ensureRange } = useAlbumSource(
+    toRef(props, 'folderId'),
+    computed(() => props.favoritesOnly === true)
 )
 
 function onLazyLoad(first: number, last: number): void {
@@ -25,12 +27,16 @@ function onLazyLoad(first: number, last: number): void {
             <p>Could not load albums</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i class="pi pi-music" style="font-size: 3rem"></i>
-            <p>No albums found</p>
+            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-music'" style="font-size: 3rem"></i>
+            <p v-if="favoritesOnly">No favorite albums yet</p>
+            <p v-else>No albums found</p>
         </div>
+        <!-- Keyed on the source too: switching between all albums and favorites
+             swaps the whole dataset, so the grid must remeasure rather than keep
+             the previous scroll offset and row range. -->
         <VirtualCardGrid
             v-else
-            :key="folderId"
+            :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
             :items="items"
             :letters="letters"
             :total="total"
