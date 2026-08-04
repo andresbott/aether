@@ -18,6 +18,30 @@ type AppCfg struct {
 	Msgs         []Msg
 	TaskRunner   TaskRunnerCfg
 	ArtistImages ArtistImagesCfg
+	Auth         AuthCfg
+}
+
+// Auth method values for AuthCfg.Method.
+const (
+	AuthMethodNone   = "none"   // no authentication required (current behavior)
+	AuthMethodNative = "native" // native users stored in the aether DB
+)
+
+// AuthCfg selects how users authenticate and seeds the initial admin.
+// AdminPassword may be plaintext or a bcrypt hash (recognized by its "$2"
+// prefix); like every config value it can come from config.yaml, env vars, or
+// an "@<path>" file reference. The admin is only created while the user store
+// is empty (idempotent bootstrap), so changing these values later has no
+// effect on an already-seeded store.
+type AuthCfg struct {
+	Method        string
+	AdminUser     string
+	AdminPassword string
+}
+
+// isBcryptHash reports whether s looks like a bcrypt hash ($2a$/$2b$/$2y$...).
+func isBcryptHash(s string) bool {
+	return strings.HasPrefix(s, "$2")
 }
 
 type TaskRunnerCfg struct {
@@ -123,6 +147,11 @@ var defaultCfg = AppCfg{
 		FanartApiKey:     "",
 		TheAudioDBApiKey: "",
 	},
+	Auth: AuthCfg{
+		Method:        AuthMethodNone,
+		AdminUser:     "admin",
+		AdminPassword: "admin",
+	},
 }
 
 // getAppCfg loads the configuration. An empty file means "defaults + env only".
@@ -165,6 +194,22 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 	// is returned verbatim, so trim surrounding whitespace/newlines.
 	cfg.ArtistImages.FanartApiKey = strings.TrimSpace(cfg.ArtistImages.FanartApiKey)
 	cfg.ArtistImages.TheAudioDBApiKey = strings.TrimSpace(cfg.ArtistImages.TheAudioDBApiKey)
+
+	cfg.Auth.Method = strings.ToLower(strings.TrimSpace(cfg.Auth.Method))
+	if cfg.Auth.Method != AuthMethodNone && cfg.Auth.Method != AuthMethodNative {
+		return cfg, fmt.Errorf("invalid auth method %q: must be %q or %q",
+			cfg.Auth.Method, AuthMethodNone, AuthMethodNative)
+	}
+	cfg.Auth.AdminUser = strings.TrimSpace(cfg.Auth.AdminUser)
+	cfg.Auth.AdminPassword = strings.TrimSpace(cfg.Auth.AdminPassword)
+	if cfg.Auth.Method == AuthMethodNative {
+		if cfg.Auth.AdminUser == "" {
+			return cfg, fmt.Errorf("auth method %q requires AdminUser", AuthMethodNative)
+		}
+		if cfg.Auth.AdminPassword == "" {
+			return cfg, fmt.Errorf("auth method %q requires AdminPassword", AuthMethodNative)
+		}
+	}
 
 	return cfg, nil
 }

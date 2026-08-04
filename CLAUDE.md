@@ -56,5 +56,6 @@ Routes are defined in `webui/src/router/index.ts`. There are two categories:
 | `SettingsView` | `/settings` | Settings shell (renders children) |
 | `ProfileView` | `/settings/profile` | User profile |
 | `LibrariesView` | `/settings/libraries` | Manage collections/libraries |
+| `UsersView` | `/settings/users` | Manage native users (only with `Auth.Method: native`; nav entry hidden otherwise) |
 | `TasksView` | `/settings/tasks` | Scanning / scheduled tasks |
 | `MetadataEditorView` | `/settings/metadata` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components) |

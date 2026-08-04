@@ -16,6 +16,7 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
+	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
 )
 
@@ -44,6 +45,12 @@ type Cfg struct {
 	// Rescanner re-indexes files the metadata editor writes, so an edit shows
 	// up in the music UI without a scan task. Optional: nil disables it.
 	Rescanner metadataHandler.TrackRescanner
+	// AuthMethod is the configured authentication method ("none"/"native"),
+	// reported to the SPA via GET /api/v1/auth.
+	AuthMethod string
+	// Users is the native user store; nil unless AuthMethod is "native".
+	// When set, the users CRUD is mounted on /api/v1.
+	Users *userdb.Store
 }
 
 type MainAppHandler struct {
@@ -62,6 +69,8 @@ type MainAppHandler struct {
 	identifier    *identify.Identifier
 	identifyOff   string
 	rescanner     metadataHandler.TrackRescanner
+	authMethod    string
+	users         *userdb.Store
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +95,11 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
 		rescanner:     cfg.Rescanner,
+		authMethod:    cfg.AuthMethod,
+		users:         cfg.Users,
+	}
+	if app.authMethod == "" {
+		app.authMethod = "none"
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

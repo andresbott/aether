@@ -7,6 +7,7 @@ require (
 	github.com/go-bumbu/config v0.4.0
 	github.com/go-bumbu/http v0.5.1
 	github.com/go-bumbu/tempo v0.2.0
+	github.com/go-bumbu/userauth v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/mattn/go-isatty v0.0.21
@@ -17,7 +18,9 @@ require (
 	github.com/samber/slog-formatter v1.3.0
 	github.com/spf13/cobra v1.10.2
 	go.senan.xyz/taglib v0.11.1
+	golang.org/x/crypto v0.54.0
 	golang.org/x/sync v0.22.0
+	golang.org/x/term v0.45.0
 	golang.org/x/time v0.15.0
 	gorm.io/gorm v1.31.1
 )
@@ -27,7 +30,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
-	github.com/gen2brain/webp v0.6.4 // indirect
+	github.com/gen2brain/webp v0.6.4
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
@@ -44,8 +47,8 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tetratelabs/wazero v1.11.1-0.20260428013916-2bbd517b7633 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
-	golang.org/x/image v0.44.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/image v0.44.0
+	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
@@ -56,3 +59,5 @@ require (
 )
 
 replace go.senan.xyz/taglib => github.com/andresbott/go-taglib v0.0.0-20260721170622-b78b455bd52d
+
+replace github.com/go-bumbu/userauth => ../bumbu/userauth

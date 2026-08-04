@@ -23,6 +23,11 @@ vi.mock('@/composables/useVersion', () => ({
     useVersion: () => ({ data: versionData })
 }))
 
+const nativeAuth = ref(false)
+vi.mock('@/composables/useUsers', () => ({
+    useNativeAuth: () => nativeAuth
+}))
+
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
 
 const mountLayout = () =>
@@ -38,6 +43,7 @@ describe('SettingsLayout', () => {
         route.path = '/settings/profile'
         settingsSidebarCollapsed.value = false
         versionData.value = undefined
+        nativeAuth.value = false
         push.mockClear()
         toggleSettingsSidebar.mockClear()
         checkScreenWidth.mockClear()
@@ -79,6 +85,16 @@ describe('SettingsLayout', () => {
         const back = w.findAll('.sidebar-footer-nav .nav-item').find((b) => b.text().includes('Back'))!
         await back.trigger('click')
         expect(push).toHaveBeenCalledWith('/')
+    })
+
+    // The Users section only exists with native auth: with method "none" the
+    // server has no user store, so the entry would lead to a dead view.
+    it('hides the Users entry without native auth and shows it with it', async () => {
+        const w = mountLayout()
+        expect(w.text()).not.toContain('Users')
+        nativeAuth.value = true
+        await nextTick()
+        expect(w.text()).toContain('Users')
     })
 
     it('checks the screen width on mount to auto-collapse on narrow screens', () => {

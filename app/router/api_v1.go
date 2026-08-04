@@ -11,6 +11,7 @@ import (
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
+	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
@@ -21,6 +22,14 @@ import (
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
 	r.Path("/version").Methods(http.MethodGet).Handler(handlers.VersionHandler())
+	r.Path("/auth").Methods(http.MethodGet).Handler(handlers.AuthInfoHandler(h.authMethod))
+
+	// Users CRUD exists only with native auth: h.users is nil otherwise and
+	// the routes fall through to the 400 catch-all below.
+	if h.users != nil {
+		uh := &usersHandler.Handler{Users: h.users}
+		uh.Routes(r)
+	}
 
 	userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
 

@@ -11,6 +11,17 @@ Observability:
 
 DataDir: "./data"
 
+# Authentication. Method "none" requires no authentication; "native" uses
+# users stored in the aether database. With "native", the admin user below is
+# seeded only while the user store is empty (idempotent bootstrap) — changing
+# these values later has no effect on an already-seeded store. AdminPassword
+# may be plaintext or a bcrypt hash (generate one with `aether user hash`);
+# a value starting with "@" is loaded from that file's content.
+Auth:
+  Method: "native"
+  AdminUser: "admin"
+  AdminPassword: "admin"
+
 Env:
   LogLevel: "info"
   Production: false

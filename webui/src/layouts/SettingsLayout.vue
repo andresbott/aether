@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Toast from 'primevue/toast'
 import { useUiStore } from '@/store/uiStore'
 import { useVersion } from '@/composables/useVersion'
+import { useNativeAuth } from '@/composables/useUsers'
 
 interface SettingsNavItem {
     label: string
@@ -25,7 +26,11 @@ function logout() {
     console.info('logout placeholder')
 }
 
-const groups: SettingsNavGroup[] = [
+// The Users entry only makes sense with native auth; with method "none"
+// there is no user store on the server, so the entry is hidden.
+const nativeAuth = useNativeAuth()
+
+const groups = computed<SettingsNavGroup[]>(() => [
     {
         label: 'Account',
         items: [
@@ -37,11 +42,14 @@ const groups: SettingsNavGroup[] = [
         label: 'Administration',
         items: [
             { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },
+            ...(nativeAuth.value
+                ? [{ label: 'Users', icon: 'pi pi-users', route: '/settings/users' }]
+                : []),
             { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' },
             { label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/settings/metadata' }
         ]
     }
-]
+])
 
 const collapsed = computed(() => uiStore.settingsSidebarCollapsed)
 

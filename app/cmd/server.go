@@ -110,6 +110,11 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
+	users, err := setupNativeAuth(db, cfg.Auth, l)
+	if err != nil {
+		return err
+	}
+
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
 	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
@@ -205,6 +210,8 @@ func runServer(configFile string) error {
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
 		Rescanner:     libScanner,
+		AuthMethod:    cfg.Auth.Method,
+		Users:         users,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

@@ -22,6 +22,18 @@ Observability:
 # Database, cached artwork and task logs live here. Owned by the aether user.
 DataDir: "/var/lib/aether"
 
+# Authentication. Method "none" requires no authentication (trusted LAN only);
+# "native" uses users stored in the aether database. With "native", the admin
+# user below is seeded only while the user store is empty (idempotent
+# bootstrap) — changing these values later has no effect on an already-seeded
+# store. Prefer a bcrypt hash over a plaintext password in this world-readable
+# file (generate one with `aether user hash`), or reference a root-only file:
+# "@/etc/aether/admin.password".
+Auth:
+  Method: "none"
+  AdminUser: "admin"
+  AdminPassword: "admin"
+
 Env:
   LogLevel: "info"
   Production: true
