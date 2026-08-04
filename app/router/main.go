@@ -46,7 +46,7 @@ type Cfg struct {
 	// up in the music UI without a scan task. Optional: nil disables it.
 	Rescanner metadataHandler.TrackRescanner
 	// AuthMethod is the configured authentication method ("none"/"native"),
-	// reported to the SPA via GET /api/v1/auth.
+	// reported to the SPA via GET /api/v1/me.
 	AuthMethod string
 	// Users is the native user store; nil unless AuthMethod is "native".
 	// When set, the users CRUD is mounted on /api/v1.

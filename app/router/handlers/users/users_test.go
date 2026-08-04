@@ -45,6 +45,15 @@ func mustCreate(t *testing.T, store *userdb.Store, login, pw string) string {
 	return usr.ID
 }
 
+func mustGroups(t *testing.T, store *userdb.Store, id string) []string {
+	t.Helper()
+	groups, err := store.GetGroups(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return groups
+}
+
 func doJSON(t *testing.T, r *mux.Router, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var req *http.Request
@@ -86,6 +95,19 @@ func TestListUsers(t *testing.T) {
 	if body.Users[0]["id"] != id {
 		t.Fatalf("expected id %q, got %v", id, body.Users[0]["id"])
 	}
+	if body.Users[0]["role"] != "user" {
+		t.Fatalf("groupless user must list as role user, got %v", body.Users[0]["role"])
+	}
+
+	// membership in the admin group surfaces as role admin
+	if err := store.SetGroups(id, []string{users.AdminGroup}); err != nil {
+		t.Fatal(err)
+	}
+	w = doJSON(t, r, http.MethodGet, "/users", "")
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body.Users[0]["role"] != "admin" {
+		t.Fatalf("admin-group member must list as role admin, got %v", body.Users[0]["role"])
+	}
 }
 
 func TestCreateUser(t *testing.T) {
@@ -109,6 +131,12 @@ func TestCreateUser(t *testing.T) {
 		}
 		if err := bcrypt.CompareHashAndPassword([]byte(usr.HashPw), []byte("secret")); err != nil {
 			t.Errorf("stored hash does not verify the password: %v", err)
+		}
+		if dto["role"] != "user" {
+			t.Errorf("default role must be user, got %v", dto["role"])
+		}
+		if groups := mustGroups(t, store, usr.ID); len(groups) != 0 {
+			t.Errorf("regular user must have no groups, got %v", groups)
 		}
 	})
 
@@ -148,6 +176,37 @@ func TestCreateUser(t *testing.T) {
 		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"bob","password":"pw"}`)
 		if w.Code != http.StatusConflict {
 			t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestCreateUserRole(t *testing.T) {
+	t.Run("creates an admin via role", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"root","password":"secret","role":"admin"}`)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+		}
+		var dto map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &dto)
+		if dto["role"] != "admin" {
+			t.Errorf("response role = %v, want admin", dto["role"])
+		}
+		usr, err := store.GetUserByLogin("root")
+		if err != nil {
+			t.Fatal(err)
+		}
+		groups := mustGroups(t, store, usr.ID)
+		if len(groups) != 1 || groups[0] != users.AdminGroup {
+			t.Errorf("admin must be a member of %q only, got %v", users.AdminGroup, groups)
+		}
+	})
+
+	t.Run("rejects an unknown role", func(t *testing.T) {
+		_, r := newTestHandler(t)
+		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"x","password":"pw","role":"superuser"}`)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
 		}
 	})
 }
@@ -224,6 +283,64 @@ func TestUpdateUser(t *testing.T) {
 		w := doJSON(t, r, http.MethodPut, "/users/no-such-id", `{"enabled":true}`)
 		if w.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", w.Code)
+		}
+	})
+}
+
+func TestUpdateUserRole(t *testing.T) {
+	t.Run("promotes and demotes via role", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"admin"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+		var dto map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &dto)
+		if dto["role"] != "admin" {
+			t.Errorf("response role = %v, want admin", dto["role"])
+		}
+		groups := mustGroups(t, store, id)
+		if len(groups) != 1 || groups[0] != users.AdminGroup {
+			t.Fatalf("promotion must add the admin group, got %v", groups)
+		}
+
+		w = doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"user"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+		if groups := mustGroups(t, store, id); len(groups) != 0 {
+			t.Fatalf("demotion must remove the admin group, got %v", groups)
+		}
+	})
+
+	t.Run("role change keeps unrelated group memberships", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+		if err := store.SetGroups(id, []string{"beta-testers"}); err != nil {
+			t.Fatal(err)
+		}
+
+		doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"admin"}`)
+		groups := mustGroups(t, store, id)
+		if len(groups) != 2 || groups[0] != users.AdminGroup || groups[1] != "beta-testers" {
+			t.Fatalf("promotion must keep other groups, got %v", groups)
+		}
+
+		doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"user"}`)
+		groups = mustGroups(t, store, id)
+		if len(groups) != 1 || groups[0] != "beta-testers" {
+			t.Fatalf("demotion must only remove the admin group, got %v", groups)
+		}
+	})
+
+	t.Run("rejects an unknown role", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"superuser"}`)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
 		}
 	})
 }

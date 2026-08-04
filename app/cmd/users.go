@@ -32,6 +32,7 @@ func bootstrapAdmin(users *userdb.Store, cfg AuthCfg) (bool, error) {
 		Pw:         cfg.AdminPassword,
 		PwIsHashed: isBcryptHash(cfg.AdminPassword),
 		Enabled:    true,
+		Groups:     []string{usersHandler.AdminGroup},
 	}
 	seeded, err := users.Bootstrap(admin)
 	if err != nil {

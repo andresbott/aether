@@ -7,7 +7,7 @@ vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 import UserDialog from '@/components/admin/UserDialog.vue'
 import type { User, CreateUserInput, UpdateUserInput } from '@/types/users'
 
-const baseUser: User = { id: 'uuid-1', login: 'alice', enabled: true }
+const baseUser: User = { id: 'uuid-1', login: 'alice', enabled: true, role: 'user' }
 
 const mountDialog = (user: User | null) =>
     mount(UserDialog, {
@@ -34,7 +34,7 @@ describe('UserDialog create mode', () => {
         expect(findButton(w, 'Create').attributes('disabled')).toBeUndefined()
     })
 
-    it('emits create with login, password and enabled', async () => {
+    it('emits create with login, password, enabled and the default user role', async () => {
         const w = mountDialog(null)
         await flushPromises()
         await w.find('#user-login').setValue('  bob ')
@@ -42,12 +42,24 @@ describe('UserDialog create mode', () => {
         await findButton(w, 'Create').trigger('click')
         await flushPromises()
         const input = w.emitted('create')![0][0] as CreateUserInput
-        expect(input).toEqual({ login: 'bob', password: 'secret', enabled: true })
+        expect(input).toEqual({ login: 'bob', password: 'secret', enabled: true, role: 'user' })
+    })
+
+    it('emits create with role admin when Admin is selected', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+        await w.find('#user-login').setValue('root')
+        await w.find('#user-password').setValue('secret')
+        await findButton(w, 'Admin').trigger('click')
+        await findButton(w, 'Create').trigger('click')
+        await flushPromises()
+        const input = w.emitted('create')![0][0] as CreateUserInput
+        expect(input.role).toBe('admin')
     })
 })
 
 describe('UserDialog edit mode', () => {
-    it('addresses the update by id and omits unchanged login and empty password', async () => {
+    it('addresses the update by id and omits unchanged login, role and empty password', async () => {
         const w = mountDialog(baseUser)
         await flushPromises()
 
@@ -57,7 +69,18 @@ describe('UserDialog edit mode', () => {
         expect(payload.id).toBe('uuid-1')
         expect(payload.input.login).toBeUndefined()
         expect(payload.input.password).toBeUndefined()
+        expect(payload.input.role).toBeUndefined()
         expect(payload.input.enabled).toBe(true)
+    })
+
+    it('includes a changed role in the update (promotion)', async () => {
+        const w = mountDialog(baseUser)
+        await flushPromises()
+        await findButton(w, 'Admin').trigger('click')
+        await findButton(w, 'Save').trigger('click')
+        await flushPromises()
+        const payload = w.emitted('update')![0][0] as { id: string; input: UpdateUserInput }
+        expect(payload.input.role).toBe('admin')
     })
 
     it('includes a changed login in the update (rename)', async () => {

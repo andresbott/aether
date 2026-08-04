@@ -23,9 +23,9 @@ vi.mock('@/composables/useVersion', () => ({
     useVersion: () => ({ data: versionData })
 }))
 
-const nativeAuth = ref(false)
+const userManagement = ref(false)
 vi.mock('@/composables/useUsers', () => ({
-    useNativeAuth: () => nativeAuth
+    useUserManagement: () => userManagement
 }))
 
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
@@ -43,7 +43,7 @@ describe('SettingsLayout', () => {
         route.path = '/settings/profile'
         settingsSidebarCollapsed.value = false
         versionData.value = undefined
-        nativeAuth.value = false
+        userManagement.value = false
         push.mockClear()
         toggleSettingsSidebar.mockClear()
         checkScreenWidth.mockClear()
@@ -87,12 +87,13 @@ describe('SettingsLayout', () => {
         expect(push).toHaveBeenCalledWith('/')
     })
 
-    // The Users section only exists with native auth: with method "none" the
-    // server has no user store, so the entry would lead to a dead view.
-    it('hides the Users entry without native auth and shows it with it', async () => {
+    // The Users section only exists when the server reports the
+    // user-management feature: without it the users API is not even mounted,
+    // so the entry would lead to a dead view.
+    it('hides the Users entry without the user-management feature and shows it with it', async () => {
         const w = mountLayout()
         expect(w.text()).not.toContain('Users')
-        nativeAuth.value = true
+        userManagement.value = true
         await nextTick()
         expect(w.text()).toContain('Users')
     })

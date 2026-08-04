@@ -5,7 +5,8 @@ import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import InputSwitch from 'primevue/inputswitch'
-import type { User, CreateUserInput, UpdateUserInput } from '@/types/users'
+import SelectButton from 'primevue/selectbutton'
+import type { User, CreateUserInput, UpdateUserInput, UserRole } from '@/types/users'
 
 const props = defineProps<{
     visible: boolean
@@ -24,10 +25,16 @@ interface FormState {
     login: string
     password: string
     enabled: boolean
+    role: UserRole
 }
 
+const roleOptions: { label: string; value: UserRole }[] = [
+    { label: 'Regular user', value: 'user' },
+    { label: 'Admin', value: 'admin' }
+]
+
 function emptyForm(): FormState {
-    return { login: '', password: '', enabled: true }
+    return { login: '', password: '', enabled: true, role: 'user' }
 }
 
 const form = ref<FormState>(emptyForm())
@@ -38,7 +45,12 @@ watch(
         if (!props.visible) return
         if (props.user) {
             // Edit mode: password empty means "keep current".
-            form.value = { login: props.user.login, password: '', enabled: props.user.enabled }
+            form.value = {
+                login: props.user.login,
+                password: '',
+                enabled: props.user.enabled,
+                role: props.user.role
+            }
         } else {
             form.value = emptyForm()
         }
@@ -61,12 +73,14 @@ function onSubmit() {
         const login = form.value.login.trim()
         if (login !== props.user.login) input.login = login
         if (form.value.password.length > 0) input.password = form.value.password
+        if (form.value.role !== props.user.role) input.role = form.value.role
         emit('update', { id: props.user.id, input })
     } else {
         emit('create', {
             login: form.value.login.trim(),
             password: form.value.password,
-            enabled: form.value.enabled
+            enabled: form.value.enabled,
+            role: form.value.role
         })
     }
 }
@@ -108,6 +122,18 @@ function onCancel() {
                     autocomplete="new-password"
                     :placeholder="isEditMode ? 'leave empty to keep current' : ''"
                     fluid
+                />
+            </div>
+
+            <div class="field">
+                <label id="user-role-label">Role</label>
+                <SelectButton
+                    v-model="form.role"
+                    :options="roleOptions"
+                    optionLabel="label"
+                    optionValue="value"
+                    :allowEmpty="false"
+                    aria-labelledby="user-role-label"
                 />
             </div>
 

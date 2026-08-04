@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Toast from 'primevue/toast'
 import { useUiStore } from '@/store/uiStore'
 import { useVersion } from '@/composables/useVersion'
-import { useNativeAuth } from '@/composables/useUsers'
+import { useUserManagement } from '@/composables/useUsers'
 
 interface SettingsNavItem {
     label: string
@@ -26,9 +26,10 @@ function logout() {
     console.info('logout placeholder')
 }
 
-// The Users entry only makes sense with native auth; with method "none"
-// there is no user store on the server, so the entry is hidden.
-const nativeAuth = useNativeAuth()
+// The Users entry only exists when the server reports the user-management
+// feature (auth method "native"); with method "none" the users API is not
+// even mounted, so the entry is hidden.
+const userManagement = useUserManagement()
 
 const groups = computed<SettingsNavGroup[]>(() => [
     {
@@ -42,7 +43,7 @@ const groups = computed<SettingsNavGroup[]>(() => [
         label: 'Administration',
         items: [
             { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },
-            ...(nativeAuth.value
+            ...(userManagement.value
                 ? [{ label: 'Users', icon: 'pi pi-users', route: '/settings/users' }]
                 : []),
             { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' },

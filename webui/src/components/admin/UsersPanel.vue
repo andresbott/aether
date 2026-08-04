@@ -79,9 +79,17 @@ const submitting = computed(
             <Column field="login" header="Login">
                 <template #body="{ data }">
                     <span class="user-login">
-                        <i class="pi pi-user"></i>
+                        <i :class="data.role === 'admin' ? 'pi pi-shield' : 'pi pi-user'"></i>
                         {{ data.login }}
                     </span>
+                </template>
+            </Column>
+            <Column header="Role" style="width: 8rem">
+                <template #body="{ data }">
+                    <Tag
+                        :severity="data.role === 'admin' ? 'warn' : 'secondary'"
+                        :value="data.role === 'admin' ? 'admin' : 'user'"
+                    />
                 </template>
             </Column>
             <Column header="Status" style="width: 8rem">

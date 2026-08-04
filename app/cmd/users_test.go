@@ -6,7 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/userauth/userstore/userdb"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -21,6 +23,18 @@ func openTestDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	return db
+}
+
+// assertAdminGroup checks that the user is a member of exactly the admin group.
+func assertAdminGroup(t *testing.T, users *userdb.Store, id string) {
+	t.Helper()
+	groups, err := users.GetGroups(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0] != usersHandler.AdminGroup {
+		t.Errorf("bootstrapped admin must be in the admin group, got %v", groups)
+	}
 }
 
 func TestBootstrapAdmin(t *testing.T) {
@@ -48,6 +62,7 @@ func TestBootstrapAdmin(t *testing.T) {
 		if err := bcrypt.CompareHashAndPassword([]byte(usr.HashPw), []byte("admin")); err != nil {
 			t.Errorf("stored hash does not verify the configured password: %v", err)
 		}
+		assertAdminGroup(t, users, usr.ID)
 	})
 
 	t.Run("stores a pre-hashed password as-is", func(t *testing.T) {

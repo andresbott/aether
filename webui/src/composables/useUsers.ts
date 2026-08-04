@@ -2,28 +2,28 @@ import { computed } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as UsersApi from '@/lib/api/Users'
-import type { AuthInfo, User, CreateUserInput, UpdateUserInput } from '@/types/users'
+import type { MeResponse, User, CreateUserInput, UpdateUserInput } from '@/types/users'
 import { apiErrorMessage } from '@/lib/apiError'
 
 export const userQueryKeys = {
     all: ['users'] as const,
-    authInfo: ['auth-info'] as const
+    me: ['me'] as const
 }
 
-// The auth method is server config: it cannot change without a restart, so
-// cache it for the session.
-export function useAuthInfo() {
-    return useQuery<AuthInfo>({
-        queryKey: userQueryKeys.authInfo,
-        queryFn: () => UsersApi.getAuthInfo(),
+// Auth method and features are server config: they cannot change without a
+// restart, so cache the bootstrap for the session.
+export function useMe() {
+    return useQuery<MeResponse>({
+        queryKey: userQueryKeys.me,
+        queryFn: () => UsersApi.getMe(),
         staleTime: Infinity
     })
 }
 
-/** True when the server manages native users (gates the Users settings UI). */
-export function useNativeAuth() {
-    const { data } = useAuthInfo()
-    return computed(() => data.value?.method === 'native')
+/** True when the server exposes the users CRUD (gates the Users settings UI). */
+export function useUserManagement() {
+    const { data } = useMe()
+    return computed(() => data.value?.features.userManagement === true)
 }
 
 export function useUsers() {

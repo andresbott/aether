@@ -22,10 +22,10 @@ import (
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
 	r.Path("/version").Methods(http.MethodGet).Handler(handlers.VersionHandler())
-	r.Path("/auth").Methods(http.MethodGet).Handler(handlers.AuthInfoHandler(h.authMethod))
+	r.Path("/me").Methods(http.MethodGet).Handler(handlers.MeHandler(h.authMethod, h.users != nil))
 
-	// Users CRUD exists only with native auth: h.users is nil otherwise and
-	// the routes fall through to the 400 catch-all below.
+	// Users CRUD exists only with native auth: h.users is nil otherwise, the
+	// routes are never mounted and /api/v1/me reports the feature as absent.
 	if h.users != nil {
 		uh := &usersHandler.Handler{Users: h.users}
 		uh.Routes(r)

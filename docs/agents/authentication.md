@@ -40,8 +40,13 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
 ## Shared machinery (built once, used by both modes)
 
 - **Multi-user table** (playlist `Owner` and the per-entity star direction
-  are pre-wired — see architecture.md) with a role column (admin gates radio
-  CRUD writes and `/api/v1` admin routes).
+  are pre-wired — see architecture.md). Roles are **implemented** on top of
+  `userauth` group memberships (`userdb` `user_groups` table): membership in
+  the `admin` group (`users.AdminGroup`) makes a user an admin; a user with
+  no groups is a regular user. The users CRUD exposes this as a `role`
+  field (`"admin"`/`"user"`) and the bootstrapped initial admin is seeded
+  into the group. Admin gates radio CRUD writes and `/api/v1` admin routes
+  (enforcement lands with sessions).
 - **PAT system** — per-user tokens verified by a thin Subsonic
   `AuthHandler` that parses `u`/`t`/`s`/`p`/`apiKey` on `/rest/*`. This is
   the *only* authentication on `/rest`.
@@ -52,9 +57,13 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   handler, zero mode branching. It trusts **only** the middleware identity;
   no fallback auth of any kind (it's the most sensitive endpoint in the
   model).
-- **`/api/v1/me`** — returns `{user, role, authMode}` so the SPA can show
-  identity, gate admin UI, and pick the right 401 reaction without
-  build-time config.
+- **`/api/v1/me`** — **implemented** (`handlers.MeHandler`): returns
+  `{authMethod, user, features}` so the SPA can show identity, gate
+  feature UI, and pick the right 401 reaction without build-time config.
+  `user` is null until sessions exist; `features.userManagement` reports
+  whether the users CRUD is mounted (auth method "native"). A role field
+  joins the payload when roles land. The endpoint is deliberately public —
+  the SPA bootstraps on it before any login.
 - **SPA token lifecycle** — on boot, mint a token; keep it in memory; speak
   **standard Subsonic auth** on `/rest` (the dormant `setCredentials` path
   in `webui/src/lib/api/subsonic.ts` already builds `u`/`t`/`s` params).

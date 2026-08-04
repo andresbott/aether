@@ -1,14 +1,14 @@
 import { apiClient } from '@/lib/api/client'
 import type {
-    AuthInfo,
+    MeResponse,
     User,
     CreateUserInput,
     UpdateUserInput,
     ListUsersResponse
 } from '@/types/users'
 
-export async function getAuthInfo(): Promise<AuthInfo> {
-    const { data } = await apiClient.get<AuthInfo>('/auth')
+export async function getMe(): Promise<MeResponse> {
+    const { data } = await apiClient.get<MeResponse>('/me')
     return data
 }
 
