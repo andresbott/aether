@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -431,5 +432,53 @@ func TestGetPlayQueueEntriesCarryStarredState(t *testing.T) {
 	}
 	if _, ok := entries[1]["starred"]; ok {
 		t.Fatal("expected the unstarred track's entry to omit starred")
+	}
+}
+
+func itoa(id uint) string { return strconv.FormatUint(uint64(id), 10) }
+
+// queueRequest fires a /rest call as the given user against the
+// identity-enabled test server.
+func queueRequest(t *testing.T, srv *httptest.Server, user, path string) playQueueBody {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+	req.Header.Set("X-Test-User", user)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body playQueueBody
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestPlayQueueIsScopedToSessionUser(t *testing.T) {
+	s := testStore(t)
+	tracks := seedQueueTracks(t, s)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	// demo saves a queue.
+	save := "/rest/savePlayQueue?id=tr-" + itoa(tracks[0].ID) + "&current=tr-" + itoa(tracks[0].ID)
+	if b := queueRequest(t, srv, "demo", save); b.SubsonicResponse.Status != "ok" {
+		t.Fatalf("save as demo failed: %+v", b.SubsonicResponse)
+	}
+
+	// admin must NOT see demo's queue.
+	b := queueRequest(t, srv, "admin", "/rest/getPlayQueue")
+	if b.SubsonicResponse.PlayQueue != nil {
+		t.Fatal("admin sees demo's queue: cross-user leak")
+	}
+
+	// demo still sees their own, with their username on it.
+	b = queueRequest(t, srv, "demo", "/rest/getPlayQueue")
+	if b.SubsonicResponse.PlayQueue == nil {
+		t.Fatal("demo lost their own queue")
+	}
+	if got := b.SubsonicResponse.PlayQueue.Username; got != "demo" {
+		t.Fatalf("expected username demo, got %q", got)
 	}
 }
