@@ -324,7 +324,7 @@ func (s *Store) albumGenreIDs(albumIDs []uint) (map[uint][]uint, error) {
 // playlistCandidates takes every playlist: a library holds few enough of them
 // that sampling would cost more clarity than it saves query time.
 func (s *Store) playlistCandidates(owner string) ([]discovery.Candidate, error) {
-	playlists, err := s.GetPlaylists()
+	playlists, err := s.GetPlaylists(owner)
 	if err != nil {
 		return nil, err
 	}

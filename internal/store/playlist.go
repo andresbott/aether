@@ -19,9 +19,12 @@ func (s *Store) CreatePlaylist(name, owner string, public bool, trackIDs []uint)
 	return &pl, nil
 }
 
-func (s *Store) GetPlaylists() ([]model.Playlist, error) {
+// GetPlaylists returns the playlists visible to owner: their own plus every
+// public one. There is no unscoped variant — a caller without an identity is
+// the single-user "admin".
+func (s *Store) GetPlaylists(owner string) ([]model.Playlist, error) {
 	var playlists []model.Playlist
-	err := s.db.Order("name ASC").Find(&playlists).Error
+	err := s.db.Where("owner = ? OR public = ?", owner, true).Order("name ASC").Find(&playlists).Error
 	return playlists, err
 }
 

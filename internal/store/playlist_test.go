@@ -43,7 +43,7 @@ func TestGetPlaylists(t *testing.T) {
 	s := testStore(t)
 	_, _ = s.CreatePlaylist("A", "admin", false, nil)
 	_, _ = s.CreatePlaylist("B", "admin", false, nil)
-	playlists, err := s.GetPlaylists()
+	playlists, err := s.GetPlaylists("admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,5 +150,33 @@ func TestRemoveTrackFromPlaylist(t *testing.T) {
 	tracks, _ := s.GetPlaylistTracks(pl.ID)
 	if len(tracks) != 1 {
 		t.Fatalf("expected 1, got %d", len(tracks))
+	}
+}
+
+func TestGetPlaylistsReturnsOwnAndPublic(t *testing.T) {
+	s := testStore(t)
+	if _, err := s.CreatePlaylist("demo private", "demo", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreatePlaylist("demo public", "demo", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreatePlaylist("admin private", "admin", false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	lists, err := s.GetPlaylists("admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, pl := range lists {
+		names[pl.Name] = true
+	}
+	if !names["admin private"] || !names["demo public"] {
+		t.Fatalf("admin should see own + public, got %v", names)
+	}
+	if names["demo private"] {
+		t.Fatal("admin sees demo's private playlist")
 	}
 }
