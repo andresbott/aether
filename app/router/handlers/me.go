@@ -5,13 +5,20 @@ import (
 	"net/http"
 )
 
-// meUser identifies the authenticated user. Always nil today: no request
-// carries identity until sessions land, so /me answers identically for
-// everyone. The field is in the contract now so the SPA can code against the
-// final shape.
-type meUser struct {
+// MeUser identifies the authenticated user. Nil when the request carries no
+// valid session (or the auth method is "none", where nothing ever does).
+type MeUser struct {
 	Login string `json:"login"`
+	// Role is the user's vertical, "admin" or "user" (see handlers/users).
+	// The SPA gates the administration UI on it; the real enforcement is the
+	// admin guard on /api/v1.
+	Role string `json:"role"`
 }
+
+// MeIdentity resolves the caller's identity from the request, or nil when it
+// is anonymous. It gets the ResponseWriter so a session-backed implementation
+// can renew the rolling cookie expiry on the SPA's bootstrap call.
+type MeIdentity func(w http.ResponseWriter, r *http.Request) *MeUser
 
 // meFeatures lists the server capabilities the SPA gates UI on. Only
 // capabilities that depend on server configuration belong here — the SPA
@@ -24,20 +31,26 @@ type meFeatures struct {
 
 type meResponse struct {
 	AuthMethod string     `json:"authMethod"`
-	User       *meUser    `json:"user"`
+	User       *MeUser    `json:"user"`
 	Features   meFeatures `json:"features"`
 }
 
 // MeHandler is the SPA's bootstrap endpoint (GET /api/v1/me, see
 // docs/agents/authentication.md): it reports the active auth method, the
-// caller's identity (null until sessions exist) and the features this server
-// exposes, so the UI adapts without build-time configuration. It is
-// deliberately public — the SPA needs it before any login.
-func MeHandler(authMethod string, userManagement bool) http.Handler {
+// caller's identity and the features this server exposes, so the UI adapts
+// without build-time configuration. It is deliberately public — the SPA needs
+// it before any login; identity may be nil (auth method "none", or no
+// session) and the SPA reacts by showing the login view.
+func MeHandler(authMethod string, userManagement bool, identity MeIdentity) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var user *MeUser
+		if identity != nil {
+			user = identity(w, r)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(meResponse{
 			AuthMethod: authMethod,
+			User:       user,
 			Features:   meFeatures{UserManagement: userManagement},
 		})
 	})

@@ -3,7 +3,7 @@ import { reactive, ref, nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 
 const push = vi.fn()
-const route = { path: '/settings/profile' }
+const route = { path: '/settings/libraries' }
 vi.mock('vue-router', () => ({
     useRoute: () => route,
     useRouter: () => ({ push })
@@ -40,7 +40,7 @@ const mountLayout = () =>
 
 describe('SettingsLayout', () => {
     beforeEach(() => {
-        route.path = '/settings/profile'
+        route.path = '/settings/libraries'
         settingsSidebarCollapsed.value = false
         versionData.value = undefined
         userManagement.value = false
@@ -49,16 +49,18 @@ describe('SettingsLayout', () => {
         checkScreenWidth.mockClear()
     })
 
-    it('renders both topic groups and every entry', () => {
+    // Settings is administration only: the account concerns (profile, logout)
+    // moved to the sidebar's UserMenu popup and the /profile main view.
+    it('renders the Administration group and no Account group', () => {
         const w = mountLayout()
         const text = w.text()
-        expect(text).toContain('Account')
         expect(text).toContain('Administration')
-        expect(text).toContain('Profile')
         expect(text).toContain('Libraries')
         expect(text).toContain('Tasks')
         expect(text).toContain('Metadata Editor')
-        expect(text).toContain('Logout')
+        expect(text).not.toContain('Account')
+        expect(text).not.toContain('Profile')
+        expect(text).not.toContain('Logout')
     })
 
     it('highlights the entry matching the current route', () => {
@@ -111,15 +113,6 @@ describe('SettingsLayout', () => {
         expect(mountLayout().find('.toast-outlet').exists()).toBe(true)
     })
 
-    it('runs the logout placeholder from the Account area without navigating', async () => {
-        const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-        const w = mountLayout()
-        const logout = w.findAll('.sidebar-nav .nav-item').find((b) => b.text() === 'Logout')!
-        await logout.trigger('click')
-        expect(info).toHaveBeenCalled()
-        expect(push).not.toHaveBeenCalled()
-        info.mockRestore()
-    })
 })
 
 describe('SettingsLayout version string', () => {

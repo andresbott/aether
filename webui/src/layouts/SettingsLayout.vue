@@ -21,10 +21,9 @@ const route = useRoute()
 const router = useRouter()
 const uiStore = useUiStore()
 
-// Placeholder until the auth system lands.
-function logout() {
-    console.info('logout placeholder')
-}
+// Settings is administration only now: the account concerns live in the
+// sidebar's UserMenu popup, and the user's own settings are a main content
+// view at /user-settings.
 
 // The Users entry only exists when the server reports the user-management
 // feature (auth method "native"); with method "none" the users API is not
@@ -32,13 +31,6 @@ function logout() {
 const userManagement = useUserManagement()
 
 const groups = computed<SettingsNavGroup[]>(() => [
-    {
-        label: 'Account',
-        items: [
-            { label: 'Profile', icon: 'pi pi-user', route: '/settings/profile' },
-            { label: 'Logout', icon: 'pi pi-sign-out', action: logout }
-        ]
-    },
     {
         label: 'Administration',
         items: [

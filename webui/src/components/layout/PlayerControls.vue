@@ -420,7 +420,7 @@ const {
     background-color: var(--app-accent-hover);
 }
 
-:global(.dark-mode) .play-btn {
+:global(.dark-mode .play-btn) {
     box-shadow: 0 3px 12px rgba(47, 211, 239, 0.3);
 }
 

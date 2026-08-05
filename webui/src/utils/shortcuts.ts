@@ -1,5 +1,5 @@
 // The single source of truth for the app's keyboard shortcuts: the key map the
-// global listener matches against, the rows the settings list renders, and the
+// global listener matches against, the rows the About view renders, and the
 // badges the help overlay anchors over the player bar all read from SHORTCUTS.
 // Adding a binding here is all that is needed for it to appear in both places.
 //
@@ -72,12 +72,12 @@ export interface Shortcut {
     label: string
     anchor?: ShortcutAnchor
     place?: ShortcutPlacement
-    /** Kept out of the settings list and the overlay's panel. */
+    /** Kept out of the About list and the overlay's panel. */
     hidden?: boolean
     /**
      * Kept out of the OVERLAY only — still listed in Settings. For `?` itself:
      * you just pressed it to open the overlay, so a row for it teaches nothing
-     * there, but the settings list is the full reference and must include it.
+     * there, but the About list is the full reference and must include it.
      */
     overlayHidden?: boolean
 }
@@ -124,11 +124,11 @@ export const SHORTCUTS: Shortcut[] = [
     // Listed in Settings but not in the overlay: pressing `?` is how you got there.
     { action: 'help', keys: ['?'], label: 'This shortcut list', overlayHidden: true },
     // Esc only does something while the overlay is up, so it would be noise in
-    // the settings list.
+    // the About list.
     { action: 'close', keys: ['Esc'], label: 'Close this overlay', hidden: true }
 ]
 
-/** The rows the settings list renders — the full reference. */
+/** The rows the About view renders — the full reference. */
 export const VISIBLE_SHORTCUTS = SHORTCUTS.filter((s) => !s.hidden)
 
 /**

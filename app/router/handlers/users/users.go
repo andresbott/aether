@@ -110,10 +110,11 @@ func (h *Handler) list(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"users": out, "total": res.Total})
 }
 
-// roleOf derives the vertical from the stored group memberships: membership
+// RoleOf derives the vertical from the stored group memberships: membership
 // in AdminGroup means admin, anything else (including no groups) means user.
-func (h *Handler) roleOf(userID string) (string, error) {
-	groups, err := h.Users.GetGroups(userID)
+// Exported because the /api/v1 admin guard and /me apply the same policy.
+func RoleOf(store *userdb.Store, userID string) (string, error) {
+	groups, err := store.GetGroups(userID)
 	if err != nil {
 		return "", err
 	}
@@ -123,6 +124,10 @@ func (h *Handler) roleOf(userID string) (string, error) {
 		}
 	}
 	return RoleUser, nil
+}
+
+func (h *Handler) roleOf(userID string) (string, error) {
+	return RoleOf(h.Users, userID)
 }
 
 // roleGroups maps a role to the group memberships that encode it.

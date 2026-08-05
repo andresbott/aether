@@ -1,8 +1,15 @@
 # Authentication — decided model, do not re-design
 
-Current state: **no auth anywhere**. The SPA is same-origin and calls `/rest`
-uncredentialed (`subsonicClient.initWithDefaults()`); the server never
-validates Subsonic credentials. The plan below is decided (TODO.md, top
+Current state: **the builtin mode's session layer is implemented** (auth
+method `native`): JSON login + logout on `/api/v1/auth/*`, a cookie session
+guard on the rest of `/api/v1`, and a full-app login gate in the SPA. Roles
+are **enforced on `/api/v1`**: beyond the public bootstrap set every route
+requires an *admin* session (403 otherwise) — the whole surface is server
+administration. The SPA mirrors this via `role` in `/me` (`useAuth().isAdmin`
+hides the Admin menu entry, the artist-image editor and radio Discover, and
+redirects non-admins out of `/settings`). `/rest` still validates nothing:
+the SPA calls it uncredentialed (`subsonicClient.initWithDefaults()`); the
+PAT/token layer is the next piece. The plan below is decided (TODO.md, top
 section) — implement it, don't invent alternatives.
 
 ## The (Open)Subsonic auth methods (protocol recap)
@@ -45,8 +52,8 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   the `admin` group (`users.AdminGroup`) makes a user an admin; a user with
   no groups is a regular user. The users CRUD exposes this as a `role`
   field (`"admin"`/`"user"`) and the bootstrapped initial admin is seeded
-  into the group. Admin gates radio CRUD writes and `/api/v1` admin routes
-  (enforcement lands with sessions).
+  into the group. The `/api/v1` guard enforces the admin role (see below);
+  gating radio CRUD writes (on `/rest`) is still pending (TODO.md).
 - **PAT system** — per-user tokens verified by a thin Subsonic
   `AuthHandler` that parses `u`/`t`/`s`/`p`/`apiKey` on `/rest/*`. This is
   the *only* authentication on `/rest`.
@@ -60,10 +67,13 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
 - **`/api/v1/me`** — **implemented** (`handlers.MeHandler`): returns
   `{authMethod, user, features}` so the SPA can show identity, gate
   feature UI, and pick the right 401 reaction without build-time config.
-  `user` is null until sessions exist; `features.userManagement` reports
-  whether the users CRUD is mounted (auth method "native"). A role field
-  joins the payload when roles land. The endpoint is deliberately public —
-  the SPA bootstraps on it before any login.
+  `user` carries the session's identity (`{login, role}`), null when
+  anonymous; `role` is the derived vertical (`"admin"`/`"user"`, see
+  handlers/users `RoleOf`) the SPA gates admin UI on;
+  `features.userManagement` reports whether the users CRUD is mounted
+  (auth method "native"). The endpoint is deliberately public — the SPA
+  bootstraps on it before any login — and it renews the rolling session
+  expiry of remember-me sessions.
 - **SPA token lifecycle** — on boot, mint a token; keep it in memory; speak
   **standard Subsonic auth** on `/rest` (the dormant `setCredentials` path
   in `webui/src/lib/api/subsonic.ts` already builds `u`/`t`/`s` params).
@@ -90,26 +100,46 @@ the test matrix), and CSRF vanishes from `/rest` — Subsonic is full of
 GET-with-side-effects (`star`, `deletePlaylist`), which a cookie-authenticated
 API would have to defend; tokens moot it. Only `/api/v1` needs CSRF thought.
 
-## Mode: builtin (native login)
+## Mode: builtin (native login) — session layer implemented
 
 Aether is its own identity provider — a built-in equivalent of the Authelia
-path. `userauth` ships every piece: `handlers/login.JsonAuthHandler` (JSON
-login endpoint, optional TOTP 2FA), `cookieauth.Manager` (gorilla-sessions
-cookie; implements the chain `AuthHandler` interface; `LoginUser`/
-`LogoutUser`; handlers read identity via `cookieauth.CtxGetUserData`), and
-`userstore/dbusers` (GORM-backed user store on aether's SQLite).
+path. `userauth` ships every piece: `flow/login` + `flow/login/handlers.JSON`
+(the JSON login transport over a password-only policy; TOTP 2FA can be added
+to the same flow later), `cookieauth.Manager` (gorilla-sessions cookie;
+implements the chain `AuthHandler` interface; `LoginUser`/`LogoutUser`;
+handlers read identity via `cookieauth.CtxGetUserData`), and
+`userstore/userdb` (GORM-backed user store on aether's SQLite).
 
 | Surface | Protected by |
 |---|---|
 | `/` (SPA shell) | open (login view is part of the SPA) |
 | `/api/v1/auth/login`, `/logout` | the login handler itself |
-| `/api/v1` (rest of it) | `cookieauth` session cookie |
-| `/rest` | Subsonic PAT/token verifier only |
+| `/api/v1` (rest of it) | `cookieauth` session cookie **+ admin role** (`sessionGuard` in `app/router/api_v1.go`; `/me`, `/health`, `/version` stay public; a non-admin session gets 403 — the whole surface is server administration) |
+| `/rest` | **still open** — Subsonic PAT/token verifier is the next piece |
 
-Flow: SPA shows login page → `POST /api/v1/auth/login` sets the session
-cookie → SPA mints its `/rest` token via the cookie-authorized mint endpoint.
-On 401 from `/api/v1`: render the login view. Needs user-management UI
-(create user, change password) in settings — admin-only.
+Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
+
+- `POST /api/v1/auth/login` takes `{username, password, sessionRenew}` and
+  answers `{done:true}` with the cookie set, or a uniform 401 for every
+  credential-shaped failure. `sessionRenew` is the "remember me" bit: it opts
+  the session into rolling renewal (24h window renewed on activity, 30-day
+  hard cap) instead of the fixed 24h window.
+- Cookie keys are generated once and persisted in `<DataDir>/session.keys`
+  so sessions survive restarts; the cookie is `SameSite=Lax`, not `Secure`,
+  because aether commonly runs plain-HTTP on a LAN.
+- The SPA gate lives in `App.vue` + `useAuth()`: `/me` bootstraps, the login
+  view replaces the whole app (not a route) while `authMethod` is `native`
+  and `user` is null, and an axios interceptor flips a shared
+  `sessionExpired` flag on any `/api/v1` 401 so an expired session re-opens
+  the gate mid-flight. Logout and session expiry both purge the device
+  (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
+  so the emptied queue is not pushed to the server), clear localStorage, and
+  reset the query cache.
+
+Still missing from this mode: the `/rest` token layer + mint endpoint (when
+the mint endpoint lands it needs a session-only exemption from the admin
+requirement, like `apiV1PublicPaths`), change-own-password UI, and the radio
+CRUD write gate on `/rest`.
 
 ## Mode: proxy-header (Authelia)
 

@@ -3,6 +3,8 @@ export type AuthMethod = 'none' | 'native'
 /** Identity of the authenticated user; null until sessions exist. */
 export interface MeUser {
     login: string
+    /** The session's vertical; the SPA gates the administration UI on it. */
+    role: UserRole
 }
 
 /** Server capabilities the SPA gates UI on (server config, not build-time). */
@@ -15,6 +17,14 @@ export interface MeResponse {
     authMethod: AuthMethod
     user: MeUser | null
     features: ServerFeatures
+}
+
+/** POST /api/v1/auth/login success body. */
+export interface LoginResponse {
+    /** Login complete and the session cookie is set. */
+    done: boolean
+    /** Method IDs still required (2FA); unused until a second factor exists. */
+    next?: string[]
 }
 
 /**

@@ -42,7 +42,8 @@ const SIDE_ANCHORS = SHORTCUTS.filter((s) => s.place === 'side').map((s) => s.an
 // to the sidebar entries that open them. Without these anchors the keys would only
 // be discoverable from the settings list.
 describe('AppSidebar shortcut anchors', () => {
-    const mountSidebar = () => mount(AppSidebar, { global: { directives: { tooltip: {} } } })
+    const mountSidebar = () =>
+        mount(AppSidebar, { global: { directives: { tooltip: {} }, stubs: { UserMenu: true } } })
 
     it.each([
         ['now-playing', 'Now Playing'],

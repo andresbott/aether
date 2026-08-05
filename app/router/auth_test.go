@@ -1,0 +1,274 @@
+package router
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
+	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/userstore/userdb"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
+)
+
+// newNativeAuthRouter builds a router in the shape native mode always has in
+// production: a user store AND a cookie session manager, so the /api/v1
+// session guard is installed. Admin alice/secret and regular user bob/secret
+// exist.
+func newNativeAuthRouter(t *testing.T) *MainAppHandler {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.CreateUser(userdb.User{LoginID: "alice", Pw: "secret", Enabled: true, Groups: []string{usersHandler.AdminGroup}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create("bob", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	store, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{
+		Store:         store,
+		SessionDur:    time.Hour,
+		MaxSessionDur: 24 * time.Hour,
+		AllowRenew:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// doLogin posts credentials and returns the response; on success the session
+// cookies are copied onto every request made through the returned attach func.
+func doLogin(t *testing.T, h *MainAppHandler, username, password string) (*httptest.ResponseRecorder, func(r *http.Request)) {
+	t.Helper()
+	body := strings.NewReader(`{"username":"` + username + `","password":"` + password + `","sessionRenew":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	cookies := w.Result().Cookies()
+	return w, func(r *http.Request) {
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+	}
+}
+
+func TestLoginSetsSessionCookie(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	w, _ := doLogin(t, h, "alice", "secret")
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("login = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Done bool `json:"done"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || !body.Done {
+		t.Fatalf("login body = %s, want done:true", w.Body.String())
+	}
+	if len(w.Result().Cookies()) == 0 {
+		t.Fatal("login did not set a session cookie")
+	}
+}
+
+// Unknown user, disabled user and wrong password must all answer the same
+// uniform 401 — the flow engine guarantees it, this pins the wiring.
+func TestLoginRejectsBadCredentials(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	for _, tc := range []struct{ user, pw string }{
+		{"alice", "wrong"},
+		{"nobody", "secret"},
+	} {
+		w, _ := doLogin(t, h, tc.user, tc.pw)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("login %s/%s = %d, want 401", tc.user, tc.pw, w.Code)
+		}
+	}
+}
+
+func TestSessionGuardBlocksApiV1(t *testing.T) {
+	h := newNativeAuthRouter(t)
+
+	// Without a session, a protected route answers 401 in our JSON envelope.
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/users without session = %d, want 401: %s", w.Code, w.Body.String())
+	}
+	var envelope struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || envelope.Code != "unauthorized" {
+		t.Errorf("401 body = %s, want the JSON envelope with code unauthorized", w.Body.String())
+	}
+
+	// The public bootstrap set stays reachable.
+	for _, path := range []string{"/api/v1/me", "/api/v1/health", "/api/v1/version"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Errorf("GET %s without session = %d, want 200 (public)", path, w.Code)
+		}
+	}
+
+	// With an admin session the same protected route answers.
+	_, attach := doLogin(t, h, "alice", "secret")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/users with admin session = %d, want 200: %s", w.Code, w.Body.String())
+	}
+}
+
+// Everything /api/v1 protects is server administration, so a valid session
+// without the admin role answers 403 — authenticated is not enough.
+func TestSessionGuardRequiresAdmin(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	for _, path := range []string{"/api/v1/users", "/api/v1/libraries", "/api/v1/tasks"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		attach(req)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("GET %s as regular user = %d, want 403: %s", path, w.Code, w.Body.String())
+		}
+	}
+
+	// The public bootstrap set stays reachable for non-admins; /me still
+	// reports who they are.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/v1/me as regular user = %d, want 200", w.Code)
+	}
+	var body struct {
+		User *struct {
+			Login string `json:"login"`
+			Role  string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("/me body is not JSON: %s", w.Body.String())
+	}
+	if body.User == nil || body.User.Role != "user" {
+		t.Fatalf("/me user = %+v, want role user", body.User)
+	}
+}
+
+// /me reports the session's identity so the SPA knows who is logged in, and
+// goes back to null after logout.
+func TestMeReflectsSession(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "alice", "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var body struct {
+		User *struct {
+			Login string `json:"login"`
+			Role  string `json:"role"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("/me body is not JSON: %s", w.Body.String())
+	}
+	if body.User == nil || body.User.Login != "alice" || body.User.Role != "admin" {
+		t.Fatalf("/me user = %+v, want alice with role admin", body.User)
+	}
+
+	// Logout clears the session; the cleared cookie replaces the old one.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("logout = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	loggedOut := w.Result().Cookies()
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	for _, c := range loggedOut {
+		req.AddCookie(c)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	body.User = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("/me body is not JSON: %s", w.Body.String())
+	}
+	if body.User != nil {
+		t.Fatalf("/me user after logout = %v, want null", body.User)
+	}
+}
+
+// A disabled user must not be able to log in even with the right password.
+func TestLoginRejectsDisabledUser(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	usr, err := h.users.GetUserByLogin("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.users.SetEnabled(usr.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := doLogin(t, h, "alice", "secret")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("login disabled user = %d, want 401", w.Code)
+	}
+}
+
+// A session whose user has been deleted is worthless: /me answers null and
+// the SPA shows the login view.
+func TestSessionOfDeletedUserIsAnonymous(t *testing.T) {
+	h := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "alice", "secret")
+	usr, err := h.users.GetUserByLogin("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.users.Delete(usr.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var body struct {
+		User any `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("/me body is not JSON: %s", w.Body.String())
+	}
+	if body.User != nil {
+		t.Fatalf("/me user for deleted account = %v, want null", body.User)
+	}
+}

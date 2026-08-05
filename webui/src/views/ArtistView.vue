@@ -13,6 +13,7 @@ import { useArtistImageSource } from '@/composables/useArtistImageSource'
 import { useSetArtistImageFromSearch } from '@/composables/useSetArtistImageFromSearch'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { usePlayer } from '@/composables/usePlayer'
+import { useAuth } from '@/composables/useAuth'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 import type { ArtistImagePick } from '@/types/artists'
@@ -24,6 +25,11 @@ const router = useRouter()
 const toggleStar = useToggleStar()
 const updateCover = useUpdateArtistCover()
 const setImageFromSearch = useSetArtistImageFromSearch()
+
+// Editing the artist image is curation, and half of it (the online search,
+// the image-source note) rides on the admin-only /api/v1 surface — so the
+// whole edit affordance is admin-only rather than a bar that 403s midway.
+const { isAdmin } = useAuth()
 
 const { data: artist, isLoading, error } = useArtist(props.id)
 
@@ -319,6 +325,7 @@ const onQueue = async (): Promise<void> => {
         <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">
             <template #actions>
                 <EditActionBar
+                    v-if="isAdmin"
                     v-model:editing="editing"
                     :can-delete="false"
                     :save-disabled="!dirty"

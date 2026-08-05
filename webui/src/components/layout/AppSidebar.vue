@@ -6,6 +6,7 @@ import { useUiStore } from '@/store/uiStore'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
+import UserMenu from '@/components/layout/UserMenu.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -65,10 +66,6 @@ const libraryExtras: NavItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
 ]
 
-const bottomItems: NavItem[] = [
-    { label: 'Settings', icon: 'pi pi-cog', route: '/settings', routeName: 'settings' }
-]
-
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
     if (item.routeName === 'library') {
@@ -121,7 +118,7 @@ const goHome = (): void => {
 }
 
 // --- Easter egg: the diamond mark unlocks the hidden themes -------------------
-// Five clicks inside EGG_WINDOW_MS reveal them in Settings → Profile and switch
+// Five clicks inside EGG_WINDOW_MS reveal them in User settings and switch
 // to the first; every further burst cycles to the next. The burst window means
 // idle curiosity (a stray click) never trips it.
 const EGG_CLICKS = 5
@@ -160,7 +157,7 @@ const onBrandMarkClick = (): void => {
         severity: 'success',
         summary: firstUnlock ? 'Hidden themes unlocked' : `Theme: ${theme.label}`,
         detail: firstUnlock
-            ? `${theme.label} enabled — the rest live in Settings → Profile.`
+            ? `${theme.label} enabled — the rest live in User settings.`
             : undefined,
         life: 4000
     })
@@ -251,19 +248,11 @@ onBeforeUnmount(resetEgg)
             </button>
         </nav>
 
-        <nav class="sidebar-footer-nav">
-            <button
-                v-for="item in bottomItems"
-                :key="item.routeName"
-                class="nav-item"
-                :class="{ active: isActive(item) }"
-                @click="navigateTo(item)"
-                v-tooltip.right="collapsed ? item.label : undefined"
-            >
-                <i :class="item.icon"></i>
-                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
-            </button>
-        </nav>
+        <!-- The identity chip: opens the account popup (user settings, theme,
+             settings, log out). Replaces the old footer Settings nav entry. -->
+        <div class="sidebar-footer-nav">
+            <UserMenu :collapsed="collapsed" />
+        </div>
     </aside>
 </template>
 
@@ -420,20 +409,12 @@ onBeforeUnmount(resetEgg)
     flex-direction: column;
     gap: 0.25rem;
     flex-shrink: 0;
-    padding: 0.75rem 0;
+    padding: 0.5rem 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .nav-separator {
     margin: 0.75rem 0 0.25rem;
-}
-
-.sidebar-footer-nav .nav-separator {
-    margin: 0.25rem 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.sidebar.collapsed .sidebar-footer-nav .nav-separator {
-    margin: 0.25rem 0.75rem;
 }
 
 @media (max-width: 768px) {

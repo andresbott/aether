@@ -201,6 +201,142 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 	}
 }
 
+// Track IDs are not stable across rescans: a dropped-and-rebuilt DB reassigns
+// tr-N to a different song while the stream URL stays the same. http.ServeFile
+// alone lets browsers heuristically cache the audio (no Cache-Control) and can
+// answer 304 off Last-Modified when the reassigned file is older — either way
+// the user hears the pre-rescan song. Stream responses must force revalidation
+// and key their validator on which file is served, like covers do.
+func TestStreamRevalidatesWhenTheServedFileChanges(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	dir := t.TempDir()
+	newSong := filepath.Join(dir, "new.mp3")
+	oldSong := filepath.Join(dir, "old.mp3")
+	if err := os.WriteFile(newSong, []byte("new-song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldSong, []byte("old-song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The reassigned file is OLDER than the cached one — the case where a
+	// Last-Modified check wrongly answers 304.
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(oldSong, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "new.mp3", FilePath: newSong}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	url := fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "new-song-bytes" {
+		t.Fatalf("first fetch served %q, want the track's file", body)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q (heuristic caching replays stale audio)", got, "no-cache")
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on the stream response; conditional requests cannot be keyed on the served file")
+	}
+
+	// Simulate the rescan: the same track ID now points at a different, older file.
+	if err := db.Model(&model.Track{}).Where("id = ?", track.ID).Update("file_path", oldSong).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// A conditional re-fetch carrying the cached validators must get the new
+	// song, not 304.
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	req.Header.Set("If-Modified-Since", time.Now().UTC().Format(http.TimeFormat))
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.StatusCode == http.StatusNotModified {
+		t.Fatal("got 304 after the file behind the ID changed; the browser keeps playing the old song")
+	}
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body2) != "old-song-bytes" {
+		t.Errorf("conditional re-fetch served %q, want the reassigned file", body2)
+	}
+}
+
+// Seeking relies on partial responses: the stream endpoint must keep honouring
+// Range requests.
+func TestStreamServesRangeRequests(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	songPath := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(songPath, []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: songPath}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Range", "bytes=4-6")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "456" {
+		t.Errorf("range body = %q, want %q", body, "456")
+	}
+}
+
 func TestGetCoverArtRadioNotFound(t *testing.T) {
 	s := testStore(t)
 	srv := newTestServer(t, s)

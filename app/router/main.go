@@ -16,6 +16,7 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
+	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
 )
@@ -51,6 +52,10 @@ type Cfg struct {
 	// Users is the native user store; nil unless AuthMethod is "native".
 	// When set, the users CRUD is mounted on /api/v1.
 	Users *userdb.Store
+	// Sessions is the cookie session manager; nil unless AuthMethod is
+	// "native". When set, the login/logout endpoints are mounted and every
+	// /api/v1 route except the public bootstrap set requires a session.
+	Sessions *cookieauth.Manager
 }
 
 type MainAppHandler struct {
@@ -71,6 +76,7 @@ type MainAppHandler struct {
 	rescanner     metadataHandler.TrackRescanner
 	authMethod    string
 	users         *userdb.Store
+	sessions      *cookieauth.Manager
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +103,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		rescanner:     cfg.Rescanner,
 		authMethod:    cfg.AuthMethod,
 		users:         cfg.Users,
+		sessions:      cfg.Sessions,
 	}
 	if app.authMethod == "" {
 		app.authMethod = "none"

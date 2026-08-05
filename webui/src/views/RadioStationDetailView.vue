@@ -16,6 +16,7 @@ import {
     useDeleteRadioStation
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+import { useAuth } from '@/composables/useAuth'
 import { stationToSong } from '@/utils/radioSong'
 import { fetchRadioFavicon } from '@/lib/api/RadioBrowser'
 import { subsonicClient } from '@/lib/api/subsonic'
@@ -28,6 +29,11 @@ const MAX_COVER_BYTES = 5 * 1024 * 1024
 const props = defineProps<{ id?: string; create?: boolean }>()
 const router = useRouter()
 const player = usePlayer()
+
+// Discover proxies through the admin-only /api/v1/radiobrowser endpoints, so
+// non-admins don't get a button that can only 403. (Station CRUD itself rides
+// on /rest and stays open until the planned role gate there — TODO.md.)
+const { isAdmin } = useAuth()
 
 const { data: stations, isLoading } = useRadioStations()
 const createMutation = useCreateRadioStation()
@@ -281,7 +287,7 @@ onUnmounted(() => {
         <ContentScaffold v-else :title="title" show-back @back="router.back()">
             <template #actions>
                 <Button
-                    v-if="create"
+                    v-if="create && isAdmin"
                     class="discover-station"
                     icon="pi pi-globe"
                     text
@@ -355,7 +361,7 @@ onUnmounted(() => {
 
         <ConfirmDialog />
         <StationSearchDialog
-            v-if="create"
+            v-if="create && isAdmin"
             v-model:visible="searchVisible"
             @select="onDiscoverSelect"
         />
