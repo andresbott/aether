@@ -743,6 +743,81 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	}
 }
 
+// getCoverArt must apply the visibility guard to playlists: the owner or public
+// only, answering error 70 otherwise — no existence leak.
+func TestGetCoverArtPlaylistVisibilityGuard(t *testing.T) {
+	s := testStore(t)
+	// Demo creates a PRIVATE playlist.
+	priv, err := s.CreatePlaylist("DemoPrivate", "demo", false, nil)
+	if err != nil {
+		t.Fatalf("create private playlist: %v", err)
+	}
+	// Demo also creates a PUBLIC playlist.
+	pub, err := s.CreatePlaylist("DemoPublic", "demo", true, nil)
+	if err != nil {
+		t.Fatalf("create public playlist: %v", err)
+	}
+
+	resolver := func(r *http.Request) (string, bool) {
+		if u := r.Header.Get("X-Test-User"); u != "" {
+			return u, true
+		}
+		return "", false
+	}
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), resolver)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// Admin requests the private playlist's cover → error 70 (no leak).
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/getCoverArt.view?id=pl-%d", srv.URL, priv.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-User", "admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	// Subsonic errors are HTTP 200 with a JSON envelope, not HTTP error codes.
+	// Check if we got a JSON error response or an image.
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "application/json" {
+		t.Fatalf("admin got image response (Content-Type: %q) for demo's PRIVATE playlist cover; expected JSON error 70", contentType)
+	}
+	var privEnv errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&privEnv); err != nil {
+		t.Fatal(err)
+	}
+	if privEnv.SubsonicResponse.Status != "failed" || privEnv.SubsonicResponse.Error == nil || privEnv.SubsonicResponse.Error.Code != 70 {
+		t.Errorf("private playlist cover for foreign user → status=%q code=%v, want failed/70",
+			privEnv.SubsonicResponse.Status, privEnv.SubsonicResponse.Error)
+	}
+
+	// Admin requests the public playlist's cover → ok (or 404 if no actual image exists, but NOT error 70).
+	req2, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/getCoverArt.view?id=pl-%d", srv.URL, pub.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header.Set("X-Test-User", "admin")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
+	// Public playlist should return an image (generated cover) or 404, not error 70.
+	contentType2 := resp2.Header.Get("Content-Type")
+	if contentType2 == "application/json" {
+		var env errorEnvelope
+		if err := json.NewDecoder(resp2.Body).Decode(&env); err == nil {
+			if env.SubsonicResponse.Status == "failed" && env.SubsonicResponse.Error != nil && env.SubsonicResponse.Error.Code == 70 {
+				t.Errorf("public playlist cover returned error 70; visibility guard wrongly blocked it")
+			}
+		}
+	}
+}
+
 func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

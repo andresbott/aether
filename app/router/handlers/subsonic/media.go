@@ -120,7 +120,7 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 // resolveCoverMeta looks up cover metadata for the given item type and ID.
 // It writes an HTTP error and returns false if the item cannot be found or the
 // type is unsupported.
-func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id uint) (coverMeta, bool) {
+func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemType string, id uint) (coverMeta, bool) {
 	switch itemType {
 	case "album":
 		album, err := h.store.GetAlbum(id)
@@ -165,7 +165,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 		return meta, true
 	case "playlist":
 		pl, err := h.store.GetPlaylist(id)
-		if err != nil {
+		if err != nil || (pl.Owner != requestOwner(r) && !pl.Public) {
 			writeError(w, 70, "playlist not found")
 			return coverMeta{}, false
 		}
@@ -217,7 +217,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	meta, ok := h.resolveCoverMeta(w, itemType, id)
+	meta, ok := h.resolveCoverMeta(w, r, itemType, id)
 	if !ok {
 		return
 	}

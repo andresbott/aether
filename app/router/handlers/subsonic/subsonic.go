@@ -60,9 +60,19 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			owner := defaultOwner
 			if identity != nil {
+				// CSRF hardening (interim, until PAT layer): reject cross-site
+				// requests. Every /rest endpoint is GET-reachable and the session
+				// cookie is SameSite=Lax, so a top-level cross-site navigation can
+				// trigger destructive writes (deletePlaylist, star, savePlayQueue...).
+				// Requests without Sec-Fetch-Site (curl, older clients, future PAT
+				// clients) pass — this is defense-in-depth, not a gate.
+				if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" {
+					writeError(w, 50, "cross-site request rejected")
+					return
+				}
 				var ok bool
 				owner, ok = identity(r)
-				if !ok {
+				if !ok || owner == "" {
 					// Subsonic error 40: the protocol's "bad credentials"
 					// code — there is no separate "no credentials" code.
 					writeError(w, 40, "authentication required")

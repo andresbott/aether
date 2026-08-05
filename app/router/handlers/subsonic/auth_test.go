@@ -81,4 +81,73 @@ func TestRestAcceptsAuthenticatedRequest(t *testing.T) {
 	}
 }
 
+func TestRestRejectsCrossSiteRequests(t *testing.T) {
+	s := testStore(t)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
+	req.Header.Set("X-Test-User", "demo")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SubsonicResponse.Status != "failed" {
+		t.Fatal("expected failed status for cross-site request")
+	}
+	if body.SubsonicResponse.Error == nil || body.SubsonicResponse.Error.Code != 50 {
+		t.Fatalf("expected subsonic error 50, got %+v", body.SubsonicResponse.Error)
+	}
+}
+
+func TestRestAllowsSameOriginRequests(t *testing.T) {
+	s := testStore(t)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
+	req.Header.Set("X-Test-User", "demo")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("expected ok with same-origin, got %q", body.SubsonicResponse.Status)
+	}
+}
+
+func TestRestAllowsRequestsWithoutSecFetchSite(t *testing.T) {
+	s := testStore(t)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
+	req.Header.Set("X-Test-User", "demo")
+	// No Sec-Fetch-Site header (curl, older clients, future PAT clients).
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("expected ok without Sec-Fetch-Site, got %q", body.SubsonicResponse.Status)
+	}
+}
+
 var _ = httptest.NewServer // keep import if unused during red phase
