@@ -779,7 +779,7 @@ func TestGetCoverArtPlaylistVisibilityGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Subsonic errors are HTTP 200 with a JSON envelope, not HTTP error codes.
 	// Check if we got a JSON error response or an image.
 	contentType := resp.Header.Get("Content-Type")
@@ -805,7 +805,7 @@ func TestGetCoverArtPlaylistVisibilityGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	// Public playlist should return an image (generated cover) or 404, not error 70.
 	contentType2 := resp2.Header.Get("Content-Type")
 	if contentType2 == "application/json" {
