@@ -31,7 +31,21 @@ func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
+	return httptest.NewServer(r)
+}
+
+// newTestServerWithIdentity registers /rest with a header-based identity
+// resolver: X-Test-User names the owner, an empty header means "no session".
+// This stands in for the cookie resolver production wires up.
+func newTestServerWithIdentity(t *testing.T, s *store.Store) *httptest.Server {
+	t.Helper()
+	as := assetstore.New(t.TempDir())
+	r := mux.NewRouter()
+	Register(r, s, as, imagecache.New(t.TempDir()), func(r *http.Request) (string, bool) {
+		u := r.Header.Get("X-Test-User")
+		return u, u != ""
+	})
 	return httptest.NewServer(r)
 }
 

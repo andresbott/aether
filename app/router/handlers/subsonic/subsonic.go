@@ -1,6 +1,7 @@
 package subsonic
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,13 +13,36 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// IdentityResolver resolves the authenticated user for a /rest request.
+// ok=false means the request carries no valid identity. This is the single
+// seam the future PAT/token layer replaces (docs/agents/authentication.md):
+// today production wires a session-cookie resolver, later a Subsonic
+// token verifier — handlers only ever see the owner string.
+type IdentityResolver func(r *http.Request) (owner string, ok bool)
+
+// ownerCtxKey carries the resolved owner on the request context.
+type ownerCtxKey struct{}
+
+// defaultOwner is the fixed owner used when no IdentityResolver is
+// configured (auth method "none"): the single-user behavior /rest always had.
+const defaultOwner = "admin"
+
+// requestOwner returns the owner the identity middleware resolved, or
+// defaultOwner when none ran (auth "none", or a handler under test).
+func requestOwner(r *http.Request) string {
+	if v, ok := r.Context().Value(ownerCtxKey{}).(string); ok && v != "" {
+		return v
+	}
+	return defaultOwner
+}
+
 type Handler struct {
 	store  *store.Store
 	assets *assetstore.Store
 	images *imagecache.Cache
 }
 
-func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache) {
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver) {
 	h := &Handler{store: s, assets: assets, images: images}
 	sub := r.PathPrefix("/rest").Subrouter()
 
@@ -29,6 +53,23 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	})
+
+	sub.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			owner := defaultOwner
+			if identity != nil {
+				var ok bool
+				owner, ok = identity(r)
+				if !ok {
+					// Subsonic error 40: the protocol's "bad credentials"
+					// code — there is no separate "no credentials" code.
+					writeError(w, 40, "authentication required")
+					return
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ownerCtxKey{}, owner)))
 		})
 	})
 

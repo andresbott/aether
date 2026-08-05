@@ -39,7 +39,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -89,7 +89,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -115,7 +115,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -149,7 +149,7 @@ func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -186,7 +186,7 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -385,7 +385,7 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -422,7 +422,7 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -492,7 +492,7 @@ func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -530,7 +530,7 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -568,7 +568,7 @@ func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -609,7 +609,7 @@ func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -641,7 +641,7 @@ func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -696,7 +696,7 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -762,7 +762,7 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 

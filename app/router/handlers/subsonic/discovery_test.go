@@ -56,7 +56,7 @@ func newDiscoveryStore(t *testing.T) *store.Store {
 func newDiscoveryServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	return httptest.NewServer(r)
 }
 

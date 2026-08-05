@@ -126,7 +126,25 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		subsonic.Register(app.router, app.store, app.assets, app.images)
+		// In native mode /rest is scoped by the session cookie — an interim
+		// identity source until the Subsonic token layer lands (TODO.md).
+		// GetSessData deliberately does not renew the rolling expiry; /me does.
+		var identity subsonic.IdentityResolver
+		if app.sessions != nil && app.users != nil {
+			identity = func(r *http.Request) (string, bool) {
+				data, err := app.sessions.GetSessData(r)
+				if err != nil || !data.IsAuthenticated {
+					return "", false
+				}
+				usr, err := app.users.GetUser(data.UserId)
+				if err != nil {
+					// Session refers to a deleted user.
+					return "", false
+				}
+				return usr.LoginID, true
+			}
+		}
+		subsonic.Register(app.router, app.store, app.assets, app.images, identity)
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {
