@@ -7,10 +7,16 @@ are **enforced on `/api/v1`**: beyond the public bootstrap set every route
 requires an *admin* session (403 otherwise) — the whole surface is server
 administration. The SPA mirrors this via `role` in `/me` (`useAuth().isAdmin`
 hides the Admin menu entry, the artist-image editor and radio Discover, and
-redirects non-admins out of `/settings`). `/rest` still validates nothing:
-the SPA calls it uncredentialed (`subsonicClient.initWithDefaults()`); the
-PAT/token layer is the next piece. The plan below is decided (TODO.md, top
-section) — implement it, don't invent alternatives.
+redirects non-admins out of `/settings`). In native mode, **`/rest` now
+requires the session cookie (interim, until the PAT layer)**: an
+`IdentityResolver` in `subsonic.Register` resolves cookie → login and every
+per-user surface (queue, stars, playlists, history) is owner-scoped; error 40
+without a session. This is a **deliberate deviation from the "token-only on
+`/rest`" invariant** described below, and is marked **interim**: it re-opens
+the CSRF consideration (GET-with-side-effects with a SameSite=Lax cookie:
+top-level navigations DO send it), and the PAT layer will remove cookie auth
+from `/rest` again. The plan below is decided (TODO.md, top section) —
+implement it, don't invent alternatives.
 
 ## The (Open)Subsonic auth methods (protocol recap)
 
@@ -115,7 +121,7 @@ handlers read identity via `cookieauth.CtxGetUserData`), and
 | `/` (SPA shell) | open (login view is part of the SPA) |
 | `/api/v1/auth/login`, `/logout` | the login handler itself |
 | `/api/v1` (rest of it) | `cookieauth` session cookie **+ admin role** (`sessionGuard` in `app/router/api_v1.go`; `/me`, `/health`, `/version` stay public; a non-admin session gets 403 — the whole surface is server administration) |
-| `/rest` | **still open** — Subsonic PAT/token verifier is the next piece |
+| `/rest` | session cookie via `IdentityResolver` (interim) — Subsonic PAT/token verifier still planned |
 
 Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 
@@ -136,10 +142,10 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   so the emptied queue is not pushed to the server), clear localStorage, and
   reset the query cache.
 
-Still missing from this mode: the `/rest` token layer + mint endpoint (when
-the mint endpoint lands it needs a session-only exemption from the admin
-requirement, like `apiV1PublicPaths`), change-own-password UI, and the radio
-CRUD write gate on `/rest`.
+Still missing from this mode: replace the interim cookie resolver with the
+token layer + mint endpoint (when the mint endpoint lands it needs a
+session-only exemption from the admin requirement, like `apiV1PublicPaths`),
+change-own-password UI, and the radio CRUD write gate on `/rest`.
 
 ## Mode: proxy-header (Authelia)
 
