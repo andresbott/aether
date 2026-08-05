@@ -100,6 +100,7 @@ func (s *Store) tasteProfile(owner string, now time.Time) (discovery.TasteProfil
 		Select("track_genres.genre_id AS genre_id, play_histories.played_at AS played_at").
 		Joins("JOIN track_genres ON track_genres.track_id = play_histories.track_id").
 		Where("play_histories.played_at >= ?", cutoff).
+		Where("play_histories.owner = ?", owner).
 		Scan(&playRows).Error; err != nil {
 		return discovery.TasteProfile{}, err
 	}
@@ -159,7 +160,7 @@ func (s *Store) albumCandidates(owner string, poolSize int, filter *DiscoveryFil
 	if err != nil {
 		return nil, err
 	}
-	plays, err := s.albumPlayStats(ids)
+	plays, err := s.albumPlayStats(owner, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +248,9 @@ func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) (
 	// three orderings above are all play- or import-driven, so without this a
 	// library whose newest imports are all played would surface no rediscovery
 	// candidates at all. Ordered by id (stable, indexed) rather than randomly —
-	// jitter does the shuffling at scoring time.
+	// jitter does the shuffling at scoring time. The NOT EXISTS is deliberately
+	// global (unplayed by anyone), so a catalog-deep album surfaces in everyone's
+	// feed — a per-user NOT EXISTS would work but changes the rediscovery flavor.
 	unplayedQ := s.db.Model(&model.Album{}).
 		Where("NOT EXISTS (SELECT 1 FROM play_histories JOIN tracks ON tracks.id = play_histories.track_id WHERE tracks.album_id = albums.id)")
 	if libraryID != nil {
@@ -267,7 +270,7 @@ func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) (
 
 // albumPlayStats returns play count and last-played per album in one grouped
 // query, mirroring PlaylistStats' contract: never-played albums are absent.
-func (s *Store) albumPlayStats(albumIDs []uint) (map[uint]PlaylistStat, error) {
+func (s *Store) albumPlayStats(owner string, albumIDs []uint) (map[uint]PlaylistStat, error) {
 	out := map[uint]PlaylistStat{}
 	if len(albumIDs) == 0 {
 		return out, nil
@@ -282,6 +285,7 @@ func (s *Store) albumPlayStats(albumIDs []uint) (map[uint]PlaylistStat, error) {
 		Select("tracks.album_id AS album_id, COUNT(*) AS play_count, datetime(MAX(play_histories.played_at)) AS last_played").
 		Joins("JOIN tracks ON tracks.id = play_histories.track_id").
 		Where("tracks.album_id IN ?", albumIDs).
+		Where("play_histories.owner = ?", owner).
 		Group("tracks.album_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -339,7 +343,7 @@ func (s *Store) playlistCandidates(owner string) ([]discovery.Candidate, error) 
 	if err != nil {
 		return nil, err
 	}
-	stats, err := s.PlaylistStats(ids)
+	stats, err := s.PlaylistStats(owner, ids)
 	if err != nil {
 		return nil, err
 	}

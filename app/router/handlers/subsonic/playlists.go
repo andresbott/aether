@@ -92,7 +92,7 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	stats, err := h.store.PlaylistStats(ids)
+	stats, err := h.store.PlaylistStats(owner, ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -161,7 +161,7 @@ func (h *Handler) writePlaylistResponse(w http.ResponseWriter, r *http.Request, 
 		writeError(w, 0, "internal error")
 		return
 	}
-	stats, err := h.store.PlaylistStats([]uint{pl.ID})
+	stats, err := h.store.PlaylistStats(owner, []uint{pl.ID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return

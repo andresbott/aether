@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 )
 
@@ -155,7 +156,7 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	plStats, err := h.store.PlaylistStats(playlistIDs)
+	plStats, err := h.store.PlaylistStats(owner, playlistIDs)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -209,15 +210,19 @@ func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getNowPlaying(w http.ResponseWriter, r *http.Request) {
-	tracks, err := h.store.GetNowPlaying()
+	nowPlaying, err := h.store.GetNowPlaying()
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	owner := requestOwner(r)
-	entries := starredSongList(h.store, owner, tracks)
-	for _, entry := range entries {
-		entry["username"] = "admin"
+	tracks := make([]model.Track, 0, len(nowPlaying))
+	for _, e := range nowPlaying {
+		tracks = append(tracks, e.Track)
+	}
+	// Star state is the VIEWER's, usernames are each entry's real player.
+	entries := starredSongList(h.store, requestOwner(r), tracks)
+	for i, entry := range entries {
+		entry["username"] = nowPlaying[i].Owner
 	}
 	writeResponse(w, map[string]any{
 		"nowPlaying": map[string]any{

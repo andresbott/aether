@@ -126,11 +126,13 @@ func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumLis
 	case "frequent":
 		q = q.Joins("JOIN tracks ON tracks.album_id = albums.id").
 			Joins("JOIN play_histories ON play_histories.track_id = tracks.id").
+			Where("play_histories.owner = ?", ownerOrAdmin(filter)).
 			Group("albums.id").
 			Order("COUNT(play_histories.id) DESC")
 	case "recent":
 		q = q.Joins("JOIN tracks ON tracks.album_id = albums.id").
 			Joins("JOIN play_histories ON play_histories.track_id = tracks.id").
+			Where("play_histories.owner = ?", ownerOrAdmin(filter)).
 			Group("albums.id").
 			Order("MAX(play_histories.played_at) DESC")
 	default:

@@ -147,7 +147,7 @@ func (h *Handler) discoveryPlaylists(owner string, ids []uint, ranks map[uint]st
 	if err != nil {
 		starredAt = map[uint]time.Time{}
 	}
-	stats, err := h.store.PlaylistStats(ids)
+	stats, err := h.store.PlaylistStats(owner, ids)
 	if err != nil {
 		return nil, err
 	}

@@ -8,8 +8,8 @@ import (
 
 // RecordPlaylistPlay appends one play row for a playlist. Mirrors RecordPlay for
 // tracks: append-only, so the count is the row count.
-func (s *Store) RecordPlaylistPlay(playlistID uint, playedAt time.Time) error {
-	pp := model.PlaylistPlay{PlaylistID: playlistID, PlayedAt: playedAt}
+func (s *Store) RecordPlaylistPlay(owner string, playlistID uint, playedAt time.Time) error {
+	pp := model.PlaylistPlay{Owner: owner, PlaylistID: playlistID, PlayedAt: playedAt}
 	return s.db.Create(&pp).Error
 }
 
@@ -30,7 +30,7 @@ type playlistStatRow struct {
 // PlaylistStats returns play count and last-played time per playlist for the
 // given IDs, in one grouped query. Playlists that were never played are absent
 // from the map (same contract as AlbumTrackStats).
-func (s *Store) PlaylistStats(playlistIDs []uint) (map[uint]PlaylistStat, error) {
+func (s *Store) PlaylistStats(owner string, playlistIDs []uint) (map[uint]PlaylistStat, error) {
 	out := map[uint]PlaylistStat{}
 	if len(playlistIDs) == 0 {
 		return out, nil
@@ -39,6 +39,7 @@ func (s *Store) PlaylistStats(playlistIDs []uint) (map[uint]PlaylistStat, error)
 	if err := s.db.Model(&model.PlaylistPlay{}).
 		Select("playlist_id, COUNT(*) AS play_count, datetime(MAX(played_at)) AS last_played").
 		Where("playlist_id IN ?", playlistIDs).
+		Where("owner = ?", owner).
 		Group("playlist_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err

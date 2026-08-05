@@ -172,7 +172,7 @@ func TestDiscoveryFeedRanksStayStableAcrossOffsets(t *testing.T) {
 		al := seedAlbum(t, s, string(rune('A'+i%26))+string(rune('a'+i/26)))
 		tr := seedTrack(t, s, al, 0)
 		if i%3 == 0 {
-			if err := s.RecordPlay(tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
+			if err := s.RecordPlay("admin", tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -180,7 +180,7 @@ func TestDiscoveryFeedRanksStayStableAcrossOffsets(t *testing.T) {
 	standout := seedAlbum(t, s, "Standout")
 	stTrack := seedTrack(t, s, standout, 0)
 	for i := 0; i < 50; i++ {
-		if err := s.RecordPlay(stTrack.ID, time.Now()); err != nil {
+		if err := s.RecordPlay("admin", stTrack.ID, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -222,7 +222,7 @@ func TestDiscoveryFeedPagedMatchesSingleShot(t *testing.T) {
 		al := seedAlbum(t, s, fmt.Sprintf("Album%02d", i))
 		tr := seedTrack(t, s, al, 0)
 		if i%2 == 0 {
-			if err := s.RecordPlay(tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
+			if err := s.RecordPlay("admin", tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -265,7 +265,7 @@ func TestDiscoveryFeedCandidateGatheringIsDeterministic(t *testing.T) {
 		al := seedAlbum(t, s, fmt.Sprintf("Album%02d", i))
 		tr := seedTrack(t, s, al, 0)
 		if i%5 == 0 {
-			if err := s.RecordPlay(tr.ID, time.Now().Add(-time.Duration(i)*time.Minute)); err != nil {
+			if err := s.RecordPlay("admin", tr.ID, time.Now().Add(-time.Duration(i)*time.Minute)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -299,7 +299,7 @@ func TestDiscoveryFeedIncludesNeverPlayedAlbums(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		al := seedAlbum(t, s, "Played"+string(rune('A'+i)))
 		tr := seedTrack(t, s, al, 0)
-		if err := s.RecordPlay(tr.ID, time.Now()); err != nil {
+		if err := s.RecordPlay("admin", tr.ID, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -377,10 +377,10 @@ func TestTasteProfileIgnoresPlaysPastTheHorizon(t *testing.T) {
 	freshTrack := seedTrack(t, s, freshAlbum, 0, fresh)
 
 	// One play far past the horizon in the stale genre, one recent in the fresh.
-	if err := s.RecordPlay(staleTrack.ID, time.Now().Add(-discoveryHorizonPlus())); err != nil {
+	if err := s.RecordPlay("admin", staleTrack.ID, time.Now().Add(-discoveryHorizonPlus())); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlay(freshTrack.ID, time.Now()); err != nil {
+	if err := s.RecordPlay("admin", freshTrack.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -474,7 +474,7 @@ func TestDiscoveryFeedPoolDoesNotGrowWithOffset(t *testing.T) {
 		al := seedAlbum(t, s, fmt.Sprintf("Album%03d", i))
 		tr := seedTrack(t, s, al, 0)
 		if i%4 == 0 {
-			if err := s.RecordPlay(tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
+			if err := s.RecordPlay("admin", tr.ID, time.Now().Add(-time.Duration(i)*time.Hour)); err != nil {
 				t.Fatal(err)
 			}
 		}

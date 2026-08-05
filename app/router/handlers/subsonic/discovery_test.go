@@ -210,7 +210,7 @@ func TestGetDiscoveryEmitsStarredWhenStarred(t *testing.T) {
 	if err := s.DB().Create(&tr).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlay(tr.ID, time.Now()); err != nil {
+	if err := s.RecordPlay("admin", tr.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Star("admin", "album", al.ID); err != nil {

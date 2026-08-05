@@ -86,11 +86,12 @@ func (h *Handler) scrobble(w http.ResponseWriter, r *http.Request) {
 	}
 	// Playlists are played as a unit and counted separately from their tracks
 	// ("playlistScrobble" extension); every other id type is a track play.
+	owner := requestOwner(r)
 	switch itemType {
 	case "playlist":
-		err = h.store.RecordPlaylistPlay(id, playedAt)
+		err = h.store.RecordPlaylistPlay(owner, id, playedAt)
 	default:
-		err = h.store.RecordPlay(id, playedAt)
+		err = h.store.RecordPlay(owner, id, playedAt)
 	}
 	if err != nil {
 		writeError(w, 0, "internal error")

@@ -16,17 +16,17 @@ func TestRecordPlaylistPlayAndStats(t *testing.T) {
 	db.Create(&pl2)
 
 	base := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
-	if err := s.RecordPlaylistPlay(pl1.ID, base); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl1.ID, base); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlaylistPlay(pl1.ID, base.Add(time.Hour)); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl1.ID, base.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlaylistPlay(pl2.ID, base); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl2.ID, base); err != nil {
 		t.Fatal(err)
 	}
 
-	stats, err := s.PlaylistStats([]uint{pl1.ID, pl2.ID})
+	stats, err := s.PlaylistStats("admin", []uint{pl1.ID, pl2.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestPlaylistStatsOmitsNeverPlayed(t *testing.T) {
 	pl := model.Playlist{Name: "Never"}
 	db.Create(&pl)
 
-	stats, err := s.PlaylistStats([]uint{pl.ID})
+	stats, err := s.PlaylistStats("admin", []uint{pl.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestPlaylistStatsOmitsNeverPlayed(t *testing.T) {
 
 func TestPlaylistStatsEmptyInput(t *testing.T) {
 	s := testStore(t)
-	stats, err := s.PlaylistStats(nil)
+	stats, err := s.PlaylistStats("admin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestOrphanedPlaylistPlaysAreRemoved(t *testing.T) {
 	db := s.DB()
 	pl := model.Playlist{Name: "Gone"}
 	db.Create(&pl)
-	if err := s.RecordPlaylistPlay(pl.ID, time.Now()); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	db.Delete(&model.Playlist{}, pl.ID)
@@ -98,13 +98,13 @@ func TestPlaylistStatsFarFutureTimestamp(t *testing.T) {
 
 	// Year 10000, well beyond the range Go's time.Parse normally handles (5-digit year).
 	farFuture := time.Date(10000, 1, 1, 1, 0, 0, 0, time.UTC)
-	if err := s.RecordPlaylistPlay(pl.ID, farFuture); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl.ID, farFuture); err != nil {
 		t.Fatal(err)
 	}
 
 	// PlaylistStats must not error and must return the play count. If the timestamp
 	// is unparseable, LastPlayed is left zero rather than failing the whole query.
-	stats, err := s.PlaylistStats([]uint{pl.ID})
+	stats, err := s.PlaylistStats("admin", []uint{pl.ID})
 	if err != nil {
 		t.Fatalf("PlaylistStats failed on far-future timestamp: %v", err)
 	}

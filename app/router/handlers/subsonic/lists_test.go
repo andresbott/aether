@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/model"
 )
@@ -142,5 +143,45 @@ func TestGetStarred2IncludesPlaylists(t *testing.T) {
 	}
 	if got[0].ID != fmt.Sprintf("pl-%d", pl.ID) {
 		t.Fatalf("id = %q, want pl-%d", got[0].ID, pl.ID)
+	}
+}
+
+func TestGetNowPlayingReportsRealUsernames(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	tr := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: "/a.mp3", Title: "A"}
+	db.Create(&tr)
+	if err := s.RecordPlay("demo", tr.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/getNowPlaying", nil)
+	req.Header.Set("X-Test-User", "admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body struct {
+		SubsonicResponse struct {
+			NowPlaying struct {
+				Entry []struct {
+					Username string `json:"username"`
+				} `json:"entry"`
+			} `json:"nowPlaying"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.SubsonicResponse.NowPlaying.Entry) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(body.SubsonicResponse.NowPlaying.Entry))
+	}
+	if got := body.SubsonicResponse.NowPlaying.Entry[0].Username; got != "demo" {
+		t.Fatalf("expected username demo, got %q", got)
 	}
 }
