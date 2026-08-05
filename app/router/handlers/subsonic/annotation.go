@@ -39,6 +39,7 @@ func starItems(h *Handler, r *http.Request, doStar bool) {
 // non-empty, only ids of that item type are accepted; when empty, any starrable
 // type is.
 func starParam(h *Handler, r *http.Request, doStar bool, param, want string) {
+	owner := requestOwner(r)
 	for _, idStr := range paramStrSlice(r, param) {
 		itemType, id, err := decodeID(idStr)
 		if err != nil {
@@ -51,9 +52,9 @@ func starParam(h *Handler, r *http.Request, doStar bool, param, want string) {
 			continue
 		}
 		if doStar {
-			_ = h.store.Star(itemType, id)
+			_ = h.store.Star(owner, itemType, id)
 		} else {
-			_ = h.store.Unstar(itemType, id)
+			_ = h.store.Unstar(owner, itemType, id)
 		}
 	}
 }

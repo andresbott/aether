@@ -13,23 +13,23 @@ func TestStarAndUnstar(t *testing.T) {
 	db := s.DB()
 	artist := model.Artist{Name: "A", NameNorm: "a"}
 	db.Create(&artist)
-	if err := s.Star("artist", artist.ID); err != nil {
+	if err := s.Star("admin", "artist", artist.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("artist", artist.ID); err != nil {
+	if err := s.Star("admin", "artist", artist.ID); err != nil {
 		t.Fatal(err)
 	} // idempotent
-	starred, err := s.GetStarred(nil)
+	starred, err := s.GetStarred("admin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(starred.Artists) != 1 {
 		t.Fatalf("expected 1 starred artist, got %d", len(starred.Artists))
 	}
-	if err := s.Unstar("artist", artist.ID); err != nil {
+	if err := s.Unstar("admin", "artist", artist.ID); err != nil {
 		t.Fatal(err)
 	}
-	starred, _ = s.GetStarred(nil)
+	starred, _ = s.GetStarred("admin", nil)
 	if len(starred.Artists) != 0 {
 		t.Fatal("expected 0 starred artists after unstar")
 	}
@@ -44,10 +44,10 @@ func TestGetStarredAll(t *testing.T) {
 	db.Create(&album)
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
 	db.Create(&track)
-	_ = s.Star("artist", artist.ID)
-	_ = s.Star("album", album.ID)
-	_ = s.Star("track", track.ID)
-	starred, err := s.GetStarred(nil)
+	_ = s.Star("admin", "artist", artist.ID)
+	_ = s.Star("admin", "album", album.ID)
+	_ = s.Star("admin", "track", track.ID)
+	starred, err := s.GetStarred("admin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,27 +82,27 @@ func TestGetStarredByLibrary(t *testing.T) {
 	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist1})
 	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist2})
 
-	if err := s.Star("artist", artist1.ID); err != nil {
+	if err := s.Star("admin", "artist", artist1.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("artist", artist2.ID); err != nil {
+	if err := s.Star("admin", "artist", artist2.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("album", album1.ID); err != nil {
+	if err := s.Star("admin", "album", album1.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("album", album2.ID); err != nil {
+	if err := s.Star("admin", "album", album2.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("track", t1.ID); err != nil {
+	if err := s.Star("admin", "track", t1.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("track", t2.ID); err != nil {
+	if err := s.Star("admin", "track", t2.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	id1 := lib1.ID
-	got, err := s.GetStarred(&store.StarredFilter{LibraryID: &id1})
+	got, err := s.GetStarred("admin", &store.StarredFilter{LibraryID: &id1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestGetStarredByLibrary(t *testing.T) {
 		t.Fatalf("expected 1 track in library 1, got %+v", got.Tracks)
 	}
 
-	all, err := s.GetStarred(nil)
+	all, err := s.GetStarred("admin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,10 +138,10 @@ func TestGetStarredIncludesPlaylistsNewestFirst(t *testing.T) {
 	// Explicit CreatedAt values: two stars created in the same test tick would
 	// otherwise tie and make the order arbitrary.
 	base := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
-	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: older.ID, CreatedAt: base})
-	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: newer.ID, CreatedAt: base.Add(time.Hour)})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "playlist", ItemID: older.ID, CreatedAt: base})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "playlist", ItemID: newer.ID, CreatedAt: base.Add(time.Hour)})
 
-	starred, err := s.GetStarred(nil)
+	starred, err := s.GetStarred("admin", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +162,9 @@ func TestStarredAt(t *testing.T) {
 	db.Create(&plainPl)
 
 	at := time.Date(2026, 7, 29, 9, 0, 0, 0, time.UTC)
-	db.Create(&model.StarredItem{ItemType: "playlist", ItemID: starredPl.ID, CreatedAt: at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "playlist", ItemID: starredPl.ID, CreatedAt: at})
 
-	got, err := s.StarredAt("playlist", []uint{starredPl.ID, plainPl.ID})
+	got, err := s.StarredAt("admin", "playlist", []uint{starredPl.ID, plainPl.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,11 +186,11 @@ func TestStarredAtIsScopedToItemType(t *testing.T) {
 	track := model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/1.mp3"}
 	db.Create(&track)
 
-	if err := s.Star("album", album.ID); err != nil {
+	if err := s.Star("admin", "album", album.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	albums, err := s.StarredAt("album", []uint{album.ID})
+	albums, err := s.StarredAt("admin", "album", []uint{album.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestStarredAtIsScopedToItemType(t *testing.T) {
 		t.Fatal("starred album must be present in the album lookup")
 	}
 
-	tracks, err := s.StarredAt("track", []uint{track.ID})
+	tracks, err := s.StarredAt("admin", "track", []uint{track.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestStarredAtIsScopedToItemType(t *testing.T) {
 
 func TestStarredAtWithNoIDs(t *testing.T) {
 	s := testStore(t)
-	got, err := s.StarredAt("album", nil)
+	got, err := s.StarredAt("admin", "album", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestOrphanedPlaylistStarsAreRemoved(t *testing.T) {
 	db := s.DB()
 	pl := model.Playlist{Name: "Gone"}
 	db.Create(&pl)
-	if err := s.Star("playlist", pl.ID); err != nil {
+	if err := s.Star("admin", "playlist", pl.ID); err != nil {
 		t.Fatal(err)
 	}
 	db.Delete(&model.Playlist{}, pl.ID)
@@ -235,5 +235,48 @@ func TestOrphanedPlaylistStarsAreRemoved(t *testing.T) {
 	db.Model(&model.StarredItem{}).Where("item_type = 'playlist'").Count(&n)
 	if n != 0 {
 		t.Fatalf("expected orphaned playlist stars removed, %d remain", n)
+	}
+}
+
+func TestStarsAreScopedToOwner(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	artist := model.Artist{Name: "A", NameNorm: "a"}
+	db.Create(&artist)
+
+	if err := s.Star("demo", "artist", artist.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	demoStars, err := s.GetStarred("demo", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(demoStars.Artists) != 1 {
+		t.Fatalf("demo expected 1 starred artist, got %d", len(demoStars.Artists))
+	}
+
+	adminStars, err := s.GetStarred("admin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adminStars.Artists) != 0 {
+		t.Fatal("admin sees demo's star: cross-user leak")
+	}
+
+	// Both users may star the same item independently...
+	if err := s.Star("admin", "artist", artist.ID); err != nil {
+		t.Fatal(err)
+	}
+	// ...and unstar only removes the caller's row.
+	if err := s.Unstar("demo", "artist", artist.ID); err != nil {
+		t.Fatal(err)
+	}
+	at, err := s.StarredAt("admin", "artist", []uint{artist.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := at[artist.ID]; !ok {
+		t.Fatal("demo's unstar removed admin's star")
 	}
 }

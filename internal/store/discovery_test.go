@@ -57,7 +57,7 @@ func TestDiscoveryFeedReturnsAlbumsAndPlaylists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	items, err := s.DiscoveryFeed(10, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",10, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestDiscoveryFeedRanksAreSequentialFromOffset(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		seedAlbum(t, s, string(rune('A'+i)))
 	}
-	items, err := s.DiscoveryFeed(3, 2, 1, nil)
+	items, err := s.DiscoveryFeed("admin",3, 2, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,11 +101,11 @@ func TestDiscoveryFeedPagesWithoutGapOrOverlap(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		seedAlbum(t, s, string(rune('A'+i)))
 	}
-	page1, err := s.DiscoveryFeed(5, 0, 42, nil)
+	page1, err := s.DiscoveryFeed("admin",5, 0, 42, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	page2, err := s.DiscoveryFeed(5, 5, 42, nil)
+	page2, err := s.DiscoveryFeed("admin",5, 5, 42, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,14 +184,14 @@ func TestDiscoveryFeedRanksStayStableAcrossOffsets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.Star("album", standout.ID); err != nil {
+	if err := s.Star("admin", "album", standout.ID); err != nil {
 		t.Fatal(err)
 	}
 
 	const seed = int64(4242)
 	var all []store.DiscoveryItem
 	for offset := 0; offset < 40; offset += 10 {
-		page, err := s.DiscoveryFeed(10, offset, seed, nil)
+		page, err := s.DiscoveryFeed("admin",10, offset, seed, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -228,13 +228,13 @@ func TestDiscoveryFeedPagedMatchesSingleShot(t *testing.T) {
 		}
 	}
 	const seed = int64(99)
-	single, err := s.DiscoveryFeed(48, 0, seed, nil)
+	single, err := s.DiscoveryFeed("admin",48, 0, seed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var stitched []store.DiscoveryItem
 	for offset := 0; offset < 48; offset += 12 {
-		page, err := s.DiscoveryFeed(12, offset, seed, nil)
+		page, err := s.DiscoveryFeed("admin",12, offset, seed, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,12 +270,12 @@ func TestDiscoveryFeedCandidateGatheringIsDeterministic(t *testing.T) {
 			}
 		}
 	}
-	first, err := s.DiscoveryFeed(10, 0, 7, nil)
+	first, err := s.DiscoveryFeed("admin",10, 0, 7, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for attempt := 0; attempt < 5; attempt++ {
-		again, err := s.DiscoveryFeed(10, 0, 7, nil)
+		again, err := s.DiscoveryFeed("admin",10, 0, 7, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -306,7 +306,7 @@ func TestDiscoveryFeedIncludesNeverPlayedAlbums(t *testing.T) {
 	forgotten := seedAlbum(t, s, "Forgotten")
 	seedTrack(t, s, forgotten, 0)
 
-	items, err := s.DiscoveryFeed(50, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",50, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,11 +323,11 @@ func TestDiscoveryFeedIsStableForOneSeed(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		seedAlbum(t, s, string(rune('A'+i)))
 	}
-	a, err := s.DiscoveryFeed(8, 0, 7, nil)
+	a, err := s.DiscoveryFeed("admin",8, 0, 7, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := s.DiscoveryFeed(8, 0, 7, nil)
+	b, err := s.DiscoveryFeed("admin",8, 0, 7, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	seedTrack(t, s, inLib1, lib1.ID)
 	seedTrack(t, s, inLib2, lib2.ID)
 
-	items, err := s.DiscoveryFeed(10, 0, 1, &store.DiscoveryFilter{LibraryID: &lib1.ID})
+	items, err := s.DiscoveryFeed("admin",10, 0, 1, &store.DiscoveryFilter{LibraryID: &lib1.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +389,7 @@ func TestTasteProfileIgnoresPlaysPastTheHorizon(t *testing.T) {
 	freshUnplayed := seedAlbum(t, s, "Fresh Unplayed", fresh)
 	staleUnplayed := seedAlbum(t, s, "Stale Unplayed", stale)
 
-	items, err := s.DiscoveryFeed(50, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",50, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestTasteProfileIgnoresPlaysPastTheHorizon(t *testing.T) {
 
 func TestDiscoveryFeedOnEmptyLibrary(t *testing.T) {
 	s := testStore(t)
-	items, err := s.DiscoveryFeed(10, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",10, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestDiscoveryFeedWithNoPlayHistory(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		seedAlbum(t, s, string(rune('A'+i)))
 	}
-	items, err := s.DiscoveryFeed(10, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",10, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,10 +438,10 @@ func TestDiscoveryFeedStarredAlbumOutranksPlainOne(t *testing.T) {
 	s := testStore(t)
 	plain := seedAlbum(t, s, "Plain")
 	starred := seedAlbum(t, s, "Starred")
-	if err := s.Star("album", starred.ID); err != nil {
+	if err := s.Star("admin", "album", starred.ID); err != nil {
 		t.Fatal(err)
 	}
-	items, err := s.DiscoveryFeed(10, 0, 1, nil)
+	items, err := s.DiscoveryFeed("admin",10, 0, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestDiscoveryFeedPoolDoesNotGrowWithOffset(t *testing.T) {
 
 	const seed = int64(7777)
 	// Fetch a big page from offset 0 containing ranks 40-49.
-	bigPage, err := s.DiscoveryFeed(50, 0, seed, nil)
+	bigPage, err := s.DiscoveryFeed("admin",50, 0, seed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestDiscoveryFeedPoolDoesNotGrowWithOffset(t *testing.T) {
 	}
 
 	// Fetch the same ranks from offset 40 with size 10.
-	deepPage, err := s.DiscoveryFeed(10, 40, seed, nil)
+	deepPage, err := s.DiscoveryFeed("admin",10, 40, seed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

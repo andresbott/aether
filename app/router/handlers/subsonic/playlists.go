@@ -58,7 +58,8 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 	for i := range playlists {
 		ids = append(ids, playlists[i].ID)
 	}
-	starredAt, err := h.store.StarredAt("playlist", ids)
+	owner := requestOwner(r)
+	starredAt, err := h.store.StarredAt(owner, "playlist", ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -101,13 +102,13 @@ func (h *Handler) getPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	h.writePlaylistResponse(w, id)
+	h.writePlaylistResponse(w, r, id)
 }
 
 // writePlaylistResponse loads a playlist plus its tracks and writes the full
 // Subsonic "playlist" object (with the entry list). Shared by getPlaylist and
 // createPlaylist. Writes error 70 if the playlist does not exist.
-func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
+func (h *Handler) writePlaylistResponse(w http.ResponseWriter, r *http.Request, id uint) {
 	pl, err := h.store.GetPlaylist(id)
 	if err != nil {
 		writeError(w, 70, "playlist not found")
@@ -118,12 +119,13 @@ func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := starredSongList(h.store, tracks)
+	owner := requestOwner(r)
+	songs := starredSongList(h.store, owner, tracks)
 	var dur int
 	for i := range tracks {
 		dur += tracks[i].Duration
 	}
-	starredAt, err := h.store.StarredAt("playlist", []uint{pl.ID})
+	starredAt, err := h.store.StarredAt(owner, "playlist", []uint{pl.ID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -169,7 +171,7 @@ func (h *Handler) createPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	h.writePlaylistResponse(w, pl.ID)
+	h.writePlaylistResponse(w, r, pl.ID)
 }
 
 // recreatePlaylist handles the createPlaylist update-by-id path: it replaces the
@@ -198,7 +200,7 @@ func (h *Handler) recreatePlaylist(w http.ResponseWriter, r *http.Request, idStr
 		writeError(w, 0, "internal error")
 		return
 	}
-	h.writePlaylistResponse(w, id)
+	h.writePlaylistResponse(w, r, id)
 }
 
 // decodeTrackIDs turns Subsonic song IDs into internal track IDs, silently

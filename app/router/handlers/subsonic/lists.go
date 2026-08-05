@@ -18,11 +18,13 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 	if size > 500 {
 		size = 500
 	}
+	owner := requestOwner(r)
 	filter := &store.AlbumListFilter{
 		Genre:     paramStr(r, "genre"),
 		FromYear:  paramInt(r, "fromYear", 0),
 		ToYear:    paramInt(r, "toYear", 0),
 		LibraryID: paramLibraryID(r),
+		Owner:     owner,
 	}
 	albums, err := h.store.GetAlbumList(listType, size, offset, filter)
 	if err != nil {
@@ -35,7 +37,7 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	stars := newStarLookup(h.store, nil, ids, nil)
+	stars := newStarLookup(h.store, owner, nil, ids, nil)
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
 		m := stars.applyAlbum(albumToMap(&al), al.ID)
@@ -68,7 +70,8 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := starredSongList(h.store, tracks)
+	owner := requestOwner(r)
+	songs := starredSongList(h.store, owner, tracks)
 	writeResponse(w, map[string]any{
 		"randomSongs": map[string]any{
 			"song": songs,
@@ -90,7 +93,8 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := starredSongList(h.store, tracks)
+	owner := requestOwner(r)
+	songs := starredSongList(h.store, owner, tracks)
 	writeResponse(w, map[string]any{
 		"songsByGenre": map[string]any{
 			"song": songs,
@@ -99,14 +103,15 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
+	owner := requestOwner(r)
 	libraryID := paramLibraryID(r)
-	starred, err := h.store.GetStarred(&store.StarredFilter{LibraryID: libraryID})
+	starred, err := h.store.GetStarred(owner, &store.StarredFilter{LibraryID: libraryID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
 	albumIDList := albumIDs(starred.Albums)
-	stars := newStarLookup(h.store, artistIDs(starred.Artists), albumIDList, trackIDs(starred.Tracks))
+	stars := newStarLookup(h.store, owner, artistIDs(starred.Artists), albumIDList, trackIDs(starred.Tracks))
 	// Album/artist counts, the same ones getAlbumList2 and getArtists emit: the
 	// favorites list is rendered by the same rows/cards as the full library, and
 	// without these their count columns would sit empty.
@@ -145,7 +150,7 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	for i := range starred.Playlists {
 		playlistIDs = append(playlistIDs, starred.Playlists[i].ID)
 	}
-	plStarredAt, err := h.store.StarredAt("playlist", playlistIDs)
+	plStarredAt, err := h.store.StarredAt(owner, "playlist", playlistIDs)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -209,7 +214,8 @@ func (h *Handler) getNowPlaying(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	entries := starredSongList(h.store, tracks)
+	owner := requestOwner(r)
+	entries := starredSongList(h.store, owner, tracks)
 	for _, entry := range entries {
 		entry["username"] = "admin"
 	}

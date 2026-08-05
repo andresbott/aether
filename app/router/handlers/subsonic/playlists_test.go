@@ -497,7 +497,7 @@ func TestGetPlaylistsIncludesStarAndPlayFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("playlist", starredPl.ID); err != nil {
+	if err := s.Star("admin", "playlist", starredPl.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RecordPlaylistPlay(starredPl.ID, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)); err != nil {
@@ -544,7 +544,7 @@ func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("playlist", pl.ID); err != nil {
+	if err := s.Star("admin", "playlist", pl.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RecordPlaylistPlay(pl.ID, time.Now()); err != nil {

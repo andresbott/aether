@@ -396,7 +396,7 @@ func TestSavePlayQueueIgnoresNonTrackIds(t *testing.T) {
 func TestGetPlayQueueEntriesCarryStarredState(t *testing.T) {
 	s := testStore(t)
 	tracks := seedQueueTracks(t, s)
-	if err := s.Star("track", tracks[0].ID); err != nil {
+	if err := s.Star("admin", "track", tracks[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	srv := newTestServer(t, s)

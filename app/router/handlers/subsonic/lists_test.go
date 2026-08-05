@@ -110,7 +110,7 @@ func TestGetStarred2IncludesPlaylists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("playlist", pl.ID); err != nil {
+	if err := s.Star("admin", "playlist", pl.ID); err != nil {
 		t.Fatal(err)
 	}
 

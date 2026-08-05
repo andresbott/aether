@@ -23,25 +23,25 @@ type starLookup struct {
 // starGetter is the subset of *store.Store starLookup needs, so the helpers stay
 // testable without a full handler.
 type starGetter interface {
-	StarredAt(itemType string, itemIDs []uint) (map[uint]time.Time, error)
+	StarredAt(owner, itemType string, itemIDs []uint) (map[uint]time.Time, error)
 }
 
 // newStarLookup batches one query per non-empty id set. A lookup error is not
 // fatal: the response is still correct Subsonic, just without star state, which
 // beats failing an entire browse request over an annotation.
-func newStarLookup(s starGetter, artistIDs, albumIDs, trackIDs []uint) *starLookup {
+func newStarLookup(s starGetter, owner string, artistIDs, albumIDs, trackIDs []uint) *starLookup {
 	l := &starLookup{
 		artists: map[uint]time.Time{},
 		albums:  map[uint]time.Time{},
 		tracks:  map[uint]time.Time{},
 	}
-	if m, err := s.StarredAt("artist", artistIDs); err == nil {
+	if m, err := s.StarredAt(owner, "artist", artistIDs); err == nil {
 		l.artists = m
 	}
-	if m, err := s.StarredAt("album", albumIDs); err == nil {
+	if m, err := s.StarredAt(owner, "album", albumIDs); err == nil {
 		l.albums = m
 	}
-	if m, err := s.StarredAt("track", trackIDs); err == nil {
+	if m, err := s.StarredAt(owner, "track", trackIDs); err == nil {
 		l.tracks = m
 	}
 	return l
@@ -70,8 +70,8 @@ func setStarred(m map[string]any, stars map[uint]time.Time, id uint) map[string]
 
 // starredSongList builds the Subsonic Child list for a flat track slice with
 // star state applied — the shape every song-only list endpoint returns.
-func starredSongList(s starGetter, tracks []model.Track) []map[string]any {
-	stars := newStarLookup(s, nil, nil, trackIDs(tracks))
+func starredSongList(s starGetter, owner string, tracks []model.Track) []map[string]any {
+	stars := newStarLookup(s, owner, nil, nil, trackIDs(tracks))
 	songs := make([]map[string]any, 0, len(tracks))
 	for i := range tracks {
 		t := tracks[i]

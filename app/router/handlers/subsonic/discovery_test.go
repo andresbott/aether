@@ -213,7 +213,7 @@ func TestGetDiscoveryEmitsStarredWhenStarred(t *testing.T) {
 	if err := s.RecordPlay(tr.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("album", al.ID); err != nil {
+	if err := s.Star("admin", "album", al.ID); err != nil {
 		t.Fatal(err)
 	}
 	srv := newDiscoveryServer(t, s)

@@ -155,7 +155,7 @@ func (h *Handler) loadQueue(w http.ResponseWriter, r *http.Request) (*store.Play
 // this one response instead of re-fetching every track.
 func playQueueToMap(s starGetter, owner string, q *store.PlayQueueState) map[string]any {
 	return map[string]any{
-		"entry":     starredSongList(s, q.Tracks),
+		"entry":     starredSongList(s, owner, q.Tracks),
 		"position":  q.PositionMs,
 		"username":  owner,
 		"changed":   q.Changed.Format(time.RFC3339),

@@ -45,7 +45,8 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stars := newStarLookup(h.store, artistIDs(artists), albumIDs(albums), trackIDs(songs))
+	owner := requestOwner(r)
+	stars := newStarLookup(h.store, owner, artistIDs(artists), albumIDs(albums), trackIDs(songs))
 	artistList := make([]map[string]any, 0, len(artists))
 	for _, a := range artists {
 		artistList = append(artistList, stars.applyArtist(map[string]any{

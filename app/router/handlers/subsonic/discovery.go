@@ -36,8 +36,9 @@ func (h *Handler) getDiscovery(w http.ResponseWriter, r *http.Request) {
 		offset = 0
 	}
 
+	owner := requestOwner(r)
 	filter := &store.DiscoveryFilter{LibraryID: paramLibraryID(r)}
-	items, err := h.store.DiscoveryFeed(size, offset, discoverySeed(r), filter)
+	items, err := h.store.DiscoveryFeed(owner, size, offset, discoverySeed(r), filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -57,12 +58,12 @@ func (h *Handler) getDiscovery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	albums, err := h.discoveryAlbums(albumIDList, albumRanks)
+	albums, err := h.discoveryAlbums(owner, albumIDList, albumRanks)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	playlists, err := h.discoveryPlaylists(playlistIDList, playlistRanks)
+	playlists, err := h.discoveryPlaylists(owner, playlistIDList, playlistRanks)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -91,7 +92,7 @@ func discoverySeed(r *http.Request) int64 {
 // discoveryAlbums builds the album array in rank order, reusing albumToMap and
 // batched lookups so the entities are byte-identical to getAlbumList2's — and so
 // a 48-item page costs a handful of queries rather than one per row.
-func (h *Handler) discoveryAlbums(ids []uint, ranks map[uint]store.DiscoveryItem) ([]map[string]any, error) {
+func (h *Handler) discoveryAlbums(owner string, ids []uint, ranks map[uint]store.DiscoveryItem) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(ids))
 	if len(ids) == 0 {
 		return out, nil
@@ -104,7 +105,7 @@ func (h *Handler) discoveryAlbums(ids []uint, ranks map[uint]store.DiscoveryItem
 	if err != nil {
 		return nil, err
 	}
-	stars := newStarLookup(h.store, nil, ids, nil)
+	stars := newStarLookup(h.store, owner, nil, ids, nil)
 
 	byID := make(map[uint]*model.Album, len(albums))
 	for i := range albums {
@@ -133,7 +134,7 @@ func (h *Handler) discoveryAlbums(ids []uint, ranks map[uint]store.DiscoveryItem
 
 // discoveryPlaylists builds the playlist array in rank order, reusing
 // playlistToMap with batched star and stat lookups.
-func (h *Handler) discoveryPlaylists(ids []uint, ranks map[uint]store.DiscoveryItem) ([]map[string]any, error) {
+func (h *Handler) discoveryPlaylists(owner string, ids []uint, ranks map[uint]store.DiscoveryItem) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(ids))
 	if len(ids) == 0 {
 		return out, nil
@@ -142,7 +143,7 @@ func (h *Handler) discoveryPlaylists(ids []uint, ranks map[uint]store.DiscoveryI
 	// whole feed — same convention as newStarLookup on the album path above and
 	// as documented in docs/agents/subsonic-api.md. An annotation must not take
 	// down the response it decorates.
-	starredAt, err := h.store.StarredAt("playlist", ids)
+	starredAt, err := h.store.StarredAt(owner, "playlist", ids)
 	if err != nil {
 		starredAt = map[uint]time.Time{}
 	}
