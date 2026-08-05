@@ -18,6 +18,7 @@ import type {
     SavedPlayQueue,
     Starred2
 } from '@/types/subsonic'
+import { sessionExpired } from '@/lib/authState'
 
 class SubsonicClient {
     private credentials: SubsonicCredentials | null = null
@@ -92,6 +93,11 @@ class SubsonicClient {
         const data = (await response.json()) as SubsonicResponse<T>
 
         if (data['subsonic-response'].status === 'failed') {
+            // Subsonic error 40 on /rest means the session cookie is gone —
+            // same reaction as a 401 on /api/v1: re-open the login gate.
+            if (data['subsonic-response'].error?.code === 40) {
+                sessionExpired.value = true
+            }
             throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
         }
 
