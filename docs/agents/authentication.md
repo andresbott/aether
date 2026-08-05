@@ -14,9 +14,12 @@ per-user surface (queue, stars, playlists, history) is owner-scoped; error 40
 without a session. This is a **deliberate deviation from the "token-only on
 `/rest`" invariant** described below, and is marked **interim**: it re-opens
 the CSRF consideration (GET-with-side-effects with a SameSite=Lax cookie:
-top-level navigations DO send it), and the PAT layer will remove cookie auth
-from `/rest` again. The plan below is decided (TODO.md, top section) —
-implement it, don't invent alternatives.
+top-level navigations DO send it). An interim mitigation is in place: the
+identity middleware rejects requests with `Sec-Fetch-Site: cross-site`
+(Subsonic error 50), blocking cross-origin destructive writes from browsers;
+requests without the header (curl, older clients, future PAT clients) pass.
+The PAT layer will remove cookie auth from `/rest` entirely. The plan below is
+decided (TODO.md, top section) — implement it, don't invent alternatives.
 
 ## The (Open)Subsonic auth methods (protocol recap)
 
