@@ -7,7 +7,7 @@ import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
-import { sessionExpired } from '@/lib/authState'
+import { sessionLostUnexpectedly } from '@/lib/authState'
 
 // Rendered by App.vue in place of the whole app whenever a session is
 // required and absent — it is not a route, so there is no /login URL to
@@ -59,7 +59,9 @@ async function onSubmit() {
              even while the app is in light mode. -->
         <form class="login-card dark-mode" @submit.prevent="onSubmit">
             <h1 class="login-brand">A<span class="login-brand-accent">e</span>ther</h1>
-            <p v-if="sessionExpired" class="login-expired">
+            <!-- Only for a session lost on its own: after a deliberate logout
+                 the user knows why the form is here. -->
+            <p v-if="sessionLostUnexpectedly" class="login-expired">
                 Your session has expired — please sign in again.
             </p>
 

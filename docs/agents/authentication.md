@@ -144,6 +144,12 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   (`purgeLocalSession` in `useAuth`): stop playback (queue sync unbinds first
   so the emptied queue is not pushed to the server), clear localStorage, and
   reset the query cache.
+- The purge's cache reset refetches queries that now 401, so `sessionExpired`
+  ends up set after a *deliberate* logout too. `useAuth` therefore also sets
+  `explicitLogout` (in `lib/authState.ts`) when the logout starts, and the
+  login view shows its "session has expired" note on the derived
+  `sessionLostUnexpectedly` — expiry only, never a logout the user asked for.
+  Both flags clear on the next successful login.
 
 Still missing from this mode: replace the interim cookie resolver with the
 token layer + mint endpoint (when the mint endpoint lands it needs a

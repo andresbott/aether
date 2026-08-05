@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 import PrimeVue from 'primevue/config'
-import { sessionExpired } from '@/lib/authState'
+import { explicitLogout, sessionExpired } from '@/lib/authState'
 
 const isPending = ref(false)
 const mutateAsync = vi.fn()
@@ -33,6 +33,7 @@ async function fillAndSubmit(w: ReturnType<typeof mountView>, user: string, pw: 
 describe('LoginView', () => {
     beforeEach(() => {
         sessionExpired.value = false
+        explicitLogout.value = false
         isPending.value = false
         mutateAsync.mockReset().mockResolvedValue({ done: true })
         routerReplace.mockReset()
@@ -101,6 +102,14 @@ describe('LoginView', () => {
     })
 
     it('shows no expiry note on a fresh visit', () => {
+        expect(mountView().find('.login-expired').exists()).toBe(false)
+    })
+
+    // The logout purge resets the query cache, whose refetches 401 and flip
+    // sessionExpired — the user asked for this, so the view stays silent.
+    it('shows no expiry note after a deliberate logout', () => {
+        sessionExpired.value = true
+        explicitLogout.value = true
         expect(mountView().find('.login-expired').exists()).toBe(false)
     })
 })

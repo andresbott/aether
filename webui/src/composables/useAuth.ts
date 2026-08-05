@@ -4,7 +4,7 @@ import * as AuthApi from '@/lib/api/Auth'
 import { useMe, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
-import { sessionExpired } from '@/lib/authState'
+import { explicitLogout, sessionExpired } from '@/lib/authState'
 
 // One purge per lost session. The purge's own resetQueries refetches active
 // /api/v1 queries, which 401 while logged out and flip sessionExpired — on an
@@ -102,6 +102,7 @@ export function useAuth() {
         }) => AuthApi.login(username, password, rememberMe),
         onSuccess: async () => {
             sessionExpired.value = false
+            explicitLogout.value = false
             purgedThisExpiry = false
             // The cookie is set: refetch /me so the identity (and any queries
             // that 401ed while logged out) repopulate.
@@ -112,6 +113,12 @@ export function useAuth() {
 
     const logoutMutation = useMutation({
         mutationFn: () => AuthApi.logout(),
+        // Mark the intent BEFORE the request: the purge's cache reset (and any
+        // in-flight call) 401s and flips sessionExpired, and the login view
+        // must not mistake that for an expiry the user did not ask for.
+        onMutate: () => {
+            explicitLogout.value = true
+        },
         onSettled: async () => {
             // Whatever the server said, the local session is over.
             await purgeLocalSession(qc)

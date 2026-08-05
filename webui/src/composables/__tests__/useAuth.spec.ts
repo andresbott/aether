@@ -28,6 +28,8 @@ vi.mock('@/composables/useQueueSync', () => ({
 type UseAuth = (typeof import('@/composables/useAuth'))['useAuth']
 let useAuth: UseAuth
 let sessionExpired: (typeof import('@/lib/authState'))['sessionExpired']
+let explicitLogout: (typeof import('@/lib/authState'))['explicitLogout']
+let sessionLostUnexpectedly: (typeof import('@/lib/authState'))['sessionLostUnexpectedly']
 
 function withAuth() {
     let auth!: ReturnType<UseAuth>
@@ -69,8 +71,11 @@ describe('useAuth', () => {
     beforeEach(async () => {
         vi.resetModules()
         ;({ useAuth } = await import('@/composables/useAuth'))
-        ;({ sessionExpired } = await import('@/lib/authState'))
+        ;({ sessionExpired, explicitLogout, sessionLostUnexpectedly } = await import(
+            '@/lib/authState'
+        ))
         sessionExpired.value = false
+        explicitLogout.value = false
         localStorage.clear()
         getMe.mockReset()
         login.mockReset()
@@ -193,6 +198,71 @@ describe('useAuth', () => {
             clearQueue.mock.invocationCallOrder[0]
         )
         expect(localStorage.getItem('musicPlayer:queue')).toBeNull()
+    })
+
+    // The purge's cache reset refetches queries that now 401, so sessionExpired
+    // ends up set either way — only the logout intent tells the login view not
+    // to blame an expiry for a form the user asked for.
+    it('marks a deliberate logout so no expiry is reported', async () => {
+        getMe.mockResolvedValue(meAlice)
+        logout.mockResolvedValue(undefined)
+        const auth = withAuth()
+        await flushPromises()
+
+        getMe.mockResolvedValue(meAnonymous)
+        await auth.logout.mutateAsync()
+        await flushPromises()
+
+        expect(explicitLogout.value).toBe(true)
+        expect(sessionLostUnexpectedly.value).toBe(false)
+    })
+
+    // A failed logout request still ends the local session (onSettled purges
+    // regardless), so it stays a deliberate one.
+    it('marks the logout even when the request fails', async () => {
+        getMe.mockResolvedValue(meAlice)
+        logout.mockRejectedValue(new Error('offline'))
+        const auth = withAuth()
+        await flushPromises()
+
+        await expect(auth.logout.mutateAsync()).rejects.toThrow()
+        await flushPromises()
+
+        expect(explicitLogout.value).toBe(true)
+    })
+
+    it('reports an unexpected loss when the session expires on its own', async () => {
+        getMe.mockResolvedValue(meAlice)
+        withAuth()
+        await flushPromises()
+
+        sessionExpired.value = true
+        await flushPromises()
+
+        expect(sessionLostUnexpectedly.value).toBe(true)
+    })
+
+    // Signing in again re-arms the distinction: a session lost after this
+    // login is an expiry, not the previous logout.
+    it('clears the logout mark after a fresh login', async () => {
+        getMe.mockResolvedValue(meAlice)
+        logout.mockResolvedValue(undefined)
+        login.mockResolvedValue({ done: true })
+        const auth = withAuth()
+        await flushPromises()
+
+        getMe.mockResolvedValue(meAnonymous)
+        await auth.logout.mutateAsync()
+        await flushPromises()
+
+        getMe.mockResolvedValue(meAlice)
+        await auth.login.mutateAsync({ username: 'alice', password: 'pw', rememberMe: false })
+        await flushPromises()
+
+        expect(explicitLogout.value).toBe(false)
+
+        sessionExpired.value = true
+        expect(sessionLostUnexpectedly.value).toBe(true)
     })
 
     // An expired session scrubs the device exactly like an explicit logout.
