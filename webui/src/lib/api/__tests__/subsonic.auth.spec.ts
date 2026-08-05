@@ -34,4 +34,16 @@ describe('subsonic client session expiry', () => {
         await expect(subsonicClient.getPlaylists()).rejects.toThrow()
         expect(sessionExpired.value).toBe(false)
     })
+
+    it('flips sessionExpired when savePlayQueue answers subsonic error 40', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(failedEnvelope(40)))
+        await subsonicClient.savePlayQueue(['tr-1'], 0, 0)
+        expect(sessionExpired.value).toBe(true)
+    })
+
+    it('flips sessionExpired when createPlaylist answers subsonic error 40', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(failedEnvelope(40)))
+        await expect(subsonicClient.createPlaylist('Test')).rejects.toThrow()
+        expect(sessionExpired.value).toBe(true)
+    })
 })

@@ -79,6 +79,16 @@ class SubsonicClient {
         return url.toString()
     }
 
+    private handleFailedResponse(data: any): never {
+        if (data['subsonic-response'].status === 'failed') {
+            if (data['subsonic-response'].error?.code === 40) {
+                sessionExpired.value = true
+            }
+            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+        }
+        throw new Error('Unknown error')
+    }
+
     private async request<T>(
         endpoint: string,
         params: Record<string, string | number | boolean | undefined> = {}
@@ -93,12 +103,7 @@ class SubsonicClient {
         const data = (await response.json()) as SubsonicResponse<T>
 
         if (data['subsonic-response'].status === 'failed') {
-            // Subsonic error 40 on /rest means the session cookie is gone —
-            // same reaction as a 401 on /api/v1: re-open the login gate.
-            if (data['subsonic-response'].error?.code === 40) {
-                sessionExpired.value = true
-            }
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
 
         return data['subsonic-response'] as T
@@ -340,7 +345,7 @@ class SubsonicClient {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data = await response.json()
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -376,7 +381,7 @@ class SubsonicClient {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data = (await response.json()) as SubsonicResponse<{ playlist: Playlist }>
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
         return data['subsonic-response'].playlist
     }
@@ -400,7 +405,7 @@ class SubsonicClient {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data = await response.json()
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -440,7 +445,7 @@ class SubsonicClient {
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
         const data = await response.json()
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -493,7 +498,7 @@ class SubsonicClient {
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
             const data = await response.json()
             if (data['subsonic-response'].status === 'failed') {
-                throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+                this.handleFailedResponse(data)
             }
         } catch (err) {
             console.warn('savePlayQueue failed', err)
