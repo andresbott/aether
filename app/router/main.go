@@ -83,6 +83,29 @@ func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.router.ServeHTTP(w, r)
 }
 
+// sessionIdentityResolver constructs the /rest identity resolver when both
+// sessions and users are available. In native mode /rest is scoped by the
+// session cookie — an interim identity source until the Subsonic token layer
+// lands (TODO.md). GetSessData deliberately does not renew the rolling expiry;
+// /me does. Returns nil when either sessions or users is nil (auth "none").
+func (h *MainAppHandler) sessionIdentityResolver() subsonic.IdentityResolver {
+	if h.sessions == nil || h.users == nil {
+		return nil
+	}
+	return func(r *http.Request) (string, bool) {
+		data, err := h.sessions.GetSessData(r)
+		if err != nil || !data.IsAuthenticated {
+			return "", false
+		}
+		usr, err := h.users.GetUser(data.UserId)
+		if err != nil {
+			// Session refers to a deleted user.
+			return "", false
+		}
+		return usr.LoginID, true
+	}
+}
+
 func New(cfg Cfg) (*MainAppHandler, error) {
 	r := mux.NewRouter()
 	app := MainAppHandler{
@@ -126,24 +149,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		// In native mode /rest is scoped by the session cookie — an interim
-		// identity source until the Subsonic token layer lands (TODO.md).
-		// GetSessData deliberately does not renew the rolling expiry; /me does.
-		var identity subsonic.IdentityResolver
-		if app.sessions != nil && app.users != nil {
-			identity = func(r *http.Request) (string, bool) {
-				data, err := app.sessions.GetSessData(r)
-				if err != nil || !data.IsAuthenticated {
-					return "", false
-				}
-				usr, err := app.users.GetUser(data.UserId)
-				if err != nil {
-					// Session refers to a deleted user.
-					return "", false
-				}
-				return usr.LoginID, true
-			}
-		}
+		identity := app.sessionIdentityResolver()
 		subsonic.Register(app.router, app.store, app.assets, app.images, identity)
 	}
 
