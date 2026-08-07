@@ -296,9 +296,14 @@ otherwise validate against the library roots first (also an open TODO).
 ## Authentication (current state)
 
 **`/rest` authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
-Tokens).** `subsonic.Register` installs a dedicated `AuthHandler` that parses
+Tokens).** `subsonic.Register` takes an `IdentityResolver`
+(`subsonic.IdentityResolver`, `handlers/subsonic/subsonic.go`) and installs the
+middleware that calls it; the router supplies
+`MainAppHandler.patIdentityResolver` (`app/router/main.go`), which parses
 `apiKey` from query params and validates against `userauth`'s `pat` service
-(hash-only storage, prefix `aether_`). Handlers read the resolved identity via
+(hash-only storage, prefix `aether_`). The resolver owns all auth policy —
+`Register` knows nothing about tokens, which is what lets auth "none" pass a
+fixed-owner resolver instead. Handlers read the resolved identity via
 `requestOwner(r)`. Every per-user surface — play queue, stars, playlists,
 history — is owner-scoped: data is keyed/filtered by the authenticated user's
 login. Error codes: 40 (no credentials), 43 (`apiKey` mixed with

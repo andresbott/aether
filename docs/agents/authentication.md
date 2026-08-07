@@ -66,11 +66,16 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   field (`"admin"`/`"user"`) and the bootstrapped initial admin is seeded
   into the group. The `/api/v1` guard enforces the admin role (see below);
   gating radio CRUD writes (on `/rest`) is still pending (TODO.md).
-- **PAT system** — per-user tokens verified by a thin Subsonic
-  `AuthHandler` that parses `u`/`t`/`s`/`p`/`apiKey` on `/rest/*`. This is
-  the *only* authentication on `/rest`.
-- **Token-mint endpoint** — `POST /api/v1/session/token` (name TBD;
-  `/api/v1` is the right home — it's not a music feature). Exchanges
+- **PAT system** — per-user tokens verified by an `IdentityResolver` the
+  router injects into `subsonic.Register`
+  (`MainAppHandler.patIdentityResolver`, `app/router/main.go`). It parses
+  **only** `apiKey` on `/rest/*`; a request that also carries any of
+  `u`/`t`/`s`/`p` is answered with Subsonic error 43 (conflicting auth
+  mechanisms) rather than falling back to password auth. This is the *only*
+  authentication on `/rest`.
+- **Token-mint endpoint** — `POST /api/v1/auth/token` (**implemented**,
+  `handlers/tokens`; `/api/v1` is the right home — it's not a music
+  feature). Exchanges
   "whoever the `/api/v1` middleware says you are" for a Subsonic token
   bound to that user. Its authorizer is just the mode's chain — same
   handler, zero mode branching. It trusts **only** the middleware identity;
@@ -87,7 +92,9 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   bootstraps on it before any login — and it renews the rolling session
   expiry of remember-me sessions.
 - **SPA token lifecycle** — on boot, mint a 48h `spa`-scoped token via
-  `POST /api/v1/auth/token` (sweeps caller's expired spa tokens first); keep
+  `POST /api/v1/auth/token` (sweeps ALL of the caller's spa tokens first —
+  expired and live: the SPA holds exactly one and this mint supersedes it,
+  bounding spa tokens at ~1/user so repeated boots cannot hit the cap); keep
   it in memory only (never localStorage). Speak standard Subsonic auth on
   `/rest` via `apiKey=<token>`. Hash-only storage means `apiKey` is the only
   possible transport until recoverable (encrypted-at-rest) tokens land for
@@ -108,8 +115,12 @@ distinguishing behavior:
 | Management UI | hidden from list | listed, named, revocable in UserSettingsView |
 | Storage | hash-only (we control the client) | hash-only today; recoverable/encrypted TODO for `t`+`s` clients |
 
-Mint-time sweep purges caller's expired spa tokens; `GET /api/v1/auth/tokens`
-excludes `spa` scope from the list.
+Mint-time sweep purges every one of the caller's spa tokens (expired and live);
+`GET /api/v1/auth/tokens` excludes `spa` scope from the list. A boot-mint that
+keeps failing for a non-401 reason surfaces the login gate, whose purge refetches
+`/me` and re-runs the mint watcher — so the SPA caps consecutive failed mints
+(`MAX_MINT_ATTEMPTS` in `webui/src/lib/subsonicSession.ts`) and then leaves the
+gate up instead of looping. A successful login or mint re-arms the budget.
 
 Why token-only on `/rest` instead of also chaining the session cookie there:
 one auth path on the most compliance-sensitive surface in both modes (halves
