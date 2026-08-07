@@ -120,11 +120,7 @@ func (h *Handler) discoveryAlbums(owner string, ids []uint, ranks map[uint]store
 		if !ok {
 			continue
 		}
-		m := stars.applyAlbum(albumToMap(al), al.ID)
-		if st, ok := stats[al.ID]; ok {
-			m["songCount"] = st.Count
-			m["duration"] = st.Duration
-		}
+		m := applyAlbumStats(stars.applyAlbum(albumToMap(al), al.ID), stats, al.ID)
 		m["rank"] = ranks[id].Rank
 		m["reason"] = ranks[id].Reason
 		out = append(out, m)

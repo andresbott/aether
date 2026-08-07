@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -32,6 +33,19 @@ func TestFindOrCreateAlbum(t *testing.T) {
 	}
 	if same.ID != album.ID {
 		t.Fatal("expected same album ID")
+	}
+}
+
+func TestFindOrCreateAlbumPropagatesQueryError(t *testing.T) {
+	s := testStore(t)
+	failQueries(t, s)
+
+	_, err := s.FindOrCreateAlbum("Kid A", "radiohead", "")
+	if err == nil {
+		t.Fatal("expected the DB error to propagate, got nil (a real failure was treated as not-found)")
+	}
+	if !errors.Is(err, errQueryBoom) {
+		t.Fatalf("expected the injected DB error, got %v", err)
 	}
 }
 

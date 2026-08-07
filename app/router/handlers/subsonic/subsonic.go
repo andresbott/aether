@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
 )
@@ -55,10 +57,70 @@ type Handler struct {
 	store  *store.Store
 	assets *assetstore.Store
 	images *imagecache.Cache
+	// mediaGuard confines the files the media handlers will read to the
+	// configured library roots. Paths reach those handlers from the DB, not from
+	// the request, so this enforces that a track/cover row actually points into a
+	// library. nil disables the check (no roots configured).
+	mediaGuard *pathguard.Guard
+	// libraryRoots reads the current library roots. Set instead of mediaGuard when
+	// the roots can change while the server runs; guarded by guardMu and cached in
+	// mediaGuard between refreshes.
+	libraryRoots func() ([]string, error)
+	guardMu      sync.RWMutex
+	// guardRoots is the root set mediaGuard was built from, so a refresh only
+	// rebuilds the guard when the libraries actually changed.
+	guardRoots []string
 }
 
-func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver) {
+// Option customizes the /rest handler at registration time.
+type Option func(*Handler)
+
+// WithMediaRoots confines stream/getCoverArt to files under a fixed set of
+// roots. Called with no usable roots it installs no guard, so a server with no
+// libraries yet keeps serving its own generated covers. Production uses
+// WithLibraryRoots; this is the static form, for tests and embedding.
+func WithMediaRoots(roots ...string) Option {
+	return func(h *Handler) {
+		if g := newGuard(roots); g != nil {
+			h.mediaGuard = g
+		}
+	}
+}
+
+// WithLibraryRoots confines stream/getCoverArt to files under the configured
+// libraries, read through roots on demand. Dynamic rather than a snapshot
+// because libraries are created at runtime through the settings UI: a snapshot
+// taken here would refuse every file in a library added later.
+func WithLibraryRoots(roots func() ([]string, error)) Option {
+	return func(h *Handler) {
+		if roots == nil {
+			return
+		}
+		h.libraryRoots = roots
+	}
+}
+
+// newGuard builds a guard over the usable (non-empty) roots, or nil when there
+// are none — "no libraries configured" must not become "deny everything", which
+// would black out every cover on a fresh install.
+func newGuard(roots []string) *pathguard.Guard {
+	usable := make([]string, 0, len(roots))
+	for _, r := range roots {
+		if r != "" {
+			usable = append(usable, r)
+		}
+	}
+	if len(usable) == 0 {
+		return nil
+	}
+	return pathguard.New(usable...)
+}
+
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver, opts ...Option) {
 	h := &Handler{store: s, assets: assets, images: images}
+	for _, opt := range opts {
+		opt(h)
+	}
 	sub := r.PathPrefix("/rest").Subrouter()
 
 	sub.Use(func(next http.Handler) http.Handler {

@@ -127,11 +127,16 @@ func (s *Store) SetTrackHasEmbeddedCover(absPath string, v bool) error {
 	return nil
 }
 
+// GetCoverTrackPath returns the file whose embedded cover represents the album.
+// The order is explicit and deterministic — lowest (disc, track) wins — because
+// a rescan reinserts an album's tracks in directory-walk order: without it, which
+// track's artwork the album shows would change from one scan to the next.
 func (s *Store) GetCoverTrackPath(albumID uint) (string, error) {
 	var track model.Track
 	err := s.db.
 		Select("file_path").
 		Where("album_id = ? AND has_embedded_cover = ?", albumID, true).
+		Order("disc_number ASC, track_number ASC, file_path ASC").
 		First(&track).Error
 	if err != nil {
 		return "", err

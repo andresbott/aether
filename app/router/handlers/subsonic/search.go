@@ -46,7 +46,13 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	}
 
 	owner := requestOwner(r)
-	stars := newStarLookup(h.store, owner, artistIDs(artists), albumIDs(albums), trackIDs(songs))
+	albumIDList := albumIDs(albums)
+	albumStats, err := h.store.AlbumTrackStats(albumIDList)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	stars := newStarLookup(h.store, owner, artistIDs(artists), albumIDList, trackIDs(songs))
 	artistList := make([]map[string]any, 0, len(artists))
 	for _, a := range artists {
 		artistList = append(artistList, stars.applyArtist(map[string]any{
@@ -57,7 +63,7 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	}
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, stars.applyAlbum(albumToMap(&al), al.ID))
+		albumList = append(albumList, applyAlbumStats(stars.applyAlbum(albumToMap(&al), al.ID), albumStats, al.ID))
 	}
 	songList := make([]map[string]any, 0, len(songs))
 	for _, t := range songs {

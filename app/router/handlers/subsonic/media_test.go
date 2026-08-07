@@ -19,6 +19,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
 	"go.senan.xyz/taglib"
 )
@@ -198,6 +199,372 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 
 	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control = %q, want %q", got, "no-cache")
+	}
+}
+
+// newGuardedTestServer registers /rest with the media path guard restricted to
+// the given roots, standing in for the configured libraries.
+func newGuardedTestServer(t *testing.T, s *store.Store, roots ...string) *httptest.Server {
+	t.Helper()
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
+		WithMediaRoots(roots...))
+	return httptest.NewServer(r)
+}
+
+// A track row whose file_path points outside every configured library must not be
+// served. Nothing in the request supplies that path — it comes from the DB — so
+// this is the enforcement of an assumption the //nolint:gosec on the file open
+// previously only asserted: a stale row or a metadata-editor bug is enough to
+// name any file the server process can read.
+func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	base := t.TempDir()
+	libRoot := filepath.Join(base, "music")
+	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(base, "secret.env")
+	if err := os.WriteFile(secret, []byte("DB_PASSWORD=hunter2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "secret.env", FilePath: secret}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "hunter2") {
+		t.Fatal("stream served a file outside every library root")
+	}
+}
+
+// The guard must not break the normal case: a track inside a configured root
+// streams as before.
+func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	libRoot := t.TempDir()
+	song := filepath.Join(libRoot, "a.mp3")
+	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "song-bytes" {
+		t.Errorf("served %q, want the track's file", body)
+	}
+}
+
+// An album cover_path outside every library root is the same defect on the cover
+// path: the bytes of an arbitrary file would be re-encoded into a JPEG and
+// served. The request must fall through to the generated cover instead.
+func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	base := t.TempDir()
+	libRoot := filepath.Join(base, "music")
+	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// A real PNG living outside the library: if the guard is missing, its 4x4
+	// dimensions come back instead of the 256px generated cover.
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "outside.png")
+	if err := os.WriteFile(outside, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y", CoverPath: outside}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (the generated cover)", resp.StatusCode)
+	}
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width == 4 {
+		t.Fatal("served a derivative of a file outside every library root")
+	}
+	if cfg.Width != 256 {
+		t.Errorf("served width %d, want the 256px generated cover", cfg.Width)
+	}
+}
+
+// A cover file inside the library must still be served — the guard is about
+// provenance, not about disabling folder covers.
+func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	libRoot := t.TempDir()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
+		t.Fatal(err)
+	}
+	cover := filepath.Join(libRoot, "cover.png")
+	if err := os.WriteFile(cover, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y", CoverPath: cover}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	// Never upscaled, so 4x4 proves the real cover was used, not the generated one.
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width != 4 {
+		t.Errorf("served width %d, want 4 (a derivative of the in-library cover)", cfg.Width)
+	}
+}
+
+// An album's embedded-cover source is an audio file path from the DB too, so it
+// needs the same containment check as cover_path.
+func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	base := t.TempDir()
+	libRoot := filepath.Join(base, "music")
+	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// A real audio file with a real embedded front cover, living outside the
+	// library: its distinctive 2:1 shape is what proves whether it was read.
+	outside := embeddedFixture(t, base, "outside.flac",
+		embeddedPic{"Front Cover", realPNG(t, 300, 150)})
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y", HasEmbeddedCover: true}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "outside.flac", FilePath: outside, HasEmbeddedCover: true}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (the generated cover)", resp.StatusCode)
+	}
+	// Generated covers are square; the out-of-library fixture's art is 2:1, so
+	// the aspect ratio says which source was actually read regardless of the
+	// size bucket the derivative was scaled into.
+	cfg, _ := decodeServedCover(t, resp)
+	if cfg.Width != cfg.Height {
+		t.Fatalf("served a %dx%d (non-square) cover: the embedded art of a file outside every library root was read", cfg.Width, cfg.Height)
+	}
+}
+
+// With no roots configured the guard is not installed at all — auth method
+// "none" style single-user setups and every existing test construct the handler
+// that way, and a server with no libraries yet must not 404 its own covers.
+func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	song := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with no guard configured", resp.StatusCode)
+	}
+}
+
+// Libraries are created at runtime through the settings UI, so the guard cannot
+// be a snapshot taken at registration: a library added afterwards must have its
+// files served without restarting the server.
+func TestMediaGuardPicksUpLibrariesAddedAfterRegistration(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	firstRoot := t.TempDir()
+	if err := s.CreateLibrary(&model.Library{Name: "First", Path: firstRoot}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
+		WithLibraryRoots(s.LibraryRoots))
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// Now a second library appears, with a track in it.
+	lateRoot := t.TempDir()
+	if err := s.CreateLibrary(&model.Library{Name: "Late", Path: lateRoot}); err != nil {
+		t.Fatal(err)
+	}
+	song := filepath.Join(lateRoot, "late.mp3")
+	if err := os.WriteFile(song, []byte("late-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "late.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: a library added after registration must be served", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "late-bytes" {
+		t.Errorf("served %q, want the newly added library's file", body)
+	}
+}
+
+// The dynamic guard must still refuse: a path outside every library, however many
+// times the root set is refreshed, stays refused.
+func TestMediaGuardWithLibraryRootsStillRefusesOutsidePaths(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	base := t.TempDir()
+	libRoot := filepath.Join(base, "music")
+	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateLibrary(&model.Library{Name: "L", Path: libRoot}); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(base, "secret.env")
+	if err := os.WriteFile(secret, []byte("DB_PASSWORD=hunter2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "secret.env", FilePath: secret}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
+		WithLibraryRoots(s.LibraryRoots))
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// Twice: the second request exercises the path where the root set has already
+	// been refreshed once, which must not turn into an allow.
+	for i := range 2 {
+		resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(body), "hunter2") {
+			t.Fatalf("request %d served a file outside every library root", i+1)
+		}
 	}
 }
 

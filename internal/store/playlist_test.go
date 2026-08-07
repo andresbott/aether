@@ -180,3 +180,54 @@ func TestGetPlaylistsReturnsOwnAndPublic(t *testing.T) {
 		t.Fatal("admin sees demo's private playlist")
 	}
 }
+
+func TestPlaylistTrackStats(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	t1 := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3", Duration: 100}
+	t2 := model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/02.mp3", Duration: 250}
+	db.Create(&t1)
+	db.Create(&t2)
+
+	full, err := s.CreatePlaylist("Mix", "admin", false, []uint{t1.ID, t2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := s.CreatePlaylist("Single", "admin", false, []uint{t2.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := s.CreatePlaylist("Empty", "admin", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := s.PlaylistTrackStats([]uint{full.ID, one.ID, empty.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stats[full.ID]; got.Count != 2 || got.Duration != 350 {
+		t.Errorf("full playlist stats = %+v, want count 2 duration 350", got)
+	}
+	if got := stats[one.ID]; got.Count != 1 || got.Duration != 250 {
+		t.Errorf("single-track playlist stats = %+v, want count 1 duration 250", got)
+	}
+	// Same contract as AlbumTrackStats: no rows means absent from the map, and
+	// the caller's zero value is the correct answer for an empty playlist.
+	if _, ok := stats[empty.ID]; ok {
+		t.Errorf("expected the empty playlist to be absent from the map, got %+v", stats[empty.ID])
+	}
+}
+
+func TestPlaylistTrackStatsEmptyInput(t *testing.T) {
+	s := testStore(t)
+	stats, err := s.PlaylistTrackStats(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 0 {
+		t.Fatalf("expected an empty map, got %+v", stats)
+	}
+}

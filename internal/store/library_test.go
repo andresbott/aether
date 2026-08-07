@@ -27,6 +27,39 @@ func TestCreateAndGetLibrary(t *testing.T) {
 	}
 }
 
+func TestLibraryRoots(t *testing.T) {
+	s := testStore(t)
+	if err := s.CreateLibrary(&model.Library{Name: "A", Path: "/a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateLibrary(&model.Library{Name: "B", Path: "/b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	roots, err := s.LibraryRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range roots {
+		got[r] = true
+	}
+	if len(roots) != 2 || !got["/a"] || !got["/b"] {
+		t.Fatalf("expected both library paths, got %v", roots)
+	}
+}
+
+func TestLibraryRootsEmpty(t *testing.T) {
+	s := testStore(t)
+	roots, err := s.LibraryRoots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 0 {
+		t.Fatalf("expected no roots, got %v", roots)
+	}
+}
+
 func TestGetLibraryNotFound(t *testing.T) {
 	s := testStore(t)
 	_, err := s.GetLibrary(999)

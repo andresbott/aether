@@ -232,3 +232,50 @@ func TestSearchSongsByLibrary(t *testing.T) {
 		t.Fatalf("expected 1 track in library 1, got %+v", got)
 	}
 }
+
+// Which track's embedded cover represents the album must not depend on row
+// order: a rescan reinserts tracks in directory-walk order, so an unordered
+// query silently swaps the album's cover between passes.
+func TestGetCoverTrackPathPicksLowestDiscAndTrack(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	db.Create(&album)
+
+	// Inserted so that row order and (disc, track) order disagree.
+	db.Create(&model.Track{AlbumID: album.ID, DiscNumber: 2, TrackNumber: 1,
+		Filename: "d2t1.mp3", FilePath: "/x/d2t1.mp3", HasEmbeddedCover: true})
+	db.Create(&model.Track{AlbumID: album.ID, DiscNumber: 1, TrackNumber: 5,
+		Filename: "d1t5.mp3", FilePath: "/x/d1t5.mp3", HasEmbeddedCover: true})
+	db.Create(&model.Track{AlbumID: album.ID, DiscNumber: 1, TrackNumber: 2,
+		Filename: "d1t2.mp3", FilePath: "/x/d1t2.mp3", HasEmbeddedCover: true})
+
+	got, err := s.GetCoverTrackPath(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/x/d1t2.mp3" {
+		t.Fatalf("expected the lowest (disc, track) cover source /x/d1t2.mp3, got %q", got)
+	}
+}
+
+// A track without an embedded cover must never win, even when it sorts first.
+func TestGetCoverTrackPathSkipsTracksWithoutCover(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Y", NameNorm: "y", AlbumArtistNorm: "y"}
+	db.Create(&album)
+
+	db.Create(&model.Track{AlbumID: album.ID, DiscNumber: 1, TrackNumber: 1,
+		Filename: "t1.mp3", FilePath: "/y/t1.mp3", HasEmbeddedCover: false})
+	db.Create(&model.Track{AlbumID: album.ID, DiscNumber: 1, TrackNumber: 2,
+		Filename: "t2.mp3", FilePath: "/y/t2.mp3", HasEmbeddedCover: true})
+
+	got, err := s.GetCoverTrackPath(album.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/y/t2.mp3" {
+		t.Fatalf("expected the first track that actually has a cover, got %q", got)
+	}
+}

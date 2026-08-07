@@ -69,6 +69,41 @@ func (s *Store) GetPlaylistTracks(playlistID uint) ([]model.Track, error) {
 	return ordered, nil
 }
 
+// PlaylistTrackStat holds aggregate track figures for one playlist.
+type PlaylistTrackStat struct {
+	PlaylistID uint
+	Count      int
+	Duration   int
+}
+
+// PlaylistTrackStats returns song count and total duration per playlist for the
+// given IDs, in one grouped query — the batched replacement for calling
+// GetPlaylistTrackCount/GetPlaylistDuration per row. Playlists with no tracks are
+// absent from the map (same contract as AlbumTrackStats).
+func (s *Store) PlaylistTrackStats(playlistIDs []uint) (map[uint]PlaylistTrackStat, error) {
+	out := map[uint]PlaylistTrackStat{}
+	if len(playlistIDs) == 0 {
+		return out, nil
+	}
+	var rows []PlaylistTrackStat
+	// LEFT JOIN, not JOIN: a playlist entry whose track row is gone still counts
+	// toward the length the client sees, matching GetPlaylistTrackCount, which
+	// counts playlist_tracks without consulting tracks at all.
+	if err := s.db.
+		Table("playlist_tracks").
+		Joins("LEFT JOIN tracks ON tracks.id = playlist_tracks.track_id").
+		Select("playlist_tracks.playlist_id AS playlist_id, COUNT(*) AS count, COALESCE(SUM(tracks.duration), 0) AS duration").
+		Where("playlist_tracks.playlist_id IN ?", playlistIDs).
+		Group("playlist_tracks.playlist_id").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.PlaylistID] = r
+	}
+	return out, nil
+}
+
 func (s *Store) GetPlaylistTrackCount(playlistID uint) (int64, error) {
 	var count int64
 	err := s.db.Model(&model.PlaylistTrack{}).Where("playlist_id = ?", playlistID).Count(&count).Error

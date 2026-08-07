@@ -12,6 +12,16 @@ func (s *Store) ListLibraries() ([]model.Library, error) {
 	return libs, nil
 }
 
+// LibraryRoots returns the filesystem root of every configured library. Used to
+// confine which files the media handlers will serve — see internal/pathguard.
+func (s *Store) LibraryRoots() ([]string, error) {
+	var roots []string
+	if err := s.db.Model(&model.Library{}).Order("id ASC").Pluck("path", &roots).Error; err != nil {
+		return nil, err
+	}
+	return roots, nil
+}
+
 func (s *Store) GetLibrary(id uint) (model.Library, error) {
 	var lib model.Library
 	if err := s.db.First(&lib, id).Error; err != nil {

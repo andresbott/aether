@@ -97,11 +97,16 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "internal error")
 		return
 	}
+	trackStats, err := h.store.PlaylistTrackStats(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
 	items := make([]map[string]any, 0, len(playlists))
 	for i := range playlists {
 		pl := playlists[i]
-		count, _ := h.store.GetPlaylistTrackCount(pl.ID)
-		dur, _ := h.store.GetPlaylistDuration(pl.ID)
+		count := trackStats[pl.ID].Count
+		dur := trackStats[pl.ID].Duration
 		var starPtr *time.Time
 		if ts, ok := starredAt[pl.ID]; ok {
 			starPtr = &ts
@@ -110,7 +115,7 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 		if st, ok := stats[pl.ID]; ok {
 			statPtr = &st
 		}
-		items = append(items, playlistToMap(&pl, int(count), dur, starPtr, statPtr))
+		items = append(items, playlistToMap(&pl, count, dur, starPtr, statPtr))
 	}
 	writeResponse(w, map[string]any{
 		"playlists": map[string]any{
