@@ -23,16 +23,32 @@ Observability:
 DataDir: "/var/lib/aether"
 
 # Authentication. Method "none" requires no authentication (trusted LAN only);
-# "native" uses users stored in the aether database. With "native", the admin
-# user below is seeded only while the user store is empty (idempotent
-# bootstrap) — changing these values later has no effect on an already-seeded
-# store. Prefer a bcrypt hash over a plaintext password in this world-readable
-# file (generate one with `aether user hash`), or reference a root-only file:
-# "@/etc/aether/admin.password".
+# "native" uses users stored in the aether database; "proxy-header" trusts
+# identity headers injected by an authenticating reverse proxy (e.g. Authelia).
+# With "native", the admin user below is seeded only while the user store is
+# empty (idempotent bootstrap) — changing these values later has no effect on
+# an already-seeded store. Prefer a bcrypt hash over a plaintext password in
+# this world-readable file (generate one with `aether user hash`), or
+# reference a root-only file: "@/etc/aether/admin.password".
+#
+# With "proxy-header", aether MUST be unreachable except through the proxy
+# (bind to 127.0.0.1 above), the proxy MUST strip inbound identity headers on
+# every request, and /rest MUST be bypassed at the proxy so Subsonic clients
+# can authenticate with their apiKey. Users are created automatically on first
+# sight; members of AdminGroup (per the groups header) are admins.
 Auth:
   Method: "none"
   AdminUser: "admin"
   AdminPassword: "admin"
+  # Only used with Method "proxy-header". Header names below match Authelia;
+  # for oauth2-proxy use X-Forwarded-User / X-Forwarded-Groups.
+  ProxyHeader:
+    UserHeader: "Remote-User"
+    GroupsHeader: "Remote-Groups"
+    AdminGroup: "aether-admin"
+    # CIDRs (or bare IPs) allowed to assert identity headers. Strongly
+    # recommended; empty trusts every peer that can reach the server.
+    TrustedProxies: []
 
 Env:
   LogLevel: "info"

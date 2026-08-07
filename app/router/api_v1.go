@@ -90,6 +90,16 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 	})
 }
 
+// sessionCaller resolves the tokens handler's caller from the session cookie
+// the sessionGuard validated (native mode's side of the resolver seam).
+func sessionCaller(r *http.Request) (string, bool) {
+	data, err := cookieauth.CtxGetUserData(r)
+	if err != nil || !data.IsAuthenticated {
+		return "", false
+	}
+	return data.UserId, true
+}
+
 // meIdentity resolves the /me caller from the session cookie, nil when there
 // is none. It renews the rolling expiry: the SPA polls /me on boot, which is
 // exactly the "activity" a remember-me session should stay alive on.
@@ -112,29 +122,41 @@ func (h *MainAppHandler) meIdentity(w http.ResponseWriter, r *http.Request) *han
 }
 
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
+	// Identity for /me and the tokens handler comes from whichever guard the
+	// mode installs: the session cookie (native) or the proxy headers.
 	var identity handlers.MeIdentity
-	if h.sessions != nil {
+	var caller func(*http.Request) (string, bool)
+	switch {
+	case h.sessions != nil:
 		identity = h.meIdentity
+		caller = sessionCaller
 		r.Use(h.sessionGuard)
+	case h.headerAuth != nil:
+		identity = h.proxyMeIdentity
+		caller = proxyCaller
+		r.Use(h.headerGuard)
 	}
+
+	// The users CRUD is a native-mode feature: in proxy mode users are
+	// managed at the proxy's identity provider and provisioned on first
+	// sight, so the CRUD stays unmounted and /me reports it absent.
+	userManagement := h.users != nil && h.authMethod == "native"
 
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
 	r.Path("/version").Methods(http.MethodGet).Handler(handlers.VersionHandler())
-	r.Path("/me").Methods(http.MethodGet).Handler(handlers.MeHandler(h.authMethod, h.users != nil, identity))
+	r.Path("/me").Methods(http.MethodGet).Handler(handlers.MeHandler(h.authMethod, userManagement, identity))
 
-	// Native auth only: login/logout and the users CRUD. With method "none"
-	// h.users and h.sessions are nil, the routes are never mounted and
-	// /api/v1/me reports the feature as absent.
+	// Native auth only: login/logout and the users CRUD.
 	if h.users != nil && h.sessions != nil {
 		ah := &authHandler.Handler{Users: h.users, Sessions: h.sessions, Tokens: h.tokens, Logger: h.logger}
 		ah.Routes(r)
 	}
-	if h.users != nil {
+	if userManagement {
 		uh := &usersHandler.Handler{Users: h.users}
 		uh.Routes(r)
 	}
 	if h.tokens != nil {
-		th := &tokensHandler.Handler{Tokens: h.tokens}
+		th := &tokensHandler.Handler{Tokens: h.tokens, Caller: caller}
 		th.Routes(r)
 	}
 

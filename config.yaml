@@ -12,7 +12,9 @@ Observability:
 DataDir: "./data"
 
 # Authentication. Method "none" requires no authentication; "native" uses
-# users stored in the aether database. With "native", the admin user below is
+# users stored in the aether database; "proxy-header" trusts identity headers
+# injected by an authenticating reverse proxy (see zarf/packaging/config.yaml
+# for the ProxyHeader options). With "native", the admin user below is
 # seeded only while the user store is empty (idempotent bootstrap) — changing
 # these values later has no effect on an already-seeded store. AdminPassword
 # may be plaintext or a bcrypt hash (generate one with `aether user hash`);

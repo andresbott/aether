@@ -216,4 +216,53 @@ func TestAuthConfigValidation(t *testing.T) {
 			t.Errorf("expected AdminPassword error, got %v", err)
 		}
 	})
+
+	t.Run("accepts proxy-header with header defaults", func(t *testing.T) {
+		cfg, err := load(t, "Auth:\n  Method: proxy-header\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Auth.Method != AuthMethodProxyHeader {
+			t.Errorf("method = %q, want %q", cfg.Auth.Method, AuthMethodProxyHeader)
+		}
+		ph := cfg.Auth.ProxyHeader
+		if ph.UserHeader != "Remote-User" || ph.GroupsHeader != "Remote-Groups" || ph.AdminGroup != "aether-admin" {
+			t.Errorf("proxy header defaults = %+v, want Remote-User/Remote-Groups/aether-admin", ph)
+		}
+	})
+
+	t.Run("proxy-header does not require admin credentials", func(t *testing.T) {
+		_, err := load(t, "Auth:\n  Method: proxy-header\n  AdminUser: \" \"\n  AdminPassword: \" \"\n")
+		if err != nil {
+			t.Errorf("proxy-header with blank admin credentials: %v", err)
+		}
+	})
+
+	t.Run("proxy-header accepts CIDRs and bare IPs", func(t *testing.T) {
+		cfg, err := load(t, "Auth:\n  Method: proxy-header\n  ProxyHeader:\n    TrustedProxies:\n      - 10.0.0.0/8\n      - 192.168.1.5\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefixes, err := parseTrustedProxies(cfg.Auth.ProxyHeader.TrustedProxies)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(prefixes) != 2 || prefixes[0].String() != "10.0.0.0/8" || prefixes[1].String() != "192.168.1.5/32" {
+			t.Errorf("parsed prefixes = %v, want [10.0.0.0/8 192.168.1.5/32]", prefixes)
+		}
+	})
+
+	t.Run("proxy-header rejects malformed trusted proxies", func(t *testing.T) {
+		_, err := load(t, "Auth:\n  Method: proxy-header\n  ProxyHeader:\n    TrustedProxies:\n      - not-a-cidr\n")
+		if err == nil || !strings.Contains(err.Error(), "invalid trusted proxy") {
+			t.Errorf("expected trusted-proxy error, got %v", err)
+		}
+	})
+
+	t.Run("proxy-header requires a user header", func(t *testing.T) {
+		_, err := load(t, "Auth:\n  Method: proxy-header\n  ProxyHeader:\n    UserHeader: \" \"\n")
+		if err == nil || !strings.Contains(err.Error(), "UserHeader") {
+			t.Errorf("expected UserHeader error, got %v", err)
+		}
+	})
 }

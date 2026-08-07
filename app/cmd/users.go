@@ -6,6 +6,7 @@ import (
 
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/auth/headerauth"
 	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"gorm.io/gorm"
@@ -67,9 +68,54 @@ func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("session manager: %w", err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Logger: l})
+	tokens, err := newTokenService(users, l)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("token service: %w", err)
+		return nil, nil, nil, err
 	}
 	return users, sessions, tokens, nil
+}
+
+// newTokenService builds the PAT service on the user store — the same token
+// layer in every authenticated mode (docs/agents/authentication.md).
+func newTokenService(users *userdb.Store, l *slog.Logger) (*pat.Service, error) {
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Logger: l})
+	if err != nil {
+		return nil, fmt.Errorf("token service: %w", err)
+	}
+	return tokens, nil
+}
+
+// setupProxyAuth creates the pieces for the proxy-header mode: the same user
+// store and PAT service as native (users are provisioned on first sight of a
+// new identity, so no admin bootstrap) plus the header handler that validates
+// proxy-injected identity. No session manager — the proxy owns the session.
+func setupProxyAuth(db *gorm.DB, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *pat.Service, *headerauth.HeaderHandler, error) {
+	if cfg.Method != AuthMethodProxyHeader {
+		return nil, nil, nil, nil
+	}
+	users, err := newUserStore(db)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("user store: %w", err)
+	}
+	tokens, err := newTokenService(users, l)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	trusted, err := parseTrustedProxies(cfg.ProxyHeader.TrustedProxies)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(trusted) == 0 {
+		l.Warn("proxy-header auth with no TrustedProxies configured: every peer may assert identity headers; "+
+			"the deployment MUST guarantee aether is unreachable except through the authenticating proxy",
+			slog.String("component", "startup"))
+	}
+	headerAuth := headerauth.New(headerauth.Cfg{
+		UserHeader:     cfg.ProxyHeader.UserHeader,
+		GroupsHeader:   cfg.ProxyHeader.GroupsHeader,
+		ParseGroups:    true,
+		TrustedProxies: trusted,
+		Logger:         l,
+	})
+	return users, tokens, headerAuth, nil
 }

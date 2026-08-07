@@ -1,8 +1,13 @@
 # Authentication — decided model, do not re-design
 
-Current state: **the builtin mode's session layer is implemented** (auth
-method `native`): JSON login + logout on `/api/v1/auth/*`, a cookie session
-guard on the rest of `/api/v1`, and a full-app login gate in the SPA. Roles
+Current state: **both authenticated modes are implemented.** Auth method
+`native` (the builtin mode): JSON login + logout on `/api/v1/auth/*`, a cookie
+session guard on the rest of `/api/v1`, and a full-app login gate in the SPA.
+Auth method `proxy-header`: a reverse proxy (e.g. Authelia) authenticates and
+injects identity headers, `headerGuard` (`app/router/proxy_auth.go`) validates
+them (optionally against `TrustedProxies` CIDRs), provisions users on first
+sight, and derives the role live from the groups header — see the mode section
+below. Roles
 are **enforced on `/api/v1`**: a public bootstrap set, then a session-scoped
 tier (`/api/v1/auth/token`, `/api/v1/auth/tokens[/*]`) accepting any
 authenticated role, and the rest defaulting to *admin* (403 otherwise) — the
@@ -47,7 +52,7 @@ tokens with an optional hash-only mode per token (TODO.md).
 
 ## The architecture in one paragraph
 
-Two auth *modes* — **builtin** (native login + aether session cookie) and
+Two auth *modes* — **native** (builtin login + aether session cookie) and
 **proxy-header** (Authelia in front) — differ only in **who establishes
 identity for the SPA and `/api/v1`**. Everything downstream is shared and
 mode-agnostic: the user table, the PAT system, the token-mint endpoint, and
@@ -77,10 +82,11 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   `handlers/tokens`; `/api/v1` is the right home — it's not a music
   feature). Exchanges
   "whoever the `/api/v1` middleware says you are" for a Subsonic token
-  bound to that user. Its authorizer is just the mode's chain — same
-  handler, zero mode branching. It trusts **only** the middleware identity;
-  no fallback auth of any kind (it's the most sensitive endpoint in the
-  model).
+  bound to that user. Its identity comes from an injected `Caller` resolver
+  (the seam): native wires `sessionCaller` (cookie), proxy-header wires
+  `proxyCaller` (the guard's context identity) — same handler, zero mode
+  branching. It trusts **only** the middleware identity; no fallback auth of
+  any kind (it's the most sensitive endpoint in the model).
 - **`/api/v1/me`** — **implemented** (`handlers.MeHandler`): returns
   `{authMethod, user, features}` so the SPA can show identity, gate
   feature UI, and pick the right 401 reaction without build-time config.
@@ -128,7 +134,7 @@ the test matrix), and CSRF vanishes from `/rest` — Subsonic is full of
 GET-with-side-effects (`star`, `deletePlaylist`), which a cookie-authenticated
 API would have to defend; tokens moot it. Only `/api/v1` needs CSRF thought.
 
-## Mode: builtin (native login) — session layer implemented
+## Mode: native (builtin login) — session layer implemented
 
 Aether is its own identity provider — a built-in equivalent of the Authelia
 path. `userauth` ships every piece: `flow/login` + `flow/login/handlers.JSON`
@@ -173,13 +179,15 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 Still missing from this mode: change-own-password UI and the radio CRUD
 write gate on `/rest`.
 
-## Mode: proxy-header (Authelia)
+## Mode: proxy-header (Authelia) — implemented
 
 A reverse proxy (Traefik/nginx/Caddy) does forward-auth against Authelia;
-authenticated requests reach aether with `Remote-User`, `Remote-Groups`
-(comma-separated), `Remote-Name`, `Remote-Email` injected. Aether reads the
-headers, resolves/provisions the user, maps groups to roles. Authelia
-**replaces the login form, not the token layer**.
+authenticated requests reach aether with `Remote-User` and `Remote-Groups`
+(comma-separated) injected — header names are config
+(`Auth.ProxyHeader.UserHeader`/`GroupsHeader`, so oauth2-proxy's
+`X-Forwarded-User` is just configuration). Aether reads the headers,
+resolves/provisions the user, maps groups to roles. Authelia **replaces the
+login form, not the token layer**.
 
 | Surface | Authelia ACL | Aether validates |
 |---|---|---|
@@ -196,31 +204,51 @@ aether must never consult identity headers there.
 Flow: user hits the domain → Authelia portal handles login/2FA → SPA loads
 with headers flowing on `/api/v1` → SPA mints its `/rest` token via the
 header-authorized mint endpoint. On 401 from `/api/v1` (Authelia session
-expired): full-page reload so the portal redirect kicks in. Configure
+expired): full-page reload so the portal redirect kicks in (the expiry
+watcher in `useAuth` branches on `authMethod === 'proxy-header'`). Configure
 Authelia to answer non-HTML requests with 401 instead of 302 (it keys off
 `Accept`) so the SPA sees a clean failure, not portal HTML.
 
-Mode extras: JIT user provisioning keyed on `Remote-User`; a group-mapping
-convention (e.g. `Remote-Groups` containing `aether-admin` → admin role);
-an extended header handler — `userauth`'s `handlers/auth/headerauth` exists
-but is minimal (single header, groups unimplemented, no context injection,
-no proxy-trust check); extending it upstream is the natural path.
+Implementation (`app/router/proxy_auth.go`, `app/cmd/users.go
+setupProxyAuth`): `userauth`'s `auth/headerauth` handler validates the
+headers (configurable names, group parsing, `TrustedProxies` CIDR check) and
+`headerGuard` enforces the same three `/api/v1` tiers as native. Users are
+**JIT-provisioned** into the same `userdb` on first sight of a new login —
+the row exists so PATs have an owner `pat.Verify` can check (and its
+`Enabled` flag doubles as aether's kill-switch: a disabled user is 403'd on
+`/api/v1` and rejected on `/rest` even while the proxy still authenticates
+them); the row's password is a random throwaway. The **role is derived live
+from the groups header** (`Auth.ProxyHeader.AdminGroup`, default
+`aether-admin`) — DB groups are never consulted, the IdP is authoritative.
+Login/logout endpoints and the users CRUD are not mounted;
+`features.userManagement` reports false and the SPA hides the logout entry
+(`authRequired` is native-only) while token management stays available.
 
 ### Security invariants (non-negotiable in proxy mode)
 
 1. **Aether must be unreachable except through the proxy** — anyone hitting
    it directly can send `Remote-User: admin` and become anyone. Bind to
    localhost / internal network; deployment docs must say this loudly.
+   `Auth.ProxyHeader.TrustedProxies` (CIDRs) adds defense in depth: when set,
+   identity headers are honored only from those peers; when empty, a loud
+   startup warning reminds that the deployment alone carries the guarantee.
 2. **The proxy must strip inbound `Remote-*` headers on every request** —
    especially on the bypassed `/rest` path, where a malicious client could
-   smuggle them.
+   smuggle them. (Aether never consults identity headers on `/rest` — the
+   guard is installed on the `/api/v1` subrouter only — but strip them
+   anyway.)
 3. `/api/v1` can additionally get a stricter Authelia policy (two_factor,
    group-restricted) for defense in depth.
 
 ## Config switch
 
-`none` (current behavior — dev / trusted LAN) / `builtin` / `proxy-header`.
-The switch only selects which handler guards `/api/v1` + the SPA shell and
-whether login endpoints are mounted. `/rest` is configured identically in
-all authenticated modes. `/api/v1/me` reports the active mode so the SPA
-reacts correctly to 401s.
+`Auth.Method`: `none` (dev / trusted LAN) / `native` / `proxy-header`
+(`app/cmd/config.go`). The switch only selects which handler guards
+`/api/v1` + the SPA shell and whether login endpoints are mounted. `/rest`
+is configured identically in all authenticated modes. `/api/v1/me` reports
+the active mode so the SPA reacts correctly to 401s.
+
+Proxy-header extras under `Auth.ProxyHeader`: `UserHeader` (default
+`Remote-User`), `GroupsHeader` (default `Remote-Groups`), `AdminGroup`
+(default `aether-admin`), `TrustedProxies` (CIDR list, empty = trust every
+peer).

@@ -20,6 +20,7 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/auth/headerauth"
 	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
@@ -50,20 +51,28 @@ type Cfg struct {
 	// Rescanner re-indexes files the metadata editor writes, so an edit shows
 	// up in the music UI without a scan task. Optional: nil disables it.
 	Rescanner metadataHandler.TrackRescanner
-	// AuthMethod is the configured authentication method ("none"/"native"),
-	// reported to the SPA via GET /api/v1/me.
+	// AuthMethod is the configured authentication method
+	// ("none"/"native"/"proxy-header"), reported to the SPA via GET /api/v1/me.
 	AuthMethod string
-	// Users is the native user store; nil unless AuthMethod is "native".
-	// When set, the users CRUD is mounted on /api/v1.
+	// Users is the user store; nil unless AuthMethod is "native" or
+	// "proxy-header". The users CRUD is mounted only in native mode; proxy
+	// mode provisions users on first sight and manages them at the proxy's IdP.
 	Users *userdb.Store
 	// Sessions is the cookie session manager; nil unless AuthMethod is
 	// "native". When set, the login/logout endpoints are mounted and every
 	// /api/v1 route except the public bootstrap set requires a session.
 	Sessions *cookieauth.Manager
 	// Tokens is the personal-access-token service; nil unless AuthMethod is
-	// "native". When set, the session-scoped token endpoints are mounted on
-	// /api/v1 and /rest authenticates via OpenSubsonic apiKey (Task 4).
+	// "native" or "proxy-header". When set, the session-scoped token endpoints
+	// are mounted on /api/v1 and /rest authenticates via OpenSubsonic apiKey.
 	Tokens *pat.Service
+	// HeaderAuth validates proxy-injected identity headers; nil unless
+	// AuthMethod is "proxy-header". When set, every /api/v1 route except the
+	// public bootstrap set requires a trusted header identity.
+	HeaderAuth *headerauth.HeaderHandler
+	// AdminGroup is the proxy-asserted group that grants the admin role;
+	// only meaningful with HeaderAuth.
+	AdminGroup string
 }
 
 type MainAppHandler struct {
@@ -86,6 +95,8 @@ type MainAppHandler struct {
 	users         *userdb.Store
 	sessions      *cookieauth.Manager
 	tokens        *pat.Service
+	headerAuth    *headerauth.HeaderHandler
+	adminGroup    string
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -149,12 +160,18 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		users:         cfg.Users,
 		sessions:      cfg.Sessions,
 		tokens:        cfg.Tokens,
+		headerAuth:    cfg.HeaderAuth,
+		adminGroup:    cfg.AdminGroup,
 	}
 	if app.authMethod == "" {
 		app.authMethod = "none"
 	}
 	if app.authMethod == "native" && app.tokens == nil {
 		return nil, fmt.Errorf("auth method native requires Tokens")
+	}
+	if app.authMethod == "proxy-header" &&
+		(app.headerAuth == nil || app.tokens == nil || app.users == nil || app.adminGroup == "") {
+		return nil, fmt.Errorf("auth method proxy-header requires HeaderAuth, Tokens, Users and AdminGroup")
 	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)

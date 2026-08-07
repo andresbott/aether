@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/gorilla/mux"
 )
@@ -33,6 +32,11 @@ const SPATokenTTL = 48 * time.Hour
 
 type Handler struct {
 	Tokens *pat.Service
+	// Caller resolves the request's user ID from whatever identity the
+	// /api/v1 guard established (session cookie or proxy headers). The
+	// handler itself never branches on the auth mode — it trusts the
+	// middleware identity and nothing else (docs/agents/authentication.md).
+	Caller func(r *http.Request) (userID string, ok bool)
 }
 
 func (h *Handler) Routes(r *mux.Router) {
@@ -57,13 +61,12 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, apiError{Error: msg, Code: code})
 }
 
-// caller returns the session's user ID; the guard already authenticated it.
-func caller(r *http.Request) (string, bool) {
-	data, err := cookieauth.CtxGetUserData(r)
-	if err != nil || !data.IsAuthenticated {
+// caller returns the guard-established user ID via the injected resolver.
+func (h *Handler) caller(r *http.Request) (string, bool) {
+	if h.Caller == nil {
 		return "", false
 	}
-	return data.UserId, true
+	return h.Caller(r)
 }
 
 func hasScope(rec pat.TokenRecord, scope string) bool {
@@ -82,7 +85,7 @@ func hasScope(rec pat.TokenRecord, scope string) bool {
 // repeated boots eventually answered 409 ErrTooManyTokens (mint-time-only
 // sweep, see the spec).
 func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
-	userID, ok := caller(r)
+	userID, ok := h.caller(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
@@ -160,7 +163,7 @@ func toDTO(rec pat.TokenRecord, kind string) tokenDTO {
 // tell them apart. Expired session tokens are dropped — they are already
 // superseded plumbing, not something the user should see.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	userID, ok := caller(r)
+	userID, ok := h.caller(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
@@ -193,7 +196,7 @@ type createInput struct {
 // create mints a user-created PAT (scope "client"). The plaintext appears in
 // this response and nowhere else.
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	userID, ok := caller(r)
+	userID, ok := h.caller(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
@@ -222,7 +225,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 // revoke deletes the caller's token; foreign and absent IDs are both 404
 // (the store cannot tell them apart, deliberately).
 func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) {
-	userID, ok := caller(r)
+	userID, ok := h.caller(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return

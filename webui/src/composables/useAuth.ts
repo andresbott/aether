@@ -54,7 +54,9 @@ let expiryPurgeInstalled = false
  * The SPA's login gate, driven by the /me bootstrap: with auth method "none"
  * nothing is ever required; with "native" the login view is shown until /me
  * reports an identity, and again when any /api/v1 call answers 401 (session
- * expired). See docs/agents/authentication.md (mode: builtin).
+ * expired); with "proxy-header" the reverse proxy owns login entirely — no
+ * login view, and a 401 (proxy session expired) triggers a full reload so the
+ * proxy's portal redirect kicks in. See docs/agents/authentication.md.
  */
 export function useAuth() {
     const qc = useQueryClient()
@@ -74,17 +76,27 @@ export function useAuth() {
                     return
                 }
                 if (purgedThisExpiry) return
+                // In proxy mode the session belongs to the proxy: there is no
+                // login view to fall back to, so a lost session reloads the
+                // page and the proxy's portal redirect takes over. (Configure
+                // the proxy to answer non-HTML requests with 401, not 302.)
+                if (me.data.value?.authMethod === 'proxy-header') {
+                    purgedThisExpiry = true
+                    window.location.reload()
+                    return
+                }
                 void purgeLocalSession(qc)
             })
 
             // /rest credential lifecycle: with auth "none" the client is ready
-            // as-is; in native mode a logged-in session mints the spa token
-            // first. Runs again after login (invalidateQueries refetches /me).
+            // as-is; in the authenticated modes (native, proxy-header) an
+            // established identity mints the spa token first. Runs again after
+            // login (invalidateQueries refetches /me).
             watch(
                 [me.data, sessionExpired],
                 async ([data, expired]) => {
                     if (!data || expired) return
-                    if (data.authMethod !== 'native') {
+                    if (data.authMethod !== 'native' && data.authMethod !== 'proxy-header') {
                         subsonicClient.initWithDefaults()
                         subsonicReady.value = true
                         return
@@ -119,17 +131,25 @@ export function useAuth() {
         })
     }
 
+    // Native mode is the only one with aether-owned login/logout: the login
+    // view and the logout menu entry key on this. Proxy-header authenticates
+    // too, but its session lives at the proxy.
     const authRequired = computed(() => me.data.value?.authMethod === 'native')
+    const authenticated = computed(
+        () =>
+            me.data.value?.authMethod === 'native' ||
+            me.data.value?.authMethod === 'proxy-header'
+    )
     const currentUser = computed(() => me.data.value?.user ?? null)
 
     // Gates the administration UI (the /settings area and the Admin menu
     // entry). With auth method "none" nothing is ever restricted, so every
-    // visitor counts as admin; the backend enforces the same policy on
-    // /api/v1. False while /me is still loading — admin affordances appear
-    // rather than flash away.
+    // visitor counts as admin; in the authenticated modes the role from /me
+    // decides. The backend enforces the same policy on /api/v1. False while
+    // /me is still loading — admin affordances appear rather than flash away.
     const isAdmin = computed(() => {
         if (!me.data.value) return false
-        if (!authRequired.value) return true
+        if (!authenticated.value) return true
         return currentUser.value?.role === 'admin'
     })
 

@@ -114,6 +114,13 @@ func runServer(configFile string) error {
 	if err != nil {
 		return err
 	}
+	proxyUsers, proxyTokens, headerAuth, err := setupProxyAuth(db, cfg.Auth, l)
+	if err != nil {
+		return err
+	}
+	if cfg.Auth.Method == AuthMethodProxyHeader {
+		users, tokens = proxyUsers, proxyTokens
+	}
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
 	fetcher := buildArtistFetcher(cfg.ArtistImages)
@@ -214,6 +221,8 @@ func runServer(configFile string) error {
 		Users:         users,
 		Sessions:      sessions,
 		Tokens:        tokens,
+		HeaderAuth:    headerAuth,
+		AdminGroup:    cfg.Auth.ProxyHeader.AdminGroup,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

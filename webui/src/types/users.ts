@@ -1,4 +1,4 @@
-export type AuthMethod = 'none' | 'native'
+export type AuthMethod = 'none' | 'native' | 'proxy-header'
 
 /** Identity of the authenticated user; null until sessions exist. */
 export interface MeUser {
