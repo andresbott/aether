@@ -3,23 +3,26 @@
 Current state: **the builtin mode's session layer is implemented** (auth
 method `native`): JSON login + logout on `/api/v1/auth/*`, a cookie session
 guard on the rest of `/api/v1`, and a full-app login gate in the SPA. Roles
-are **enforced on `/api/v1`**: beyond the public bootstrap set every route
-requires an *admin* session (403 otherwise) — the whole surface is server
-administration. The SPA mirrors this via `role` in `/me` (`useAuth().isAdmin`
-hides the Admin menu entry, the artist-image editor and radio Discover, and
-redirects non-admins out of `/settings`). In native mode, **`/rest` now
-requires the session cookie (interim, until the PAT layer)**: an
-`IdentityResolver` in `subsonic.Register` resolves cookie → login and every
-per-user surface (queue, stars, playlists, history) is owner-scoped; error 40
-without a session. This is a **deliberate deviation from the "token-only on
-`/rest`" invariant** described below, and is marked **interim**: it re-opens
-the CSRF consideration (GET-with-side-effects with a SameSite=Lax cookie:
-top-level navigations DO send it). An interim mitigation is in place: the
-identity middleware rejects requests with `Sec-Fetch-Site: cross-site`
-(Subsonic error 50), blocking cross-origin destructive writes from browsers;
-requests without the header (curl, older clients, future PAT clients) pass.
-The PAT layer will remove cookie auth from `/rest` entirely. The plan below is
-decided (TODO.md, top section) — implement it, don't invent alternatives.
+are **enforced on `/api/v1`**: a public bootstrap set, then a session-scoped
+tier (`/api/v1/auth/token`, `/api/v1/auth/tokens[/*]`) accepting any
+authenticated role, and the rest defaulting to *admin* (403 otherwise) — the
+whole surface is server administration. The SPA mirrors this via `role` in
+`/me` (`useAuth().isAdmin` hides the Admin menu entry, the artist-image editor
+and radio Discover, and redirects non-admins out of `/settings`). **`/rest`
+authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
+Tokens)**: hash-only stored tokens (prefix `aether_`, `userauth`'s `pat`
+service) verified by a dedicated handler that parses `apiKey` from query
+params, with error codes 40 (no credentials), 43 (`apiKey` mixed with
+`u`/`p`/`t`/`s`), 44 (invalid key), or 0 (verifier I/O failure). Every
+per-user surface — queue, stars, playlists, history — is owner-scoped. The
+SPA mints a 48h `spa`-scoped token via `POST /api/v1/auth/token` on boot
+(session-scoped guard tier, token in memory only) and re-mints transparently
+on expiry (one retry per subsonic call), recovering playback streams via the
+audio element's error listener. Users create long-lived `client`-scoped tokens
+in the settings UI (UserSettingsView, native mode only). The old Sec-Fetch-Site
+CSRF mitigation is removed — tokens on `/rest` moot the concern. The plan
+below is decided (TODO.md, top section) — implement it, don't invent
+alternatives.
 
 ## The (Open)Subsonic auth methods (protocol recap)
 
@@ -83,25 +86,30 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   (auth method "native"). The endpoint is deliberately public — the SPA
   bootstraps on it before any login — and it renews the rolling session
   expiry of remember-me sessions.
-- **SPA token lifecycle** — on boot, mint a token; keep it in memory; speak
-  **standard Subsonic auth** on `/rest` (the dormant `setCredentials` path
-  in `webui/src/lib/api/subsonic.ts` already builds `u`/`t`/`s` params).
-  Prefer `t`+`s` over raw `apiKey` in URLs so access-log contents are
-  non-replayable. On token expiry, re-mint transparently; if the mint call
+- **SPA token lifecycle** — on boot, mint a 48h `spa`-scoped token via
+  `POST /api/v1/auth/token` (sweeps caller's expired spa tokens first); keep
+  it in memory only (never localStorage). Speak standard Subsonic auth on
+  `/rest` via `apiKey=<token>`. Hash-only storage means `apiKey` is the only
+  possible transport until recoverable (encrypted-at-rest) tokens land for
+  `t`+`s` clients (TODO). On token expiry (subsonic error 40/44),
+  re-mint transparently (single-flight, one retry per call); if the mint call
   itself 401s, the *session* is gone → mode-specific reaction (below).
   Surface "session expired" in the player instead of a generic error when
-  a stream's next range request fails.
+  a stream's next range request fails. Generation counter discards mints
+  resolving after logout.
 
-Token classes (may share a table, must differ in policy):
+Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
+distinguishing behavior:
 
-| | SPA-minted | User-created PAT |
+| | SPA-minted (`spa` scope) | User-created PAT (`client` scope) |
 |---|---|---|
-| Created | automatically on SPA boot | manually in settings UI |
-| Lifetime | short (hours–days), re-minted transparently | long-lived until revoked |
-| Management UI | hidden or greyed out | listed, named ("Symfonium on phone"), revocable |
-| Storage | may be hash-only (we control the client) | recoverable/encrypted by default |
+| Created | automatically on SPA boot | manually via POST /api/v1/auth/tokens |
+| Lifetime | 48h, re-minted transparently | long-lived until revoked |
+| Management UI | hidden from list | listed, named, revocable in UserSettingsView |
+| Storage | hash-only (we control the client) | hash-only today; recoverable/encrypted TODO for `t`+`s` clients |
 
-Sweep expired SPA tokens so the table doesn't grow unbounded.
+Mint-time sweep purges caller's expired spa tokens; `GET /api/v1/auth/tokens`
+excludes `spa` scope from the list.
 
 Why token-only on `/rest` instead of also chaining the session cookie there:
 one auth path on the most compliance-sensitive surface in both modes (halves
@@ -123,8 +131,8 @@ handlers read identity via `cookieauth.CtxGetUserData`), and
 |---|---|
 | `/` (SPA shell) | open (login view is part of the SPA) |
 | `/api/v1/auth/login`, `/logout` | the login handler itself |
-| `/api/v1` (rest of it) | `cookieauth` session cookie **+ admin role** (`sessionGuard` in `app/router/api_v1.go`; `/me`, `/health`, `/version` stay public; a non-admin session gets 403 — the whole surface is server administration) |
-| `/rest` | session cookie via `IdentityResolver` (interim) — Subsonic PAT/token verifier still planned |
+| `/api/v1` (rest of it) | `cookieauth` session cookie, three tiers: public bootstrap (`/me`, `/health`, `/version`), session-scoped (`/api/v1/auth/token`, `/api/v1/auth/tokens[/*]` — any authenticated role), and admin default (`sessionGuard` in `app/router/api_v1.go`) |
+| `/rest` | Subsonic PAT verifier (`apiKey` query param) — error 40/43/44 |
 
 Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 
@@ -151,10 +159,8 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   `sessionLostUnexpectedly` — expiry only, never a logout the user asked for.
   Both flags clear on the next successful login.
 
-Still missing from this mode: replace the interim cookie resolver with the
-token layer + mint endpoint (when the mint endpoint lands it needs a
-session-only exemption from the admin requirement, like `apiV1PublicPaths`),
-change-own-password UI, and the radio CRUD write gate on `/rest`.
+Still missing from this mode: change-own-password UI and the radio CRUD
+write gate on `/rest`.
 
 ## Mode: proxy-header (Authelia)
 

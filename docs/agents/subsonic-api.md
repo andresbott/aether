@@ -295,33 +295,25 @@ otherwise validate against the library roots first (also an open TODO).
 
 ## Authentication (current state)
 
-In native mode (auth method `native`), **`/rest` now requires the session
-cookie** (interim, until the PAT layer lands). `subsonic.Register` takes an
-`IdentityResolver func(*http.Request) (owner string, ok bool)` that resolves
-the cookie → login via `sessions.GetSessData` and `users.GetUser`
-(deliberately no session renewal — `/me` renews); `nil` (auth "none") keeps
-the fixed owner `"admin"` and `/rest` open. Without a session, endpoints
-answer Subsonic error 40 (wrong credentials). An empty owner (resolver
-returning `("", true)`) is treated as unauthenticated and also answers error
-40. Handlers read the resolved identity via `requestOwner(r)`. Every per-user
-surface — play queue, stars, playlists, history — is owner-scoped: data is
-keyed/filtered by the session user's login. **Third-party Subsonic clients
-(Symfonium, DSub) are locked out in native mode until PATs land** — they
-cannot obtain or send the session cookie. Auth "none" (dev/trusted-LAN mode)
-remains unchanged: no resolver, no validation, fixed owner `"admin"`. The
-decided plan (TODO.md, do not re-design): per-user recoverable PATs verified
-via `u`/`t`/`s`/`apiKey`, replacing the interim cookie resolver. Full model,
-including the Authelia trusted-header deployment, in
-[authentication.md](authentication.md).
+**`/rest` authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
+Tokens).** `subsonic.Register` installs a dedicated `AuthHandler` that parses
+`apiKey` from query params and validates against `userauth`'s `pat` service
+(hash-only storage, prefix `aether_`). Handlers read the resolved identity via
+`requestOwner(r)`. Every per-user surface — play queue, stars, playlists,
+history — is owner-scoped: data is keyed/filtered by the authenticated user's
+login. Error codes: 40 (no credentials), 43 (`apiKey` mixed with
+`u`/`p`/`t`/`s`), 44 (invalid key), 0 (verifier I/O failure). The `apiKey`
+value is masked (`apiKey=***`) in the request log's `RequestURI`. **Only
+apiKey-capable clients work today** — the recoverable (encrypted-at-rest)
+token storage needed for salted-token (`t`+`s`) clients (Symfonium, DSub) is
+a TODO; see [authentication.md](authentication.md). Auth "none"
+(dev/trusted-LAN mode) keeps the fixed owner `"admin"` and `/rest` open. Full
+model, including the SPA lifecycle and the Authelia trusted-header deployment,
+in [authentication.md](authentication.md).
 
-**CSRF hardening (interim)**: when a resolver is configured, the identity
-middleware rejects requests with `Sec-Fetch-Site: cross-site` (Subsonic error
-50) before resolving identity. Every `/rest` endpoint is GET-reachable and the
-session cookie is `SameSite=Lax`, so a top-level cross-site navigation can
-trigger destructive writes (`deletePlaylist`, `star`, `savePlayQueue`...).
-Requests without `Sec-Fetch-Site` (curl, older clients, future PAT clients)
-pass — this is defense-in-depth, not a gate. Removed once the PAT layer
-replaces cookie auth on `/rest`.
+**getOpenSubsonicExtensions is PUBLIC** — the middleware allows it before
+authentication (per OpenSubsonic spec); `ping` stays gated. The
+`apiKeyAuthentication` v1 extension is advertised.
 
 ## Testing
 
