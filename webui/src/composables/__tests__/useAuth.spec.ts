@@ -5,15 +5,17 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 import type { MeResponse } from '@/types/users'
 
-const { getMe, login, logout, clearQueue, stopSync } = vi.hoisted(() => ({
+const { getMe, login, logout, clearQueue, stopSync, mintSpaToken } = vi.hoisted(() => ({
     getMe: vi.fn(),
     login: vi.fn(),
     logout: vi.fn(),
     clearQueue: vi.fn(),
-    stopSync: vi.fn()
+    stopSync: vi.fn(),
+    mintSpaToken: vi.fn()
 }))
 vi.mock('@/lib/api/Users', () => ({ getMe }))
 vi.mock('@/lib/api/Auth', () => ({ login, logout }))
+vi.mock('@/lib/api/Tokens', () => ({ mintSpaToken }))
 // The session purge reaches into the player and the queue sync; stand in spies
 // so the tests observe the calls without dragging audio elements into jsdom.
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ clearQueue }) }))
@@ -30,6 +32,9 @@ let useAuth: UseAuth
 let sessionExpired: (typeof import('@/lib/authState'))['sessionExpired']
 let explicitLogout: (typeof import('@/lib/authState'))['explicitLogout']
 let sessionLostUnexpectedly: (typeof import('@/lib/authState'))['sessionLostUnexpectedly']
+let subsonicClient: (typeof import('@/lib/api/subsonic'))['subsonicClient']
+let subsonicReady: (typeof import('@/lib/subsonicSession'))['subsonicReady']
+let spaTokenId: (typeof import('@/lib/subsonicSession'))['spaTokenId']
 
 function withAuth() {
     let auth!: ReturnType<UseAuth>
@@ -74,14 +79,26 @@ describe('useAuth', () => {
         ;({ sessionExpired, explicitLogout, sessionLostUnexpectedly } = await import(
             '@/lib/authState'
         ))
+        ;({ subsonicClient } = await import('@/lib/api/subsonic'))
+        ;({ subsonicReady, spaTokenId } = await import('@/lib/subsonicSession'))
         sessionExpired.value = false
         explicitLogout.value = false
+        subsonicReady.value = false
+        spaTokenId.value = null
         localStorage.clear()
         getMe.mockReset()
         login.mockReset()
         logout.mockReset()
         clearQueue.mockReset()
         stopSync.mockReset()
+        mintSpaToken.mockReset()
+        // Default mock: return a valid token so tests that don't care about
+        // minting don't crash trying to call .then on undefined
+        mintSpaToken.mockResolvedValue({
+            token: 'aether_default_key',
+            tokenId: 'tid_default',
+            expiresAt: '2999-01-01T00:00:00Z'
+        })
     })
 
     it('never requires login with auth method none', async () => {
@@ -312,5 +329,76 @@ describe('useAuth', () => {
         sessionExpired.value = true
         await flushPromises()
         expect(clearQueue).toHaveBeenCalledTimes(2)
+    })
+
+    describe('spa token lifecycle', () => {
+        it('sets subsonicReady with initWithDefaults for auth none', async () => {
+            getMe.mockResolvedValue(meNone)
+            withAuth()
+            await flushPromises()
+            expect(subsonicReady.value).toBe(true)
+            expect(subsonicClient.isConfigured()).toBe(true)
+            expect(mintSpaToken).not.toHaveBeenCalled()
+        })
+
+        it('mints a token and sets subsonicReady for native auth with a user', async () => {
+            mintSpaToken.mockResolvedValue({
+                token: 'aether_test_key',
+                tokenId: 'tid1',
+                expiresAt: '2999-01-01T00:00:00Z'
+            })
+            getMe.mockResolvedValue(meAlice)
+            withAuth()
+            await flushPromises()
+            expect(mintSpaToken).toHaveBeenCalledTimes(1)
+            expect(subsonicReady.value).toBe(true)
+            expect(subsonicClient.hasApiKey()).toBe(true)
+            expect(spaTokenId.value).toBe('tid1')
+        })
+
+        it('flips sessionExpired on boot-mint failure (non-401 errors)', async () => {
+            mintSpaToken.mockRejectedValue({ response: { status: 500 } })
+            getMe.mockResolvedValue(meAlice)
+            withAuth()
+            await flushPromises()
+            expect(mintSpaToken).toHaveBeenCalledTimes(1)
+            expect(sessionExpired.value).toBe(true)
+            expect(subsonicReady.value).toBe(false)
+        })
+
+        it('re-mints after logout+login', async () => {
+            // First mint
+            mintSpaToken.mockResolvedValueOnce({
+                token: 'aether_key1',
+                tokenId: 'tid1',
+                expiresAt: '2999-01-01T00:00:00Z'
+            })
+            getMe.mockResolvedValue(meAlice)
+            login.mockResolvedValue({ done: true })
+            logout.mockResolvedValue(undefined)
+            const auth = withAuth()
+            await flushPromises()
+            expect(mintSpaToken).toHaveBeenCalledTimes(1)
+            expect(spaTokenId.value).toBe('tid1')
+
+            // Logout clears the key; /me becomes anonymous so no re-mint
+            getMe.mockResolvedValue(meAnonymous)
+            await auth.logout.mutateAsync()
+            await flushPromises()
+            expect(subsonicClient.hasApiKey()).toBe(false)
+            expect(spaTokenId.value).toBeNull()
+
+            // Re-login mints a fresh token
+            mintSpaToken.mockResolvedValueOnce({
+                token: 'aether_key2',
+                tokenId: 'tid2',
+                expiresAt: '2999-01-01T00:00:00Z'
+            })
+            getMe.mockResolvedValue(meAlice)
+            await auth.login.mutateAsync({ username: 'alice', password: 'pw', rememberMe: false })
+            await flushPromises()
+            expect(mintSpaToken).toHaveBeenCalledTimes(2)
+            expect(spaTokenId.value).toBe('tid2')
+        })
     })
 })

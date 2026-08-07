@@ -14,28 +14,44 @@ export const subsonicReady = ref(false)
 export const spaTokenId = ref<string | null>(null)
 
 // Single-flight: a burst of 40s after wake must produce ONE mint, not one
-// per in-flight query.
-let mintInFlight: Promise<boolean> | null = null
+// per in-flight query. The generation is bumped by resetSubsonicSession so a
+// mint started before logout discards its result rather than re-installing a
+// live credential the server never knew to revoke.
+let mintInFlight: Promise<'ok' | 'session-gone' | 'failed'> | null = null
+let mintGeneration = 0
+
+type MintResult = 'ok' | 'session-gone' | 'failed'
 
 /**
- * Mint a fresh spa token and install it on the subsonic client. Returns
- * false when the session itself is gone (mint 401 → sessionExpired, the
- * login gate takes over) or the mint failed for any other reason.
+ * Mint a fresh spa token and install it on the subsonic client.
+ * - 'ok': minted and installed
+ * - 'session-gone': mint answered 401 (sessionExpired is flipped)
+ * - 'failed': other failure (409 ErrTooManyTokens, 500, network blip)
  */
-export function remintApiKey(): Promise<boolean> {
+export function remintApiKey(): Promise<MintResult> {
     if (!mintInFlight) {
+        const generation = mintGeneration
         mintInFlight = mintSpaToken()
             .then((r) => {
+                // Discard the result if a logout happened mid-flight: the old
+                // tokenId was revoked and the server never learns of this new one.
+                if (generation !== mintGeneration) {
+                    return 'failed' as const
+                }
                 subsonicClient.setApiKey(r.token)
                 spaTokenId.value = r.tokenId
-                return true
+                return 'ok' as const
             })
             .catch((err: unknown) => {
                 const status = (err as { response?: { status?: number } })?.response?.status
                 if (status === 401) {
                     sessionExpired.value = true
+                    return 'session-gone' as const
                 }
-                return false
+                // Non-401 failures (409 ErrTooManyTokens, 500, network blip)
+                // leave the session state alone — the watcher will decide
+                // whether to surface the login gate or a retry affordance.
+                return 'failed' as const
             })
             .finally(() => {
                 mintInFlight = null
@@ -49,4 +65,5 @@ export function resetSubsonicSession(): void {
     subsonicClient.clearApiKey()
     spaTokenId.value = null
     subsonicReady.value = false
+    mintGeneration++
 }

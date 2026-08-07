@@ -84,7 +84,16 @@ export function useAuth() {
                     }
                     if (data.user) {
                         if (!subsonicClient.hasApiKey()) {
-                            await remintApiKey()
+                            const result = await remintApiKey()
+                            // A boot-mint failure for any non-401 reason (409
+                            // ErrTooManyTokens, 500, network blip) would leave
+                            // subsonicReady=false and sessionExpired=false,
+                            // rendering a blank screen. Simplest recoverable state:
+                            // show the login gate; a re-login re-runs the mint.
+                            if (result === 'failed') {
+                                sessionExpired.value = true
+                                return
+                            }
                         }
                         subsonicReady.value = subsonicClient.hasApiKey()
                     }

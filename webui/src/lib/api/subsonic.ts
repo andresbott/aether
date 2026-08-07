@@ -112,7 +112,8 @@ class SubsonicClient {
             // retry once with the fresh key. A dead session flips
             // sessionExpired inside remintApiKey and we fail the request.
             const { remintApiKey } = await import('@/lib/subsonicSession')
-            if (await remintApiKey()) {
+            const result = await remintApiKey()
+            if (result === 'ok') {
                 const retryUrl = this.rebuildWithFreshKey(url)
                 const retry = await fetch(retryUrl, init)
                 if (!retry.ok) {
