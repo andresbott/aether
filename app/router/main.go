@@ -1,9 +1,12 @@
 package router
 
 import (
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
@@ -122,9 +125,13 @@ func (h *MainAppHandler) patIdentityResolver() subsonic.IdentityResolver {
 
 func New(cfg Cfg) (*MainAppHandler, error) {
 	r := mux.NewRouter()
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	app := MainAppHandler{
 		router:        r,
-		logger:        cfg.Logger,
+		logger:        logger,
 		taskRunner:    cfg.TaskRunner,
 		taskLogGetter: cfg.TaskLogGetter,
 		scheduleStore: cfg.ScheduleStore,
@@ -146,6 +153,9 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	if app.authMethod == "" {
 		app.authMethod = "none"
 	}
+	if app.authMethod == "native" && app.tokens == nil {
+		return nil, fmt.Errorf("auth method native requires Tokens")
+	}
 
 	hist, _ := middleware.NewPromHistogram("", nil, nil)
 	// JsonErrors stays off: it wraps *every* error body, which escapes the JSON
@@ -157,6 +167,16 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		GenericErrs: false,
 		Logger:      cfg.Logger,
 		PromHisto:   hist,
+	})
+	// Mask apiKey values in request logs (go-bumbu middleware logs RequestURI).
+	// Mutate only RequestURI — handlers parse r.URL, which must stay intact.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Has("apiKey") {
+				r.RequestURI = strings.ReplaceAll(r.RequestURI, "apiKey="+r.URL.Query().Get("apiKey"), "apiKey=***")
+			}
+			next.ServeHTTP(w, r)
+		})
 	})
 	r.Use(prodMid.Middleware)
 	r.Use(jsonErrorEnvelope)

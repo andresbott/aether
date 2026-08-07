@@ -277,3 +277,33 @@ func TestSessionOfDeletedUserIsAnonymous(t *testing.T) {
 		t.Fatalf("/me user for deleted account = %v, want null", body.User)
 	}
 }
+
+// Native mode without Tokens silently opens /rest (nil resolver → auth "none").
+// Fail closed instead: New errors when AuthMethod is native and Tokens is nil.
+func TestNativeModeRequiresTokens(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{
+		Store:         store,
+		SessionDur:    time.Hour,
+		MaxSessionDur: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: nil})
+	if err == nil {
+		t.Fatal("New with native + nil Tokens succeeded, want error")
+	}
+}

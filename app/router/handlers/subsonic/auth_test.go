@@ -121,4 +121,28 @@ func TestRestForwardsResolverErrorCode(t *testing.T) {
 	}
 }
 
+// getOpenSubsonicExtensions must be publicly accessible per spec: a client
+// discovers apiKey support through this endpoint, so it cannot be gated behind
+// the apiKey. Both /getOpenSubsonicExtensions and .view must work.
+func TestRestGetOpenSubsonicExtensionsPubliclyAccessible(t *testing.T) {
+	s := testStore(t)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	for _, path := range []string{"/rest/getOpenSubsonicExtensions", "/rest/getOpenSubsonicExtensions.view"} {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body errorEnvelope
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if body.SubsonicResponse.Status != "ok" {
+			t.Errorf("%s without credentials: status %q, want ok", path, body.SubsonicResponse.Status)
+		}
+	}
+}
+
 var _ = httptest.NewServer // keep import if unused during red phase

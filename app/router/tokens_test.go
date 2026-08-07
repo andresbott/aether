@@ -342,3 +342,137 @@ func TestRestAuthenticatesWithApiKey(t *testing.T) {
 		t.Fatalf("no credentials: %+v, want code 40", got.SubsonicResponse.Error)
 	}
 }
+
+// Verifier I/O error (e.g. database unreachable) returns Subsonic code 0, not
+// 44, and must not panic when Logger is nil (New defaults to discard handler).
+func TestRestVerifierIOErrorReturnsCode0(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create("bob", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieStore.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{Store: cookieStore, SessionDur: time.Hour, MaxSessionDur: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Build router with NO logger to ensure nil-logger safety.
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+		Store: store.New(db), DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	// Close the underlying database to force a PAT Verify failure.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sqlDB.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/rest/ping.view?apiKey="+minted.Token, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var body errorEnvelopeRouter
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body %s: %v", w.Body.String(), err)
+	}
+	if body.SubsonicResponse.Error == nil || body.SubsonicResponse.Error.Code != 0 {
+		t.Fatalf("I/O error: %+v, want code 0", body.SubsonicResponse.Error)
+	}
+}
+
+// The apiKey masking middleware replaces the value with *** in RequestURI
+// (which the logger sees), while leaving r.URL intact so handlers still parse it.
+func TestRestApiKeyMaskedInLogs(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create("bob", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieStore.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{Store: cookieStore, SessionDur: time.Hour, MaxSessionDur: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+		Store: store.New(db), DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	// Wrap the handler to capture RequestURI as it passes through middleware.
+	var capturedURI string
+	maskedHandler, _ := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+		Store: store.New(db), DataDir: t.TempDir()})
+	// Inject a test middleware at the end to capture RequestURI after masking.
+	maskedHandler.router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedURI = r.RequestURI
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	reqURL := "/rest/ping.view?apiKey=" + minted.Token
+	req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	req.RequestURI = reqURL
+	w := httptest.NewRecorder()
+	maskedHandler.ServeHTTP(w, req)
+
+	// RequestURI should have *** instead of the real key.
+	if !strings.Contains(capturedURI, "apiKey=***") {
+		t.Errorf("RequestURI = %q, want apiKey=***", capturedURI)
+	}
+	if strings.Contains(capturedURI, minted.Token) {
+		t.Errorf("RequestURI = %q, contains unmasked token", capturedURI)
+	}
+
+	// The handler should authenticate successfully (r.URL intact).
+	var body errorEnvelopeRouter
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body %s: %v", w.Body.String(), err)
+	}
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("masked apiKey auth: status %q, want ok", body.SubsonicResponse.Status)
+	}
+}

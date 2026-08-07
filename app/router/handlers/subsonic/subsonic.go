@@ -73,6 +73,15 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 
 	sub.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// getOpenSubsonicExtensions must be publicly accessible per spec:
+			// clients discover apiKey support through this endpoint, so it
+			// cannot be gated behind the apiKey. ping stays gated (returning
+			// 40 with no credentials is the standard auth-probe mechanism).
+			if strings.HasSuffix(r.URL.Path, "/getOpenSubsonicExtensions") ||
+				strings.HasSuffix(r.URL.Path, "/getOpenSubsonicExtensions.view") {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ownerCtxKey{}, defaultOwner)))
+				return
+			}
 			owner := defaultOwner
 			if identity != nil {
 				var code int
