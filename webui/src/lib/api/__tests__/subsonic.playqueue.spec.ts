@@ -47,9 +47,14 @@ describe('subsonicClient.savePlayQueue', () => {
 
     // Queue persistence is a background convenience; a failed save must never
     // surface as an unhandled rejection in the player.
-    it('never rejects when the request fails', async () => {
+    it('never rejects when the request fails, and warns instead', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+        // The warn is the intended behaviour, so assert it rather than let it
+        // print: an expected failure must not look like a broken test run.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.savePlayQueue(['tr-1'], 0, 0)).resolves.toBeUndefined()
+        expect(warn).toHaveBeenCalledWith('savePlayQueue failed', expect.any(Error))
+        warn.mockRestore()
     })
 })
 
@@ -133,8 +138,11 @@ describe('subsonicClient.getPlayQueue', () => {
         await expect(subsonicClient.getPlayQueue()).resolves.toBeNull()
     })
 
-    it('returns null instead of throwing when the request fails', async () => {
+    it('returns null instead of throwing when the request fails, and warns', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.getPlayQueue()).resolves.toBeNull()
+        expect(warn).toHaveBeenCalledWith('getPlayQueue failed', expect.any(Error))
+        warn.mockRestore()
     })
 })

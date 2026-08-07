@@ -278,6 +278,84 @@ func TestSessionOfDeletedUserIsAnonymous(t *testing.T) {
 	}
 }
 
+// Disabling a user is aether's kill-switch, so it must also close the sessions
+// that user already holds — otherwise an open admin session survives the disable
+// and can re-enable the account through the very API it should have lost. The
+// proxy-header guard has always enforced this (TestProxyDisabledUser); the
+// native guard must match.
+func TestSessionGuardBlocksDisabledUser(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "alice", "secret")
+
+	// Sanity: the session works before the disable, so a later 401 is caused by
+	// the disable and not by a broken login.
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("enabled admin session = %d before the disable, test setup is broken", w.Code)
+	}
+
+	usr, err := h.users.GetUserByLogin("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.users.SetEnabled(usr.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("disabled user on an admin route = %d, want 403", w.Code)
+	}
+
+	// The session-scoped tier is guarded too: a disabled user must not be able
+	// to mint a fresh /rest token and keep streaming.
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("disabled user minting a token = %d, want 403", w.Code)
+	}
+}
+
+// /me is public-tier, so it resolves independently of the guard: a disabled
+// user's session must read as anonymous there rather than 403, which is what
+// makes the SPA fall back to the login view.
+func TestMeIsAnonymousForDisabledUser(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "alice", "secret")
+	usr, err := h.users.GetUserByLogin("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.users.SetEnabled(usr.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("/me = %d, want 200", w.Code)
+	}
+	var body struct {
+		User any `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("/me body is not JSON: %s", w.Body.String())
+	}
+	if body.User != nil {
+		t.Fatalf("/me user for disabled account = %v, want null", body.User)
+	}
+}
+
 // Native mode without Tokens silently opens /rest (nil resolver → auth "none").
 // Fail closed instead: New errors when AuthMethod is native and Tokens is nil.
 func TestNativeModeRequiresTokens(t *testing.T) {

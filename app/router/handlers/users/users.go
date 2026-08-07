@@ -60,7 +60,9 @@ type createInput struct {
 }
 
 // updateInput carries partial updates: nil/empty fields are left untouched.
-// Login renames the user (the UUID identity is unaffected).
+// Login is accepted only when it equals the current login (the edit dialog
+// submits the field it displays) — an actual rename is refused, see
+// errRenameUnsupported.
 type updateInput struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
@@ -128,6 +130,71 @@ func RoleOf(store *userdb.Store, userID string) (string, error) {
 
 func (h *Handler) roleOf(userID string) (string, error) {
 	return RoleOf(h.Users, userID)
+}
+
+// errRenameUnsupported explains why a login change is refused rather than
+// applied. Per-user data (play queue, stars, playlists, history) is keyed on the
+// login STRING, not on the stable UUID, so a rename leaves every owner-keyed row
+// behind under the old key — the data survives in the DB but becomes invisible
+// to the only user entitled to it. Refusing is the honest behaviour until the
+// owner columns key on User.ID.
+var errRenameUnsupported = errors.New(
+	"renaming a user is not supported: per-user data is keyed on the login name")
+
+// errLastAdmin is the lockout guard. The users CRUD is the ONLY path that grants
+// the admin role, and bootstrapAdmin re-seeds only while the store is empty, so
+// removing the final usable admin cannot be undone without editing the database
+// by hand. Demote, disable and delete all check it.
+var errLastAdmin = errors.New(
+	"refusing to remove the last admin: promote another user to admin first")
+
+// isLastEnabledAdmin reports whether userID is the only admin that can still
+// administer. Disabled admins do not count: they cannot log in, so leaving one
+// behind would be the same lockout with extra steps.
+func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
+	role, err := h.roleOf(userID)
+	if err != nil {
+		return false, err
+	}
+	if role != RoleAdmin {
+		return false, nil
+	}
+	// The list is capped at 200 like list(); a self-hosted server does not have
+	// more users, and the alternative (a group-joined COUNT) is not exposed by
+	// the user store.
+	res, err := h.Users.List(userdb.ListOpts{Limit: 200})
+	if err != nil {
+		return false, err
+	}
+	for _, u := range res.Users {
+		if u.ID == userID || !u.Enabled {
+			continue
+		}
+		peerRole, err := h.roleOf(u.ID)
+		if err != nil {
+			return false, err
+		}
+		if peerRole == RoleAdmin {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// guardLastAdmin writes the 409 and reports whether the caller must stop. An
+// infrastructure failure is reported as 500 and also stops the caller: it must
+// never be read as "the change is safe".
+func (h *Handler) guardLastAdmin(w http.ResponseWriter, userID string) (blocked bool) {
+	last, err := h.isLastEnabledAdmin(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		return true
+	}
+	if last {
+		writeError(w, http.StatusConflict, "last_admin", errLastAdmin.Error())
+		return true
+	}
+	return false
 }
 
 // roleGroups maps a role to the group memberships that encode it.
@@ -199,6 +266,36 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, userDTO{ID: created.ID, Login: created.LoginID, Enabled: created.Enabled, Role: in.Role})
 }
 
+// validateUpdate rejects an update before any of it is applied, writing the
+// error response itself. It reports whether the caller must stop.
+func (h *Handler) validateUpdate(w http.ResponseWriter, id string, existing userauth.User, in updateInput) (blocked bool) {
+	if newLogin := strings.TrimSpace(in.Login); newLogin != "" && newLogin != existing.LoginID {
+		writeError(w, http.StatusBadRequest, "validation_error", errRenameUnsupported.Error())
+		return true
+	}
+	if in.Password != "" {
+		if err := validPassword(in.Password); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return true
+		}
+	}
+	if in.Role != "" {
+		if err := validRole(in.Role); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return true
+		}
+	}
+	// Losing the admin role and losing the ability to log in are the same
+	// lockout, so both are guarded. A no-op write (already disabled, or the role
+	// unchanged) removes nothing and is allowed through.
+	demoting := in.Role == RoleUser
+	disabling := in.Enabled != nil && !*in.Enabled && existing.Enabled
+	if demoting || disabling {
+		return h.guardLastAdmin(w, id)
+	}
+	return false
+}
+
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 	existing, err := h.Users.GetUser(id)
@@ -213,20 +310,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	login := existing.LoginID
-	if newLogin := strings.TrimSpace(in.Login); newLogin != "" && newLogin != existing.LoginID {
-		if err := h.Users.SetLoginID(id, newLogin); err != nil {
-			status, code := mapStoreError(err)
-			writeError(w, status, code, err.Error())
-			return
-		}
-		login = newLogin
+	// Everything is validated before the store is touched: the mutations below
+	// are separate store calls, not one transaction, so a late rejection would
+	// otherwise leave the update half-applied.
+	if blocked := h.validateUpdate(w, id, existing, in); blocked {
+		return
 	}
+
+	login := existing.LoginID
 	if in.Password != "" {
-		if err := validPassword(in.Password); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
 		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), BcryptDifficulty)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal", err.Error())
@@ -253,10 +345,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Role != "" && in.Role != role {
-		if err := validRole(in.Role); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
-			return
-		}
 		if err := h.setRole(id, in.Role); err != nil {
 			status, code := mapStoreError(err)
 			writeError(w, status, code, err.Error())
@@ -289,6 +377,16 @@ func (h *Handler) setRole(userID, role string) error {
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
+	// Existence is checked first so a missing user still answers 404 rather than
+	// the lockout 409 (roleOf reports a groupless "user" for an unknown id).
+	if _, err := h.Users.GetUser(id); err != nil {
+		status, code := mapStoreError(err)
+		writeError(w, status, code, err.Error())
+		return
+	}
+	if h.guardLastAdmin(w, id) {
+		return
+	}
 	if err := h.Users.Delete(id); err != nil {
 		status, code := mapStoreError(err)
 		writeError(w, status, code, err.Error())

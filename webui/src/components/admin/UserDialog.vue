@@ -4,7 +4,7 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import SelectButton from 'primevue/selectbutton'
 import type { User, CreateUserInput, UpdateUserInput, UserRole } from '@/types/users'
 
@@ -61,17 +61,19 @@ watch(
 const isEditMode = computed(() => props.user !== null)
 
 const canSubmit = computed(() => {
-    if (isEditMode.value) return form.value.login.trim().length > 0
+    // Edit mode always has a login (read-only, prefilled) and an empty password
+    // means "keep current", so nothing can be missing.
+    if (isEditMode.value) return true
     return form.value.login.trim().length > 0 && form.value.password.length > 0
 })
 
 function onSubmit() {
     if (isEditMode.value && props.user) {
-        // Users are addressed by their stable id, so the login is editable
-        // like any other field; unchanged values are omitted from the update.
+        // The login is never sent on an update: per-user data (play queue,
+        // stars, playlists, history) is keyed on the login STRING, so a rename
+        // would orphan it. The backend rejects a changed login with 400; the
+        // field is shown read-only so the UI does not offer a doomed edit.
         const input: UpdateUserInput = { enabled: form.value.enabled }
-        const login = form.value.login.trim()
-        if (login !== props.user.login) input.login = login
         if (form.value.password.length > 0) input.password = form.value.password
         if (form.value.role !== props.user.role) input.role = form.value.role
         emit('update', { id: props.user.id, input })
@@ -107,7 +109,12 @@ function onCancel() {
                     v-model="form.login"
                     autocomplete="off"
                     placeholder="username"
+                    :readonly="isEditMode"
+                    :aria-describedby="isEditMode ? 'user-login-hint' : undefined"
                 />
+                <small v-if="isEditMode" id="user-login-hint" class="hint">
+                    The login cannot be changed after the user is created.
+                </small>
             </div>
 
             <div class="field">
@@ -139,7 +146,7 @@ function onCancel() {
 
             <div class="field field-inline">
                 <label for="user-enabled">Enabled</label>
-                <InputSwitch v-model="form.enabled" input-id="user-enabled" />
+                <ToggleSwitch v-model="form.enabled" input-id="user-enabled" />
             </div>
         </div>
 
@@ -169,6 +176,10 @@ function onCancel() {
 .field label {
     font-size: 0.85rem;
     font-weight: 600;
+}
+.hint {
+    color: var(--p-text-muted-color);
+    font-size: 0.78rem;
 }
 .field-inline {
     flex-direction: row;

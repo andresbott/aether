@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Button from 'primevue/button'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
@@ -280,7 +280,7 @@ function onAlbumReidentify() {
             <div class="dialog-content">
                 <div class="dialog-library">
                     <label>Library</label>
-                    <Dropdown
+                    <Select
                         :modelValue="selectedLibraryId"
                         @update:modelValue="onLibraryChange"
                         :options="libraryOptions"

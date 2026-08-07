@@ -11,18 +11,74 @@ Observability:
 
 DataDir: "./data"
 
-# Authentication. Method "none" requires no authentication; "native" uses
-# users stored in the aether database; "proxy-header" trusts identity headers
-# injected by an authenticating reverse proxy (see zarf/packaging/config.yaml
-# for the ProxyHeader options). With "native", the admin user below is
-# seeded only while the user store is empty (idempotent bootstrap) — changing
-# these values later has no effect on an already-seeded store. AdminPassword
-# may be plaintext or a bcrypt hash (generate one with `aether user hash`);
-# a value starting with "@" is loaded from that file's content.
+# Authentication. Three methods:
+#
+#   "none"         — no authentication (dev / trusted LAN only).
+#   "native"       — users stored in the aether database; aether renders its
+#                    own login form and manages sessions.
+#   "proxy-header" — identity comes from headers injected by an authenticating
+#                    reverse proxy (Authelia, Authentik, oauth2-proxy). Aether
+#                    never shows a login form; users are created automatically
+#                    on first sight.
+#
+# --- Method "none": nothing else is needed. ---
+#
+# Auth:
+#   Method: "none"
+#
+# --- Method "native": AdminBootstrap seeds the initial admin, only while the
+# user store is empty (idempotent bootstrap) — changing it later has no effect
+# on an already-seeded store. Pw may be plaintext or a bcrypt hash (generate
+# one with `aether user hash`); a value starting with "@" is loaded from that
+# file's content. ---
+#
+# Auth:
+#   Method: "native"
+#   AdminBootstrap:
+#     User: "admin"
+#     Pw: "admin"                   # or "$2y$..." or "@admin.password"
+#
+# --- Method "proxy-header": AdminBootstrap is ignored; the
+# ProxyHeader block configures which headers carry identity and who is
+# allowed to assert them. Deployment invariants: aether must be unreachable
+# except through the proxy (BindIp: "127.0.0.1"), the proxy must strip
+# inbound identity headers on every request, and /rest must be bypassed at
+# the proxy so Subsonic clients can authenticate with their apiKey. ---
+#
+# Auth:
+#   Method: "proxy-header"
+#   ProxyHeader:
+#     # Header names below are Authelia's defaults; for oauth2-proxy use
+#     # X-Forwarded-User / X-Forwarded-Groups.
+#     UserHeader: "Remote-User"
+#     GroupsHeader: "Remote-Groups"
+#     # Members of this group (per the groups header) get the admin role.
+#     AdminGroup: "aether-admin"
+#     # CIDRs or bare IPs allowed to assert identity headers. Strongly
+#     # recommended; empty trusts every peer that can reach the server
+#     # (a startup warning reminds of this).
+#     TrustedProxies:
+#       - "127.0.0.1"
+#       - "10.0.0.0/8"
+# Active dev setup: proxy-header mode for smoke testing behind the devproxy —
+# run `make proxy USER=admin GROUP=aether-admin` and browse
+# http://localhost:8076 (AdminBootstrap is ignored in this mode; kept for
+# switching back to "native").
 Auth:
-  Method: "native"
-  AdminUser: "admin"
-  AdminPassword: "admin"
+  Method: "proxy-header"
+#  Method: "native"
+  AdminBootstrap:
+    User: "admin"
+    Pw: "admin"
+  ProxyHeader:
+    UserHeader: "Remote-User"
+    GroupsHeader: "Remote-Groups"
+    AdminGroup: "aether-admin"
+    # The devproxy runs on this machine; only local peers may assert identity.
+    # Both loopback forms: a proxy dialing "localhost" arrives as ::1.
+    TrustedProxies:
+      - "127.0.0.1"
+      - "::1"
 
 Env:
   LogLevel: "info"

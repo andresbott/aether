@@ -51,8 +51,10 @@ export interface CreateUserInput {
 }
 
 /** Partial update: omitted/empty fields are left untouched. */
+// No login field: renaming is not supported (owner-keyed data is keyed on the
+// login string, so a rename would orphan it) and the backend rejects a changed
+// login with 400.
 export interface UpdateUserInput {
-    login?: string
     password?: string
     enabled?: boolean
     role?: UserRole

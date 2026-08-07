@@ -110,16 +110,9 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
-	users, sessions, tokens, err := setupNativeAuth(db, cfg.DataDir, cfg.Auth, l)
+	auth, err := setupAuth(db, cfg.DataDir, cfg.Auth, l)
 	if err != nil {
 		return err
-	}
-	proxyUsers, proxyTokens, headerAuth, err := setupProxyAuth(db, cfg.Auth, l)
-	if err != nil {
-		return err
-	}
-	if cfg.Auth.Method == AuthMethodProxyHeader {
-		users, tokens = proxyUsers, proxyTokens
 	}
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
@@ -218,10 +211,10 @@ func runServer(configFile string) error {
 		ArtistFetcher: fetcher,
 		Rescanner:     libScanner,
 		AuthMethod:    cfg.Auth.Method,
-		Users:         users,
-		Sessions:      sessions,
-		Tokens:        tokens,
-		HeaderAuth:    headerAuth,
+		Users:         auth.Users,
+		Sessions:      auth.Sessions,
+		Tokens:        auth.Tokens,
+		HeaderAuth:    auth.HeaderAuth,
 		AdminGroup:    cfg.Auth.ProxyHeader.AdminGroup,
 	}
 	if identifier != nil {

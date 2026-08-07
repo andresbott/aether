@@ -59,7 +59,7 @@ describe('UserDialog create mode', () => {
 })
 
 describe('UserDialog edit mode', () => {
-    it('addresses the update by id and omits unchanged login, role and empty password', async () => {
+    it('addresses the update by id and omits unchanged role and empty password', async () => {
         const w = mountDialog(baseUser)
         await flushPromises()
 
@@ -67,7 +67,6 @@ describe('UserDialog edit mode', () => {
         await flushPromises()
         const payload = w.emitted('update')![0][0] as { id: string; input: UpdateUserInput }
         expect(payload.id).toBe('uuid-1')
-        expect(payload.input.login).toBeUndefined()
         expect(payload.input.password).toBeUndefined()
         expect(payload.input.role).toBeUndefined()
         expect(payload.input.enabled).toBe(true)
@@ -83,15 +82,28 @@ describe('UserDialog edit mode', () => {
         expect(payload.input.role).toBe('admin')
     })
 
-    it('includes a changed login in the update (rename)', async () => {
+    // Renaming would orphan the user's owner-keyed data (queue, stars,
+    // playlists, history), which is keyed on the login string; the backend
+    // rejects it with 400, so the field is read-only rather than a trap.
+    it('shows the login as read-only and never sends it', async () => {
         const w = mountDialog(baseUser)
         await flushPromises()
-        await w.find('#user-login').setValue('alice2')
+
+        const login = w.find('#user-login')
+        expect(login.attributes('readonly')).toBeDefined()
+
         await findButton(w, 'Save').trigger('click')
         await flushPromises()
         const payload = w.emitted('update')![0][0] as { id: string; input: UpdateUserInput }
-        expect(payload.id).toBe('uuid-1')
-        expect(payload.input.login).toBe('alice2')
+        expect('login' in payload.input).toBe(false)
+    })
+
+    // The login field stays editable in create mode: the constraint is on
+    // changing an existing login, not on choosing one.
+    it('keeps the login editable in create mode', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+        expect(w.find('#user-login').attributes('readonly')).toBeUndefined()
     })
 
     it('includes a newly typed password in the update', async () => {

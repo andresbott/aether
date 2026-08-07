@@ -32,8 +32,13 @@ describe('subsonicClient.scrobble', () => {
         expect(url).toContain('submission=true')
     })
 
-    it('never rejects when the request fails', async () => {
+    it('never rejects when the request fails, and warns instead', async () => {
         vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))))
+        // The warn is the intended behaviour, so assert it rather than let it
+        // print: an expected failure must not look like a broken test run.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         await expect(subsonicClient.scrobble('tr-1')).resolves.toBeUndefined()
+        expect(warn).toHaveBeenCalledWith('scrobble failed', expect.any(Error))
+        warn.mockRestore()
     })
 })

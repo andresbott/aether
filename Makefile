@@ -79,6 +79,12 @@ run: ## start the GO service (uses built-in defaults; optional -c config.yaml)
 
 run-ui: package-ui run## build the UI and start the GO service
 
+proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GROUP=aether-admin (GROUP optional)
+	@# USER is also a shell env var (the login name), so require it explicitly
+	@# on the command line — inheriting it would silently proxy as $$USER.
+	@[ "$(origin USER)" = "command line" ] || ( echo ">> USER is not set, usage: make proxy USER=admin GROUP=aether-admin"; exit 1 )
+	@go run ./zarf/devproxy -user "$(USER)" -groups "$(GROUP)"
+
 #==========================================================================================
 ##@ Building
 #==========================================================================================

@@ -30,17 +30,23 @@ const (
 )
 
 // AuthCfg selects how users authenticate and seeds the initial admin.
-// AdminPassword may be plaintext or a bcrypt hash (recognized by its "$2"
-// prefix); like every config value it can come from config.yaml, env vars, or
-// an "@<path>" file reference. The admin is only created while the user store
-// is empty (idempotent bootstrap), so changing these values later has no
-// effect on an already-seeded store. AdminUser/AdminPassword apply to method
-// "native" only; ProxyHeader applies to method "proxy-header" only.
+// AdminBootstrap applies to method "native" only; ProxyHeader applies to
+// method "proxy-header" only.
 type AuthCfg struct {
-	Method        string
-	AdminUser     string
-	AdminPassword string
-	ProxyHeader   ProxyHeaderCfg
+	Method         string
+	AdminBootstrap AdminBootstrapCfg
+	ProxyHeader    ProxyHeaderCfg
+}
+
+// AdminBootstrapCfg seeds the initial admin user for method "native". Pw may
+// be plaintext or a bcrypt hash (recognized by its "$2" prefix); like every
+// config value it can come from config.yaml, env vars, or an "@<path>" file
+// reference. The admin is only created while the user store is empty
+// (idempotent bootstrap), so changing these values later has no effect on an
+// already-seeded store.
+type AdminBootstrapCfg struct {
+	User string
+	Pw   string
 }
 
 // ProxyHeaderCfg configures the proxy-header auth method: which injected
@@ -171,9 +177,11 @@ var defaultCfg = AppCfg{
 		TheAudioDBApiKey: "",
 	},
 	Auth: AuthCfg{
-		Method:        AuthMethodNone,
-		AdminUser:     "admin",
-		AdminPassword: "admin",
+		Method: AuthMethodNone,
+		AdminBootstrap: AdminBootstrapCfg{
+			User: "admin",
+			Pw:   "admin",
+		},
 		ProxyHeader: ProxyHeaderCfg{
 			UserHeader:   "Remote-User",
 			GroupsHeader: "Remote-Groups",
@@ -229,14 +237,14 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 		return cfg, fmt.Errorf("invalid auth method %q: must be %q, %q or %q",
 			cfg.Auth.Method, AuthMethodNone, AuthMethodNative, AuthMethodProxyHeader)
 	}
-	cfg.Auth.AdminUser = strings.TrimSpace(cfg.Auth.AdminUser)
-	cfg.Auth.AdminPassword = strings.TrimSpace(cfg.Auth.AdminPassword)
+	cfg.Auth.AdminBootstrap.User = strings.TrimSpace(cfg.Auth.AdminBootstrap.User)
+	cfg.Auth.AdminBootstrap.Pw = strings.TrimSpace(cfg.Auth.AdminBootstrap.Pw)
 	if cfg.Auth.Method == AuthMethodNative {
-		if cfg.Auth.AdminUser == "" {
-			return cfg, fmt.Errorf("auth method %q requires AdminUser", AuthMethodNative)
+		if cfg.Auth.AdminBootstrap.User == "" {
+			return cfg, fmt.Errorf("auth method %q requires AdminBootstrap.User", AuthMethodNative)
 		}
-		if cfg.Auth.AdminPassword == "" {
-			return cfg, fmt.Errorf("auth method %q requires AdminPassword", AuthMethodNative)
+		if cfg.Auth.AdminBootstrap.Pw == "" {
+			return cfg, fmt.Errorf("auth method %q requires AdminBootstrap.Pw", AuthMethodNative)
 		}
 	}
 	if cfg.Auth.Method == AuthMethodProxyHeader {

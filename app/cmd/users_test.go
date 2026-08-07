@@ -43,7 +43,7 @@ func TestBootstrapAdmin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := AuthCfg{Method: AuthMethodNative, AdminUser: "admin", AdminPassword: "admin"}
+		cfg := AuthCfg{Method: AuthMethodNative, AdminBootstrap: AdminBootstrapCfg{User: "admin", Pw: "admin"}}
 
 		seeded, err := bootstrapAdmin(users, cfg)
 		if err != nil {
@@ -74,7 +74,7 @@ func TestBootstrapAdmin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := AuthCfg{Method: AuthMethodNative, AdminUser: "admin", AdminPassword: string(hash)}
+		cfg := AuthCfg{Method: AuthMethodNative, AdminBootstrap: AdminBootstrapCfg{User: "admin", Pw: string(hash)}}
 
 		if _, err := bootstrapAdmin(users, cfg); err != nil {
 			t.Fatal(err)
@@ -93,7 +93,7 @@ func TestBootstrapAdmin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cfg := AuthCfg{Method: AuthMethodNative, AdminUser: "admin", AdminPassword: "admin"}
+		cfg := AuthCfg{Method: AuthMethodNative, AdminBootstrap: AdminBootstrapCfg{User: "admin", Pw: "admin"}}
 		if _, err := bootstrapAdmin(users, cfg); err != nil {
 			t.Fatal(err)
 		}
@@ -168,17 +168,20 @@ func TestResetUserPassword(t *testing.T) {
 	})
 }
 
-func TestAuthConfigValidation(t *testing.T) {
-	// write a minimal config file per case and load it through getAppCfg so the
-	// validation path is the real one
-	load := func(t *testing.T, yaml string) (AppCfg, error) {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return getAppCfg(path, true)
+// loadAuthCfg writes a minimal config file and loads it through getAppCfg, so
+// every case below exercises the real validation path rather than a struct
+// literal.
+func loadAuthCfg(t *testing.T, yaml string) (AppCfg, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	return getAppCfg(path, true)
+}
+
+func TestAuthConfigValidation(t *testing.T) {
+	load := loadAuthCfg
 
 	t.Run("defaults to none with admin:admin", func(t *testing.T) {
 		cfg, err := load(t, "DataDir: ./data\n")
@@ -188,8 +191,9 @@ func TestAuthConfigValidation(t *testing.T) {
 		if cfg.Auth.Method != AuthMethodNone {
 			t.Errorf("default method = %q, want %q", cfg.Auth.Method, AuthMethodNone)
 		}
-		if cfg.Auth.AdminUser != "admin" || cfg.Auth.AdminPassword != "admin" {
-			t.Errorf("default admin = %q:%q, want admin:admin", cfg.Auth.AdminUser, cfg.Auth.AdminPassword)
+		if cfg.Auth.AdminBootstrap.User != "admin" || cfg.Auth.AdminBootstrap.Pw != "admin" {
+			t.Errorf("default admin = %q:%q, want admin:admin",
+				cfg.Auth.AdminBootstrap.User, cfg.Auth.AdminBootstrap.Pw)
 		}
 	})
 
@@ -211,11 +215,16 @@ func TestAuthConfigValidation(t *testing.T) {
 	})
 
 	t.Run("native requires a non-empty admin password", func(t *testing.T) {
-		_, err := load(t, "Auth:\n  Method: native\n  AdminPassword: \" \"\n")
-		if err == nil || !strings.Contains(err.Error(), "AdminPassword") {
-			t.Errorf("expected AdminPassword error, got %v", err)
+		_, err := load(t, "Auth:\n  Method: native\n  AdminBootstrap:\n    Pw: \" \"\n")
+		if err == nil || !strings.Contains(err.Error(), "AdminBootstrap.Pw") {
+			t.Errorf("expected AdminBootstrap.Pw error, got %v", err)
 		}
 	})
+
+}
+
+func TestProxyHeaderConfigValidation(t *testing.T) {
+	load := loadAuthCfg
 
 	t.Run("accepts proxy-header with header defaults", func(t *testing.T) {
 		cfg, err := load(t, "Auth:\n  Method: proxy-header\n")
@@ -232,7 +241,7 @@ func TestAuthConfigValidation(t *testing.T) {
 	})
 
 	t.Run("proxy-header does not require admin credentials", func(t *testing.T) {
-		_, err := load(t, "Auth:\n  Method: proxy-header\n  AdminUser: \" \"\n  AdminPassword: \" \"\n")
+		_, err := load(t, "Auth:\n  Method: proxy-header\n  AdminBootstrap:\n    User: \" \"\n    Pw: \" \"\n")
 		if err != nil {
 			t.Errorf("proxy-header with blank admin credentials: %v", err)
 		}

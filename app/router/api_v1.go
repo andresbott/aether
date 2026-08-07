@@ -71,6 +71,21 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
 			return
 		}
+		// The DB Enabled flag is aether's kill-switch and it must close sessions
+		// that are ALREADY open, not just future logins: otherwise a disabled
+		// admin keeps its session and can re-enable itself through this very API.
+		// Checked before the session-scoped tier so a disabled user cannot mint
+		// a fresh /rest token either. Mirrors headerGuard in proxy_auth.go.
+		usr, err := h.users.GetUser(data.UserId)
+		if err != nil {
+			// A session pointing at a deleted user authenticates nothing.
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		if !usr.Enabled {
+			http.Error(w, "user is disabled", http.StatusForbidden)
+			return
+		}
 		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
 		// only the role check is skipped, never the session check above.
 		if apiV1SessionPath(r.URL.Path) {
@@ -111,6 +126,11 @@ func (h *MainAppHandler) meIdentity(w http.ResponseWriter, r *http.Request) *han
 	usr, err := h.users.GetUser(data.UserId)
 	if err != nil {
 		// Session refers to a deleted user: treat as unauthenticated.
+		return nil
+	}
+	// A disabled user reads as anonymous rather than 403: /me is public-tier, and
+	// reporting no identity is what makes the SPA fall back to the login view.
+	if !usr.Enabled {
 		return nil
 	}
 	role, err := usersHandler.RoleOf(h.users, usr.ID)

@@ -45,6 +45,26 @@ func mustCreate(t *testing.T, store *userdb.Store, login, pw string) string {
 	return usr.ID
 }
 
+// mustAdmin creates an enabled user already in the admin group, for tests that
+// need a specific admin population rather than a specific request.
+func mustAdmin(t *testing.T, store *userdb.Store, login string) string {
+	t.Helper()
+	id := mustCreate(t, store, login, "pw")
+	if err := store.SetGroups(id, []string{users.AdminGroup}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func mustRole(t *testing.T, store *userdb.Store, id string) string {
+	t.Helper()
+	role, err := users.RoleOf(store, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return role
+}
+
 func mustGroups(t *testing.T, store *userdb.Store, id string) []string {
 	t.Helper()
 	groups, err := store.GetGroups(id)
@@ -228,33 +248,22 @@ func TestUpdateUser(t *testing.T) {
 		}
 	})
 
-	t.Run("renames the login keeping identity and password", func(t *testing.T) {
+	// Rename is refused, not silently ignored: per-user data (queue, stars,
+	// playlists, history) is keyed on the LOGIN string, so a rename would
+	// orphan it. See TestRenameIsRefused for the full contract.
+	t.Run("a login change is refused", func(t *testing.T) {
 		store, r := newTestHandler(t)
 		id := mustCreate(t, store, "alice", "pw")
-		before, _ := store.GetUser(id)
 		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"login":"alice2"}`)
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
 		}
 		usr, err := store.GetUser(id)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if usr.LoginID != "alice2" {
-			t.Errorf("login = %q, want alice2", usr.LoginID)
-		}
-		if usr.HashPw != before.HashPw {
-			t.Error("password hash must be unchanged on rename")
-		}
-	})
-
-	t.Run("rename to a taken login conflicts", func(t *testing.T) {
-		store, r := newTestHandler(t)
-		id := mustCreate(t, store, "alice", "pw")
-		mustCreate(t, store, "bob", "pw")
-		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"login":"bob"}`)
-		if w.Code != http.StatusConflict {
-			t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
+		if usr.LoginID != "alice" {
+			t.Errorf("login = %q, want it unchanged as alice", usr.LoginID)
 		}
 	})
 
@@ -290,6 +299,10 @@ func TestUpdateUser(t *testing.T) {
 func TestUpdateUserRole(t *testing.T) {
 	t.Run("promotes and demotes via role", func(t *testing.T) {
 		store, r := newTestHandler(t)
+		// A standing admin keeps the demotion below out of the last-admin guard
+		// (TestLastAdminGuard covers that path); this case is about the group
+		// bookkeeping of promote/demote.
+		mustAdmin(t, store, "root")
 		id := mustCreate(t, store, "alice", "pw")
 
 		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"admin"}`)
@@ -317,6 +330,7 @@ func TestUpdateUserRole(t *testing.T) {
 
 	t.Run("role change keeps unrelated group memberships", func(t *testing.T) {
 		store, r := newTestHandler(t)
+		mustAdmin(t, store, "root")
 		id := mustCreate(t, store, "alice", "pw")
 		if err := store.SetGroups(id, []string{"beta-testers"}); err != nil {
 			t.Fatal(err)
@@ -347,6 +361,8 @@ func TestUpdateUserRole(t *testing.T) {
 
 func TestDeleteUser(t *testing.T) {
 	store, r := newTestHandler(t)
+	// A second admin exists so deleting alice is not a last-admin removal.
+	mustAdmin(t, store, "root")
 	id := mustCreate(t, store, "alice", "pw")
 
 	w := doJSON(t, r, http.MethodDelete, "/users/"+id, "")
@@ -361,4 +377,182 @@ func TestDeleteUser(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 on second delete, got %d", w.Code)
 	}
+}
+
+// TestRenameIsRefused pins the reason rename is closed off: owner-keyed data
+// (play queue, stars, playlists, history) is keyed on the login STRING, not the
+// user UUID, so renaming would leave that data behind under the old key and
+// silently hide it from its owner. Until the owner columns key on the UUID, a
+// login change is rejected rather than half-applied.
+func TestRenameIsRefused(t *testing.T) {
+	t.Run("a changed login is 400 and mutates nothing", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"login":"alice2","enabled":false}`)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+		}
+		usr, err := store.GetUser(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if usr.LoginID != "alice" {
+			t.Errorf("login = %q, want alice", usr.LoginID)
+		}
+		// The rename is rejected before any other field is applied, so the
+		// request is all-or-nothing rather than partially committed.
+		if !usr.Enabled {
+			t.Error("enabled must not be applied when the request is rejected")
+		}
+	})
+
+	// Sending the login unchanged is how the edit dialog submits a form that
+	// simply displays it, so it must not trip the guard.
+	t.Run("resubmitting the same login is accepted", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"login":"alice","enabled":false}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+		usr, err := store.GetUser(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if usr.Enabled {
+			t.Error("enabled=false should have been applied")
+		}
+	})
+
+	t.Run("whitespace-only differences do not count as a rename", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustCreate(t, store, "alice", "pw")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"login":"  alice  "}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
+}
+
+// TestLastAdminGuard covers the lockout hole: the users CRUD is the only path
+// that can grant the admin role, and bootstrapAdmin only seeds while the store
+// is EMPTY, so removing the final admin is unrecoverable without hand-editing
+// the database. Demote, disable and delete are each refused for the last one.
+func TestLastAdminGuard(t *testing.T) {
+	t.Run("the last admin cannot demote itself", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"user"}`)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
+		}
+		if role := mustRole(t, store, id); role != users.RoleAdmin {
+			t.Errorf("role = %q, want it still admin", role)
+		}
+	})
+
+	t.Run("the last admin cannot be disabled", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"enabled":false}`)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
+		}
+		usr, err := store.GetUser(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !usr.Enabled {
+			t.Error("the last admin must stay enabled")
+		}
+	})
+
+	t.Run("the last admin cannot be deleted", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+
+		w := doJSON(t, r, http.MethodDelete, "/users/"+id, "")
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
+		}
+		if _, err := store.GetUser(id); err != nil {
+			t.Errorf("the last admin must survive: %v", err)
+		}
+	})
+
+	// A disabled admin cannot log in, so it cannot administer either: it must
+	// not count towards the quorum that keeps the guard satisfied.
+	t.Run("a disabled admin does not count as a remaining admin", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+		other := mustAdmin(t, store, "ghost")
+		if err := store.SetEnabled(other, false); err != nil {
+			t.Fatal(err)
+		}
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"user"}`)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("expected 409 with only a disabled peer admin, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("demote, disable and delete succeed with a second enabled admin", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+		mustAdmin(t, store, "root2")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"user"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("demote: expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+
+		id2 := mustAdmin(t, store, "root3")
+		w = doJSON(t, r, http.MethodPut, "/users/"+id2, `{"enabled":false}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("disable: expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+
+		id3 := mustAdmin(t, store, "root4")
+		w = doJSON(t, r, http.MethodDelete, "/users/"+id3, "")
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("delete: expected 204, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	// Only the admin population is protected; a regular user is freely removed
+	// even when it is the only account besides the admin.
+	t.Run("a regular user is unaffected by the guard", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		mustAdmin(t, store, "root")
+		id := mustCreate(t, store, "alice", "pw")
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"enabled":false}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("disable regular user: expected 200, got %d, body=%s", w.Code, w.Body.String())
+		}
+		w = doJSON(t, r, http.MethodDelete, "/users/"+id, "")
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("delete regular user: expected 204, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
+
+	// Re-disabling an already-disabled admin is a no-op, not a lockout: the
+	// guard must key on whether the change removes the last ENABLED admin.
+	t.Run("a no-op enabled write on a disabled admin is allowed", func(t *testing.T) {
+		store, r := newTestHandler(t)
+		id := mustAdmin(t, store, "root")
+		if err := store.SetEnabled(id, false); err != nil {
+			t.Fatal(err)
+		}
+
+		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"enabled":false}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for a no-op write, got %d, body=%s", w.Code, w.Body.String())
+		}
+	})
 }

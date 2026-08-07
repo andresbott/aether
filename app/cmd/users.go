@@ -31,9 +31,9 @@ func newUserStore(db *gorm.DB) (*userdb.Store, error) {
 // bcrypt hash (e.g. produced by `aether user hash`) instead of plaintext.
 func bootstrapAdmin(users *userdb.Store, cfg AuthCfg) (bool, error) {
 	admin := userdb.User{
-		LoginID:    cfg.AdminUser,
-		Pw:         cfg.AdminPassword,
-		PwIsHashed: isBcryptHash(cfg.AdminPassword),
+		LoginID:    cfg.AdminBootstrap.User,
+		Pw:         cfg.AdminBootstrap.Pw,
+		PwIsHashed: isBcryptHash(cfg.AdminBootstrap.Pw),
 		Enabled:    true,
 		Groups:     []string{usersHandler.AdminGroup},
 	}
@@ -62,7 +62,7 @@ func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (
 	}
 	if seeded {
 		l.Info("seeded initial admin user",
-			slog.String("component", "startup"), slog.String("user", cfg.AdminUser))
+			slog.String("component", "startup"), slog.String("user", cfg.AdminBootstrap.User))
 	}
 	sessions, err := newSessionManager(dataDir, l)
 	if err != nil {
@@ -73,6 +73,35 @@ func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (
 		return nil, nil, nil, err
 	}
 	return users, sessions, tokens, nil
+}
+
+// authDeps is everything the router needs to enforce the configured auth
+// method. Exactly one mode's fields are populated (or none, for method "none"):
+// Sessions is native-only, HeaderAuth proxy-only, and Users/Tokens are the
+// shared halves both authenticated modes build.
+type authDeps struct {
+	Users      *userdb.Store
+	Sessions   *cookieauth.Manager
+	Tokens     *pat.Service
+	HeaderAuth *headerauth.HeaderHandler
+}
+
+// setupAuth builds the auth dependencies for whichever method is configured.
+// Both setups are consulted because each is a no-op outside its own mode; the
+// method then decides which one's stores win.
+func setupAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (authDeps, error) {
+	users, sessions, tokens, err := setupNativeAuth(db, dataDir, cfg, l)
+	if err != nil {
+		return authDeps{}, err
+	}
+	proxyUsers, proxyTokens, headerAuth, err := setupProxyAuth(db, cfg, l)
+	if err != nil {
+		return authDeps{}, err
+	}
+	if cfg.Method == AuthMethodProxyHeader {
+		users, tokens = proxyUsers, proxyTokens
+	}
+	return authDeps{Users: users, Sessions: sessions, Tokens: tokens, HeaderAuth: headerAuth}, nil
 }
 
 // newTokenService builds the PAT service on the user store — the same token

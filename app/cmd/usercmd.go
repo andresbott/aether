@@ -33,9 +33,9 @@ func userHashCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hash [password]",
 		Short: "print the bcrypt hash of a password",
-		Long: "Print the bcrypt hash of a password, usable as Auth.AdminPassword in the\n" +
-			"config or via AETHER_AUTH_ADMINPASSWORD. Prompts when no argument is given\n" +
-			"(preferred: the password stays out of the shell history).",
+		Long: "Print the bcrypt hash of a password, usable as Auth.AdminBootstrap.Pw in\n" +
+			"the config or via AETHER_AUTH_ADMINBOOTSTRAP_PW. Prompts when no argument is\n" +
+			"given (preferred: the password stays out of the shell history).",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			pw, err := passwordArg(args, "Password: ")

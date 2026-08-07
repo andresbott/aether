@@ -176,6 +176,42 @@ Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
   `sessionLostUnexpectedly` — expiry only, never a logout the user asked for.
   Both flags clear on the next successful login.
 
+- `sessionGuard` re-reads the user row on every request and 403s a **disabled**
+  user, so the `Enabled` kill-switch closes sessions that are already open — not
+  just future logins. Without it a disabled admin kept its cookie and could
+  re-enable itself through the same API, and could still mint `/rest` tokens
+  (the check sits before the session-scoped tier for exactly that reason).
+  `/me` instead reports a disabled user as anonymous: it is public-tier, and
+  reporting no identity is what makes the SPA fall back to the login view.
+  `pat.Verify` enforces the same flag on `/rest`, so a disabled user is closed
+  out on every surface. Matches `headerGuard` in proxy mode.
+
+### Users CRUD guards (native only)
+
+Two refusals in `app/router/handlers/users/users.go` exist because of how
+identity is keyed and bootstrapped. Both are load-bearing, not defensive
+politeness:
+
+- **The last enabled admin cannot be demoted, disabled or deleted** (409,
+  code `last_admin`). This CRUD is the only path that grants the admin role and
+  `bootstrapAdmin` re-seeds only while the store is EMPTY, so removing the final
+  admin is unrecoverable without editing the DB by hand — a restart does not fix
+  it and the `aether user` CLI has no role subcommand. Disabled admins do not
+  count towards the quorum: they cannot log in, so leaving one behind is the
+  same lockout with extra steps (`isLastEnabledAdmin`).
+- **Renaming is refused** (400): owner-keyed data (play queue, stars, playlists,
+  history) is keyed on the login STRING, not on `User.ID` — `patIdentityResolver`
+  returns `info.LoginID` as the owner — so a rename orphans every owner-keyed row
+  under the old key. The data survives in the DB but becomes invisible to its
+  owner. `update` accepts a login field equal to the current one (the edit dialog
+  submits the field it displays) and rejects any actual change; `UserDialog.vue`
+  renders it read-only so the UI does not offer a doomed edit. Lifting this needs
+  the owner columns to key on the UUID first (TODO.md, Multi-user).
+
+Validation in `update` happens entirely before the first store write: the
+mutations are separate store calls rather than one transaction, so a late
+rejection would leave the update half-applied.
+
 Still missing from this mode: change-own-password UI and the radio CRUD
 write gate on `/rest`.
 
@@ -248,7 +284,21 @@ Login/logout endpoints and the users CRUD are not mounted;
 is configured identically in all authenticated modes. `/api/v1/me` reports
 the active mode so the SPA reacts correctly to 401s.
 
+Native extras under `Auth.AdminBootstrap`: `User` / `Pw` seed the initial
+admin while the user store is empty (idempotent — `bootstrapAdmin` in
+`app/cmd/users.go`). `Pw` may be plaintext or a bcrypt hash (`$2` prefix,
+from `aether user hash`). Ignored in the other modes.
+
 Proxy-header extras under `Auth.ProxyHeader`: `UserHeader` (default
 `Remote-User`), `GroupsHeader` (default `Remote-Groups`), `AdminGroup`
 (default `aether-admin`), `TrustedProxies` (CIDR list, empty = trust every
 peer).
+
+`TrustedProxies` must list **both loopback forms** (`127.0.0.1` and `::1`)
+when the proxy is co-located: a proxy configured with the hostname
+`localhost` dials `::1` first, so a list with only `127.0.0.1` rejects its
+headers. The failure is silent and reads as a broken frontend — `/me`
+answers `200` with `"user": null`, and in proxy mode the SPA has no login
+view to fall back to, so `subsonicReady` never flips and the page stays
+blank. When debugging a blank SPA in proxy mode, curl `/api/v1/me` over
+`127.0.0.1` and `[::1]` separately: differing answers mean this.
