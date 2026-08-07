@@ -7,7 +7,7 @@ require (
 	github.com/go-bumbu/config v0.4.0
 	github.com/go-bumbu/http v0.5.1
 	github.com/go-bumbu/tempo v0.2.0
-	github.com/go-bumbu/userauth v0.0.0-00010101000000-000000000000
+	github.com/go-bumbu/userauth v0.4.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/mattn/go-isatty v0.0.21
@@ -66,5 +66,3 @@ require (
 )
 
 replace go.senan.xyz/taglib => github.com/andresbott/go-taglib v0.0.0-20260721170622-b78b455bd52d
-
-replace github.com/go-bumbu/userauth => ../bumbu/userauth
