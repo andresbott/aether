@@ -1,6 +1,5 @@
 import type {
     SubsonicResponse,
-    SubsonicCredentials,
     SearchParams,
     SearchResult3,
     Album,
@@ -21,29 +20,36 @@ import type {
 import { sessionExpired } from '@/lib/authState'
 
 class SubsonicClient {
-    private credentials: SubsonicCredentials | null = null
+    private apiKey: string | null = null
     private serverUrl: string = ''
     private authSkipped: boolean = false
     private readonly clientName = 'aether-web'
     private readonly apiVersion = '1.16.1'
 
+    /** Auth method "none": no credentials on any /rest call. */
     initWithDefaults(): void {
         this.serverUrl = window.location.origin
         this.authSkipped = true
+        this.apiKey = null
     }
 
-    setCredentials(credentials: SubsonicCredentials): void {
-        this.credentials = credentials
-        this.serverUrl = credentials.serverUrl
+    /** Native mode: authenticate every /rest call with the minted PAT. */
+    setApiKey(key: string): void {
+        this.serverUrl = window.location.origin
+        this.apiKey = key
         this.authSkipped = false
     }
 
-    getCredentials(): SubsonicCredentials | null {
-        return this.credentials
+    clearApiKey(): void {
+        this.apiKey = null
+    }
+
+    hasApiKey(): boolean {
+        return this.apiKey !== null
     }
 
     isConfigured(): boolean {
-        return this.authSkipped || this.credentials !== null
+        return this.authSkipped || this.apiKey !== null
     }
 
     private buildUrl(
@@ -56,14 +62,8 @@ class SubsonicClient {
 
         const url = new URL(`${this.serverUrl}/rest/${endpoint}`)
 
-        if (this.credentials) {
-            url.searchParams.append('u', this.credentials.username)
-            if (this.credentials.token && this.credentials.salt) {
-                url.searchParams.append('t', this.credentials.token)
-                url.searchParams.append('s', this.credentials.salt)
-            } else if (this.credentials.password) {
-                url.searchParams.append('p', this.credentials.password)
-            }
+        if (this.apiKey) {
+            url.searchParams.append('apiKey', this.apiKey)
         }
 
         url.searchParams.append('v', this.apiVersion)

@@ -11,7 +11,6 @@ import type {
     Song,
     Playlist,
     SearchParams,
-    SubsonicCredentials,
     InternetRadioStation
 } from '@/types/subsonic'
 
@@ -167,20 +166,6 @@ export function useRadioStations() {
         queryKey: queryKeys.radioStations,
         queryFn: () => subsonicClient.getInternetRadioStations(),
         staleTime: 10 * 60 * 1000
-    })
-}
-
-export function useSetCredentials(options?: UseMutationOptions<void, Error, SubsonicCredentials>) {
-    const queryClient = useQueryClient()
-
-    return useMutation({
-        mutationFn: async (credentials: SubsonicCredentials) => {
-            subsonicClient.setCredentials(credentials)
-        },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['subsonic'] })
-        },
-        ...options
     })
 }
 

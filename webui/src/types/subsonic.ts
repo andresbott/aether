@@ -182,14 +182,6 @@ export interface ArtistInfo {
     similarArtist?: Artist[]
 }
 
-export interface SubsonicCredentials {
-    username: string
-    password: string
-    salt?: string
-    token?: string
-    serverUrl: string
-}
-
 export interface SearchParams {
     query: string
     artistCount?: number
