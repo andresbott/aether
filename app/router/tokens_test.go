@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,5 +116,112 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	// stale-spa gone; phone and the fresh aether-web remain.
 	if len(recs) != 2 {
 		t.Fatalf("tokens after mint = %v, want [phone aether-web]", names)
+	}
+}
+
+type tokenDTO struct {
+	TokenID    string     `json:"tokenId"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
+	ExpiresAt  *time.Time `json:"expiresAt"`
+}
+
+// The list shows only user-created PATs: spa-scoped tokens are SPA plumbing.
+// The secret hash must never appear in any response.
+func TestListTokensExcludesSpaScoped(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+	doMint(t, h, attach) // creates an aether-web spa token
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens",
+		strings.NewReader(`{"name":"Symfonium on phone"}`))
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create = %d, want 201: %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Token   string `json:"token"`
+		TokenID string `json:"tokenId"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || created.Token == "" {
+		t.Fatalf("create body = %s, want plaintext token", w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var list struct {
+		Tokens []tokenDTO `json:"tokens"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Tokens) != 1 || list.Tokens[0].Name != "Symfonium on phone" {
+		t.Fatalf("list = %+v, want only the client token", list.Tokens)
+	}
+	if strings.Contains(w.Body.String(), "secretHash") || strings.Contains(w.Body.String(), "SecretHash") {
+		t.Fatal("token list leaks the secret hash")
+	}
+}
+
+// Revocation is owner-scoped: alice cannot delete bob's token, and the store
+// answers identically for absent and foreign IDs (404).
+func TestRevokeTokenOwnerScoped(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, bobAttach := doLogin(t, h, "bob", "secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens",
+		strings.NewReader(`{"name":"phone"}`))
+	bobAttach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var created struct {
+		TokenID string `json:"tokenId"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	_, aliceAttach := doLogin(t, h, "alice", "secret")
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens/"+created.TokenID, nil)
+	aliceAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("foreign revoke = %d, want 404", w.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens/"+created.TokenID, nil)
+	bobAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("own revoke = %d, want 204", w.Code)
+	}
+}
+
+// Create validates input: empty name 400, past expiry 400.
+func TestCreateTokenValidation(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	for _, body := range []string{
+		`{"name":""}`,
+		`{"name":"x","expiresAt":"2020-01-01T00:00:00Z"}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(body))
+		attach(req)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("create %s = %d, want 400", body, w.Code)
+		}
 	}
 }
