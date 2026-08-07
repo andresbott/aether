@@ -1,11 +1,13 @@
 package store_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"gorm.io/gorm"
 )
 
 func TestFindOrCreateArtists(t *testing.T) {
@@ -93,6 +95,37 @@ func TestFindOrCreateArtistsBackfillsMBID(t *testing.T) {
 	}
 	if second[0].MBArtistID != "mbid-portishead" {
 		t.Fatalf("MBID not backfilled, got %q", second[0].MBArtistID)
+	}
+}
+
+// errQueryBoom is the injected failure used to simulate a real DB error (not a
+// missing row) on the lookup half of a find-or-create.
+var errQueryBoom = errors.New("boom: simulated db failure")
+
+// failQueries makes every SELECT on s fail with errQueryBoom while leaving
+// INSERTs working, which is exactly the shape a find-or-create must not
+// mistake for "row does not exist".
+func failQueries(t *testing.T, s *store.Store) {
+	t.Helper()
+	err := s.DB().Callback().Query().Before("gorm:query").
+		Register("test:fail_queries", func(tx *gorm.DB) {
+			_ = tx.AddError(errQueryBoom)
+		})
+	if err != nil {
+		t.Fatalf("register callback: %v", err)
+	}
+}
+
+func TestFindOrCreateArtistsPropagatesQueryError(t *testing.T) {
+	s := testStore(t)
+	failQueries(t, s)
+
+	_, err := s.FindOrCreateArtists([]string{"Björk"}, nil)
+	if err == nil {
+		t.Fatal("expected the DB error to propagate, got nil (a real failure was treated as not-found)")
+	}
+	if !errors.Is(err, errQueryBoom) {
+		t.Fatalf("expected the injected DB error, got %v", err)
 	}
 }
 

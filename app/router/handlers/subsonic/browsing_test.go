@@ -163,6 +163,56 @@ func TestGetAlbumDiscTitles(t *testing.T) {
 	}
 }
 
+// getArtist's album array feeds an artist page's album cards, which show a track
+// count — GetArtist does not preload Tracks, so the aggregates must be batched in
+// the same way getAlbumList2 does it.
+func TestGetArtistAlbumsIncludeSongCountAndDuration(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	artist := &model.Artist{Name: "Radiohead", NameNorm: "radiohead"}
+	db.Create(artist)
+	album := &model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
+	db.Create(album)
+	_ = db.Model(album).Association("Artists").Replace([]*model.Artist{artist})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "1.flac", FilePath: "/l/1.flac", TrackNumber: 1, Duration: 260})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "2.flac", FilePath: "/l/2.flac", TrackNumber: 2, Duration: 240})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getArtist.view?id=" + encodeArtistID(artist.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			Artist struct {
+				Album []struct {
+					Name      string `json:"name"`
+					SongCount int    `json:"songCount"`
+					Duration  int    `json:"duration"`
+				} `json:"album"`
+			} `json:"artist"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	albums := body.SubsonicResponse.Artist.Album
+	if len(albums) != 1 {
+		t.Fatalf("expected 1 album, got %d", len(albums))
+	}
+	if albums[0].SongCount != 2 {
+		t.Errorf("songCount = %d, want 2", albums[0].SongCount)
+	}
+	if albums[0].Duration != 500 {
+		t.Errorf("duration = %d, want 500", albums[0].Duration)
+	}
+}
+
 func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

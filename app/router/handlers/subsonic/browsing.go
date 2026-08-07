@@ -109,10 +109,16 @@ func (h *Handler) getArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := requestOwner(r)
-	stars := newStarLookup(h.store, owner, []uint{artist.ID}, albumIDs(albums), nil)
+	ids := albumIDs(albums)
+	stats, err := h.store.AlbumTrackStats(ids)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	stars := newStarLookup(h.store, owner, []uint{artist.ID}, ids, nil)
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		albumList = append(albumList, stars.applyAlbum(albumToMap(&al), al.ID))
+		albumList = append(albumList, applyAlbumStats(stars.applyAlbum(albumToMap(&al), al.ID), stats, al.ID))
 	}
 	writeResponse(w, map[string]any{
 		"artist": stars.applyArtist(map[string]any{
@@ -239,6 +245,18 @@ func albumToMap(al *model.Album) map[string]any {
 		}
 		m["duration"] = dur
 		m["discTitles"] = discTitles(al.Tracks)
+	}
+	return m
+}
+
+// applyAlbumStats writes the OpenSubsonic songCount/duration pair onto an album
+// map from a batched AlbumTrackStats lookup. albumToMap can only fill them when
+// the caller preloaded Tracks (the album detail query does; the list queries do
+// not), so every list handler pairs it with this.
+func applyAlbumStats(m map[string]any, stats map[uint]store.AlbumTrackStat, albumID uint) map[string]any {
+	if st, ok := stats[albumID]; ok {
+		m["songCount"] = st.Count
+		m["duration"] = st.Duration
 	}
 	return m
 }

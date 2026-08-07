@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
@@ -18,6 +19,12 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 		norm := unidecode.Normalize(name)
 		var artist model.Artist
 		err := s.db.Where("name_norm = ?", norm).First(&artist).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			// A real DB failure must not be mistaken for "artist does not
+			// exist" — creating a duplicate row on top of a transient error is
+			// how a scan silently corrupts the artist index.
+			return nil, err
+		}
 		if err != nil {
 			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 			if err := s.db.Create(&artist).Error; err != nil {

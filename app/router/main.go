@@ -202,7 +202,11 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 
 	if app.store != nil {
 		identity := app.patIdentityResolver()
-		subsonic.Register(app.router, app.store, app.assets, app.images, identity)
+		// The media handlers serve files named by DB rows (track file_path, album
+		// cover_path), so they are confined to the configured library roots — read
+		// on demand, since libraries are added while the server runs.
+		subsonic.Register(app.router, app.store, app.assets, app.images, identity,
+			subsonic.WithLibraryRoots(app.store.LibraryRoots))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

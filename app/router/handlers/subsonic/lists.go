@@ -41,12 +41,7 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 	stars := newStarLookup(h.store, owner, nil, ids, nil)
 	albumList := make([]map[string]any, 0, len(albums))
 	for _, al := range albums {
-		m := stars.applyAlbum(albumToMap(&al), al.ID)
-		if st, ok := stats[al.ID]; ok {
-			m["songCount"] = st.Count
-			m["duration"] = st.Duration
-		}
-		albumList = append(albumList, m)
+		albumList = append(albumList, applyAlbumStats(stars.applyAlbum(albumToMap(&al), al.ID), stats, al.ID))
 	}
 	writeResponse(w, map[string]any{
 		"albumList2": map[string]any{
@@ -136,12 +131,7 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	}
 	albums := make([]map[string]any, 0, len(starred.Albums))
 	for _, al := range starred.Albums {
-		m := stars.applyAlbum(albumToMap(&al), al.ID)
-		if st, ok := albumStats[al.ID]; ok {
-			m["songCount"] = st.Count
-			m["duration"] = st.Duration
-		}
-		albums = append(albums, m)
+		albums = append(albums, applyAlbumStats(stars.applyAlbum(albumToMap(&al), al.ID), albumStats, al.ID))
 	}
 	songs := make([]map[string]any, 0, len(starred.Tracks))
 	for _, t := range starred.Tracks {

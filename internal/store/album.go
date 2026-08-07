@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 
@@ -13,6 +14,11 @@ func (s *Store) FindOrCreateAlbum(name, albumArtistNorm, mbReleaseID string) (*m
 	nameNorm := unidecode.Normalize(name)
 	var album model.Album
 	err := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", nameNorm, albumArtistNorm, mbReleaseID).First(&album).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		// A real DB failure must not be mistaken for "album does not exist":
+		// creating a duplicate on a transient error splits one album in two.
+		return nil, err
+	}
 	if err != nil {
 		album = model.Album{
 			Name:            name,

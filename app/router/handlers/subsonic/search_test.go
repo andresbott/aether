@@ -52,6 +52,51 @@ func TestSearch3ArtistIncludesCoverArt(t *testing.T) {
 	}
 }
 
+// Clients render "0 songs" when an album list omits songCount/duration, so the
+// search results must carry the same aggregates getAlbumList2 already does.
+func TestSearch3AlbumsIncludeSongCountAndDuration(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
+	db.Create(&album)
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3", Duration: 260})
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/02.mp3", Duration: 240})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/search3.view?query=kid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			SearchResult3 struct {
+				Album []struct {
+					Name      string `json:"name"`
+					SongCount int    `json:"songCount"`
+					Duration  int    `json:"duration"`
+				} `json:"album"`
+			} `json:"searchResult3"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	albums := body.SubsonicResponse.SearchResult3.Album
+	if len(albums) != 1 {
+		t.Fatalf("expected 1 album, got %d", len(albums))
+	}
+	if albums[0].SongCount != 2 {
+		t.Errorf("songCount = %d, want 2", albums[0].SongCount)
+	}
+	if albums[0].Duration != 500 {
+		t.Errorf("duration = %d, want 500", albums[0].Duration)
+	}
+}
+
 // searchGenreResult decodes just the "searchGenres" extension's array, plus a
 // raw view of the container so a test can assert the key is absent entirely.
 func searchGenreResult(t *testing.T, srvURL, query string) ([]struct {

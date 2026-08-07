@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/tags"
 )
 
@@ -34,6 +36,14 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 70, "song not found")
 		return
 	}
+	// The path comes from the DB, not the request, so a row pointing outside every
+	// configured library is a data defect rather than an attack — but serving it
+	// would hand out an arbitrary readable file, so it is refused as "not found"
+	// (no oracle for what exists outside the library).
+	if !h.mediaPathAllowed(filePath) {
+		writeError(w, 70, "song not found")
+		return
+	}
 	info, err := os.Stat(filePath)
 	if err != nil {
 		writeError(w, 70, "song not found")
@@ -48,6 +58,52 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 	// serveCoverFile).
 	w.Header().Set("Cache-Control", "no-cache")
 	serveETaggedFile(w, r, filePath, info)
+}
+
+// mediaPathAllowed reports whether the handlers may read path. Every path it
+// guards comes from the database — a track's file_path, an album's cover_path —
+// so this enforces that the row actually points into a configured library. With
+// no guard installed and no library source (nothing configured) everything is
+// allowed, which is the behavior the server had before.
+func (h *Handler) mediaPathAllowed(path string) bool {
+	guard := h.currentGuard()
+	if guard == nil {
+		return true
+	}
+	return guard.Allows(path)
+}
+
+// currentGuard returns the guard to check against, refreshing it from the
+// library roots when those are dynamic. The guard is rebuilt only when the root
+// set actually changed, so the common case is one cheap query plus a read lock
+// rather than re-resolving every root's symlinks per request.
+func (h *Handler) currentGuard() *pathguard.Guard {
+	if h.libraryRoots == nil {
+		return h.mediaGuard
+	}
+	roots, err := h.libraryRoots()
+	if err != nil {
+		// The root set is unknown. Fall back to the last good guard rather than
+		// allowing everything: a DB blip must not open the filesystem up.
+		h.guardMu.RLock()
+		defer h.guardMu.RUnlock()
+		return h.mediaGuard
+	}
+	h.guardMu.RLock()
+	if slices.Equal(roots, h.guardRoots) {
+		defer h.guardMu.RUnlock()
+		return h.mediaGuard
+	}
+	h.guardMu.RUnlock()
+
+	h.guardMu.Lock()
+	defer h.guardMu.Unlock()
+	// Re-check: another request may have refreshed while this one waited.
+	if !slices.Equal(roots, h.guardRoots) {
+		h.guardRoots = slices.Clone(roots)
+		h.mediaGuard = newGuard(roots)
+	}
+	return h.mediaGuard
 }
 
 type coverMeta struct {
@@ -294,7 +350,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 	}
 	var out []coverSource
 
-	if meta.coverPath != "" {
+	if meta.coverPath != "" && h.mediaPathAllowed(meta.coverPath) {
 		if info, err := os.Stat(meta.coverPath); err == nil {
 			path := meta.coverPath
 			out = append(out, coverSource{
@@ -306,7 +362,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 				// (removing an upload uncovers the folder image) must still
 				// invalidate the cached derivative.
 				fingerprint: fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-				load:        func() ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver (asset store or scanner-detected image), never from the request
+				load:        func() ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver (asset store or scanner-detected image), never from the request, and is confined to the library roots by mediaPathAllowed above
 			})
 		}
 	}
@@ -343,6 +399,9 @@ func (h *Handler) embeddedCoverSource(meta coverMeta) (coverSource, bool) {
 	}
 	trackPath, err := h.store.GetCoverTrackPath(meta.albumID)
 	if err != nil || trackPath == "" {
+		return coverSource{}, false
+	}
+	if !h.mediaPathAllowed(trackPath) {
 		return coverSource{}, false
 	}
 	info, err := os.Stat(trackPath)
@@ -392,7 +451,7 @@ func serveETaggedFile(w http.ResponseWriter, r *http.Request, path string, info 
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())))
 	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
 
-	f, err := os.Open(path) //nolint:gosec // G304: path comes from the cover resolver (asset store, scanner-detected image, or the generated-cover cache), never from the request
+	f, err := os.Open(path) //nolint:gosec // G304: path is never request-supplied (cover resolver, imagecache derivative, or a track path), and DB-sourced paths are confined to the library roots by mediaPathAllowed before reaching here
 	if err != nil {
 		http.NotFound(w, r)
 		return

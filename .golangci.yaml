@@ -18,9 +18,12 @@ linters:
           - gosec
       # gosec taint analysis (G703 path traversal, G705 XSS) and unbounded-form
       # parsing (G120) flag the media-serving handlers, but served paths come
-      # from the trusted DB or a library-validated folder (traversal is rejected
-      # by ResolveInLibrary), responses are images or text/plain (never HTML),
-      # and request bodies are bounded via http.MaxBytesReader.
+      # from the DB or a library-validated folder (traversal is rejected by
+      # ResolveInLibrary) and DB-sourced paths are additionally confined to the
+      # configured library roots by the media handlers' path guard
+      # (internal/pathguard, applied in mediaPathAllowed) rather than merely
+      # assumed to be inside one; responses are images or text/plain (never
+      # HTML), and request bodies are bounded via http.MaxBytesReader.
       - path: 'app/router/handlers/subsonic/(media|radio)\.go'
         linters:
           - gosec

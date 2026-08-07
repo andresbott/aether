@@ -11,6 +11,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"gorm.io/gorm"
 )
 
 type playlistEntry struct {
@@ -221,6 +222,52 @@ func TestGetPlaylistsHandler(t *testing.T) {
 	}
 	if pls[1].SongCount != 2 || pls[1].Duration != 300 {
 		t.Fatalf("expected songCount/duration on Bravo, got %+v", pls[1])
+	}
+}
+
+// countSelects registers a query callback that tallies every SELECT issued
+// against s, so a test can assert a handler's query count does not grow with the
+// number of rows it renders.
+func countSelects(t *testing.T, s *store.Store) func() int {
+	t.Helper()
+	var n int
+	// Both callbacks: Find/First run through gorm:query, while Count and Scan
+	// (which the per-row aggregate helpers use) run through gorm:row.
+	if err := s.DB().Callback().Query().After("gorm:query").
+		Register("test:count_selects", func(*gorm.DB) { n++ }); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	if err := s.DB().Callback().Row().After("gorm:row").
+		Register("test:count_rows", func(*gorm.DB) { n++ }); err != nil {
+		t.Fatalf("register row callback: %v", err)
+	}
+	return func() int { return n }
+}
+
+// getPlaylists must issue a fixed number of queries regardless of how many
+// playlists it returns: the per-row count and duration lookups are the N+1 this
+// pins shut. Stars and play stats above them are already batched.
+func TestGetPlaylistsDoesNotScaleQueriesWithRowCount(t *testing.T) {
+	s := testStore(t)
+	tracks := seedTracks(t, s, 2)
+	for i := range 6 {
+		if _, err := s.CreatePlaylist(fmt.Sprintf("PL %d", i), "admin", false, tracks); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	selects := countSelects(t, s)
+	env := getJSON(t, srv.URL, "/rest/getPlaylists.view")
+	if got := len(env.SubsonicResponse.Playlists.Playlist); got != 6 {
+		t.Fatalf("expected 6 playlists, got %d", got)
+	}
+	// Batched: the playlist list, the star lookup, the play stats and the track
+	// aggregate — a small constant. Per-row lookups would add 2 per playlist.
+	if n := selects(); n > 6 {
+		t.Errorf("getPlaylists issued %d SELECTs for 6 playlists; expected a constant handful (per-row count/duration queries are the N+1)", n)
 	}
 }
 
