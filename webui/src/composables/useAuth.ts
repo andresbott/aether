@@ -5,7 +5,14 @@ import { useMe, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, sessionExpired } from '@/lib/authState'
-import { subsonicReady, spaTokenId, remintApiKey, resetSubsonicSession } from '@/lib/subsonicSession'
+import {
+    subsonicReady,
+    spaTokenId,
+    remintApiKey,
+    resetSubsonicSession,
+    mintRetriesExhausted,
+    resetMintAttempts
+} from '@/lib/subsonicSession'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 // One purge per lost session. The purge's own resetQueries refetches active
@@ -84,12 +91,21 @@ export function useAuth() {
                     }
                     if (data.user) {
                         if (!subsonicClient.hasApiKey()) {
+                            // Give up once the retry budget is spent: the login
+                            // gate stays up (sessionExpired is still true from
+                            // the last failure) instead of minting forever.
+                            if (mintRetriesExhausted()) return
                             const result = await remintApiKey()
                             // A boot-mint failure for any non-401 reason (409
                             // ErrTooManyTokens, 500, network blip) would leave
                             // subsonicReady=false and sessionExpired=false,
                             // rendering a blank screen. Simplest recoverable state:
                             // show the login gate; a re-login re-runs the mint.
+                            //
+                            // That gate purges and refetches /me, which re-runs
+                            // this watcher — a persistent failure would loop, so
+                            // remintApiKey counts consecutive failures and
+                            // mintRetriesExhausted() above stops after N.
                             if (result === 'failed') {
                                 sessionExpired.value = true
                                 return
@@ -138,6 +154,8 @@ export function useAuth() {
             sessionExpired.value = false
             explicitLogout.value = false
             purgedThisExpiry = false
+            // A fresh session gets a fresh mint budget.
+            resetMintAttempts()
             // The cookie is set: refetch /me so the identity (and any queries
             // that 401ed while logged out) repopulate.
             await qc.invalidateQueries({ queryKey: userQueryKeys.me })

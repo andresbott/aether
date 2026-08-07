@@ -144,5 +144,3 @@ func TestRestGetOpenSubsonicExtensionsPubliclyAccessible(t *testing.T) {
 		}
 	}
 }
-
-var _ = httptest.NewServer // keep import if unused during red phase

@@ -75,9 +75,12 @@ func hasScope(rec pat.TokenRecord, scope string) bool {
 	return false
 }
 
-// mintSPAToken creates the SPA's short-lived token. It first sweeps the
-// caller's expired spa-scoped tokens: repeated boots must not exhaust the
-// per-user cap (mint-time-only sweep, see the spec).
+// mintSPAToken creates the SPA's short-lived token. It first sweeps ALL of the
+// caller's spa-scoped tokens, expired or live: the SPA holds exactly one, and
+// this mint supersedes it, so keeping the old one around only eats into the
+// per-user cap. That bounds spa tokens at ~1/user and removes the lockout where
+// repeated boots eventually answered 409 ErrTooManyTokens (mint-time-only
+// sweep, see the spec).
 func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := caller(r)
 	if !ok {
@@ -91,7 +94,7 @@ func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	for _, rec := range recs {
-		if hasScope(rec, SPAScope) && rec.ExpiresAt != nil && rec.ExpiresAt.Before(now) {
+		if hasScope(rec, SPAScope) {
 			// Best-effort: a failed sweep must not block the mint.
 			_ = h.Tokens.Revoke(userID, rec.TokenID)
 		}

@@ -91,8 +91,9 @@ func TestMintedTokenVerifies(t *testing.T) {
 	}
 }
 
-// Minting sweeps the caller's EXPIRED spa-scoped tokens so repeated boots
-// cannot exhaust the per-user cap. Live spa tokens and client tokens survive.
+// Minting sweeps ALL of the caller's spa-scoped tokens — expired AND live: the
+// SPA holds exactly one and this mint supersedes it, which bounds spa tokens at
+// ~1/user so repeated boots cannot exhaust the per-user cap. Client tokens survive.
 func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	h, db := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
@@ -114,6 +115,11 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 		Update("expires_at", past).Error; err != nil {
 		t.Fatal(err)
 	}
+	// A LIVE spa token from an earlier boot: superseded, so it must go too.
+	liveExpiry := time.Now().Add(time.Hour)
+	if _, _, err := h.tokens.Mint(usr.ID, "live-spa", []string{tokensHandler.SPAScope}, &liveExpiry); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := h.tokens.Mint(usr.ID, "phone", []string{tokensHandler.ClientScope}, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -130,10 +136,35 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 		if r.Name == "stale-spa" {
 			t.Fatal("expired spa token survived the mint sweep")
 		}
+		if r.Name == "live-spa" {
+			t.Fatal("superseded live spa token survived the mint sweep")
+		}
 	}
-	// stale-spa gone; phone and the fresh aether-web remain.
+	// stale-spa and live-spa gone; phone and the fresh aether-web remain.
 	if len(recs) != 2 {
 		t.Fatalf("tokens after mint = %v, want [phone aether-web]", names)
+	}
+}
+
+// Repeated boots never lock the user out: even at the pat library's per-user
+// cap, each mint frees the previous spa token before minting the next.
+func TestRepeatedMintsNeverExhaustCap(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	usr, err := h.users.GetUserByLogin("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		doMint(t, h, attach)
+	}
+	recs, err := h.tokens.List(usr.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("tokens after 30 mints = %d, want 1", len(recs))
 	}
 }
 
@@ -276,6 +307,108 @@ func TestLogoutWithoutTokenStillWorks(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("logout without body = %d, want 200", w.Code)
+	}
+}
+
+// newRestAuthRouter builds a native-mode router with the music store attached,
+// so /rest is registered and PAT auth can be exercised end to end. Only bob
+// exists (a regular user: /rest is not an admin surface).
+func newRestAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create("bob", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieStore.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{Store: cookieStore, SessionDur: time.Hour, MaxSessionDur: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+		Store: store.New(db), DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, db
+}
+
+// restPing calls /rest/ping.view with the given query and returns the envelope.
+func restPing(t *testing.T, h *MainAppHandler, query string) errorEnvelopeRouter {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/rest/ping.view?"+query, nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var body errorEnvelopeRouter
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body %s: %v", w.Body.String(), err)
+	}
+	return body
+}
+
+// An EXPIRED token is no longer a credential: /rest answers 44, exactly like a
+// forged one. Aged behind the service's back (Mint rejects past expiries).
+func TestRestRejectsExpiredToken(t *testing.T) {
+	h, db := newRestAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	if got := restPing(t, h, "apiKey="+minted.Token); got.SubsonicResponse.Status != "ok" {
+		t.Fatalf("fresh apiKey: status %q, want ok", got.SubsonicResponse.Status)
+	}
+
+	past := time.Now().Add(-time.Hour)
+	if err := db.Table("user_pats").
+		Where("token_id = ?", minted.TokenID).
+		Update("expires_at", past).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	got := restPing(t, h, "apiKey="+minted.Token)
+	if got.SubsonicResponse.Error == nil || got.SubsonicResponse.Error.Code != 44 {
+		t.Fatalf("expired apiKey: %+v, want code 44", got.SubsonicResponse.Error)
+	}
+}
+
+// Disabling a user must kill their tokens too, or a revoked account keeps
+// streaming: /rest answers 44 for a token whose owner is disabled.
+func TestRestRejectsTokenOfDisabledOwner(t *testing.T) {
+	h, _ := newRestAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	if got := restPing(t, h, "apiKey="+minted.Token); got.SubsonicResponse.Status != "ok" {
+		t.Fatalf("enabled owner: status %q, want ok", got.SubsonicResponse.Status)
+	}
+
+	usr, err := h.users.GetUserByLogin("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.users.SetEnabled(usr.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got := restPing(t, h, "apiKey="+minted.Token)
+	if got.SubsonicResponse.Error == nil || got.SubsonicResponse.Error.Code != 44 {
+		t.Fatalf("disabled owner: %+v, want code 44", got.SubsonicResponse.Error)
 	}
 }
 
