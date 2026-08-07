@@ -18,9 +18,6 @@ import './assets/scss/_main.scss'
 
 import App from './App.vue'
 import router from './router'
-import { subsonicClient } from './lib/api/subsonic'
-
-subsonicClient.initWithDefaults()
 
 const app = createApp(App)
 

@@ -5,6 +5,7 @@ import PlayerLayout from '@/layouts/PlayerLayout.vue'
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
 import LoginView from '@/views/LoginView.vue'
 import { useAuth } from '@/composables/useAuth'
+import { subsonicReady } from '@/lib/subsonicSession'
 
 declare module 'vue-router' {
     interface RouteMeta {
@@ -48,5 +49,5 @@ watchEffect(() => {
 
 <template>
     <LoginView v-if="needsLogin" />
-    <component :is="layout" v-else-if="!isLoading" />
+    <component :is="layout" v-else-if="!isLoading && subsonicReady" />
 </template>

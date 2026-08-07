@@ -20,7 +20,10 @@ export async function login(
     return data
 }
 
-/** POST /api/v1/auth/logout — clears the session cookie. */
-export async function logout(): Promise<void> {
-    await apiClient.post('/auth/logout')
+/**
+ * POST /api/v1/auth/logout — clears the session cookie; when the SPA's spa
+ * token id is passed the server best-effort revokes it too.
+ */
+export async function logout(spaTokenId?: string): Promise<void> {
+    await apiClient.post('/auth/logout', spaTokenId ? { tokenId: spaTokenId } : undefined)
 }

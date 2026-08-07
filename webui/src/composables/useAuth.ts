@@ -5,6 +5,8 @@ import { useMe, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, sessionExpired } from '@/lib/authState'
+import { subsonicReady, spaTokenId, remintApiKey, resetSubsonicSession } from '@/lib/subsonicSession'
+import { subsonicClient } from '@/lib/api/subsonic'
 
 // One purge per lost session. The purge's own resetQueries refetches active
 // /api/v1 queries, which 401 while logged out and flip sessionExpired — on an
@@ -33,6 +35,7 @@ async function purgeLocalSession(qc: QueryClient): Promise<void> {
     await nextTick()
     scope.stop()
     localStorage.clear()
+    resetSubsonicSession()
     // Reset (not clear) so active queries — /me above all — refetch
     // immediately and the login gate closes.
     await qc.resetQueries()
@@ -66,6 +69,28 @@ export function useAuth() {
                 if (purgedThisExpiry) return
                 void purgeLocalSession(qc)
             })
+
+            // /rest credential lifecycle: with auth "none" the client is ready
+            // as-is; in native mode a logged-in session mints the spa token
+            // first. Runs again after login (invalidateQueries refetches /me).
+            watch(
+                [me.data, sessionExpired],
+                async ([data, expired]) => {
+                    if (!data || expired) return
+                    if (data.authMethod !== 'native') {
+                        subsonicClient.initWithDefaults()
+                        subsonicReady.value = true
+                        return
+                    }
+                    if (data.user) {
+                        if (!subsonicClient.hasApiKey()) {
+                            await remintApiKey()
+                        }
+                        subsonicReady.value = subsonicClient.hasApiKey()
+                    }
+                },
+                { immediate: true }
+            )
         })
     }
 
@@ -112,7 +137,7 @@ export function useAuth() {
     })
 
     const logoutMutation = useMutation({
-        mutationFn: () => AuthApi.logout(),
+        mutationFn: () => AuthApi.logout(spaTokenId.value ?? undefined),
         // Mark the intent BEFORE the request: the purge's cache reset (and any
         // in-flight call) 401s and flips sessionExpired, and the login view
         // must not mistake that for an expiry the user did not ask for.

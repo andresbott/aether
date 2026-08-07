@@ -81,12 +81,47 @@ class SubsonicClient {
 
     private handleFailedResponse(data: any): never {
         if (data['subsonic-response'].status === 'failed') {
-            if (data['subsonic-response'].error?.code === 40) {
-                sessionExpired.value = true
-            }
             throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
         }
         throw new Error('Unknown error')
+    }
+
+    /** True for the auth failures a fresh token can cure (40/44). */
+    private isAuthFailure(data: any): boolean {
+        const code = data?.['subsonic-response']?.error?.code
+        return data?.['subsonic-response']?.status === 'failed' && (code === 40 || code === 44)
+    }
+
+    /** Swap the apiKey param for the freshly-minted one, preserving the rest. */
+    private rebuildWithFreshKey(url: string): string {
+        const u = new URL(url)
+        if (this.apiKey) {
+            u.searchParams.set('apiKey', this.apiKey)
+        }
+        return u.toString()
+    }
+
+    private async fetchJson(url: string, init?: RequestInit): Promise<any> {
+        const response = await fetch(url, init)
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        const data = await response.json()
+        if (this.apiKey && this.isAuthFailure(data)) {
+            // The token expired mid-session: re-mint once (single-flight) and
+            // retry once with the fresh key. A dead session flips
+            // sessionExpired inside remintApiKey and we fail the request.
+            const { remintApiKey } = await import('@/lib/subsonicSession')
+            if (await remintApiKey()) {
+                const retryUrl = this.rebuildWithFreshKey(url)
+                const retry = await fetch(retryUrl, init)
+                if (!retry.ok) {
+                    throw new Error(`HTTP error! status: ${retry.status}`)
+                }
+                return retry.json()
+            }
+        }
+        return data
     }
 
     private async request<T>(
@@ -94,18 +129,10 @@ class SubsonicClient {
         params: Record<string, string | number | boolean | undefined> = {}
     ): Promise<T> {
         const url = this.buildUrl(endpoint, params)
-
-        const response = await fetch(url)
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-        }
-
-        const data = (await response.json()) as SubsonicResponse<T>
-
+        const data = (await this.fetchJson(url)) as SubsonicResponse<T>
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
-
         return data['subsonic-response'] as T
     }
 
@@ -341,9 +368,7 @@ class SubsonicClient {
     }
 
     private async submitMultipart(url: string, body: FormData): Promise<void> {
-        const response = await fetch(url, { method: 'POST', body })
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url, { method: 'POST', body })
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -377,9 +402,7 @@ class SubsonicClient {
         if (songIds) {
             songIds.forEach(id => url.searchParams.append('songId', id))
         }
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = (await response.json()) as SubsonicResponse<{ playlist: Playlist }>
+        const data = (await this.fetchJson(url.toString())) as SubsonicResponse<{ playlist: Playlist }>
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -401,9 +424,7 @@ class SubsonicClient {
         if (options.songIndexesToRemove) {
             options.songIndexesToRemove.forEach(idx => url.searchParams.append('songIndexToRemove', String(idx)))
         }
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url.toString())
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -441,9 +462,7 @@ class SubsonicClient {
         if (!this.isConfigured()) return
         const url = new URL(this.buildUrl('createPlaylist.view', { playlistId }))
         songIds.forEach((id) => url.searchParams.append('songId', id))
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url.toString())
         if (data['subsonic-response'].status === 'failed') {
             this.handleFailedResponse(data)
         }
@@ -494,9 +513,7 @@ class SubsonicClient {
                 url.searchParams.append('currentIndex', String(currentIndex))
                 url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
             }
-            const response = await fetch(url.toString())
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-            const data = await response.json()
+            const data = await this.fetchJson(url.toString())
             if (data['subsonic-response'].status === 'failed') {
                 this.handleFailedResponse(data)
             }
