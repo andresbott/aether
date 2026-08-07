@@ -9,12 +9,30 @@ import (
 	"time"
 
 	tokensHandler "github.com/andresbott/aether/app/router/handlers/tokens"
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
+	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/service/pat"
+	"github.com/go-bumbu/userauth/userstore/userdb"
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type mintResponse struct {
 	Token     string    `json:"token"`
 	TokenID   string    `json:"tokenId"`
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+type errorEnvelopeRouter struct {
+	SubsonicResponse struct {
+		Status string `json:"status"`
+		Error  *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	} `json:"subsonic-response"`
 }
 
 func doMint(t *testing.T, h *MainAppHandler, attach func(*http.Request)) mintResponse {
@@ -258,5 +276,69 @@ func TestLogoutWithoutTokenStillWorks(t *testing.T) {
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("logout without body = %d, want 200", w.Code)
+	}
+}
+
+// End to end: login → mint → call /rest with apiKey. Pins the full wiring:
+// guard tier, mint, resolver, error codes 43/44/40.
+func TestRestAuthenticatesWithApiKey(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create("bob", "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookieStore.Options.Secure = false
+	sessions, err := cookieauth.New(cookieauth.Cfg{Store: cookieStore, SessionDur: time.Hour, MaxSessionDur: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+		Store: store.New(db), DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	get := func(url string) errorEnvelopeRouter {
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		var body errorEnvelopeRouter
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("body %s: %v", w.Body.String(), err)
+		}
+		return body
+	}
+
+	if got := get("/rest/ping.view?apiKey=" + minted.Token); got.SubsonicResponse.Status != "ok" {
+		t.Fatalf("valid apiKey: status %q, want ok", got.SubsonicResponse.Status)
+	}
+	if got := get("/rest/ping.view?apiKey=aether_bogus_bogus"); got.SubsonicResponse.Error == nil || got.SubsonicResponse.Error.Code != 44 {
+		t.Fatalf("invalid apiKey: %+v, want code 44", got.SubsonicResponse.Error)
+	}
+	if got := get("/rest/ping.view?apiKey=" + minted.Token + "&u=bob"); got.SubsonicResponse.Error == nil || got.SubsonicResponse.Error.Code != 43 {
+		t.Fatalf("mixed auth: %+v, want code 43", got.SubsonicResponse.Error)
+	}
+	if got := get("/rest/ping.view"); got.SubsonicResponse.Error == nil || got.SubsonicResponse.Error.Code != 40 {
+		t.Fatalf("no credentials: %+v, want code 40", got.SubsonicResponse.Error)
 	}
 }

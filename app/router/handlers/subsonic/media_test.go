@@ -758,11 +758,11 @@ func TestGetCoverArtPlaylistVisibilityGuard(t *testing.T) {
 		t.Fatalf("create public playlist: %v", err)
 	}
 
-	resolver := func(r *http.Request) (string, bool) {
+	resolver := func(r *http.Request) (string, int) {
 		if u := r.Header.Get("X-Test-User"); u != "" {
-			return u, true
+			return u, 0
 		}
-		return "", false
+		return "", 40
 	}
 	r := mux.NewRouter()
 	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), resolver)

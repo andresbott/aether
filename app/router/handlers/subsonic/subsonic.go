@@ -14,11 +14,11 @@ import (
 )
 
 // IdentityResolver resolves the authenticated user for a /rest request.
-// ok=false means the request carries no valid identity. This is the single
-// seam the future PAT/token layer replaces (docs/agents/authentication.md):
-// today production wires a session-cookie resolver, later a Subsonic
-// token verifier — handlers only ever see the owner string.
-type IdentityResolver func(r *http.Request) (owner string, ok bool)
+// Success iff owner != ""; otherwise code is the Subsonic error code the
+// middleware must answer with: 40 no credentials, 43 conflicting auth
+// mechanisms, 44 invalid API key, 0 internal error. The resolver owns auth
+// policy (docs/agents/authentication.md); handlers only ever see the owner.
+type IdentityResolver func(r *http.Request) (owner string, code int)
 
 // ownerCtxKey carries the resolved owner on the request context.
 type ownerCtxKey struct{}
@@ -34,6 +34,21 @@ func requestOwner(r *http.Request) string {
 		return v
 	}
 	return defaultOwner
+}
+
+// authErrorMessage keeps the per-code wording uniform: no distinction
+// between unknown and expired keys (no probing oracle).
+func authErrorMessage(code int) string {
+	switch code {
+	case 43:
+		return "multiple conflicting authentication mechanisms provided"
+	case 44:
+		return "invalid API key"
+	case 40:
+		return "authentication required"
+	default:
+		return "authentication error"
+	}
 }
 
 type Handler struct {
@@ -60,22 +75,10 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			owner := defaultOwner
 			if identity != nil {
-				// CSRF hardening (interim, until PAT layer): reject cross-site
-				// requests. Every /rest endpoint is GET-reachable and the session
-				// cookie is SameSite=Lax, so a top-level cross-site navigation can
-				// trigger destructive writes (deletePlaylist, star, savePlayQueue...).
-				// Requests without Sec-Fetch-Site (curl, older clients, future PAT
-				// clients) pass — this is defense-in-depth, not a gate.
-				if site := r.Header.Get("Sec-Fetch-Site"); site == "cross-site" {
-					writeError(w, 50, "cross-site request rejected")
-					return
-				}
-				var ok bool
-				owner, ok = identity(r)
-				if !ok || owner == "" {
-					// Subsonic error 40: the protocol's "bad credentials"
-					// code — there is no separate "no credentials" code.
-					writeError(w, 40, "authentication required")
+				var code int
+				owner, code = identity(r)
+				if owner == "" {
+					writeError(w, code, authErrorMessage(code))
 					return
 				}
 			}

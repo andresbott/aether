@@ -2,9 +2,14 @@ package subsonic
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/andresbott/aether/internal/assetstore"
+	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/gorilla/mux"
 )
 
 // errorEnvelope decodes just enough of a subsonic-response to assert errors.
@@ -81,72 +86,38 @@ func TestRestAcceptsAuthenticatedRequest(t *testing.T) {
 	}
 }
 
-func TestRestRejectsCrossSiteRequests(t *testing.T) {
+// The middleware must emit whatever Subsonic error code the resolver
+// returns — 43 (conflicting mechanisms) and 44 (invalid key) come from the
+// apiKey spec, not just 40.
+func TestRestForwardsResolverErrorCode(t *testing.T) {
 	s := testStore(t)
-	srv := newTestServerWithIdentity(t, s)
+	as := assetstore.New(t.TempDir())
+	r := mux.NewRouter()
+	Register(r, s, as, imagecache.New(t.TempDir()), func(r *http.Request) (string, int) {
+		switch r.URL.Query().Get("want") {
+		case "43":
+			return "", 43
+		case "44":
+			return "", 44
+		}
+		return "", 40
+	})
+	srv := httptest.NewServer(r)
 	defer srv.Close()
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
-	req.Header.Set("X-Test-User", "demo")
-	req.Header.Set("Sec-Fetch-Site", "cross-site")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var body errorEnvelope
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body.SubsonicResponse.Status != "failed" {
-		t.Fatal("expected failed status for cross-site request")
-	}
-	if body.SubsonicResponse.Error == nil || body.SubsonicResponse.Error.Code != 50 {
-		t.Fatalf("expected subsonic error 50, got %+v", body.SubsonicResponse.Error)
-	}
-}
-
-func TestRestAllowsSameOriginRequests(t *testing.T) {
-	s := testStore(t)
-	srv := newTestServerWithIdentity(t, s)
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
-	req.Header.Set("X-Test-User", "demo")
-	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var body errorEnvelope
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body.SubsonicResponse.Status != "ok" {
-		t.Fatalf("expected ok with same-origin, got %q", body.SubsonicResponse.Status)
-	}
-}
-
-func TestRestAllowsRequestsWithoutSecFetchSite(t *testing.T) {
-	s := testStore(t)
-	srv := newTestServerWithIdentity(t, s)
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/ping.view", nil)
-	req.Header.Set("X-Test-User", "demo")
-	// No Sec-Fetch-Site header (curl, older clients, future PAT clients).
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var body errorEnvelope
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body.SubsonicResponse.Status != "ok" {
-		t.Fatalf("expected ok without Sec-Fetch-Site, got %q", body.SubsonicResponse.Status)
+	for _, want := range []int{40, 43, 44} {
+		resp, err := http.Get(fmt.Sprintf("%s/rest/ping.view?want=%d", srv.URL, want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body errorEnvelope
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if body.SubsonicResponse.Error == nil || body.SubsonicResponse.Error.Code != want {
+			t.Errorf("want code %d, got %+v", want, body.SubsonicResponse.Error)
+		}
 	}
 }
 

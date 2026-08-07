@@ -89,26 +89,34 @@ func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.router.ServeHTTP(w, r)
 }
 
-// sessionIdentityResolver constructs the /rest identity resolver when both
-// sessions and users are available. In native mode /rest is scoped by the
-// session cookie — an interim identity source until the Subsonic token layer
-// lands (TODO.md). GetSessData deliberately does not renew the rolling expiry;
-// /me does. Returns nil when either sessions or users is nil (auth "none").
-func (h *MainAppHandler) sessionIdentityResolver() subsonic.IdentityResolver {
-	if h.sessions == nil || h.users == nil {
+// patIdentityResolver authenticates /rest via the OpenSubsonic apiKey
+// parameter against the PAT service — the only authentication on /rest
+// (docs/agents/authentication.md). nil when auth is "none".
+func (h *MainAppHandler) patIdentityResolver() subsonic.IdentityResolver {
+	if h.tokens == nil {
 		return nil
 	}
-	return func(r *http.Request) (string, bool) {
-		data, err := h.sessions.GetSessData(r)
-		if err != nil || !data.IsAuthenticated {
-			return "", false
+	return func(r *http.Request) (string, int) {
+		q := r.URL.Query()
+		key := q.Get("apiKey")
+		if key == "" {
+			// Includes u/t/s-only clients: salted-token auth needs
+			// recoverable storage (TODO.md) and answers 40 until then.
+			return "", 40
 		}
-		usr, err := h.users.GetUser(data.UserId)
+		// Fail-closed per spec: apiKey mixed with password params is 43.
+		if q.Has("u") || q.Has("p") || q.Has("t") || q.Has("s") {
+			return "", 43
+		}
+		info, ok, err := h.tokens.Verify(key)
 		if err != nil {
-			// Session refers to a deleted user.
-			return "", false
+			h.logger.Error("rest auth: token verify failed", "err", err)
+			return "", 0 // infrastructure failure, not bad credentials
 		}
-		return usr.LoginID, true
+		if !ok {
+			return "", 44
+		}
+		return info.LoginID, 0
 	}
 }
 
@@ -156,7 +164,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
 
 	if app.store != nil {
-		identity := app.sessionIdentityResolver()
+		identity := app.patIdentityResolver()
 		subsonic.Register(app.router, app.store, app.assets, app.images, identity)
 	}
 
