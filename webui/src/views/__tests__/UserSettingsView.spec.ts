@@ -2,11 +2,28 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref, type Ref } from 'vue'
 import PrimeVue from 'primevue/config'
+import ToastService from 'primevue/toastservice'
 import type { MeUser } from '@/types/users'
+import type { ApiToken } from '@/types/tokens'
 
 const currentUser: Ref<MeUser | null> = ref(null)
 vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({ currentUser })
+}))
+
+const mockTokens: Ref<ApiToken[]> = ref([])
+const mockCreateToken = vi.fn()
+const mockRevokeToken = vi.fn()
+vi.mock('@/composables/useTokens', () => ({
+    useTokens: () => ({ data: mockTokens }),
+    useCreateToken: () => ({
+        mutate: mockCreateToken,
+        isPending: ref(false)
+    }),
+    useRevokeToken: () => ({
+        mutate: mockRevokeToken,
+        isPending: ref(false)
+    })
 }))
 
 import UserSettingsView from '@/views/UserSettingsView.vue'
@@ -14,7 +31,16 @@ import { useTheme } from '@/composables/useTheme'
 
 const THEME_CLASSES = ['dark-mode', 'theme-winamp', 'theme-crt']
 
-const mountView = () => mount(UserSettingsView, { global: { plugins: [PrimeVue] } })
+const mountView = () =>
+    mount(UserSettingsView, {
+        global: {
+            plugins: [PrimeVue, ToastService],
+            stubs: {
+                teleport: true
+            }
+        },
+        attachTo: document.body
+    })
 
 // useTheme is a module singleton shared with the rest of the suite, so put the
 // mode back where it started rather than leaking a hidden theme.
@@ -66,5 +92,62 @@ describe('UserSettingsView', () => {
             .map((b) => b.text())
         expect(labels).toEqual(['Auto', 'Light', 'Dark', 'Winamp', 'CRT'])
         expect(w.text()).toContain('Nice find')
+    })
+
+    it('shows the API tokens section for a logged-in native-mode user', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        const w = mountView()
+        expect(w.find('.tokens-section').exists()).toBe(true)
+        currentUser.value = null
+    })
+
+    it('hides the API tokens section with auth method none', () => {
+        currentUser.value = null
+        const w = mountView()
+        expect(w.find('.tokens-section').exists()).toBe(false)
+    })
+
+    it('lists tokens with name and revoke affordance', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        mockTokens.value = [
+            {
+                tokenId: 't1',
+                name: 'Symfonium',
+                createdAt: '2026-01-01T00:00:00Z'
+            }
+        ]
+        const w = mountView()
+        expect(w.text()).toContain('Symfonium')
+        expect(w.find('.token-revoke').exists()).toBe(true)
+        currentUser.value = null
+        mockTokens.value = []
+    })
+
+    it('shows the plaintext exactly once after creation', async () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        const w = mountView()
+        const nameInput = w.find('input[placeholder*="Token name"]')
+        await nameInput.setValue('MyToken')
+
+        // Simulate successful creation
+        mockCreateToken.mockImplementation((input: any, options: any) => {
+            if (options?.onSuccess) {
+                options.onSuccess({
+                    tokenId: 't2',
+                    name: 'MyToken',
+                    createdAt: '2026-01-02T00:00:00Z',
+                    token: 'aether_x_y'
+                })
+            }
+        })
+
+        await w.find('.token-create').trigger('submit')
+        await w.vm.$nextTick()
+        await w.vm.$nextTick() // Extra tick for dialog visibility
+
+        const plaintextEl = w.find('.token-plaintext')
+        expect(plaintextEl.exists()).toBe(true)
+        expect(plaintextEl.text()).toContain('aether_x_y')
+        currentUser.value = null
     })
 })
