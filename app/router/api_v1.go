@@ -3,6 +3,7 @@ package router
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router/handlers"
@@ -12,6 +13,7 @@ import (
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
+	tokensHandler "github.com/andresbott/aether/app/router/handlers/tokens"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
@@ -33,14 +35,24 @@ var apiV1PublicPaths = map[string]bool{
 	"/api/v1/auth/logout": true,
 }
 
-// sessionGuard requires a valid session cookie on every /api/v1 route except
-// the public bootstrap set, and an admin role on top of it: everything /api/v1
-// mounts beyond that set is server administration (users, libraries, tasks,
-// metadata, the musicbrainz/radiobrowser proxies), so a non-admin session gets
-// 403. When a session-only route appears (the planned token-mint endpoint),
-// give it an allowlist like apiV1PublicPaths rather than weakening this
-// default. Only installed in native mode; with auth method "none" /api/v1
-// stays open.
+// apiV1SessionPath reports whether the route needs a valid session but NOT
+// the admin role — the session-scoped tier between the public bootstrap set
+// and the admin default. Everything here operates strictly on the caller's
+// own data (tokens). A func, not a map like apiV1PublicPaths, because the
+// token CRUD has a {tokenId} path segment.
+func apiV1SessionPath(path string) bool {
+	return path == "/api/v1/auth/token" ||
+		path == "/api/v1/auth/tokens" ||
+		strings.HasPrefix(path, "/api/v1/auth/tokens/")
+}
+
+// sessionGuard enforces three tiers on /api/v1 in native mode: (1) public
+// bootstrap (health/version/me/login/logout), (2) session-scoped endpoints
+// where a valid session suffices (personal token mint + CRUD), (3) everything
+// else defaults to admin-only (users CRUD, libraries, tasks, metadata). The
+// public tier is checked first, the session-scoped tier second; if neither
+// matches the path defaults to admin-only. With auth method "none" the guard
+// is not installed and /api/v1 stays open.
 func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if apiV1PublicPaths[r.URL.Path] {
@@ -57,6 +69,12 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		data, err := cookieauth.CtxGetUserData(r)
 		if err != nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
+		// only the role check is skipped, never the session check above.
+		if apiV1SessionPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
 			return
 		}
 		role, err := usersHandler.RoleOf(h.users, data.UserId)
@@ -114,6 +132,10 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	if h.users != nil {
 		uh := &usersHandler.Handler{Users: h.users}
 		uh.Routes(r)
+	}
+	if h.tokens != nil {
+		th := &tokensHandler.Handler{Tokens: h.tokens}
+		th.Routes(r)
 	}
 
 	userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)

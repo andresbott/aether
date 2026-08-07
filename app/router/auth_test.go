@@ -11,6 +11,7 @@ import (
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -20,7 +21,7 @@ import (
 // production: a user store AND a cookie session manager, so the /api/v1
 // session guard is installed. Admin alice/secret and regular user bob/secret
 // exist.
-func newNativeAuthRouter(t *testing.T) *MainAppHandler {
+func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -50,11 +51,15 @@ func newNativeAuthRouter(t *testing.T) *MainAppHandler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions})
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return h
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h, db
 }
 
 // doLogin posts credentials and returns the response; on success the session
@@ -74,7 +79,7 @@ func doLogin(t *testing.T, h *MainAppHandler, username, password string) (*httpt
 }
 
 func TestLoginSetsSessionCookie(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	w, _ := doLogin(t, h, "alice", "secret")
 
 	if w.Code != http.StatusOK {
@@ -94,7 +99,7 @@ func TestLoginSetsSessionCookie(t *testing.T) {
 // Unknown user, disabled user and wrong password must all answer the same
 // uniform 401 — the flow engine guarantees it, this pins the wiring.
 func TestLoginRejectsBadCredentials(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	for _, tc := range []struct{ user, pw string }{
 		{"alice", "wrong"},
 		{"nobody", "secret"},
@@ -107,7 +112,7 @@ func TestLoginRejectsBadCredentials(t *testing.T) {
 }
 
 func TestSessionGuardBlocksApiV1(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 
 	// Without a session, a protected route answers 401 in our JSON envelope.
 	w := httptest.NewRecorder()
@@ -145,7 +150,7 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 // Everything /api/v1 protects is server administration, so a valid session
 // without the admin role answers 403 — authenticated is not enough.
 func TestSessionGuardRequiresAdmin(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
 
 	for _, path := range []string{"/api/v1/users", "/api/v1/libraries", "/api/v1/tasks"} {
@@ -184,7 +189,7 @@ func TestSessionGuardRequiresAdmin(t *testing.T) {
 // /me reports the session's identity so the SPA knows who is logged in, and
 // goes back to null after logout.
 func TestMeReflectsSession(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "alice", "secret")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
@@ -231,7 +236,7 @@ func TestMeReflectsSession(t *testing.T) {
 
 // A disabled user must not be able to log in even with the right password.
 func TestLoginRejectsDisabledUser(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	usr, err := h.users.GetUserByLogin("alice")
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +253,7 @@ func TestLoginRejectsDisabledUser(t *testing.T) {
 // A session whose user has been deleted is worthless: /me answers null and
 // the SPA shows the login view.
 func TestSessionOfDeletedUserIsAnonymous(t *testing.T) {
-	h := newNativeAuthRouter(t)
+	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "alice", "secret")
 	usr, err := h.users.GetUserByLogin("alice")
 	if err != nil {

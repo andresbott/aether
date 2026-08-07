@@ -110,7 +110,7 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
-	users, sessions, err := setupNativeAuth(db, cfg.DataDir, cfg.Auth, l)
+	users, sessions, tokens, err := setupNativeAuth(db, cfg.DataDir, cfg.Auth, l)
 	if err != nil {
 		return err
 	}
@@ -213,6 +213,7 @@ func runServer(configFile string) error {
 		AuthMethod:    cfg.Auth.Method,
 		Users:         users,
 		Sessions:      sessions,
+		Tokens:        tokens,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

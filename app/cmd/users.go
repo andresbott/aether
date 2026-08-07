@@ -6,6 +6,7 @@ import (
 
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"gorm.io/gorm"
 )
@@ -46,17 +47,17 @@ func bootstrapAdmin(users *userdb.Store, cfg AuthCfg) (bool, error) {
 // the cookie session manager when the auth method is native, returning both
 // for the router (users CRUD, login endpoints, /api/v1 session guard). With
 // auth method "none" it returns nils — nothing auth-related is created at all.
-func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *cookieauth.Manager, error) {
+func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *cookieauth.Manager, *pat.Service, error) {
 	if cfg.Method != AuthMethodNative {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	users, err := newUserStore(db)
 	if err != nil {
-		return nil, nil, fmt.Errorf("user store: %w", err)
+		return nil, nil, nil, fmt.Errorf("user store: %w", err)
 	}
 	seeded, err := bootstrapAdmin(users, cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if seeded {
 		l.Info("seeded initial admin user",
@@ -64,7 +65,11 @@ func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (
 	}
 	sessions, err := newSessionManager(dataDir, l)
 	if err != nil {
-		return nil, nil, fmt.Errorf("session manager: %w", err)
+		return nil, nil, nil, fmt.Errorf("session manager: %w", err)
 	}
-	return users, sessions, nil
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Logger: l})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("token service: %w", err)
+	}
+	return users, sessions, tokens, nil
 }

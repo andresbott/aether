@@ -17,6 +17,7 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
 )
@@ -56,6 +57,10 @@ type Cfg struct {
 	// "native". When set, the login/logout endpoints are mounted and every
 	// /api/v1 route except the public bootstrap set requires a session.
 	Sessions *cookieauth.Manager
+	// Tokens is the personal-access-token service; nil unless AuthMethod is
+	// "native". When set, the session-scoped token endpoints are mounted on
+	// /api/v1 and /rest authenticates via OpenSubsonic apiKey (Task 4).
+	Tokens *pat.Service
 }
 
 type MainAppHandler struct {
@@ -77,6 +82,7 @@ type MainAppHandler struct {
 	authMethod    string
 	users         *userdb.Store
 	sessions      *cookieauth.Manager
+	tokens        *pat.Service
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +133,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		authMethod:    cfg.AuthMethod,
 		users:         cfg.Users,
 		sessions:      cfg.Sessions,
+		tokens:        cfg.Tokens,
 	}
 	if app.authMethod == "" {
 		app.authMethod = "none"
