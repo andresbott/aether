@@ -225,3 +225,38 @@ func TestCreateTokenValidation(t *testing.T) {
 		}
 	}
 }
+
+// Logout revokes the spa token the SPA hands it, so a stolen in-memory token
+// dies with the session. Best-effort: logout succeeds regardless.
+func TestLogoutRevokesSpaToken(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+	minted := doMint(t, h, attach)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+		strings.NewReader(`{"tokenId":"`+minted.TokenID+`"}`))
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("logout = %d, want 200: %s", w.Code, w.Body.String())
+	}
+
+	if _, ok, _ := h.tokens.Verify(minted.Token); ok {
+		t.Fatal("spa token still valid after logout")
+	}
+}
+
+// Logout without a body (or with a bogus tokenId) still succeeds.
+func TestLogoutWithoutTokenStillWorks(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("logout without body = %d, want 200", w.Code)
+	}
+}

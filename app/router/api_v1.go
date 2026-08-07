@@ -126,7 +126,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 	// h.users and h.sessions are nil, the routes are never mounted and
 	// /api/v1/me reports the feature as absent.
 	if h.users != nil && h.sessions != nil {
-		ah := &authHandler.Handler{Users: h.users, Sessions: h.sessions, Logger: h.logger}
+		ah := &authHandler.Handler{Users: h.users, Sessions: h.sessions, Tokens: h.tokens, Logger: h.logger}
 		ah.Routes(r)
 	}
 	if h.users != nil {
