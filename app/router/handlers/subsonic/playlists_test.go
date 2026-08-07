@@ -455,7 +455,7 @@ func TestScrobblePlaylistRecordsPlay(t *testing.T) {
 		t.Fatalf("status=%d", resp.StatusCode)
 	}
 
-	stats, err := s.PlaylistStats([]uint{pl.ID})
+	stats, err := s.PlaylistStats("admin", []uint{pl.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,10 +497,10 @@ func TestGetPlaylistsIncludesStarAndPlayFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("playlist", starredPl.ID); err != nil {
+	if err := s.Star("admin", "playlist", starredPl.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlaylistPlay(starredPl.ID, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)); err != nil {
+	if err := s.RecordPlaylistPlay("admin", starredPl.ID, time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -544,10 +544,10 @@ func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Star("playlist", pl.ID); err != nil {
+	if err := s.Star("admin", "playlist", pl.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordPlaylistPlay(pl.ID, time.Now()); err != nil {
+	if err := s.RecordPlaylistPlay("admin", pl.ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -566,7 +566,7 @@ func TestGetPlaylistIncludesStarAndPlayFields(t *testing.T) {
 func TestScrobbleAbsurdTimeBounded(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	pl := model.Playlist{Name: "ScrobbleTest"}
+	pl := model.Playlist{Name: "ScrobbleTest", Owner: "admin"}
 	db.Create(&pl)
 
 	srv := newTestServer(t, s)
@@ -587,5 +587,53 @@ func TestScrobbleAbsurdTimeBounded(t *testing.T) {
 	}
 	if len(listEnv.SubsonicResponse.Playlists.Playlist) != 1 {
 		t.Fatalf("expected 1 playlist, got %d", len(listEnv.SubsonicResponse.Playlists.Playlist))
+	}
+}
+
+func TestPlaylistVisibilityAndWriteGuards(t *testing.T) {
+	s := testStore(t)
+	pl, err := s.CreatePlaylist("demo private", "demo", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := s.CreatePlaylist("demo public", "demo", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	do := func(user, path string) errorEnvelope {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		req.Header.Set("X-Test-User", user)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		var body errorEnvelope
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	plID := func(id uint) string { return "pl-" + fmt.Sprintf("%d", id) }
+
+	// admin cannot read demo's private playlist: 70, not 50 (no existence leak).
+	if b := do("admin", "/rest/getPlaylist?id="+plID(pl.ID)); b.SubsonicResponse.Error == nil || b.SubsonicResponse.Error.Code != 70 {
+		t.Fatalf("expected 70 reading foreign private playlist, got %+v", b.SubsonicResponse.Error)
+	}
+	// admin can read demo's public playlist.
+	if b := do("admin", "/rest/getPlaylist?id="+plID(pub.ID)); b.SubsonicResponse.Status != "ok" {
+		t.Fatalf("expected ok reading public playlist, got %+v", b.SubsonicResponse)
+	}
+	// admin cannot delete demo's public playlist: 50 (visible but not owned).
+	if b := do("admin", "/rest/deletePlaylist?id="+plID(pub.ID)); b.SubsonicResponse.Error == nil || b.SubsonicResponse.Error.Code != 50 {
+		t.Fatalf("expected 50 deleting foreign playlist, got %+v", b.SubsonicResponse.Error)
+	}
+	// the owner can delete it.
+	if b := do("demo", "/rest/deletePlaylist?id="+plID(pub.ID)); b.SubsonicResponse.Status != "ok" {
+		t.Fatalf("owner delete failed: %+v", b.SubsonicResponse)
 	}
 }

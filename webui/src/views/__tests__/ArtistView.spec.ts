@@ -77,6 +77,12 @@ vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({ playAlbum, addMultipleToQueue })
 }))
 
+// Image curation is admin-only; most specs run as admin so the edit bar exists.
+const isAdmin = ref(true)
+vi.mock('@/composables/useAuth', () => ({
+    useAuth: () => ({ isAdmin })
+}))
+
 vi.mock('vue-router', () => ({
     useRouter: () => ({ back: vi.fn() }),
     onBeforeRouteLeave: vi.fn()
@@ -133,6 +139,7 @@ beforeEach(() => {
     imageSearchIsPending.value = false
     imageSource.value = null
     imageSourceRefetch.mockClear()
+    isAdmin.value = true
     // Cover versions are module-level (they must outlive a component), so they
     // leak between tests unless cleared.
     resetCoverVersions()
@@ -167,6 +174,15 @@ describe('ArtistView', () => {
         const meta = w.find('.meta-row').text()
         expect(meta).toContain('3 albums')
         expect(meta).toContain('20 songs')
+    })
+
+    // The edit affordance rides on the admin-only /api/v1 surface (online
+    // search, image-source note), so non-admins get no edit bar at all.
+    it('hides the edit action bar from non-admins', () => {
+        isAdmin.value = false
+        artist.value = { id: 'ar-1', name: 'Nirvana', albumCount: 3 }
+        const w = mountView()
+        expect(w.find('.edit-action-edit').exists()).toBe(false)
     })
 
     it('toggles star on click', async () => {

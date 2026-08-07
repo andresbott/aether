@@ -57,12 +57,12 @@ describe('LibraryDialog cover style', () => {
     it('offers auto plus all six styles in the dropdown', async () => {
         const w = mountDialog(null)
         await flushPromises()
-        const dropdowns = w.findAllComponents({ name: 'Dropdown' })
-        const styleDropdown = dropdowns.find((d) =>
+        const selects = w.findAllComponents({ name: 'Select' })
+        const styleSelect = selects.find((d) =>
             (d.props('options') as { value: string }[]).some((o) => o.value === 'auto')
         )!
-        expect(styleDropdown).toBeTruthy()
-        const values = (styleDropdown.props('options') as { value: string }[]).map((o) => o.value)
+        expect(styleSelect).toBeTruthy()
+        const values = (styleSelect.props('options') as { value: string }[]).map((o) => o.value)
         expect(values).toEqual(['auto', 'classic', 'bauhaus', 'rings', 'waves', 'poster', 'remix'])
     })
 })

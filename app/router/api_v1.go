@@ -3,24 +3,182 @@ package router
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router/handlers"
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
+	authHandler "github.com/andresbott/aether/app/router/handlers/auth"
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
+	tokensHandler "github.com/andresbott/aether/app/router/handlers/tokens"
+	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/radiobrowser"
+	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/gorilla/mux"
 )
 
+// apiV1PublicPaths are the /api/v1 routes reachable without a session in
+// native mode: the SPA bootstraps on /me before any login, /health and
+// /version carry nothing sensitive, and login/logout are the way in and out
+// of a session — neither can require one.
+var apiV1PublicPaths = map[string]bool{
+	"/api/v1/health":      true,
+	"/api/v1/version":     true,
+	"/api/v1/me":          true,
+	"/api/v1/auth/login":  true,
+	"/api/v1/auth/logout": true,
+}
+
+// apiV1SessionPath reports whether the route needs a valid session but NOT
+// the admin role — the session-scoped tier between the public bootstrap set
+// and the admin default. Everything here operates strictly on the caller's
+// own data (tokens). A func, not a map like apiV1PublicPaths, because the
+// token CRUD has a {tokenId} path segment.
+func apiV1SessionPath(path string) bool {
+	return path == "/api/v1/auth/token" ||
+		path == "/api/v1/auth/tokens" ||
+		strings.HasPrefix(path, "/api/v1/auth/tokens/")
+}
+
+// sessionGuard enforces three tiers on /api/v1 in native mode: (1) public
+// bootstrap (health/version/me/login/logout), (2) session-scoped endpoints
+// where a valid session suffices (personal token mint + CRUD), (3) everything
+// else defaults to admin-only (users CRUD, libraries, tasks, metadata). The
+// public tier is checked first, the session-scoped tier second; if neither
+// matches the path defaults to admin-only. With auth method "none" the guard
+// is not installed and /api/v1 stays open.
+func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if apiV1PublicPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// HandleAuth validates the cookie, puts the identity on the request
+		// context and renews the rolling expiry ("remember me" sessions).
+		ok, _ := h.sessions.HandleAuth(w, r)
+		if !ok {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		data, err := cookieauth.CtxGetUserData(r)
+		if err != nil {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		// The DB Enabled flag is aether's kill-switch and it must close sessions
+		// that are ALREADY open, not just future logins: otherwise a disabled
+		// admin keeps its session and can re-enable itself through this very API.
+		// Checked before the session-scoped tier so a disabled user cannot mint
+		// a fresh /rest token either. Mirrors headerGuard in proxy_auth.go.
+		usr, err := h.users.GetUser(data.UserId)
+		if err != nil {
+			// A session pointing at a deleted user authenticates nothing.
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		if !usr.Enabled {
+			http.Error(w, "user is disabled", http.StatusForbidden)
+			return
+		}
+		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
+		// only the role check is skipped, never the session check above.
+		if apiV1SessionPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		role, err := usersHandler.RoleOf(h.users, data.UserId)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if role != usersHandler.RoleAdmin {
+			http.Error(w, "admin privileges required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sessionCaller resolves the tokens handler's caller from the session cookie
+// the sessionGuard validated (native mode's side of the resolver seam).
+func sessionCaller(r *http.Request) (string, bool) {
+	data, err := cookieauth.CtxGetUserData(r)
+	if err != nil || !data.IsAuthenticated {
+		return "", false
+	}
+	return data.UserId, true
+}
+
+// meIdentity resolves the /me caller from the session cookie, nil when there
+// is none. It renews the rolling expiry: the SPA polls /me on boot, which is
+// exactly the "activity" a remember-me session should stay alive on.
+func (h *MainAppHandler) meIdentity(w http.ResponseWriter, r *http.Request) *handlers.MeUser {
+	data, err := h.sessions.GetSessData(r)
+	if err != nil || !data.IsAuthenticated {
+		return nil
+	}
+	usr, err := h.users.GetUser(data.UserId)
+	if err != nil {
+		// Session refers to a deleted user: treat as unauthenticated.
+		return nil
+	}
+	// A disabled user reads as anonymous rather than 403: /me is public-tier, and
+	// reporting no identity is what makes the SPA fall back to the login view.
+	if !usr.Enabled {
+		return nil
+	}
+	role, err := usersHandler.RoleOf(h.users, usr.ID)
+	if err != nil {
+		return nil
+	}
+	_ = h.sessions.TouchSession(r, w)
+	return &handlers.MeUser{Login: usr.LoginID, Role: role}
+}
+
 func (h *MainAppHandler) attachApiV1(r *mux.Router) {
+	// Identity for /me and the tokens handler comes from whichever guard the
+	// mode installs: the session cookie (native) or the proxy headers.
+	var identity handlers.MeIdentity
+	var caller func(*http.Request) (string, bool)
+	switch {
+	case h.sessions != nil:
+		identity = h.meIdentity
+		caller = sessionCaller
+		r.Use(h.sessionGuard)
+	case h.headerAuth != nil:
+		identity = h.proxyMeIdentity
+		caller = proxyCaller
+		r.Use(h.headerGuard)
+	}
+
+	// The users CRUD is a native-mode feature: in proxy mode users are
+	// managed at the proxy's identity provider and provisioned on first
+	// sight, so the CRUD stays unmounted and /me reports it absent.
+	userManagement := h.users != nil && h.authMethod == "native"
+
 	r.Path("/health").Methods(http.MethodGet).Handler(handlers.HealthHandler())
 	r.Path("/version").Methods(http.MethodGet).Handler(handlers.VersionHandler())
+	r.Path("/me").Methods(http.MethodGet).Handler(handlers.MeHandler(h.authMethod, userManagement, identity))
+
+	// Native auth only: login/logout and the users CRUD.
+	if h.users != nil && h.sessions != nil {
+		ah := &authHandler.Handler{Users: h.users, Sessions: h.sessions, Tokens: h.tokens, Logger: h.logger}
+		ah.Routes(r)
+	}
+	if userManagement {
+		uh := &usersHandler.Handler{Users: h.users}
+		uh.Routes(r)
+	}
+	if h.tokens != nil {
+		th := &tokensHandler.Handler{Tokens: h.tokens, Caller: caller}
+		th.Routes(r)
+	}
 
 	userAgent := fmt.Sprintf("Aether/%s (https://github.com/andresbott/aether)", metainfo.Version)
 

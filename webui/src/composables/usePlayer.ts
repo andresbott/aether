@@ -58,6 +58,11 @@ const SCROBBLE_MIN_DURATION = 30
 const SCROBBLE_CAP_SECONDS = 240
 let scrobbledTrackId: string | null = null
 
+// One stream-recovery attempt per loaded track: an expired apiKey kills the
+// src URL, which surfaces as an element error, not a JSON response. Re-mint
+// once and re-point; a second failure is a real playback error.
+let streamRetriedTrackId: string | null = null
+
 const maybeScrobble = (el: HTMLAudioElement): void => {
     const track = currentTrack.value
     if (!track || scrobbledTrackId === track.id) return
@@ -67,6 +72,35 @@ const maybeScrobble = (el: HTMLAudioElement): void => {
     if ((el.currentTime || 0) < threshold) return
     scrobbledTrackId = track.id
     void subsonicClient.scrobble(track.id)
+}
+
+const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
+    const track = currentTrack.value
+    if (!track || streamRetriedTrackId === track.id) return
+    streamRetriedTrackId = track.id
+    const { remintApiKey } = await import('@/lib/subsonicSession')
+    const result = await remintApiKey()
+    if (result !== 'ok') return // dead session or failed: the login gate handles it
+    const wasPlaying = isPlaying.value
+    const position = el.currentTime || 0
+    el.src = subsonicClient.getStreamUrl(track.id)
+    // A fresh src resets the element to "no metadata", where assigning
+    // currentTime is dropped (or throws InvalidStateError). Restore the position
+    // once the new stream is seekable, then pick playback back up.
+    const resume = (): void => {
+        if (position > 0) {
+            try {
+                el.currentTime = position
+            } catch {
+                // Non-seekable stream: resume from the start rather than fail.
+            }
+        }
+        if (wasPlaying) {
+            void el.play()
+        }
+    }
+    el.addEventListener('loadedmetadata', resume, { once: true })
+    el.load()
 }
 
 const attachListeners = (el: HTMLAudioElement): void => {
@@ -90,6 +124,10 @@ const attachListeners = (el: HTMLAudioElement): void => {
     el.addEventListener('pause', () => {
         if (el !== activeEl) return
         isPlaying.value = false
+    })
+    el.addEventListener('error', () => {
+        if (el !== activeEl) return
+        void recoverStream(el)
     })
 }
 
@@ -334,6 +372,7 @@ export function usePlayer() {
         currentTrack.value = queue.value[index] || null
         currentTime.value = 0
         scrobbledTrackId = null
+        streamRetriedTrackId = null
         const url = getTrackUrl(currentTrack.value)
         if (url && activeEl) {
             activeEl.src = url
@@ -356,6 +395,7 @@ export function usePlayer() {
             currentIndex.value = nextIndex
             currentTrack.value = queue.value[nextIndex] || null
             scrobbledTrackId = null
+            streamRetriedTrackId = null
             // The swapped-in element already buffered its metadata while on
             // standby (its durationchange fired before it was active), so pull
             // the timeline straight off it instead of waiting for a new event.
@@ -520,6 +560,11 @@ export function usePlayer() {
         currentTrack.value = null
         preloadedTrack.value = null
         preloadedUrl = null
+        // Per-track bookkeeping belongs to a track that no longer exists; a
+        // logout purge clears the queue, and the next session's first track must
+        // start with a fresh scrobble and stream-recovery budget.
+        scrobbledTrackId = null
+        streamRetriedTrackId = null
         pause()
         if (activeEl) activeEl.src = ''
         if (standbyEl) standbyEl.src = ''

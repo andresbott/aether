@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import type {
@@ -552,7 +552,7 @@ function cancel() {
         <template v-else-if="!loading">
             <div class="album-pick">
                 <label for="album-select">Album</label>
-                <Dropdown
+                <Select
                     inputId="album-select"
                     data-test="album-select"
                     class="album-select"
@@ -750,7 +750,7 @@ function cancel() {
                                 {{ badge(row.path) }}
                             </span>
                         </span>
-                        <Dropdown
+                        <Select
                             class="col-slot row-slot"
                             :data-test="`album-slot-${row.path}`"
                             :modelValue="rowState(row.path).slot"

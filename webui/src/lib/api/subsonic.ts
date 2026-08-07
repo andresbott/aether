@@ -1,6 +1,5 @@
 import type {
     SubsonicResponse,
-    SubsonicCredentials,
     SearchParams,
     SearchResult3,
     Album,
@@ -18,31 +17,52 @@ import type {
     SavedPlayQueue,
     Starred2
 } from '@/types/subsonic'
+import { ref } from 'vue'
+
+// The apiKey is REACTIVE on purpose. getCoverArtUrl/getStreamUrl are called
+// from component computeds, which bake the key into the URL they return; a
+// transparent re-mint would otherwise leave those URLs pointing at the dead
+// token until the component happened to re-render for another reason. Reading
+// the key through a ref makes every such computed a dependency, so a
+// setApiKey/clearApiKey invalidates them and the URLs are rebuilt.
+const apiKeyRef = ref<string | null>(null)
 
 class SubsonicClient {
-    private credentials: SubsonicCredentials | null = null
+    private get apiKey(): string | null {
+        return apiKeyRef.value
+    }
+    private set apiKey(key: string | null) {
+        apiKeyRef.value = key
+    }
     private serverUrl: string = ''
     private authSkipped: boolean = false
     private readonly clientName = 'aether-web'
     private readonly apiVersion = '1.16.1'
 
+    /** Auth method "none": no credentials on any /rest call. */
     initWithDefaults(): void {
         this.serverUrl = window.location.origin
         this.authSkipped = true
+        this.apiKey = null
     }
 
-    setCredentials(credentials: SubsonicCredentials): void {
-        this.credentials = credentials
-        this.serverUrl = credentials.serverUrl
+    /** Native mode: authenticate every /rest call with the minted PAT. */
+    setApiKey(key: string): void {
+        this.serverUrl = window.location.origin
+        this.apiKey = key
         this.authSkipped = false
     }
 
-    getCredentials(): SubsonicCredentials | null {
-        return this.credentials
+    clearApiKey(): void {
+        this.apiKey = null
+    }
+
+    hasApiKey(): boolean {
+        return this.apiKey !== null
     }
 
     isConfigured(): boolean {
-        return this.authSkipped || this.credentials !== null
+        return this.authSkipped || this.apiKey !== null
     }
 
     private buildUrl(
@@ -50,19 +70,13 @@ class SubsonicClient {
         params: Record<string, string | number | boolean | undefined> = {}
     ): string {
         if (!this.isConfigured()) {
-            throw new Error('Credentials not set')
+            throw new Error('Client not configured')
         }
 
         const url = new URL(`${this.serverUrl}/rest/${endpoint}`)
 
-        if (this.credentials) {
-            url.searchParams.append('u', this.credentials.username)
-            if (this.credentials.token && this.credentials.salt) {
-                url.searchParams.append('t', this.credentials.token)
-                url.searchParams.append('s', this.credentials.salt)
-            } else if (this.credentials.password) {
-                url.searchParams.append('p', this.credentials.password)
-            }
+        if (this.apiKey) {
+            url.searchParams.append('apiKey', this.apiKey)
         }
 
         url.searchParams.append('v', this.apiVersion)
@@ -78,23 +92,61 @@ class SubsonicClient {
         return url.toString()
     }
 
+    private handleFailedResponse(data: any): never {
+        if (data['subsonic-response'].status === 'failed') {
+            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+        }
+        throw new Error('Unknown error')
+    }
+
+    /** True for the auth failures a fresh token can cure (40/44). */
+    private isAuthFailure(data: any): boolean {
+        const code = data?.['subsonic-response']?.error?.code
+        return data?.['subsonic-response']?.status === 'failed' && (code === 40 || code === 44)
+    }
+
+    /** Swap the apiKey param for the freshly-minted one, preserving the rest. */
+    private rebuildWithFreshKey(url: string): string {
+        const u = new URL(url)
+        if (this.apiKey) {
+            u.searchParams.set('apiKey', this.apiKey)
+        }
+        return u.toString()
+    }
+
+    private async fetchJson(url: string, init?: RequestInit): Promise<any> {
+        const response = await fetch(url, init)
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        const data = await response.json()
+        if (this.apiKey && this.isAuthFailure(data)) {
+            // The token expired mid-session: re-mint once (single-flight) and
+            // retry once with the fresh key. A dead session flips
+            // sessionExpired inside remintApiKey and we fail the request.
+            const { remintApiKey } = await import('@/lib/subsonicSession')
+            const result = await remintApiKey()
+            if (result === 'ok') {
+                const retryUrl = this.rebuildWithFreshKey(url)
+                const retry = await fetch(retryUrl, init)
+                if (!retry.ok) {
+                    throw new Error(`HTTP error! status: ${retry.status}`)
+                }
+                return retry.json()
+            }
+        }
+        return data
+    }
+
     private async request<T>(
         endpoint: string,
         params: Record<string, string | number | boolean | undefined> = {}
     ): Promise<T> {
         const url = this.buildUrl(endpoint, params)
-
-        const response = await fetch(url)
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-        }
-
-        const data = (await response.json()) as SubsonicResponse<T>
-
+        const data = (await this.fetchJson(url)) as SubsonicResponse<T>
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
-
         return data['subsonic-response'] as T
     }
 
@@ -330,11 +382,9 @@ class SubsonicClient {
     }
 
     private async submitMultipart(url: string, body: FormData): Promise<void> {
-        const response = await fetch(url, { method: 'POST', body })
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url, { method: 'POST', body })
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -366,11 +416,9 @@ class SubsonicClient {
         if (songIds) {
             songIds.forEach(id => url.searchParams.append('songId', id))
         }
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = (await response.json()) as SubsonicResponse<{ playlist: Playlist }>
+        const data = (await this.fetchJson(url.toString())) as SubsonicResponse<{ playlist: Playlist }>
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
         return data['subsonic-response'].playlist
     }
@@ -390,11 +438,9 @@ class SubsonicClient {
         if (options.songIndexesToRemove) {
             options.songIndexesToRemove.forEach(idx => url.searchParams.append('songIndexToRemove', String(idx)))
         }
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url.toString())
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -430,11 +476,9 @@ class SubsonicClient {
         if (!this.isConfigured()) return
         const url = new URL(this.buildUrl('createPlaylist.view', { playlistId }))
         songIds.forEach((id) => url.searchParams.append('songId', id))
-        const response = await fetch(url.toString())
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-        const data = await response.json()
+        const data = await this.fetchJson(url.toString())
         if (data['subsonic-response'].status === 'failed') {
-            throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+            this.handleFailedResponse(data)
         }
     }
 
@@ -483,11 +527,9 @@ class SubsonicClient {
                 url.searchParams.append('currentIndex', String(currentIndex))
                 url.searchParams.append('position', String(Math.max(0, Math.round(positionMs))))
             }
-            const response = await fetch(url.toString())
-            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-            const data = await response.json()
+            const data = await this.fetchJson(url.toString())
             if (data['subsonic-response'].status === 'failed') {
-                throw new Error(data['subsonic-response'].error?.message || 'Unknown error')
+                this.handleFailedResponse(data)
             }
         } catch (err) {
             console.warn('savePlayQueue failed', err)

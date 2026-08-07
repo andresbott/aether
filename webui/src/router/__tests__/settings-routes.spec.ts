@@ -3,10 +3,20 @@ import router from '@/router'
 
 describe('settings routes', () => {
     it('resolves each settings topic to its named route', () => {
-        expect(router.resolve('/settings/profile').name).toBe('settings-profile')
         expect(router.resolve('/settings/libraries').name).toBe('settings-libraries')
         expect(router.resolve('/settings/tasks').name).toBe('settings-tasks')
         expect(router.resolve('/settings/metadata').name).toBe('settings-metadata')
+    })
+
+    // The profile page moved out of settings: it is the User settings main
+    // content view in the player layout now, reached from the sidebar's user
+    // menu.
+    it('serves User settings as a flush main content view, not a settings child', () => {
+        const userSettings = router.resolve('/user-settings')
+        expect(userSettings.name).toBe('user-settings')
+        expect(userSettings.meta.flush).toBe(true)
+        expect(userSettings.meta.layout).toBeUndefined()
+        expect(router.hasRoute('settings-profile')).toBe(false)
     })
 
     it('applies the settings layout to settings routes', () => {

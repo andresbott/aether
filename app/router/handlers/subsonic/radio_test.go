@@ -53,7 +53,7 @@ func newRadioServer(t *testing.T, s *store.Store) (*httptest.Server, *assetstore
 	t.Helper()
 	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	return httptest.NewServer(r), as
 }
 

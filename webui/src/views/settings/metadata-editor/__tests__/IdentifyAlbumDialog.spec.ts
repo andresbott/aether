@@ -25,7 +25,7 @@ const stubs = {
         props: ['visible'],
         template: '<div v-if="visible"><slot /><slot name="footer" /></div>'
     },
-    Dropdown: {
+    Select: {
         props: ['modelValue', 'options', 'optionLabel', 'optionValue'],
         emits: ['update:modelValue'],
         inheritAttrs: false,

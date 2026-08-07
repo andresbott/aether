@@ -28,7 +28,8 @@ vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 
-const mountSidebar = () => mount(AppSidebar, { global: { directives: { tooltip: {} } } })
+const mountSidebar = () =>
+    mount(AppSidebar, { global: { directives: { tooltip: {} }, stubs: { UserMenu: true } } })
 
 beforeEach(() => {
     setActivePinia(createPinia())

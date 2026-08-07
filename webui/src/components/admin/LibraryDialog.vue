@@ -3,9 +3,9 @@ import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import InputSwitch from 'primevue/inputswitch'
+import ToggleSwitch from 'primevue/toggleswitch'
 import Textarea from 'primevue/textarea'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Message from 'primevue/message'
 import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
@@ -152,13 +152,13 @@ const coverStyleOptions = [
             </Message>
 
             <label>Follow symlinks</label>
-            <InputSwitch v-model="form.follow_symlinks" />
+            <ToggleSwitch v-model="form.follow_symlinks" />
 
             <label>Show artists</label>
-            <InputSwitch v-model="form.show_artists" />
+            <ToggleSwitch v-model="form.show_artists" />
 
             <label>Default view</label>
-            <Dropdown
+            <Select
                 v-model="form.default_view"
                 :options="defaultViewOptions"
                 optionLabel="label"
@@ -169,7 +169,7 @@ const coverStyleOptions = [
             <IconSelect v-model="form.icon" />
 
             <label>Generated cover style</label>
-            <Dropdown
+            <Select
                 v-model="form.cover_style"
                 :options="coverStyleOptions"
                 optionLabel="label"

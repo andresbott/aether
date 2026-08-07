@@ -8,10 +8,6 @@ import (
 	"github.com/andresbott/aether/internal/store"
 )
 
-// playQueueOwner is the single user every queue belongs to until auth lands.
-// Playlists hardcode the same owner (see createPlaylist).
-const playQueueOwner = "admin"
-
 // savePlayQueue stores the queue with the current track named by id, per the
 // Subsonic spec. A call with no ids clears the saved queue.
 //
@@ -22,7 +18,7 @@ const playQueueOwner = "admin"
 func (h *Handler) savePlayQueue(w http.ResponseWriter, r *http.Request) {
 	trackIDs := decodeTrackIDs(paramStrSlice(r, "id"))
 	if len(trackIDs) == 0 {
-		h.clearSavedQueue(w)
+		h.clearSavedQueue(w, r)
 		return
 	}
 
@@ -60,7 +56,7 @@ func (h *Handler) savePlayQueue(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) savePlayQueueByIndex(w http.ResponseWriter, r *http.Request) {
 	trackIDs := decodeTrackIDs(paramStrSlice(r, "id"))
 	if len(trackIDs) == 0 {
-		h.clearSavedQueue(w)
+		h.clearSavedQueue(w, r)
 		return
 	}
 
@@ -91,15 +87,15 @@ func (h *Handler) storeQueue(w http.ResponseWriter, r *http.Request, trackIDs []
 			positionMs = v
 		}
 	}
-	if err := h.store.SavePlayQueue(playQueueOwner, trackIDs, currentIndex, positionMs, paramStr(r, "c"), time.Now()); err != nil {
+	if err := h.store.SavePlayQueue(requestOwner(r), trackIDs, currentIndex, positionMs, paramStr(r, "c"), time.Now()); err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
 	writeResponse(w, nil)
 }
 
-func (h *Handler) clearSavedQueue(w http.ResponseWriter) {
-	if err := h.store.ClearPlayQueue(playQueueOwner); err != nil {
+func (h *Handler) clearSavedQueue(w http.ResponseWriter, r *http.Request) {
+	if err := h.store.ClearPlayQueue(requestOwner(r)); err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
@@ -107,7 +103,7 @@ func (h *Handler) clearSavedQueue(w http.ResponseWriter) {
 }
 
 func (h *Handler) getPlayQueue(w http.ResponseWriter, r *http.Request) {
-	q, ok := h.loadQueue(w)
+	q, ok := h.loadQueue(w, r)
 	if !ok {
 		return
 	}
@@ -117,7 +113,7 @@ func (h *Handler) getPlayQueue(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, nil)
 		return
 	}
-	m := playQueueToMap(h.store, q)
+	m := playQueueToMap(h.store, requestOwner(r), q)
 	if q.CurrentIndex >= 0 && q.CurrentIndex < len(q.Tracks) {
 		m["current"] = encodeTrackID(q.Tracks[q.CurrentIndex].ID)
 	}
@@ -127,7 +123,7 @@ func (h *Handler) getPlayQueue(w http.ResponseWriter, r *http.Request) {
 // getPlayQueueByIndex is the "indexBasedQueue" extension's read side. It reports
 // the same stored queue as getPlayQueue, with currentIndex in place of current.
 func (h *Handler) getPlayQueueByIndex(w http.ResponseWriter, r *http.Request) {
-	q, ok := h.loadQueue(w)
+	q, ok := h.loadQueue(w, r)
 	if !ok {
 		return
 	}
@@ -135,15 +131,15 @@ func (h *Handler) getPlayQueueByIndex(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, nil)
 		return
 	}
-	m := playQueueToMap(h.store, q)
+	m := playQueueToMap(h.store, requestOwner(r), q)
 	m["currentIndex"] = q.CurrentIndex
 	writeResponse(w, map[string]any{"playQueueByIndex": m})
 }
 
 // loadQueue fetches the saved queue, writing an error response and returning
 // ok=false when the store fails. A nil queue with ok=true means "nothing saved".
-func (h *Handler) loadQueue(w http.ResponseWriter) (*store.PlayQueueState, bool) {
-	q, err := h.store.GetPlayQueue(playQueueOwner)
+func (h *Handler) loadQueue(w http.ResponseWriter, r *http.Request) (*store.PlayQueueState, bool) {
+	q, err := h.store.GetPlayQueue(requestOwner(r))
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return nil, false
@@ -157,11 +153,11 @@ func (h *Handler) loadQueue(w http.ResponseWriter) (*store.PlayQueueState, bool)
 // playQueueToMap builds the fields both queue shapes share. Entries are full
 // Child objects with star state, so a restoring client rebuilds its queue from
 // this one response instead of re-fetching every track.
-func playQueueToMap(s starGetter, q *store.PlayQueueState) map[string]any {
+func playQueueToMap(s starGetter, owner string, q *store.PlayQueueState) map[string]any {
 	return map[string]any{
-		"entry":     starredSongList(s, q.Tracks),
+		"entry":     starredSongList(s, owner, q.Tracks),
 		"position":  q.PositionMs,
-		"username":  playQueueOwner,
+		"username":  owner,
 		"changed":   q.Changed.Format(time.RFC3339),
 		"changedBy": q.ChangedBy,
 	}

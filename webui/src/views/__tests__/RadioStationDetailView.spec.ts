@@ -24,6 +24,11 @@ vi.mock('@/lib/api/subsonic', () => ({
 
 const playNow = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playNow }) }))
+
+// Discover is admin-only (it proxies the admin /api/v1/radiobrowser routes);
+// most specs run as admin so the button exists.
+const isAdmin = ref(true)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin }) }))
 vi.mock('@/utils/radioSong', () => ({ stationToSong: (s: InternetRadioStation) => ({ id: s.id }) }))
 
 const { fetchRadioFavicon } = vi.hoisted(() => ({
@@ -89,6 +94,7 @@ beforeEach(() => {
     playNow.mockClear()
     push.mockClear()
     fetchRadioFavicon.mockClear()
+    isAdmin.value = true
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
 })
@@ -133,6 +139,15 @@ describe('RadioStationDetailView', () => {
     it('existing station: has no Discover button', () => {
         const w = mountView({ id: 's1' })
         expect(w.find('.discover-station').exists()).toBe(false)
+    })
+
+    // The radio-browser proxy lives on the admin-only /api/v1 surface, so a
+    // non-admin creating a station by hand gets no Discover affordance.
+    it('create mode: hides Discover from non-admins', () => {
+        isAdmin.value = false
+        const w = mountView({ create: true })
+        expect(w.find('.discover-station').exists()).toBe(false)
+        expect(w.findComponent(SearchDialogStub).exists()).toBe(false)
     })
 
     it('create mode: picking a discovered station overwrites the form', async () => {

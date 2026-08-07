@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import Toast from 'primevue/toast'
 import { useUiStore } from '@/store/uiStore'
 import { useVersion } from '@/composables/useVersion'
+import { useUserManagement } from '@/composables/useUsers'
 
 interface SettingsNavItem {
     label: string
@@ -20,28 +21,28 @@ const route = useRoute()
 const router = useRouter()
 const uiStore = useUiStore()
 
-// Placeholder until the auth system lands.
-function logout() {
-    console.info('logout placeholder')
-}
+// Settings is administration only now: the account concerns live in the
+// sidebar's UserMenu popup, and the user's own settings are a main content
+// view at /user-settings.
 
-const groups: SettingsNavGroup[] = [
-    {
-        label: 'Account',
-        items: [
-            { label: 'Profile', icon: 'pi pi-user', route: '/settings/profile' },
-            { label: 'Logout', icon: 'pi pi-sign-out', action: logout }
-        ]
-    },
+// The Users entry only exists when the server reports the user-management
+// feature (auth method "native"); with method "none" the users API is not
+// even mounted, so the entry is hidden.
+const userManagement = useUserManagement()
+
+const groups = computed<SettingsNavGroup[]>(() => [
     {
         label: 'Administration',
         items: [
             { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },
+            ...(userManagement.value
+                ? [{ label: 'Users', icon: 'pi pi-users', route: '/settings/users' }]
+                : []),
             { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' },
             { label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/settings/metadata' }
         ]
     }
-]
+])
 
 const collapsed = computed(() => uiStore.settingsSidebarCollapsed)
 

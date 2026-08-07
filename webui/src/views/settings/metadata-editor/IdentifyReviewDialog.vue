@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
 import type {
@@ -430,7 +430,7 @@ function cancel() {
                      AcoustID routinely returns several recordings each with a
                      dozen releases, which as stacked radios turns one file into
                      half a screen. One row per file keeps the table scannable. -->
-                <Dropdown
+                <Select
                     v-if="isReviewable(result)"
                     class="col-choice row-choice"
                     :data-test="`identify-candidate-${result.path}`"
@@ -442,7 +442,7 @@ function cancel() {
                 />
                 <span v-else class="col-choice"></span>
 
-                <Dropdown
+                <Select
                     v-if="isReviewable(result) && releaseChoices(result.path).length > 1"
                     class="col-choice row-choice"
                     :data-test="`identify-release-${result.path}`"

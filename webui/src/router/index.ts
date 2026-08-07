@@ -15,6 +15,18 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        path: '/user-settings',
+        name: 'user-settings',
+        component: () => import('@/views/UserSettingsView.vue'),
+        meta: { flush: true }
+    },
+    {
+        path: '/about',
+        name: 'about',
+        component: () => import('@/views/AboutView.vue'),
+        meta: { flush: true }
+    },
+    {
         path: '/library/:folderId?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
@@ -89,17 +101,17 @@ const routes: RouteRecordRaw[] = [
             {
                 path: '',
                 name: 'settings',
-                redirect: '/settings/profile'
-            },
-            {
-                path: 'profile',
-                name: 'settings-profile',
-                component: () => import('@/views/settings/ProfileView.vue')
+                redirect: '/settings/libraries'
             },
             {
                 path: 'libraries',
                 name: 'settings-libraries',
                 component: () => import('@/views/settings/LibrariesView.vue')
+            },
+            {
+                path: 'users',
+                name: 'settings-users',
+                component: () => import('@/views/settings/UsersView.vue')
             },
             {
                 path: 'tasks',

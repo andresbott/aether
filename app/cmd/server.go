@@ -110,6 +110,11 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
+	auth, err := setupAuth(db, cfg.DataDir, cfg.Auth, l)
+	if err != nil {
+		return err
+	}
+
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
 	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
@@ -205,6 +210,12 @@ func runServer(configFile string) error {
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
 		Rescanner:     libScanner,
+		AuthMethod:    cfg.Auth.Method,
+		Users:         auth.Users,
+		Sessions:      auth.Sessions,
+		Tokens:        auth.Tokens,
+		HeaderAuth:    auth.HeaderAuth,
+		AdminGroup:    cfg.Auth.ProxyHeader.AdminGroup,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

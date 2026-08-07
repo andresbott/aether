@@ -109,8 +109,8 @@ const stubs = {
         template: '<div v-if="visible"><slot /><slot name="footer" /></div>'
     },
     ConfirmDialog: true,
-    Dropdown: {
-        name: 'Dropdown',
+    Select: {
+        name: 'Select',
         props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'placeholder'],
         emits: ['update:modelValue'],
         template: '<select />'
@@ -151,7 +151,7 @@ function mountView() {
 
 async function openFolder(w: ReturnType<typeof mountView>) {
     await w.findAll('button')[0].trigger('click')
-    w.findComponent({ name: 'Dropdown' }).vm.$emit('update:modelValue', 1)
+    w.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', 1)
     await flushPromises()
     w.findComponent({ name: 'FolderTree' }).vm.$emit('select', 'Artist/Album')
     await flushPromises()

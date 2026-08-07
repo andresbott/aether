@@ -39,8 +39,12 @@ vi.mock('@/composables/useTheme', () => ({
 
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 
+// The footer's split controls (identity chip + gear) have their own spec —
+// UserMenu.spec.ts; here it only matters that they replaced the nav entry.
 const mountSidebar = () =>
-    mount(AppSidebar, { global: { directives: { tooltip: {} } } })
+    mount(AppSidebar, {
+        global: { directives: { tooltip: {} }, stubs: { UserMenu: true } }
+    })
 
 beforeEach(() => {
     collapsed.value = false
@@ -53,23 +57,19 @@ beforeEach(() => {
 })
 
 describe('AppSidebar footer nav', () => {
-    it('shows a single Settings entry and drops the Admin/User split', () => {
-        const labels = mountSidebar()
-            .findAll('.sidebar-footer-nav .nav-item')
-            .map((b) => b.text())
-        expect(labels).toEqual(['Settings'])
-        expect(labels).not.toContain('Admin Settings')
-        expect(labels).not.toContain('User Settings')
-        expect(labels).not.toContain('Logout')
+    it('renders the split user controls instead of a Settings nav entry', () => {
+        const w = mountSidebar()
+        expect(w.find('.sidebar-footer-nav user-menu-stub').exists()).toBe(true)
+        expect(w.findAll('.sidebar-footer-nav .nav-item')).toHaveLength(0)
+        expect(w.text()).not.toContain('Settings')
     })
 
-    it('navigates to /settings when Settings is clicked', async () => {
+    it('passes the collapsed state down to the user controls', async () => {
         const w = mountSidebar()
-        const btn = w
-            .findAll('.sidebar-footer-nav .nav-item')
-            .find((b) => b.text() === 'Settings')!
-        await btn.trigger('click')
-        expect(push).toHaveBeenCalledWith('/settings')
+        expect(w.find('user-menu-stub').attributes('collapsed')).toBe('false')
+        collapsed.value = true
+        await w.vm.$nextTick()
+        expect(w.find('user-menu-stub').attributes('collapsed')).toBe('true')
     })
 })
 

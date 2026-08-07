@@ -83,6 +83,7 @@ type AlbumListFilter struct {
 	FromYear  int
 	ToYear    int
 	LibraryID *uint
+	Owner     string
 }
 
 func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumListFilter) ([]model.Album, error) {
@@ -120,15 +121,18 @@ func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumLis
 		q = q.Order("RANDOM()")
 	case "starred":
 		q = q.Joins("JOIN starred_items ON starred_items.item_id = albums.id AND starred_items.item_type = 'album'").
+			Where("starred_items.owner = ?", ownerOrAdmin(filter)).
 			Order("starred_items.created_at DESC")
 	case "frequent":
 		q = q.Joins("JOIN tracks ON tracks.album_id = albums.id").
 			Joins("JOIN play_histories ON play_histories.track_id = tracks.id").
+			Where("play_histories.owner = ?", ownerOrAdmin(filter)).
 			Group("albums.id").
 			Order("COUNT(play_histories.id) DESC")
 	case "recent":
 		q = q.Joins("JOIN tracks ON tracks.album_id = albums.id").
 			Joins("JOIN play_histories ON play_histories.track_id = tracks.id").
+			Where("play_histories.owner = ?", ownerOrAdmin(filter)).
 			Group("albums.id").
 			Order("MAX(play_histories.played_at) DESC")
 	default:
@@ -229,4 +233,13 @@ func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilt
 	var albums []model.Album
 	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&albums).Error
 	return albums, err
+}
+
+// ownerOrAdmin returns the filter's owner, defaulting to "admin" — the fixed
+// single-user owner used when no identity layer is active.
+func ownerOrAdmin(filter *AlbumListFilter) string {
+	if filter != nil && filter.Owner != "" {
+		return filter.Owner
+	}
+	return "admin"
 }

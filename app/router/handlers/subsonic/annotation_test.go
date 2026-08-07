@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -99,5 +100,37 @@ func TestStarAcceptsStarrableTypes(t *testing.T) {
 	db.Model(&model.StarredItem{}).Count(&n)
 	if n != int64(len(ids)) {
 		t.Fatalf("expected %d starred_items rows, got %d", len(ids), n)
+	}
+}
+
+func TestStarIsScopedToSessionUser(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	srv := newTestServerWithIdentity(t, s)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/rest/star?albumId=al-"+strconv.FormatUint(uint64(album.ID), 10), nil)
+	req.Header.Set("X-Test-User", "demo")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+
+	demoAt, err := s.StarredAt("demo", "album", []uint{album.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := demoAt[album.ID]; !ok {
+		t.Fatal("demo's star was not recorded under demo")
+	}
+	adminAt, err := s.StarredAt("admin", "album", []uint{album.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := adminAt[album.ID]; ok {
+		t.Fatal("demo's star leaked to admin")
 	}
 }

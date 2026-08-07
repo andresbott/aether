@@ -45,22 +45,22 @@ const discoveryPoolSize = 2000
 // among them — it re-samples per call, which would hand consecutive pages partly
 // disjoint sets and drift the ranks. Variety comes from the seeded jitter term
 // instead: a new seed reorders the feed, and the same seed reproduces it exactly.
-func (s *Store) DiscoveryFeed(size, offset int, seed int64, filter *DiscoveryFilter) ([]DiscoveryItem, error) {
+func (s *Store) DiscoveryFeed(owner string, size, offset int, seed int64, filter *DiscoveryFilter) ([]DiscoveryItem, error) {
 	now := time.Now()
 
 	// A failed taste query degrades to an empty profile rather than failing the
 	// whole feed: the genre term contributes 0 and the other five still rank.
 	// Same philosophy as the deliberately non-fatal star lookup in starred.go —
 	// an enrichment signal must not take down the response it decorates.
-	profile, err := s.tasteProfile(now)
+	profile, err := s.tasteProfile(owner, now)
 	if err != nil {
 		profile = discovery.TasteProfile{}
 	}
-	albums, err := s.albumCandidates(discoveryPoolSize, filter, now)
+	albums, err := s.albumCandidates(owner, discoveryPoolSize, filter, now)
 	if err != nil {
 		return nil, err
 	}
-	playlists, err := s.playlistCandidates()
+	playlists, err := s.playlistCandidates(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s *Store) DiscoveryFeed(size, offset int, seed int64, filter *DiscoveryFil
 // the horizon bounds how many play rows we scan and decode. Note play_histories
 // indexes only track_id, so this is a bounded scan rather than an index seek —
 // adding a played_at index would be a separate optimization.
-func (s *Store) tasteProfile(now time.Time) (discovery.TasteProfile, error) {
+func (s *Store) tasteProfile(owner string, now time.Time) (discovery.TasteProfile, error) {
 	cutoff := now.Add(-discovery.TasteHorizon)
 
 	type playRow struct {
@@ -100,6 +100,7 @@ func (s *Store) tasteProfile(now time.Time) (discovery.TasteProfile, error) {
 		Select("track_genres.genre_id AS genre_id, play_histories.played_at AS played_at").
 		Joins("JOIN track_genres ON track_genres.track_id = play_histories.track_id").
 		Where("play_histories.played_at >= ?", cutoff).
+		Where("play_histories.owner = ?", owner).
 		Scan(&playRows).Error; err != nil {
 		return discovery.TasteProfile{}, err
 	}
@@ -115,7 +116,7 @@ func (s *Store) tasteProfile(now time.Time) (discovery.TasteProfile, error) {
 	if err := s.db.Model(&model.StarredItem{}).
 		Select("album_genres.genre_id AS genre_id").
 		Joins("JOIN album_genres ON album_genres.album_id = starred_items.item_id").
-		Where("starred_items.item_type = ?", "album").
+		Where("starred_items.owner = ? AND starred_items.item_type = ?", owner, "album").
 		Scan(&starRows).Error; err != nil {
 		return discovery.TasteProfile{}, err
 	}
@@ -129,13 +130,13 @@ func (s *Store) tasteProfile(now time.Time) (discovery.TasteProfile, error) {
 
 // albumCandidates gathers the bounded album pool with its per-album signals in
 // aggregate queries — never one query per album.
-func (s *Store) albumCandidates(poolSize int, filter *DiscoveryFilter, now time.Time) ([]discovery.Candidate, error) {
+func (s *Store) albumCandidates(owner string, poolSize int, filter *DiscoveryFilter, now time.Time) ([]discovery.Candidate, error) {
 	var libraryID *uint
 	if filter != nil {
 		libraryID = filter.LibraryID
 	}
 
-	ids, err := s.albumCandidateIDs(poolSize, libraryID)
+	ids, err := s.albumCandidateIDs(owner, poolSize, libraryID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,11 +156,11 @@ func (s *Store) albumCandidates(poolSize int, filter *DiscoveryFilter, now time.
 		return nil, err
 	}
 
-	starredAt, err := s.StarredAt("album", ids)
+	starredAt, err := s.StarredAt(owner, "album", ids)
 	if err != nil {
 		return nil, err
 	}
-	plays, err := s.albumPlayStats(ids)
+	plays, err := s.albumPlayStats(owner, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +200,7 @@ func (s *Store) albumCandidates(poolSize int, filter *DiscoveryFilter, now time.
 // call, so two pages of one feed would score partly disjoint sets and the ranks
 // would drift under the user. Rediscovery variety comes from the seeded jitter
 // term in scoring, not from the SQL.
-func (s *Store) albumCandidateIDs(poolSize int, libraryID *uint) ([]uint, error) {
+func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) ([]uint, error) {
 	seen := map[uint]bool{}
 	var ids []uint
 
@@ -214,7 +215,7 @@ func (s *Store) albumCandidateIDs(poolSize int, libraryID *uint) ([]uint, error)
 
 	// The three cheap orderings. GetAlbumList already implements each with the
 	// same library filter, so reuse it rather than restating the SQL here.
-	listFilter := &AlbumListFilter{LibraryID: libraryID}
+	listFilter := &AlbumListFilter{LibraryID: libraryID, Owner: owner}
 	for _, listType := range []string{"newest", "frequent", "recent"} {
 		albums, err := s.GetAlbumList(listType, poolSize, 0, listFilter)
 		if err != nil {
@@ -230,7 +231,7 @@ func (s *Store) albumCandidateIDs(poolSize int, libraryID *uint) ([]uint, error)
 	// Every starred album, regardless of pool size: a favorite must never be
 	// crowded out of its own feed by an arbitrary cap.
 	starredQ := s.db.Model(&model.StarredItem{}).
-		Where("item_type = ?", "album")
+		Where("owner = ? AND item_type = ?", owner, "album")
 	if libraryID != nil {
 		starredQ = starredQ.Where(
 			"EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = starred_items.item_id AND tracks.library_id = ?)",
@@ -247,7 +248,9 @@ func (s *Store) albumCandidateIDs(poolSize int, libraryID *uint) ([]uint, error)
 	// three orderings above are all play- or import-driven, so without this a
 	// library whose newest imports are all played would surface no rediscovery
 	// candidates at all. Ordered by id (stable, indexed) rather than randomly —
-	// jitter does the shuffling at scoring time.
+	// jitter does the shuffling at scoring time. The NOT EXISTS is deliberately
+	// global (unplayed by anyone), so a catalog-deep album surfaces in everyone's
+	// feed — a per-user NOT EXISTS would work but changes the rediscovery flavor.
 	unplayedQ := s.db.Model(&model.Album{}).
 		Where("NOT EXISTS (SELECT 1 FROM play_histories JOIN tracks ON tracks.id = play_histories.track_id WHERE tracks.album_id = albums.id)")
 	if libraryID != nil {
@@ -267,7 +270,7 @@ func (s *Store) albumCandidateIDs(poolSize int, libraryID *uint) ([]uint, error)
 
 // albumPlayStats returns play count and last-played per album in one grouped
 // query, mirroring PlaylistStats' contract: never-played albums are absent.
-func (s *Store) albumPlayStats(albumIDs []uint) (map[uint]PlaylistStat, error) {
+func (s *Store) albumPlayStats(owner string, albumIDs []uint) (map[uint]PlaylistStat, error) {
 	out := map[uint]PlaylistStat{}
 	if len(albumIDs) == 0 {
 		return out, nil
@@ -282,6 +285,7 @@ func (s *Store) albumPlayStats(albumIDs []uint) (map[uint]PlaylistStat, error) {
 		Select("tracks.album_id AS album_id, COUNT(*) AS play_count, datetime(MAX(play_histories.played_at)) AS last_played").
 		Joins("JOIN tracks ON tracks.id = play_histories.track_id").
 		Where("tracks.album_id IN ?", albumIDs).
+		Where("play_histories.owner = ?", owner).
 		Group("tracks.album_id").
 		Scan(&rows).Error; err != nil {
 		return nil, err
@@ -323,8 +327,8 @@ func (s *Store) albumGenreIDs(albumIDs []uint) (map[uint][]uint, error) {
 
 // playlistCandidates takes every playlist: a library holds few enough of them
 // that sampling would cost more clarity than it saves query time.
-func (s *Store) playlistCandidates() ([]discovery.Candidate, error) {
-	playlists, err := s.GetPlaylists()
+func (s *Store) playlistCandidates(owner string) ([]discovery.Candidate, error) {
+	playlists, err := s.GetPlaylists(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -335,11 +339,11 @@ func (s *Store) playlistCandidates() ([]discovery.Candidate, error) {
 	for i := range playlists {
 		ids = append(ids, playlists[i].ID)
 	}
-	starredAt, err := s.StarredAt("playlist", ids)
+	starredAt, err := s.StarredAt(owner, "playlist", ids)
 	if err != nil {
 		return nil, err
 	}
-	stats, err := s.PlaylistStats(ids)
+	stats, err := s.PlaylistStats(owner, ids)
 	if err != nil {
 		return nil, err
 	}

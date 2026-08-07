@@ -39,7 +39,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -89,7 +89,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -115,7 +115,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -149,7 +149,7 @@ func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -186,7 +186,7 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -198,6 +198,142 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 
 	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
 		t.Errorf("Cache-Control = %q, want %q", got, "no-cache")
+	}
+}
+
+// Track IDs are not stable across rescans: a dropped-and-rebuilt DB reassigns
+// tr-N to a different song while the stream URL stays the same. http.ServeFile
+// alone lets browsers heuristically cache the audio (no Cache-Control) and can
+// answer 304 off Last-Modified when the reassigned file is older — either way
+// the user hears the pre-rescan song. Stream responses must force revalidation
+// and key their validator on which file is served, like covers do.
+func TestStreamRevalidatesWhenTheServedFileChanges(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	dir := t.TempDir()
+	newSong := filepath.Join(dir, "new.mp3")
+	oldSong := filepath.Join(dir, "old.mp3")
+	if err := os.WriteFile(newSong, []byte("new-song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldSong, []byte("old-song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The reassigned file is OLDER than the cached one — the case where a
+	// Last-Modified check wrongly answers 304.
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(oldSong, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "new.mp3", FilePath: newSong}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	url := fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "new-song-bytes" {
+		t.Fatalf("first fetch served %q, want the track's file", body)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q (heuristic caching replays stale audio)", got, "no-cache")
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag on the stream response; conditional requests cannot be keyed on the served file")
+	}
+
+	// Simulate the rescan: the same track ID now points at a different, older file.
+	if err := db.Model(&model.Track{}).Where("id = ?", track.ID).Update("file_path", oldSong).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// A conditional re-fetch carrying the cached validators must get the new
+	// song, not 304.
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	req.Header.Set("If-Modified-Since", time.Now().UTC().Format(http.TimeFormat))
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+
+	if resp2.StatusCode == http.StatusNotModified {
+		t.Fatal("got 304 after the file behind the ID changed; the browser keeps playing the old song")
+	}
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body2) != "old-song-bytes" {
+		t.Errorf("conditional re-fetch served %q, want the reassigned file", body2)
+	}
+}
+
+// Seeking relies on partial responses: the stream endpoint must keep honouring
+// Range requests.
+func TestStreamServesRangeRequests(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	songPath := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(songPath, []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: songPath}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Range", "bytes=4-6")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Fatalf("status = %d, want 206", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "456" {
+		t.Errorf("range body = %q, want %q", body, "456")
 	}
 }
 
@@ -249,7 +385,7 @@ func TestGetCoverArtArtistServesStoredImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -286,7 +422,7 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -356,7 +492,7 @@ func TestGetCoverArtAlbumServesEmbeddedFrontCoverNotBack(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -394,7 +530,7 @@ func TestGetCoverArtAlbumBackCoverOnlyFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -432,7 +568,7 @@ func TestGetCoverArtArtistServesFolderImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -473,7 +609,7 @@ func TestGetCoverArtArtistPrefersStoredOverFolderImage(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -505,7 +641,7 @@ func TestGetCoverArtArtistMissingFolderImageFallsBackToGenerated(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -560,7 +696,7 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	}
 
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
@@ -607,6 +743,81 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 	}
 }
 
+// getCoverArt must apply the visibility guard to playlists: the owner or public
+// only, answering error 70 otherwise — no existence leak.
+func TestGetCoverArtPlaylistVisibilityGuard(t *testing.T) {
+	s := testStore(t)
+	// Demo creates a PRIVATE playlist.
+	priv, err := s.CreatePlaylist("DemoPrivate", "demo", false, nil)
+	if err != nil {
+		t.Fatalf("create private playlist: %v", err)
+	}
+	// Demo also creates a PUBLIC playlist.
+	pub, err := s.CreatePlaylist("DemoPublic", "demo", true, nil)
+	if err != nil {
+		t.Fatalf("create public playlist: %v", err)
+	}
+
+	resolver := func(r *http.Request) (string, int) {
+		if u := r.Header.Get("X-Test-User"); u != "" {
+			return u, 0
+		}
+		return "", 40
+	}
+	r := mux.NewRouter()
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), resolver)
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	// Admin requests the private playlist's cover → error 70 (no leak).
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/getCoverArt.view?id=pl-%d", srv.URL, priv.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-User", "admin")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	// Subsonic errors are HTTP 200 with a JSON envelope, not HTTP error codes.
+	// Check if we got a JSON error response or an image.
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "application/json" {
+		t.Fatalf("admin got image response (Content-Type: %q) for demo's PRIVATE playlist cover; expected JSON error 70", contentType)
+	}
+	var privEnv errorEnvelope
+	if err := json.NewDecoder(resp.Body).Decode(&privEnv); err != nil {
+		t.Fatal(err)
+	}
+	if privEnv.SubsonicResponse.Status != "failed" || privEnv.SubsonicResponse.Error == nil || privEnv.SubsonicResponse.Error.Code != 70 {
+		t.Errorf("private playlist cover for foreign user → status=%q code=%v, want failed/70",
+			privEnv.SubsonicResponse.Status, privEnv.SubsonicResponse.Error)
+	}
+
+	// Admin requests the public playlist's cover → ok (or 404 if no actual image exists, but NOT error 70).
+	req2, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/rest/getCoverArt.view?id=pl-%d", srv.URL, pub.ID), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header.Set("X-Test-User", "admin")
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	// Public playlist should return an image (generated cover) or 404, not error 70.
+	contentType2 := resp2.Header.Get("Content-Type")
+	if contentType2 == "application/json" {
+		var env errorEnvelope
+		if err := json.NewDecoder(resp2.Body).Decode(&env); err == nil {
+			if env.SubsonicResponse.Status == "failed" && env.SubsonicResponse.Error != nil && env.SubsonicResponse.Error.Code == 70 {
+				t.Errorf("public playlist cover returned error 70; visibility guard wrongly blocked it")
+			}
+		}
+	}
+}
+
 func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
@@ -626,7 +837,7 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 
 	cacheDir := t.TempDir() + "/generated-covers"
 	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir))
+	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 

@@ -34,7 +34,20 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 70, "song not found")
 		return
 	}
-	http.ServeFile(w, r, filePath)
+	info, err := os.Stat(filePath)
+	if err != nil {
+		writeError(w, 70, "song not found")
+		return
+	}
+	// Track IDs are not stable across rescans: a rebuilt DB reassigns tr-N to a
+	// different song while the URL stays the same. Plain http.ServeFile sends no
+	// cache policy, so browsers heuristically cache the audio and keep playing
+	// the pre-rescan song — and its Last-Modified validator can wrongly answer
+	// 304 when the reassigned file is older. Same failure mode as covers: force
+	// revalidation and key the validator on which file is served (see
+	// serveCoverFile).
+	w.Header().Set("Cache-Control", "no-cache")
+	serveETaggedFile(w, r, filePath, info)
 }
 
 type coverMeta struct {
@@ -107,7 +120,7 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 // resolveCoverMeta looks up cover metadata for the given item type and ID.
 // It writes an HTTP error and returns false if the item cannot be found or the
 // type is unsupported.
-func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id uint) (coverMeta, bool) {
+func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemType string, id uint) (coverMeta, bool) {
 	switch itemType {
 	case "album":
 		album, err := h.store.GetAlbum(id)
@@ -152,7 +165,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, itemType string, id ui
 		return meta, true
 	case "playlist":
 		pl, err := h.store.GetPlaylist(id)
-		if err != nil {
+		if err != nil || (pl.Owner != requestOwner(r) && !pl.Public) {
 			writeError(w, 70, "playlist not found")
 			return coverMeta{}, false
 		}
@@ -204,7 +217,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	meta, ok := h.resolveCoverMeta(w, itemType, id)
+	meta, ok := h.resolveCoverMeta(w, r, itemType, id)
 	if !ok {
 		return
 	}
@@ -250,7 +263,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		w.Header().Set("Content-Type", format.ContentType())
-		serveCoverFile(w, r, path, info)
+		serveETaggedFile(w, r, path, info)
 		return
 	}
 	http.Error(w, "cover art could not be prepared", http.StatusInternalServerError)
@@ -369,13 +382,13 @@ func generateCover(seed, style string) ([]byte, error) {
 	return covergen.Generate(seed, maxCoverSize)
 }
 
-// serveCoverFile serves path with an ETag identifying that exact file, and no
-// Last-Modified. Cover URLs are stable while the file behind them is not — and
-// the replacement is not always newer (removing an uploaded image falls back to
-// an older folder image or to a long-cached generated avatar), so a date-based
-// validator can wrongly answer 304 and pin a stale image in the browser until a
-// hard refresh.
-func serveCoverFile(w http.ResponseWriter, r *http.Request, path string, info os.FileInfo) {
+// serveETaggedFile serves path with an ETag identifying that exact file, and no
+// Last-Modified. Cover and stream URLs are stable while the file behind them is
+// not — and the replacement is not always newer (removing an uploaded image
+// falls back to an older folder image; a rescan reassigns a track ID to an older
+// file), so a date-based validator can wrongly answer 304 and pin a stale
+// image or song in the browser until a hard refresh.
+func serveETaggedFile(w http.ResponseWriter, r *http.Request, path string, info os.FileInfo) {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())))
 	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
 

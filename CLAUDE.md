@@ -31,7 +31,11 @@ capability — gaps are catalogued with chosen directions — and
 
 ### Views
 
-Routes are defined in `webui/src/router/index.ts`. There are two categories:
+Routes are defined in `webui/src/router/index.ts`. There are two categories,
+plus one non-route view: `LoginView` is rendered by `App.vue` in place of the
+whole app whenever auth method `native` reports no session (see
+`docs/agents/authentication.md`) — deliberately not a route, so there is no
+`/login` URL and no redirect dance.
 
 **Main content views** — top-level routes rendered into `PlayerLayout` with `meta: { flush: true }`, using the `ContentScaffold` header (see layout doc above):
 
@@ -48,13 +52,15 @@ Routes are defined in `webui/src/router/index.ts`. There are two categories:
 | `GenreDetailView` | `/genre/:name` | Single genre detail (hero + paged song list) |
 | `RadioView` | `/radio` | List of radio stations |
 | `RadioStationDetailView` | `/radio/:id`, `/radio/new` | Station detail + create form (same component, `create` prop) |
+| `UserSettingsView` | `/user-settings` | Personal settings (identity, theme, API tokens). Reached from the sidebar's `UserMenu` popup, not from `/settings` |
+| `AboutView` | `/about` | About Aether (keyboard shortcuts reference, build info, source link). Reached from the `UserMenu` popup |
 
-**Settings views** — nested under `/settings` with `meta: { layout: 'settings' }` (not the music layout); `/settings` redirects to `/settings/profile`:
+**Settings views** — nested under `/settings` with `meta: { layout: 'settings' }` (not the music layout); `/settings` redirects to `/settings/libraries`. Settings is administration only: account concerns (user settings, logout) live in the sidebar's `UserMenu` popup. The whole area is **admin-only**: `useAuth().isAdmin` hides the `UserMenu` Admin entry and `App.vue` redirects non-admins landing on a settings route; the backend enforces it with 403 on `/api/v1` (see `docs/agents/authentication.md`):
 
 | View | Route | Purpose |
 |------|-------|---------|
 | `SettingsView` | `/settings` | Settings shell (renders children) |
-| `ProfileView` | `/settings/profile` | User profile |
 | `LibrariesView` | `/settings/libraries` | Manage collections/libraries |
+| `UsersView` | `/settings/users` | Manage native users (only with `Auth.Method: native`; nav entry hidden otherwise) |
 | `TasksView` | `/settings/tasks` | Scanning / scheduled tasks |
 | `MetadataEditorView` | `/settings/metadata` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components) |

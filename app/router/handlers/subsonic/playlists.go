@@ -17,6 +17,34 @@ func playlistCoverKey(id uint) string {
 	return strconv.FormatUint(uint64(id), 10)
 }
 
+// visiblePlaylist loads a playlist the caller may READ: their own or a public
+// one. An existing-but-invisible playlist answers 70 (not found), not 50 —
+// visibility must not leak which private ids exist.
+func (h *Handler) visiblePlaylist(w http.ResponseWriter, r *http.Request, id uint) (*model.Playlist, bool) {
+	pl, err := h.store.GetPlaylist(id)
+	if err != nil || (pl.Owner != requestOwner(r) && !pl.Public) {
+		writeError(w, 70, "playlist not found")
+		return nil, false
+	}
+	return pl, true
+}
+
+// ownedPlaylist loads a playlist the caller may WRITE: only their own. A
+// visible-but-foreign playlist answers 50 (not authorized) — the caller could
+// read it, so hiding it as 70 would just be confusing.
+func (h *Handler) ownedPlaylist(w http.ResponseWriter, r *http.Request, id uint) (*model.Playlist, bool) {
+	pl, err := h.store.GetPlaylist(id)
+	if err != nil || (pl.Owner != requestOwner(r) && !pl.Public) {
+		writeError(w, 70, "playlist not found")
+		return nil, false
+	}
+	if pl.Owner != requestOwner(r) {
+		writeError(w, 50, "not authorized to modify this playlist")
+		return nil, false
+	}
+	return pl, true
+}
+
 // playlistToMap builds the Subsonic playlist object shared by getPlaylists and
 // getPlaylist. starredAt and stat are nil when the playlist is not starred /
 // never played, in which case "starred" and "played" are omitted — matching how
@@ -46,7 +74,7 @@ func playlistToMap(pl *model.Playlist, songCount, duration int, starredAt *time.
 }
 
 func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
-	playlists, err := h.store.GetPlaylists()
+	playlists, err := h.store.GetPlaylists(requestOwner(r))
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -58,12 +86,13 @@ func (h *Handler) getPlaylists(w http.ResponseWriter, r *http.Request) {
 	for i := range playlists {
 		ids = append(ids, playlists[i].ID)
 	}
-	starredAt, err := h.store.StarredAt("playlist", ids)
+	owner := requestOwner(r)
+	starredAt, err := h.store.StarredAt(owner, "playlist", ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	stats, err := h.store.PlaylistStats(ids)
+	stats, err := h.store.PlaylistStats(owner, ids)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -101,13 +130,16 @@ func (h *Handler) getPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	h.writePlaylistResponse(w, id)
+	if _, ok := h.visiblePlaylist(w, r, id); !ok {
+		return
+	}
+	h.writePlaylistResponse(w, r, id)
 }
 
 // writePlaylistResponse loads a playlist plus its tracks and writes the full
 // Subsonic "playlist" object (with the entry list). Shared by getPlaylist and
 // createPlaylist. Writes error 70 if the playlist does not exist.
-func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
+func (h *Handler) writePlaylistResponse(w http.ResponseWriter, r *http.Request, id uint) {
 	pl, err := h.store.GetPlaylist(id)
 	if err != nil {
 		writeError(w, 70, "playlist not found")
@@ -118,17 +150,18 @@ func (h *Handler) writePlaylistResponse(w http.ResponseWriter, id uint) {
 		writeError(w, 0, "internal error")
 		return
 	}
-	songs := starredSongList(h.store, tracks)
+	owner := requestOwner(r)
+	songs := starredSongList(h.store, owner, tracks)
 	var dur int
 	for i := range tracks {
 		dur += tracks[i].Duration
 	}
-	starredAt, err := h.store.StarredAt("playlist", []uint{pl.ID})
+	starredAt, err := h.store.StarredAt(owner, "playlist", []uint{pl.ID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	stats, err := h.store.PlaylistStats([]uint{pl.ID})
+	stats, err := h.store.PlaylistStats(owner, []uint{pl.ID})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -164,12 +197,12 @@ func (h *Handler) createPlaylist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isPublic := public != nil && *public
-	pl, err := h.store.CreatePlaylist(name, "admin", isPublic, trackIDs)
+	pl, err := h.store.CreatePlaylist(name, requestOwner(r), isPublic, trackIDs)
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	h.writePlaylistResponse(w, pl.ID)
+	h.writePlaylistResponse(w, r, pl.ID)
 }
 
 // recreatePlaylist handles the createPlaylist update-by-id path: it replaces the
@@ -180,8 +213,7 @@ func (h *Handler) recreatePlaylist(w http.ResponseWriter, r *http.Request, idStr
 		writeError(w, 0, "invalid id")
 		return
 	}
-	if _, err := h.store.GetPlaylist(id); err != nil {
-		writeError(w, 70, "playlist not found")
+	if _, ok := h.ownedPlaylist(w, r, id); !ok {
 		return
 	}
 	var namePtr *string
@@ -198,7 +230,7 @@ func (h *Handler) recreatePlaylist(w http.ResponseWriter, r *http.Request, idStr
 		writeError(w, 0, "internal error")
 		return
 	}
-	h.writePlaylistResponse(w, id)
+	h.writePlaylistResponse(w, r, id)
 }
 
 // decodeTrackIDs turns Subsonic song IDs into internal track IDs, silently
@@ -232,6 +264,9 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 	_, id, err := decodeID(idStr)
 	if err != nil {
 		writeError(w, 0, "invalid id")
+		return
+	}
+	if _, ok := h.ownedPlaylist(w, r, id); !ok {
 		return
 	}
 	var namePtr, commentPtr *string
@@ -294,8 +329,7 @@ func (h *Handler) updatePlaylistMultipart(w http.ResponseWriter, r *http.Request
 		writeError(w, 0, "invalid id")
 		return
 	}
-	if _, err := h.store.GetPlaylist(id); err != nil {
-		writeError(w, 70, "playlist not found")
+	if _, ok := h.ownedPlaylist(w, r, id); !ok {
 		return
 	}
 
@@ -350,8 +384,7 @@ func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	if _, err := h.store.GetPlaylist(id); err != nil {
-		writeError(w, 70, "playlist not found")
+	if _, ok := h.ownedPlaylist(w, r, id); !ok {
 		return
 	}
 	if err := h.store.DeletePlaylist(id); err != nil {

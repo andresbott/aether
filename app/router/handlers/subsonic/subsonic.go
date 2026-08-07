@@ -1,6 +1,7 @@
 package subsonic
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,13 +13,51 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// IdentityResolver resolves the authenticated user for a /rest request.
+// Success iff owner != ""; otherwise code is the Subsonic error code the
+// middleware must answer with: 40 no credentials, 43 conflicting auth
+// mechanisms, 44 invalid API key, 0 internal error. The resolver owns auth
+// policy (docs/agents/authentication.md); handlers only ever see the owner.
+type IdentityResolver func(r *http.Request) (owner string, code int)
+
+// ownerCtxKey carries the resolved owner on the request context.
+type ownerCtxKey struct{}
+
+// defaultOwner is the fixed owner used when no IdentityResolver is
+// configured (auth method "none"): the single-user behavior /rest always had.
+const defaultOwner = "admin"
+
+// requestOwner returns the owner the identity middleware resolved, or
+// defaultOwner when none ran (auth "none", or a handler under test).
+func requestOwner(r *http.Request) string {
+	if v, ok := r.Context().Value(ownerCtxKey{}).(string); ok && v != "" {
+		return v
+	}
+	return defaultOwner
+}
+
+// authErrorMessage keeps the per-code wording uniform: no distinction
+// between unknown and expired keys (no probing oracle).
+func authErrorMessage(code int) string {
+	switch code {
+	case 43:
+		return "multiple conflicting authentication mechanisms provided"
+	case 44:
+		return "invalid API key"
+	case 40:
+		return "authentication required"
+	default:
+		return "authentication error"
+	}
+}
+
 type Handler struct {
 	store  *store.Store
 	assets *assetstore.Store
 	images *imagecache.Cache
 }
 
-func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache) {
+func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver) {
 	h := &Handler{store: s, assets: assets, images: images}
 	sub := r.PathPrefix("/rest").Subrouter()
 
@@ -29,6 +68,30 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	})
+
+	sub.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// getOpenSubsonicExtensions must be publicly accessible per spec:
+			// clients discover apiKey support through this endpoint, so it
+			// cannot be gated behind the apiKey. ping stays gated (returning
+			// 40 with no credentials is the standard auth-probe mechanism).
+			if strings.HasSuffix(r.URL.Path, "/getOpenSubsonicExtensions") ||
+				strings.HasSuffix(r.URL.Path, "/getOpenSubsonicExtensions.view") {
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ownerCtxKey{}, defaultOwner)))
+				return
+			}
+			owner := defaultOwner
+			if identity != nil {
+				var code int
+				owner, code = identity(r)
+				if owner == "" {
+					writeError(w, code, authErrorMessage(code))
+					return
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ownerCtxKey{}, owner)))
 		})
 	})
 

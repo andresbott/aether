@@ -44,6 +44,12 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
 
 ## Favorites (`star` / `unstar` / `starred`)
 
+- **`StarredItem` is keyed by `(owner, item_type, item_id)`** (unique index
+  `idx_starred_item`). Every star operation (`Star`, `Unstar`, `GetStarred`,
+  `StarredAt`) takes the owner first — never drop it. `Store.StarredAt(owner,
+  itemType, ids)` is keyed by *owner*, type, *and* id: ids are only unique per
+  type, so dropping `itemType` would leak an album's star onto the song with the
+  same numeric id; and dropping `owner` would return another user's star state.
 - **Only four types are starrable**: artist, album and track from the spec's
   `id`/`albumId`/`artistId` parameters, plus playlist via the `playlistStar`
   extension. `starrableTypes` (`annotation.go`) is the allowlist; genre and radio
@@ -58,14 +64,11 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
   clients test for presence, so never write `""` or `null`. `AlbumID3`,
   `ArtistID3` and `Child` all define the field in the spec; on `Playlist` it is
   the `playlistStar` extension.
-- Build the state with `starred.go`: `newStarLookup(h.store, artistIDs, albumIDs,
-  trackIDs)` runs **one** `Store.StarredAt` per non-empty id set, then
+- Build the state with `starred.go`: `newStarLookup(h.store, owner, artistIDs,
+  albumIDs, trackIDs)` runs **one** `Store.StarredAt` per non-empty id set, then
   `applyArtist`/`applyAlbum`/`applyTrack` decorate the already-built entity maps.
-  For a flat song list use `starredSongList(h.store, tracks)`. Never look a star
-  up per row — a 500-album list would issue 500 queries.
-- `Store.StarredAt(itemType, ids)` is keyed by type *and* id: ids are only unique
-  per type, so dropping `itemType` would leak an album's star onto the song with
-  the same numeric id.
+  For a flat song list use `starredSongList(h.store, owner, tracks)`. Never look
+  a star up per row — a 500-album list would issue 500 queries.
 - A star lookup failure is deliberately non-fatal — the response degrades to "no
   star state" rather than failing an entire browse over an annotation.
 - **`getStarred2` is a full browse response, not a bare id list.** Its albums
@@ -86,6 +89,20 @@ returned type itself. `starItems` (`annotation.go`) is the reference — see bel
 - Coverage lives in `starred_test.go` (per-endpoint present/omitted assertions,
   plus the `getStarred2` enrichment/order and library-scoping cases) and
   `annotation_test.go` (the allowlist).
+
+## Playlists
+
+Playlists are **created with the session owner** (`createPlaylist` extracts the
+owner from `requestOwner`). `Store.GetPlaylists(owner)` returns the user's own
+playlists plus all public playlists. Visibility and write access:
+
+- **Reads of invisible playlists answer Subsonic error 70** (not found), with no
+  existence leak — a foreign private playlist behaves as if it doesn't exist.
+- **Writes to foreign playlists answer error 50** (not authorized).
+- Guards: `(h *Handler) visiblePlaylist(w, r, id)` checks read access (used by
+  `getPlaylist` and `getCoverArt`'s playlist branch); `(h *Handler)
+  ownedPlaylist(w, r, id)` checks write access (used by `updatePlaylist`,
+  `deletePlaylist`, and `recreatePlaylist`).
 
 ## Play queue (`savePlayQueue` / `getPlayQueue` + the `indexBasedQueue` extension)
 
@@ -115,8 +132,8 @@ the ByIndex pair is a different *view* of the same row, not a second queue.
   `DeleteOrphanedAggregates` also sweeps `play_queue_entries`.
 - Entries are full `Child` objects built through `starredSongList`, so a restoring
   client rebuilds its queue from one request instead of re-fetching every track.
-- Owner is hardcoded to `admin` (`playQueueOwner`) until auth lands, but the row
-  is already keyed by owner — same pre-wiring as `Playlist.Owner`.
+- **Owner is the session user** (`requestOwner`); auth "none" uses the fixed owner
+  `"admin"`.
 - `decodeTrackIDs` (shared with `createPlaylist`) **checks the id type**: without
   it `pl-1`/`al-1` would contribute their bare number and enqueue the *track*
   with that id. Regression: `TestSavePlayQueueIgnoresNonTrackIds`,
@@ -125,6 +142,16 @@ the ByIndex pair is a different *view* of the same row, not a second queue.
 Bookmarks are deliberately not implemented — see
 [features.md](features.md); `position` here already covers resume-within-song,
 and a bookmark must never become a second source of truth for it.
+
+## Now Playing (`getNowPlaying`)
+
+`Store.GetNowPlaying()` returns a **global** list of all recent playback across
+all users (the endpoint deliberately has no owner filter). Each entry carries both
+the playing track and the **real username** of the player (`NowPlayingEntry{Track,
+Owner}`). The handler reports each entry's `username` field as the actual owner,
+while the **star state (`starred`) is the viewer's own** — decorated via
+`starredSongList(h.store, requestOwner(r), tracks)` so each user sees their own
+favorites, not the playing user's.
 
 ## Discovery feed (`getDiscovery`, the `discovery` extension)
 
@@ -268,14 +295,30 @@ otherwise validate against the library roots first (also an open TODO).
 
 ## Authentication (current state)
 
-None. The SPA is same-origin and calls `/rest` without credentials
-(`subsonicClient.initWithDefaults()`); the client code can also build
-Subsonic `u`/`t`/`s` token params for a remote server, but the server never
-validates them. The decided plan (TODO.md, do not re-design): session-cookie
-auth for the SPA, per-user recoverable PATs for third-party Subsonic clients,
-chained with OR semantics via the `userauth` library. Full model, including
-the Authelia trusted-header deployment, in
-[authentication.md](authentication.md).
+**`/rest` authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
+Tokens).** `subsonic.Register` takes an `IdentityResolver`
+(`subsonic.IdentityResolver`, `handlers/subsonic/subsonic.go`) and installs the
+middleware that calls it; the router supplies
+`MainAppHandler.patIdentityResolver` (`app/router/main.go`), which parses
+`apiKey` from query params and validates against `userauth`'s `pat` service
+(hash-only storage, prefix `aether_`). The resolver owns all auth policy —
+`Register` knows nothing about tokens, which is what lets auth "none" pass a
+fixed-owner resolver instead. Handlers read the resolved identity via
+`requestOwner(r)`. Every per-user surface — play queue, stars, playlists,
+history — is owner-scoped: data is keyed/filtered by the authenticated user's
+login. Error codes: 40 (no credentials), 43 (`apiKey` mixed with
+`u`/`p`/`t`/`s`), 44 (invalid key), 0 (verifier I/O failure). The `apiKey`
+value is masked (`apiKey=***`) in the request log's `RequestURI`. **Only
+apiKey-capable clients work today** — the recoverable (encrypted-at-rest)
+token storage needed for salted-token (`t`+`s`) clients (Symfonium, DSub) is
+a TODO; see [authentication.md](authentication.md). Auth "none"
+(dev/trusted-LAN mode) keeps the fixed owner `"admin"` and `/rest` open. Full
+model, including the SPA lifecycle and the Authelia trusted-header deployment,
+in [authentication.md](authentication.md).
+
+**getOpenSubsonicExtensions is PUBLIC** — the middleware allows it before
+authentication (per OpenSubsonic spec); `ping` stays gated. The
+`apiKeyAuthentication` v1 extension is advertised.
 
 ## Testing
 

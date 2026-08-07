@@ -31,7 +31,25 @@ func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	as := assetstore.New(t.TempDir())
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(t.TempDir()))
+	Register(r, s, as, imagecache.New(t.TempDir()), nil)
+	return httptest.NewServer(r)
+}
+
+// newTestServerWithIdentity registers /rest with a header-based identity
+// resolver: X-Test-User names the owner, an empty header means "no
+// credentials" (Subsonic error 40). This stands in for the apiKey resolver
+// production wires up.
+func newTestServerWithIdentity(t *testing.T, s *store.Store) *httptest.Server {
+	t.Helper()
+	as := assetstore.New(t.TempDir())
+	r := mux.NewRouter()
+	Register(r, s, as, imagecache.New(t.TempDir()), func(r *http.Request) (string, int) {
+		u := r.Header.Get("X-Test-User")
+		if u == "" {
+			return "", 40
+		}
+		return u, 0
+	})
 	return httptest.NewServer(r)
 }
 

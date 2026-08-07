@@ -39,6 +39,7 @@ func starItems(h *Handler, r *http.Request, doStar bool) {
 // non-empty, only ids of that item type are accepted; when empty, any starrable
 // type is.
 func starParam(h *Handler, r *http.Request, doStar bool, param, want string) {
+	owner := requestOwner(r)
 	for _, idStr := range paramStrSlice(r, param) {
 		itemType, id, err := decodeID(idStr)
 		if err != nil {
@@ -51,9 +52,9 @@ func starParam(h *Handler, r *http.Request, doStar bool, param, want string) {
 			continue
 		}
 		if doStar {
-			_ = h.store.Star(itemType, id)
+			_ = h.store.Star(owner, itemType, id)
 		} else {
-			_ = h.store.Unstar(itemType, id)
+			_ = h.store.Unstar(owner, itemType, id)
 		}
 	}
 }
@@ -85,11 +86,12 @@ func (h *Handler) scrobble(w http.ResponseWriter, r *http.Request) {
 	}
 	// Playlists are played as a unit and counted separately from their tracks
 	// ("playlistScrobble" extension); every other id type is a track play.
+	owner := requestOwner(r)
 	switch itemType {
 	case "playlist":
-		err = h.store.RecordPlaylistPlay(id, playedAt)
+		err = h.store.RecordPlaylistPlay(owner, id, playedAt)
 	default:
-		err = h.store.RecordPlay(id, playedAt)
+		err = h.store.RecordPlay(owner, id, playedAt)
 	}
 	if err != nil {
 		writeError(w, 0, "internal error")

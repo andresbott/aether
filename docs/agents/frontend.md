@@ -167,7 +167,7 @@ the token is present in each.
 ## Keyboard shortcuts
 
 `utils/shortcuts.ts` is the **single registry**: the key map the global listener
-matches, the rows Settings → Profile renders, and the badges the help overlay
+matches, the rows the About view (`/about`) renders, and the badges the help overlay
 pins all read from `SHORTCUTS`. Adding a binding there is all that is needed for
 it to appear in both surfaces — never hand-copy the list into a view.
 
@@ -232,11 +232,11 @@ badge are dropped from the panel (both halves of a shared pair), so no key is
 listed twice.
 
 Two levels of hiding, and they are not the same: **`hidden`** drops a row from
-Settings *and* the overlay (`Esc`, which only means anything while the overlay is
-up), while **`overlayHidden`** drops it from the overlay only (`?` — you just
-pressed it to get there, so a row for it teaches nothing, but Settings is the full
-reference and keeps it). Hence two exports: `VISIBLE_SHORTCUTS` for Settings,
-`OVERLAY_SHORTCUTS` for the overlay. With `?` gone from the overlay and every
+the About list *and* the overlay (`Esc`, which only means anything while the
+overlay is up), while **`overlayHidden`** drops it from the overlay only (`?` —
+you just pressed it to get there, so a row for it teaches nothing, but About is
+the full reference and keeps it). Hence two exports: `VISIBLE_SHORTCUTS` for
+About, `OVERLAY_SHORTCUTS` for the overlay. With `?` gone from the overlay and every
 other action anchored, the panel's list is legitimately **empty on a wide screen**,
 so it is `v-if`'d away rather than rendered blank under the title; the panel still
 carries any action whose control this width has hidden.
@@ -289,7 +289,7 @@ palettes — Winamp, CRT. They are token-only repaints layered over
 stays dark) and are selected by a `theme-<name>` root class. Five clicks on the
 wordmark's "e" in `AppSidebar` unlock them for good (`aether:hiddenThemes` in
 localStorage) and cycle between them; once unlocked they appear in the
-Settings → Profile theme picker. This is intentional — don't "clean it up".
+User settings (`/user-settings`) theme picker. This is intentional — don't "clean it up".
 
 ## Testing (see [testing.md](testing.md))
 

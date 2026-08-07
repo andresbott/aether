@@ -7,13 +7,13 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (s *Store) Star(itemType string, itemID uint) error {
-	item := model.StarredItem{ItemType: itemType, ItemID: itemID}
+func (s *Store) Star(owner, itemType string, itemID uint) error {
+	item := model.StarredItem{Owner: owner, ItemType: itemType, ItemID: itemID}
 	return s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&item).Error
 }
 
-func (s *Store) Unstar(itemType string, itemID uint) error {
-	return s.db.Where("item_type = ? AND item_id = ?", itemType, itemID).Delete(&model.StarredItem{}).Error
+func (s *Store) Unstar(owner, itemType string, itemID uint) error {
+	return s.db.Where("owner = ? AND item_type = ? AND item_id = ?", owner, itemType, itemID).Delete(&model.StarredItem{}).Error
 }
 
 type StarredResult struct {
@@ -23,26 +23,26 @@ type StarredResult struct {
 	Playlists []model.Playlist
 }
 
-func (s *Store) GetStarred(filter *StarredFilter) (*StarredResult, error) {
+func (s *Store) GetStarred(owner string, filter *StarredFilter) (*StarredResult, error) {
 	result := &StarredResult{}
 
 	var err error
-	result.Artists, err = s.starredArtists(filter)
+	result.Artists, err = s.starredArtists(owner, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	result.Albums, err = s.starredAlbums(filter)
+	result.Albums, err = s.starredAlbums(owner, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	result.Tracks, err = s.starredTracks(filter)
+	result.Tracks, err = s.starredTracks(owner, filter)
 	if err != nil {
 		return nil, err
 	}
 
-	result.Playlists, err = s.starredPlaylists()
+	result.Playlists, err = s.starredPlaylists(owner)
 	if err != nil {
 		return nil, err
 	}
@@ -50,9 +50,9 @@ func (s *Store) GetStarred(filter *StarredFilter) (*StarredResult, error) {
 	return result, nil
 }
 
-func (s *Store) starredArtists(filter *StarredFilter) ([]model.Artist, error) {
+func (s *Store) starredArtists(owner string, filter *StarredFilter) ([]model.Artist, error) {
 	var artistIDs []uint
-	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'artist'").Pluck("item_id", &artistIDs).Error; err != nil {
+	if err := s.db.Model(&model.StarredItem{}).Where("owner = ? AND item_type = 'artist'", owner).Pluck("item_id", &artistIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(artistIDs) == 0 {
@@ -77,9 +77,9 @@ func (s *Store) starredArtists(filter *StarredFilter) ([]model.Artist, error) {
 	return artists, nil
 }
 
-func (s *Store) starredAlbums(filter *StarredFilter) ([]model.Album, error) {
+func (s *Store) starredAlbums(owner string, filter *StarredFilter) ([]model.Album, error) {
 	var albumIDs []uint
-	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'album'").Pluck("item_id", &albumIDs).Error; err != nil {
+	if err := s.db.Model(&model.StarredItem{}).Where("owner = ? AND item_type = 'album'", owner).Pluck("item_id", &albumIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(albumIDs) == 0 {
@@ -100,9 +100,9 @@ func (s *Store) starredAlbums(filter *StarredFilter) ([]model.Album, error) {
 	return albums, nil
 }
 
-func (s *Store) starredTracks(filter *StarredFilter) ([]model.Track, error) {
+func (s *Store) starredTracks(owner string, filter *StarredFilter) ([]model.Track, error) {
 	var trackIDs []uint
-	if err := s.db.Model(&model.StarredItem{}).Where("item_type = 'track'").Pluck("item_id", &trackIDs).Error; err != nil {
+	if err := s.db.Model(&model.StarredItem{}).Where("owner = ? AND item_type = 'track'", owner).Pluck("item_id", &trackIDs).Error; err != nil {
 		return nil, err
 	}
 	if len(trackIDs) == 0 {
@@ -121,11 +121,11 @@ func (s *Store) starredTracks(filter *StarredFilter) ([]model.Track, error) {
 	return tracks, nil
 }
 
-func (s *Store) starredPlaylists() ([]model.Playlist, error) {
+func (s *Store) starredPlaylists(owner string) ([]model.Playlist, error) {
 	// Playlists are not scoped to a library — a playlist can hold tracks from
 	// several — so StarredFilter.LibraryID deliberately does not apply here.
 	var playlistStars []model.StarredItem
-	if err := s.db.Where("item_type = 'playlist'").
+	if err := s.db.Where("owner = ? AND item_type = 'playlist'", owner).
 		Order("created_at DESC").
 		Find(&playlistStars).Error; err != nil {
 		return nil, err
@@ -162,15 +162,16 @@ func (s *Store) starredPlaylists() ([]model.Playlist, error) {
 
 // StarredAt returns when each of the given items of itemType was starred, in one
 // query. Items that are not starred are absent from the map. Ids are only unique
-// per type, so itemType is part of the lookup — never drop it.
-func (s *Store) StarredAt(itemType string, itemIDs []uint) (map[uint]time.Time, error) {
+// per type, so itemType is part of the lookup — never drop it. The lookup is
+// keyed by owner AND type AND id.
+func (s *Store) StarredAt(owner, itemType string, itemIDs []uint) (map[uint]time.Time, error) {
 	out := map[uint]time.Time{}
 	if len(itemIDs) == 0 {
 		return out, nil
 	}
 	var stars []model.StarredItem
 	if err := s.db.
-		Where("item_type = ? AND item_id IN ?", itemType, itemIDs).
+		Where("owner = ? AND item_type = ? AND item_id IN ?", owner, itemType, itemIDs).
 		Find(&stars).Error; err != nil {
 		return nil, err
 	}

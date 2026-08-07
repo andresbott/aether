@@ -61,7 +61,7 @@ func albumWithStoredCover(t *testing.T, size int) (*store.Store, *assetstore.Sto
 func serveCovers(t *testing.T, s *store.Store, as *assetstore.Store, cacheDir string) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
-	Register(r, s, as, imagecache.New(cacheDir))
+	Register(r, s, as, imagecache.New(cacheDir), nil)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 	return srv

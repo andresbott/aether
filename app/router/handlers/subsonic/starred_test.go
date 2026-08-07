@@ -47,9 +47,9 @@ func newStarFixture(t *testing.T) starFixture {
 	_ = db.Model(&f.track).Association("Artists").Replace([]*model.Artist{&f.artist})
 	_ = db.Model(&f.track2).Association("Artists").Replace([]*model.Artist{&f.artist})
 
-	db.Create(&model.StarredItem{ItemType: "artist", ItemID: f.artist.ID, CreatedAt: f.at})
-	db.Create(&model.StarredItem{ItemType: "album", ItemID: f.album.ID, CreatedAt: f.at})
-	db.Create(&model.StarredItem{ItemType: "track", ItemID: f.track.ID, CreatedAt: f.at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "artist", ItemID: f.artist.ID, CreatedAt: f.at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: f.album.ID, CreatedAt: f.at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "track", ItemID: f.track.ID, CreatedAt: f.at})
 	return f
 }
 
@@ -298,7 +298,7 @@ func TestGetStarred2EnrichesAlbumsAndArtists(t *testing.T) {
 	f := newStarFixture(t)
 	// Star the second album too, out of alphabetical order, to pin the ordering.
 	db := f.store.DB()
-	db.Create(&model.StarredItem{ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
 
 	srv := newTestServer(t, f.store)
 	defer srv.Close()
@@ -360,7 +360,7 @@ func TestGetStarred2ScopesByLibrary(t *testing.T) {
 	db := f.store.DB()
 	db.Create(&model.Library{Name: "Other", Path: "/o"})
 	// album2 is starred but has no tracks at all, so no library claims it.
-	db.Create(&model.StarredItem{ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
+	db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
 
 	srv := newTestServer(t, f.store)
 	defer srv.Close()
