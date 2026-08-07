@@ -17,10 +17,23 @@ import type {
     SavedPlayQueue,
     Starred2
 } from '@/types/subsonic'
-import { sessionExpired } from '@/lib/authState'
+import { ref } from 'vue'
+
+// The apiKey is REACTIVE on purpose. getCoverArtUrl/getStreamUrl are called
+// from component computeds, which bake the key into the URL they return; a
+// transparent re-mint would otherwise leave those URLs pointing at the dead
+// token until the component happened to re-render for another reason. Reading
+// the key through a ref makes every such computed a dependency, so a
+// setApiKey/clearApiKey invalidates them and the URLs are rebuilt.
+const apiKeyRef = ref<string | null>(null)
 
 class SubsonicClient {
-    private apiKey: string | null = null
+    private get apiKey(): string | null {
+        return apiKeyRef.value
+    }
+    private set apiKey(key: string | null) {
+        apiKeyRef.value = key
+    }
     private serverUrl: string = ''
     private authSkipped: boolean = false
     private readonly clientName = 'aether-web'
