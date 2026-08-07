@@ -84,10 +84,23 @@ const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
     const wasPlaying = isPlaying.value
     const position = el.currentTime || 0
     el.src = subsonicClient.getStreamUrl(track.id)
-    el.currentTime = position
-    if (wasPlaying) {
-        void el.play()
+    // A fresh src resets the element to "no metadata", where assigning
+    // currentTime is dropped (or throws InvalidStateError). Restore the position
+    // once the new stream is seekable, then pick playback back up.
+    const resume = (): void => {
+        if (position > 0) {
+            try {
+                el.currentTime = position
+            } catch {
+                // Non-seekable stream: resume from the start rather than fail.
+            }
+        }
+        if (wasPlaying) {
+            void el.play()
+        }
     }
+    el.addEventListener('loadedmetadata', resume, { once: true })
+    el.load()
 }
 
 const attachListeners = (el: HTMLAudioElement): void => {
@@ -547,6 +560,11 @@ export function usePlayer() {
         currentTrack.value = null
         preloadedTrack.value = null
         preloadedUrl = null
+        // Per-track bookkeeping belongs to a track that no longer exists; a
+        // logout purge clears the queue, and the next session's first track must
+        // start with a fresh scrobble and stream-recovery budget.
+        scrobbledTrackId = null
+        streamRetriedTrackId = null
         pause()
         if (activeEl) activeEl.src = ''
         if (standbyEl) standbyEl.src = ''
