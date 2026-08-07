@@ -102,7 +102,7 @@ function formatDate(iso: string): string {
                                 severity="danger"
                                 text
                                 label="Revoke"
-                                :loading="revokeToken.isPending.value"
+                                :loading="revokeToken.isPending.value && revokeToken.variables.value === tok.tokenId"
                                 @click="revokeToken.mutate(tok.tokenId)"
                             />
                         </div>
@@ -110,10 +110,14 @@ function formatDate(iso: string): string {
                     <p v-else class="setting-hint">No tokens yet.</p>
 
                     <form class="token-create" @submit.prevent="onCreate">
-                        <InputText
-                            v-model="newTokenName"
-                            placeholder="Token name (e.g. Symfonium on phone)"
-                        />
+                        <div class="field">
+                            <label for="token-name">Token name</label>
+                            <InputText
+                                id="token-name"
+                                v-model="newTokenName"
+                                placeholder="Token name (e.g. Symfonium on phone)"
+                            />
+                        </div>
                         <Button
                             type="submit"
                             label="Create token"
@@ -221,8 +225,21 @@ function formatDate(iso: string): string {
 .token-create {
     display: flex;
     gap: 0.75rem;
-    align-items: center;
+    align-items: flex-end;
     flex-wrap: wrap;
+}
+
+.token-create .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 12rem;
+}
+
+.token-create .field label {
+    font-size: 0.85rem;
+    font-weight: 600;
 }
 
 .token-plaintext {

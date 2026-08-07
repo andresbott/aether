@@ -22,7 +22,8 @@ vi.mock('@/composables/useTokens', () => ({
     }),
     useRevokeToken: () => ({
         mutate: mockRevokeToken,
-        isPending: ref(false)
+        isPending: ref(false),
+        variables: ref(undefined)
     })
 }))
 
