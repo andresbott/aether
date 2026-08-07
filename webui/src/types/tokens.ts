@@ -1,7 +1,11 @@
-/** A user-created PAT as the management endpoints report it (never the hash). */
+/** 'session' = first-party token minted by the SPA; 'client' = user-created PAT. */
+export type ApiTokenKind = 'session' | 'client'
+
+/** A token as the management endpoints report it (never the hash). */
 export interface ApiToken {
     tokenId: string
     name: string
+    kind: ApiTokenKind
     createdAt: string
     lastUsedAt?: string | null
     expiresAt?: string | null

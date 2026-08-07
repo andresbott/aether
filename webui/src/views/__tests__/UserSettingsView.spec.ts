@@ -114,6 +114,7 @@ describe('UserSettingsView', () => {
             {
                 tokenId: 't1',
                 name: 'Symfonium',
+                kind: 'client',
                 createdAt: '2026-01-01T00:00:00Z'
             }
         ]
@@ -124,10 +125,40 @@ describe('UserSettingsView', () => {
         mockTokens.value = []
     })
 
+    it('separates session and third-party tokens into their own groups', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        mockTokens.value = [
+            {
+                tokenId: 't1',
+                name: 'aether-web',
+                kind: 'session',
+                createdAt: '2026-01-01T00:00:00Z'
+            },
+            {
+                tokenId: 't2',
+                name: 'Symfonium',
+                kind: 'client',
+                createdAt: '2026-01-01T00:00:00Z'
+            }
+        ]
+        const w = mountView()
+        const groups = w.findAll('.token-group')
+        expect(groups).toHaveLength(2)
+        expect(groups[0].find('h3').text()).toBe('Aether sessions')
+        expect(groups[0].find('.token-count').text()).toContain('1 active Aether session')
+        expect(groups[0].text()).toContain('aether-web')
+        expect(groups[0].text()).not.toContain('Symfonium')
+        expect(groups[1].find('h3').text()).toBe('Third-party tokens')
+        expect(groups[1].text()).toContain('Symfonium')
+        expect(groups[1].text()).not.toContain('aether-web')
+        currentUser.value = null
+        mockTokens.value = []
+    })
+
     it('shows the plaintext exactly once after creation', async () => {
         currentUser.value = { login: 'alice', role: 'user' }
         const w = mountView()
-        const nameInput = w.find('input[placeholder*="Token name"]')
+        const nameInput = w.find('#token-name')
         await nameInput.setValue('MyToken')
 
         // Simulate successful creation

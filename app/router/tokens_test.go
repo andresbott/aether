@@ -171,14 +171,16 @@ func TestRepeatedMintsNeverExhaustCap(t *testing.T) {
 type tokenDTO struct {
 	TokenID    string     `json:"tokenId"`
 	Name       string     `json:"name"`
+	Kind       string     `json:"kind"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
 }
 
-// The list shows only user-created PATs: spa-scoped tokens are SPA plumbing.
-// The secret hash must never appear in any response.
-func TestListTokensExcludesSpaScoped(t *testing.T) {
+// The list carries both token kinds, distinguished by "kind": the user's PATs
+// as "client" and live SPA-minted tokens as "session". The secret hash must
+// never appear in any response.
+func TestListTokensReportsKinds(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
 	doMint(t, h, attach) // creates an aether-web spa token
@@ -212,8 +214,18 @@ func TestListTokensExcludesSpaScoped(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Tokens) != 1 || list.Tokens[0].Name != "Symfonium on phone" {
-		t.Fatalf("list = %+v, want only the client token", list.Tokens)
+	kinds := map[string]string{}
+	for _, tok := range list.Tokens {
+		kinds[tok.Name] = tok.Kind
+	}
+	if len(list.Tokens) != 2 {
+		t.Fatalf("list = %+v, want the client token and the spa session", list.Tokens)
+	}
+	if kinds["Symfonium on phone"] != "client" {
+		t.Fatalf("client token kind = %q, want client", kinds["Symfonium on phone"])
+	}
+	if kinds["aether-web"] != "session" {
+		t.Fatalf("spa token kind = %q, want session", kinds["aether-web"])
 	}
 	if strings.Contains(w.Body.String(), "secretHash") || strings.Contains(w.Body.String(), "SecretHash") {
 		t.Fatal("token list leaks the secret hash")

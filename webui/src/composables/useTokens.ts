@@ -9,7 +9,7 @@ export const tokenQueryKeys = {
     all: ['tokens'] as const
 }
 
-/** The caller's user-created PATs (spa tokens are excluded server-side). */
+/** All the caller's tokens: PATs (kind 'client') and SPA sessions (kind 'session'). */
 export function useTokens(enabled?: Ref<boolean> | ComputedRef<boolean>) {
     return useQuery<ApiToken[]>({
         queryKey: tokenQueryKeys.all,

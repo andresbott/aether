@@ -17,7 +17,10 @@ export async function mintSpaToken(): Promise<MintSpaTokenResponse> {
     return data
 }
 
-/** GET /api/v1/auth/tokens — the caller's PATs (spa-scoped excluded server-side). */
+/**
+ * GET /api/v1/auth/tokens — all the caller's tokens: user-created PATs
+ * (kind 'client') and live first-party SPA tokens (kind 'session').
+ */
 export async function listTokens(): Promise<ApiToken[]> {
     const { data } = await apiClient.get<ListTokensResponse>('/auth/tokens')
     return data.tokens ?? []

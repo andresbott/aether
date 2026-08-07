@@ -16,6 +16,10 @@ const { mode, options, hiddenUnlocked } = useTheme()
 const { currentUser } = useAuth()
 
 const { data: tokens } = useTokens(computed(() => currentUser.value !== null))
+// First-party tokens minted by the Aether web player itself.
+const sessionTokens = computed(() => tokens.value?.filter((t) => t.kind === 'session') ?? [])
+// User-created PATs for third-party Subsonic clients.
+const clientTokens = computed(() => tokens.value?.filter((t) => t.kind === 'client') ?? [])
 const createToken = useCreateToken()
 const revokeToken = useRevokeToken()
 
@@ -78,53 +82,91 @@ function formatDate(iso: string): string {
 
                 <section v-if="currentUser" class="profile-section tokens-section">
                     <h2>API tokens</h2>
-                    <p class="setting-hint">
-                        Connect third-party Subsonic apps (Symfonium, DSub, …) with a personal
-                        access token. Enter it as the app's API key.
-                    </p>
 
-                    <div v-if="tokens && tokens.length" class="token-list">
-                        <div v-for="tok in tokens" :key="tok.tokenId" class="token-row">
-                            <div class="token-meta">
-                                <span class="token-name">{{ tok.name }}</span>
-                                <span class="setting-hint">
-                                    created {{ formatDate(tok.createdAt) }}
-                                    <template v-if="tok.lastUsedAt">
-                                        · last used {{ formatDate(tok.lastUsedAt) }}
-                                    </template>
-                                    <template v-if="tok.expiresAt">
-                                        · expires {{ formatDate(tok.expiresAt) }}
-                                    </template>
-                                </span>
+                    <div class="token-group">
+                        <h3>Aether sessions</h3>
+                        <p class="setting-hint">
+                            Tokens the Aether web player mints for its own playback. Revoking
+                            one signs that browser's player out until it reloads.
+                        </p>
+                        <p v-if="tokens" class="token-count">
+                            {{ sessionTokens.length }} active Aether
+                            {{ sessionTokens.length === 1 ? 'session' : 'sessions' }}
+                        </p>
+                        <div v-if="sessionTokens.length" class="token-list">
+                            <div v-for="tok in sessionTokens" :key="tok.tokenId" class="token-row">
+                                <div class="token-meta">
+                                    <span class="token-name">{{ tok.name }}</span>
+                                    <span class="setting-hint">
+                                        created {{ formatDate(tok.createdAt) }}
+                                        <template v-if="tok.lastUsedAt">
+                                            · last used {{ formatDate(tok.lastUsedAt) }}
+                                        </template>
+                                        <template v-if="tok.expiresAt">
+                                            · expires {{ formatDate(tok.expiresAt) }}
+                                        </template>
+                                    </span>
+                                </div>
+                                <Button
+                                    class="token-revoke"
+                                    severity="danger"
+                                    text
+                                    label="Revoke"
+                                    :loading="revokeToken.isPending.value && revokeToken.variables.value === tok.tokenId"
+                                    @click="revokeToken.mutate(tok.tokenId)"
+                                />
                             </div>
-                            <Button
-                                class="token-revoke"
-                                severity="danger"
-                                text
-                                label="Revoke"
-                                :loading="revokeToken.isPending.value && revokeToken.variables.value === tok.tokenId"
-                                @click="revokeToken.mutate(tok.tokenId)"
-                            />
                         </div>
                     </div>
-                    <p v-else class="setting-hint">No tokens yet.</p>
 
-                    <form class="token-create" @submit.prevent="onCreate">
-                        <div class="field">
-                            <label for="token-name">Token name</label>
-                            <InputText
-                                id="token-name"
-                                v-model="newTokenName"
-                                placeholder="Token name (e.g. Symfonium on phone)"
-                            />
+                    <div class="token-group">
+                        <h3>Third-party tokens</h3>
+                        <p class="setting-hint">
+                            Connect third-party Subsonic apps (Symfonium, DSub, …) with a
+                            personal access token. Enter it as the app's API key.
+                        </p>
+                        <div v-if="clientTokens.length" class="token-list">
+                            <div v-for="tok in clientTokens" :key="tok.tokenId" class="token-row">
+                                <div class="token-meta">
+                                    <span class="token-name">{{ tok.name }}</span>
+                                    <span class="setting-hint">
+                                        created {{ formatDate(tok.createdAt) }}
+                                        <template v-if="tok.lastUsedAt">
+                                            · last used {{ formatDate(tok.lastUsedAt) }}
+                                        </template>
+                                        <template v-if="tok.expiresAt">
+                                            · expires {{ formatDate(tok.expiresAt) }}
+                                        </template>
+                                    </span>
+                                </div>
+                                <Button
+                                    class="token-revoke"
+                                    severity="danger"
+                                    text
+                                    label="Revoke"
+                                    :loading="revokeToken.isPending.value && revokeToken.variables.value === tok.tokenId"
+                                    @click="revokeToken.mutate(tok.tokenId)"
+                                />
+                            </div>
                         </div>
-                        <Button
-                            type="submit"
-                            label="Create token"
-                            :disabled="!newTokenName.trim()"
-                            :loading="createToken.isPending.value"
-                        />
-                    </form>
+                        <p v-else class="setting-hint">No tokens yet.</p>
+                        <form class="token-create" @submit.prevent="onCreate">
+                            <label for="token-name">Token name</label>
+                            <div class="token-create-row">
+                                <InputText
+                                    id="token-name"
+                                    v-model="newTokenName"
+                                    placeholder="e.g. Symfonium on phone"
+                                />
+                                <Button
+                                    type="submit"
+                                    label="Create token"
+                                    :disabled="!newTokenName.trim()"
+                                    :loading="createToken.isPending.value"
+                                />
+                            </div>
+                        </form>
+                    </div>
 
                     <Dialog
                         v-model:visible="plaintextVisible"
@@ -195,11 +237,36 @@ function formatDate(iso: string): string {
     font-size: 0.85rem;
 }
 
+.token-group {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    border: 1px solid var(--app-border);
+    border-radius: 0.5rem;
+}
+
+.token-group h3 {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.token-group > .setting-hint {
+    display: block;
+    margin-bottom: 1rem;
+}
+
+/* p.token-count so it out-specifies the .profile-body p reset above */
+p.token-count {
+    margin: 0 0 0.75rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--app-text-primary);
+}
+
 .token-list {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    gap: 0.75rem;
 }
 
 .token-row {
@@ -224,22 +291,26 @@ function formatDate(iso: string): string {
 
 .token-create {
     display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 1.25rem;
+}
+
+.token-create label {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.token-create-row {
+    display: flex;
     gap: 0.75rem;
-    align-items: flex-end;
+    align-items: center;
     flex-wrap: wrap;
 }
 
-.token-create .field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    flex: 1;
-    min-width: 12rem;
-}
-
-.token-create .field label {
-    font-size: 0.85rem;
-    font-weight: 600;
+.token-create-row .p-inputtext {
+    width: 20rem;
+    max-width: 100%;
 }
 
 .token-plaintext {

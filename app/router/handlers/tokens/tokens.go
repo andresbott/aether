@@ -126,27 +126,39 @@ func mapPatError(err error) (status int, code string) {
 	}
 }
 
+// Token kinds as the management endpoints report them.
+const (
+	// KindSession is a first-party token the SPA minted for itself.
+	KindSession = "session"
+	// KindClient is a user-created PAT for third-party Subsonic clients.
+	KindClient = "client"
+)
+
 // tokenDTO is the management view of a token: metadata only, never the hash.
 type tokenDTO struct {
 	TokenID    string     `json:"tokenId"`
 	Name       string     `json:"name"`
+	Kind       string     `json:"kind"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
 }
 
-func toDTO(rec pat.TokenRecord) tokenDTO {
+func toDTO(rec pat.TokenRecord, kind string) tokenDTO {
 	return tokenDTO{
 		TokenID:    rec.TokenID,
 		Name:       rec.Name,
+		Kind:       kind,
 		CreatedAt:  rec.CreatedAt,
 		LastUsedAt: rec.LastUsedAt,
 		ExpiresAt:  rec.ExpiresAt,
 	}
 }
 
-// list returns the caller's user-created PATs. SPA-minted tokens are
-// excluded: they are plumbing, not something the user manages.
+// list returns the caller's tokens: user-created PATs (kind "client") plus
+// live first-party SPA tokens (kind "session"), so the UI can show both and
+// tell them apart. Expired session tokens are dropped — they are already
+// superseded plumbing, not something the user should see.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	userID, ok := caller(r)
 	if !ok {
@@ -158,12 +170,17 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	now := time.Now()
 	out := make([]tokenDTO, 0, len(recs))
 	for _, rec := range recs {
+		kind := KindClient
 		if hasScope(rec, SPAScope) {
-			continue
+			if rec.ExpiresAt != nil && !rec.ExpiresAt.After(now) {
+				continue
+			}
+			kind = KindSession
 		}
-		out = append(out, toDTO(rec))
+		out = append(out, toDTO(rec, kind))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tokens": out})
 }
@@ -196,6 +213,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		"token":     token,
 		"tokenId":   rec.TokenID,
 		"name":      rec.Name,
+		"kind":      KindClient,
 		"createdAt": rec.CreatedAt,
 		"expiresAt": rec.ExpiresAt,
 	})
