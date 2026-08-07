@@ -57,7 +57,7 @@ class SubsonicClient {
         params: Record<string, string | number | boolean | undefined> = {}
     ): string {
         if (!this.isConfigured()) {
-            throw new Error('Credentials not set')
+            throw new Error('Client not configured')
         }
 
         const url = new URL(`${this.serverUrl}/rest/${endpoint}`)
