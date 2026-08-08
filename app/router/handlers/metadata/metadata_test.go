@@ -26,8 +26,10 @@ import (
 
 type nullReader struct{}
 
-func (nullReader) CanRead(string) bool                { return false }
-func (nullReader) Read(string) (tags.Metadata, error) { return tags.Metadata{}, nil }
+func (nullReader) CanRead(string) bool { return false }
+func (nullReader) Read(context.Context, string) (tags.Metadata, error) {
+	return tags.Metadata{}, nil
+}
 
 func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
@@ -98,7 +100,7 @@ type stubTagReader struct{}
 func (stubTagReader) CanRead(p string) bool {
 	return filepath.Ext(p) == ".mp3" || filepath.Ext(p) == ".flac"
 }
-func (stubTagReader) Read(p string) (tags.Metadata, error) {
+func (stubTagReader) Read(_ context.Context, p string) (tags.Metadata, error) {
 	return tags.Metadata{Title: filepath.Base(p), Artist: []string{"Stub"}, Album: "Alb", Year: 2020}, nil
 }
 
@@ -569,7 +571,7 @@ func (wideReader) CanRead(p string) bool {
 	return false
 }
 
-func (wideReader) Read(p string) (tags.Metadata, error) {
+func (wideReader) Read(_ context.Context, p string) (tags.Metadata, error) {
 	return tags.Metadata{
 		Title:       filepath.Base(p),
 		Artist:      []string{"A"},

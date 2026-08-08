@@ -1,6 +1,7 @@
 package tags_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,7 @@ func TestFFProbeReader_CanRead(t *testing.T) {
 
 func TestTaglibReader_Read(t *testing.T) {
 	dst := writeTaggedFLAC(t)
-	m, err := tags.TaglibReader{}.Read(dst)
+	m, err := tags.TaglibReader{}.Read(context.Background(), dst)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestTaglibReader_Read(t *testing.T) {
 }
 
 func TestTaglibReader_ReadMissingFile(t *testing.T) {
-	_, err := tags.TaglibReader{}.Read(filepath.Join(t.TempDir(), "nope.flac"))
+	_, err := tags.TaglibReader{}.Read(context.Background(), filepath.Join(t.TempDir(), "nope.flac"))
 	if err == nil {
 		t.Fatal("expected error reading missing file")
 	}
@@ -117,7 +118,7 @@ func TestFFProbeReader_Read(t *testing.T) {
 		t.Skip("ffprobe not installed")
 	}
 	dst := writeTaggedFLAC(t)
-	m, err := tags.FFProbeReader{}.Read(dst)
+	m, err := tags.FFProbeReader{}.Read(context.Background(), dst)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestFFProbeReader_ReadMissingFile(t *testing.T) {
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe not installed")
 	}
-	_, err := tags.FFProbeReader{}.Read(filepath.Join(t.TempDir(), "nope.flac"))
+	_, err := tags.FFProbeReader{}.Read(context.Background(), filepath.Join(t.TempDir(), "nope.flac"))
 	if err == nil {
 		t.Fatal("expected error on missing file")
 	}

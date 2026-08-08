@@ -2,6 +2,7 @@
 package tags
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"time"
@@ -10,8 +11,14 @@ import (
 var ErrUnsupported = errors.New("filetype unsupported")
 
 type Reader interface {
+	// CanRead takes no context: it only matches the file extension and never
+	// touches the file.
 	CanRead(absPath string) bool
-	Read(absPath string) (Metadata, error)
+	// Read extracts the file's metadata. A tag read can shell out to another
+	// process (see FFProbeReader), so ctx carries the caller's cancellation —
+	// abandoning a scan or a request stops the read instead of leaving it to
+	// run to completion.
+	Read(ctx context.Context, absPath string) (Metadata, error)
 }
 
 type Metadata struct {
@@ -79,19 +86,25 @@ func (r *FallbackReader) CanRead(absPath string) bool {
 	return r.primary.CanRead(absPath) || r.fallback.CanRead(absPath)
 }
 
-func (r *FallbackReader) Read(absPath string) (Metadata, error) {
+func (r *FallbackReader) Read(ctx context.Context, absPath string) (Metadata, error) {
 	if r.primary.CanRead(absPath) {
-		m, err := r.primary.Read(absPath)
+		m, err := r.primary.Read(ctx, absPath)
 		if err == nil {
 			return m, nil
 		}
+		// A canceled or expired context is the caller's decision, not a defect in
+		// the file, so don't spend the fallback reader on it — that would double
+		// the work already known to be unwanted.
+		if ctx.Err() != nil {
+			return Metadata{}, err
+		}
 		if r.fallback.CanRead(absPath) {
-			return r.fallback.Read(absPath)
+			return r.fallback.Read(ctx, absPath)
 		}
 		return Metadata{}, err
 	}
 	if r.fallback.CanRead(absPath) {
-		return r.fallback.Read(absPath)
+		return r.fallback.Read(ctx, absPath)
 	}
 	return Metadata{}, ErrUnsupported
 }

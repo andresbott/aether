@@ -2,6 +2,7 @@
 package tags_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/andresbott/aether/internal/tags"
@@ -13,8 +14,10 @@ type mockReader struct {
 	err     error
 }
 
-func (m mockReader) CanRead(string) bool                { return m.canRead }
-func (m mockReader) Read(string) (tags.Metadata, error) { return m.meta, m.err }
+func (m mockReader) CanRead(string) bool { return m.canRead }
+func (m mockReader) Read(context.Context, string) (tags.Metadata, error) {
+	return m.meta, m.err
+}
 
 func TestFallbackReader_UsesPrimary(t *testing.T) {
 	primary := mockReader{canRead: true, meta: tags.Metadata{Title: "from-primary"}}
@@ -24,7 +27,7 @@ func TestFallbackReader_UsesPrimary(t *testing.T) {
 	if !r.CanRead("test.mp3") {
 		t.Fatal("expected CanRead true")
 	}
-	m, err := r.Read("test.mp3")
+	m, err := r.Read(context.Background(), "test.mp3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +44,7 @@ func TestFallbackReader_FallsBack(t *testing.T) {
 	if !r.CanRead("test.mka") {
 		t.Fatal("expected CanRead true from fallback")
 	}
-	m, err := r.Read("test.mka")
+	m, err := r.Read(context.Background(), "test.mka")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +58,7 @@ func TestFallbackReader_PrimaryErrorFallsBack(t *testing.T) {
 	fallback := mockReader{canRead: true, meta: tags.Metadata{Title: "from-fallback"}}
 	r := tags.NewFallbackReader(primary, fallback)
 
-	m, err := r.Read("test.mp3")
+	m, err := r.Read(context.Background(), "test.mp3")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +75,7 @@ func TestFallbackReader_BothFail(t *testing.T) {
 	if r.CanRead("test.xyz") {
 		t.Fatal("expected CanRead false")
 	}
-	_, err := r.Read("test.xyz")
+	_, err := r.Read(context.Background(), "test.xyz")
 	if err == nil {
 		t.Fatal("expected error")
 	}

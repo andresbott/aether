@@ -1,6 +1,7 @@
 package metadataedit_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func (s stubReader) CanRead(p string) bool {
 	return ext == ".mp3" || ext == ".flac" || ext == ".ogg"
 }
 
-func (s stubReader) Read(p string) (tags.Metadata, error) {
+func (s stubReader) Read(_ context.Context, p string) (tags.Metadata, error) {
 	if p == s.errPath {
 		return tags.Metadata{}, errors.New("boom")
 	}
@@ -43,7 +44,7 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 1, DiscSubtitle: "CD 1", MBArtistID: []string{"id-a"}, MBReleaseID: "rel-1", MBReleaseGroupID: "rg-1"},
 		filepath.Join(root, "album", "02.mp3"):  {Title: "Two", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 2, DiscSubtitle: "CD 2"},
 	}}
-	got, err := metadataedit.ListTracks(root, root, reader)
+	got, err := metadataedit.ListTracks(context.Background(), root, root, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +78,7 @@ func TestListTracks_ReadErrorCapturedPerFile(t *testing.T) {
 	root := t.TempDir()
 	touch(t, filepath.Join(root, "bad.mp3"))
 	reader := stubReader{errPath: filepath.Join(root, "bad.mp3")}
-	got, err := metadataedit.ListTracks(root, root, reader)
+	got, err := metadataedit.ListTracks(context.Background(), root, root, reader)
 	if err != nil {
 		t.Fatal(err)
 	}
