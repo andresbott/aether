@@ -150,6 +150,15 @@ describe('RadioStationDetailView', () => {
         expect(w.findComponent(SearchDialogStub).exists()).toBe(false)
     })
 
+    // Station CRUD is admin-only on the server (Subsonic spec, error 50), so
+    // non-admins get no edit/save/delete affordances at all.
+    it('hides the edit action bar from non-admins', () => {
+        isAdmin.value = false
+        const w = mountView({ id: 's1' })
+        expect(w.find('.edit-action-save').exists()).toBe(false)
+        expect(w.find('.edit-action-delete').exists()).toBe(false)
+    })
+
     it('create mode: picking a discovered station overwrites the form', async () => {
         const w = mountView({ create: true })
         await editInputs(w)[0].setValue('My draft name')

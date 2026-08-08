@@ -7,6 +7,7 @@ import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import RadioStationListView from '@/components/library/RadioStationListView.vue'
 import RadioStationGrid from '@/components/library/RadioStationGrid.vue'
 import { useRadioStations } from '@/composables/useSubsonicQueries'
+import { useAuth } from '@/composables/useAuth'
 
 type Layout = 'grid' | 'list'
 
@@ -29,6 +30,9 @@ const layout = computed<Layout>({
 })
 
 const { data: stations } = useRadioStations()
+// Station CRUD is admin-only on the server (Subsonic spec), so the add
+// entry point is hidden for regular users rather than offering a doomed form.
+const { isAdmin } = useAuth()
 
 const summary = computed(() => {
     const count = stations.value?.length ?? 0
@@ -58,6 +62,7 @@ function openAdd() {
                 </template>
             </SelectButton>
             <Button
+                v-if="isAdmin"
                 class="add-station"
                 icon="pi pi-plus"
                 text

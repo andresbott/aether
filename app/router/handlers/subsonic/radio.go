@@ -1,7 +1,7 @@
 // Internet Radio Station handlers — Subsonic 1.16.0.
 //
-// TODO: Subsonic spec restricts create/update/delete to admin users.
-// Blocked on auth implementation (see TODO.md > Security > Authentication).
+// The spec restricts create/update/delete to admin users; requireAdmin
+// enforces it (error 50). Reads stay open to every authenticated user.
 package subsonic
 
 import (
@@ -61,6 +61,9 @@ func (h *Handler) getInternetRadioStations(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) createInternetRadioStation(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	if isMultipart(r) {
 		h.createRadioMultipart(w, r)
 		return
@@ -125,6 +128,9 @@ func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) updateInternetRadioStation(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	if isMultipart(r) {
 		h.updateRadioMultipart(w, r)
 		return
@@ -248,6 +254,9 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	idStr := paramStr(r, "id")
 	if idStr == "" {
 		writeError(w, 10, "missing id parameter")

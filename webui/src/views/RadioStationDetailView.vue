@@ -297,6 +297,7 @@ onUnmounted(() => {
                     @click="searchVisible = true"
                 />
                 <EditActionBar
+                    v-if="isAdmin"
                     v-model:editing="editing"
                     :can-delete="!create"
                     :save-disabled="!valid"

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
+	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/app/spa"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -19,6 +21,7 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
+	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
 	"github.com/go-bumbu/userauth/service/pat"
@@ -101,6 +104,33 @@ type MainAppHandler struct {
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.router.ServeHTTP(w, r)
+}
+
+// restAdminChecker reports whether a /rest owner (a login, per requestOwner)
+// holds the admin role, for the spec's admin-only endpoints (radio CRUD
+// writes). Role comes from the DB groups in both modes: native writes them
+// directly, proxy mode mirrors the header-derived role into them on every
+// /api/v1 request (resolveProxyIdentity) because /rest is proxy-bypassed and
+// carries no identity headers. nil when auth is "none" — single fixed owner,
+// no roles to check.
+func (h *MainAppHandler) restAdminChecker() subsonic.AdminChecker {
+	if h.users == nil {
+		return nil
+	}
+	return func(owner string) (bool, error) {
+		usr, err := h.users.GetUserByLogin(owner)
+		if err != nil {
+			if errors.Is(err, userauth.ErrUserNotFound) {
+				return false, nil // fail closed, not an infrastructure error
+			}
+			return false, err
+		}
+		role, err := usersHandler.RoleOf(h.users, usr.ID)
+		if err != nil {
+			return false, err
+		}
+		return role == usersHandler.RoleAdmin, nil
+	}
 }
 
 // patIdentityResolver authenticates /rest via the OpenSubsonic apiKey
@@ -206,7 +236,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		// cover_path), so they are confined to the configured library roots — read
 		// on demand, since libraries are added while the server runs.
 		subsonic.Register(app.router, app.store, app.assets, app.images, identity,
-			subsonic.WithLibraryRoots(app.store.LibraryRoots))
+			subsonic.WithLibraryRoots(app.store.LibraryRoots),
+			subsonic.WithAdminChecker(app.restAdminChecker()))
 	}
 
 	if err := app.attachSpa(app.router.PathPrefix("/").Subrouter(), "/"); err != nil {

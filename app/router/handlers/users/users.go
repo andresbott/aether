@@ -355,11 +355,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, userDTO{ID: id, Login: login, Enabled: enabled, Role: role})
 }
 
-// setRole rewrites the user's group memberships to encode the role. Only
+// SetRole rewrites the user's group memberships to encode the role. Only
 // AdminGroup is touched: any other (future) memberships survive a promotion
-// or demotion.
-func (h *Handler) setRole(userID, role string) error {
-	groups, err := h.Users.GetGroups(userID)
+// or demotion. Exported because proxy mode mirrors the header-derived role
+// into the DB so surfaces the proxy bypasses (/rest) can consult it.
+func SetRole(store *userdb.Store, userID, role string) error {
+	groups, err := store.GetGroups(userID)
 	if err != nil {
 		return err
 	}
@@ -372,7 +373,11 @@ func (h *Handler) setRole(userID, role string) error {
 	if role == RoleAdmin {
 		next = append(next, AdminGroup)
 	}
-	return h.Users.SetGroups(userID, next)
+	return store.SetGroups(userID, next)
+}
+
+func (h *Handler) setRole(userID, role string) error {
+	return SetRole(h.Users, userID, role)
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {

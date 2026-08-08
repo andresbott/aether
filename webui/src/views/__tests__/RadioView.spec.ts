@@ -16,6 +16,9 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
     useRadioStations: () => ({ data: stations, isLoading: ref(false) })
 }))
 
+const isAdmin = ref(true)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin }) }))
+
 // Stub the scaffold so the test asserts what RadioView passes to it (its own
 // responsibility) rather than the scaffold's internal markup — the scaffold has
 // its own spec. Slots are rendered so header actions stay clickable.
@@ -53,6 +56,7 @@ beforeEach(() => {
     push.mockReset()
     route.query = {}
     stations.value = []
+    isAdmin.value = true
 })
 
 describe('RadioView', () => {
@@ -105,5 +109,10 @@ describe('RadioView', () => {
         const w = mountView()
         await w.find('.add-station').trigger('click')
         expect(push).toHaveBeenCalledWith({ name: 'radio-station-new' })
+    })
+
+    it('hides the add button for non-admins (station CRUD is admin-only)', () => {
+        isAdmin.value = false
+        expect(mountView().find('.add-station').exists()).toBe(false)
     })
 })

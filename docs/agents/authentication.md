@@ -69,8 +69,14 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   the `admin` group (`users.AdminGroup`) makes a user an admin; a user with
   no groups is a regular user. The users CRUD exposes this as a `role`
   field (`"admin"`/`"user"`) and the bootstrapped initial admin is seeded
-  into the group. The `/api/v1` guard enforces the admin role (see below);
-  gating radio CRUD writes (on `/rest`) is still pending (TODO.md).
+  into the group. The `/api/v1` guard enforces the admin role (see below).
+  On `/rest`, the spec's admin-only endpoints (radio CRUD writes) are gated
+  via `subsonic.WithAdminChecker`: the router injects `restAdminChecker`
+  (owner login → `users.RoleOf`), handlers call `requireAdmin` (Subsonic
+  error 50). nil checker (auth "none") passes everyone. Proxy mode mirrors
+  the header-derived role into the DB groups on every `/api/v1` request
+  (`resolveProxyIdentity`) so the DB-only `/rest` checker agrees with the
+  IdP — `/rest` is proxy-bypassed and carries no identity headers.
 - **PAT system** — per-user tokens verified by an `IdentityResolver` the
   router injects into `subsonic.Register`
   (`MainAppHandler.patIdentityResolver`, `app/router/main.go`). It parses
@@ -212,8 +218,7 @@ Validation in `update` happens entirely before the first store write: the
 mutations are separate store calls rather than one transaction, so a late
 rejection would leave the update half-applied.
 
-Still missing from this mode: change-own-password UI and the radio CRUD
-write gate on `/rest`.
+Still missing from this mode: change-own-password UI.
 
 ## Mode: proxy-header (Authelia) — implemented
 
