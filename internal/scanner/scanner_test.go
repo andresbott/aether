@@ -51,7 +51,7 @@ func seedLibrary(t *testing.T, s *store.Store, path string, excludes []string) *
 type fakeTagReader struct{}
 
 func (fakeTagReader) CanRead(absPath string) bool { return scanner.IsAudioFile(absPath) }
-func (fakeTagReader) Read(absPath string) (tags.Metadata, error) {
+func (fakeTagReader) Read(_ context.Context, absPath string) (tags.Metadata, error) {
 	name := filepath.Base(absPath)
 	dir := filepath.Base(filepath.Dir(absPath))
 	return tags.Metadata{
@@ -226,7 +226,7 @@ func TestScannerMultipleLibraries(t *testing.T) {
 type multiTagReader struct{}
 
 func (multiTagReader) CanRead(absPath string) bool { return scanner.IsAudioFile(absPath) }
-func (multiTagReader) Read(absPath string) (tags.Metadata, error) {
+func (multiTagReader) Read(_ context.Context, absPath string) (tags.Metadata, error) {
 	return tags.Metadata{
 		Title:       filepath.Base(absPath),
 		Artist:      []string{"Artist A", "Artist B"},

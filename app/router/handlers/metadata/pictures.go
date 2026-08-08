@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -59,9 +60,9 @@ func requestedType(r *http.Request) (metadataedit.PictureType, error) {
 
 // selectionPaths resolves the request's repeated paths params (the selected
 // tracks) to absolute paths, falling back to every track in the folder.
-func (h *Handler) selectionPaths(lib *librarySummary, abs string, paths []string) []string {
+func (h *Handler) selectionPaths(ctx context.Context, lib *librarySummary, abs string, paths []string) []string {
 	if len(paths) == 0 {
-		return folderTrackPaths(lib, abs, h.Reader)
+		return folderTrackPaths(ctx, lib, abs, h.Reader)
 	}
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {
@@ -78,8 +79,8 @@ func (h *Handler) selectionPaths(lib *librarySummary, abs string, paths []string
 // resolved over every directory the selection spans, with the first one acting
 // as the album's primary (representative) folder. Falls back to the requested
 // folder when the selection is empty.
-func (h *Handler) selectionDirs(lib *librarySummary, abs string, paths []string) []string {
-	dirs := distinctDirs(h.selectionPaths(lib, abs, paths))
+func (h *Handler) selectionDirs(ctx context.Context, lib *librarySummary, abs string, paths []string) []string {
+	dirs := distinctDirs(h.selectionPaths(ctx, lib, abs, paths))
 	if len(dirs) == 0 {
 		return []string{abs}
 	}
@@ -104,8 +105,8 @@ func distinctDirs(trackPaths []string) []string {
 // albumForSelection resolves the scanned album of the selection. It tries the
 // selected tracks first (a multi-disc album's requested folder is the parent of
 // the disc folders and holds no track of its own), then the requested folder.
-func (h *Handler) albumForSelection(lib *librarySummary, abs string, paths []string) (*model.Album, error) {
-	for _, trackAbs := range h.selectionPaths(lib, abs, paths) {
+func (h *Handler) albumForSelection(ctx context.Context, lib *librarySummary, abs string, paths []string) (*model.Album, error) {
+	for _, trackAbs := range h.selectionPaths(ctx, lib, abs, paths) {
 		if album, err := h.Store.GetAlbumByTrackPath(trackAbs); err == nil {
 			return album, nil
 		}
@@ -114,8 +115,8 @@ func (h *Handler) albumForSelection(lib *librarySummary, abs string, paths []str
 }
 
 // folderTrackPaths returns the absolute paths of the audio tracks in abs.
-func folderTrackPaths(lib *librarySummary, abs string, reader tags.Reader) []string {
-	rows, _ := metadataedit.ListTracks(lib.Path, abs, reader)
+func folderTrackPaths(ctx context.Context, lib *librarySummary, abs string, reader tags.Reader) []string {
+	rows, _ := metadataedit.ListTracks(ctx, lib.Path, abs, reader)
 	out := make([]string, 0, len(rows))
 	for _, t := range rows {
 		if trackAbs, err := metadataedit.ResolveInLibrary(lib.Path, t.Path); err == nil {
@@ -195,10 +196,10 @@ func fileSum(path string) ([sha256.Size]byte, error) {
 // pictureForSlot resolves one type+slot cell, or ok=false when empty. paths
 // are the selected tracks; they also determine the directories a folder
 // picture is looked up in (empty = the requested folder).
-func (h *Handler) pictureForSlot(lib *librarySummary, abs string, pt metadataedit.PictureType, slot string, paths []string) (resolvedPicture, bool) {
+func (h *Handler) pictureForSlot(ctx context.Context, lib *librarySummary, abs string, pt metadataedit.PictureType, slot string, paths []string) (resolvedPicture, bool) {
 	switch slot {
 	case "db":
-		album, err := h.albumForSelection(lib, abs, paths)
+		album, err := h.albumForSelection(ctx, lib, abs, paths)
 		if err != nil || h.Assets == nil {
 			return resolvedPicture{}, false
 		}
@@ -207,11 +208,11 @@ func (h *Handler) pictureForSlot(lib *librarySummary, abs string, pt metadataedi
 			return resolvedPicture{filePath: p}, true
 		}
 	case "folder":
-		if name, path, _, found := folderPictureAcross(h.selectionDirs(lib, abs, paths), pt); found {
+		if name, path, _, found := folderPictureAcross(h.selectionDirs(ctx, lib, abs, paths), pt); found {
 			return resolvedPicture{detail: name, filePath: path}, true
 		}
 	case "embedded":
-		for _, trackAbs := range h.embeddedProbeOrder(lib, abs, pt, paths) {
+		for _, trackAbs := range h.embeddedProbeOrder(ctx, lib, abs, pt, paths) {
 			if data, ok, err := metadataedit.ReadEmbeddedPicture(trackAbs, pt.ID); err == nil && ok {
 				return resolvedPicture{data: data}, true
 			}
@@ -222,12 +223,12 @@ func (h *Handler) pictureForSlot(lib *librarySummary, abs string, pt metadataedi
 
 // embeddedProbeOrder lists the tracks to probe for an embedded picture,
 // preferring the scanned album's flagged cover track for front covers.
-func (h *Handler) embeddedProbeOrder(lib *librarySummary, abs string, pt metadataedit.PictureType, paths []string) []string {
-	tracks := h.selectionPaths(lib, abs, paths)
+func (h *Handler) embeddedProbeOrder(ctx context.Context, lib *librarySummary, abs string, pt metadataedit.PictureType, paths []string) []string {
+	tracks := h.selectionPaths(ctx, lib, abs, paths)
 	if pt.ID != frontCoverType {
 		return tracks
 	}
-	if album, err := h.albumForSelection(lib, abs, paths); err == nil {
+	if album, err := h.albumForSelection(ctx, lib, abs, paths); err == nil {
 		if tp, e := h.Store.GetCoverTrackPath(album.ID); e == nil && tp != "" {
 			return append([]string{tp}, tracks...)
 		}
@@ -259,7 +260,7 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	tracks := h.selectionPaths(lib, abs, r.URL.Query()["paths"])
+	tracks := h.selectionPaths(r.Context(), lib, abs, r.URL.Query()["paths"])
 
 	// One taglib properties read per track, counting pictures per type.
 	embeddedCount := map[string]int{}
@@ -278,12 +279,12 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var albumKey string
-	if album, aerr := h.albumForSelection(lib, abs, r.URL.Query()["paths"]); aerr == nil {
+	if album, aerr := h.albumForSelection(r.Context(), lib, abs, r.URL.Query()["paths"]); aerr == nil {
 		albumKey = strconv.FormatUint(uint64(album.ID), 10)
 	}
 	// Folder art is looked up in every directory the selection spans, so a
 	// multi-disc album reports the art of its disc folders as one cell.
-	dirs := h.selectionDirs(lib, abs, r.URL.Query()["paths"])
+	dirs := h.selectionDirs(r.Context(), lib, abs, r.URL.Query()["paths"])
 
 	out := make([]pictureDTO, 0, len(metadataedit.PictureTypes))
 	for _, pt := range metadataedit.PictureTypes {
@@ -329,7 +330,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 
-	rp, ok := h.pictureForSlot(lib, abs, pt, slot, r.URL.Query()["paths"])
+	rp, ok := h.pictureForSlot(r.Context(), lib, abs, pt, slot, r.URL.Query()["paths"])
 	if !ok {
 		http.NotFound(w, r)
 		return
@@ -606,10 +607,10 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 	// acts on and the set handed to the post-delete re-index, so the two can
 	// never disagree. Re-deriving it inside a case would mean a second
 	// directory listing when the client sends no explicit paths.
-	rescanPaths := h.selectionPaths(lib, abs, paths)
+	rescanPaths := h.selectionPaths(r.Context(), lib, abs, paths)
 	switch r.URL.Query().Get("slot") {
 	case "db":
-		album, aerr := h.albumForSelection(lib, abs, paths)
+		album, aerr := h.albumForSelection(r.Context(), lib, abs, paths)
 		if aerr != nil {
 			writeErr(w, http.StatusNotFound, "not_found", "album not found for this folder")
 			return
@@ -624,7 +625,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 	case "folder":
 		// Mirrors the save fan-out: the art was written into every directory the
 		// album spans, so remove it from each of them.
-		for _, dir := range h.selectionDirs(lib, abs, paths) {
+		for _, dir := range h.selectionDirs(r.Context(), lib, abs, paths) {
 			name := folderPictureName(dir, pt)
 			if name == "" {
 				continue
@@ -635,7 +636,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if pt.ID == frontCoverType {
-			if album, aerr := h.albumForSelection(lib, abs, paths); aerr == nil {
+			if album, aerr := h.albumForSelection(r.Context(), lib, abs, paths); aerr == nil {
 				_ = h.Store.SetAlbumCoverPath(album.ID, "")
 			}
 		}

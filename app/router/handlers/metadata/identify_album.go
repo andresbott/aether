@@ -85,7 +85,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		album, title, trackNo, discNo := h.currentTags(abs)
+		album, title, trackNo, discNo := h.currentTags(r.Context(), abs)
 		inputs = append(inputs, albumidentify.Input{
 			Path:               p,
 			AbsPath:            abs,
@@ -125,11 +125,11 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 // currentTags reads the tag values albumidentify uses as ranking and gap-fill
 // hints. A read failure is silent: the hints are optional, and the file's real
 // problem (if any) shows up on its assignment row.
-func (h *Handler) currentTags(absPath string) (album, title string, trackNumber, discNumber int) {
+func (h *Handler) currentTags(ctx context.Context, absPath string) (album, title string, trackNumber, discNumber int) {
 	if h.Reader == nil {
 		return "", "", 0, 0
 	}
-	meta, err := h.Reader.Read(absPath)
+	meta, err := h.Reader.Read(ctx, absPath)
 	if err != nil {
 		return "", "", 0, 0
 	}

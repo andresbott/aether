@@ -55,7 +55,7 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 			stats.TracksSkipped++
 			continue
 		}
-		meta, rerr := s.tagReader.Read(abs)
+		meta, rerr := s.tagReader.Read(ctx, abs)
 		if rerr != nil {
 			stats.Errors = append(stats.Errors, fmt.Errorf("read tags %q: %w", abs, rerr))
 			continue

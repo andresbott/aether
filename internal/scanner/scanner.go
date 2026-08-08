@@ -134,7 +134,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 				if !s.tagReader.CanRead(wr.FilePath) {
 					continue
 				}
-				meta, err := s.tagReader.Read(wr.FilePath)
+				meta, err := s.tagReader.Read(ctx, wr.FilePath)
 				if err != nil {
 					mu.Lock()
 					stats.Errors = append(stats.Errors, err)

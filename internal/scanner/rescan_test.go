@@ -20,7 +20,7 @@ type stubReader struct {
 
 func (r stubReader) CanRead(absPath string) bool { return scanner.IsAudioFile(absPath) }
 
-func (r stubReader) Read(absPath string) (tags.Metadata, error) {
+func (r stubReader) Read(_ context.Context, absPath string) (tags.Metadata, error) {
 	m, ok := r.meta[absPath]
 	if !ok {
 		return tags.Metadata{}, tags.ErrUnsupported

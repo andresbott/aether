@@ -2,6 +2,7 @@
 package tags
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -10,6 +11,14 @@ import (
 	"strings"
 	"time"
 )
+
+// FFProbeTimeout bounds a single ffprobe invocation. Cancellation alone is not
+// enough: a scheduled scan has nobody to cancel it, so a file that makes ffprobe
+// wedge (a malformed container, an unresponsive network mount) would hang a scan
+// worker for the lifetime of the process. Generous enough for a tag read from
+// spinning rust or NFS — this is a safety net for pathological files, not a
+// tuning knob.
+const FFProbeTimeout = 30 * time.Second
 
 var ffprobeExtensions = map[string]bool{
 	".mp3": true, ".flac": true, ".ogg": true, ".opus": true, ".m4a": true, ".m4b": true,
@@ -24,8 +33,13 @@ func (FFProbeReader) CanRead(absPath string) bool {
 	return ffprobeExtensions[strings.ToLower(filepath.Ext(absPath))]
 }
 
-func (FFProbeReader) Read(absPath string) (Metadata, error) {
-	out, err := exec.Command( //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
+func (FFProbeReader) Read(ctx context.Context, absPath string) (Metadata, error) {
+	// Derived from the caller's context, so the read ends on whichever comes
+	// first: the caller giving up, or FFProbeTimeout catching a wedged process.
+	ctx, cancel := context.WithTimeout(ctx, FFProbeTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
 		"ffprobe", "-hide_banner", "-v", "0", "-i", absPath,
 		// The attached picture's type only shows up in the stream's "comment"
 		// tag, and its disposition tells a cover apart from a real video
@@ -34,6 +48,12 @@ func (FFProbeReader) Read(absPath string) (Metadata, error) {
 		"-of", "json",
 	).Output()
 	if err != nil {
+		// A killed process reports a generic "signal: killed"; the context says
+		// why, which is the difference between "this file is broken" and "we gave
+		// up on it" in a scan's error list.
+		if ctx.Err() != nil {
+			return Metadata{}, fmt.Errorf("ffprobe %q: %w", absPath, ctx.Err())
+		}
 		return Metadata{}, fmt.Errorf("ffprobe exec: %w", err)
 	}
 	return parseFFProbeJSON(out)

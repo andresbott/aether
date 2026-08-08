@@ -2,6 +2,7 @@
 package tags
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -21,7 +22,15 @@ func (TaglibReader) CanRead(absPath string) bool {
 	return taglibExtensions[strings.ToLower(filepath.Ext(absPath))]
 }
 
-func (TaglibReader) Read(absPath string) (Metadata, error) {
+// Read honours ctx only up front. The taglib calls below are synchronous cgo
+// with no cancellation of their own, so once one is under way it runs to
+// completion; checking here at least keeps an already-abandoned scan from
+// starting more reads. This is why FFProbeReader, which can be interrupted,
+// carries the timeout instead.
+func (TaglibReader) Read(ctx context.Context, absPath string) (Metadata, error) {
+	if err := ctx.Err(); err != nil {
+		return Metadata{}, fmt.Errorf("taglib %q: %w", absPath, err)
+	}
 	props, err := taglib.ReadProperties(absPath)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("read properties: %w", err)

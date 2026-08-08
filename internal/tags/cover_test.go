@@ -2,6 +2,7 @@
 package tags_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -49,7 +50,7 @@ func TestTaglibReaderHasCoverIgnoresNonFrontTypes(t *testing.T) {
 			if err := taglib.WriteImageOptions(path, []byte{0xFF, 0xD8, 0xFF, 0xD9}, 0, tt.typeID, "", "image/jpeg"); err != nil {
 				t.Fatalf("write %s: %v", tt.typeID, err)
 			}
-			m, err := tags.TaglibReader{}.Read(path)
+			m, err := tags.TaglibReader{}.Read(context.Background(), path)
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
@@ -69,7 +70,7 @@ func TestTaglibReaderHasCoverFindsFrontBehindBack(t *testing.T) {
 	if err := taglib.WriteImageOptions(path, []byte{0xFF, 0xD8, 0xFF, 0xD9}, 1, "Front Cover", "", "image/jpeg"); err != nil {
 		t.Fatalf("write front: %v", err)
 	}
-	m, err := tags.TaglibReader{}.Read(path)
+	m, err := tags.TaglibReader{}.Read(context.Background(), path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}

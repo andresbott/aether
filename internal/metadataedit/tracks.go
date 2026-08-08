@@ -1,6 +1,7 @@
 package metadataedit
 
 import (
+	"context"
 	"io/fs"
 	"path/filepath"
 	"sort"
@@ -38,10 +39,16 @@ type Track struct {
 // which reader.CanRead returns true. Paths in the result are relative to
 // libRoot. Read failures are captured per-row (non-fatal) so the client can
 // still see the file.
-func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
+//
+// A folder can hold hundreds of files, so ctx aborts the walk rather than
+// reading the rest for a client that has already gone away.
+func ListTracks(ctx context.Context, libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 	cleanRoot := filepath.Clean(libRoot)
 	var out []Track
 	err := filepath.WalkDir(absDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if walkErr != nil {
 			return nil // skip unreadable subtree silently
 		}
@@ -63,7 +70,7 @@ func ListTracks(libRoot, absDir string, reader tags.Reader) ([]Track, error) {
 			MBArtistIDs:      []string{},
 			MBAlbumArtistIDs: []string{},
 		}
-		meta, rerr := reader.Read(path)
+		meta, rerr := reader.Read(ctx, path)
 		if rerr != nil {
 			row.Error = rerr.Error()
 			out = append(out, row)

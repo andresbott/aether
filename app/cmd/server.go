@@ -297,8 +297,19 @@ func serveHTTP(ctx context.Context, srv *http.Server, l *slog.Logger, component 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	// Shutdown drains idle connections but only *waits* for in-flight handlers —
+	// it never cancels their request context, so a handler doing slow work (an
+	// upstream lookup retrying with a 20s client timeout, a tag read shelling out
+	// to ffprobe) runs to completion regardless. Without the Close below, the
+	// expired grace period is merely logged and the <-serveErr wait right after
+	// keeps blocking on that same handler. Close drops the underlying connections,
+	// which is what actually cancels the request context and lets the process go.
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		l.Warn(component+" server shutdown error", slog.String("component", component), slog.String("error", err.Error()))
+		l.Warn(component+" server shutdown error, closing remaining connections",
+			slog.String("component", component), slog.String("error", err.Error()))
+		if cerr := srv.Close(); cerr != nil {
+			l.Warn(component+" server close error", slog.String("component", component), slog.String("error", cerr.Error()))
+		}
 	}
 	l.Info(component+" server stopped", slog.String("component", component))
 	if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {

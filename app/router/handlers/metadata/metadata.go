@@ -258,7 +258,7 @@ func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	rows, err := metadataedit.ListTracks(lib.Path, abs, h.Reader)
+	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -422,7 +422,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	for i, abs := range resolved {
 		var cur metadataedit.CurrentTags
 		if needMB {
-			meta, rerr := h.Reader.Read(abs)
+			meta, rerr := h.Reader.Read(r.Context(), abs)
 			if rerr != nil {
 				results = append(results, updateResult{Path: body.Paths[i], OK: false, Error: rerr.Error()})
 				continue
