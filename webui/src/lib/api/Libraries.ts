@@ -30,9 +30,15 @@ export async function deleteLibrary(id: number): Promise<void> {
     await apiClient.delete(`/libraries/${id}`)
 }
 
-export async function browseFolders(path?: string): Promise<BrowseResponse> {
+export async function browseFolders(
+    path?: string,
+    showHidden = false
+): Promise<BrowseResponse> {
     const { data } = await apiClient.get<BrowseResponse>('/libraries/browse', {
-        params: path ? { path } : {}
+        params: {
+            ...(path ? { path } : {}),
+            ...(showHidden ? { show_hidden: true } : {})
+        }
     })
     return data
 }
