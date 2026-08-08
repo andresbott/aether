@@ -91,6 +91,99 @@ func pngBytes(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+// newRadioServerWithRoles registers /rest with the header identity resolver
+// from newTestServerWithIdentity plus an AdminChecker that recognizes exactly
+// one admin login, so tests can exercise the radio write gate per role.
+func newRadioServerWithRoles(t *testing.T, s *store.Store, adminLogin string) *httptest.Server {
+	t.Helper()
+	as := assetstore.New(t.TempDir())
+	r := mux.NewRouter()
+	Register(r, s, as, imagecache.New(t.TempDir()),
+		func(r *http.Request) (string, int) {
+			u := r.Header.Get("X-Test-User")
+			if u == "" {
+				return "", 40
+			}
+			return u, 0
+		},
+		WithAdminChecker(func(owner string) (bool, error) {
+			return owner == adminLogin, nil
+		}),
+	)
+	return httptest.NewServer(r)
+}
+
+func radioGetAs(t *testing.T, srv *httptest.Server, user, pathAndQuery string) radioEnvelope {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, srv.URL+pathAndQuery, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-User", user)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return decodeRadio(t, resp)
+}
+
+// The spec restricts createInternetRadioStation, updateInternetRadioStation
+// and deleteInternetRadioStation to admin users; a non-admin must get error
+// 50 and no write may happen. getInternetRadioStations stays open to all.
+func TestRadioWritesRequireAdmin(t *testing.T) {
+	s := testStore(t)
+	st, _ := s.CreateInternetRadioStation("Keep", "http://keep", "")
+	srv := newRadioServerWithRoles(t, s, "root")
+	defer srv.Close()
+
+	writes := map[string]string{
+		"create": "/rest/createInternetRadioStation.view?name=X&streamUrl=http://x",
+		"update": fmt.Sprintf("/rest/updateInternetRadioStation.view?id=rs-%d&name=Y&streamUrl=http://y", st.ID),
+		"delete": fmt.Sprintf("/rest/deleteInternetRadioStation.view?id=rs-%d", st.ID),
+	}
+	for name, path := range writes {
+		body := radioGetAs(t, srv, "bob", path)
+		if body.SubsonicResponse.Status != "failed" || body.SubsonicResponse.Error.Code != 50 {
+			t.Errorf("%s as non-admin: expected error 50, got %+v", name, body.SubsonicResponse)
+		}
+	}
+
+	// Nothing was written: still one station, untouched.
+	var loaded model.InternetRadioStation
+	s.DB().First(&loaded, st.ID)
+	if loaded.Name != "Keep" || loaded.StreamURL != "http://keep" {
+		t.Fatalf("station modified by non-admin: %+v", loaded)
+	}
+	var count int64
+	s.DB().Model(&model.InternetRadioStation{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 station, got %d", count)
+	}
+
+	// Reads stay open to non-admins.
+	body := radioGetAs(t, srv, "bob", "/rest/getInternetRadioStations.view")
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("read as non-admin: expected ok, got %+v", body.SubsonicResponse)
+	}
+}
+
+func TestRadioWritesAllowAdmin(t *testing.T) {
+	s := testStore(t)
+	srv := newRadioServerWithRoles(t, s, "root")
+	defer srv.Close()
+
+	body := radioGetAs(t, srv, "root", "/rest/createInternetRadioStation.view?name=X&streamUrl=http://x")
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("create as admin: expected ok, got %+v", body.SubsonicResponse)
+	}
+	var count int64
+	s.DB().Model(&model.InternetRadioStation{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 station persisted, got %d", count)
+	}
+}
+
 func TestRadioKeyStable(t *testing.T) {
 	k1 := RadioKey("http://a/stream")
 	k2 := RadioKey("http://a/stream")

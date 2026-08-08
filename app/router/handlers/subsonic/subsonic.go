@@ -22,6 +22,13 @@ import (
 // policy (docs/agents/authentication.md); handlers only ever see the owner.
 type IdentityResolver func(r *http.Request) (owner string, code int)
 
+// AdminChecker reports whether owner holds the admin role. The router
+// injects it alongside the IdentityResolver (same seam: auth policy lives
+// outside the handlers); nil means no role system exists (auth "none") and
+// every caller passes. Spec-restricted endpoints (the radio CRUD writes)
+// consult it via requireAdmin.
+type AdminChecker func(owner string) (bool, error)
+
 // ownerCtxKey carries the resolved owner on the request context.
 type ownerCtxKey struct{}
 
@@ -36,6 +43,26 @@ func requestOwner(r *http.Request) string {
 		return v
 	}
 	return defaultOwner
+}
+
+// requireAdmin answers Subsonic error 50 (not authorized) unless the session
+// owner holds the admin role, reporting whether the handler may proceed. With
+// no AdminChecker installed (auth "none") every caller passes: that mode has
+// a single fixed owner who is the admin.
+func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if h.admin == nil {
+		return true
+	}
+	ok, err := h.admin(requestOwner(r))
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return false
+	}
+	if !ok {
+		writeError(w, 50, "admin privileges required")
+		return false
+	}
+	return true
 }
 
 // authErrorMessage keeps the per-code wording uniform: no distinction
@@ -57,6 +84,9 @@ type Handler struct {
 	store  *store.Store
 	assets *assetstore.Store
 	images *imagecache.Cache
+	// admin reports whether an owner holds the admin role; nil means no role
+	// system (auth "none") and requireAdmin passes everyone.
+	admin AdminChecker
 	// mediaGuard confines the files the media handlers will read to the
 	// configured library roots. Paths reach those handlers from the DB, not from
 	// the request, so this enforces that a track/cover row actually points into a
@@ -74,6 +104,15 @@ type Handler struct {
 
 // Option customizes the /rest handler at registration time.
 type Option func(*Handler)
+
+// WithAdminChecker installs the role lookup behind requireAdmin, gating the
+// spec's admin-only endpoints (radio CRUD writes). Not installing it leaves
+// them open to every authenticated user — correct only for auth "none".
+func WithAdminChecker(admin AdminChecker) Option {
+	return func(h *Handler) {
+		h.admin = admin
+	}
+}
 
 // WithMediaRoots confines stream/getCoverArt to files under a fixed set of
 // roots. Called with no usable roots it installs no guard, so a server with no

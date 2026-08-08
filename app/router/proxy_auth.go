@@ -57,6 +57,20 @@ func (h *MainAppHandler) resolveProxyIdentity(w http.ResponseWriter, r *http.Req
 			break
 		}
 	}
+	// Mirror the header-derived role into the DB groups. The IdP stays
+	// authoritative on /api/v1 (the guard uses the live role above, never the
+	// DB) — but /rest is proxy-bypassed and carries no identity headers, so
+	// its admin check (restAdminChecker) can only consult the DB. Written only
+	// on change, so the steady state costs one read per request.
+	stored, err := usersHandler.RoleOf(h.users, usr.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if stored != role {
+		if err := usersHandler.SetRole(h.users, usr.ID, role); err != nil {
+			return nil, nil, err
+		}
+	}
 	return &proxyIdentity{UserID: usr.ID, Login: usr.LoginID, Role: role}, &usr, nil
 }
 
