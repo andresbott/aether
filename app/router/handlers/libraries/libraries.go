@@ -59,6 +59,15 @@ func parseID(r *http.Request) (uint, error) {
 	return uint(id), nil
 }
 
+// parseBoolParam reads an optional boolean query parameter; an absent value is
+// false.
+func parseBoolParam(raw string) (bool, error) {
+	if raw == "" {
+		return false, nil
+	}
+	return strconv.ParseBool(raw)
+}
+
 func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	patterns, _ := decodeExcludePatterns(lib.ExcludePatterns)
 	count, err := h.Store.CountTracksForLibrary(lib.ID)

@@ -65,8 +65,8 @@ DataDir: "./data"
 # http://localhost:8076 (AdminBootstrap is ignored in this mode; kept for
 # switching back to "native").
 Auth:
-  Method: "proxy-header"
-#  Method: "native"
+#  Method: "proxy-header"
+  Method: "native"
   AdminBootstrap:
     User: "admin"
     Pw: "admin"

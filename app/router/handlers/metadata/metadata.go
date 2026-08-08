@@ -216,7 +216,10 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	folders, err := metadataedit.ListFolders(abs)
+	// No symlinks here, unlike the library path picker: this tree is confined to
+	// the library root by ResolveInLibrary, which checks paths lexically, so a
+	// followed link would be a way out of the root.
+	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return

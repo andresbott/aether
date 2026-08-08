@@ -50,6 +50,7 @@ export interface BrowseFolder {
     name: string
     path: string
     has_subfolders: boolean
+    is_symlink: boolean
 }
 
 export interface BrowseResponse {
