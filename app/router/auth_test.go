@@ -10,6 +10,8 @@ import (
 	"time"
 
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/service/pat"
@@ -21,11 +23,14 @@ import (
 // newNativeAuthRouter builds a router in the shape native mode always has in
 // production: a user store AND a cookie session manager, so the /api/v1
 // session guard is installed. Admin alice/secret and regular user bob/secret
-// exist.
+// exist. When withStore is true, also registers /rest endpoints.
 func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
 	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
@@ -38,13 +43,13 @@ func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err := users.Create("bob", "secret"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
+	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.Options.Secure = false
+	cookieStore.Options.Secure = false
 	sessions, err := cookieauth.New(cookieauth.Cfg{
-		Store:         store,
+		Store:         cookieStore,
 		SessionDur:    time.Hour,
 		MaxSessionDur: 24 * time.Hour,
 		AllowRenew:    true,
@@ -60,7 +65,14 @@ func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens})
+	h, err := New(Cfg{
+		AuthMethod: "native",
+		Users:      users,
+		Sessions:   sessions,
+		Tokens:     tokens,
+		Store:      store.New(db),
+		DataDir:    t.TempDir(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
