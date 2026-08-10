@@ -52,7 +52,7 @@ whole app whenever auth method `native` reports no session (see
 | `GenreDetailView` | `/genre/:name` | Single genre detail (hero + paged song list) |
 | `RadioView` | `/radio` | List of radio stations |
 | `RadioStationDetailView` | `/radio/:id`, `/radio/new` | Station detail + create form (same component, `create` prop) |
-| `UserSettingsView` | `/user-settings` | Personal settings (identity, theme, API tokens). Reached from the sidebar's `UserMenu` popup, not from `/settings` |
+| `UserSettingsView` | `/user-settings/:tab?` | Personal settings (identity, theme, API tokens). Vertical tablist whose active section is the `tab` path segment (`general` \| `access`), so a reload or shared link reopens it; bare `/user-settings` is General, an unknown/unavailable section rewrites back to it. Reached from the sidebar's `UserMenu` popup, not from `/settings` |
 | `AboutView` | `/about` | About Aether (keyboard shortcuts reference, build info, source link). Reached from the `UserMenu` popup |
 
 **Settings views** — nested under `/settings` with `meta: { layout: 'settings' }` (not the music layout); `/settings` redirects to `/settings/libraries`. Settings is administration only: account concerns (user settings, logout) live in the sidebar's `UserMenu` popup. The whole area is **admin-only**: `useAuth().isAdmin` hides the `UserMenu` Admin entry and `App.vue` redirects non-admins landing on a settings route; the backend enforces it with 403 on `/api/v1` (see `docs/agents/authentication.md`):

@@ -15,7 +15,11 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/user-settings',
+        // The section is a path segment (/user-settings/access) so a reload or a
+        // shared link lands on the same panel. Bare /user-settings is the
+        // default (General) section; the view rewrites an unknown or
+        // unavailable section back to it.
+        path: '/user-settings/:tab?',
         name: 'user-settings',
         component: () => import('@/views/UserSettingsView.vue'),
         meta: { flush: true }

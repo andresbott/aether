@@ -10,8 +10,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 - [ ] Authentication — implement real user auth with Subsonic token validation. The model is **decided**: see [`docs/agents/authentication.md`](docs/agents/authentication.md) (two modes, `native` and `proxy-header`, sharing one token layer — **both implemented**). Implement it, don't invent alternatives. **PAT layer implemented**: `/rest` authenticates via OpenSubsonic `apiKey` (PATs, hash-only storage in `userauth`'s `pat` service); session-scoped mint endpoint (`POST /api/v1/auth/token`) + CRUD endpoints (`/api/v1/auth/tokens[/*]`); SPA lifecycle (boot mint, transparent re-mint, generation counter on logout); PAT management UI in UserSettingsView. Sec-Fetch-Site CSRF mitigation and the interim cookie resolver removed.
 - [x] Gate radio station CRUD (create/update/delete) behind admin role — **done**. The three write handlers call `requireAdmin` (Subsonic error 50; reads stay open). Role plumbing: `subsonic.WithAdminChecker` injects an `AdminChecker` (owner login → is-admin) next to the `IdentityResolver`; the router wires `restAdminChecker` (`app/router/main.go`), which resolves the login to a user row and applies `users.RoleOf`. nil checker (auth "none") passes everyone — single fixed owner. Proxy mode mirrors the header-derived role into the DB groups on `/api/v1` requests (`resolveProxyIdentity`) because `/rest` is proxy-bypassed and the checker can only consult the DB.
 - [ ] Review the 25-tokens-per-user default (pat.Opts.MaxPerUser). **The spa half is fixed**: the mint sweep now revokes ALL of the caller's spa tokens (live included, since the SPA holds exactly one and the new mint supersedes it), so spa tokens are bounded at ~1/user and repeated boots can no longer hit the cap. What remains is the cap *policy* for user-created client PATs — 25 live client tokens alone still 409s on the next mint.
-- [ ] Subsonic external-client auth — third-party Subsonic apps (Symfonium, DSub, etc.) authenticate with the Subsonic protocol's own query-string credentials. Implement via per-user **Personal Access Tokens (PATs)**, added as a generic CRUD feature in the `userauth` library (aether wires routing, authorization, and the management UI). **`apiKey` auth implemented** (hash-only storage); what remains is the recoverable-storage half for salted-token (`t`+`s`) clients.
-    - [ ] Recoverable (encrypted-at-rest) PATs in userauth so salted-token (t+s) clients — Symfonium, DSub, most current apps — can authenticate; today only apiKey-capable clients work. Includes the "prefer t+s in URLs" hardening from authentication.md.
+- [x] Subsonic external-client auth — **done**. Third-party Subsonic apps authenticate via PATs in two forms: `apiKey` (any PAT) and password flows (`u`+`t`+`s` or `u`+`p`, where `u` is a usertoken PAT's tokenID). Both types implemented: apikey (hash-only) and usertoken (AES-256-GCM encrypted at rest, key in `<DataDir>/pat.keys`). See [`docs/agents/authentication.md`](docs/agents/authentication.md).
 
 ## Backend — API Surface
 
@@ -31,6 +30,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
     - [x] Embedded-cover lookup `GetCoverTrackPath` — **fixed**: the query now orders by `disc_number, track_number, file_path`, so the lowest `(disc, track)` track always wins and the choice no longer shifts with directory-walk order across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
     - Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile already re-checks a stored path every pass (`IsUsableCoverPath`), but nothing arbitrates between albums competing for one file.
+- [] how about to allow to configure an library ID number has fixed id in the config
 
 ## Backend — Resource Leaks
 
@@ -44,6 +44,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 - [] library also shows songs additionally to albums and artists
 - [] double click on a song adds it to the queue instead of replacing
 - [] impelemt radio mode queue => keep playing based on same type/taste
+- [] radio stations are not saved as queue between sessions
 
 ---
 

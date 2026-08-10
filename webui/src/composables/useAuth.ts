@@ -5,6 +5,7 @@ import { useMe, userQueryKeys } from '@/composables/useUsers'
 import { usePlayer } from '@/composables/usePlayer'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { explicitLogout, sessionExpired } from '@/lib/authState'
+import { DEVICE_ID_KEY } from '@/lib/deviceIdentity'
 import {
     subsonicReady,
     spaTokenId,
@@ -41,7 +42,12 @@ async function purgeLocalSession(qc: QueryClient): Promise<void> {
     // flush first so localStorage ends the purge actually empty.
     await nextTick()
     scope.stop()
+    // The device id identifies this APP INSTANCE, not the user: wiping it would
+    // make the next login mint under a fresh identity, orphaning this instance's
+    // server-side session and stacking a dead one per logout/login cycle.
+    const deviceId = localStorage.getItem(DEVICE_ID_KEY)
     localStorage.clear()
+    if (deviceId !== null) localStorage.setItem(DEVICE_ID_KEY, deviceId)
     resetSubsonicSession()
     // Reset (not clear) so active queries — /me above all — refetch
     // immediately and the login gate closes.

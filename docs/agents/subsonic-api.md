@@ -295,23 +295,30 @@ otherwise validate against the library roots first (also an open TODO).
 
 ## Authentication (current state)
 
-**`/rest` authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
-Tokens).** `subsonic.Register` takes an `IdentityResolver`
+**`/rest` authenticates via Personal Access Tokens** in two mechanisms
+(see [authentication.md](authentication.md) for the full model):
+
+- **`apiKey=<full token>`** — any PAT type (hash-only validation).
+- **`u=<virtual username>` with `t`+`s` (salted MD5) or `p` (plaintext/enc:hex)**
+  — the OpenSubsonic password flows, where `u` is a `usertoken` PAT's tokenID
+  (never a real login). Requires recoverable (encrypted-at-rest) storage.
+
+`subsonic.Register` takes an `IdentityResolver`
 (`subsonic.IdentityResolver`, `handlers/subsonic/subsonic.go`) and installs the
 middleware that calls it; the router supplies
 `MainAppHandler.patIdentityResolver` (`app/router/main.go`), which parses
-`apiKey` from query params and validates against `userauth`'s `pat` service
-(hash-only storage, prefix `aether_`). The resolver owns all auth policy —
-`Register` knows nothing about tokens, which is what lets auth "none" pass a
-fixed-owner resolver instead. Handlers read the resolved identity via
-`requestOwner(r)`. Every per-user surface — play queue, stars, playlists,
-history — is owner-scoped: data is keyed/filtered by the authenticated user's
-login. Error codes: 40 (no credentials), 43 (`apiKey` mixed with
-`u`/`p`/`t`/`s`), 44 (invalid key), 0 (verifier I/O failure). The `apiKey`
-value is masked (`apiKey=***`) in the request log's `RequestURI`. **Only
-apiKey-capable clients work today** — the recoverable (encrypted-at-rest)
-token storage needed for salted-token (`t`+`s`) clients (Symfonium, DSub) is
-a TODO; see [authentication.md](authentication.md). Auth "none"
+credentials from query params and validates against `userauth`'s `pat` service
+(prefix `aether_`). The resolver owns all auth policy — `Register` knows nothing
+about tokens, which is what lets auth "none" pass a fixed-owner resolver instead.
+Handlers read the resolved identity via `requestOwner(r)`. Every per-user surface
+— play queue, stars, playlists, history — is owner-scoped: data is keyed/filtered
+by the authenticated user's login.
+
+**Error codes:** 40 (no credentials or unknown virtual username), 41 (real login
+presented via `t`/`p` — the login password never works on `/rest`; clients should
+show "configure a token"), 43 (`apiKey` mixed with `u`/`p`/`t`/`s`), 44 (invalid
+key), 0 (verifier I/O failure). Credential values (`apiKey`/`t`/`s`/`p`) are
+masked (`param=***`) in the request log's `RequestURI`. Auth "none"
 (dev/trusted-LAN mode) keeps the fixed owner `"admin"` and `/rest` open. Full
 model, including the SPA lifecycle and the Authelia trusted-header deployment,
 in [authentication.md](authentication.md).

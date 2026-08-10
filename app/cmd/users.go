@@ -68,7 +68,7 @@ func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("session manager: %w", err)
 	}
-	tokens, err := newTokenService(users, l)
+	tokens, err := newTokenService(users, dataDir, l)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -94,7 +94,7 @@ func setupAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (authDe
 	if err != nil {
 		return authDeps{}, err
 	}
-	proxyUsers, proxyTokens, headerAuth, err := setupProxyAuth(db, cfg, l)
+	proxyUsers, proxyTokens, headerAuth, err := setupProxyAuth(db, dataDir, cfg, l)
 	if err != nil {
 		return authDeps{}, err
 	}
@@ -105,9 +105,15 @@ func setupAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (authDe
 }
 
 // newTokenService builds the PAT service on the user store — the same token
-// layer in every authenticated mode (docs/agents/authentication.md).
-func newTokenService(users *userdb.Store, l *slog.Logger) (*pat.Service, error) {
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Logger: l})
+// layer in every authenticated mode (docs/agents/authentication.md). The
+// cipher enables recoverable (user+token) PATs; hash-only apikey PATs work
+// without it.
+func newTokenService(users *userdb.Store, dataDir string, l *slog.Logger) (*pat.Service, error) {
+	cipher, err := loadPATCipher(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("pat cipher: %w", err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher, Logger: l})
 	if err != nil {
 		return nil, fmt.Errorf("token service: %w", err)
 	}
@@ -118,7 +124,7 @@ func newTokenService(users *userdb.Store, l *slog.Logger) (*pat.Service, error) 
 // store and PAT service as native (users are provisioned on first sight of a
 // new identity, so no admin bootstrap) plus the header handler that validates
 // proxy-injected identity. No session manager — the proxy owns the session.
-func setupProxyAuth(db *gorm.DB, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *pat.Service, *headerauth.HeaderHandler, error) {
+func setupProxyAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *pat.Service, *headerauth.HeaderHandler, error) {
 	if cfg.Method != AuthMethodProxyHeader {
 		return nil, nil, nil, nil
 	}
@@ -126,7 +132,7 @@ func setupProxyAuth(db *gorm.DB, cfg AuthCfg, l *slog.Logger) (*userdb.Store, *p
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("user store: %w", err)
 	}
-	tokens, err := newTokenService(users, l)
+	tokens, err := newTokenService(users, dataDir, l)
 	if err != nil {
 		return nil, nil, nil, err
 	}

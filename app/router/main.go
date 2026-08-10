@@ -1,11 +1,15 @@
 package router
 
 import (
+	"crypto/md5" //nolint:gosec // Subsonic salted-token auth is MD5 by spec
+	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -133,9 +137,14 @@ func (h *MainAppHandler) restAdminChecker() subsonic.AdminChecker {
 	}
 }
 
-// patIdentityResolver authenticates /rest via the OpenSubsonic apiKey
-// parameter against the PAT service — the only authentication on /rest
-// (docs/agents/authentication.md). nil when auth is "none".
+// patIdentityResolver authenticates /rest against the PAT service — the only
+// authentication on /rest (docs/agents/authentication.md). Two mechanisms:
+//   - apiKey=<full token>: hash-only verify, any PAT type.
+//   - u=<virtual username> with t+s (salted MD5) or p (plaintext/enc:hex):
+//     the OpenSubsonic password flows, where u is a usertoken PAT's tokenID —
+//     never a real login. Needs recoverable storage (VerifyMatch).
+//
+// nil when auth is "none".
 func (h *MainAppHandler) patIdentityResolver() subsonic.IdentityResolver {
 	if h.tokens == nil {
 		return nil
@@ -143,25 +152,79 @@ func (h *MainAppHandler) patIdentityResolver() subsonic.IdentityResolver {
 	return func(r *http.Request) (string, int) {
 		q := r.URL.Query()
 		key := q.Get("apiKey")
-		if key == "" {
-			// Includes u/t/s-only clients: salted-token auth needs
-			// recoverable storage (TODO.md) and answers 40 until then.
+		if key != "" {
+			// Fail-closed per spec: apiKey mixed with password params is 43.
+			if q.Has("u") || q.Has("p") || q.Has("t") || q.Has("s") {
+				return "", 43
+			}
+			info, ok, err := h.tokens.Verify(key)
+			if err != nil {
+				h.logger.Error("rest auth: token verify failed", "err", err)
+				return "", 0 // infrastructure failure, not bad credentials
+			}
+			if !ok {
+				return "", 44
+			}
+			return info.LoginID, 0
+		}
+		user := q.Get("u")
+		if user == "" {
 			return "", 40
 		}
-		// Fail-closed per spec: apiKey mixed with password params is 43.
-		if q.Has("u") || q.Has("p") || q.Has("t") || q.Has("s") {
-			return "", 43
+		match, ok := subsonicCredentialMatcher(q)
+		if !ok {
+			return "", 40
 		}
-		info, ok, err := h.tokens.Verify(key)
+		info, ok, err := h.tokens.VerifyMatch(user, match)
 		if err != nil {
-			h.logger.Error("rest auth: token verify failed", "err", err)
-			return "", 0 // infrastructure failure, not bad credentials
+			if errors.Is(err, pat.ErrNotRecoverable) {
+				// The id exists but is not a usertoken (apikey PAT, or a
+				// real login shape): token auth unsupported for this user.
+				return "", 41
+			}
+			h.logger.Error("rest auth: token match failed", "err", err)
+			return "", 0
 		}
 		if !ok {
-			return "", 44
+			// Unknown virtual username or wrong credentials. If u is a real
+			// login, answer 41: the login password never works on /rest and
+			// clients should show "configure a token", not "wrong password".
+			if h.users != nil {
+				if _, uerr := h.users.GetUserByLogin(user); uerr == nil {
+					return "", 41
+				}
+			}
+			return "", 40
 		}
 		return info.LoginID, 0
 	}
+}
+
+// subsonicCredentialMatcher builds the secret-testing callback for the
+// request's password mechanism: t+s (salted MD5 token, preferred) or p
+// (plaintext or enc:<hex>). ok=false when neither mechanism is present.
+func subsonicCredentialMatcher(q url.Values) (func(secret string) bool, bool) {
+	if tok, salt := q.Get("t"), q.Get("s"); tok != "" && salt != "" {
+		return func(secret string) bool {
+			sum := md5.Sum([]byte(secret + salt)) //nolint:gosec // Subsonic salted-token auth is MD5 by spec
+			digest := hex.EncodeToString(sum[:])
+			return subtle.ConstantTimeCompare([]byte(digest), []byte(strings.ToLower(tok))) == 1
+		}, true
+	}
+	if p := q.Get("p"); p != "" {
+		if hexPw, found := strings.CutPrefix(p, "enc:"); found {
+			raw, err := hex.DecodeString(hexPw)
+			if err != nil {
+				return func(string) bool { return false }, true
+			}
+			p = string(raw)
+		}
+		pw := p
+		return func(secret string) bool {
+			return subtle.ConstantTimeCompare([]byte(secret), []byte(pw)) == 1
+		}, true
+	}
+	return nil, false
 }
 
 func New(cfg Cfg) (*MainAppHandler, error) {
@@ -215,12 +278,32 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		Logger:      cfg.Logger,
 		PromHisto:   hist,
 	})
-	// Mask apiKey values in request logs (go-bumbu middleware logs RequestURI).
-	// Mutate only RequestURI — handlers parse r.URL, which must stay intact.
+	// Mask credential values in request logs (go-bumbu middleware logs
+	// RequestURI). Mutate only RequestURI — handlers parse r.URL, which must
+	// stay intact. u stays visible: it is an identifier, not a secret.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Query().Has("apiKey") {
-				r.RequestURI = strings.ReplaceAll(r.RequestURI, "apiKey="+r.URL.Query().Get("apiKey"), "apiKey=***")
+			rawQuery := r.URL.RawQuery
+			if rawQuery == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			segments := strings.Split(rawQuery, "&")
+			masked := false
+			for i, seg := range segments {
+				key, _, found := strings.Cut(seg, "=")
+				if !found {
+					continue
+				}
+				switch key {
+				case "apiKey", "t", "s", "p":
+					segments[i] = key + "=***"
+					masked = true
+				}
+			}
+			if masked {
+				maskedQuery := strings.Join(segments, "&")
+				r.RequestURI = r.URL.EscapedPath() + "?" + maskedQuery
 			}
 			next.ServeHTTP(w, r)
 		})

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/go-bumbu/userauth"
@@ -37,6 +38,12 @@ const (
 	RoleAdmin = "admin"
 	RoleUser  = "user"
 )
+
+// tokenShapedLogin matches the virtual-username namespace of usertoken PATs
+// (10 chars of lowercase base36, see the pat library's token IDs). Such a
+// login would collide with token authentication on /rest, where u is
+// resolved as a tokenID first.
+var tokenShapedLogin = regexp.MustCompile(`^[0-9a-z]{10}$`)
 
 type Handler struct {
 	Users *userdb.Store
@@ -231,6 +238,11 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	in.Login = strings.TrimSpace(in.Login)
 	if in.Login == "" {
 		writeError(w, http.StatusBadRequest, "validation_error", "login is required")
+		return
+	}
+	if tokenShapedLogin.MatchString(in.Login) {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			"login must not look like a token id (10 lowercase letters/digits)")
 		return
 	}
 	if err := validPassword(in.Password); err != nil {

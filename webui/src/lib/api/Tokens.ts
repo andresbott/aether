@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/api/client'
+import { getDeviceId, getDeviceName } from '@/lib/deviceIdentity'
 import type {
     ApiToken,
     CreateTokenInput,
@@ -11,9 +12,16 @@ import type {
  * POST /api/v1/auth/token — mints the SPA's short-lived (48h) spa-scoped
  * token. Session-authorized: the cookie rides along; a 401 means the session
  * itself is gone.
+ *
+ * The device identity scopes the mint to THIS app instance: the server
+ * supersedes only the session bearing the same deviceId, so the same user stays
+ * signed in from several first-party apps, each listed under its deviceName.
  */
 export async function mintSpaToken(): Promise<MintSpaTokenResponse> {
-    const { data } = await apiClient.post<MintSpaTokenResponse>('/auth/token')
+    const { data } = await apiClient.post<MintSpaTokenResponse>('/auth/token', {
+        deviceId: getDeviceId(),
+        deviceName: getDeviceName()
+    })
     return data
 }
 

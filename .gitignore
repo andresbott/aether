@@ -11,6 +11,7 @@ webui/dist/
 # IDE
 .idea/
 docs/superpowers
+webui/docs/
 .playwright-mcp
 *.iml
 .scout

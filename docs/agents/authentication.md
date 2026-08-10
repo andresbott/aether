@@ -13,12 +13,14 @@ tier (`/api/v1/auth/token`, `/api/v1/auth/tokens[/*]`) accepting any
 authenticated role, and the rest defaulting to *admin* (403 otherwise) — the
 whole surface is server administration. The SPA mirrors this via `role` in
 `/me` (`useAuth().isAdmin` hides the Admin menu entry, the artist-image editor
-and radio Discover, and redirects non-admins out of `/settings`). **`/rest`
-authenticates exclusively via OpenSubsonic `apiKey` (Personal Access
-Tokens)**: hash-only stored tokens (prefix `aether_`, `userauth`'s `pat`
-service) verified by a dedicated handler that parses `apiKey` from query
-params, with error codes 40 (no credentials), 43 (`apiKey` mixed with
-`u`/`p`/`t`/`s`), 44 (invalid key), or 0 (verifier I/O failure). Every
+and radio Discover, and redirects non-admins out of `/settings`). `/rest`
+authenticates exclusively via PATs, in two forms: OpenSubsonic `apiKey` (any
+PAT presented whole) and the standard Subsonic password flows (`u`+`t`+`s`
+salted token, or `u`+`p`), where `u` is a **usertoken** PAT's tokenID acting
+as a virtual username — never a real login. Error codes: 40 wrong or missing
+credentials, 41 token auth not supported for this user (real login or
+apikey-only id presented via `t`/`p`), 43 `apiKey` mixed with
+`u`/`p`/`t`/`s`, 44 invalid apiKey, 0 verifier I/O failure. Every
 per-user surface — queue, stars, playlists, history — is owner-scoped. The
 SPA mints a 48h `spa`-scoped token via `POST /api/v1/auth/token` on boot
 (session-scoped guard tier, token in memory only) and re-mints transparently
@@ -40,15 +42,14 @@ cookie auth in the protocol:
    fresh salt per request. The de-facto standard for current clients
    (Symfonium, DSub, Ultrasonic). Forces the server to hold a **recoverable**
    secret — hash-only storage cannot recompute the MD5; the algorithm is
-   fixed, no negotiation.
+   fixed, no negotiation. Aether satisfies this via usertoken PATs: the secret
+   is a per-app token encrypted at rest (AES-256-GCM, key in
+   `<DataDir>/pat.keys`, AAD-bound to the tokenID), never the login password.
 3. **API key** — `apiKey=<key>` alone (OpenSubsonic 2024 extension,
    advertised as `apiKeyAuthentication`). Fail-closed: mixing with password
    params is error 43, invalid key error 44, no fallback. Server can store
    only `sha256(key)`, but client adoption is thin — an apiKey-only server
    locks out most current clients.
-
-This is why the PAT plan defaults to **recoverable (encrypted-at-rest)**
-tokens with an optional hash-only mode per token (TODO.md).
 
 ## The architecture in one paragraph
 
@@ -79,11 +80,14 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   IdP — `/rest` is proxy-bypassed and carries no identity headers.
 - **PAT system** — per-user tokens verified by an `IdentityResolver` the
   router injects into `subsonic.Register`
-  (`MainAppHandler.patIdentityResolver`, `app/router/main.go`). It parses
-  **only** `apiKey` on `/rest/*`; a request that also carries any of
-  `u`/`t`/`s`/`p` is answered with Subsonic error 43 (conflicting auth
-  mechanisms) rather than falling back to password auth. This is the *only*
-  authentication on `/rest`.
+  (`MainAppHandler.patIdentityResolver`, `app/router/main.go`). It resolves
+  two flows: **`apiKey`** → `pat.Verify` (any PAT, hash-only check);
+  **`u`+`t`+`s`** or **`u`+`p`** → `pat.VerifyMatch` with an MD5/plaintext
+  matcher, where `u` is resolved as a tokenID (case-normalized) and the
+  real-login check serves only to distinguish error 41 (token auth unsupported
+  for this user: real login or apikey-only id presented via `t`/`p`) from 40
+  (wrong credentials). Mixing `apiKey` with `u`/`p`/`t`/`s` is error 43. This
+  is the *only* authentication on `/rest`.
 - **Token-mint endpoint** — `POST /api/v1/auth/token` (**implemented**,
   `handlers/tokens`; `/api/v1` is the right home — it's not a music
   feature). Exchanges
@@ -104,31 +108,77 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   bootstraps on it before any login — and it renews the rolling session
   expiry of remember-me sessions.
 - **SPA token lifecycle** — on boot, mint a 48h `spa`-scoped token via
-  `POST /api/v1/auth/token` (sweeps ALL of the caller's spa tokens first —
-  expired and live: the SPA holds exactly one and this mint supersedes it,
-  bounding spa tokens at ~1/user so repeated boots cannot hit the cap); keep
-  it in memory only (never localStorage). Speak standard Subsonic auth on
-  `/rest` via `apiKey=<token>`. Hash-only storage means `apiKey` is the only
-  possible transport until recoverable (encrypted-at-rest) tokens land for
-  `t`+`s` clients (TODO). On token expiry (subsonic error 40/44),
-  re-mint transparently (single-flight, one retry per call); if the mint call
-  itself 401s, the *session* is gone → mode-specific reaction (below).
-  Surface "session expired" in the player instead of a generic error when
-  a stream's next range request fails. Generation counter discards mints
-  resolving after logout.
+  `POST /api/v1/auth/token`, posting `{deviceId, deviceName}` for the app
+  instance doing the minting (**one session per device, not per user** — below);
+  keep it in memory only (never localStorage). Speak standard Subsonic auth on
+  `/rest` via `apiKey=<token>`. The SPA's own `spa`-scoped token is hash-only
+  by design, so `apiKey` is its only transport; `usertoken` PATs (recoverable,
+  encrypted-at-rest) serve `t`+`s` and `p` clients. On token expiry
+  (subsonic error 40/44), re-mint transparently (single-flight, one retry per
+  call); if the mint call itself 401s, the *session* is gone → mode-specific
+  reaction (below). Surface "session expired" in the player instead of a
+  generic error when a stream's next range request fails. Generation counter
+  discards mints resolving after logout.
+
+**One session per device.** The same user may be signed in from several
+first-party Aether apps at once — browsers today, native apps later — so a `spa`
+token belongs to a *device*, not to a user. Each app instance generates a stable
+device id on first use and persists it under `aether:deviceId`
+(`webui/src/lib/deviceIdentity.ts`) — the one localStorage key the logout purge
+deliberately preserves, since it identifies the app instance rather than the
+user; wiping it would orphan that instance's server-side session on every
+logout/login cycle. The id rides a `device:<id>` scope alongside `spa`, and the
+mint (`app/router/handlers/tokens/tokens.go`) sweeps only:
+
+- every **expired** `spa` token of the caller, whatever device it came from;
+- the **live token bearing this device's scope**, which this mint supersedes —
+  so repeated boots of one app never pile up or exhaust the cap;
+- the least recently used sessions beyond `MaxSessionsPerUser` (10), so
+  per-device sessions cannot crowd the user's client PATs out of the `pat`
+  service's per-user budget (LRU by `LastUsedAt`, falling back to `CreatedAt`).
+
+Other apps' live sessions survive, which is what keeps one app signing in from
+signing another out. `deviceId` is required and validated (1–64 chars of
+`[A-Za-z0-9_-]`, no `:` so it cannot forge a scope) — a bad one is a 400.
+`deviceName` is cosmetic ("Firefox on Linux", derived from the UA), truncated to
+100 runes rather than rejected, and falls back to `aether-web`; it is the row
+label in User settings → Connected apps → Your Aether apps.
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
 
-| | SPA-minted (`spa` scope) | User-created PAT (`client` scope) |
-|---|---|---|
-| Created | automatically on SPA boot | manually via POST /api/v1/auth/tokens |
-| Lifetime | 48h, re-minted transparently | long-lived until revoked |
-| Management UI | hidden from list | listed, named, revocable in UserSettingsView |
-| Storage | hash-only (we control the client) | hash-only today; recoverable/encrypted TODO for `t`+`s` clients |
+| | SPA-minted (`spa` scope) | User-created PAT: `apikey` | User-created PAT: `usertoken` |
+|---|---|---|---|
+| Created | automatically on SPA boot | manually via POST /api/v1/auth/tokens | manually via POST /api/v1/auth/tokens |
+| Lifetime | 48h, re-minted transparently | long-lived until revoked | long-lived until revoked |
+| Management UI | listed as `kind: "session"`, one row per app instance, revocable | listed, named, revocable in UserSettingsView | listed, named, revocable; shows type tag |
+| Storage | hash-only (we control the client) | hash-only | recoverable (AES-256-GCM encrypted at rest) |
+| Transport | `apiKey` only | `apiKey` only | `apiKey`, or `u`+`t`+`s`/`p` with tokenID as virtual username |
+| Credential shown | token at mint time | token at mint time | Username + Password at mint time (copy buttons in UI) |
 
-Mint-time sweep purges every one of the caller's spa tokens (expired and live);
-`GET /api/v1/auth/tokens` excludes `spa` scope from the list. A boot-mint that
+The users CRUD refuses logins matching `^[0-9a-z]{10}$` (virtual-username
+collision with tokenIDs). SPA `spa` tokens are always hash-only and
+apiKey-shaped regardless of user PAT settings.
+
+### Residual risk
+
+The Subsonic password flows (`u`+`t`+`s` and `u`+`p`) are replayable by
+design: the client chooses the salt (no nonce), and there is no expiry bound
+within the request itself. Over plain HTTP, a captured request grants durable
+access to that token until revoked. Mitigations: **use HTTPS for anything
+beyond a trusted LAN**; per-app tokens (usertoken PATs) limit the blast
+radius of a compromised credential to one device; revocation is the incident
+response. Credential parameters (`t`/`s`/`p`/`apiKey` values) are masked in
+request logs (`u` remains visible as the tokenID).
+
+Error code 41 deliberately distinguishes "existing login presented via `t`/`p`"
+from unknown virtual username (40) — a login-existence oracle accepted for
+client UX (so clients can show "configure a token" instead of "wrong password"),
+mirroring the tokenID oracle the `pat` library warns about.
+
+Mint-time sweep is per-device (see "One session per device" above);
+`GET /api/v1/auth/tokens` reports live spa tokens as `kind: "session"` and drops
+expired ones. A boot-mint that
 keeps failing for a non-401 reason surfaces the login gate, whose purge refetches
 `/me` and re-runs the mint watcher — so the SPA caps consecutive failed mints
 (`MAX_MINT_ATTEMPTS` in `webui/src/lib/subsonicSession.ts`) and then leaves the
@@ -155,7 +205,7 @@ handlers read identity via `cookieauth.CtxGetUserData`), and
 | `/` (SPA shell) | open (login view is part of the SPA) |
 | `/api/v1/auth/login`, `/logout` | the login handler itself |
 | `/api/v1` (rest of it) | `cookieauth` session cookie, three tiers: public bootstrap (`/me`, `/health`, `/version`), session-scoped (`/api/v1/auth/token`, `/api/v1/auth/tokens[/*]` — any authenticated role), and admin default (`sessionGuard` in `app/router/api_v1.go`) |
-| `/rest` | Subsonic PAT verifier (`apiKey` query param) — error 40/43/44 |
+| `/rest` | Subsonic PAT verifier (apiKey, or u+t+s / u+p against usertoken PATs) — errors 40/41/43/44 |
 
 Implementation notes (`app/router/handlers/auth`, `app/cmd/session.go`):
 

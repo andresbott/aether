@@ -1,9 +1,13 @@
 package router
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,9 +39,30 @@ type errorEnvelopeRouter struct {
 	} `json:"subsonic-response"`
 }
 
+// doMint mints for a generic test app instance; tests that care about the
+// device identity use doMintDevice.
 func doMint(t *testing.T, h *MainAppHandler, attach func(*http.Request)) mintResponse {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", nil)
+	return doMintDevice(t, h, attach, "test-browser", "Test Browser")
+}
+
+// doMintDevice mints on behalf of one first-party app instance, as the SPA does.
+func doMintDevice(t *testing.T, h *MainAppHandler, attach func(*http.Request), deviceID, deviceName string) mintResponse {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"deviceId": deviceID, "deviceName": deviceName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mintBody(t, h, attach, payload)
+}
+
+func mintBody(t *testing.T, h *MainAppHandler, attach func(*http.Request), payload []byte) mintResponse {
+	t.Helper()
+	var reader io.Reader
+	if payload != nil {
+		reader = bytes.NewReader(payload)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", reader)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -49,6 +74,25 @@ func doMint(t *testing.T, h *MainAppHandler, attach func(*http.Request)) mintRes
 		t.Fatalf("mint body: %v", err)
 	}
 	return body
+}
+
+// listTokenDTOs returns what the management endpoint reports for the caller.
+func listTokenDTOs(t *testing.T, h *MainAppHandler, attach func(*http.Request)) []tokenDTO {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Tokens []tokenDTO `json:"tokens"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body.Tokens
 }
 
 // The mint endpoint requires a session but NOT the admin role: tokens are a
@@ -86,14 +130,15 @@ func TestMintedTokenVerifies(t *testing.T) {
 	if info.LoginID != "bob" {
 		t.Errorf("LoginID = %q, want bob", info.LoginID)
 	}
-	if len(info.Scopes) != 1 || info.Scopes[0] != tokensHandler.SPAScope {
-		t.Errorf("Scopes = %v, want [spa]", info.Scopes)
+	// spa marks it as first-party plumbing; the device scope binds it to one app.
+	want := []string{tokensHandler.SPAScope, tokensHandler.DeviceScopePrefix + "test-browser"}
+	if !reflect.DeepEqual(info.Scopes, want) {
+		t.Errorf("Scopes = %v, want %v", info.Scopes, want)
 	}
 }
 
-// Minting sweeps ALL of the caller's spa-scoped tokens — expired AND live: the
-// SPA holds exactly one and this mint supersedes it, which bounds spa tokens at
-// ~1/user so repeated boots cannot exhaust the per-user cap. Client tokens survive.
+// Minting sweeps the caller's EXPIRED spa tokens (whatever device they came
+// from) but leaves other devices' live sessions alone; client tokens survive too.
 func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	h, db := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
@@ -105,7 +150,7 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	// Mint rejects past expiries, so mint a live spa token and age it into
 	// the past behind the service's back (user_pats is userdb's PAT table).
 	future := time.Now().Add(time.Minute)
-	_, staleRec, err := h.tokens.Mint(usr.ID, "stale-spa", []string{tokensHandler.SPAScope}, &future)
+	_, staleRec, err := h.tokens.Mint(usr.ID, "stale-spa", []string{tokensHandler.SPAScope}, &future, pat.HashOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,16 +160,18 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 		Update("expires_at", past).Error; err != nil {
 		t.Fatal(err)
 	}
-	// A LIVE spa token from an earlier boot: superseded, so it must go too.
+	// A LIVE spa token belonging to ANOTHER app instance: that session stays.
 	liveExpiry := time.Now().Add(time.Hour)
-	if _, _, err := h.tokens.Mint(usr.ID, "live-spa", []string{tokensHandler.SPAScope}, &liveExpiry); err != nil {
+	if _, _, err := h.tokens.Mint(usr.ID, "live-spa",
+		[]string{tokensHandler.SPAScope, tokensHandler.DeviceScopePrefix + "other-browser"},
+		&liveExpiry, pat.HashOnly); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := h.tokens.Mint(usr.ID, "phone", []string{tokensHandler.ClientScope}, nil); err != nil {
+	if _, _, err := h.tokens.Mint(usr.ID, "phone", []string{tokensHandler.ClientScope}, nil, pat.HashOnly); err != nil {
 		t.Fatal(err)
 	}
 
-	doMint(t, h, attach)
+	doMintDevice(t, h, attach, "this-browser", "Firefox on Linux")
 
 	recs, err := h.tokens.List(usr.ID)
 	if err != nil {
@@ -136,18 +183,153 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 		if r.Name == "stale-spa" {
 			t.Fatal("expired spa token survived the mint sweep")
 		}
-		if r.Name == "live-spa" {
-			t.Fatal("superseded live spa token survived the mint sweep")
-		}
 	}
-	// stale-spa and live-spa gone; phone and the fresh aether-web remain.
-	if len(recs) != 2 {
-		t.Fatalf("tokens after mint = %v, want [phone aether-web]", names)
+	// stale-spa gone; live-spa, phone and the fresh session remain.
+	if len(recs) != 3 {
+		t.Fatalf("tokens after mint = %v, want [live-spa phone Firefox on Linux]", names)
 	}
 }
 
-// Repeated boots never lock the user out: even at the pat library's per-user
-// cap, each mint frees the previous spa token before minting the next.
+// The bug this fixes: signing in from a second app instance must not sign the
+// first one out. Each identifies itself with its own deviceId, so both sessions
+// stay live and both are listed.
+func TestMintKeepsOtherDevicesSessions(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	first := doMintDevice(t, h, attach, "browser-a", "Firefox on Linux")
+	second := doMintDevice(t, h, attach, "browser-b", "Chrome on Android")
+
+	if _, ok, err := h.tokens.Verify(first.Token); err != nil || !ok {
+		t.Fatalf("first browser's token = ok:%v err:%v after the second signed in, want valid", ok, err)
+	}
+	if _, ok, err := h.tokens.Verify(second.Token); err != nil || !ok {
+		t.Fatalf("second browser's token = ok:%v err:%v, want valid", ok, err)
+	}
+
+	var sessions []string
+	for _, tok := range listTokenDTOs(t, h, attach) {
+		if tok.Kind == tokensHandler.KindSession {
+			sessions = append(sessions, tok.Name)
+		}
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("listed sessions = %v, want one per app instance", sessions)
+	}
+}
+
+// An app instance holds exactly one session: re-minting from the same device
+// supersedes its own previous token instead of piling up rows.
+func TestMintReplacesSameDeviceSession(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	old := doMintDevice(t, h, attach, "browser-a", "Firefox on Linux")
+	fresh := doMintDevice(t, h, attach, "browser-a", "Firefox on Linux")
+
+	if _, ok, _ := h.tokens.Verify(old.Token); ok {
+		t.Error("the device's previous token still verifies after re-minting")
+	}
+	if _, ok, err := h.tokens.Verify(fresh.Token); err != nil || !ok {
+		t.Fatalf("fresh token = ok:%v err:%v, want valid", ok, err)
+	}
+	var sessions []tokenDTO
+	for _, tok := range listTokenDTOs(t, h, attach) {
+		if tok.Kind == tokensHandler.KindSession {
+			sessions = append(sessions, tok)
+		}
+	}
+	if len(sessions) != 1 || sessions[0].TokenID != fresh.TokenID {
+		t.Fatalf("sessions = %+v, want only %s", sessions, fresh.TokenID)
+	}
+}
+
+// The device name is what the user recognises in the sessions list.
+func TestMintNamesSessionAfterDevice(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	doMintDevice(t, h, attach, "browser-a", "Chrome on Android")
+
+	for _, tok := range listTokenDTOs(t, h, attach) {
+		if tok.Kind == tokensHandler.KindSession {
+			if tok.Name != "Chrome on Android" {
+				t.Fatalf("session name = %q, want the device name", tok.Name)
+			}
+			return
+		}
+	}
+	t.Fatal("no session token listed")
+}
+
+// An unnamed device still gets a session, under the generic SPA name.
+func TestMintWithoutDeviceNameFallsBackToSPAName(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	doMintDevice(t, h, attach, "browser-a", "")
+
+	for _, tok := range listTokenDTOs(t, h, attach) {
+		if tok.Kind == tokensHandler.KindSession {
+			if tok.Name != tokensHandler.SPATokenName {
+				t.Fatalf("session name = %q, want %q", tok.Name, tokensHandler.SPATokenName)
+			}
+			return
+		}
+	}
+	t.Fatal("no session token listed")
+}
+
+// The deviceId lands in a scope string and decides whose session is superseded,
+// so it is mandatory and constrained; anything else is a 400.
+func TestMintRejectsMissingOrMalformedDeviceID(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	bodies := []string{
+		"",                                  // no body at all
+		`{}`,                                // no deviceId
+		`{"deviceId":""}`,                   // empty
+		`{"deviceId":"has spaces"}`,         // illegal character
+		`{"deviceId":"device:with:colons"}`, // would forge a scope
+		`{"deviceId":"` + strings.Repeat("a", 65) + `"}`, // over-long
+	}
+	for _, body := range bodies {
+		var reader io.Reader
+		if body != "" {
+			reader = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", reader)
+		attach(req)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("mint %q = %d, want 400", body, w.Code)
+		}
+	}
+}
+
+// An over-long device name is truncated rather than rejected: the name is
+// cosmetic (pat caps it at 100 runes) and a mint failure would blank the player.
+func TestMintTruncatesOverLongDeviceName(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	doMintDevice(t, h, attach, "browser-a", strings.Repeat("x", 300))
+
+	for _, tok := range listTokenDTOs(t, h, attach) {
+		if tok.Kind == tokensHandler.KindSession {
+			if n := len([]rune(tok.Name)); n != 100 {
+				t.Fatalf("session name length = %d, want 100", n)
+			}
+			return
+		}
+	}
+	t.Fatal("no session token listed")
+}
+
+// Repeated boots never lock the user out: each mint frees that device's
+// previous spa token before minting the next.
 func TestRepeatedMintsNeverExhaustCap(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
@@ -157,7 +339,7 @@ func TestRepeatedMintsNeverExhaustCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 30; i++ {
-		doMint(t, h, attach)
+		doMintDevice(t, h, attach, "browser-a", "Firefox on Linux")
 	}
 	recs, err := h.tokens.List(usr.ID)
 	if err != nil {
@@ -168,10 +350,43 @@ func TestRepeatedMintsNeverExhaustCap(t *testing.T) {
 	}
 }
 
+// Per-device sessions must not eat the whole per-user token budget: a new app
+// instance evicts the least recently seen session once the ceiling is reached,
+// so the user's own client PATs stay mintable.
+func TestMintEvictsOldestSessionAtCeiling(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	usr, err := h.users.GetUserByLogin("bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := doMintDevice(t, h, attach, "browser-0", "browser 0")
+	for i := 1; i < tokensHandler.MaxSessionsPerUser+1; i++ {
+		doMintDevice(t, h, attach, "browser-"+strconv.Itoa(i), "browser "+strconv.Itoa(i))
+	}
+	last := doMintDevice(t, h, attach, "browser-last", "browser last")
+
+	recs, err := h.tokens.List(usr.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != tokensHandler.MaxSessionsPerUser {
+		t.Fatalf("sessions = %d, want the ceiling %d", len(recs), tokensHandler.MaxSessionsPerUser)
+	}
+	if _, ok, _ := h.tokens.Verify(first.Token); ok {
+		t.Error("the oldest session survived past the ceiling")
+	}
+	if _, ok, err := h.tokens.Verify(last.Token); err != nil || !ok {
+		t.Fatalf("newest session = ok:%v err:%v, want valid", ok, err)
+	}
+}
+
 type tokenDTO struct {
 	TokenID    string     `json:"tokenId"`
 	Name       string     `json:"name"`
 	Kind       string     `json:"kind"`
+	Type       string     `json:"type"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
@@ -183,7 +398,7 @@ type tokenDTO struct {
 func TestListTokensReportsKinds(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
-	doMint(t, h, attach) // creates an aether-web spa token
+	doMintDevice(t, h, attach, "browser-a", "Firefox on Linux") // creates a session token
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens",
 		strings.NewReader(`{"name":"Symfonium on phone"}`))
@@ -224,8 +439,8 @@ func TestListTokensReportsKinds(t *testing.T) {
 	if kinds["Symfonium on phone"] != "client" {
 		t.Fatalf("client token kind = %q, want client", kinds["Symfonium on phone"])
 	}
-	if kinds["aether-web"] != "session" {
-		t.Fatalf("spa token kind = %q, want session", kinds["aether-web"])
+	if kinds["Firefox on Linux"] != "session" {
+		t.Fatalf("spa token kind = %q, want session", kinds["Firefox on Linux"])
 	}
 	if strings.Contains(w.Body.String(), "secretHash") || strings.Contains(w.Body.String(), "SecretHash") {
 		t.Fatal("token list leaks the secret hash")
@@ -619,5 +834,117 @@ func TestRestApiKeyMaskedInLogs(t *testing.T) {
 	}
 	if body.SubsonicResponse.Status != "ok" {
 		t.Fatalf("masked apiKey auth: status %q, want ok", body.SubsonicResponse.Status)
+	}
+}
+
+func TestCreateUserTokenReturnsCredentialPair(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"phone","type":"usertoken"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	var res struct {
+		Token    string `json:"token"`
+		TokenID  string `json:"tokenId"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Type     string `json:"type"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Type != "usertoken" {
+		t.Errorf("type = %q, want usertoken", res.Type)
+	}
+	if res.Username != res.TokenID || res.Username == "" {
+		t.Errorf("username %q must equal tokenId %q", res.Username, res.TokenID)
+	}
+	if res.Username != strings.ToLower(res.Username) {
+		t.Errorf("username %q must be lowercase", res.Username)
+	}
+	if res.Token != "aether_"+res.Username+"_"+res.Password {
+		t.Errorf("token %q must be the joined credential pair", res.Token)
+	}
+}
+
+func TestCreateApikeyTokenOmitsCredentialPair(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"scripted"}`) // type omitted = apikey
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res["type"] != "apikey" {
+		t.Errorf("type = %v, want apikey", res["type"])
+	}
+	if _, has := res["username"]; has {
+		t.Error("apikey response must not carry a username field")
+	}
+	if _, has := res["password"]; has {
+		t.Error("apikey response must not carry a password field")
+	}
+}
+
+func TestCreateTokenRejectsUnknownType(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"x","type":"banana"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestListReportsTokenType(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	for _, payload := range []string{`{"name":"a","type":"apikey"}`, `{"name":"b","type":"usertoken"}`} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(payload))
+		attach(req)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %s: status %d", payload, w.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var res struct {
+		Tokens []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]string{}
+	for _, tok := range res.Tokens {
+		types[tok.Name] = tok.Type
+	}
+	if types["a"] != "apikey" || types["b"] != "usertoken" {
+		t.Errorf("list types = %v", types)
 	}
 }

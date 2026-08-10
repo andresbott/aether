@@ -17,9 +17,10 @@ import (
 
 // IdentityResolver resolves the authenticated user for a /rest request.
 // Success iff owner != ""; otherwise code is the Subsonic error code the
-// middleware must answer with: 40 no credentials, 43 conflicting auth
-// mechanisms, 44 invalid API key, 0 internal error. The resolver owns auth
-// policy (docs/agents/authentication.md); handlers only ever see the owner.
+// middleware must answer with: 40 wrong or missing credentials, 41 token auth
+// not supported for this user, 43 conflicting auth mechanisms, 44 invalid API
+// key, 0 internal error. The resolver owns auth policy
+// (docs/agents/authentication.md); handlers only ever see the owner.
 type IdentityResolver func(r *http.Request) (owner string, code int)
 
 // AdminChecker reports whether owner holds the admin role. The router
@@ -69,12 +70,14 @@ func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 // between unknown and expired keys (no probing oracle).
 func authErrorMessage(code int) string {
 	switch code {
+	case 40:
+		return "authentication required"
+	case 41:
+		return "token authentication not supported for this user; create a user token in aether's settings"
 	case 43:
 		return "multiple conflicting authentication mechanisms provided"
 	case 44:
 		return "invalid API key"
-	case 40:
-		return "authentication required"
 	default:
 		return "authentication error"
 	}
