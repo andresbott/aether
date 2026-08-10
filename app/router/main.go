@@ -1,7 +1,7 @@
 package router
 
 import (
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // Subsonic salted-token auth is MD5 by spec
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"

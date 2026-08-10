@@ -1,7 +1,7 @@
 package router
 
 import (
-	"crypto/md5" //nolint:gosec // Subsonic salted-token auth is MD5 by spec
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -60,7 +60,7 @@ func subsonicCode(t *testing.T, h *MainAppHandler, query string) int {
 }
 
 func saltedToken(password, salt string) string {
-	sum := md5.Sum([]byte(password + salt)) //nolint:gosec // Subsonic spec
+	sum := md5.Sum([]byte(password + salt))
 	return hex.EncodeToString(sum[:])
 }
 
