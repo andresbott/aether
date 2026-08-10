@@ -22,6 +22,10 @@ const (
 	SPAScope = "spa"
 	// ClientScope marks user-created PATs for third-party Subsonic clients.
 	ClientScope = "client"
+	// UserTokenScope additionally marks recoverable PATs presented as a virtual
+	// username + password pair (Subsonic t+s clients). Tokens without it are
+	// hash-only apikeys.
+	UserTokenScope = "usertoken"
 )
 
 // SPATokenName is the fixed name of SPA-minted tokens.
@@ -124,6 +128,8 @@ func mapPatError(err error) (status int, code string) {
 		return http.StatusConflict, "too_many_tokens"
 	case errors.Is(err, pat.ErrTokenNotFound):
 		return http.StatusNotFound, "not_found"
+	case errors.Is(err, pat.ErrNoCipher):
+		return http.StatusNotImplemented, "usertoken_unavailable"
 	default:
 		return http.StatusInternalServerError, "internal"
 	}
@@ -137,21 +143,36 @@ const (
 	KindClient = "client"
 )
 
+// Token types as the management endpoints report them.
+const (
+	// TypeAPIKey is a hash-only PAT presented whole via the apiKey param.
+	TypeAPIKey = "apikey"
+	// TypeUserToken is a recoverable PAT presented as virtual username
+	// (the tokenId) + password (the secret) by Subsonic t+s clients.
+	TypeUserToken = "usertoken"
+)
+
 // tokenDTO is the management view of a token: metadata only, never the hash.
 type tokenDTO struct {
 	TokenID    string     `json:"tokenId"`
 	Name       string     `json:"name"`
 	Kind       string     `json:"kind"`
+	Type       string     `json:"type"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
 }
 
 func toDTO(rec pat.TokenRecord, kind string) tokenDTO {
+	typ := TypeAPIKey
+	if hasScope(rec, UserTokenScope) {
+		typ = TypeUserToken
+	}
 	return tokenDTO{
 		TokenID:    rec.TokenID,
 		Name:       rec.Name,
 		Kind:       kind,
+		Type:       typ,
 		CreatedAt:  rec.CreatedAt,
 		LastUsedAt: rec.LastUsedAt,
 		ExpiresAt:  rec.ExpiresAt,
@@ -190,6 +211,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 
 type createInput struct {
 	Name      string     `json:"name"`
+	Type      string     `json:"type"`      // "apikey" (default) or "usertoken"
 	ExpiresAt *time.Time `json:"expiresAt"` // optional; nil = never expires
 }
 
@@ -206,20 +228,47 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	token, rec, err := h.Tokens.Mint(userID, in.Name, []string{ClientScope}, in.ExpiresAt, pat.HashOnly)
+	if in.Type == "" {
+		in.Type = TypeAPIKey
+	}
+	if in.Type != TypeAPIKey && in.Type != TypeUserToken {
+		writeError(w, http.StatusBadRequest, "validation_error", "type must be \"apikey\" or \"usertoken\"")
+		return
+	}
+	scopes := []string{ClientScope}
+	storage := pat.HashOnly
+	if in.Type == TypeUserToken {
+		scopes = append(scopes, UserTokenScope)
+		storage = pat.Recoverable
+	}
+	token, rec, err := h.Tokens.Mint(userID, in.Name, scopes, in.ExpiresAt, storage)
 	if err != nil {
 		status, code := mapPatError(err)
 		writeError(w, status, code, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	body := map[string]any{
 		"token":     token,
 		"tokenId":   rec.TokenID,
 		"name":      rec.Name,
 		"kind":      KindClient,
+		"type":      in.Type,
 		"createdAt": rec.CreatedAt,
 		"expiresAt": rec.ExpiresAt,
-	})
+	}
+	if in.Type == TypeUserToken {
+		// The credential pair third-party apps consume: the tokenId doubles
+		// as a virtual username, the secret as the password. ParseToken
+		// splits the same plaintext Mint just returned.
+		_, secret, ok := pat.ParseToken("aether", token)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "internal", "minted token failed to parse")
+			return
+		}
+		body["username"] = rec.TokenID
+		body["password"] = secret
+	}
+	writeJSON(w, http.StatusCreated, body)
 }
 
 // revoke deletes the caller's token; foreign and absent IDs are both 404

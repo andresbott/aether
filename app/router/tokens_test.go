@@ -621,3 +621,115 @@ func TestRestApiKeyMaskedInLogs(t *testing.T) {
 		t.Fatalf("masked apiKey auth: status %q, want ok", body.SubsonicResponse.Status)
 	}
 }
+
+func TestCreateUserTokenReturnsCredentialPair(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"phone","type":"usertoken"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	var res struct {
+		Token    string `json:"token"`
+		TokenID  string `json:"tokenId"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		Type     string `json:"type"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Type != "usertoken" {
+		t.Errorf("type = %q, want usertoken", res.Type)
+	}
+	if res.Username != res.TokenID || res.Username == "" {
+		t.Errorf("username %q must equal tokenId %q", res.Username, res.TokenID)
+	}
+	if res.Username != strings.ToLower(res.Username) {
+		t.Errorf("username %q must be lowercase", res.Username)
+	}
+	if res.Token != "aether_"+res.Username+"_"+res.Password {
+		t.Errorf("token %q must be the joined credential pair", res.Token)
+	}
+}
+
+func TestCreateApikeyTokenOmitsCredentialPair(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"scripted"}`) // type omitted = apikey
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body %s", w.Code, w.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res["type"] != "apikey" {
+		t.Errorf("type = %v, want apikey", res["type"])
+	}
+	if _, has := res["username"]; has {
+		t.Error("apikey response must not carry a username field")
+	}
+	if _, has := res["password"]; has {
+		t.Error("apikey response must not carry a password field")
+	}
+}
+
+func TestCreateTokenRejectsUnknownType(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	body := strings.NewReader(`{"name":"x","type":"banana"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestListReportsTokenType(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	_, attach := doLogin(t, h, "bob", "secret")
+
+	for _, payload := range []string{`{"name":"a","type":"apikey"}`, `{"name":"b","type":"usertoken"}`} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(payload))
+		attach(req)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %s: status %d", payload, w.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	attach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	var res struct {
+		Tokens []struct {
+			Name string `json:"name"`
+			Type string `json:"type"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]string{}
+	for _, tok := range res.Tokens {
+		types[tok.Name] = tok.Type
+	}
+	if types["a"] != "apikey" || types["b"] != "usertoken" {
+		t.Errorf("list types = %v", types)
+	}
+}

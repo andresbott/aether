@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -51,7 +52,11 @@ func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
+	cipher, err := pat.NewAESGCMCipher(bytes.Repeat([]byte{0x42}, 32), "k1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher})
 	if err != nil {
 		t.Fatal(err)
 	}
