@@ -112,14 +112,14 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   expired and live: the SPA holds exactly one and this mint supersedes it,
   bounding spa tokens at ~1/user so repeated boots cannot hit the cap); keep
   it in memory only (never localStorage). Speak standard Subsonic auth on
-  `/rest` via `apiKey=<token>`. Hash-only storage means `apiKey` is the only
-  possible transport until recoverable (encrypted-at-rest) tokens land for
-  `t`+`s` clients (TODO). On token expiry (subsonic error 40/44),
-  re-mint transparently (single-flight, one retry per call); if the mint call
-  itself 401s, the *session* is gone → mode-specific reaction (below).
-  Surface "session expired" in the player instead of a generic error when
-  a stream's next range request fails. Generation counter discards mints
-  resolving after logout.
+  `/rest` via `apiKey=<token>`. The SPA's own `spa`-scoped token is hash-only
+  by design, so `apiKey` is its only transport; `usertoken` PATs (recoverable,
+  encrypted-at-rest) serve `t`+`s` and `p` clients. On token expiry
+  (subsonic error 40/44), re-mint transparently (single-flight, one retry per
+  call); if the mint call itself 401s, the *session* is gone → mode-specific
+  reaction (below). Surface "session expired" in the player instead of a
+  generic error when a stream's next range request fails. Generation counter
+  discards mints resolving after logout.
 
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
@@ -147,6 +147,11 @@ beyond a trusted LAN**; per-app tokens (usertoken PATs) limit the blast
 radius of a compromised credential to one device; revocation is the incident
 response. Credential parameters (`t`/`s`/`p`/`apiKey` values) are masked in
 request logs (`u` remains visible as the tokenID).
+
+Error code 41 deliberately distinguishes "existing login presented via `t`/`p`"
+from unknown virtual username (40) — a login-existence oracle accepted for
+client UX (so clients can show "configure a token" instead of "wrong password"),
+mirroring the tokenID oracle the `pat` library warns about.
 
 Mint-time sweep purges every one of the caller's spa tokens (expired and live);
 `GET /api/v1/auth/tokens` excludes `spa` scope from the list. A boot-mint that
