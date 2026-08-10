@@ -29,7 +29,7 @@ const plaintextVisible = ref(false)
 
 function onCreate(): void {
     createToken.mutate(
-        { name: newTokenName.value.trim() },
+        { name: newTokenName.value.trim(), type: 'apikey' },
         {
             onSuccess: (res) => {
                 plaintext.value = res.token

@@ -115,6 +115,7 @@ describe('UserSettingsView', () => {
                 tokenId: 't1',
                 name: 'Symfonium',
                 kind: 'client',
+                type: 'apikey',
                 createdAt: '2026-01-01T00:00:00Z'
             }
         ]
@@ -132,12 +133,14 @@ describe('UserSettingsView', () => {
                 tokenId: 't1',
                 name: 'aether-web',
                 kind: 'session',
+                type: 'apikey',
                 createdAt: '2026-01-01T00:00:00Z'
             },
             {
                 tokenId: 't2',
                 name: 'Symfonium',
                 kind: 'client',
+                type: 'apikey',
                 createdAt: '2026-01-01T00:00:00Z'
             }
         ]
@@ -167,6 +170,8 @@ describe('UserSettingsView', () => {
                 options.onSuccess({
                     tokenId: 't2',
                     name: 'MyToken',
+                    kind: 'client',
+                    type: 'apikey',
                     createdAt: '2026-01-02T00:00:00Z',
                     token: 'aether_x_y'
                 })
