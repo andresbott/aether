@@ -8,7 +8,10 @@ package tokens
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-bumbu/userauth/service/pat"
@@ -26,10 +29,29 @@ const (
 	// username + password pair (Subsonic t+s clients). Tokens without it are
 	// hash-only apikeys.
 	UserTokenScope = "usertoken"
+	// DeviceScopePrefix prefixes the scope carrying a session token's device
+	// id, e.g. "device:7f3a…". One session per device: a mint supersedes only
+	// the token bearing the same device scope, so one first-party app signing
+	// in does not sign another out.
+	DeviceScopePrefix = "device:"
 )
 
-// SPATokenName is the fixed name of SPA-minted tokens.
+// MaxSessionsPerUser bounds how many first-party apps hold a live session at
+// once, so per-device sessions cannot crowd out the user's client PATs in the
+// pat service's per-user budget. Reaching it evicts the least recently used.
+const MaxSessionsPerUser = 10
+
+// SPATokenName names a first-party token whose app sent no device name.
 const SPATokenName = "aether-web"
+
+// maxDeviceNameRunes mirrors the pat service's name limit: the device name is
+// cosmetic, so an over-long one is truncated rather than failing the mint (a
+// failed boot mint blanks the player).
+const maxDeviceNameRunes = 100
+
+// maxDeviceIDLen bounds the device id. It rides a scope string, so the charset
+// excludes the ":" separator and anything that could forge a second scope.
+const maxDeviceIDLen = 64
 
 // SPATokenTTL bounds how long a browser session can go without re-minting.
 const SPATokenTTL = 48 * time.Hour
@@ -82,16 +104,69 @@ func hasScope(rec pat.TokenRecord, scope string) bool {
 	return false
 }
 
-// mintSPAToken creates the SPA's short-lived token. It first sweeps ALL of the
-// caller's spa-scoped tokens, expired or live: the SPA holds exactly one, and
-// this mint supersedes it, so keeping the old one around only eats into the
-// per-user cap. That bounds spa tokens at ~1/user and removes the lockout where
-// repeated boots eventually answered 409 ErrTooManyTokens (mint-time-only
-// sweep, see the spec).
+// mintInput identifies the first-party app instance doing the minting — a
+// browser today, a native app later. A user may be signed in from several at
+// once, so a session belongs to a device, not to the user: deviceId decides
+// which previous session this mint supersedes.
+type mintInput struct {
+	DeviceID string `json:"deviceId"`
+	// DeviceName labels the session in the management UI ("Firefox on Linux").
+	// Optional: an unnamed device falls back to SPATokenName.
+	DeviceName string `json:"deviceName"`
+}
+
+// validDeviceID reports whether s is safe to embed in a scope string: a
+// non-empty, bounded run of unreserved URL characters, with ":" excluded so a
+// device id can never forge an additional scope.
+func validDeviceID(s string) bool {
+	if s == "" || len(s) > maxDeviceIDLen {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func truncateRunes(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max])
+}
+
+// mintSPAToken creates a short-lived token for ONE app instance. Before minting
+// it sweeps, from the caller's spa-scoped tokens:
+//   - every expired one, whatever device it came from (dead plumbing);
+//   - the live one bearing this device's scope, which this mint supersedes —
+//     so repeated boots of one app cannot pile up or exhaust the cap;
+//   - the least recently used sessions past MaxSessionsPerUser, so per-device
+//     sessions cannot crowd the user's client PATs out of the pat budget.
+//
+// Other apps' live sessions are left alone: that is what lets the same user
+// stay signed in from several first-party apps, each listed separately.
 func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.caller(r)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		return
+	}
+	var in mintInput
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+			return
+		}
+	}
+	if !validDeviceID(in.DeviceID) {
+		writeError(w, http.StatusBadRequest, "validation_error",
+			"deviceId is required: 1-64 characters of [A-Za-z0-9_-]")
 		return
 	}
 	recs, err := h.Tokens.List(userID)
@@ -99,15 +174,34 @@ func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	deviceScope := DeviceScopePrefix + in.DeviceID
 	now := time.Now()
+	// Survivors, in List order (oldest first), for the ceiling pass below.
+	live := make([]pat.TokenRecord, 0, len(recs))
 	for _, rec := range recs {
-		if hasScope(rec, SPAScope) {
+		if !hasScope(rec, SPAScope) {
+			continue
+		}
+		expired := rec.ExpiresAt != nil && !rec.ExpiresAt.After(now)
+		if expired || hasScope(rec, deviceScope) {
 			// Best-effort: a failed sweep must not block the mint.
+			_ = h.Tokens.Revoke(userID, rec.TokenID)
+			continue
+		}
+		live = append(live, rec)
+	}
+	// The new session takes one slot, so keep at most ceiling-1 of the others.
+	if keep := MaxSessionsPerUser - 1; len(live) > keep {
+		for _, rec := range leastRecentlyUsed(live, len(live)-keep) {
 			_ = h.Tokens.Revoke(userID, rec.TokenID)
 		}
 	}
+	name := truncateRunes(strings.TrimSpace(in.DeviceName), maxDeviceNameRunes)
+	if name == "" {
+		name = SPATokenName
+	}
 	expiresAt := now.Add(SPATokenTTL)
-	token, rec, err := h.Tokens.Mint(userID, SPATokenName, []string{SPAScope}, &expiresAt, pat.HashOnly)
+	token, rec, err := h.Tokens.Mint(userID, name, []string{SPAScope, deviceScope}, &expiresAt, pat.HashOnly)
 	if err != nil {
 		status, code := mapPatError(err)
 		writeError(w, status, code, err.Error())
@@ -118,6 +212,24 @@ func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 		"tokenId":   rec.TokenID,
 		"expiresAt": rec.ExpiresAt,
 	})
+}
+
+// leastRecentlyUsed returns the n records last seen longest ago. A session that
+// never reported a use falls back to its creation time, so an idle brand-new
+// session is not preferred over an actively used old one.
+func leastRecentlyUsed(recs []pat.TokenRecord, n int) []pat.TokenRecord {
+	seen := func(rec pat.TokenRecord) time.Time {
+		if rec.LastUsedAt != nil {
+			return *rec.LastUsedAt
+		}
+		return rec.CreatedAt
+	}
+	ordered := make([]pat.TokenRecord, len(recs))
+	copy(ordered, recs)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return seen(ordered[i]).Before(seen(ordered[j]))
+	})
+	return ordered[:n]
 }
 
 func mapPatError(err error) (status int, code string) {

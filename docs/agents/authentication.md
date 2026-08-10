@@ -108,10 +108,9 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   bootstraps on it before any login — and it renews the rolling session
   expiry of remember-me sessions.
 - **SPA token lifecycle** — on boot, mint a 48h `spa`-scoped token via
-  `POST /api/v1/auth/token` (sweeps ALL of the caller's spa tokens first —
-  expired and live: the SPA holds exactly one and this mint supersedes it,
-  bounding spa tokens at ~1/user so repeated boots cannot hit the cap); keep
-  it in memory only (never localStorage). Speak standard Subsonic auth on
+  `POST /api/v1/auth/token`, posting `{deviceId, deviceName}` for the app
+  instance doing the minting (**one session per device, not per user** — below);
+  keep it in memory only (never localStorage). Speak standard Subsonic auth on
   `/rest` via `apiKey=<token>`. The SPA's own `spa`-scoped token is hash-only
   by design, so `apiKey` is its only transport; `usertoken` PATs (recoverable,
   encrypted-at-rest) serve `t`+`s` and `p` clients. On token expiry
@@ -121,6 +120,30 @@ compose with OR semantics via `go-bumbu/userauth` (`handlers/auth/chain`).
   generic error when a stream's next range request fails. Generation counter
   discards mints resolving after logout.
 
+**One session per device.** The same user may be signed in from several
+first-party Aether apps at once — browsers today, native apps later — so a `spa`
+token belongs to a *device*, not to a user. Each app instance generates a stable
+device id on first use and persists it under `aether:deviceId`
+(`webui/src/lib/deviceIdentity.ts`) — the one localStorage key the logout purge
+deliberately preserves, since it identifies the app instance rather than the
+user; wiping it would orphan that instance's server-side session on every
+logout/login cycle. The id rides a `device:<id>` scope alongside `spa`, and the
+mint (`app/router/handlers/tokens/tokens.go`) sweeps only:
+
+- every **expired** `spa` token of the caller, whatever device it came from;
+- the **live token bearing this device's scope**, which this mint supersedes —
+  so repeated boots of one app never pile up or exhaust the cap;
+- the least recently used sessions beyond `MaxSessionsPerUser` (10), so
+  per-device sessions cannot crowd the user's client PATs out of the `pat`
+  service's per-user budget (LRU by `LastUsedAt`, falling back to `CreatedAt`).
+
+Other apps' live sessions survive, which is what keeps one app signing in from
+signing another out. `deviceId` is required and validated (1–64 chars of
+`[A-Za-z0-9_-]`, no `:` so it cannot forge a scope) — a bad one is a 400.
+`deviceName` is cosmetic ("Firefox on Linux", derived from the UA), truncated to
+100 runes rather than rejected, and falls back to `aether-web`; it is the row
+label in User settings → Connected apps → Your Aether apps.
+
 Token classes — implemented in `userauth`'s `pat` service with a `scope` tag
 distinguishing behavior:
 
@@ -128,7 +151,7 @@ distinguishing behavior:
 |---|---|---|---|
 | Created | automatically on SPA boot | manually via POST /api/v1/auth/tokens | manually via POST /api/v1/auth/tokens |
 | Lifetime | 48h, re-minted transparently | long-lived until revoked | long-lived until revoked |
-| Management UI | hidden from list | listed, named, revocable in UserSettingsView | listed, named, revocable; shows type tag |
+| Management UI | listed as `kind: "session"`, one row per app instance, revocable | listed, named, revocable in UserSettingsView | listed, named, revocable; shows type tag |
 | Storage | hash-only (we control the client) | hash-only | recoverable (AES-256-GCM encrypted at rest) |
 | Transport | `apiKey` only | `apiKey` only | `apiKey`, or `u`+`t`+`s`/`p` with tokenID as virtual username |
 | Credential shown | token at mint time | token at mint time | Username + Password at mint time (copy buttons in UI) |
@@ -153,8 +176,9 @@ from unknown virtual username (40) — a login-existence oracle accepted for
 client UX (so clients can show "configure a token" instead of "wrong password"),
 mirroring the tokenID oracle the `pat` library warns about.
 
-Mint-time sweep purges every one of the caller's spa tokens (expired and live);
-`GET /api/v1/auth/tokens` excludes `spa` scope from the list. A boot-mint that
+Mint-time sweep is per-device (see "One session per device" above);
+`GET /api/v1/auth/tokens` reports live spa tokens as `kind: "session"` and drops
+expired ones. A boot-mint that
 keeps failing for a non-401 reason surfaces the login gate, whose purge refetches
 `/me` and re-runs the mint watcher — so the SPA caps consecutive failed mints
 (`MAX_MINT_ATTEMPTS` in `webui/src/lib/subsonicSession.ts`) and then leaves the

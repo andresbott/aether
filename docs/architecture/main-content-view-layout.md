@@ -254,7 +254,7 @@ chrome like the queue sidebar.
 | Playlists (`PlaylistsView`) | `/playlists` | ✅ `ContentScaffold` |
 | Playlist detail (`PlaylistDetailView`) | `/playlist/:id` | ✅ `ContentScaffold` |
 | Genres (`GenresView`) | `/genres` | ✅ `ContentScaffold` (stub body) |
-| User settings (`UserSettingsView`) | `/user-settings` | ✅ `ContentScaffold` (Recipe B body) |
+| User settings (`UserSettingsView`) | `/user-settings/:tab?` | ✅ `ContentScaffold` (Recipe B body) |
 | About (`AboutView`) | `/about` | ✅ `ContentScaffold` (Recipe B body) |
 | Podcasts (`PodcastsView`) | `/podcasts` | ✅ `ContentScaffold` |
 | Podcast channel (`PodcastChannelView`) | `/podcast/:id` | ✅ `ContentScaffold` (cover in body hero) |

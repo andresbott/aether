@@ -19,6 +19,17 @@ describe('settings routes', () => {
         expect(router.hasRoute('settings-profile')).toBe(false)
     })
 
+    // The active section is a path segment so it survives a reload and can be
+    // linked to directly.
+    it('resolves a User settings section to the same route with a tab param', () => {
+        const access = router.resolve('/user-settings/access')
+        expect(access.name).toBe('user-settings')
+        expect(access.params.tab).toBe('access')
+        expect(access.meta.flush).toBe(true)
+        // Bare /user-settings is the default section: no tab param.
+        expect(router.resolve('/user-settings').params.tab).toBe('')
+    })
+
     it('applies the settings layout to settings routes', () => {
         expect(router.resolve('/settings/libraries').meta.layout).toBe('settings')
     })

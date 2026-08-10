@@ -198,6 +198,26 @@ describe('useAuth', () => {
         expect(auth.needsLogin.value).toBe(true)
     })
 
+    // The device id is not user data: it identifies THIS browser's session
+    // slot on the server. Wiping it on logout would leave the next login
+    // minting under a fresh identity, orphaning this browser's session and
+    // stacking one dead row per logout/login cycle.
+    it('keeps this browser device identity across the logout purge', async () => {
+        const { getDeviceId, DEVICE_ID_KEY } = await import('@/lib/deviceIdentity')
+        getMe.mockResolvedValue(meAlice)
+        logout.mockResolvedValue(undefined)
+        const auth = withAuth()
+        await flushPromises()
+        const deviceId = getDeviceId()
+
+        getMe.mockResolvedValue(meAnonymous)
+        await auth.logout.mutateAsync()
+        await flushPromises()
+
+        expect(localStorage.getItem(DEVICE_ID_KEY)).toBe(JSON.stringify(deviceId))
+        expect(getDeviceId()).toBe(deviceId)
+    })
+
     // Logging out ends the local session entirely: playback stops (the queue
     // sync unbinds first so the emptied queue is not pushed to the server)
     // and localStorage keeps nothing of the old user.

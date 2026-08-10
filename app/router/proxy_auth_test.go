@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -65,6 +66,15 @@ func proxyReq(method, path, user, groups string) *http.Request {
 	return r
 }
 
+// proxyMintReq builds the spa-token mint the SPA sends in proxy mode: a
+// proxy-authenticated request naming the browser it mints for.
+func proxyMintReq(user string) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token",
+		strings.NewReader(`{"deviceId":"test-browser","deviceName":"Test Browser"}`))
+	r.Header.Set("Remote-User", user)
+	return r
+}
+
 func TestHeaderGuardTiers(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, nil)
 
@@ -86,7 +96,7 @@ func TestHeaderGuardTiers(t *testing.T) {
 
 	// Session-scoped tier: any authenticated identity may mint tokens.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodPost, "/api/v1/auth/token", "bob", ""))
+	h.ServeHTTP(w, proxyMintReq("bob"))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("mint as regular user = %d, want 201: %s", w.Code, w.Body.String())
 	}
@@ -172,7 +182,7 @@ func TestHeaderGuardProvisionsUserOnFirstSight(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodPost, "/api/v1/auth/token", "carol", ""))
+	h.ServeHTTP(w, proxyMintReq("carol"))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("mint after provisioning = %d, want 201: %s", w.Code, w.Body.String())
 	}
@@ -202,7 +212,7 @@ func TestHeaderGuardBlocksDisabledUser(t *testing.T) {
 	}
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodPost, "/api/v1/auth/token", "dave", ""))
+	h.ServeHTTP(w, proxyMintReq("dave"))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("mint as disabled user = %d, want 403: %s", w.Code, w.Body.String())
 	}
@@ -269,7 +279,7 @@ func TestProxyMintedTokenWorksOnRest(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, nil)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodPost, "/api/v1/auth/token", "erin", ""))
+	h.ServeHTTP(w, proxyMintReq("erin"))
 	if w.Code != http.StatusCreated {
 		t.Fatalf("mint = %d, want 201: %s", w.Code, w.Body.String())
 	}

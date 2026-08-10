@@ -30,6 +30,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
     - [x] Embedded-cover lookup `GetCoverTrackPath` — **fixed**: the query now orders by `disc_number, track_number, file_path`, so the lowest `(disc, track)` track always wins and the choice no longer shifts with directory-walk order across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
     - Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile already re-checks a stored path every pass (`IsUsableCoverPath`), but nothing arbitrates between albums competing for one file.
+- [] how about to allow to configure an library ID number has fixed id in the config
 
 ## Backend — Resource Leaks
 
@@ -43,6 +44,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 - [] library also shows songs additionally to albums and artists
 - [] double click on a song adds it to the queue instead of replacing
 - [] impelemt radio mode queue => keep playing based on same type/taste
+- [] radio stations are not saved as queue between sessions
 
 ---
 
