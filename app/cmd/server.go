@@ -110,6 +110,13 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
+	// Config-declared libraries are materialized into the libraries table before
+	// anything reads it, so the scanner, the task runner and both APIs see the
+	// full set from the first request.
+	if err := reconcileLibraries(dataStore, cfg.Libraries, l); err != nil {
+		return fmt.Errorf("libraries from config: %w", err)
+	}
+
 	auth, err := setupAuth(db, cfg.DataDir, cfg.Auth, l)
 	if err != nil {
 		return err

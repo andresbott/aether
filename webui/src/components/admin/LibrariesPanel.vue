@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
+import Tag from 'primevue/tag'
 import { useConfirm } from 'primevue/useconfirm'
 import ConfirmDialog from 'primevue/confirmdialog'
 import {
@@ -55,6 +56,16 @@ function onDelete(lib: Library) {
     })
 }
 
+// Libraries declared in the server's config file are read-only here: the server
+// rewrites them from the file on every startup, so the API refuses edits (409
+// config_managed) rather than accepting a change that would silently revert.
+function isConfigManaged(lib: Library): boolean {
+    return lib.source === 'config'
+}
+
+const configManagedHint =
+    'Declared in the server config file. Edit the Libraries section of config.yaml and restart to change it.'
+
 function formatDate(s: string | null): string {
     if (!s) return '—'
     return new Date(s).toLocaleString()
@@ -87,6 +98,13 @@ const submitting = computed(
                     <span class="library-name">
                         <i :class="`pi pi-${data.icon || 'folder'}`"></i>
                         {{ data.name }}
+                        <Tag
+                            v-if="isConfigManaged(data)"
+                            class="config-badge"
+                            value="From config"
+                            severity="secondary"
+                            v-tooltip.top="configManagedHint"
+                        />
                     </span>
                 </template>
             </Column>
@@ -97,19 +115,27 @@ const submitting = computed(
             </Column>
             <Column header="" style="width: 11rem; text-align: right">
                 <template #body="{ data }">
-                    <Button
-                        icon="pi pi-pencil"
-                        text
-                        rounded
-                        @click="openEdit(data)"
-                    />
-                    <Button
-                        icon="pi pi-trash"
-                        text
-                        rounded
-                        severity="danger"
-                        @click="onDelete(data)"
-                    />
+                    <!-- Config-provisioned libraries have no actions: the server
+                         rewrites them from config.yaml on every startup, so an
+                         edit here would be reverted on the next restart. -->
+                    <span v-if="isConfigManaged(data)" class="config-hint">
+                        Managed in config.yaml
+                    </span>
+                    <template v-else>
+                        <Button
+                            icon="pi pi-pencil"
+                            text
+                            rounded
+                            @click="openEdit(data)"
+                        />
+                        <Button
+                            icon="pi pi-trash"
+                            text
+                            rounded
+                            severity="danger"
+                            @click="onDelete(data)"
+                        />
+                    </template>
                 </template>
             </Column>
         </DataTable>
@@ -156,5 +182,12 @@ const submitting = computed(
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+}
+.config-badge {
+    font-size: 0.75rem;
+}
+.config-hint {
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
 }
 </style>

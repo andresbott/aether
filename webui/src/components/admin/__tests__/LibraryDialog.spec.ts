@@ -17,6 +17,7 @@ const baseLibrary: Library = {
     default_view: 'albums',
     icon: 'folder',
     cover_style: 'bauhaus',
+    source: 'db',
     last_scan_started_at: null,
     created_at: '',
     updated_at: '',

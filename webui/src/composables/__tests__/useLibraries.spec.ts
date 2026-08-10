@@ -31,6 +31,7 @@ function sampleLibrary(): Library {
         default_view: 'artists',
         icon: 'folder',
         cover_style: 'auto',
+        source: 'db',
         last_scan_started_at: null,
         created_at: '',
         updated_at: '',

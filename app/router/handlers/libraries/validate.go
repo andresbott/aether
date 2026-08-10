@@ -10,7 +10,14 @@ import (
 	"github.com/andresbott/aether/internal/covergen"
 )
 
-func validatePath(path string) (string, error) {
+// The validators are exported because config-provisioned libraries
+// (app/cmd/libraries.go) must be held to exactly the same rules as ones
+// created through this API — a config typo should fail as loudly as a bad
+// request, and a second copy of these rules would drift.
+
+// ValidatePath resolves path to an absolute one and verifies it is an existing,
+// readable directory.
+func ValidatePath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", fmt.Errorf("path is required")
 	}
@@ -36,7 +43,8 @@ func validatePath(path string) (string, error) {
 	return abs, nil
 }
 
-func validateExcludePatterns(patterns []string) error {
+// ValidateExcludePatterns verifies every pattern compiles as a Go regexp.
+func ValidateExcludePatterns(patterns []string) error {
 	for _, p := range patterns {
 		if _, err := regexp.Compile(p); err != nil {
 			return fmt.Errorf("invalid regex %q: %w", p, err)
@@ -45,7 +53,8 @@ func validateExcludePatterns(patterns []string) error {
 	return nil
 }
 
-func validateName(name string) error {
+// ValidateName verifies the library name is present and of sane length.
+func ValidateName(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("name is required")
@@ -56,7 +65,8 @@ func validateName(name string) error {
 	return nil
 }
 
-func validateDefaultView(v string) error {
+// ValidateDefaultView verifies v is an allowed default view ("" = albums).
+func ValidateDefaultView(v string) error {
 	switch v {
 	case "", "albums", "artists":
 		return nil
@@ -65,7 +75,8 @@ func validateDefaultView(v string) error {
 	}
 }
 
-func validateCoverStyle(v string) error {
+// ValidateCoverStyle verifies v is "auto"/"" or a known covergen style.
+func ValidateCoverStyle(v string) error {
 	if v == "" || v == "auto" {
 		return nil
 	}
@@ -82,7 +93,8 @@ func validateCoverStyle(v string) error {
 // iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".
 var iconNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-func validateIcon(v string) error {
+// ValidateIcon verifies v is a PrimeIcons name without the "pi pi-" prefix.
+func ValidateIcon(v string) error {
 	if v == "" {
 		return nil
 	}

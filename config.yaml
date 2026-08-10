@@ -11,6 +11,43 @@ Observability:
 
 DataDir: "./data"
 
+# Music libraries provisioned from this file. This list and the libraries
+# created in the admin UI are ADDITIVE: the server ends up serving both. A
+# library declared here is materialized into the database at every startup, so:
+#
+#   * it is read-only in the UI (no edit, no delete) — change it here and
+#     restart instead;
+#   * the UI refuses to create a library that reuses a name or path claimed
+#     below;
+#   * removing an entry does NOT delete the library or its scanned tracks; the
+#     library simply becomes an ordinary, editable one in the UI.
+#
+# A library is identified by its Path (that is what gets scanned), falling back
+# to its Name. Pointing an existing entry at a new Path wipes that library's
+# tracks, exactly as changing the path in the UI does — the next scan refills it.
+#
+# Every field the UI offers is available. Only Name and Path are required:
+#
+#   ExcludePatterns  list of Go regexes; matching files are skipped   (default: none)
+#   FollowSymlinks   follow symlinked folders while scanning          (default: true)
+#   ShowArtists      list this library's artists in the artist index  (default: true)
+#   DefaultView      "albums" or "artists"                           (default: albums)
+#   Icon             PrimeIcons name without the "pi pi-" prefix      (default: folder)
+#   CoverStyle       generated-cover style: auto, classic, bauhaus,
+#                    rings, waves, poster, remix                      (default: auto)
+#
+# Libraries:
+#   - Name: "Music"
+#     Path: "/srv/music"
+#   - Name: "Audiobooks"
+#     Path: "/srv/audiobooks"
+#     ExcludePatterns:
+#       - ".*/covers/.*"
+#     ShowArtists: false
+#     DefaultView: "albums"
+#     Icon: "book"
+#     CoverStyle: "poster"
+
 # Authentication. Three methods:
 #
 #   "none"         — no authentication (dev / trusted LAN only).

@@ -9,6 +9,13 @@ export type LibraryCoverStyle =
     | 'poster'
     | 'remix'
 
+/**
+ * Who owns a library's configuration: 'db' for one managed here, 'config' for
+ * one declared in the server's config file. Config libraries are read-only —
+ * the server rewrites them from the file on every startup.
+ */
+export type LibrarySource = 'db' | 'config'
+
 export interface Library {
     id: number
     name: string
@@ -19,6 +26,7 @@ export interface Library {
     default_view: LibraryDefaultView
     icon: string
     cover_style: LibraryCoverStyle
+    source: LibrarySource
     last_scan_started_at: string | null
     created_at: string
     updated_at: string
@@ -43,7 +51,7 @@ export interface ListLibrariesResponse {
 
 export interface ApiError {
     error: string
-    code: 'validation_error' | 'not_found' | 'conflict' | 'internal'
+    code: 'validation_error' | 'not_found' | 'conflict' | 'config_managed' | 'internal'
 }
 
 export interface BrowseFolder {

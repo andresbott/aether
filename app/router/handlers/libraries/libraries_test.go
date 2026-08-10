@@ -290,9 +290,10 @@ func TestDeleteLibraryNotFound(t *testing.T) {
 	req := httptest.NewRequest("DELETE", "/libraries/999", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	// gorm.Delete on non-existent ID is a no-op (no error), so we accept 204 here.
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w.Code)
+	// The handler loads the library first (to refuse config-provisioned ones),
+	// so a missing ID is reported as 404 rather than gorm's no-op delete.
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
 	}
 }
 

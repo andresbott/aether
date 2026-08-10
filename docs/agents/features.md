@@ -40,6 +40,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Feature | Status | Where |
 |---|---|---|
 | Libraries CRUD + folder browse | Implemented | `handlers/libraries` (path change wipes the library's tracks) |
+| Config-provisioned libraries | Implemented | A `Libraries:` list in `config.yaml` is materialized into `libraries` rows at startup (`app/cmd/libraries.go`), additive with UI-created ones and marked `Source: "config"`. Read-only over the API (409 `config_managed`) and badged without edit/delete in `LibrariesPanel.vue`; dropping an entry releases the row to the UI rather than deleting it. Semantics and rationale in [architecture.md](architecture.md#config-provisioned-libraries) |
 | Scanning (incremental + full) | Implemented | tasks `scan` / `scan-full` → `internal/scanner`; see [scanning.md](scanning.md) |
 | Task runner, schedules, execution history + logs + cancel | Implemented | `handlers/tasks`, `internal/taskrunner` |
 | Artist image fetching | Implemented, key-gated | task `fetch-artist-images`, `internal/artistimage` (fanart.tv → TheAudioDB chain) |

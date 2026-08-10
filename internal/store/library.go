@@ -2,6 +2,8 @@ package store
 
 import (
 	"github.com/andresbott/aether/internal/model"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func (s *Store) ListLibraries() ([]model.Library, error) {
@@ -32,6 +34,47 @@ func (s *Store) GetLibrary(id uint) (model.Library, error) {
 
 func (s *Store) CreateLibrary(lib *model.Library) error {
 	return s.db.Create(lib).Error
+}
+
+// FindLibraryByName returns the library with this exact name, or
+// gorm.ErrRecordNotFound. A miss is an ordinary answer for these two lookups
+// (the config reconcile asks "does this library exist yet?"), so neither logs
+// the not-found as an error.
+func (s *Store) FindLibraryByName(name string) (model.Library, error) {
+	var lib model.Library
+	if err := s.db.Session(&gorm.Session{Logger: s.db.Logger.LogMode(logger.Silent)}).
+		Where("name = ?", name).First(&lib).Error; err != nil {
+		return model.Library{}, err
+	}
+	return lib, nil
+}
+
+// FindLibraryByPath returns the library rooted at this exact path, or
+// gorm.ErrRecordNotFound.
+func (s *Store) FindLibraryByPath(path string) (model.Library, error) {
+	var lib model.Library
+	if err := s.db.Session(&gorm.Session{Logger: s.db.Logger.LogMode(logger.Silent)}).
+		Where("path = ?", path).First(&lib).Error; err != nil {
+		return model.Library{}, err
+	}
+	return lib, nil
+}
+
+// ListLibrariesBySource returns every library owned by the given source
+// (model.SourceDB / model.SourceConfig), ordered by name.
+func (s *Store) ListLibrariesBySource(source string) ([]model.Library, error) {
+	var libs []model.Library
+	if err := s.db.Where("source = ?", source).Order("name ASC").Find(&libs).Error; err != nil {
+		return nil, err
+	}
+	return libs, nil
+}
+
+// SetLibrarySource changes which source owns a library. Used by the startup
+// reconcile to adopt a UI-created library into config ownership, and to hand a
+// library back to the UI when its config entry disappears.
+func (s *Store) SetLibrarySource(id uint, source string) error {
+	return s.db.Model(&model.Library{}).Where("id = ?", id).Update("source", source).Error
 }
 
 func (s *Store) UpdateLibrary(lib *model.Library) error {
