@@ -189,8 +189,10 @@ func (h *MainAppHandler) patIdentityResolver() subsonic.IdentityResolver {
 			// Unknown virtual username or wrong credentials. If u is a real
 			// login, answer 41: the login password never works on /rest and
 			// clients should show "configure a token", not "wrong password".
-			if _, uerr := h.users.GetUserByLogin(user); uerr == nil {
-				return "", 41
+			if h.users != nil {
+				if _, uerr := h.users.GetUserByLogin(user); uerr == nil {
+					return "", 41
+				}
 			}
 			return "", 40
 		}
@@ -281,11 +283,27 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	// stay intact. u stays visible: it is an identifier, not a secret.
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			q := r.URL.Query()
-			for _, param := range []string{"apiKey", "t", "s", "p"} {
-				if v := q.Get(param); v != "" {
-					r.RequestURI = strings.ReplaceAll(r.RequestURI, param+"="+v, param+"=***")
+			rawQuery := r.URL.RawQuery
+			if rawQuery == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			segments := strings.Split(rawQuery, "&")
+			masked := false
+			for i, seg := range segments {
+				key, _, found := strings.Cut(seg, "=")
+				if !found {
+					continue
 				}
+				switch key {
+				case "apiKey", "t", "s", "p":
+					segments[i] = key + "=***"
+					masked = true
+				}
+			}
+			if masked {
+				maskedQuery := strings.Join(segments, "&")
+				r.RequestURI = r.URL.EscapedPath() + "?" + maskedQuery
 			}
 			next.ServeHTTP(w, r)
 		})
