@@ -200,6 +200,23 @@ func TestCreateUser(t *testing.T) {
 	})
 }
 
+func TestCreateRejectsTokenShapedLogin(t *testing.T) {
+	_, r := newTestHandler(t)
+	for _, login := range []string{"abc123defg", "0123456789", "zzzzzzzzzz"} {
+		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"`+login+`","password":"longenough1"}`)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("login %q: status %d, want 400", login, w.Code)
+		}
+	}
+	// Nearby shapes stay allowed: wrong length, uppercase, symbols.
+	for _, login := range []string{"abc123defgh", "abc123def", "Abc123defg", "abc-123defg"} {
+		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"`+login+`","password":"longenough1"}`)
+		if w.Code == http.StatusBadRequest {
+			t.Errorf("login %q: unexpectedly rejected", login)
+		}
+	}
+}
+
 func TestCreateUserRole(t *testing.T) {
 	t.Run("creates an admin via role", func(t *testing.T) {
 		store, r := newTestHandler(t)
