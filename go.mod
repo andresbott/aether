@@ -66,3 +66,5 @@ require (
 )
 
 replace go.senan.xyz/taglib => github.com/andresbott/go-taglib v0.0.0-20260721170622-b78b455bd52d
+
+replace github.com/go-bumbu/userauth => ../bumbu/userauth

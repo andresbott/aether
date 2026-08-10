@@ -105,7 +105,7 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	// Mint rejects past expiries, so mint a live spa token and age it into
 	// the past behind the service's back (user_pats is userdb's PAT table).
 	future := time.Now().Add(time.Minute)
-	_, staleRec, err := h.tokens.Mint(usr.ID, "stale-spa", []string{tokensHandler.SPAScope}, &future)
+	_, staleRec, err := h.tokens.Mint(usr.ID, "stale-spa", []string{tokensHandler.SPAScope}, &future, pat.HashOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,10 +117,10 @@ func TestMintSweepsExpiredSpaTokens(t *testing.T) {
 	}
 	// A LIVE spa token from an earlier boot: superseded, so it must go too.
 	liveExpiry := time.Now().Add(time.Hour)
-	if _, _, err := h.tokens.Mint(usr.ID, "live-spa", []string{tokensHandler.SPAScope}, &liveExpiry); err != nil {
+	if _, _, err := h.tokens.Mint(usr.ID, "live-spa", []string{tokensHandler.SPAScope}, &liveExpiry, pat.HashOnly); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := h.tokens.Mint(usr.ID, "phone", []string{tokensHandler.ClientScope}, nil); err != nil {
+	if _, _, err := h.tokens.Mint(usr.ID, "phone", []string{tokensHandler.ClientScope}, nil, pat.HashOnly); err != nil {
 		t.Fatal(err)
 	}
 

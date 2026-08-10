@@ -103,7 +103,7 @@ func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	expiresAt := now.Add(SPATokenTTL)
-	token, rec, err := h.Tokens.Mint(userID, SPATokenName, []string{SPAScope}, &expiresAt)
+	token, rec, err := h.Tokens.Mint(userID, SPATokenName, []string{SPAScope}, &expiresAt, pat.HashOnly)
 	if err != nil {
 		status, code := mapPatError(err)
 		writeError(w, status, code, err.Error())
@@ -206,7 +206,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	token, rec, err := h.Tokens.Mint(userID, in.Name, []string{ClientScope}, in.ExpiresAt)
+	token, rec, err := h.Tokens.Mint(userID, in.Name, []string{ClientScope}, in.ExpiresAt, pat.HashOnly)
 	if err != nil {
 		status, code := mapPatError(err)
 		writeError(w, status, code, err.Error())
