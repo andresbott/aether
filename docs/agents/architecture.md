@@ -70,7 +70,8 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 
 - `Library` — a music folder root; per-library `HideArtists`, `DefaultView`,
   `Icon`, JSON-encoded `ExcludePatterns`. Deleting/changing a library path
-  wipes its tracks.
+  wipes its tracks. `Source` (`"db"` | `"config"`) records who owns the row —
+  see [Config-provisioned libraries](#config-provisioned-libraries).
 - `Track` — `FilePath` unique; `LastSeenAt` drives scan cleanup;
   `LibraryID` cascade-deletes. `Album`/`Artist`/`Genre` link via join tables
   (`AlbumArtist`, `TrackArtist`, `TrackGenre`, `AlbumGenre`).
@@ -115,6 +116,51 @@ rendered once at full size and cached as ordinary derivatives.
 vars prefixed `AETHER_` (e.g. `AETHER_ENV_LOGLEVEL=debug`). Config values
 starting with `@` load the referenced file's contents (used for gitignored
 `*.api.key` provider keys).
+
+**Optional bools in config need a presence check, not just a `*bool`.**
+`go-bumbu/config`'s unmarshaller allocates every nil pointer field it walks
+(`unmarshal.go`), so after loading, an omitted key is an allocated `false` —
+indistinguishable from an explicit `false`. Any config bool whose default is
+`true` must therefore be re-checked against the handler
+(`normalizeLibraryBools` in `app/cmd/config.go` asks `handler.GetString` per
+key and resets absent ones to nil). Declaring `*bool` alone silently flips the
+default for everyone who didn't spell the key out.
+
+### Config-provisioned libraries
+
+Libraries come from **two additive sources**: the admin UI (`/api/v1/libraries`)
+and a `Libraries:` list in the config file. `Library.Source` (`model.SourceDB` /
+`model.SourceConfig`) records which.
+
+`reconcileLibraries` (`app/cmd/libraries.go`) runs in `server.go` right after
+`store.New`, before anything reads the table, and **materializes** each config
+entry into a real `libraries` row. That is the whole design decision: config
+libraries get a normal autoincrement ID, so every existing consumer — the
+`tracks.library_id` FK, the scanner, `getMusicFolders`, the per-library SQL
+joins in `internal/store` — keeps working untouched, and nothing needs to know
+libraries have two origins.
+
+Semantics (each covered by a test in `app/cmd/libraries_test.go`):
+
+- Config entries are rewritten from the file on **every** startup, including
+  fields the entry omits (those revert to their defaults). This is what makes
+  them read-only over the API: an accepted edit would silently revert on the
+  next restart, so `PUT`/`DELETE` answer **409 `config_managed`** and `POST`
+  refuses a name or path a config library already claims.
+- Matching is by **path** first (that is what gets scanned), then by **name**.
+  A colliding UI-created row is **adopted** rather than duplicated, keeping its
+  scanned tracks. A path change wipes tracks, exactly as the API does it.
+- Name matching one row while the path matches a *different* one is
+  unresolvable, so startup **fails** instead of guessing.
+- Removing an entry from config **never deletes** the library: the row is handed
+  back to the UI as an ordinary editable one, tracks intact. Deleting a library
+  stays a deliberate UI action, so a commented-out entry can't wipe a scan.
+- `LastScanStartedAt` is runtime state, not configuration, and stays on the row
+  for both sources.
+
+Config entries are validated with the **same exported validators** the API uses
+(`libraries.ValidateName/ValidatePath/…`) so a config typo fails as loudly as a
+bad request, with the same message. Don't add a second copy of those rules.
 
 ## External services (all optional)
 

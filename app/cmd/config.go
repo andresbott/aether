@@ -20,6 +20,27 @@ type AppCfg struct {
 	TaskRunner   TaskRunnerCfg
 	ArtistImages ArtistImagesCfg
 	Auth         AuthCfg
+	Libraries    []LibraryCfg
+}
+
+// LibraryCfg declares a music library in the config file. Declared libraries
+// are materialized into the libraries table at startup (see
+// app/cmd/libraries.go) and are read-only in the UI; libraries created through
+// the admin UI live alongside them. Every field the UI exposes is available
+// here.
+//
+// FollowSymlinks and ShowArtists are pointers so that an omitted key keeps its
+// default (both true) instead of decoding as false; nil means "not declared"
+// (see normalizeLibraryBools).
+type LibraryCfg struct {
+	Name            string
+	Path            string
+	ExcludePatterns []string
+	FollowSymlinks  *bool
+	ShowArtists     *bool
+	DefaultView     string
+	Icon            string
+	CoverStyle      string
 }
 
 // Auth method values for AuthCfg.Method.
@@ -214,11 +235,12 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 			}
 		}},
 	)
-	_, err := config.Load(opts...)
+	handler, err := config.Load(opts...)
 	cfg.Msgs = configMsg
 	if err != nil {
 		return cfg, err
 	}
+	normalizeLibraryBools(cfg.Libraries, handler)
 
 	absPath, err := filepath.Abs(cfg.DataDir)
 	if err != nil {
@@ -230,6 +252,10 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 	// is returned verbatim, so trim surrounding whitespace/newlines.
 	cfg.ArtistImages.FanartApiKey = strings.TrimSpace(cfg.ArtistImages.FanartApiKey)
 	cfg.ArtistImages.TheAudioDBApiKey = strings.TrimSpace(cfg.ArtistImages.TheAudioDBApiKey)
+
+	if err := validateLibraries(cfg.Libraries); err != nil {
+		return cfg, err
+	}
 
 	cfg.Auth.Method = strings.ToLower(strings.TrimSpace(cfg.Auth.Method))
 	if cfg.Auth.Method != AuthMethodNone && cfg.Auth.Method != AuthMethodNative &&
@@ -264,6 +290,67 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 	}
 
 	return cfg, nil
+}
+
+// normalizeLibraryBools resets the optional library bools to nil when the key
+// is absent from the loaded config. go-bumbu/config allocates every pointer
+// field it walks, so after unmarshalling an omitted FollowSymlinks is an
+// allocated false — indistinguishable from an explicit "false" — which would
+// silently flip both defaults (true) for anyone who didn't spell them out.
+// Asking the handler whether the key exists is the only way to tell the two
+// apart, so it happens here, once, right after loading.
+func normalizeLibraryBools(libs []LibraryCfg, handler *config.CfgHandler) {
+	for i := range libs {
+		prefix := "Libraries." + strconv.Itoa(i) + "."
+		if _, err := handler.GetString(prefix + "FollowSymlinks"); err != nil {
+			libs[i].FollowSymlinks = nil
+		}
+		if _, err := handler.GetString(prefix + "ShowArtists"); err != nil {
+			libs[i].ShowArtists = nil
+		}
+	}
+}
+
+// validateLibraries checks the config-declared libraries as a set: every entry
+// needs a name and a path, and neither may repeat, since both are unique in the
+// libraries table and a duplicate could otherwise only fail at startup as an
+// opaque constraint violation. Paths are made absolute so the comparison — and
+// the row later written — matches what the API stores.
+func validateLibraries(libs []LibraryCfg) error {
+	names := make(map[string]int, len(libs))
+	paths := make(map[string]int, len(libs))
+	for i := range libs {
+		lib := &libs[i]
+		lib.Name = strings.TrimSpace(lib.Name)
+		lib.Path = strings.TrimSpace(lib.Path)
+		lib.DefaultView = strings.TrimSpace(lib.DefaultView)
+		lib.Icon = strings.TrimSpace(lib.Icon)
+		lib.CoverStyle = strings.TrimSpace(lib.CoverStyle)
+
+		if lib.Name == "" {
+			return fmt.Errorf("config Libraries[%d]: Name is required", i)
+		}
+		if lib.Path == "" {
+			return fmt.Errorf("config Libraries[%d] (%s): Path is required", i, lib.Name)
+		}
+		abs, err := filepath.Abs(lib.Path)
+		if err != nil {
+			return fmt.Errorf("config Libraries[%d] (%s): invalid Path %q: %w", i, lib.Name, lib.Path, err)
+		}
+		lib.Path = abs
+
+		if prev, dup := names[lib.Name]; dup {
+			return fmt.Errorf("config Libraries[%d]: duplicate Name %q (also declared by Libraries[%d])",
+				i, lib.Name, prev)
+		}
+		if prev, dup := paths[lib.Path]; dup {
+			return fmt.Errorf("config Libraries[%d] (%s): duplicate Path %q (also declared by Libraries[%d])",
+				i, lib.Name, lib.Path, prev)
+		}
+		names[lib.Name] = i
+		paths[lib.Path] = i
+	}
+	return nil
 }
 
 // parseTrustedProxies parses the configured CIDR list. A bare IP is accepted
