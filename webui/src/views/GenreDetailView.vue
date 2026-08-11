@@ -277,9 +277,10 @@ watch(
                             <span class="col-title">Title</span>
                             <span class="col-artist">Artist</span>
                             <span class="col-album">Album</span>
-                            <!-- The favorite column is hover-revealed per row, so
-                                 its header stays blank rather than labelling a
-                                 control that is usually invisible. -->
+                            <!-- The select and favorite columns are hover-revealed
+                                 per row, so their headers stay blank rather than
+                                 labelling controls that are usually invisible. -->
+                            <span class="col-select"></span>
                             <span class="col-star"></span>
                             <span class="col-duration" aria-label="Duration">
                                 <i class="pi pi-clock"></i>
@@ -357,7 +358,7 @@ watch(
 .track-list {
     /* Shared grid template so the header and every row align. Custom properties
        inherit through the DOM regardless of scoped styles. */
-    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 2rem 62px;
+    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 2rem 2rem 62px;
     flex: 1;
     min-height: 0;
     display: flex;

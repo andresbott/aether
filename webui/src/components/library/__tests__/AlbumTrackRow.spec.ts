@@ -71,6 +71,31 @@ describe('AlbumTrackRow', () => {
     })
 })
 
+describe('AlbumTrackRow select toggle', () => {
+    it('renders the shared select toggle in its own column, left of the heart', () => {
+        const w = mountRow()
+        expect(w.find('.col-select .row-select').exists()).toBe(true)
+        const cols = w.findAll('.album-track-row > span').map((s) => s.classes())
+        expect(cols.findIndex((c) => c.includes('col-select'))).toBeLessThan(
+            cols.findIndex((c) => c.includes('col-star'))
+        )
+    })
+
+    it('reflects the row selection', () => {
+        expect(mountRow({ selected: true }).find('.row-select').classes()).toContain('is-selected')
+        expect(mountRow().find('.row-select').classes()).not.toContain('is-selected')
+    })
+
+    // Clicking it must behave exactly like a CTRL/⌘+click on the row.
+    it('emits an additive select and does not enqueue the row', async () => {
+        const w = mountRow()
+        await w.find('.row-select').trigger('click')
+        await w.find('.row-select').trigger('dblclick')
+        expect(w.emitted('select')).toEqual([[{ additive: true, range: false }]])
+        expect(w.emitted('enqueue')).toBeUndefined()
+    })
+})
+
 describe('AlbumTrackRow favorite toggle', () => {
     it('renders the shared favorite toggle in its own column', () => {
         const w = mountRow()
