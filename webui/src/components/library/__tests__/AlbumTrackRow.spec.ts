@@ -56,10 +56,10 @@ describe('AlbumTrackRow', () => {
         expect(w.emitted('select')?.[1]).toEqual([{ additive: false, range: true }])
     })
 
-    it('emits play on double-click', async () => {
+    it('emits enqueue on double-click', async () => {
         const w = mountRow()
         await w.trigger('dblclick')
-        expect(w.emitted('play')).toHaveLength(1)
+        expect(w.emitted('enqueue')).toHaveLength(1)
     })
 
     it('forwards dragstart and dragend', async () => {
@@ -83,13 +83,13 @@ describe('AlbumTrackRow favorite toggle', () => {
         expect(starMutate).toHaveBeenCalledWith({ id: 's1', starred: true })
     })
 
-    // The row selects on click and plays on double-click, so the heart must
-    // swallow both or starring would also select or start playback.
-    it('does not select or play the row when the heart is used', async () => {
+    // The row selects on click and enqueues on double-click, so the heart must
+    // swallow both or starring would also select or queue the track.
+    it('does not select or enqueue the row when the heart is used', async () => {
         const w = mountRow()
         await w.find('.row-star').trigger('click')
         await w.find('.row-star').trigger('dblclick')
         expect(w.emitted('select')).toBeUndefined()
-        expect(w.emitted('play')).toBeUndefined()
+        expect(w.emitted('enqueue')).toBeUndefined()
     })
 })

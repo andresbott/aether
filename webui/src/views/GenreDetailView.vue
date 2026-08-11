@@ -180,13 +180,12 @@ function onLazyLoad(event: VirtualScrollerLazyEvent): void {
     void ensureRange(event.first, event.last)
 }
 
-const playFromIndex = (index: number): void => {
-    // Play the loaded songs only — a genre's full list may not be fetched yet.
-    const loaded = items.value.filter((s): s is Song => s !== undefined)
+// Double-clicking a row appends that song to the end of the queue rather than
+// replacing it with the genre (see docs/architecture/unified-play-experience.md).
+// Only the double-clicked row is needed, so the unfetched pages don't matter.
+const enqueueTrack = (index: number): void => {
     const song = items.value[index]
-    if (!song) return
-    const loadedIndex = loaded.findIndex((s) => s.id === song.id)
-    if (loadedIndex >= 0) player.playAlbum(loaded, loadedIndex)
+    if (song) player.enqueueAndPlayIfIdle([song])
 }
 
 // A drag from a selected row carries the whole selection; from an unselected
@@ -302,7 +301,7 @@ watch(
                                 :selected="isSelected(options.index)"
                                 :playing="item?.id === currentTrackId"
                                 @select="(p) => onRowClick(options.index, p)"
-                                @play="playFromIndex(options.index)"
+                                @enqueue="enqueueTrack(options.index)"
                                 @dragstart="(e) => onRowDragStart(e, options.index)"
                                 @dragend="songsDrag.end"
                             />

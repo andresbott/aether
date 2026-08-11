@@ -144,8 +144,11 @@ const summary = computed(() => {
 })
 
 // --- Song results (album-style rows with a cover column, as in the playlist view) ---
-const playFrom = (index: number): void => {
-    player.playAlbum(songs.value, index)
+// Double-clicking a row appends that song to the end of the queue rather than
+// replacing it (see docs/architecture/unified-play-experience.md).
+const enqueueTrack = (index: number): void => {
+    const song = songs.value[index]
+    if (song) player.enqueueAndPlayIfIdle([song])
 }
 
 // A drag from a selected row carries the whole selection; from an unselected
@@ -299,7 +302,7 @@ watch(songs, () => clearSelection())
                                 :index="index"
                                 :selected="isSelected(index)"
                                 @select="(p) => onRowClick(index, p)"
-                                @play="playFrom(index)"
+                                @enqueue="enqueueTrack(index)"
                                 @dragstart="(e) => onRowDragStart(e, index)"
                                 @dragend="songsDrag.end"
                             />

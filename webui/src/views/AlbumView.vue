@@ -66,10 +66,11 @@ const addToQueue = () => {
     }
 }
 
-const playFromIndex = (index: number): void => {
-    if (index >= 0 && index < orderedSongs.value.length) {
-        player.playAlbum(orderedSongs.value, index)
-    }
+// Double-clicking a track appends it to the end of the queue rather than
+// replacing the queue with the album (see docs/architecture/unified-play-experience.md).
+const enqueueTrack = (index: number): void => {
+    const song = orderedSongs.value[index]
+    if (song) player.enqueueAndPlayIfIdle([song])
 }
 
 const discs = computed(() => {
@@ -204,7 +205,7 @@ watch(
                                 :selected="isSelected(row.index)"
                                 :playing="row.song.id === currentTrackId"
                                 @select="(p) => onRowClick(row.index, p)"
-                                @play="playFromIndex(row.index)"
+                                @enqueue="enqueueTrack(row.index)"
                                 @dragstart="(e) => onRowDragStart(e, row.index)"
                                 @dragend="songsDrag.end"
                             />

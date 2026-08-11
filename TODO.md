@@ -1,6 +1,7 @@
 # TODO
 
-Items are split into **1.0** (the release gate) and **Future releases**.
+Items are split into **1.0** (the release gate), **Future releases**, and a
+**Backlog** of things that need investigation before they can be scoped.
 
 # 1.0
 
@@ -42,9 +43,8 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 
 - [ ] Create an app icon / logo — PWA icons (various sizes) and favicon wiring. **Partly done**: source art exists in `zarf/icon/` (`icon.svg`, `favicon.svg`, `256.png`, `64.png`) and the sidebar has a text wordmark + `◈` brand mark (`AppSidebar.vue:186-187`). What remains is shipping them to the browser: `webui/index.html` declares **no `<link rel="icon">` and no manifest**, there is no `webui/public/`, and `/favicon.ico` falls through to the SPA handler (answers 200 with `text/html`). Also decide whether the wordmark stays as styled text or becomes the SVG.
 - [] library also shows songs additionally to albums and artists
-- [] double click on a song adds it to the queue instead of replacing
+- [x] double click on a song adds it to the queue instead of replacing — **done**. Track rows emit `enqueue` (not `play`) and every host answers with `player.enqueueAndPlayIfIdle([song])` (`webui/src/composables/usePlayer.ts`): the track appends to the end, `currentIndex` and the shuffle run are left intact, and playback only starts when the player was idle (empty queue / no loaded track) so the gesture still makes sound on a fresh session. Applied to all four track lists — `AlbumView`, `GenreDetailView`, `SearchView`, `PlaylistDetailView` — so the gesture means one thing app-wide; replacing the queue stays the hero Play button's job. `QueueRow` keeps `play` (inside the queue, double-click means "jump to this slot"). Contract recorded in [`docs/architecture/unified-play-experience.md`](docs/architecture/unified-play-experience.md).
 - [] impelemt radio mode queue => keep playing based on same type/taste
-- [] radio stations are not saved as queue between sessions
 
 ---
 
@@ -104,6 +104,22 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 
 - [ ] Last.fm scrobbling — forward each play to the user's Last.fm account so listening history lives off-box, plus the `track.love`/`artist.getInfo`/`album.getInfo` features that ride the same API key. **Nothing outbound exists today** (confirmed: no `lastfm`/`listenbrainz` reference anywhere in Go) — the local side only: the browser applies Last.fm's own 50%/4min/30s rule (`usePlayer.ts:53`), calls `/rest/scrobble`, and the server appends to `play_history` (`subsonic/annotation.go:62`). No client, credentials, config, or retry queue. Two prerequisites: the `submission` parameter is currently ignored, so now-playing pings are recorded as completed plays; and there is no user/settings table to hold a session key. Consider **ListenBrainz first** — same off-box history and stats, one unsigned POST with a token, no signed handshake or app registration
 - [ ] DLNA / UPnP endpoint — expose the library as a DLNA MediaServer so devices on the LAN (TVs, receivers, stock media players) can browse and stream without the Subsonic client
+
+---
+
+# Backlog — needs investigation
+
+Items parked here are **not release-gated**. Each one has been looked at enough to
+know it is real and roughly why, but the direction is undecided — so they wait for
+a deliberate scoping pass rather than sitting in 1.0 or Future releases pretending
+to be planned work.
+
+- [ ] **Radio stations are not saved in the play queue between sessions / devices.** Investigated 2026-08-11, not fixed; needs a direction decision before any code.
+    - **Root cause:** a station enters the queue as a synthetic `Song` (`webui/src/utils/radioSong.ts:8` — `id: radio-<name>` plus a `streamUrl`, deliberately *not* the real `rs-<n>`). `useQueueSync.pushQueue` (`webui/src/composables/useQueueSync.ts:50`) sends `queue.map(s => s.id)` verbatim, and the backend's `decodeTrackIDs` (`subsonic/playlists.go:249`) silently drops every non-`tr-` id. `model.PlayQueueEntry.TrackID uint` is track-only anyway, and restore rebuilds entries from `model.Track` via `starredSongList`, which emits no `streamUrl` — so nothing radio-shaped can round-trip even if it were stored.
+    - **Two collateral bugs are worse than the missing station, and are worth fixing whichever direction wins:** (a) the client's `currentIndex` counts the dropped entry, so a station *before* the playing track makes `currentIndex >= len(trackIDs)` and `savePlayQueueByIndex` answers error 10 (`subsonic/playqueue.go:73`) — **discarding the whole save, tracks included**; a station *after* it nominates the wrong current track. (b) A radio-only queue decodes to zero ids, which routes to `clearSavedQueue` (`playqueue.go:58`) and **deletes the other device's saved session**. Minor: `usePlayer.ts:74` scrobbles `radio-<name>`, which answers `invalid id` (log noise only).
+    - **OpenSubsonic has no mechanism for this.** `savePlayQueue`'s `id`/`current` are defined strictly as song ids; `PlayQueue.entry` is an array of `Child` ("the list of songs in the queue") with a MUST that `current` be "a valid id in the list of songs"; `Child.type` ∈ `{music, podcast, audiobook, video}` and `mediaType` ∈ `{song, album, artist}` — no stream/radio value, no `streamUrl` field. Stations are a separate entity with their own CRUD: the spec's model is that a station is something you *play*, not something you *queue*. The extension registry (11 entries) has nothing for it — podcast episodes got a dedicated extension, radio-in-queue never did — so there is no upstream extension to adopt, only one to author.
+    - **Options:** **(A)** follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. **(B)** author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later.
+    - **Trap for (B):** `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves **track 3's file**. A latent bug a radio-in-queue design walks straight into — and worth fixing on its own regardless.
 
 ---
 

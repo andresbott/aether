@@ -24,7 +24,8 @@ first one mandatory:
    Play/Queue/Favorite live in `HeroActions` inside `HeroHeader`, never in the
    scaffold action bar; hidden in edit mode. Also pins the one favorite
    affordance used app-wide: `pi pi-heart(-fill)` with "Add to/Remove from
-   favorites".
+   favorites", and the track-row double-click contract (rows emit `enqueue`,
+   which appends to the end of the queue — only the hero Play replaces it).
 
 When a view diverges from these registries, the registry wins.
 

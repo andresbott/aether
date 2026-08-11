@@ -153,8 +153,11 @@ const onStar = (): void => {
 }
 
 // --- View-mode song list (album-style rows with a cover column) ---
-const playFrom = (index: number): void => {
-    player.playAlbum(working.value, index)
+// Double-clicking a row appends that song to the end of the queue rather than
+// replacing it with the playlist (see docs/architecture/unified-play-experience.md).
+const enqueueTrack = (index: number): void => {
+    const song = working.value[index]
+    if (song) player.enqueueAndPlayIfIdle([song])
 }
 
 // A drag from a selected row carries the whole selection; from an unselected
@@ -405,7 +408,7 @@ onUnmounted(() => {
                             :index="index"
                             :selected="isSelected(index)"
                             @select="(p) => onRowClick(index, p)"
-                            @play="playFrom(index)"
+                            @enqueue="enqueueTrack(index)"
                             @dragstart="(e) => onRowDragStart(e, index)"
                             @dragend="songsDrag.end"
                         />

@@ -13,7 +13,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     select: [payload: { additive: boolean; range: boolean }]
-    play: []
+    // A double-click appends the track to the queue; the host decides what that
+    // means for playback (see docs/architecture/unified-play-experience.md).
+    enqueue: []
     dragstart: [event: DragEvent]
     dragend: []
 }>()
@@ -55,7 +57,7 @@ const onAlbumClick = (event: MouseEvent): void => {
         :data-track-index="index"
         draggable="true"
         @click="onClick"
-        @dblclick="emit('play')"
+        @dblclick="emit('enqueue')"
         @dragstart="emit('dragstart', $event)"
         @dragend="emit('dragend')"
     >
