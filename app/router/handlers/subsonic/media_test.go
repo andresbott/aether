@@ -430,6 +430,102 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 	}
 }
 
+// A manually uploaded cover lives in aether's own asset store, under the data
+// dir and therefore outside every library root by construction. The library
+// guard is about paths that came out of the DB naming user media, so applying it
+// to the asset store would silently fall every upload through to the generated
+// cover. Covers all the entities whose covers can be uploaded through the UI.
+func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
+	// seed stores a 4x4 upload for one entity kind and returns its cover-art id.
+	tests := []struct {
+		name string
+		seed func(t *testing.T, s *store.Store, as *assetstore.Store) string
+	}{
+		{"playlist", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
+			pl, err := s.CreatePlaylist("Mix", "admin", false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			putUpload(t, as, assetstore.KindPlaylist, playlistCoverKey(pl.ID))
+			return encodePlaylistID(pl.ID)
+		}},
+		{"album", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
+			album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+			if err := s.DB().Create(&album).Error; err != nil {
+				t.Fatal(err)
+			}
+			putUpload(t, as, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10))
+			return encodeAlbumID(album.ID)
+		}},
+		{"artist", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
+			artist := model.Artist{Name: "A", NameNorm: "a"}
+			if err := s.DB().Create(&artist).Error; err != nil {
+				t.Fatal(err)
+			}
+			putUpload(t, as, assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10))
+			return encodeArtistID(artist.ID)
+		}},
+		{"genre", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
+			genre := model.Genre{Name: "Jazz"}
+			if err := s.DB().Create(&genre).Error; err != nil {
+				t.Fatal(err)
+			}
+			putUpload(t, as, assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10))
+			return encodeGenreID(genre.ID)
+		}},
+		{"radio", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
+			st, err := s.CreateInternetRadioStation("R", "http://stream.test/x", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			putUpload(t, as, assetstore.KindRadio, RadioKey(st.StreamURL))
+			return encodeRadioID(st.ID)
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testStore(t)
+			if err := s.CreateLibrary(&model.Library{Name: "L", Path: t.TempDir()}); err != nil {
+				t.Fatal(err)
+			}
+			as := assetstore.New(t.TempDir())
+			id := tc.seed(t, s, as)
+
+			r := mux.NewRouter()
+			Register(r, s, as, imagecache.New(t.TempDir()), nil, WithLibraryRoots(s.LibraryRoots))
+			srv := httptest.NewServer(r)
+			defer srv.Close()
+
+			resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=%s&size=256", srv.URL, id))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+			// Sources are never upscaled, so 4x4 proves the upload was served
+			// rather than the 256px generated fallback.
+			cfg, _ := decodeServedCover(t, resp)
+			if cfg.Width != uploadEdge {
+				t.Errorf("served width %d, want %d: the uploaded cover was refused by the library guard", cfg.Width, uploadEdge)
+			}
+		})
+	}
+}
+
+// uploadEdge is the edge length of the upload fixture putUpload stores — small
+// enough that a derivative of it is never confused with a generated cover.
+const uploadEdge = 4
+
+func putUpload(t *testing.T, as *assetstore.Store, kind, key string) {
+	t.Helper()
+	if err := as.PutManual(kind, key, "png", realPNG(t, uploadEdge, uploadEdge)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // With no roots configured the guard is not installed at all — auth method
 // "none" style single-user setups and every existing test construct the handler
 // that way, and a server with no libraries yet must not 404 its own covers.

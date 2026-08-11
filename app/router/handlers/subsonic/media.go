@@ -108,8 +108,14 @@ func (h *Handler) currentGuard() *pathguard.Guard {
 
 type coverMeta struct {
 	coverPath string
-	albumID   uint
-	seed      string
+	// coverManaged marks coverPath as a file aether itself wrote to its asset
+	// store (a manual upload, an auto-fetched artist image) rather than a path
+	// that came out of the library. The library guard only applies to the
+	// latter: the asset store lives under the data dir, outside every library
+	// root, so guarding it would refuse every uploaded cover.
+	coverManaged bool
+	albumID      uint
+	seed         string
 	// cacheKind/cacheKey file this entity's cached derivatives (imagecache
 	// mirrors the assetstore layout: <kind>/<key>/). They identify the entity,
 	// not the winning source — which source wins changes as uploads land and
@@ -140,12 +146,12 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	}
 	if artist.MBArtistID != "" {
 		if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
-			meta.coverPath = p
+			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
 	if meta.coverPath == "" {
 		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
-			meta.coverPath = p
+			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
 	if meta.coverPath == "" {
@@ -168,7 +174,7 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 		styleFor:  h.albumStyleFor(album.ID),
 	}
 	if p, ok := h.assets.Get(assetstore.KindAlbum, key); ok {
-		meta.coverPath = p
+		meta.coverPath, meta.coverManaged = p, true
 	}
 	return meta
 }
@@ -216,7 +222,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			cacheKey:  strconv.FormatUint(uint64(station.ID), 10),
 		}
 		if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
-			meta.coverPath = p
+			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
 	case "playlist":
@@ -234,7 +240,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			cacheKey:  strconv.FormatUint(uint64(pl.ID), 10),
 		}
 		if p, ok := h.assets.Get(assetstore.KindPlaylist, meta.cacheKey); ok {
-			meta.coverPath = p
+			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
 	case "genre":
@@ -253,7 +259,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			cacheKey:  strconv.FormatUint(uint64(genre.ID), 10),
 		}
 		if p, ok := h.assets.Get(assetstore.KindGenre, meta.cacheKey); ok {
-			meta.coverPath = p
+			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
 	default:
@@ -350,7 +356,9 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 	}
 	var out []coverSource
 
-	if meta.coverPath != "" && h.mediaPathAllowed(meta.coverPath) {
+	// Managed covers skip the guard: the asset store is aether's own directory
+	// under the data dir, so it is outside every library root by construction.
+	if meta.coverPath != "" && (meta.coverManaged || h.mediaPathAllowed(meta.coverPath)) {
 		if info, err := os.Stat(meta.coverPath); err == nil {
 			path := meta.coverPath
 			out = append(out, coverSource{
@@ -362,7 +370,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 				// (removing an upload uncovers the folder image) must still
 				// invalidate the cached derivative.
 				fingerprint: fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-				load:        func() ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver (asset store or scanner-detected image), never from the request, and is confined to the library roots by mediaPathAllowed above
+				load:        func() ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver, never from the request — either aether's own asset store or a scanner-detected image confined to the library roots by mediaPathAllowed above
 			})
 		}
 	}
