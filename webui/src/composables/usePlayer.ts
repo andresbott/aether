@@ -466,6 +466,27 @@ export function usePlayer() {
         updatePreload()
     }
 
+    // The track-list double-click gesture: the songs land at the END of the queue
+    // instead of replacing it, so a double-click never discards what is queued.
+    // When nothing is loaded the queue was idle and there would be no audible
+    // result, so the first appended track starts playing.
+    const enqueueAndPlayIfIdle = (songs: Song[]): void => {
+        if (songs.length === 0) return
+        const wasIdle = currentTrack.value === null || queue.value.length === 0
+        const startIndex = queue.value.length
+        queue.value.push(...songs)
+        if (wasIdle) {
+            // Nothing was playing, so there is no run to preserve: draw the random
+            // order around the track that is about to start.
+            if (shuffle.value) rebuildShuffleOrder(songs[0]?.id)
+            loadTrack(startIndex)
+            play()
+            return
+        }
+        syncShuffleOrder()
+        updatePreload()
+    }
+
     const playNow = (song: Song): void => {
         queue.value = [song]
         shuffleOrder.value = shuffle.value ? [song.id] : []
@@ -637,6 +658,7 @@ export function usePlayer() {
         toggleShuffle,
         addToQueue,
         addMultipleToQueue,
+        enqueueAndPlayIfIdle,
         playNow,
         playAlbum,
         removeFromQueue,

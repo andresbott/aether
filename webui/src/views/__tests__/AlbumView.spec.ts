@@ -37,8 +37,14 @@ vi.mock('@/composables/useSongsDrag', () => ({
 
 const playAlbum = vi.fn()
 const addMultipleToQueue = vi.fn()
+const enqueueAndPlayIfIdle = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playAlbum, addMultipleToQueue, currentTrack: ref(null) })
+    usePlayer: () => ({
+        playAlbum,
+        addMultipleToQueue,
+        enqueueAndPlayIfIdle,
+        currentTrack: ref(null)
+    })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -68,6 +74,7 @@ beforeEach(() => {
     albumData.value = markRaw(album)
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
+    enqueueAndPlayIfIdle.mockClear()
     toggleStarMutate.mockClear()
     songsStart.mockClear()
     songsEnd.mockClear()
@@ -130,14 +137,16 @@ describe('AlbumView disc grouping', () => {
         expect(w.findAll('.album-track-row')).toHaveLength(3)
     })
 
-    it('plays from the correct flat index when a disc-2 track is double-clicked', async () => {
+    it('enqueues the track at the correct flat index when a disc-2 track is double-clicked', async () => {
         albumData.value = markRaw(multiDiscAlbum)
         const w = mountView()
         // Rows are ordered by disc; the 3rd (index 2) is disc 2's first track.
         const rows = w.findAll('.album-track-row')
         expect(rows).toHaveLength(3)
         await rows[2].trigger('dblclick')
-        expect(playAlbum).toHaveBeenCalledWith(multiDiscAlbum.song, 2)
+        expect(enqueueAndPlayIfIdle).toHaveBeenCalledWith([multiDiscAlbum.song[2]])
+        // Double-click appends — it must never replace the queue.
+        expect(playAlbum).not.toHaveBeenCalled()
     })
 })
 

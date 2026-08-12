@@ -56,10 +56,10 @@ describe('AlbumTrackRow', () => {
         expect(w.emitted('select')?.[1]).toEqual([{ additive: false, range: true }])
     })
 
-    it('emits play on double-click', async () => {
+    it('emits enqueue on double-click', async () => {
         const w = mountRow()
         await w.trigger('dblclick')
-        expect(w.emitted('play')).toHaveLength(1)
+        expect(w.emitted('enqueue')).toHaveLength(1)
     })
 
     it('forwards dragstart and dragend', async () => {
@@ -68,6 +68,31 @@ describe('AlbumTrackRow', () => {
         await w.trigger('dragend')
         expect(w.emitted('dragstart')).toHaveLength(1)
         expect(w.emitted('dragend')).toHaveLength(1)
+    })
+})
+
+describe('AlbumTrackRow select toggle', () => {
+    it('renders the shared select toggle in its own column, left of the heart', () => {
+        const w = mountRow()
+        expect(w.find('.col-select .row-select').exists()).toBe(true)
+        const cols = w.findAll('.album-track-row > span').map((s) => s.classes())
+        expect(cols.findIndex((c) => c.includes('col-select'))).toBeLessThan(
+            cols.findIndex((c) => c.includes('col-star'))
+        )
+    })
+
+    it('reflects the row selection', () => {
+        expect(mountRow({ selected: true }).find('.row-select').classes()).toContain('is-selected')
+        expect(mountRow().find('.row-select').classes()).not.toContain('is-selected')
+    })
+
+    // Clicking it must behave exactly like a CTRL/⌘+click on the row.
+    it('emits an additive select and does not enqueue the row', async () => {
+        const w = mountRow()
+        await w.find('.row-select').trigger('click')
+        await w.find('.row-select').trigger('dblclick')
+        expect(w.emitted('select')).toEqual([[{ additive: true, range: false }]])
+        expect(w.emitted('enqueue')).toBeUndefined()
     })
 })
 
@@ -83,13 +108,13 @@ describe('AlbumTrackRow favorite toggle', () => {
         expect(starMutate).toHaveBeenCalledWith({ id: 's1', starred: true })
     })
 
-    // The row selects on click and plays on double-click, so the heart must
-    // swallow both or starring would also select or start playback.
-    it('does not select or play the row when the heart is used', async () => {
+    // The row selects on click and enqueues on double-click, so the heart must
+    // swallow both or starring would also select or queue the track.
+    it('does not select or enqueue the row when the heart is used', async () => {
         const w = mountRow()
         await w.find('.row-star').trigger('click')
         await w.find('.row-star').trigger('dblclick')
         expect(w.emitted('select')).toBeUndefined()
-        expect(w.emitted('play')).toBeUndefined()
+        expect(w.emitted('enqueue')).toBeUndefined()
     })
 })

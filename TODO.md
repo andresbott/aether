@@ -1,16 +1,13 @@
 # TODO
 
-Items are split into **1.0** (the release gate) and **Future releases**.
+Items are split into **1.0** (the release gate), **Future releases**, and a
+**Backlog** of things that need investigation before they can be scoped.
 
 # 1.0
 
 ## Security & Authentication
 
-- [x] Path traversal validation in `stream` and `getCoverArt` — **done**. `internal/pathguard` answers "is this absolute path inside one of these roots?" (symlink-resolving, boundary-aware so `/music` never contains `/music-private`, deny-on-no-roots). The media handlers enforce it at the three points a DB-sourced path is used: the track file in `stream`, `coverPath` in `coverSources`, and the embedded-cover track path in `embeddedCoverSource`. Roots come from `store.LibraryRoots` read **on demand** (`subsonic.WithLibraryRoots`, wired at `app/router/main.go:205`) rather than snapshotted, since libraries are created at runtime; the guard is rebuilt only when the root set changes. A refused stream answers 70 (no existence oracle); a refused cover falls through to the next source. The `//nolint:gosec` comments and the `.golangci.yaml` note now say *enforced* instead of *assumed*.
 - [ ] Authentication — implement real user auth with Subsonic token validation. The model is **decided**: see [`docs/agents/authentication.md`](docs/agents/authentication.md) (two modes, `native` and `proxy-header`, sharing one token layer — **both implemented**). Implement it, don't invent alternatives. **PAT layer implemented**: `/rest` authenticates via OpenSubsonic `apiKey` (PATs, hash-only storage in `userauth`'s `pat` service); session-scoped mint endpoint (`POST /api/v1/auth/token`) + CRUD endpoints (`/api/v1/auth/tokens[/*]`); SPA lifecycle (boot mint, transparent re-mint, generation counter on logout); PAT management UI in UserSettingsView. Sec-Fetch-Site CSRF mitigation and the interim cookie resolver removed.
-- [x] Gate radio station CRUD (create/update/delete) behind admin role — **done**. The three write handlers call `requireAdmin` (Subsonic error 50; reads stay open). Role plumbing: `subsonic.WithAdminChecker` injects an `AdminChecker` (owner login → is-admin) next to the `IdentityResolver`; the router wires `restAdminChecker` (`app/router/main.go`), which resolves the login to a user row and applies `users.RoleOf`. nil checker (auth "none") passes everyone — single fixed owner. Proxy mode mirrors the header-derived role into the DB groups on `/api/v1` requests (`resolveProxyIdentity`) because `/rest` is proxy-bypassed and the checker can only consult the DB.
-- [ ] Review the 25-tokens-per-user default (pat.Opts.MaxPerUser). **The spa half is fixed**: the mint sweep now revokes ALL of the caller's spa tokens (live included, since the SPA holds exactly one and the new mint supersedes it), so spa tokens are bounded at ~1/user and repeated boots can no longer hit the cap. What remains is the cap *policy* for user-created client PATs — 25 live client tokens alone still 409s on the next mint.
-- [x] Subsonic external-client auth — **done**. Third-party Subsonic apps authenticate via PATs in two forms: `apiKey` (any PAT) and password flows (`u`+`t`+`s` or `u`+`p`, where `u` is a usertoken PAT's tokenID). Both types implemented: apikey (hash-only) and usertoken (AES-256-GCM encrypted at rest, key in `<DataDir>/pat.keys`). See [`docs/agents/authentication.md`](docs/agents/authentication.md).
 
 ## Backend — API Surface
 
@@ -19,18 +16,14 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 ## Backend — OpenSubsonic Compliance
 
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
-- [x] `albumToMap` missing `songCount`/`duration` when tracks are not preloaded — **done**. Three callers (`getAlbumList2`, `getStarred2`, `discoveryAlbums`) already batched it via `store.AlbumTrackStats`; the two that still omitted both fields — `search3` and `getArtist` — now do the same. The per-call-site inline copies were collapsed onto one `applyAlbumStats` helper (`subsonic/browsing.go`), so a new list handler has one obvious thing to call. No preloading of whole tracks into list responses.
 
 ## Backend — Data Integrity & Scanning
 
-- [x] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors — **done**. Both now return the error instead of falling through to a create, so a transient DB failure during a scan can no longer silently duplicate an artist or split one album in two.
 - [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
       (partial, still accurate: the *associations* are rebuilt, not merged — `Association("Artists"/"Genres").Replace(...)` for the album at `internal/scanner/reconcile.go:116,121` and for the track at `internal/store/track.go:12,15`, with `Cleanup` sweeping the orphans afterwards. What remains is album-level scalar fields: `FindOrCreateAlbum` (`store/album.go:12`) matches on `(name_norm, album_artist_norm, mb_release_id)` and returns the existing row untouched, so scalars are only ever written at create time or updated in place elsewhere.)
 - [ ] Album cover on the library grid can show another album's image after metadata edits + rescan (works correctly on the album detail view). Remaining root causes:
-    - [x] Embedded-cover lookup `GetCoverTrackPath` — **fixed**: the query now orders by `disc_number, track_number, file_path`, so the lowest `(disc, track)` track always wins and the choice no longer shifts with directory-walk order across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
     - Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile already re-checks a stored path every pass (`IsUsableCoverPath`), but nothing arbitrates between albums competing for one file.
-- [] how about to allow to configure an library ID number has fixed id in the config
 
 ## Backend — Resource Leaks
 
@@ -42,9 +35,7 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 
 - [ ] Create an app icon / logo — PWA icons (various sizes) and favicon wiring. **Partly done**: source art exists in `zarf/icon/` (`icon.svg`, `favicon.svg`, `256.png`, `64.png`) and the sidebar has a text wordmark + `◈` brand mark (`AppSidebar.vue:186-187`). What remains is shipping them to the browser: `webui/index.html` declares **no `<link rel="icon">` and no manifest**, there is no `webui/public/`, and `/favicon.ico` falls through to the SPA handler (answers 200 with `text/html`). Also decide whether the wordmark stays as styled text or becomes the SVG.
 - [] library also shows songs additionally to albums and artists
-- [] double click on a song adds it to the queue instead of replacing
 - [] impelemt radio mode queue => keep playing based on same type/taste
-- [] radio stations are not saved as queue between sessions
 
 ---
 
@@ -64,10 +55,6 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 - [ ] getTopSongs / getSimilarSongs — requires external data or play history analysis
 - [ ] Podcasts, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
 - [ ] Bookmarks — **not needed for resume**, `savePlayQueue`'s `position` already covers it. Only worth adding for per-track offsets that survive a queue replacement (audiobooks, long sets). If added, the play queue stays the single source of truth for the *current* track's position — do not write both on the same tick
-
-## Backend — Performance
-
-- [x] `getPlaylists` N+1 queries — **done**. `store.PlaylistTrackStats(ids)` returns count + duration for every playlist in one grouped query (LEFT JOIN, so an entry whose track row is gone still counts toward the length, matching the old `GetPlaylistTrackCount`), hoisted out of the loop next to the existing `StarredAt`/`PlaylistStats` batches. Measured by a query-counting test: 15 SELECTs → 3 for 6 playlists. `GetPlaylistTrackCount`/`GetPlaylistDuration` are still used by the single-playlist paths.
 
 ## Backend — Library
 
@@ -89,7 +76,6 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 - [ ] Make it easier / faster to load a folder
 - [ ] Check if we can add comments to metadata as part of the standard (e.g. the unreleased Alesha Dixon "Fool 4 U I Love")
 - [ ] When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only)
-- [x] Add cache to identify upstream calls — both paths cache now. The *album* path caches its MusicBrainz release lookups (`albumidentify.NewCachingReleaseLookup`, `api_v1.go:218`); the per-file path caches fingerprint identifications in `identify.Cache` (`internal/identify/cache.go`, keyed by content-ish identity — path + size + modtime), consulted in `Identifier.Identify` (`internal/identify/identify.go:86,105`) and wired in production at `app/cmd/server.go:178` with `identify.DefaultCacheSize` (5000).
 
 ## Frontend — Player & Controls
 
@@ -104,6 +90,22 @@ Items are split into **1.0** (the release gate) and **Future releases**.
 
 - [ ] Last.fm scrobbling — forward each play to the user's Last.fm account so listening history lives off-box, plus the `track.love`/`artist.getInfo`/`album.getInfo` features that ride the same API key. **Nothing outbound exists today** (confirmed: no `lastfm`/`listenbrainz` reference anywhere in Go) — the local side only: the browser applies Last.fm's own 50%/4min/30s rule (`usePlayer.ts:53`), calls `/rest/scrobble`, and the server appends to `play_history` (`subsonic/annotation.go:62`). No client, credentials, config, or retry queue. Two prerequisites: the `submission` parameter is currently ignored, so now-playing pings are recorded as completed plays; and there is no user/settings table to hold a session key. Consider **ListenBrainz first** — same off-box history and stats, one unsigned POST with a token, no signed handshake or app registration
 - [ ] DLNA / UPnP endpoint — expose the library as a DLNA MediaServer so devices on the LAN (TVs, receivers, stock media players) can browse and stream without the Subsonic client
+
+---
+
+# Backlog — needs investigation
+
+Items parked here are **not release-gated**. Each one has been looked at enough to
+know it is real and roughly why, but the direction is undecided — so they wait for
+a deliberate scoping pass rather than sitting in 1.0 or Future releases pretending
+to be planned work.
+
+- [ ] **Radio stations are not saved in the play queue between sessions / devices.** Investigated 2026-08-11, not fixed; needs a direction decision before any code.
+    - **Root cause:** a station enters the queue as a synthetic `Song` (`webui/src/utils/radioSong.ts:8` — `id: radio-<name>` plus a `streamUrl`, deliberately *not* the real `rs-<n>`). `useQueueSync.pushQueue` (`webui/src/composables/useQueueSync.ts:50`) sends `queue.map(s => s.id)` verbatim, and the backend's `decodeTrackIDs` (`subsonic/playlists.go:249`) silently drops every non-`tr-` id. `model.PlayQueueEntry.TrackID uint` is track-only anyway, and restore rebuilds entries from `model.Track` via `starredSongList`, which emits no `streamUrl` — so nothing radio-shaped can round-trip even if it were stored.
+    - **Two collateral bugs are worse than the missing station, and are worth fixing whichever direction wins:** (a) the client's `currentIndex` counts the dropped entry, so a station *before* the playing track makes `currentIndex >= len(trackIDs)` and `savePlayQueueByIndex` answers error 10 (`subsonic/playqueue.go:73`) — **discarding the whole save, tracks included**; a station *after* it nominates the wrong current track. (b) A radio-only queue decodes to zero ids, which routes to `clearSavedQueue` (`playqueue.go:58`) and **deletes the other device's saved session**. Minor: `usePlayer.ts:74` scrobbles `radio-<name>`, which answers `invalid id` (log noise only).
+    - **OpenSubsonic has no mechanism for this.** `savePlayQueue`'s `id`/`current` are defined strictly as song ids; `PlayQueue.entry` is an array of `Child` ("the list of songs in the queue") with a MUST that `current` be "a valid id in the list of songs"; `Child.type` ∈ `{music, podcast, audiobook, video}` and `mediaType` ∈ `{song, album, artist}` — no stream/radio value, no `streamUrl` field. Stations are a separate entity with their own CRUD: the spec's model is that a station is something you *play*, not something you *queue*. The extension registry (11 entries) has nothing for it — podcast episodes got a dedicated extension, radio-in-queue never did — so there is no upstream extension to adopt, only one to author.
+    - **Options:** **(A)** follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. **(B)** author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later.
+    - **Trap for (B):** `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves **track 3's file**. A latent bug a radio-in-queue design walks straight into — and worth fixing on its own regardless.
 
 ---
 

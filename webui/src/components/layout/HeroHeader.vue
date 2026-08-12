@@ -77,6 +77,18 @@ const onSelect = (event: { files: File[] }): void => {
                     </div>
                 </div>
                 <div v-if="coverEditable" class="flip-face flip-back">
+                    <!-- The image the controls act on, shown behind a scrim so the
+                         edit panel still reads as a panel. It is the STAGED cover
+                         (`coverUrl`), so a pending upload previews here and a
+                         pending Remove leaves the plain panel — matching what Save
+                         would produce. An <img> rather than a background-image:
+                         the url goes through an attribute instead of into CSS
+                         syntax, so a query string (apiKey, cache-busting version)
+                         needs no escaping. It is its own layer because the scrim
+                         has to sit between the image and the controls. -->
+                    <div v-if="coverUrl" class="flip-back-image" aria-hidden="true">
+                        <img :src="coverUrl" alt="" />
+                    </div>
                     <span class="field-label">{{ coverBackLabel }}</span>
                     <div class="cover-controls">
                         <FileUpload
@@ -204,6 +216,35 @@ const onSelect = (event: { files: File[] }): void => {
     justify-content: center;
     gap: 0.5rem;
     padding: 1rem;
+}
+/* The staged cover behind the controls, veiled by the scrim. The layer is
+   absolutely positioned, so it would otherwise paint OVER the in-flow label and
+   buttons (positioned descendants paint after non-positioned ones); the explicit
+   z-index pair below is what keeps the controls on top. */
+.flip-back-image {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    border-radius: var(--app-radius);
+    /* Decorative: the same image is already shown, labelled, on the front face. */
+    pointer-events: none;
+}
+.flip-back-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.flip-back-image::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--app-cover-scrim);
+}
+.flip-back > :not(.flip-back-image) {
+    position: relative;
+    z-index: 1;
 }
 .flip-back .field-label {
     text-align: center;

@@ -180,13 +180,12 @@ function onLazyLoad(event: VirtualScrollerLazyEvent): void {
     void ensureRange(event.first, event.last)
 }
 
-const playFromIndex = (index: number): void => {
-    // Play the loaded songs only — a genre's full list may not be fetched yet.
-    const loaded = items.value.filter((s): s is Song => s !== undefined)
+// Double-clicking a row appends that song to the end of the queue rather than
+// replacing it with the genre (see docs/architecture/unified-play-experience.md).
+// Only the double-clicked row is needed, so the unfetched pages don't matter.
+const enqueueTrack = (index: number): void => {
     const song = items.value[index]
-    if (!song) return
-    const loadedIndex = loaded.findIndex((s) => s.id === song.id)
-    if (loadedIndex >= 0) player.playAlbum(loaded, loadedIndex)
+    if (song) player.enqueueAndPlayIfIdle([song])
 }
 
 // A drag from a selected row carries the whole selection; from an unselected
@@ -278,9 +277,10 @@ watch(
                             <span class="col-title">Title</span>
                             <span class="col-artist">Artist</span>
                             <span class="col-album">Album</span>
-                            <!-- The favorite column is hover-revealed per row, so
-                                 its header stays blank rather than labelling a
-                                 control that is usually invisible. -->
+                            <!-- The select and favorite columns are hover-revealed
+                                 per row, so their headers stay blank rather than
+                                 labelling controls that are usually invisible. -->
+                            <span class="col-select"></span>
                             <span class="col-star"></span>
                             <span class="col-duration" aria-label="Duration">
                                 <i class="pi pi-clock"></i>
@@ -302,7 +302,7 @@ watch(
                                 :selected="isSelected(options.index)"
                                 :playing="item?.id === currentTrackId"
                                 @select="(p) => onRowClick(options.index, p)"
-                                @play="playFromIndex(options.index)"
+                                @enqueue="enqueueTrack(options.index)"
                                 @dragstart="(e) => onRowDragStart(e, options.index)"
                                 @dragend="songsDrag.end"
                             />
@@ -358,7 +358,7 @@ watch(
 .track-list {
     /* Shared grid template so the header and every row align. Custom properties
        inherit through the DOM regardless of scoped styles. */
-    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 2rem 62px;
+    --genre-track-cols: 48px minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1.4fr) 2rem 2rem 62px;
     flex: 1;
     min-height: 0;
     display: flex;

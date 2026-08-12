@@ -54,10 +54,21 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
 - **Rows keep the hover-only reveal.** A list is dense enough that a column of
   permanently-visible hearts and the row text compete; grids have the whitespace
   for it, lists don't. `TrackFavoriteButton` / `.row-star` are unchanged.
+- **Double-clicking a track row APPENDS it to the end of the queue** — it does not
+  replace the queue. The row emits **`enqueue`** (not `play`), and every host answers
+  it with `player.enqueueAndPlayIfIdle([song])`: the track lands last, and playback
+  starts only when the player was idle (empty queue or no loaded track), so a
+  double-click on an idle player still makes sound while one on a playing queue never
+  interrupts it. Hosts: `AlbumView`, `GenreDetailView`, `SearchView`,
+  `PlaylistDetailView`. **Replacing the queue is the hero Play button's job**
+  (`player.playAlbum`) — do not wire a row double-click back to `playAlbum`, and do not
+  add a per-view variant of the gesture: it means the same thing on every track list.
+  `QueueRow` is the exception and keeps `play` — inside the queue, double-clicking a
+  row means "jump to this slot" (`playQueueItem`), since the track is already queued.
 - **Track rows** render **`TrackFavoriteButton`** (`components/library/`) — one
   component, not a per-row copy of the card pattern. It owns the icon pair, the
   wording, the `.row-star`/`.is-starred` classes and the click swallowing (both
-  `click` and `dblclick`: rows select on one and play on the other). Each host row
+  `click` and `dblclick`: rows select on one and enqueue on the other). Each host row
   supplies only its own reveal rule (`.<row>:hover .row-star { opacity: 1 }`),
   because the hover selector is row-specific while nothing else is. Hosts:
   `AlbumTrackRow`, `GenreTrackRow` (genre detail, search, playlist detail) and

@@ -94,7 +94,7 @@ describe('HeroHeader cover controls', () => {
     // PrimeVue's own file label says "No file chosen" until a file is picked,
     // which contradicts an image that is already on the server. The #cover-note
     // slot carries that state instead, so the built-in label is suppressed.
-    it('suppresses PrimeVue\'s built-in file label', () => {
+    it("suppresses PrimeVue's built-in file label", () => {
         const w = mountHero({ editing: true })
         expect(w.text()).not.toContain('No file chosen')
         expect(w.find('.p-fileupload-filelabel').exists()).toBe(false)
@@ -105,6 +105,54 @@ describe('HeroHeader cover controls', () => {
     it('stacks the picker and its status on separate rows', () => {
         const w = mountHero({ editing: true })
         expect(w.find('.cover-controls').exists()).toBe(true)
+    })
+})
+
+// The edit panel on the flip side shows the cover it acts on behind a scrim,
+// rather than a blank surface: the user sees which image they are replacing. It
+// tracks the STAGED url, so it previews a pending upload and goes blank on a
+// pending Remove — what Save would produce, before Save is pressed.
+describe('HeroHeader cover panel backdrop', () => {
+    it('shows the staged cover behind the controls', () => {
+        const w = mountHero({ editing: true, coverUrl: '/cover/x?size=250' })
+        expect(w.find('.flip-back-image img').attributes('src')).toBe('/cover/x?size=250')
+    })
+
+    it('previews a locally staged upload, not the persisted cover', () => {
+        // The parent swaps coverUrl to an object URL the moment a file is picked.
+        const w = mountHero({ editing: true, coverUrl: 'blob:http://localhost/abc-123' })
+        expect(w.find('.flip-back-image img').attributes('src')).toBe(
+            'blob:http://localhost/abc-123'
+        )
+    })
+
+    it('shows no backdrop when the cover is cleared or absent', () => {
+        // A staged Remove sets coverUrl to null, so the panel goes back to plain.
+        const w = mountHero({ editing: true, coverUrl: null })
+        expect(w.find('.flip-back-image').exists()).toBe(false)
+    })
+
+    // Cover urls carry a query string (apiKey, cache-busting version). Passing it
+    // through an attribute keeps it out of CSS syntax, where a stray quote or
+    // paren could terminate a url() value early.
+    it('carries the url verbatim in an attribute, not through CSS syntax', () => {
+        const w = mountHero({ editing: true, coverUrl: '/cover/x?a=1&b=")evil' })
+        expect(w.find('.flip-back-image img').attributes('src')).toBe('/cover/x?a=1&b=")evil')
+        expect(w.find('.flip-back-image').attributes('style')).toBeUndefined()
+    })
+
+    // The front face already shows this image with a real alt; a second copy
+    // announced again would just be noise to a screen reader.
+    it('hides the decorative backdrop from assistive tech', () => {
+        const w = mountHero({ editing: true, coverUrl: '/cover/x?size=250' })
+        expect(w.find('.flip-back-image').attributes('aria-hidden')).toBe('true')
+        expect(w.find('.flip-back-image img').attributes('alt')).toBe('')
+    })
+
+    it('keeps the backdrop non-interactive so it cannot swallow control clicks', async () => {
+        const w = mountHero({ editing: true, coverUrl: '/cover/x?size=250' })
+        await w.find('.cover-remove').trigger('click')
+        expect(w.emitted('cover-remove')).toHaveLength(1)
     })
 })
 

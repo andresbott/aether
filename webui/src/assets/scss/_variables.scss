@@ -13,6 +13,11 @@
        off the surface (consumed by dialogs/pickers). */
     --app-bg-subtle: #e9ecf0;
     --app-border: #dde2e8;
+    /* Scrim laid over the cover image on the flip side of an editable hero cover,
+       so the upload/remove controls stay legible while the image they act on
+       remains visible. Tracks --app-surface-2 (the panel colour it replaces) with
+       alpha, so the panel still reads as a panel rather than as a photo. */
+    --app-cover-scrim: rgba(255, 255, 255, 0.82);
     --app-text-primary: #1b2430;
     --app-text-secondary: #67727f;
     --app-accent: #0e9bb5;
@@ -85,6 +90,9 @@
     --app-surface-2: #1a222e;
     --app-bg-subtle: #1c2632;
     --app-border: #232d3a;
+    /* Dark counterpart: a dark veil, not a white one — a white scrim over a cover
+       in dark mode would glare and invert the panel's contrast. */
+    --app-cover-scrim: rgba(20, 27, 36, 0.8);
     --app-text-primary: #d7dee6;
     --app-text-secondary: #7b8794;
     --app-accent: #2fd3ef;

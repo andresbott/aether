@@ -22,6 +22,7 @@ const searchResult = ref<{
 const isLoading = ref(false)
 const searchError = ref<Error | null>(null)
 const playAlbum = vi.fn()
+const enqueueAndPlayIfIdle = vi.fn()
 let lastSearchParams: Ref<SearchParams> | null = null
 
 // Only useSearch is stubbed; the length threshold comes through from the real
@@ -38,7 +39,7 @@ vi.mock('@/composables/useSubsonicQueries', async (importOriginal) => ({
 }))
 
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playAlbum })
+    usePlayer: () => ({ playAlbum, enqueueAndPlayIfIdle })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -148,6 +149,7 @@ beforeEach(() => {
     isLoading.value = false
     searchError.value = null
     playAlbum.mockClear()
+    enqueueAndPlayIfIdle.mockClear()
     lastSearchParams = null
 })
 
@@ -228,7 +230,7 @@ describe('SearchView', () => {
         expect(w.text()).toContain('Time')
     })
 
-    it('double-clicking a song row plays the results from that track', async () => {
+    it('double-clicking a song row appends that track to the queue', async () => {
         const songs = [
             { id: 's1', title: 'Time', artist: 'Pink Floyd' },
             { id: 's2', title: 'Money', artist: 'Pink Floyd' }
@@ -237,7 +239,9 @@ describe('SearchView', () => {
         const w = mountView()
         await typeQuery(w, 'floyd')
         await w.findAll('.genre-track-row')[1].trigger('dblclick')
-        expect(playAlbum).toHaveBeenCalledWith(songs, 1)
+        expect(enqueueAndPlayIfIdle).toHaveBeenCalledWith([songs[1]])
+        // Double-click appends — it must never replace the queue.
+        expect(playAlbum).not.toHaveBeenCalled()
     })
 
     it('renders rows instead of cards when the list layout is selected', async () => {

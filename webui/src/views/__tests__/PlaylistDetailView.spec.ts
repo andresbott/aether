@@ -44,7 +44,10 @@ const coverAsync = vi.fn(() => Promise.resolve())
 
 const playAlbum = vi.fn()
 const addMultipleToQueue = vi.fn()
-vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum, addMultipleToQueue }) }))
+const enqueueAndPlayIfIdle = vi.fn()
+vi.mock('@/composables/usePlayer', () => ({
+    usePlayer: () => ({ playAlbum, addMultipleToQueue, enqueueAndPlayIfIdle })
+}))
 
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
@@ -106,6 +109,7 @@ beforeEach(() => {
     toastAdd.mockClear()
     playAlbum.mockReset()
     addMultipleToQueue.mockClear()
+    enqueueAndPlayIfIdle.mockClear()
     push.mockClear()
     replaceIsPending.value = false
     coverIsPending.value = false
@@ -174,10 +178,12 @@ describe('PlaylistDetailView', () => {
         expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(3)
     })
 
-    it('double-clicking a row in view mode plays the playlist from that track', async () => {
+    it('double-clicking a row in view mode appends that track to the queue', async () => {
         const w = mountView()
         await w.findAll('.track-list .genre-track-row')[1].trigger('dblclick')
-        expect(playAlbum).toHaveBeenCalledWith([song('1'), song('2'), song('3')], 1)
+        expect(enqueueAndPlayIfIdle).toHaveBeenCalledWith([song('2')])
+        // Double-click appends — it must never replace the queue.
+        expect(playAlbum).not.toHaveBeenCalled()
     })
 
     it('Save persists the working track order and exits edit mode', async () => {
