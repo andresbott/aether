@@ -1,7 +1,7 @@
 import { computed, toValue, unref } from 'vue'
 import type { MaybeRefOrGetter, Ref, ComputedRef } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
-import type { UseQueryOptions, UseMutationOptions } from '@tanstack/vue-query'
+import type { UseQueryOptions, UseMutationOptions, QueryClient } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { artistImageSourceKey } from '@/composables/useArtistImageSource'
 import type {
@@ -56,7 +56,9 @@ export const queryKeys = {
     // albums, artists, songs and playlists in a single unpaginated response.
     starred: (musicFolderId?: number) => ['subsonic', 'starred', musicFolderId] as const,
     discovery: (seed: number, musicFolderId?: number) =>
-        ['subsonic', 'discovery', seed, musicFolderId] as const
+        ['subsonic', 'discovery', seed, musicFolderId] as const,
+    // Prefix of every seeded/scoped discovery feed, for invalidating them all.
+    discoveryAll: ['subsonic', 'discovery'] as const
 }
 
 export function usePing() {
@@ -169,13 +171,25 @@ export function useRadioStations() {
     })
 }
 
+// Every cached surface that renders playlists, dropped as a unit. The Discover
+// feed ranks playlists alongside albums and holds its pages for a whole seed
+// window, so without this a created/renamed/deleted playlist stays invisible
+// (or lingers) on /library until a full page reload.
+function invalidatePlaylistSurfaces(queryClient: QueryClient, includeDetail = true) {
+    queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+    if (includeDetail) {
+        queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.discoveryAll })
+}
+
 export function useCreatePlaylist() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (params: { name: string; songIds?: string[] }) =>
             subsonicClient.createPlaylist(params.name, params.songIds),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            invalidatePlaylistSurfaces(queryClient, false)
         }
     })
 }
@@ -191,8 +205,7 @@ export function useUpdatePlaylist() {
             songIndexesToRemove?: number[]
         }) => subsonicClient.updatePlaylist(params.playlistId, params),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
-            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+            invalidatePlaylistSurfaces(queryClient)
         }
     })
 }
@@ -226,8 +239,7 @@ export function useReplacePlaylistTracks() {
         mutationFn: (params: { playlistId: string; songIds: string[] }) =>
             subsonicClient.replacePlaylistTracks(params.playlistId, params.songIds),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
-            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+            invalidatePlaylistSurfaces(queryClient)
         }
     })
 }
@@ -242,8 +254,7 @@ export function useUpdatePlaylistCover() {
                 params.coverClear
             ),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
-            queryClient.invalidateQueries({ queryKey: ['subsonic', 'playlist'] })
+            invalidatePlaylistSurfaces(queryClient)
         }
     })
 }
@@ -253,7 +264,7 @@ export function useDeletePlaylist() {
     return useMutation({
         mutationFn: (id: string) => subsonicClient.deletePlaylist(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: queryKeys.playlists })
+            invalidatePlaylistSurfaces(queryClient)
         }
     })
 }
