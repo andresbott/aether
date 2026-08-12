@@ -7,11 +7,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 ## Security & Authentication
 
-- [x] Path traversal validation in `stream` and `getCoverArt` — **done**. `internal/pathguard` answers "is this absolute path inside one of these roots?" (symlink-resolving, boundary-aware so `/music` never contains `/music-private`, deny-on-no-roots). The media handlers enforce it at the three points a DB-sourced path is used: the track file in `stream`, `coverPath` in `coverSources`, and the embedded-cover track path in `embeddedCoverSource`. Roots come from `store.LibraryRoots` read **on demand** (`subsonic.WithLibraryRoots`, wired at `app/router/main.go:205`) rather than snapshotted, since libraries are created at runtime; the guard is rebuilt only when the root set changes. A refused stream answers 70 (no existence oracle); a refused cover falls through to the next source. The `//nolint:gosec` comments and the `.golangci.yaml` note now say *enforced* instead of *assumed*.
 - [ ] Authentication — implement real user auth with Subsonic token validation. The model is **decided**: see [`docs/agents/authentication.md`](docs/agents/authentication.md) (two modes, `native` and `proxy-header`, sharing one token layer — **both implemented**). Implement it, don't invent alternatives. **PAT layer implemented**: `/rest` authenticates via OpenSubsonic `apiKey` (PATs, hash-only storage in `userauth`'s `pat` service); session-scoped mint endpoint (`POST /api/v1/auth/token`) + CRUD endpoints (`/api/v1/auth/tokens[/*]`); SPA lifecycle (boot mint, transparent re-mint, generation counter on logout); PAT management UI in UserSettingsView. Sec-Fetch-Site CSRF mitigation and the interim cookie resolver removed.
-- [x] Gate radio station CRUD (create/update/delete) behind admin role — **done**. The three write handlers call `requireAdmin` (Subsonic error 50; reads stay open). Role plumbing: `subsonic.WithAdminChecker` injects an `AdminChecker` (owner login → is-admin) next to the `IdentityResolver`; the router wires `restAdminChecker` (`app/router/main.go`), which resolves the login to a user row and applies `users.RoleOf`. nil checker (auth "none") passes everyone — single fixed owner. Proxy mode mirrors the header-derived role into the DB groups on `/api/v1` requests (`resolveProxyIdentity`) because `/rest` is proxy-bypassed and the checker can only consult the DB.
-- [ ] Review the 25-tokens-per-user default (pat.Opts.MaxPerUser). **The spa half is fixed**: the mint sweep now revokes ALL of the caller's spa tokens (live included, since the SPA holds exactly one and the new mint supersedes it), so spa tokens are bounded at ~1/user and repeated boots can no longer hit the cap. What remains is the cap *policy* for user-created client PATs — 25 live client tokens alone still 409s on the next mint.
-- [x] Subsonic external-client auth — **done**. Third-party Subsonic apps authenticate via PATs in two forms: `apiKey` (any PAT) and password flows (`u`+`t`+`s` or `u`+`p`, where `u` is a usertoken PAT's tokenID). Both types implemented: apikey (hash-only) and usertoken (AES-256-GCM encrypted at rest, key in `<DataDir>/pat.keys`). See [`docs/agents/authentication.md`](docs/agents/authentication.md).
 
 ## Backend — API Surface
 
@@ -20,18 +16,14 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 ## Backend — OpenSubsonic Compliance
 
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
-- [x] `albumToMap` missing `songCount`/`duration` when tracks are not preloaded — **done**. Three callers (`getAlbumList2`, `getStarred2`, `discoveryAlbums`) already batched it via `store.AlbumTrackStats`; the two that still omitted both fields — `search3` and `getArtist` — now do the same. The per-call-site inline copies were collapsed onto one `applyAlbumStats` helper (`subsonic/browsing.go`), so a new list handler has one obvious thing to call. No preloading of whole tracks into list responses.
 
 ## Backend — Data Integrity & Scanning
 
-- [x] Use `errors.Is(err, gorm.ErrRecordNotFound)` in `FindOrCreateArtists` and `FindOrCreateAlbum` to distinguish not-found from real DB errors — **done**. Both now return the error instead of falling through to a create, so a transient DB failure during a scan can no longer silently duplicate an artist or split one album in two.
 - [ ] Full scan should drop each track's existing entries and re-insert from scratch (rather than updating in place) so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change
       (partial, still accurate: the *associations* are rebuilt, not merged — `Association("Artists"/"Genres").Replace(...)` for the album at `internal/scanner/reconcile.go:116,121` and for the track at `internal/store/track.go:12,15`, with `Cleanup` sweeping the orphans afterwards. What remains is album-level scalar fields: `FindOrCreateAlbum` (`store/album.go:12`) matches on `(name_norm, album_artist_norm, mb_release_id)` and returns the existing row untouched, so scalars are only ever written at create time or updated in place elsewhere.)
 - [ ] Album cover on the library grid can show another album's image after metadata edits + rescan (works correctly on the album detail view). Remaining root causes:
-    - [x] Embedded-cover lookup `GetCoverTrackPath` — **fixed**: the query now orders by `disc_number, track_number, file_path`, so the lowest `(disc, track)` track always wins and the choice no longer shifts with directory-walk order across rescans.
     - `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
     - Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile already re-checks a stored path every pass (`IsUsableCoverPath`), but nothing arbitrates between albums competing for one file.
-- [] how about to allow to configure an library ID number has fixed id in the config
 
 ## Backend — Resource Leaks
 
@@ -43,7 +35,6 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 - [ ] Create an app icon / logo — PWA icons (various sizes) and favicon wiring. **Partly done**: source art exists in `zarf/icon/` (`icon.svg`, `favicon.svg`, `256.png`, `64.png`) and the sidebar has a text wordmark + `◈` brand mark (`AppSidebar.vue:186-187`). What remains is shipping them to the browser: `webui/index.html` declares **no `<link rel="icon">` and no manifest**, there is no `webui/public/`, and `/favicon.ico` falls through to the SPA handler (answers 200 with `text/html`). Also decide whether the wordmark stays as styled text or becomes the SVG.
 - [] library also shows songs additionally to albums and artists
-- [x] double click on a song adds it to the queue instead of replacing — **done**. Track rows emit `enqueue` (not `play`) and every host answers with `player.enqueueAndPlayIfIdle([song])` (`webui/src/composables/usePlayer.ts`): the track appends to the end, `currentIndex` and the shuffle run are left intact, and playback only starts when the player was idle (empty queue / no loaded track) so the gesture still makes sound on a fresh session. Applied to all four track lists — `AlbumView`, `GenreDetailView`, `SearchView`, `PlaylistDetailView` — so the gesture means one thing app-wide; replacing the queue stays the hero Play button's job. `QueueRow` keeps `play` (inside the queue, double-click means "jump to this slot"). Contract recorded in [`docs/architecture/unified-play-experience.md`](docs/architecture/unified-play-experience.md).
 - [] impelemt radio mode queue => keep playing based on same type/taste
 
 ---
@@ -65,10 +56,6 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Podcasts, Jukebox — not in scope for this pass (Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI)
 - [ ] Bookmarks — **not needed for resume**, `savePlayQueue`'s `position` already covers it. Only worth adding for per-track offsets that survive a queue replacement (audiobooks, long sets). If added, the play queue stays the single source of truth for the *current* track's position — do not write both on the same tick
 
-## Backend — Performance
-
-- [x] `getPlaylists` N+1 queries — **done**. `store.PlaylistTrackStats(ids)` returns count + duration for every playlist in one grouped query (LEFT JOIN, so an entry whose track row is gone still counts toward the length, matching the old `GetPlaylistTrackCount`), hoisted out of the loop next to the existing `StarredAt`/`PlaylistStats` batches. Measured by a query-counting test: 15 SELECTs → 3 for 6 playlists. `GetPlaylistTrackCount`/`GetPlaylistDuration` are still used by the single-playlist paths.
-
 ## Backend — Library
 
 - [ ] Add statistics in backend library: e.g. albums, artists, songs, genres, disk space used
@@ -89,7 +76,6 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Make it easier / faster to load a folder
 - [ ] Check if we can add comments to metadata as part of the standard (e.g. the unreleased Alesha Dixon "Fool 4 U I Love")
 - [ ] When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only)
-- [x] Add cache to identify upstream calls — both paths cache now. The *album* path caches its MusicBrainz release lookups (`albumidentify.NewCachingReleaseLookup`, `api_v1.go:218`); the per-file path caches fingerprint identifications in `identify.Cache` (`internal/identify/cache.go`, keyed by content-ish identity — path + size + modtime), consulted in `Identifier.Identify` (`internal/identify/identify.go:86,105`) and wired in production at `app/cmd/server.go:178` with `identify.DefaultCacheSize` (5000).
 
 ## Frontend — Player & Controls
 
