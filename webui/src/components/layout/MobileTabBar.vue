@@ -61,7 +61,9 @@ const go = (tab: Tab): void => {
 <style scoped>
 .mobile-tab-bar {
     display: flex;
-    height: var(--app-mobile-tabbar-height);
+    height: calc(var(--app-mobile-tabbar-height) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    box-sizing: border-box;
     flex-shrink: 0;
     background-color: var(--app-nav-bg);
     border-top: 1px solid var(--app-border);
