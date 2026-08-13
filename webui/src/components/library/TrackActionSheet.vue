@@ -2,9 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Drawer from 'primevue/drawer'
+import { useToast } from 'primevue/usetoast'
 import { usePlayer } from '@/composables/usePlayer'
 import { useSongFavorite } from '@/composables/useSongFavorite'
 import { usePlaylists, useUpdatePlaylist } from '@/composables/useSubsonicQueries'
+import { apiErrorMessage } from '@/lib/apiError'
 import type { Song } from '@/types/subsonic'
 
 // The touch counterpart of the desktop hover affordances: one bottom sheet per
@@ -14,8 +16,17 @@ const emit = defineEmits<{ (e: 'update:visible', value: boolean): void }>()
 
 const router = useRouter()
 const player = usePlayer()
+const toast = useToast()
 const { isStarred, toggleFavorite } = useSongFavorite(() => props.song)
-const { data: playlistsData } = usePlaylists()
+
+// Every host view mounts this sheet, but only touch can open it: ungated, the
+// playlist picker's getPlaylists cost one request per desktop view visit for a face
+// nobody there can reach. Latched, not tied to `visible`, so the list is fetched
+// once and then stays warm across opens instead of refetching on each one.
+const hasOpened = ref(false)
+const { data: playlistsData, isLoading: playlistsLoading } = usePlaylists({
+    enabled: computed(() => hasOpened.value)
+})
 const updatePlaylist = useUpdatePlaylist()
 
 const playlists = computed(() => playlistsData.value ?? [])
@@ -25,7 +36,11 @@ const face = ref<'actions' | 'playlists'>('actions')
 watch(
     () => props.visible,
     (open) => {
-        if (open) face.value = 'actions'
+        if (!open) return
+        face.value = 'actions'
+        // The fetch starts here rather than on reaching the picker, so the list is
+        // usually there by the time it renders; the empty face covers the rest.
+        hasOpened.value = true
     }
 )
 
@@ -56,10 +71,33 @@ const onArtist = (): void => {
     void router.push({ name: 'artist', params: { id } })
 }
 
-const onPickPlaylist = (playlistId: string): void => {
+// Adding leaves no trace on screen — the sheet closes and the playlist is
+// elsewhere — so both outcomes are toasted, or a failed write looks like a
+// successful one.
+const onPickPlaylist = (playlistId: string, playlistName: string): void => {
     const song = props.song
     if (!song) return
-    updatePlaylist.mutate({ playlistId, songIdsToAdd: [song.id] })
+    updatePlaylist.mutate(
+        { playlistId, songIdsToAdd: [song.id] },
+        {
+            onSuccess: () => {
+                toast.add({
+                    severity: 'success',
+                    summary: `Added to ${playlistName}`,
+                    detail: song.title,
+                    life: 3000
+                })
+            },
+            onError: (err: unknown) => {
+                toast.add({
+                    severity: 'error',
+                    summary: 'Failed to add to playlist',
+                    detail: apiErrorMessage(err),
+                    life: 5000
+                })
+            }
+        }
+    )
     close()
 }
 
@@ -109,12 +147,17 @@ const favoriteLabel = computed(() =>
                 :key="playlist.id"
                 type="button"
                 class="sheet-action"
-                @click="onPickPlaylist(playlist.id)"
+                @click="onPickPlaylist(playlist.id, playlist.name)"
             >
                 <i class="pi pi-list"></i>
                 <span>{{ playlist.name }}</span>
             </button>
-            <p v-if="playlists.length === 0" class="sheet-empty">No playlists</p>
+            <!-- The fetch is gated on the first open (see script), so the very first
+                 visit to this face can land before the list does. Saying so beats
+                 claiming there are no playlists. -->
+            <p v-if="playlists.length === 0" class="sheet-empty">
+                {{ playlistsLoading ? 'Loading playlists…' : 'No playlists' }}
+            </p>
         </nav>
     </Drawer>
 </template>

@@ -24,10 +24,20 @@ vi.mock('@/composables/useSongFavorite', () => ({
 
 const updateMutate = vi.fn()
 let playlists = ref<Array<{ id: string; name: string }>>([{ id: 'pl-1', name: 'Chill' }])
+let playlistsLoading = ref(false)
+// Captured so the gating test can assert the query is disabled until the sheet has
+// been opened once.
+const usePlaylistsOptions = vi.fn()
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    usePlaylists: () => ({ data: playlists }),
+    usePlaylists: (options?: unknown) => {
+        usePlaylistsOptions(options)
+        return { data: playlists, isLoading: playlistsLoading }
+    },
     useUpdatePlaylist: () => ({ mutate: updateMutate })
 }))
+
+const toastAdd = vi.fn()
+vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: toastAdd }) }))
 
 const SONG: Song = {
     id: 'tr-1',
@@ -37,12 +47,15 @@ const SONG: Song = {
     artistId: 'ar-4'
 } as Song
 
-const mountSheet = async (song: Song | null = SONG) => {
-    const wrapper = mount(TrackActionSheet, {
+const mountClosed = (song: Song | null = SONG) =>
+    mount(TrackActionSheet, {
         props: { song, visible: false },
         global: { plugins: [PrimeVue] },
         attachTo: document.body
     })
+
+const mountSheet = async (song: Song | null = SONG) => {
+    const wrapper = mountClosed(song)
     await wrapper.setProps({ visible: true })
     await nextTick()
     return wrapper
@@ -53,10 +66,17 @@ const actionByText = (text: string): HTMLElement | undefined =>
         el.textContent?.includes(text)
     )
 
+/** The `enabled` option handed to usePlaylists on the most recent mount. */
+const enabledOption = () => {
+    const options = usePlaylistsOptions.mock.calls.at(-1)?.[0] as { enabled?: { value: boolean } }
+    return options?.enabled
+}
+
 beforeEach(() => {
     vi.clearAllMocks()
     starred = false
     playlists = ref([{ id: 'pl-1', name: 'Chill' }])
+    playlistsLoading = ref(false)
     document.body.innerHTML = ''
 })
 
@@ -117,7 +137,7 @@ describe('TrackActionSheet', () => {
         expect(wrapper.emitted('update:visible')?.at(-1)).toEqual([false])
     })
 
-    it('add to playlist shows the playlist face, picking one mutates and closes', async () => {
+    const pickPlaylist = async () => {
         const wrapper = await mountSheet()
         actionByText('Add to playlist')?.click()
         await nextTick()
@@ -126,10 +146,72 @@ describe('TrackActionSheet', () => {
         )
         expect(pl).toBeTruthy()
         pl?.click()
+        return wrapper
+    }
+
+    /** The callbacks object handed to updatePlaylist.mutate as its second argument. */
+    const mutateCallbacks = () =>
+        updateMutate.mock.calls.at(-1)?.[1] as {
+            onSuccess: () => void
+            onError: (err: unknown) => void
+        }
+
+    it('add to playlist shows the playlist face, picking one mutates and closes', async () => {
+        const wrapper = await pickPlaylist()
         expect(updateMutate).toHaveBeenCalledWith(
-            expect.objectContaining({ playlistId: 'pl-1', songIdsToAdd: ['tr-1'] })
+            expect.objectContaining({ playlistId: 'pl-1', songIdsToAdd: ['tr-1'] }),
+            expect.anything()
         )
         expect(wrapper.emitted('update:visible')?.at(-1)).toEqual([false])
+    })
+
+    // The sheet closes on pick and the playlist is somewhere else, so without a toast
+    // both outcomes look identical — a failed write read as a successful one.
+    it('toasts the playlist name on a successful add', async () => {
+        await pickPlaylist()
+        mutateCallbacks().onSuccess()
+        expect(toastAdd).toHaveBeenCalledWith(
+            expect.objectContaining({ severity: 'success', summary: 'Added to Chill' })
+        )
+    })
+
+    it('toasts the api message on a failed add', async () => {
+        await pickPlaylist()
+        mutateCallbacks().onError({ response: { data: { error: 'playlist is read-only' } } })
+        expect(toastAdd).toHaveBeenCalledWith(
+            expect.objectContaining({
+                severity: 'error',
+                summary: 'Failed to add to playlist',
+                detail: 'playlist is read-only'
+            })
+        )
+    })
+
+    // Four views mount this sheet, and only touch can open it: an ungated query cost
+    // one getPlaylists per desktop view visit for a face nobody there can reach.
+    it('does not fetch playlists until the sheet has been opened once', async () => {
+        const wrapper = mountClosed()
+        expect(enabledOption()?.value).toBe(false)
+
+        await wrapper.setProps({ visible: true })
+        await nextTick()
+        expect(enabledOption()?.value).toBe(true)
+
+        // Latched: closing does not disable the query again, so reopening reuses the
+        // list instead of refetching it.
+        await wrapper.setProps({ visible: false })
+        await nextTick()
+        expect(enabledOption()?.value).toBe(true)
+    })
+
+    it('says the list is loading rather than claiming there are none', async () => {
+        playlists = ref([])
+        playlistsLoading = ref(true)
+        await mountSheet()
+        actionByText('Add to playlist')?.click()
+        await nextTick()
+        const empty = document.body.querySelector('.sheet-empty')
+        expect(empty?.textContent?.trim()).toBe('Loading playlists…')
     })
 
     it('renders without error when song is null and clicking actions does not call mocks', async () => {
