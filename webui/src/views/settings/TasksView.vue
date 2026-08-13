@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import Tabs from 'primevue/tabs'
 import TabList from 'primevue/tablist'
 import Tab from 'primevue/tab'
@@ -16,6 +16,7 @@ import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
 import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS } from '@/composables/useTasks'
 import type { Task } from '@/composables/useTasks'
 import type { ExecutionInfo } from '@/types/tasks'
+import { useViewport } from '@/composables/useViewport'
 
 const toast = useToast()
 const activeTab = ref('tasks')
@@ -92,6 +93,11 @@ const openLog = (execution: ExecutionInfo) => {
     logExecutionId.value = execution.id
     logDialogVisible.value = true
 }
+
+const { tier } = useViewport()
+// Spec §5: settings tables must not overflow a phone; these columns are the
+// ones a phone admin can live without (the row's dialog still shows all).
+const phoneCols = computed(() => tier.value === 'phone')
 </script>
 
 <template>
@@ -121,49 +127,51 @@ const openLog = (execution: ExecutionInfo) => {
             </TabList>
             <TabPanels>
                 <TabPanel value="tasks">
-                    <DataTable
-                        :value="tasks"
-                        :loading="tasksQuery.isLoading.value"
-                        dataKey="id"
-                        stripedRows
-                    >
-                        <template #empty><div class="empty-table">No tasks registered</div></template>
-                        <Column header="Name">
-                            <template #body="{ data }">
-                                <span class="task-name">{{ data.name }}</span>
-                                <p v-if="data.description" class="task-desc">{{ data.description }}</p>
-                            </template>
-                        </Column>
-                        <Column header="Schedule" style="width: 10rem">
-                            <template #body="{ data }">
-                                <span class="schedule-summary">{{ scheduleSummary(data) }}</span>
-                            </template>
-                        </Column>
-                        <Column style="width: 4rem">
-                            <template #body="{ data }">
-                                <Button
-                                    icon="pi pi-calendar"
-                                    text
-                                    rounded
-                                    size="small"
-                                    :aria-label="data.schedule ? 'Edit schedule' : 'Schedule'"
-                                    @click.stop="openSchedule(data)"
-                                />
-                            </template>
-                        </Column>
-                        <Column header="Actions" style="width: 9rem">
-                            <template #body="{ data }">
-                                <Button
-                                    :label="isTaskRunning(data) ? 'Running' : 'Run'"
-                                    :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
-                                    size="small"
-                                    :loading="triggeringTaskId === data.id || isTaskRunning(data)"
-                                    :disabled="triggeringTaskId !== null || isTaskRunning(data)"
-                                    @click.stop="triggerTask(data)"
-                                />
-                            </template>
-                        </Column>
-                    </DataTable>
+                    <div class="table-fit">
+                        <DataTable
+                            :value="tasks"
+                            :loading="tasksQuery.isLoading.value"
+                            dataKey="id"
+                            stripedRows
+                        >
+                            <template #empty><div class="empty-table">No tasks registered</div></template>
+                            <Column header="Name">
+                                <template #body="{ data }">
+                                    <span class="task-name">{{ data.name }}</span>
+                                    <p v-if="data.description" class="task-desc">{{ data.description }}</p>
+                                </template>
+                            </Column>
+                            <Column header="Schedule" :hidden="phoneCols" style="width: 10rem">
+                                <template #body="{ data }">
+                                    <span class="schedule-summary">{{ scheduleSummary(data) }}</span>
+                                </template>
+                            </Column>
+                            <Column :hidden="phoneCols" style="width: 4rem">
+                                <template #body="{ data }">
+                                    <Button
+                                        icon="pi pi-calendar"
+                                        text
+                                        rounded
+                                        size="small"
+                                        :aria-label="data.schedule ? 'Edit schedule' : 'Schedule'"
+                                        @click.stop="openSchedule(data)"
+                                    />
+                                </template>
+                            </Column>
+                            <Column header="Actions" style="width: 9rem">
+                                <template #body="{ data }">
+                                    <Button
+                                        :label="isTaskRunning(data) ? 'Running' : 'Run'"
+                                        :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
+                                        size="small"
+                                        :loading="triggeringTaskId === data.id || isTaskRunning(data)"
+                                        :disabled="triggeringTaskId !== null || isTaskRunning(data)"
+                                        @click.stop="triggerTask(data)"
+                                    />
+                                </template>
+                            </Column>
+                        </DataTable>
+                    </div>
                 </TabPanel>
 
                 <TabPanel value="queue">
@@ -225,5 +233,8 @@ const openLog = (execution: ExecutionInfo) => {
 }
 .mb-3 {
     margin-bottom: 1rem;
+}
+.table-fit {
+    overflow-x: auto;
 }
 </style>

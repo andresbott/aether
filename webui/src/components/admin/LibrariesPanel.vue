@@ -14,6 +14,7 @@ import {
 } from '@/composables/useLibraries'
 import type { Library, LibraryInput } from '@/types/libraries'
 import LibraryDialog from './LibraryDialog.vue'
+import { useViewport } from '@/composables/useViewport'
 
 const { data: libraries, isLoading } = useLibraries()
 const createMutation = useCreateLibrary()
@@ -74,6 +75,11 @@ function formatDate(s: string | null): string {
 const submitting = computed(
     () => createMutation.isPending.value || updateMutation.isPending.value
 )
+
+const { tier } = useViewport()
+// Spec §5: settings tables must not overflow a phone; these columns are the
+// ones a phone admin can live without (the row's dialog still shows all).
+const phoneCols = computed(() => tier.value === 'phone')
 </script>
 
 <template>
@@ -92,53 +98,60 @@ const submitting = computed(
             <p>Add a library to start scanning music.</p>
         </div>
 
-        <DataTable v-else :value="libraries" responsiveLayout="scroll">
-            <Column field="name" header="Name">
-                <template #body="{ data }">
-                    <span class="library-name">
-                        <i :class="`pi pi-${data.icon || 'folder'}`"></i>
-                        {{ data.name }}
-                        <Tag
-                            v-if="isConfigManaged(data)"
-                            class="config-badge"
-                            value="From config"
-                            severity="secondary"
-                            v-tooltip.top="configManagedHint"
-                        />
-                    </span>
-                </template>
-            </Column>
-            <Column field="path" header="Path" />
-            <Column field="track_count" header="Tracks" style="width: 7rem; text-align: right" />
-            <Column header="Last scan" style="width: 14rem">
-                <template #body="{ data }">{{ formatDate(data.last_scan_started_at) }}</template>
-            </Column>
-            <Column header="" style="width: 11rem; text-align: right">
-                <template #body="{ data }">
-                    <!-- Config-provisioned libraries have no actions: the server
-                         rewrites them from config.yaml on every startup, so an
-                         edit here would be reverted on the next restart. -->
-                    <span v-if="isConfigManaged(data)" class="config-hint">
-                        Managed in config.yaml
-                    </span>
-                    <template v-else>
-                        <Button
-                            icon="pi pi-pencil"
-                            text
-                            rounded
-                            @click="openEdit(data)"
-                        />
-                        <Button
-                            icon="pi pi-trash"
-                            text
-                            rounded
-                            severity="danger"
-                            @click="onDelete(data)"
-                        />
+        <div v-else class="table-fit">
+            <DataTable :value="libraries" responsiveLayout="scroll">
+                <Column field="name" header="Name">
+                    <template #body="{ data }">
+                        <span class="library-name">
+                            <i :class="`pi pi-${data.icon || 'folder'}`"></i>
+                            {{ data.name }}
+                            <Tag
+                                v-if="isConfigManaged(data)"
+                                class="config-badge"
+                                value="From config"
+                                severity="secondary"
+                                v-tooltip.top="configManagedHint"
+                            />
+                        </span>
                     </template>
-                </template>
-            </Column>
-        </DataTable>
+                </Column>
+                <Column field="path" header="Path" />
+                <Column
+                    field="track_count"
+                    header="Tracks"
+                    :hidden="phoneCols"
+                    style="width: 7rem; text-align: right"
+                />
+                <Column header="Last scan" :hidden="phoneCols" style="width: 14rem">
+                    <template #body="{ data }">{{ formatDate(data.last_scan_started_at) }}</template>
+                </Column>
+                <Column header="" style="width: 11rem; text-align: right">
+                    <template #body="{ data }">
+                        <!-- Config-provisioned libraries have no actions: the server
+                             rewrites them from config.yaml on every startup, so an
+                             edit here would be reverted on the next restart. -->
+                        <span v-if="isConfigManaged(data)" class="config-hint">
+                            Managed in config.yaml
+                        </span>
+                        <template v-else>
+                            <Button
+                                icon="pi pi-pencil"
+                                text
+                                rounded
+                                @click="openEdit(data)"
+                            />
+                            <Button
+                                icon="pi pi-trash"
+                                text
+                                rounded
+                                severity="danger"
+                                @click="onDelete(data)"
+                            />
+                        </template>
+                    </template>
+                </Column>
+            </DataTable>
+        </div>
 
         <LibraryDialog
             v-model:visible="dialogVisible"
@@ -189,5 +202,8 @@ const submitting = computed(
 .config-hint {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+}
+.table-fit {
+    overflow-x: auto;
 }
 </style>
