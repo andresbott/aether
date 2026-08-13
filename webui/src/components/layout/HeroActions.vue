@@ -78,5 +78,12 @@ const emit = defineEmits<{
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* A wrapped actions ROW is fine; a wrapped label ("Add\nto\nqueue") is not. */
+.hero-actions :deep(.p-button-label) {
+    white-space: nowrap;
 }
 </style>
