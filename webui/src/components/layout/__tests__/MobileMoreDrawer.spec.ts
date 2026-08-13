@@ -79,6 +79,18 @@ describe('MobileMoreDrawer', () => {
         expect(itemLabels().slice(0, 2)).toEqual(['Music', 'Audiobooks'])
     })
 
+    // @primeuix's styled mode caps every bottom drawer at 10rem, which showed ~2 of
+    // these rows. The opt-in class in _main.scss lifts that to auto/80dvh; it has to
+    // land on the PANEL (.p-drawer), not the mask, or the override never matches.
+    // The rule itself is pinned in assets/scss/__tests__/bottom-sheet.spec.ts.
+    it('marks its panel as an auto-height bottom sheet', async () => {
+        await mountDrawer()
+        const panel = document.body.querySelector('.p-drawer')
+        expect(panel).toBeTruthy()
+        expect(panel!.classList.contains('app-bottom-sheet')).toBe(true)
+        expect(panel!.closest('.p-drawer-bottom')).toBeTruthy()
+    })
+
     it('navigating closes the drawer and pushes the route', async () => {
         const wrapper = await mountDrawer()
         const genres = Array.from(document.body.querySelectorAll('.drawer-item')).find(

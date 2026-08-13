@@ -33,9 +33,25 @@ describe('ContentScaffold compact phone header', () => {
         expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1 1 100%/)
     })
 
-    // Detail views render an empty title box; a full-width empty row would push
-    // their actions below the back button.
-    it('drops the title box when it is empty', () => {
-        expect(media).toMatch(/\.scaffold-title:empty\s*\{[^}]*display:\s*none/)
+    // Detail views (/album, /artist, /playlist/:id, /genre/:name) render an empty
+    // title box. Two outcomes have to hold at once, and they pull opposite ways:
+    // the empty box must not claim a full-width row (that pushes the actions below
+    // the back button), yet it must still be the flex spacer that keeps the actions
+    // right-aligned — .scaffold-back and .scaffold-actions are both flex-shrink: 0
+    // with no grower, so removing the box from the flow packs them LEFT.
+    // `flex: 1 1 0` is the one value that satisfies both; `display: none` broke the
+    // second. `:empty` is 0,2,0 so it wins over `.scaffold-title` regardless of order.
+    it('keeps the empty title box as a spacer so the actions stay right-aligned', () => {
+        expect(media).toMatch(/\.scaffold-title:empty\s*\{[^}]*flex:\s*1 1 0/)
+        expect(media).not.toMatch(/\.scaffold-title:empty\s*\{[^}]*display:\s*none/)
+    })
+
+    // The titled case (Library) must be untouched by that fix: the title still takes
+    // the whole first row and the actions still wrap below it, left-aligned. Hence no
+    // `margin-left: auto` on .scaffold-actions, which would have right-aligned the
+    // second row too.
+    it('leaves the titled case with a full-width title and no actions offset', () => {
+        expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1 1 100%/)
+        expect(media).not.toMatch(/\.scaffold-actions\s*\{[^}]*margin-left:\s*auto/)
     })
 })

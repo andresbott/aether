@@ -150,11 +150,17 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
         row-gap: 0;
     }
 
-    /* Detail views pass title="" and no summary, so this box is empty (only Vue's
-       v-if/slot comment anchors, which :empty ignores). Without this it would
-       still claim a full-width row and push the actions below the back button. */
+    /* Detail views (/album, /artist, /playlist/:id, /genre/:name) pass title="" and
+       no summary, so this box is empty (only Vue's v-if/slot comment anchors, which
+       :empty ignores). It must not claim a full-width row — that would push the
+       actions below the back button — but it must still exist as the flex spacer
+       that keeps them right-aligned: .scaffold-back and .scaffold-actions are both
+       flex-shrink: 0 with no grower, so `display: none` here packed Back and the
+       actions hard LEFT. A zero-basis grower absorbs the leftover width instead.
+       `margin-left: auto` on .scaffold-actions would not do: it would also
+       right-align them on the SECOND row in the titled (Library) case. */
     .scaffold-title:empty {
-        display: none;
+        flex: 1 1 0;
     }
 
     .scaffold-title h1 {

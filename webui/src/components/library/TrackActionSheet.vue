@@ -72,7 +72,7 @@ const favoriteLabel = computed(() =>
     <Drawer
         :visible="props.visible"
         position="bottom"
-        class="track-action-sheet"
+        class="track-action-sheet app-bottom-sheet"
         :header="song?.title ?? ''"
         @update:visible="emit('update:visible', $event)"
     >

@@ -330,6 +330,16 @@ const onRowKeydown = (event: KeyboardEvent): void => {
     opacity: 1;
 }
 
+/* Touch has no hover: the shared rows expose the heart permanently there. Same
+   rule AlbumTrackRow and GenreTrackRow carry — without it the queue's hearts were
+   invisible on touch, since neither hover nor focus-visible ever fires.
+   :deep because the opacity lives on the button component's own class. */
+@media (pointer: coarse) {
+    .row-star-cell :deep(.row-star) {
+        opacity: 1;
+    }
+}
+
 /* Edit mode carries the drag handle and delete instead of heart + duration, and
    sizes to them rather than to the fixed view-mode width. */
 .row-end--editing {

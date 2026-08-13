@@ -129,6 +129,31 @@ a:hover {
     padding-right: 0;
 }
 
+// Bottom sheets (Drawer position="bottom") size to their content instead of the
+// fixed 10rem @primeuix's styled mode gives every bottom drawer
+// (`.p-drawer-bottom .p-drawer { height: 10rem }`) — at that height only about two
+// rows showed and the rest hid behind an unlabelled scroll.
+//
+// Global because a Drawer renders in a body-level overlay, out of reach of the
+// originating component's scoped styles (same reason as .wide-tooltip above), and
+// opt-in via a class so side drawers keep their own sizing. The selector has to
+// repeat `.p-drawer-bottom` to out-specify the theme's two-class rule: a lone
+// `.app-bottom-sheet` loses on specificity, and matching it exactly would leave the
+// winner up to stylesheet injection order.
+//
+// Hosts: TrackActionSheet.vue, MobileMoreDrawer.vue.
+.p-drawer-bottom .p-drawer.app-bottom-sheet {
+    height: auto;
+    max-height: 80dvh;
+}
+
+// The theme also pins the content box to height: 100%, which fights the auto-height
+// panel; let it size to its rows and scroll only once the cap is hit.
+.p-drawer-bottom .p-drawer.app-bottom-sheet .p-drawer-content {
+    height: auto;
+    overflow-y: auto;
+}
+
 // Phone: form dialogs become full-screen sheets (spec §3.2). One global rule
 // rather than per-dialog CSS so every current and future Dialog conforms.
 // Confirm popups are exempt — a full-screen "Are you sure?" reads as a new

@@ -65,7 +65,7 @@ const onLogout = (): void => {
     <Drawer
         :visible="props.visible"
         position="bottom"
-        class="mobile-more-drawer"
+        class="mobile-more-drawer app-bottom-sheet"
         header="More"
         @update:visible="emit('update:visible', $event)"
     >
