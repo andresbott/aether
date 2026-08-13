@@ -186,7 +186,7 @@ describe('LibraryView', () => {
 
     it('toggling layout preserves the hash', async () => {
         const w = mountView()
-        w.findAllComponents(SelectButton)[0].vm.$emit('update:modelValue', 'list')
+        w.findAllComponents(SelectButton)[1].vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
         expect(replace).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -320,6 +320,25 @@ describe('LibraryView favorites filter', () => {
 
 // All Music (no folderId) is the only route that offers Discovery: the ranking is
 // cross-collection, so a per-library feed would be meaningless.
+describe('LibraryView secondary actions', () => {
+    it('keeps the tab switch primary and moves layout toggle to secondary actions', () => {
+        const view = mountView()
+        const selectButtons = view.findAllComponents(SelectButton)
+        expect(selectButtons.length).toBe(2)
+        // Tab switch comes first (in primary actions), layout toggle second (in secondary)
+        // On desktop tier, secondary renders inline after primary
+        const [first, second] = selectButtons
+        // The tab switch has text options (Discover/Albums/Artists)
+        expect(first.props('options')).toEqual(
+            expect.arrayContaining([expect.objectContaining({ label: 'Albums', value: 'albums' })])
+        )
+        // The layout toggle has icon options (list/grid)
+        expect(second.props('options')).toEqual(
+            expect.arrayContaining([expect.objectContaining({ icon: 'pi pi-list' })])
+        )
+    })
+})
+
 describe('LibraryView Discover tab', () => {
     beforeEach(() => {
         route.params = {}
@@ -334,7 +353,7 @@ describe('LibraryView Discover tab', () => {
 
     it('offers Discover, Albums and Artists on All Music', () => {
         const w = mountView()
-        const tabs = w.findAllComponents(SelectButton)[1]
+        const tabs = w.findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
             { label: 'Discover', value: 'discover' },
             { label: 'Albums', value: 'albums' },
@@ -370,7 +389,7 @@ describe('LibraryView Discover tab', () => {
 
     it('omits the Discover tab inside a single library', () => {
         route.params = { folderId: '1' }
-        const tabs = mountView().findAllComponents(SelectButton)[1]
+        const tabs = mountView().findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
             { label: 'Albums', value: 'albums' },
             { label: 'Artists', value: 'artists' }

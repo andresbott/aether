@@ -2,9 +2,11 @@
 import { computed } from 'vue'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import { useVersion } from '@/composables/useVersion'
+import { useViewport } from '@/composables/useViewport'
 import { VISIBLE_SHORTCUTS } from '@/utils/shortcuts'
 
 const { data: serverVersion } = useVersion()
+const { isTouch } = useViewport()
 
 // Same prefix rule as the settings sidebar version string: "v" only before
 // bare numeric versions, non-release builds ("dev-build") shown verbatim.
@@ -31,6 +33,9 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
                      help overlay also reads, so the two can never disagree. -->
                 <section class="about-section">
                     <h2>Keyboard shortcuts</h2>
+                    <p v-if="isTouch" class="touch-note">
+                        Keyboard shortcuts apply when a keyboard is attached.
+                    </p>
                     <p class="setting-hint">
                         Active in the player. Press <kbd>?</kbd> anywhere in the player to see
                         them on the controls themselves.
@@ -148,6 +153,11 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
 }
 
 .setting-hint {
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
+}
+
+.touch-note {
     color: var(--app-text-secondary);
     font-size: 0.85rem;
 }

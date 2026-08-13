@@ -170,6 +170,17 @@ const summary = computed(() => {
                 v-tooltip.bottom="favoritesOnly ? 'Show all' : 'Show favorites only'"
             />
             <SelectButton
+                v-if="viewOptions.length > 1"
+                v-model="viewMode"
+                :options="viewOptions"
+                optionLabel="label"
+                optionValue="value"
+                :allowEmpty="false"
+            />
+        </template>
+
+        <template #secondary-actions>
+            <SelectButton
                 v-model="layout"
                 :options="layoutOptions"
                 optionLabel="label"
@@ -182,14 +193,6 @@ const summary = computed(() => {
                     <i :class="slotProps.option.icon"></i>
                 </template>
             </SelectButton>
-            <SelectButton
-                v-if="viewOptions.length > 1"
-                v-model="viewMode"
-                :options="viewOptions"
-                optionLabel="label"
-                optionValue="value"
-                :allowEmpty="false"
-            />
         </template>
 
         <DiscoveryFeed v-if="viewMode === 'discover'" :layout="layout" />

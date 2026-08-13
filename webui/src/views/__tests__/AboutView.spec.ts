@@ -8,12 +8,21 @@ vi.mock('@/composables/useVersion', () => ({
     useVersion: () => ({ data: versionData })
 }))
 
+const isTouch = ref(false)
+vi.mock('@/composables/useViewport', () => ({
+    useViewport: () => ({
+        tier: ref('desktop'),
+        isTouch
+    })
+}))
+
 import AboutView from '@/views/AboutView.vue'
 
 const mountView = () => mount(AboutView)
 
 beforeEach(() => {
     versionData.value = undefined
+    isTouch.value = false
 })
 
 describe('AboutView', () => {
@@ -59,5 +68,10 @@ describe('AboutView', () => {
             .findAll('a')
             .map((a) => a.attributes('href'))
         expect(hrefs).toContain('https://github.com/andresbott/aether')
+    })
+
+    it('notes that shortcuts need a keyboard on touch devices', () => {
+        isTouch.value = true
+        expect(mountView().text()).toContain('Keyboard shortcuts apply when a keyboard is attached.')
     })
 })
