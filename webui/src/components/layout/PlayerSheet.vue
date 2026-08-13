@@ -246,7 +246,13 @@ const onHeaderTouchEnd = (event: TouchEvent): void => {
 .player-sheet {
     position: fixed;
     inset: 0;
-    z-index: 1200;
+    /* Above all app chrome (the tab bar sits at 100, the shortcut overlay at
+       2000 and is desktop-only) but BELOW PrimeVue's overlay layer: its
+       `zIndex.modal` default is 1100, which is what Toast and Drawer stack from
+       (see @primevue/core/config — Drawer's mask and Toast's container both call
+       ZIndex.set('modal', …, config.zIndex.modal)). At 1200 the sheet covered
+       toasts fired while it was open; 1050 keeps them visible. */
+    z-index: 1050;
     display: flex;
     flex-direction: column;
     background-color: var(--app-player-bg);
@@ -284,6 +290,25 @@ const onHeaderTouchEnd = (event: TouchEvent): void => {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+
+    /* The queue face reuses QueueBody's sidebar variant unchanged, but that
+       variant's rows are written for the app surface: they colour text with
+       --app-text-primary / --app-text-secondary, which in LIGHT theme are near
+       black and land on the sheet's dark --app-player-bg at ~1.1:1 — invisible.
+       Rather than fork QueueBody for one host, remap the tokens its rows consume
+       (QueueBody, QueueRow, TrackFavoriteButton) to the player-bar palette for
+       the subtree. Custom properties inherit through the DOM, so this reaches
+       the child component's scoped rules; only these declarations are
+       host-specific, and the row markup stays shared.
+       --app-accent is deliberately NOT remapped: it is the "this is playing"
+       signal and already clears 5.2:1 on the player background in both themes. */
+    --app-text-primary: var(--app-player-text);
+    --app-text-secondary: var(--app-player-dim);
+    --app-hover: color-mix(in srgb, var(--app-player-text) 12%, transparent);
+    --app-border: color-mix(in srgb, var(--app-player-text) 20%, transparent);
+    /* The light-theme soft accent is mixed for a white surface and all but
+       vanishes here; strengthen it so the now-playing strip stays readable. */
+    --app-accent-soft: color-mix(in srgb, var(--app-accent) 20%, transparent);
 }
 
 .sheet-art {
