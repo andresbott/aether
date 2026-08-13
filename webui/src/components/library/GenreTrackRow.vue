@@ -4,6 +4,7 @@ import TrackFavoriteButton from '@/components/library/TrackFavoriteButton.vue'
 import TrackSelectButton from '@/components/library/TrackSelectButton.vue'
 import type { Song } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { useViewport } from '@/composables/useViewport'
 
 const props = defineProps<{
     song?: Song
@@ -12,11 +13,17 @@ const props = defineProps<{
     playing?: boolean
 }>()
 
+const { isTouch } = useViewport()
+
 const emit = defineEmits<{
     select: [payload: { additive: boolean; range: boolean }]
     // A double-click appends the track to the queue; the host decides what that
     // means for playback (see docs/architecture/unified-play-experience.md).
     enqueue: []
+    // Touch counterparts (isTouch only): a tap plays this song now, the ⋮
+    // opens the host's TrackActionSheet. Pointer users keep select/dblclick.
+    play: []
+    menu: []
     dragstart: [event: DragEvent]
     dragend: []
 }>()
@@ -35,6 +42,10 @@ const formatDuration = (seconds?: number): string => {
 }
 
 const onClick = (event: MouseEvent): void => {
+    if (isTouch.value) {
+        emit('play')
+        return
+    }
     emit('select', { additive: event.ctrlKey || event.metaKey, range: event.shiftKey })
 }
 
@@ -85,9 +96,19 @@ const onAlbumClick = (event: MouseEvent): void => {
         <!-- Same additive toggle a CTRL/⌘+click performs, for pointer users. -->
         <span class="col-select">
             <TrackSelectButton
+                v-if="!isTouch"
                 :selected="selected"
                 @toggle="emit('select', { additive: true, range: false })"
             />
+            <button
+                v-else
+                type="button"
+                class="row-menu"
+                aria-label="Track actions"
+                @click.stop="emit('menu')"
+            >
+                <i class="pi pi-ellipsis-v"></i>
+            </button>
         </span>
         <span class="col-star"><TrackFavoriteButton :song="song" /></span>
         <span class="col-duration row-duration">{{ formatDuration(song.duration) }}</span>
@@ -183,6 +204,14 @@ const onAlbumClick = (event: MouseEvent): void => {
     opacity: 1;
 }
 
+/* Touch has no hover: the shared rows expose the heart permanently there.
+   :deep because the opacity lives on the button component's own class. */
+@media (pointer: coarse) {
+    .col-star :deep(.row-star) {
+        opacity: 1;
+    }
+}
+
 .col-title,
 .col-artist,
 .col-album {
@@ -219,5 +248,17 @@ const onAlbumClick = (event: MouseEvent): void => {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
     font-variant-numeric: tabular-nums;
+}
+
+.row-menu {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    background: none;
+    color: var(--app-text-secondary);
+    cursor: pointer;
 }
 </style>
