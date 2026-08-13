@@ -1,6 +1,18 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { computed, ref } from 'vue'
+import PrimeVue from 'primevue/config'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+
+// Mock useViewport for secondary actions tests
+const tier = ref<'phone' | 'tablet' | 'desktop'>('desktop')
+vi.mock('@/composables/useViewport', () => ({
+    useViewport: () => ({
+        tier: computed(() => tier.value),
+        shell: computed(() => (tier.value === 'phone' ? 'mobile' : 'desktop')),
+        isTouch: ref(false)
+    })
+}))
 
 describe('ContentScaffold', () => {
     it('renders the title and summary', () => {
@@ -44,5 +56,46 @@ describe('ContentScaffold', () => {
         expect(inner.exists()).toBe(true)
         expect(inner.classes()).toContain('content-col')
         expect(inner.find('h1').text()).toBe('Library')
+    })
+})
+
+describe('secondary actions', () => {
+    const mountWithSecondary = () =>
+        mount(ContentScaffold, {
+            props: { title: 'Radio' },
+            slots: {
+                actions: '<button data-primary>Add</button>',
+                'secondary-actions': '<button data-secondary>Import</button>'
+            },
+            global: { plugins: [PrimeVue] },
+            attachTo: document.body
+        })
+
+    it('renders secondary actions inline on desktop', () => {
+        tier.value = 'desktop'
+        const scaffold = mountWithSecondary()
+        expect(scaffold.find('[data-secondary]').exists()).toBe(true)
+        expect(scaffold.find('.scaffold-overflow-btn').exists()).toBe(false)
+    })
+
+    it('collapses secondary actions behind ⋮ on phone', async () => {
+        tier.value = 'phone'
+        const scaffold = mountWithSecondary()
+        // Not inline…
+        expect(scaffold.find('[data-secondary]').exists()).toBe(false)
+        const overflow = scaffold.find('.scaffold-overflow-btn')
+        expect(overflow.exists()).toBe(true)
+        // …but reachable through the popover.
+        await overflow.trigger('click')
+        expect(document.body.querySelector('[data-secondary]')).toBeTruthy()
+    })
+
+    it('renders no ⋮ when the slot is absent', () => {
+        tier.value = 'phone'
+        const scaffold = mount(ContentScaffold, {
+            props: { title: 'Radio' },
+            global: { plugins: [PrimeVue] }
+        })
+        expect(scaffold.find('.scaffold-overflow-btn').exists()).toBe(false)
     })
 })

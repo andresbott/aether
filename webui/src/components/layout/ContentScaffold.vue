@@ -1,8 +1,22 @@
 <script setup lang="ts">
+import { computed, ref, useSlots } from 'vue'
 import Button from 'primevue/button'
+import Popover from 'primevue/popover'
+import { useViewport } from '@/composables/useViewport'
 
 defineProps<{ title: string; summary?: string; showBack?: boolean }>()
 defineEmits<{ (e: 'back'): void }>()
+
+const slots = useSlots()
+const { tier } = useViewport()
+
+// The slot convention (spec §3.2): #actions is always visible; a view that has
+// more controls than a phone header fits moves the collapsible ones to
+// #secondary-actions. Inline on desktop/tablet, behind ⋮ on phones.
+const collapseSecondary = computed(() => tier.value === 'phone' && !!slots['secondary-actions'])
+
+const overflowRef = ref<InstanceType<typeof Popover> | null>(null)
+const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
 </script>
 
 <template>
@@ -25,6 +39,24 @@ defineEmits<{ (e: 'back'): void }>()
                 </div>
                 <div class="scaffold-actions">
                     <slot name="actions" />
+                    <template v-if="!collapseSecondary">
+                        <slot name="secondary-actions" />
+                    </template>
+                    <template v-else>
+                        <Button
+                            class="scaffold-overflow-btn"
+                            icon="pi pi-ellipsis-v"
+                            text
+                            rounded
+                            aria-label="More actions"
+                            @click="toggleOverflow"
+                        />
+                        <Popover ref="overflowRef">
+                            <div class="scaffold-overflow-panel">
+                                <slot name="secondary-actions" />
+                            </div>
+                        </Popover>
+                    </template>
                 </div>
             </div>
         </header>
@@ -92,6 +124,34 @@ defineEmits<{ (e: 'back'): void }>()
     align-items: center;
     gap: 0.5rem;
     flex-shrink: 0;
+}
+
+.scaffold-overflow-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Compact header on phones: smaller title, and the title row is allowed to
+   wrap so the summary drops below the h1 instead of squeezing it.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .scaffold-header-inner {
+        gap: 0.5rem;
+    }
+
+    .scaffold-title {
+        flex-wrap: wrap;
+        row-gap: 0;
+    }
+
+    .scaffold-title h1 {
+        font-size: 1.2rem;
+    }
+
+    .scaffold-summary {
+        flex-basis: 100%;
+    }
 }
 
 .content-scaffold-body {
