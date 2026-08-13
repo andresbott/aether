@@ -145,6 +145,19 @@ AlbumView's hero star is the album's, its row hearts are each track's. A view li
 songs therefore has row hearts regardless of whether it has a hero — Search and the
 queue have no hero and still star their tracks.
 
+## Touch contract
+
+On `useViewport().isTouch`, a track-row tap **plays the song now** (hosts wire
+`@play` → `player.playNow`), and the per-row ⋮ (aria-label "Track actions") opens
+the shared **`TrackActionSheet`** (`webui/src/components/library/TrackActionSheet.vue`)
+— add to queue via `player.addToQueue`, favorite via `useSongFavorite`, add to
+playlist via `updatePlaylist` `songIdsToAdd`, go to album, and go to artist.
+Double-click-to-enqueue and hover reveals remain the **pointer contract** (additive,
+not replaced) — touch has no hover, so the heart is visible always. The hero Play
+remains the only queue-replacing affordance on both input kinds. **`TrackSelectButton`
+is pointer-only** (`v-if="!isTouch"`), so multi-select has no touch equivalent — the
+⋮ takes its column on touch.
+
 ## Deliberately out of scope
 
 - **Drag-to-queue** (the album `pi pi-bars` handle) stays in the scaffold bar for now — not

@@ -38,7 +38,10 @@ When a view diverges from these registries, the registry wins.
   ContentScaffold, EditActionBar, HeroHeader/HeroActions).
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
-  RadioStationGrid…) — don't fork a new grid.
+  RadioStationGrid…) — don't fork a new grid. **`TrackActionSheet`** is the
+  touch counterpart of row hover affordances (add to queue, favorite, add to
+  playlist, go to album/artist), opened via the per-row ⋮ on
+  `useViewport().isTouch`.
   The four library bodies (`AlbumGrid`, `AlbumListView`, `ArtistGrid`,
   `ArtistListView`) take their data from **`useAlbumSource`/`useArtistSource`**
   (`composables/useLibrarySource.ts`), not from `useAlbumTable`/`useArtistTable`
@@ -131,11 +134,14 @@ drawer), `MiniPlayer` (tap opens Now Playing; phase 2 will replace with a
 **PlayerSheet** is a full-screen now-playing overlay on the mobile shell, opened
 by `MiniPlayer` via `usePlayerSheet`. Overlay state, not a route (same philosophy
 as `LoginView`). On phones the system-back gesture must dismiss the sheet rather
-than leave the app, so `open()` pushes one history entry; dismissal consumes it.
+than leave the app, so `open()` pushes one history entry. **Two dismissal paths:**
+`close(onDone?)` consumes the entry via `history.back()` and runs `onDone` only
+after the popstate for our own entry (marker-gated); `dismiss()` touches no history
+and is what the route watcher and unmount use (the entry is already being consumed
+by something else, so another `back()` would bounce the navigation).
 `close(onDone?)` runs follow-up navigation only after the history entry is
 consumed via a one-shot popstate callback — `history.back()` is asynchronous, and
-pushing a route before the popstate lands would be rolled back. Route changes are
-the fallback dismissal path.
+pushing a route before the popstate lands would be rolled back.
 
 **useMediaSession** is bound once from `PlayerLayout` (shell-independent — desktop
 gains hardware media keys from the same wiring), feature-detected so unsupported
