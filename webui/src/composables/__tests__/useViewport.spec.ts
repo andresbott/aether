@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 
 // matchMedia stub: tests flip which queries match and fire `change` events.
 type Listener = (e: { matches: boolean }) => void
@@ -11,7 +11,10 @@ function installMatchMedia(matching: Set<string>) {
         addEventListener: (_: 'change', fn: Listener) => {
             listeners.set(query, [...(listeners.get(query) ?? []), fn])
         },
-        removeEventListener: () => {}
+        removeEventListener: (_: 'change', fn: Listener) => {
+            const list = listeners.get(query) ?? []
+            listeners.set(query, list.filter((handler) => handler !== fn))
+        }
     }))
     return {
         set(query: string, matches: boolean) {

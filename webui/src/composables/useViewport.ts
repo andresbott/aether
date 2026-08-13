@@ -22,14 +22,19 @@ const QUERIES = {
 // Module-scoped singleton, same pattern as usePlayer: every caller shares one
 // set of media-query listeners and one reactive answer.
 let state: ViewportState | null = null
+// Track listeners for cleanup on test reset to avoid stale handlers firing
+let trackedListeners: Array<{ mql: MediaQueryList; handler: (e: MediaQueryListEvent) => void }> = []
 
 function track(query: string, apply: (matches: boolean) => void): void {
     const mql = window.matchMedia(query)
     apply(mql.matches)
-    mql.addEventListener('change', (e) => apply(e.matches))
+    const handler = (e: MediaQueryListEvent) => apply(e.matches)
+    mql.addEventListener('change', handler)
+    trackedListeners.push({ mql, handler })
 }
 
 function createState(): ViewportState {
+    // defaults when matchMedia is unavailable: desktop shell, non-touch
     const isDesktopWidth = ref(true)
     const isPhoneWidth = ref(false)
     const landscape = ref(true)
@@ -68,5 +73,10 @@ export function useViewport(): ViewportState {
 
 /** Test hook: drop the singleton so the next call re-reads matchMedia. */
 export function resetViewportForTests(): void {
+    // Remove all tracked listeners to prevent stale handlers from firing
+    for (const { mql, handler } of trackedListeners) {
+        mql.removeEventListener('change', handler)
+    }
+    trackedListeners = []
     state = null
 }
