@@ -26,7 +26,12 @@ describe('hero phone stacking', () => {
 
     it('lets the actions wrap without wrapping button labels', () => {
         const actions = read('../HeroActions.vue')
-        expect(actions).toMatch(/flex-wrap:\s*wrap/)
+        const actionsMedia = actions.match(
+            /@media \(max-width: 767\.98px\)\s*\{[\s\S]*?\n\}/
+        )?.[0]
+        expect(actionsMedia).toBeTruthy()
+        expect(actionsMedia).toMatch(/\.hero-actions\s*\{[^}]*flex-wrap:\s*wrap/)
+        expect(actionsMedia).toMatch(/\.hero-actions\s*\{[^}]*justify-content:\s*center/)
         expect(actions).toMatch(/white-space:\s*nowrap/)
     })
 })
