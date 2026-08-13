@@ -85,10 +85,11 @@ describe('useMediaSession', () => {
         await bind()
         currentTrack.value = { title: 'T', artist: 'A', album: 'L', coverArt: 'c1' }
         await nextTick()
-        const meta = session.metadata as { title: string; artwork: Array<{ src: string; sizes: string }> }
+        const meta = session.metadata as { title: string; artwork: Array<{ src: string; sizes: string; type: string }> }
         expect(meta.title).toBe('T')
         expect(meta.artwork.map((a) => a.sizes)).toEqual(['96x96', '256x256', '512x512'])
         expect(meta.artwork[2].src).toBe('/art/c1?size=512')
+        expect(meta.artwork.every((a) => a.type === 'image/jpeg')).toBe(true)
     })
 
     it('clears metadata when the track goes away', async () => {
