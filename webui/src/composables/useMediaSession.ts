@@ -1,4 +1,4 @@
-import { watch } from 'vue'
+import { effectScope, watch, type EffectScope } from 'vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 
@@ -7,6 +7,12 @@ import { subsonicClient } from '@/lib/api/subsonic'
 // hardware media keys from the same wiring. Everything is feature-detected
 // and wrapped: an unsupported browser must never throw (spec §6).
 let bound = false
+// The binding outlives its caller. PlayerLayout is unmounted whenever the app
+// switches to the settings layout, and watchers created in a component's setup
+// die with it — so lock-screen metadata would freeze for the rest of the
+// session, since `bound` keeps the next call from rebinding. A detached scope
+// (module-scoped, like usePlayer's state) is never owned by a component.
+let scope: EffectScope | null = null
 
 const ARTWORK_SIZES = [96, 256, 512] as const
 
@@ -17,7 +23,16 @@ export function useMediaSession(): void {
 
     const player = usePlayer()
     const session = navigator.mediaSession
+    // `true` = detached: no parent scope adopts it, so the calling component's
+    // unmount cannot dispose it.
+    scope = effectScope(true)
+    scope.run(() => {
+        bind(player, session)
+    })
+}
 
+/** Wires the player into the session. Must run inside the detached scope. */
+function bind(player: ReturnType<typeof usePlayer>, session: MediaSession): void {
     const syncMetadata = (): void => {
         const track = player.currentTrack.value
         if (!track) {
@@ -96,5 +111,7 @@ export function useMediaSession(): void {
 
 /** Test hook: allow a fresh bind with a new mediaSession stub. */
 export function resetMediaSessionForTests(): void {
+    scope?.stop()
+    scope = null
     bound = false
 }

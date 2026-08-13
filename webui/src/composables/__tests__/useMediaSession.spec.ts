@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mount } from '@vue/test-utils'
 import { ref, nextTick } from 'vue'
 
 const play = vi.fn()
@@ -134,6 +135,48 @@ describe('useMediaSession', () => {
         await nextTick()
         expect(session.setPositionState).toHaveBeenCalledWith(
             expect.objectContaining({ duration: 180, position: 12 })
+        )
+    })
+
+    // C2: PlayerLayout is unmounted whenever the app switches to the settings
+    // layout. Watchers created in a component's setup die with it, and `bound`
+    // stops the next call from rebinding — so the binding must NOT belong to the
+    // caller's scope.
+    it('keeps syncing after the calling component is unmounted', async () => {
+        const { session } = installMediaSession()
+        const mod = await import('../useMediaSession')
+        mod.resetMediaSessionForTests()
+
+        // Mount a component that calls the composable, then unmount it. If the
+        // watchers were owned by this component they would be disposed here.
+        const host = mount({
+            setup() {
+                mod.useMediaSession()
+                return () => null
+            }
+        })
+        currentTrack.value = { title: 'first', artist: 'A' }
+        await nextTick()
+        expect((session.metadata as { title: string }).title).toBe('first')
+
+        host.unmount()
+        await nextTick()
+
+        // A second caller hits the `bound` short-circuit and wires nothing new,
+        // so anything still updating must come from the original watchers.
+        mod.useMediaSession()
+        currentTrack.value = { title: 'after unmount', artist: 'B' }
+        await nextTick()
+        expect((session.metadata as { title: string }).title).toBe('after unmount')
+
+        isPlaying.value = true
+        await nextTick()
+        expect(session.playbackState).toBe('playing')
+
+        duration.value = 300
+        await nextTick()
+        expect(session.setPositionState).toHaveBeenCalledWith(
+            expect.objectContaining({ duration: 300 })
         )
     })
 
