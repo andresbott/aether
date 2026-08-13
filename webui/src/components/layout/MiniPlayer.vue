@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { usePlayer } from '@/composables/usePlayer'
+import { usePlayerSheet } from '@/composables/usePlayerSheet'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
-const router = useRouter()
+const { open: openPlayerSheet } = usePlayerSheet()
 
 const currentTrack = computed(() => player.currentTrack.value)
 
@@ -20,10 +20,10 @@ const progressPercent = computed(() => {
     return (player.currentTime.value / player.duration.value) * 100
 })
 
-// Phase 1: the tap target is the Now Playing route. Phase 2 swaps this single
-// function for opening the PlayerSheet overlay — keep the indirection.
+// Phase 2: the tap target is the PlayerSheet overlay (was the home route in
+// phase 1 — this function body is the swap point the phase-1 comment promised).
 const openNowPlaying = (): void => {
-    void router.push({ name: 'home' })
+    openPlayerSheet()
 }
 </script>
 
@@ -32,7 +32,7 @@ const openNowPlaying = (): void => {
         class="mini-player"
         role="button"
         tabindex="0"
-        aria-label="Open Now Playing"
+        aria-label="Open player"
         @click="openNowPlaying"
         @keydown.enter="openNowPlaying"
         @keydown.space.prevent="openNowPlaying"

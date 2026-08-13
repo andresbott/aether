@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import MiniPlayer from '../MiniPlayer.vue'
 
-const push = vi.fn()
-vi.mock('vue-router', () => ({
-    useRouter: () => ({ push })
+const openSheet = vi.fn()
+vi.mock('@/composables/usePlayerSheet', () => ({
+    usePlayerSheet: () => ({ open: openSheet, close: vi.fn(), isOpen: ref(false) })
 }))
 
 const togglePlayPause = vi.fn()
@@ -36,7 +36,7 @@ vi.mock('@/lib/api/subsonic', () => ({
 }))
 
 beforeEach(() => {
-    push.mockClear()
+    openSheet.mockClear()
     togglePlayPause.mockClear()
     playNext.mockClear()
     isPlaying.value = false
@@ -50,11 +50,11 @@ describe('MiniPlayer', () => {
         expect(mp.find('img.mini-cover').attributes('src')).toBe('/art/cov-1?size=96')
     })
 
-    it('play button toggles playback without opening Now Playing', async () => {
+    it('play button toggles playback without opening the sheet', async () => {
         const mp = mount(MiniPlayer)
         await mp.find('[aria-label="Play"]').trigger('click')
         expect(togglePlayPause).toHaveBeenCalledOnce()
-        expect(push).not.toHaveBeenCalled()
+        expect(openSheet).not.toHaveBeenCalled()
     })
 
     it('shows Pause while playing', () => {
@@ -62,17 +62,17 @@ describe('MiniPlayer', () => {
         expect(mount(MiniPlayer).find('[aria-label="Pause"]').exists()).toBe(true)
     })
 
-    it('next button skips without opening Now Playing', async () => {
+    it('next button skips without opening the sheet', async () => {
         const mp = mount(MiniPlayer)
         await mp.find('[aria-label="Next track"]').trigger('click')
         expect(playNext).toHaveBeenCalledOnce()
-        expect(push).not.toHaveBeenCalled()
+        expect(openSheet).not.toHaveBeenCalled()
     })
 
-    it('tapping the bar opens Now Playing', async () => {
+    it('tapping the bar opens the player sheet, not a route', async () => {
         const mp = mount(MiniPlayer)
         await mp.find('.mini-player').trigger('click')
-        expect(push).toHaveBeenCalledWith({ name: 'home' })
+        expect(openSheet).toHaveBeenCalledOnce()
     })
 
     it('renders the progress hairline from currentTime/duration', () => {
