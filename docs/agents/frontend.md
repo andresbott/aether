@@ -124,6 +124,18 @@ custom properties, hence the SCSS twins.
 `tier` ('phone' | 'tablet' | 'desktop'), and `isTouch` (from `(pointer:
 coarse)`).
 
+**Settings on phones.** `SettingsLayout` (`layouts/SettingsLayout.vue`)
+renders its sidebar as a horizontally-scrolling icon bar below 768px —
+collapse is a desktop concept with no room on a bar, so the collapse button
+and width machinery are hidden entirely. Settings tables use `useViewport().tier`
+to hide low-value columns on phones (via `Column :hidden` binding), keeping all
+data reachable through the row edit dialogs. The metadata editor (`MetadataEditorView`)
+stacks its split panels vertically and shows an info notice ("works best on a
+larger screen") on phone tier. **The `ContentScaffold` header wraps at any width
+and its title never shrinks below 12rem** (empty titles exempt) — this ensures
+the back button, title, and actions stay readable when the header reflows across
+narrow viewports.
+
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
 components rather than inline `v-if` blocks). Mobile chrome components —
