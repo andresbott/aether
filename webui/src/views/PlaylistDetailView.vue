@@ -40,9 +40,13 @@ const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelec
 const actionSong = ref<Song | null>(null)
 const actionSheetOpen = ref(false)
 
+// Touch tap-to-play: queue the playlist as shown (the live `working` list, so an
+// unsaved reorder plays in the order on screen) and start at the tapped track.
+// NOT `playNow`, which would wipe the queue down to that one song
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
 const playTrack = (index: number): void => {
-    const song = working.value[index]
-    if (song) player.playNow(song)
+    const songs = working.value
+    if (songs[index]) player.playAlbum(songs, index)
 }
 
 const openTrackMenu = (index: number): void => {

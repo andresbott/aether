@@ -25,9 +25,13 @@ const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelec
 const actionSong = ref<Song | null>(null)
 const actionSheetOpen = ref(false)
 
+// Touch tap-to-play: queue the album as shown and start at the tapped track, the
+// same primitive the hero Play uses. NOT `playNow`, which would wipe the queue
+// down to the single tapped song and discard the rest of the album
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
 const playTrack = (index: number): void => {
-    const song = orderedSongs.value[index]
-    if (song) player.playNow(song)
+    const songs = orderedSongs.value
+    if (songs[index]) player.playAlbum(songs, index)
 }
 
 const openTrackMenu = (index: number): void => {

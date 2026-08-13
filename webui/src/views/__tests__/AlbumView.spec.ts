@@ -244,12 +244,43 @@ describe('AlbumView track favorites', () => {
 })
 
 describe('AlbumView touch interactions', () => {
-    it('plays a row on touch tap and opens the action sheet from ⋮', async () => {
+    // A tap must queue the whole VISIBLE list and start at the tapped track — the
+    // touch counterpart of the hero Play. `playNow` would set queue=[song], so
+    // tapping track 2 used to discard track 1 and everything already queued.
+    it('tapping a row queues the album and starts at that track', async () => {
         isTouch.value = true
         const w = mountView()
-        await w.findAll('.album-track-row')[0].trigger('click')
-        expect(playNow).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }))
+        await w.findAll('.album-track-row')[1].trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith(album.song, 1)
+        expect(playNow).not.toHaveBeenCalled()
+    })
+
+    // The queued list is the flat disc-ordered list, so the start index is the
+    // row's position in it — not its position within its own disc.
+    it('starts at the tapped track flat index across discs', async () => {
+        const multiDiscAlbum = {
+            id: 'al2',
+            name: 'Double Album',
+            artist: 'The Artist',
+            song: [
+                { id: 'd1t1', title: 'D1 One', discNumber: 1 },
+                { id: 'd1t2', title: 'D1 Two', discNumber: 1 },
+                { id: 'd2t1', title: 'D2 One', discNumber: 2 }
+            ]
+        }
+        albumData.value = markRaw(multiDiscAlbum)
+        isTouch.value = true
+        const w = mountView()
+        await w.findAll('.album-track-row')[2].trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith(multiDiscAlbum.song, 2)
+    })
+
+    it('opens the action sheet from ⋮', async () => {
+        isTouch.value = true
+        const w = mountView()
         await w.findAll('[aria-label="Track actions"]')[0].trigger('click')
         expect(w.findComponent({ name: 'TrackActionSheet' }).props('visible')).toBe(true)
+        // The ⋮ is not a play affordance.
+        expect(playAlbum).not.toHaveBeenCalled()
     })
 })

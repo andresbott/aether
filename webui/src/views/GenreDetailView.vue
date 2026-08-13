@@ -31,9 +31,22 @@ const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelec
 const actionSong = ref<Song | null>(null)
 const actionSheetOpen = ref(false)
 
+// Touch tap-to-play: queue the list as shown and start at the tapped track, NOT
+// `playNow`, which would wipe the queue down to that one song
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
+//
+// `items` is the SPARSE lazily-paged table: slots belonging to pages that have not
+// been scrolled into view yet are holes, and usePlayer's queue is a dense Song[].
+// So queue the entries that ARE loaded and start at the tapped song's position in
+// that dense list — the song under the finger is always the one that plays.
+// Scrolling on loads more pages but does not retro-fill the queue; gathering the
+// complete genre stays the hero Play's job (it pages through getSongsByGenre).
 const playTrack = (index: number): void => {
-    const song = items.value[index]
-    if (song) player.playNow(song)
+    const tapped = items.value[index]
+    if (!tapped) return
+    const loaded = items.value.filter((s): s is Song => s !== undefined)
+    const start = loaded.indexOf(tapped)
+    player.playAlbum(loaded, start === -1 ? 0 : start)
 }
 
 const openTrackMenu = (index: number): void => {
