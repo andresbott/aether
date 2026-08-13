@@ -8,6 +8,7 @@ import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import { useGenres, useUpdateGenreCover } from '@/composables/useSubsonicQueries'
 import { useGenreSongsTable, GENRE_SONG_PAGE_SIZE } from '@/composables/useGenreSongsTable'
 import { usePlayer } from '@/composables/usePlayer'
@@ -26,6 +27,21 @@ const player = usePlayer()
 const updateCover = useUpdateGenreCover()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionSheetOpen = ref(false)
+
+const playTrack = (index: number): void => {
+    const song = items.value[index]
+    if (song) player.playNow(song)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = items.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionSheetOpen.value = true
+}
 
 const { data: genres, isLoading, error } = useGenres()
 const genre = computed(() => genres.value?.find((g) => g.value === props.name))
@@ -303,6 +319,8 @@ watch(
                                 :playing="item?.id === currentTrackId"
                                 @select="(p) => onRowClick(options.index, p)"
                                 @enqueue="enqueueTrack(options.index)"
+                                @play="playTrack(options.index)"
+                                @menu="openTrackMenu(options.index)"
                                 @dragstart="(e) => onRowDragStart(e, options.index)"
                                 @dragend="songsDrag.end"
                             />
@@ -310,6 +328,7 @@ watch(
                     </VirtualScroller>
                 </div>
             </div>
+            <TrackActionSheet v-model:visible="actionSheetOpen" :song="actionSong" />
         </ContentScaffold>
     </div>
 </template>

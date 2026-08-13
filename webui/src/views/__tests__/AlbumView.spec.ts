@@ -17,6 +17,11 @@ const album = {
 // Mutable ref so individual tests can swap in a multi-disc album.
 const albumData = ref<unknown>(markRaw(album))
 
+const isTouch = ref(false)
+vi.mock('@/composables/useViewport', () => ({
+    useViewport: () => ({ isTouch, tier: ref('desktop'), shell: ref('classic') })
+}))
+
 const toggleStarMutate = vi.fn()
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useAlbum: () => ({ data: albumData, isLoading: ref(false), error: ref(null) }),
@@ -38,11 +43,13 @@ vi.mock('@/composables/useSongsDrag', () => ({
 const playAlbum = vi.fn()
 const addMultipleToQueue = vi.fn()
 const enqueueAndPlayIfIdle = vi.fn()
+const playNow = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({
         playAlbum,
         addMultipleToQueue,
         enqueueAndPlayIfIdle,
+        playNow,
         currentTrack: ref(null)
     })
 }))
@@ -66,15 +73,24 @@ const mountView = () =>
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
-            stubs: { RouterLink: true }
+            stubs: {
+                RouterLink: true,
+                TrackActionSheet: {
+                    name: 'TrackActionSheet',
+                    props: ['song', 'visible'],
+                    template: '<div />'
+                }
+            }
         }
     })
 
 beforeEach(() => {
     albumData.value = markRaw(album)
+    isTouch.value = false
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
     enqueueAndPlayIfIdle.mockClear()
+    playNow.mockClear()
     toggleStarMutate.mockClear()
     songsStart.mockClear()
     songsEnd.mockClear()
@@ -224,5 +240,16 @@ describe('AlbumView track favorites', () => {
     it('the star column has a header cell so rows stay aligned', () => {
         const w = mountView()
         expect(w.find('.track-list-header .col-star').exists()).toBe(true)
+    })
+})
+
+describe('AlbumView touch interactions', () => {
+    it('plays a row on touch tap and opens the action sheet from ⋮', async () => {
+        isTouch.value = true
+        const w = mountView()
+        await w.findAll('.album-track-row')[0].trigger('click')
+        expect(playNow).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }))
+        await w.findAll('[aria-label="Track actions"]')[0].trigger('click')
+        expect(w.findComponent({ name: 'TrackActionSheet' }).props('visible')).toBe(true)
     })
 })

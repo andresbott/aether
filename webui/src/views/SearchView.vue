@@ -12,6 +12,7 @@ import ArtistRow from '@/components/library/ArtistRow.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import GenreRow from '@/components/library/GenreRow.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import {
     useSearch,
     searchTermIsLongEnough,
@@ -30,6 +31,21 @@ const router = useRouter()
 const player = usePlayer()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionSheetOpen = ref(false)
+
+const playTrack = (index: number): void => {
+    const song = songs.value[index]
+    if (song) player.playNow(song)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = songs.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionSheetOpen.value = true
+}
 
 const query = ref('')
 
@@ -305,6 +321,8 @@ watch(songs, () => clearSelection())
                                 :selected="isSelected(index)"
                                 @select="(p) => onRowClick(index, p)"
                                 @enqueue="enqueueTrack(index)"
+                                @play="playTrack(index)"
+                                @menu="openTrackMenu(index)"
                                 @dragstart="(e) => onRowDragStart(e, index)"
                                 @dragend="songsDrag.end"
                             />
@@ -313,6 +331,7 @@ watch(songs, () => clearSelection())
                 </div>
             </div>
         </div>
+        <TrackActionSheet v-model:visible="actionSheetOpen" :song="actionSong" />
     </ContentScaffold>
 </template>
 

@@ -11,6 +11,7 @@ import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
@@ -35,6 +36,21 @@ const player = usePlayer()
 const toast = useToast()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionSheetOpen = ref(false)
+
+const playTrack = (index: number): void => {
+    const song = working.value[index]
+    if (song) player.playNow(song)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = working.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionSheetOpen.value = true
+}
 
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
 const updatePlaylist = useUpdatePlaylist()
@@ -410,6 +426,8 @@ onUnmounted(() => {
                             :selected="isSelected(index)"
                             @select="(p) => onRowClick(index, p)"
                             @enqueue="enqueueTrack(index)"
+                            @play="playTrack(index)"
+                            @menu="openTrackMenu(index)"
                             @dragstart="(e) => onRowDragStart(e, index)"
                             @dragend="songsDrag.end"
                         />
@@ -419,6 +437,7 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
+            <TrackActionSheet v-model:visible="actionSheetOpen" :song="actionSong" />
         </ContentScaffold>
 
         <ConfirmDialog />

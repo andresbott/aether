@@ -102,7 +102,12 @@ const mountView = () =>
                 GenreRow: GenreRowStub,
                 // vue-router is mocked, so RouterLink (used by GenreTrackRow's
                 // album link) isn't registered — stub it to a plain anchor.
-                RouterLink: { template: '<a><slot /></a>' }
+                RouterLink: { template: '<a><slot /></a>' },
+                TrackActionSheet: {
+                    name: 'TrackActionSheet',
+                    props: ['song', 'visible'],
+                    template: '<div />'
+                }
             }
         }
     })

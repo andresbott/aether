@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
@@ -20,6 +21,21 @@ const toggleStar = useToggleStar()
 const albumDrag = useAlbumDrag()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionSheetOpen = ref(false)
+
+const playTrack = (index: number): void => {
+    const song = orderedSongs.value[index]
+    if (song) player.playNow(song)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = orderedSongs.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionSheetOpen.value = true
+}
 
 const onAlbumDragStart = (event: DragEvent): void => {
     if (album.value) albumDrag.start(event, album.value, coverUrl.value)
@@ -207,6 +223,8 @@ watch(
                                 :playing="row.song.id === currentTrackId"
                                 @select="(p) => onRowClick(row.index, p)"
                                 @enqueue="enqueueTrack(row.index)"
+                                @play="playTrack(row.index)"
+                                @menu="openTrackMenu(row.index)"
                                 @dragstart="(e) => onRowDragStart(e, row.index)"
                                 @dragend="songsDrag.end"
                             />
@@ -214,6 +232,7 @@ watch(
                     </div>
                 </div>
             </div>
+            <TrackActionSheet v-model:visible="actionSheetOpen" :song="actionSong" />
         </ContentScaffold>
     </div>
 </template>
