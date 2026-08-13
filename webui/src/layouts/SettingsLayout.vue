@@ -101,6 +101,7 @@ const versionTitle = computed(() => {
                         class="nav-item"
                         :class="{ active: isActive(item) }"
                         type="button"
+                        :aria-label="item.label"
                         @click="onNavItem(item)"
                         v-tooltip.right="collapsed ? item.label : undefined"
                     >
@@ -122,6 +123,7 @@ const versionTitle = computed(() => {
                 <button
                     class="nav-item"
                     type="button"
+                    aria-label="Back to player"
                     @click="goBack"
                     v-tooltip.right="collapsed ? 'Back to player' : undefined"
                 >
@@ -146,7 +148,7 @@ const versionTitle = computed(() => {
 <style scoped>
 .settings-layout {
     display: flex;
-    height: 100vh;
+    height: 100dvh;
     width: 100%;
     background-color: var(--app-background);
     overflow: hidden;

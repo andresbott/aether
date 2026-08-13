@@ -146,7 +146,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                                     <span class="schedule-summary">{{ scheduleSummary(data) }}</span>
                                 </template>
                             </Column>
-                            <Column :hidden="phoneCols" style="width: 4rem">
+                            <Column style="width: 4rem">
                                 <template #body="{ data }">
                                     <Button
                                         icon="pi pi-calendar"

@@ -17,6 +17,13 @@ describe('SettingsLayout phone top bar', () => {
         expect(media).toBeTruthy()
     })
 
+    // Uses 100dvh (not 100vh) to account for mobile browser UI bars (same
+    // rationale as MobileShell's dvh — see its comment).
+    it('uses 100dvh for layout height (in the base rule, not media query)', () => {
+        const baseBlock = source.match(/\.settings-layout\s*\{[^}]*\}/)?.[0]
+        expect(baseBlock).toMatch(/height:\s*100dvh/)
+    })
+
     it('stacks the layout and turns the sidebar into a bar', () => {
         expect(media).toMatch(/\.settings-layout\s*\{[^}]*flex-direction:\s*column/)
         expect(media).toMatch(/\.settings-sidebar[^{]*\{[^}]*width:\s*100%/)

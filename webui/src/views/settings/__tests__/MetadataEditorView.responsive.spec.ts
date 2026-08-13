@@ -136,14 +136,12 @@ describe('MetadataEditorView responsive layout', () => {
         expect(message.text()).toContain('The metadata editor works best on a larger screen.')
     })
 
-    it('toolbar wraps on phone tier (off-disk: 767.98px media query)', () => {
-        // This spec asserts semantic layout behavior (stacked=true drives vertical
-        // splitter); the toolbar's CSS wrapping at 767.98px is an off-disk detail.
-        // The test title pins the breakpoint for cross-check during manual review.
+    it('toolbar wraps on phone tier', () => {
+        // The semantic layout behavior (stacked=true drives vertical splitter) is
+        // asserted above; the toolbar's CSS wrapping at 767.98px is pinned in
+        // MetadataEditorView.phoneStyles.spec.ts (off-disk).
         viewportState.tier.value = 'phone'
         const w = mountView()
-        // The editor-header div must exist; the media query itself is not testable
-        // in this JSDOM context but the breakpoint is documented above.
         expect(w.find('.editor-header').exists()).toBe(true)
     })
 

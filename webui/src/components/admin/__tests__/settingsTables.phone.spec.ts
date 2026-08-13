@@ -146,9 +146,9 @@ describe('Settings tables hide low-value columns on phones', () => {
             expect(w.text()).toContain('Last scan')
         })
 
-        it('hides Path, Tracks and Last scan columns on phone', async () => {
+        it('hides Path, Tracks and Last scan column headers on phone but shows path in the name cell', async () => {
             tier.value = 'phone'
-            libraries.current = [library({})]
+            libraries.current = [library({ path: '/srv/music' })]
             const w = mount(LibrariesPanel, {
                 global: {
                     plugins: [PrimeVue],
@@ -160,8 +160,10 @@ describe('Settings tables hide low-value columns on phones', () => {
             expect(w.text()).not.toContain('Path')
             expect(w.text()).not.toContain('Tracks')
             expect(w.text()).not.toContain('Last scan')
-            // Should still show Name
+            // Should still show Name header
             expect(w.text()).toContain('Name')
+            // Path data should appear within the name cell
+            expect(w.text()).toContain('/srv/music')
         })
     })
 
@@ -237,7 +239,7 @@ describe('Settings tables hide low-value columns on phones', () => {
             expect(w.find('.pi-calendar').exists()).toBe(true)
         })
 
-        it('hides Schedule column and calendar icon column on phone', () => {
+        it('hides Schedule column but shows the calendar icon on phone', () => {
             tier.value = 'phone'
             const w = mount(TasksView, {
                 global: {
@@ -247,7 +249,7 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             expect(w.text()).not.toContain('Schedule')
-            expect(w.find('.pi-calendar').exists()).toBe(false)
+            expect(w.find('.pi-calendar').exists()).toBe(true)
             // Should still show Name and Actions
             expect(w.text()).toContain('Name')
             expect(w.text()).toContain('Actions')

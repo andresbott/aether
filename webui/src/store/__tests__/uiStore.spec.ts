@@ -17,10 +17,4 @@ describe('uiStore settings sidebar', () => {
         ui.toggleSettingsSidebar()
         expect(ui.settingsSidebarCollapsed).toBe(false)
     })
-
-    it('collapseSettingsSidebar forces collapsed', () => {
-        const ui = useUiStore()
-        ui.collapseSettingsSidebar()
-        expect(ui.settingsSidebarCollapsed).toBe(true)
-    })
 })

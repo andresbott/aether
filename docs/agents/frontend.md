@@ -128,8 +128,10 @@ coarse)`).
 renders its sidebar as a horizontally-scrolling icon bar below 768px —
 collapse is a desktop concept with no room on a bar, so the collapse button
 and width machinery are hidden entirely. Settings tables use `useViewport().tier`
-to hide low-value columns on phones (via `Column :hidden` binding), keeping all
-data reachable through the row edit dialogs. The metadata editor (`MetadataEditorView`)
+to hide secondary columns on phones (via `Column :hidden` binding); hidden data
+either moves into a visible cell (the library path renders under the name on
+phone) or stays reachable through an icon-only button (the schedule calendar
+icon) or the row's edit dialog. The metadata editor (`MetadataEditorView`)
 stacks its split panels vertically and shows an info notice ("works best on a
 larger screen") on phone tier. **The `ContentScaffold` header wraps at any width
 and its title never shrinks below 12rem** (empty titles exempt) — this ensures

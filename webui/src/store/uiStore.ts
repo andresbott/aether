@@ -21,17 +21,12 @@ export const useUiStore = defineStore('ui', () => {
         settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
     }
 
-    const collapseSettingsSidebar = () => {
-        settingsSidebarCollapsed.value = true
-    }
-
     return {
         sidebarCollapsed,
         settingsSidebarCollapsed,
         toggleSidebar,
         collapseSidebar,
         expandSidebar,
-        toggleSettingsSidebar,
-        collapseSettingsSidebar
+        toggleSettingsSidebar
     }
 })

@@ -110,6 +110,19 @@ describe('SettingsLayout', () => {
         expect(mountLayout().find('.toast-outlet').exists()).toBe(true)
     })
 
+    // On phone, .nav-label is hidden, leaving icon-only buttons that must carry
+    // an accessible name (WCAG 4.1.2).
+    it('provides accessible names on all nav buttons', () => {
+        const w = mountLayout()
+        const navItems = w.findAll('.sidebar-nav .nav-item')
+        expect(navItems.length).toBeGreaterThan(0)
+        navItems.forEach((item) => {
+            expect(item.attributes('aria-label')).toBeTruthy()
+        })
+        const backBtn = w.find('.sidebar-footer-nav .nav-item')
+        expect(backBtn.attributes('aria-label')).toBe('Back to player')
+    })
+
 })
 
 describe('SettingsLayout version string', () => {

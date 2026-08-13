@@ -113,6 +113,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                                 v-tooltip.top="configManagedHint"
                             />
                         </span>
+                        <span v-if="phoneCols" class="name-path">{{ data.path }}</span>
                     </template>
                 </Column>
                 <Column field="path" header="Path" :hidden="phoneCols" />
@@ -202,6 +203,15 @@ const phoneCols = computed(() => tier.value === 'phone')
 .config-hint {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+}
+.name-path {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .table-fit {
     overflow-x: auto;

@@ -11,16 +11,20 @@ const source = readFileSync(
 )
 
 describe('ContentScaffold base header wrap', () => {
+    // Strip the media query so assertions only match the base rules (otherwise
+    // they'd pass if the rules moved back inside the phone block).
+    const baseRules = source.replace(/@media \(max-width: 767\.98px\)\s*\{[\s\S]*?\n\}/, '')
+
     it('enables wrap on .scaffold-header-inner at base width', () => {
-        expect(source).toMatch(/\.scaffold-header-inner\s*\{[^}]*flex-wrap:\s*wrap/)
+        expect(baseRules).toMatch(/\.scaffold-header-inner\s*\{[^}]*flex-wrap:\s*wrap/)
     })
 
     it('sets min-width: 12rem on .scaffold-title at base width', () => {
-        expect(source).toMatch(/\.scaffold-title\s*\{[^}]*min-width:\s*12rem/)
+        expect(baseRules).toMatch(/\.scaffold-title\s*\{[^}]*min-width:\s*12rem/)
     })
 
     it('resets min-width on .scaffold-title:empty at base width', () => {
-        expect(source).toMatch(/\.scaffold-title:empty\s*\{[^}]*min-width:\s*0/)
+        expect(baseRules).toMatch(/\.scaffold-title:empty\s*\{[^}]*min-width:\s*0/)
     })
 })
 
