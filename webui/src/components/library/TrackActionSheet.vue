@@ -37,6 +37,7 @@ const onQueue = (): void => {
 }
 
 const onFavorite = (): void => {
+    if (!props.song) return
     toggleFavorite()
     close()
 }

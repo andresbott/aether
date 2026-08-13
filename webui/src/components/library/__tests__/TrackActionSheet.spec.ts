@@ -119,4 +119,19 @@ describe('TrackActionSheet', () => {
         )
         expect(wrapper.emitted('update:visible')?.at(-1)).toEqual([false])
     })
+
+    it('renders without error when song is null and clicking actions does not call mocks', async () => {
+        await mountSheet(null)
+        expect(actionByText('Add to queue')).toBeTruthy()
+        expect(actionByText('Add to favorites')).toBeTruthy()
+        expect(actionByText('Add to playlist')).toBeTruthy()
+        expect(actionByText('Go to album')).toBeUndefined()
+        expect(actionByText('Go to artist')).toBeUndefined()
+
+        actionByText('Add to queue')?.click()
+        expect(addToQueue).not.toHaveBeenCalled()
+
+        actionByText('Add to favorites')?.click()
+        expect(toggleFavorite).not.toHaveBeenCalled()
+    })
 })
