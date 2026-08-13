@@ -87,8 +87,10 @@ When a view diverges from these registries, the registry wins.
   resolved write already means the DB is current; no polling needed.
 - `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v1`, overridable via
   `VITE_SERVER_URL_V1`) and `subsonic.ts` (`SubsonicClient`; same-origin
-  default via `initWithDefaults()`, no auth today — see
-  [subsonic-api.md](subsonic-api.md)).
+  default; `initWithDefaults()` is the **auth-method-`none`** path only —
+  authenticated modes call `setApiKey()` with the PAT minted by
+  `lib/subsonicSession.ts` — see [subsonic-api.md](subsonic-api.md) and
+  [authentication.md](authentication.md)).
 - `types/` — one file per API domain, mirroring backend response shapes.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
@@ -102,6 +104,29 @@ When a view diverges from these registries, the registry wins.
   `{ error, rateLimited }` and the server already sends a showable sentence.
 - `store/uiStore.ts` — Pinia, UI-only state. Player persistence is
   localStorage (`musicPlayer:*` keys) via `utils/localStorage.ts`, not Pinia.
+
+### Shells
+
+`PlayerLayout` (`layouts/PlayerLayout.vue`) switches between `DesktopShell` and
+`MobileShell` (both in `layouts/`) via a `v-if` on `useViewport().shell`. The
+breakpoint decision is: desktop width (≥1024px) → desktop, phone width (<768px)
+→ mobile, tablet → orientation picks (landscape → desktop, portrait → mobile).
+The breakpoint constants live in `lib/breakpoints.ts` (`BP_PHONE_MAX = 768`,
+`BP_DESKTOP_MIN = 1024`) and are mirrored in SCSS (`_variables.scss`:
+`$bp-phone-max`, `$bp-desktop-min`); agreement is guarded by
+`assets/scss/__tests__/breakpoints.spec.ts`. Media queries can't read CSS
+custom properties, hence the SCSS twins.
+
+`useViewport` (singleton composable) reports `shell` ('desktop' | 'mobile'),
+`tier` ('phone' | 'tablet' | 'desktop'), and `isTouch` (from `(pointer:
+coarse)`).
+
+Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
+**`DesktopShell` only** — mount-scoped listeners (the reason the shells are
+components rather than inline `v-if` blocks). Mobile chrome components —
+`MobileTabBar` (Home/Library/Search/Playlists/More), `MobileMoreDrawer` (bottom
+drawer), `MiniPlayer` (tap opens Now Playing; phase 2 will replace with a
+`PlayerSheet`) — live in `components/layout/`.
 
 ## Player (`composables/usePlayer.ts`)
 

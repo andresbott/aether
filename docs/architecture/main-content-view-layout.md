@@ -81,7 +81,7 @@ if a view needs more.
 
 - **Props:** `title: string`, `summary?: string`, `showBack?: boolean`.
 - **Emits:** `@back` (when the back button is clicked).
-- **Slots:** `#actions` (right-aligned header controls), `#title-actions` (inline actions beside the title), default (the body).
+- **Slots:** `#actions` (right-aligned header controls, always visible), `#secondary-actions` (collapsible actions — inline on desktop/tablet tier, behind a ⋮ Popover on the phone tier; use for controls a phone header can't fit), `#title-actions` (inline actions beside the title), default (the body).
 - **Structure & exact styling** (match these values if you ever hand-roll the header):
   - Header is `flex-shrink:0`, full-width with
     `padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px))` (Recipe A: compensates for the body scroller's scrollbar twice) and a bottom border.
@@ -131,10 +131,12 @@ handle scrollbar compensation at different depths.
 | Token | Value | Meaning |
 |---|---|---|
 | `--app-content-max-width` | `1320px` | Inner content-box width of the column |
-| `--app-content-gutter` | `1rem` | Horizontal padding inside the column |
-| `--app-rail-clearance` | `2.75rem` | Alphabet-rail slot: rail 1.75rem + 1rem gap |
+| `--app-content-gutter` | `1rem` (→ `0.75rem` on phones) | Horizontal padding inside the column |
+| `--app-rail-clearance` | `2.75rem` (→ `0px` on phones) | Alphabet-rail slot: rail 1.75rem + 1rem gap |
 | `--app-list-header-top` | `1rem` | Gap above a list view's column header |
 | `--sb-w` | measured px | Native scrollbar width |
+
+Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-clearance` collapses to `0px` (the rail is `display:none`, so the clearance must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
 
 **`--app-list-header-top` goes on the header element, never on the scroll container
 above it.** Library → Albums and Artists have fixed headers where either would look
@@ -213,7 +215,9 @@ native scrollbar** — the scrollbar remains the outermost element.
 - Set `scrollbar-gutter: stable` on the scroller.
 - Rail: `position:absolute; top:0; bottom:0; right: var(--sb-w, 0px); width:1.75rem`. The
   `--app-rail-clearance` token (2.75rem) includes this rail width + 1rem gap; recipes
-  reserve that clearance on the right so content never sits under the rail.
+  reserve that clearance on the right so content never sits under the rail. On phones
+  (below `$bp-phone-max` = 768px), the rail is `display:none` and `--app-rail-clearance`
+  is zeroed — the two must move together (paired, guarded by `AlphabetRail.phoneStyles.spec.ts`).
 - Rail `@select(offset)` → `scrollToIndex(offset)` (for lazily-windowed lists, `ensureRange`
   before scrolling — see `AlbumListView`).
 
