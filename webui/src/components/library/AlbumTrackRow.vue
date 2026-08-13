@@ -216,4 +216,15 @@ const onClick = (event: MouseEvent): void => {
     color: var(--app-text-secondary);
     cursor: pointer;
 }
+
+/* Phones drop the artist column so the title can breathe (spec §3.3): inside an
+   album the artist is almost always the album artist already shown in the hero.
+   The host owns --album-track-cols, so it MUST drop the matching track (and its
+   header cell) in the same media query — see AlbumView.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .col-artist {
+        display: none;
+    }
+}
 </style>

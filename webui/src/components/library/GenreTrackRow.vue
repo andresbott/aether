@@ -261,4 +261,17 @@ const onAlbumClick = (event: MouseEvent): void => {
     color: var(--app-text-secondary);
     cursor: pointer;
 }
+
+/* Phones drop the album and artist columns so the title can breathe (spec §3.3).
+   The cover stays: these lists are mixed, so it is the row's identity. Every host
+   owns --genre-track-cols, so each MUST drop the two matching tracks (and their
+   header cells) in the same media query — see GenreDetailView,
+   PlaylistDetailView and SearchView.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .col-artist,
+    .col-album {
+        display: none;
+    }
+}
 </style>

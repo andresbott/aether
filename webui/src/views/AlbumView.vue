@@ -311,6 +311,19 @@ watch(
     text-align: right;
 }
 
+/* Phone: AlbumTrackRow hides its artist cell, so the shared template and this
+   view's header row must drop the same track — otherwise every row misaligns.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --album-track-cols: 38px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist {
+        display: none;
+    }
+}
+
 .disc-header {
     background: var(--app-accent);
     color: #fff;

@@ -409,6 +409,20 @@ watch(
     text-align: right;
 }
 
+/* Phone: GenreTrackRow hides its artist and album cells, so the shared template
+   and this view's header row must drop the same two tracks — otherwise every row
+   misaligns. 767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --genre-track-cols: 48px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist,
+    .track-list-header .col-album {
+        display: none;
+    }
+}
+
 .track-scroller {
     flex: 1;
     min-height: 0;
