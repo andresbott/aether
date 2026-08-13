@@ -64,4 +64,14 @@ function onSelect(letter: string): void {
     opacity: 0.3;
     cursor: default;
 }
+
+/* Hidden on phones — --app-rail-clearance collapses to 0 there
+   (_variables.scss), so a visible rail would overlap the content column.
+   767.98px = $bp-phone-max - 0.02px; scoped styles can't read SCSS vars,
+   and breakpoints.spec.ts guards the source token. */
+@media (max-width: 767.98px) {
+    .alphabet-rail {
+        display: none;
+    }
+}
 </style>

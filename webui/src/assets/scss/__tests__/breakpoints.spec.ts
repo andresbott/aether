@@ -27,3 +27,23 @@ describe('breakpoint tokens', () => {
         expect(scssVar('bp-desktop-min')).toBe(BP_DESKTOP_MIN)
     })
 })
+
+describe('phone token overrides', () => {
+    // One media query in _variables.scss re-tokens the phone layout; every
+    // view on the recipes adapts from these two lines alone (spec §3.1).
+    const block = scss.match(
+        /@media \(max-width: \(\$bp-phone-max - 0\.02px\)\)[^{]*\{[\s\S]*?\n\}/
+    )?.[0]
+
+    it('has a phone-width :root override block', () => {
+        expect(block).toBeTruthy()
+    })
+
+    it('shrinks the content gutter on phones', () => {
+        expect(block).toContain('--app-content-gutter: 0.75rem')
+    })
+
+    it('collapses the rail clearance on phones', () => {
+        expect(block).toContain('--app-rail-clearance: 0px')
+    })
+})

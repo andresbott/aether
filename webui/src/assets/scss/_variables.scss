@@ -121,3 +121,16 @@ $bp-desktop-min: 1024px;
     --app-player-track: rgba(255, 255, 255, 0.14);
     --app-player-range: #7b8794;
 }
+
+/* Phone-width re-tokening. The recipes in
+   docs/architecture/main-content-view-layout.md all resolve through these
+   tokens, so every conforming view adapts from here with no per-view change.
+   The rail clearance collapses because the alphabet rail is display:none on
+   phones (AlphabetRail.vue) — the two must move together or content would sit
+   under a rail that is still visible. */
+@media (max-width: ($bp-phone-max - 0.02px)) {
+    :root {
+        --app-content-gutter: 0.75rem;
+        --app-rail-clearance: 0px;
+    }
+}
