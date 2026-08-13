@@ -416,10 +416,4 @@ onBeforeUnmount(resetEgg)
 .nav-separator {
     margin: 0.75rem 0 0.25rem;
 }
-
-@media (max-width: 768px) {
-    .sidebar {
-        display: none;
-    }
-}
 </style>

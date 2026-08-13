@@ -2,9 +2,14 @@
 import { onMounted, onUnmounted } from 'vue'
 import Toast from 'primevue/toast'
 import DesktopShell from '@/layouts/DesktopShell.vue'
+import MobileShell from '@/layouts/MobileShell.vue'
 import { useQueueSync } from '@/composables/useQueueSync'
+import { useViewport } from '@/composables/useViewport'
 
 const queueSync = useQueueSync()
+// One chrome at a time: v-if (not CSS hiding) so there is never a duplicate
+// tab order or ARIA tree, and shortcuts only bind in the desktop chrome.
+const { shell } = useViewport()
 
 onMounted(async () => {
     // Adopt the queue saved from another browser/device before arming the save
@@ -20,6 +25,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <DesktopShell />
+    <DesktopShell v-if="shell === 'desktop'" />
+    <MobileShell v-else />
     <Toast />
 </template>
