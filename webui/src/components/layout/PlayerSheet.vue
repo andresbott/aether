@@ -42,28 +42,30 @@ const onSeekInput = (event: Event): void => {
 const goAlbum = (): void => {
     const id = currentTrack.value?.albumId
     if (!id) return
-    close()
-    void router.push({ name: 'album', params: { id } })
+    close(() => void router.push({ name: 'album', params: { id } }))
 }
 
 const goArtist = (): void => {
     const id = currentTrack.value?.artistId
     if (!id) return
-    close()
-    void router.push({ name: 'artist', params: { id } })
+    close(() => void router.push({ name: 'artist', params: { id } }))
 }
 
 // Fallback dismissal (spec §6): any navigation closes the sheet, so a failed
 // popstate consumption can never leave it stranded over a different view.
 watch(
     () => route.fullPath,
-    () => close()
+    () => {
+        close()
+    }
 )
 
 // Esc closes. Bound to our own listener while open — the desktop shortcut
 // registry never runs in the mobile shell, so nothing else claims the key.
 const onKeydown = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') close()
+    if (event.key === 'Escape') {
+        close()
+    }
 }
 watch(
     isOpen,
@@ -84,7 +86,9 @@ const onHeaderTouchStart = (event: TouchEvent): void => {
 const onHeaderTouchEnd = (event: TouchEvent): void => {
     if (touchStartY === null) return
     const endY = event.changedTouches[0]?.clientY ?? touchStartY
-    if (endY - touchStartY > 80) close()
+    if (endY - touchStartY > 80) {
+        close()
+    }
     touchStartY = null
 }
 </script>
@@ -102,7 +106,7 @@ const onHeaderTouchEnd = (event: TouchEvent): void => {
                         type="button"
                         class="sheet-btn"
                         aria-label="Close player"
-                        @click="close"
+                        @click="() => close()"
                     >
                         <i class="pi pi-chevron-down"></i>
                     </button>

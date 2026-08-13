@@ -70,7 +70,10 @@ beforeEach(() => {
     vi.clearAllMocks()
     resetPlayerSheetForTests()
     vi.spyOn(window.history, 'pushState').mockImplementation(() => {})
-    vi.spyOn(window.history, 'back').mockImplementation(() => {})
+    vi.spyOn(window.history, 'back').mockImplementation(() => {
+        // Synchronously dispatch popstate so callback ordering can be verified
+        window.dispatchEvent(new PopStateEvent('popstate'))
+    })
 })
 
 describe('PlayerSheet', () => {
@@ -109,12 +112,17 @@ describe('PlayerSheet', () => {
     })
 
     it('title navigates to the album and closes', async () => {
+        const backSpy = vi.spyOn(window.history, 'back')
         const sheet = mountSheet()
         usePlayerSheet().open()
         await sheet.vm.$nextTick()
         await sheet.find('.sheet-title').trigger('click')
         expect(push).toHaveBeenCalledWith({ name: 'album', params: { id: 'al-9' } })
         expect(usePlayerSheet().isOpen.value).toBe(false)
+        // Navigation must happen AFTER popstate consumption, not before
+        const backCallOrder = backSpy.mock.invocationCallOrder[0]
+        const pushCallOrder = push.mock.invocationCallOrder[0]
+        expect(pushCallOrder).toBeGreaterThan(backCallOrder)
     })
 
     it('queue button swaps to the queue face', async () => {

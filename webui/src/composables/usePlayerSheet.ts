@@ -10,13 +10,30 @@ const isOpen = ref(false)
 // it) and by close() (we take it with history.back()).
 let pushed = false
 let listening = false
+// Pending callback set by close(onDone) — invoked after the next popstate.
+let pendingCallback: (() => void) | null = null
+let pendingTimeoutId: ReturnType<typeof setTimeout> | null = null
 
 function onPopstate(): void {
     // Back consumed our entry: just close. Calling history.back() here would
     // eat the caller's own history.
     pushed = false
     isOpen.value = false
+    // If a navigation callback is pending, invoke it now (capture before clearing)
+    const cb = pendingCallback
     stopListening()
+    clearPendingCallback()
+    if (cb && typeof cb === 'function') {
+        cb()
+    }
+}
+
+function clearPendingCallback(): void {
+    pendingCallback = null
+    if (pendingTimeoutId !== null) {
+        clearTimeout(pendingTimeoutId)
+        pendingTimeoutId = null
+    }
 }
 
 function stopListening(): void {
@@ -38,20 +55,44 @@ function open(): void {
     }
 }
 
-function close(): void {
+function close(onDone?: () => void): void {
     if (!isOpen.value) return
     isOpen.value = false
-    stopListening()
     if (pushed) {
         pushed = false
+        // history.back() fires popstate asynchronously. When the caller needs
+        // to navigate after close(), they pass onDone — we invoke it after the
+        // popstate lands (or ~200ms as a safety net), so the router.push() runs
+        // after the history entry is consumed and cannot be rolled back.
+        if (onDone) {
+            clearPendingCallback() // clear any stale callback
+            pendingCallback = onDone
+            pendingTimeoutId = setTimeout(() => {
+                if (pendingCallback === onDone) {
+                    clearPendingCallback()
+                    onDone()
+                }
+            }, 200)
+            // DO NOT call stopListening() yet — onPopstate needs to run to invoke the callback
+        } else {
+            // No callback, safe to remove listener immediately
+            stopListening()
+        }
         window.history.back()
+    } else {
+        // Nothing was pushed, safe to remove listener
+        stopListening()
+        if (onDone) {
+            // Nothing was pushed, so no popstate will fire. Invoke callback immediately.
+            onDone()
+        }
     }
 }
 
 export function usePlayerSheet(): {
     isOpen: Readonly<Ref<boolean>>
     open: () => void
-    close: () => void
+    close: (onDone?: () => void) => void
 } {
     return { isOpen: readonly(isOpen), open, close }
 }
@@ -61,4 +102,5 @@ export function resetPlayerSheetForTests(): void {
     isOpen.value = false
     pushed = false
     stopListening()
+    clearPendingCallback()
 }
