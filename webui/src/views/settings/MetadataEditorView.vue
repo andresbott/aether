@@ -413,4 +413,11 @@ function onAlbumReidentify() {
     font-size: 0.85rem;
     font-weight: 600;
 }
+
+@media (max-width: 767.98px) {
+    .editor-header {
+        flex-wrap: wrap;
+        row-gap: 0.75rem;
+    }
+}
 </style>

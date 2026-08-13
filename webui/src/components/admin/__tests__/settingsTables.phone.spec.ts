@@ -130,7 +130,7 @@ describe('Settings tables hide low-value columns on phones', () => {
     })
 
     describe('LibrariesPanel', () => {
-        it('shows Tracks and Last scan columns on desktop', async () => {
+        it('shows Path, Tracks and Last scan columns on desktop', async () => {
             tier.value = 'desktop'
             libraries.current = [library({})]
             const w = mount(LibrariesPanel, {
@@ -141,11 +141,12 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             await flushPromises()
+            expect(w.text()).toContain('Path')
             expect(w.text()).toContain('Tracks')
             expect(w.text()).toContain('Last scan')
         })
 
-        it('hides Tracks and Last scan columns on phone', async () => {
+        it('hides Path, Tracks and Last scan columns on phone', async () => {
             tier.value = 'phone'
             libraries.current = [library({})]
             const w = mount(LibrariesPanel, {
@@ -156,11 +157,11 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             await flushPromises()
+            expect(w.text()).not.toContain('Path')
             expect(w.text()).not.toContain('Tracks')
             expect(w.text()).not.toContain('Last scan')
-            // Should still show Name and Path
+            // Should still show Name
             expect(w.text()).toContain('Name')
-            expect(w.text()).toContain('Path')
         })
     })
 

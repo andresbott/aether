@@ -115,7 +115,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                         </span>
                     </template>
                 </Column>
-                <Column field="path" header="Path" />
+                <Column field="path" header="Path" :hidden="phoneCols" />
                 <Column
                     field="track_count"
                     header="Tracks"
