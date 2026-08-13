@@ -25,15 +25,6 @@ export const useUiStore = defineStore('ui', () => {
         settingsSidebarCollapsed.value = true
     }
 
-    // Only the settings sidebar: below 768px the music chrome is the mobile
-    // shell, which never mounts AppSidebar, so collapsing it there was dead.
-    // SettingsLayout has no mobile variant yet and still needs the collapse.
-    const checkScreenWidth = () => {
-        if (window.innerWidth < 768) {
-            collapseSettingsSidebar()
-        }
-    }
-
     return {
         sidebarCollapsed,
         settingsSidebarCollapsed,
@@ -41,7 +32,6 @@ export const useUiStore = defineStore('ui', () => {
         collapseSidebar,
         expandSidebar,
         toggleSettingsSidebar,
-        collapseSettingsSidebar,
-        checkScreenWidth
+        collapseSettingsSidebar
     }
 })

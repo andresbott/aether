@@ -13,13 +13,11 @@ const settingsSidebarCollapsed = ref(false)
 const toggleSettingsSidebar = vi.fn(() => {
     settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
 })
-const checkScreenWidth = vi.fn()
 vi.mock('@/store/uiStore', () => ({
     useUiStore: () =>
         reactive({
             settingsSidebarCollapsed,
-            toggleSettingsSidebar,
-            checkScreenWidth
+            toggleSettingsSidebar
         })
 }))
 
@@ -51,7 +49,6 @@ describe('SettingsLayout', () => {
         userManagement.value = false
         push.mockClear()
         toggleSettingsSidebar.mockClear()
-        checkScreenWidth.mockClear()
     })
 
     // Settings is administration only: the account concerns (profile, logout)
@@ -103,11 +100,6 @@ describe('SettingsLayout', () => {
         userManagement.value = true
         await nextTick()
         expect(w.text()).toContain('Users')
-    })
-
-    it('checks the screen width on mount to auto-collapse on narrow screens', () => {
-        mountLayout()
-        expect(checkScreenWidth).toHaveBeenCalled()
     })
 
     // Settings views report failures through useToast (library CRUD, task

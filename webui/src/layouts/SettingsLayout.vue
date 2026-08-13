@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Toast from 'primevue/toast'
 import { useUiStore } from '@/store/uiStore'
@@ -72,15 +72,6 @@ const versionTitle = computed(() => {
     if (info.commit && info.commit !== 'undefined') parts.push(info.commit.slice(0, 8))
     if (info.build_time) parts.push(info.build_time)
     return parts.join(' · ')
-})
-
-onMounted(() => {
-    uiStore.checkScreenWidth()
-    window.addEventListener('resize', uiStore.checkScreenWidth)
-})
-
-onUnmounted(() => {
-    window.removeEventListener('resize', uiStore.checkScreenWidth)
 })
 </script>
 
@@ -323,5 +314,68 @@ onUnmounted(() => {
     flex: 1;
     overflow: hidden;
     min-height: 0;
+}
+
+/* Phone: the side nav becomes an icon top bar (spec §5 — usable, not
+   redesigned). Collapse is a desktop concept; on a bar there is nothing to
+   collapse, so the button and the width machinery are hidden wholesale.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .settings-layout {
+        flex-direction: column;
+    }
+
+    .settings-sidebar,
+    .settings-sidebar.collapsed {
+        width: 100%;
+        height: auto;
+        flex-direction: row;
+        align-items: center;
+        border-right: none;
+        border-bottom: 1px solid var(--app-border);
+    }
+
+    .sidebar-header {
+        min-height: 0;
+        padding: 0.5rem 0.25rem 0.5rem 0.75rem;
+    }
+
+    .settings-title {
+        display: none;
+    }
+
+    .collapse-btn {
+        display: none;
+    }
+
+    .sidebar-nav {
+        flex-direction: row;
+        align-items: center;
+        padding: 0;
+        gap: 0;
+        overflow-y: visible;
+        overflow-x: auto;
+    }
+
+    .nav-label,
+    .nav-section-label,
+    .sidebar-version {
+        display: none;
+    }
+
+    .nav-item {
+        width: auto;
+        padding: 0.65rem 0.85rem;
+    }
+
+    .nav-item.active {
+        box-shadow: inset 0 -3px 0 var(--app-accent);
+    }
+
+    .sidebar-footer-nav {
+        border-top: none;
+        padding: 0;
+        margin-left: auto;
+    }
 }
 </style>
