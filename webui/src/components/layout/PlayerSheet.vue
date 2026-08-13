@@ -8,7 +8,7 @@ import { useCurrentTrackFavorite } from '@/composables/useCurrentTrackFavorite'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
-const { isOpen, close } = usePlayerSheet()
+const { isOpen, close, dismiss } = usePlayerSheet()
 const { isStarred, toggleFavorite } = useCurrentTrackFavorite()
 const router = useRouter()
 const route = useRoute()
@@ -53,10 +53,13 @@ const goArtist = (): void => {
 
 // Fallback dismissal (spec §6): any navigation closes the sheet, so a failed
 // popstate consumption can never leave it stranded over a different view.
+// dismiss(), not close(): the route change IS a navigation that pushed its own
+// entry, so history.back() here would pop the tab the user just tapped and
+// bounce them straight back.
 watch(
     () => route.fullPath,
     () => {
-        close()
+        dismiss()
     }
 )
 
@@ -75,7 +78,16 @@ watch(
     },
     { immediate: true }
 )
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+    window.removeEventListener('keydown', onKeydown)
+    // The sheet can be torn down while open — the shell swaps on rotation, or
+    // the login gate replaces the whole app. Leaving isOpen true would show the
+    // sheet already open on the next mount, with a stale history entry its
+    // chevron would then consume out of the user's real history. dismiss(), not
+    // close(), for the same reason as the route watcher: a shell swap is not a
+    // back navigation.
+    dismiss()
+})
 
 // Swipe-down on the header dismisses. Header only: a downward drag on the
 // seek rail or the queue list is scrolling, not dismissal.
