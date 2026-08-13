@@ -15,7 +15,12 @@ const toggleSettingsSidebar = vi.fn(() => {
 })
 const checkScreenWidth = vi.fn()
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => reactive({ settingsSidebarCollapsed, toggleSettingsSidebar, checkScreenWidth })
+    useUiStore: () =>
+        reactive({
+            settingsSidebarCollapsed,
+            toggleSettingsSidebar,
+            checkScreenWidth
+        })
 }))
 
 const versionData = ref<Record<string, string> | undefined>(undefined)

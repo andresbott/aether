@@ -12,9 +12,8 @@ vi.mock('vue-router', () => ({
     RouterLink: { template: '<a><slot /></a>' }
 }))
 
-const checkScreenWidth = vi.fn()
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => reactive({ checkScreenWidth, queueSidebarCollapsed: ref(false) })
+    useUiStore: () => reactive({ queueSidebarCollapsed: ref(false) })
 }))
 
 vi.mock('@/composables/useScrollbarWidth', () => ({

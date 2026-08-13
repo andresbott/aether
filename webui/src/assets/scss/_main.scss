@@ -103,3 +103,28 @@ a:hover {
     padding-inline: var(--app-content-gutter);
     box-sizing: border-box;
 }
+
+// Main route-view pane, shared by DesktopShell and MobileShell.
+.main-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    background-color: var(--app-background);
+    padding: 1rem 2rem;
+}
+
+@media (max-width: (variables.$bp-phone-max - 0.02px)) {
+    .main-content {
+        padding: 1rem;
+    }
+}
+
+// Full-bleed routes (those with `meta: { flush: true }`) manage their own
+// horizontal gutter on their header/content, so drop the side padding here and
+// let their internal scroll area reach the content-area edge — putting the
+// scroll bar flush right. Declared last so it also wins inside the media query
+// above.
+.main-content--flush {
+    padding-left: 0;
+    padding-right: 0;
+}
