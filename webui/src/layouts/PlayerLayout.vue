@@ -5,11 +5,16 @@ import DesktopShell from '@/layouts/DesktopShell.vue'
 import MobileShell from '@/layouts/MobileShell.vue'
 import { useQueueSync } from '@/composables/useQueueSync'
 import { useViewport } from '@/composables/useViewport'
+import { useMediaSession } from '@/composables/useMediaSession'
 
 const queueSync = useQueueSync()
 // One chrome at a time: v-if (not CSS hiding) so there is never a duplicate
 // tab order or ARIA tree, and shortcuts only bind in the desktop chrome.
 const { shell } = useViewport()
+
+// Lock-screen / hardware-key controls; shell-independent, so it lives here
+// rather than in either shell.
+useMediaSession()
 
 onMounted(async () => {
     // Adopt the queue saved from another browser/device before arming the save
