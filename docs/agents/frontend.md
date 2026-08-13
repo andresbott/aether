@@ -128,6 +128,23 @@ components rather than inline `v-if` blocks). Mobile chrome components —
 drawer), `MiniPlayer` (tap opens Now Playing; phase 2 will replace with a
 `PlayerSheet`) — live in `components/layout/`.
 
+**PlayerSheet** is a full-screen now-playing overlay on the mobile shell, opened
+by `MiniPlayer` via `usePlayerSheet`. Overlay state, not a route (same philosophy
+as `LoginView`). On phones the system-back gesture must dismiss the sheet rather
+than leave the app, so `open()` pushes one history entry; dismissal consumes it.
+`close(onDone?)` runs follow-up navigation only after the history entry is
+consumed via a one-shot popstate callback — `history.back()` is asynchronous, and
+pushing a route before the popstate lands would be rolled back. Route changes are
+the fallback dismissal path.
+
+**useMediaSession** is bound once from `PlayerLayout` (shell-independent — desktop
+gains hardware media keys from the same wiring), feature-detected so unsupported
+browsers and jsdom are silent no-ops. Publishes `MediaMetadata` (title/artist/album
+plus artwork at 96/256/512px), mirrors `isPlaying` into `playbackState`, wires
+play/pause/previoustrack/nexttrack/seekto actions, and updates `setPositionState`
+on duration/seek changes — not on every `currentTime` tick (the browser
+extrapolates between updates).
+
 ## Player (`composables/usePlayer.ts`)
 
 Dual `<audio>` elements: active plays, standby pre-buffers the next track
