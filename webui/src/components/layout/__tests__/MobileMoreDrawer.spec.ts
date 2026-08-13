@@ -54,7 +54,8 @@ const itemLabels = () =>
 describe('MobileMoreDrawer', () => {
     it('lists the secondary destinations', async () => {
         await mountDrawer()
-        expect(itemLabels()).toEqual(['Genres', 'Radio', 'About', 'User settings', 'Log out'])
+        // Account block order mirrors UserMenu: User settings → Admin → About.
+        expect(itemLabels()).toEqual(['Genres', 'Radio', 'User settings', 'About', 'Log out'])
     })
 
     it('shows Admin only for admins', async () => {

@@ -45,6 +45,10 @@ const mountLayout = () =>
                 ]
             ],
             directives: { tooltip: {} },
+            // Load-bearing: the global setup resolves media queries against
+            // jsdom's 1024x768 viewport, so PlayerLayout mounts DesktopShell
+            // for real here. Its chrome pulls useToast()/audio/query deps this
+            // spec has no interest in — stub the chrome, keep the layout real.
             stubs: {
                 AppSidebar: true,
                 PlayerControls: true,

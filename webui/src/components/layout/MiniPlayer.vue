@@ -35,6 +35,7 @@ const openNowPlaying = (): void => {
         aria-label="Open Now Playing"
         @click="openNowPlaying"
         @keydown.enter="openNowPlaying"
+        @keydown.space.prevent="openNowPlaying"
     >
         <div class="mini-progress" aria-hidden="true">
             <div class="mini-progress-fill" :style="{ width: progressPercent + '%' }"></div>

@@ -37,10 +37,14 @@ const browseItems: DrawerItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio' }
 ]
 
+// Same order as UserMenu's popup so the two account surfaces read alike:
+// User settings → Admin (admins only) → About.
 const accountItems = computed<DrawerItem[]>(() => {
-    const items: DrawerItem[] = [{ label: 'About', icon: 'pi pi-info-circle', route: '/about' }]
-    items.push({ label: 'User settings', icon: 'pi pi-user', route: '/user-settings' })
+    const items: DrawerItem[] = [
+        { label: 'User settings', icon: 'pi pi-user', route: '/user-settings' }
+    ]
     if (isAdmin.value) items.push({ label: 'Admin', icon: 'pi pi-cog', route: '/settings' })
+    items.push({ label: 'About', icon: 'pi pi-info-circle', route: '/about' })
     return items
 })
 
@@ -138,7 +142,7 @@ const onLogout = (): void => {
 }
 
 .drawer-item.danger {
-    color: #dc2626;
+    color: var(--p-red-400, #f87171);
 }
 
 .drawer-sep {
@@ -147,4 +151,3 @@ const onLogout = (): void => {
     background-color: var(--app-border);
 }
 </style>
-

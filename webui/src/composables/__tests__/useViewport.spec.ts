@@ -95,3 +95,17 @@ describe('useViewport shell decision table', () => {
         expect(useViewport().shell).toBe(useViewport().shell)
     })
 })
+
+// Guards the suite-wide default: the global test setup (src/test-setup.ts)
+// resolves media queries against jsdom's real 1024x768 viewport, so every
+// mounted test that does not stub useViewport itself runs the DESKTOP chrome
+// (spec §6). A stub answering `false` to everything would silently make the
+// whole suite mobile — this test fails if that regresses.
+describe('useViewport under the global test setup (no local stubbing)', () => {
+    it('resolves the desktop shell from jsdom’s real viewport', async () => {
+        const { useViewport } = await load() // resetViewportForTests() drops any cached singleton
+        const vp = useViewport()
+        expect(vp.shell.value).toBe('desktop')
+        expect(vp.tier.value).toBe('desktop')
+    })
+})

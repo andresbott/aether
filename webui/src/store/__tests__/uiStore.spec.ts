@@ -24,11 +24,13 @@ describe('uiStore settings sidebar', () => {
         expect(ui.settingsSidebarCollapsed).toBe(true)
     })
 
-    it('checkScreenWidth collapses both sidebars below 768px', () => {
+    // Only the settings sidebar: the music sidebar does not exist below 768px
+    // (the mobile shell replaces it), so collapsing it there would be dead.
+    it('checkScreenWidth collapses only the settings sidebar below 768px', () => {
         const ui = useUiStore()
         window.innerWidth = 500
         ui.checkScreenWidth()
-        expect(ui.sidebarCollapsed).toBe(true)
         expect(ui.settingsSidebarCollapsed).toBe(true)
+        expect(ui.sidebarCollapsed).toBe(false)
     })
 })
