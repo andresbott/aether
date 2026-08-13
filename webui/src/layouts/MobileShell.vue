@@ -2,6 +2,7 @@
 import { RouterView, useRoute } from 'vue-router'
 import MiniPlayer from '@/components/layout/MiniPlayer.vue'
 import MobileTabBar from '@/components/layout/MobileTabBar.vue'
+import PlayerSheet from '@/components/layout/PlayerSheet.vue'
 import { usePlayer } from '@/composables/usePlayer'
 import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 
@@ -21,6 +22,7 @@ const scrollbarWidth = useScrollbarWidth()
         <!-- Docked chrome: mini-player only while there is something to play. -->
         <MiniPlayer v-if="queue.length > 0" />
         <MobileTabBar />
+        <PlayerSheet />
     </div>
 </template>
 
