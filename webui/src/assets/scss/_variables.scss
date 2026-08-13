@@ -1,3 +1,10 @@
+// Viewport breakpoints — TS twins in src/lib/breakpoints.ts, agreement guarded
+// by assets/scss/__tests__/breakpoints.spec.ts. Media queries can't read CSS
+// custom properties, hence SCSS vars. Use `$bp-phone-max - 0.02px` for
+// max-width phone queries so 768px itself is tablet, not phone.
+$bp-phone-max: 768px;
+$bp-desktop-min: 1024px;
+
 :root {
     /* Unified typography — Inter is bundled via @fontsource-variable/inter (no
        CDN). The fallbacks match docs/mockups/hero/_shared.css. */
