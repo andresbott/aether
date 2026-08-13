@@ -136,13 +136,25 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
    wrap so the summary drops below the h1 instead of squeezing it.
    767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
 @media (max-width: 767.98px) {
+    /* The header row itself wraps too: a wide #actions (Library's three-option
+       tab SelectButton) would otherwise crush the title to a few dozen pixels.
+       The title takes the whole first row and the actions drop below it. */
     .scaffold-header-inner {
         gap: 0.5rem;
+        flex-wrap: wrap;
     }
 
     .scaffold-title {
+        flex: 1 1 100%;
         flex-wrap: wrap;
         row-gap: 0;
+    }
+
+    /* Detail views pass title="" and no summary, so this box is empty (only Vue's
+       v-if/slot comment anchors, which :empty ignores). Without this it would
+       still claim a full-width row and push the actions below the back button. */
+    .scaffold-title:empty {
+        display: none;
     }
 
     .scaffold-title h1 {
