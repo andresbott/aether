@@ -29,15 +29,18 @@ content views — including Now Playing itself — now use the scaffold. New vie
 
 ---
 
-## 1. The layout shell (`PlayerLayout.vue`)
+## 1. The layout shell (`DesktopShell.vue` / `MobileShell.vue`, switched by `PlayerLayout.vue`)
 
-Every route view is mounted inside a fixed-height flex column:
+Every route view is mounted inside a fixed-height flex column. `PlayerLayout` mounts
+**exactly one** shell — `useViewport().shell` picks it (`v-if`, never CSS hiding), so only
+one chrome exists in the DOM at a time:
 
 ```
-app-container (100vh, overflow hidden)
- └ body-row (flex, min-height:0)
-    └ content-area (flex, overflow hidden)
-       ├ main.main-content  ← RouterView renders here
+.desktop-shell (100vh, overflow hidden)      .mobile-shell (100dvh, overflow hidden)
+ └ .body-row (flex, min-height:0)             └ .mobile-content (--sb-w, flex, overflow hidden)
+    └ .content-area (--sb-w, flex,               └ main.main-content  ← RouterView renders here
+                     overflow hidden)          ├ MiniPlayer   (only when the queue is non-empty)
+       ├ main.main-content  ← RouterView       └ MobileTabBar (docked below)
        └ QueueSidebar
 ```
 
@@ -47,13 +50,13 @@ app-container (100vh, overflow hidden)
   padding so the *view itself* owns its gutters and its scrollbar reaches the
   content-area's right edge. Flush is declared **per route via `meta.flush`** (co-located
   with the route, matching the existing `meta.layout` convention read in `App.vue`), and
-  `PlayerLayout` reads it:
+  each shell reads it:
 
   ```ts
   // router/index.ts — on each full-bleed route:
   { path: '/radio', name: 'radio', component: …, meta: { flush: true } }
 
-  // PlayerLayout.vue:
+  // DesktopShell.vue / MobileShell.vue:
   :class="{ 'main-content--flush': route.meta.flush }"
   ```
   The `flush?: boolean` field is declared on `RouteMeta` in `App.vue`.
@@ -126,7 +129,8 @@ The body is a child that **scrolls itself** and centers its content — the scaf
 frames it. Content alignment is driven by four CSS custom properties and three recipes that
 handle scrollbar compensation at different depths.
 
-**Tokens** (defined in `_variables.scss`, `--sb-w` set by `PlayerLayout` on `.content-area`):
+**Tokens** (defined in `_variables.scss`; `--sb-w` is set by the shells — `DesktopShell` on
+`.content-area`, `MobileShell` on `.mobile-content`):
 
 | Token | Value | Meaning |
 |---|---|---|
@@ -210,8 +214,9 @@ resolve to the same inner content box:
 For long alphabetically-indexed lists, the rail is a thin overlay **immediately left of the
 native scrollbar** — the scrollbar remains the outermost element.
 
-- `--sb-w` is now set once by `PlayerLayout` on `.content-area` — **views must not re-measure**;
-  inherit the var (it's `0` on overlay-scrollbar systems).
+- `--sb-w` is now set once by the active shell (`DesktopShell` on `.content-area`,
+  `MobileShell` on `.mobile-content`) — **views must not re-measure**; inherit the var
+  (it's `0` on overlay-scrollbar systems).
 - Set `scrollbar-gutter: stable` on the scroller.
 - Rail: `position:absolute; top:0; bottom:0; right: var(--sb-w, 0px); width:1.75rem`. The
   `--app-rail-clearance` token (2.75rem) includes this rail width + 1rem gap; recipes
@@ -280,7 +285,7 @@ content views now conform; keep new ones on `ContentScaffold`.
    at the same x on every view.
 4. Add `meta: { flush: true }` to the route in `router/index.ts`.
 5. Long indexed list? Reuse `AlphabetRail` per §5 (never re-measure `--sb-w`; it's already
-   set by `PlayerLayout`).
+   set by the shells — `DesktopShell` on `.content-area`, `MobileShell` on `.mobile-content`).
 6. Test (Vitest): title renders, summary reflects the count (singular + plural) and is
    absent at zero, actions live in the header, empty/loading states show. See
    `RadioView.spec.ts` / `LibraryView.spec.ts` for the shape.
