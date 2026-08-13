@@ -92,6 +92,9 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     gap: 1rem;
     padding-top: 0.75rem;
     padding-bottom: 0.75rem;
+    /* Wraps only on genuine overflow — wide desktop keeps one row; fixes the
+       narrow-desktop title crush (phase-3 M9). */
+    flex-wrap: wrap;
 }
 
 .scaffold-back {
@@ -101,10 +104,14 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
 
 .scaffold-title {
     flex: 1;
-    min-width: 0;
+    min-width: 12rem;
     display: flex;
     align-items: baseline;
     gap: 0.75rem;
+}
+
+.scaffold-title:empty {
+    min-width: 0;
 }
 
 .scaffold-title h1 {
@@ -141,7 +148,6 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
        The title takes the whole first row and the actions drop below it. */
     .scaffold-header-inner {
         gap: 0.5rem;
-        flex-wrap: wrap;
     }
 
     .scaffold-title {

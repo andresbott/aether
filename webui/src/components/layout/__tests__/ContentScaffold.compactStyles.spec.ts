@@ -10,6 +10,20 @@ const source = readFileSync(
     'utf8'
 )
 
+describe('ContentScaffold base header wrap', () => {
+    it('enables wrap on .scaffold-header-inner at base width', () => {
+        expect(source).toMatch(/\.scaffold-header-inner\s*\{[^}]*flex-wrap:\s*wrap/)
+    })
+
+    it('sets min-width: 12rem on .scaffold-title at base width', () => {
+        expect(source).toMatch(/\.scaffold-title\s*\{[^}]*min-width:\s*12rem/)
+    })
+
+    it('resets min-width on .scaffold-title:empty at base width', () => {
+        expect(source).toMatch(/\.scaffold-title:empty\s*\{[^}]*min-width:\s*0/)
+    })
+})
+
 describe('ContentScaffold compact phone header', () => {
     const media = source.match(/@media \(max-width: 767\.98px\)\s*\{[\s\S]*?\n\}/)?.[0]
 
@@ -27,9 +41,10 @@ describe('ContentScaffold compact phone header', () => {
     })
 
     // A wide #actions (Library's three-option tab SelectButton) crushed the title
-    // to ~67px while the header row was nowrap.
-    it('wraps the header row so the title owns the first line', () => {
-        expect(media).toMatch(/\.scaffold-header-inner\s*\{[^}]*flex-wrap:\s*wrap/)
+    // to ~67px while the header row was nowrap. Now flex-wrap is in base rules
+    // so title wrapping is width-agnostic; this test verifies the title still
+    // owns the first line on phones by taking 100% flex basis.
+    it('gives the title a full-width row on phones', () => {
         expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1 1 100%/)
     })
 
