@@ -47,3 +47,21 @@ describe('phone token overrides', () => {
         expect(block).toContain('--app-rail-clearance: 0px')
     })
 })
+
+describe('phone dialog rule', () => {
+    const main = readFileSync(
+        fileURLToPath(new URL('../_main.scss', import.meta.url)),
+        'utf8'
+    )
+    const blocks = main.match(
+        /@media \(max-width: \(variables\.\$bp-phone-max - 0\.02px\)\)[\s\S]*?\n\}/g
+    )
+    // The dialog rule is the last media query block with this breakpoint
+    const block = blocks?.[blocks.length - 1]
+
+    it('makes form dialogs full-screen on phones, sparing confirm popups', () => {
+        expect(block).toBeTruthy()
+        expect(block).toContain('.p-dialog:not(.p-confirmdialog)')
+        expect(block).toContain('100dvh')
+    })
+})
