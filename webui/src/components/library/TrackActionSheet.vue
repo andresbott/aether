@@ -184,7 +184,7 @@ const favoriteLabel = computed(() =>
     flex-direction: column;
 }
 
-/* Same row anatomy as MobileMoreDrawer's .drawer-item, kept separate because
+/* Same row anatomy as MobileNavDrawer's .drawer-item, kept separate because
    this sheet lives in the library domain, not the app chrome. */
 .sheet-action {
     display: flex;

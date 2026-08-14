@@ -12,6 +12,7 @@ const isTouch = ref(false)
 vi.mock('@/composables/useViewport', () => ({
     useViewport: () => ({
         tier: ref('desktop'),
+        shell: ref('desktop'),
         isTouch
     })
 }))

@@ -12,12 +12,12 @@ import * as sass from 'sass-embedded'
  *     .p-drawer-bottom .p-drawer-content { height: 100%; }
  *
  * (see node_modules/@primeuix/styles/dist/drawer/index.mjs). At 10rem only about
- * two rows of TrackActionSheet / MobileMoreDrawer were visible and the rest sat
- * behind an unlabelled scroll. _main.scss lifts the cap for sheets that opt in
- * with `.app-bottom-sheet`; this pins that rule, since a Drawer renders in a
+ * two rows of TrackActionSheet were visible and the rest sat behind an
+ * unlabelled scroll. _main.scss lifts the cap for sheets that opt in with
+ * `.app-bottom-sheet`; this pins that rule, since a Drawer renders in a
  * body-level overlay where no scoped style can reach it.
  *
- * The two components' own specs pin the other half — that the class lands on the
+ * The component's own spec pins the other half — that the class lands on the
  * `.p-drawer` panel rather than the mask.
  */
 const css = sass

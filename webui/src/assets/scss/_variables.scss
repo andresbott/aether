@@ -64,8 +64,7 @@ $bp-desktop-min: 1024px;
     --app-sidebar-width: 260px;
     --app-sidebar-collapsed-width: 70px;
     --app-player-height: 116px;
-    /* Mobile-shell chrome heights (phase 2 adds safe-area insets on top). */
-    --app-mobile-tabbar-height: 3.5rem;
+    /* Mobile-shell chrome height (the safe-area inset is added on top). */
     --app-mini-player-height: 3.5rem;
     /* Small radius scale for cards/inputs — Dense Pro uses tight 6–10px corners. */
     --app-radius: 8px;

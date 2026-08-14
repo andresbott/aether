@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { computed, ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import { useMobileNav, resetMobileNavForTests } from '@/composables/useMobileNav'
 
 // Mock useViewport for secondary actions tests
 const tier = ref<'phone' | 'tablet' | 'desktop'>('desktop')
@@ -97,5 +98,35 @@ describe('secondary actions', () => {
             global: { plugins: [PrimeVue] }
         })
         expect(scaffold.find('.scaffold-overflow-btn').exists()).toBe(false)
+    })
+})
+
+// The mobile shell has no persistent nav chrome, so top-level views carry the
+// drawer trigger in their scaffold header; detail views show Back there
+// instead, and the desktop shell has the sidebar.
+describe('nav drawer hamburger', () => {
+    beforeEach(() => resetMobileNavForTests())
+
+    it('shows the hamburger on the mobile shell and opens the nav drawer', async () => {
+        tier.value = 'phone'
+        const scaffold = mount(ContentScaffold, { props: { title: 'Library' } })
+        const burger = scaffold.find('.scaffold-nav-btn')
+        expect(burger.exists()).toBe(true)
+        expect(burger.attributes('aria-haspopup')).toBe('dialog')
+        await burger.trigger('click')
+        expect(useMobileNav().isOpen.value).toBe(true)
+    })
+
+    it('yields its spot to the back button on detail views', () => {
+        tier.value = 'phone'
+        const scaffold = mount(ContentScaffold, { props: { title: '', showBack: true } })
+        expect(scaffold.find('.scaffold-nav-btn').exists()).toBe(false)
+        expect(scaffold.find('.scaffold-back').exists()).toBe(true)
+    })
+
+    it('renders no hamburger on the desktop shell', () => {
+        tier.value = 'desktop'
+        const scaffold = mount(ContentScaffold, { props: { title: 'Library' } })
+        expect(scaffold.find('.scaffold-nav-btn').exists()).toBe(false)
     })
 })

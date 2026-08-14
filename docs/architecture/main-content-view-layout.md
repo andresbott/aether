@@ -39,8 +39,8 @@ one chrome exists in the DOM at a time:
 .desktop-shell (100vh, overflow hidden)      .mobile-shell (100dvh, overflow hidden)
  └ .body-row (flex, min-height:0)             └ .mobile-content (--sb-w, flex, overflow hidden)
     └ .content-area (--sb-w, flex,               └ main.main-content  ← RouterView renders here
-                     overflow hidden)          ├ MiniPlayer   (only when the queue is non-empty)
-       ├ main.main-content  ← RouterView       └ MobileTabBar (docked below)
+                     overflow hidden)          ├ MiniPlayer      (only when the queue is non-empty)
+       ├ main.main-content  ← RouterView       └ MobileNavDrawer (left overlay, via the header hamburger)
        └ QueueSidebar
 ```
 
@@ -244,6 +244,12 @@ main content view. It splits per variant:
   count badge, small buttons) — this variant is **not** governed by this guidance; it's
   side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
+On the **mobile shell**, `HomeView` renders **`MobilePlayView`** on `/` instead of
+`QueueView` — a first-class play screen (cover art, seek, transport, queue face behind a
+header toggle) also composed on `ContentScaffold`, so it gets the hamburger like every
+other top-level view. With an empty queue the phone `/` replaces itself with the library
+(see `HomeView`); desktop keeps the queue list's empty state.
+
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import
 `ContentScaffold`** — do not reimplement. Hand-rolled headers are reserved for non-view
 chrome like the queue sidebar.
@@ -254,7 +260,8 @@ chrome like the queue sidebar.
 
 | View | Route | Conforms? |
 | --- | --- | --- |
-| Now Playing (`QueueView` full) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
+| Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
+| Now Playing (`MobilePlayView` — mobile shell) | `/` | ✅ `ContentScaffold` (play face + queue face) |
 | Library (discover/album/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |

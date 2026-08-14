@@ -2,13 +2,20 @@
 import { computed, ref, useSlots } from 'vue'
 import Button from 'primevue/button'
 import Popover from 'primevue/popover'
+import { useMobileNav } from '@/composables/useMobileNav'
 import { useViewport } from '@/composables/useViewport'
 
-defineProps<{ title: string; summary?: string; showBack?: boolean }>()
+const props = defineProps<{ title: string; summary?: string; showBack?: boolean }>()
 defineEmits<{ (e: 'back'): void }>()
 
 const slots = useSlots()
-const { tier } = useViewport()
+const { tier, shell } = useViewport()
+
+// The mobile shell has no persistent nav chrome (no sidebar, no tab bar), so
+// top-level views carry the drawer trigger in their header. Detail views show
+// Back in that spot instead — backing out first is the standard drawer UX.
+const { isOpen: navOpen, open: openNav } = useMobileNav()
+const showNavButton = computed(() => shell.value === 'mobile' && !props.showBack)
 
 // The slot convention (spec §3.2): #actions is always visible; a view that has
 // more controls than a phone header fits moves the collapsible ones to
@@ -23,6 +30,17 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     <div class="content-scaffold">
         <header class="content-scaffold-header">
             <div class="scaffold-header-inner content-col">
+                <Button
+                    v-if="showNavButton"
+                    class="scaffold-nav-btn"
+                    icon="pi pi-bars"
+                    text
+                    rounded
+                    aria-label="Open navigation"
+                    aria-haspopup="dialog"
+                    :aria-expanded="navOpen"
+                    @click="openNav"
+                />
                 <Button
                     v-if="showBack"
                     class="scaffold-back"
@@ -97,7 +115,8 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     flex-wrap: wrap;
 }
 
-.scaffold-back {
+.scaffold-back,
+.scaffold-nav-btn {
     flex-shrink: 0;
     align-self: center;
 }
@@ -143,30 +162,21 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
    wrap so the summary drops below the h1 instead of squeezing it.
    767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
 @media (max-width: 767.98px) {
-    /* The header row itself wraps too: a wide #actions (Library's three-option
-       tab SelectButton) would otherwise crush the title to a few dozen pixels.
-       The title takes the whole first row and the actions drop below it. */
+    /* No flex override on .scaffold-title here: the base `flex: 1` +
+       `min-width: 12rem` keep the hamburger (or Back) and the title together
+       on the first row while a wide #actions (Library's three-option tab
+       SelectButton) still wraps below rather than crushing the title. A
+       `flex: 1 1 100%` full-row title — the pre-hamburger phone layout —
+       would strand the hamburger alone on its own row. When the actions DO
+       wrap they land left-aligned; no `margin-left: auto` on
+       .scaffold-actions, which would right-align that second row too. */
     .scaffold-header-inner {
         gap: 0.5rem;
     }
 
     .scaffold-title {
-        flex: 1 1 100%;
         flex-wrap: wrap;
         row-gap: 0;
-    }
-
-    /* Detail views (/album, /artist, /playlist/:id, /genre/:name) pass title="" and
-       no summary, so this box is empty (only Vue's v-if/slot comment anchors, which
-       :empty ignores). It must not claim a full-width row — that would push the
-       actions below the back button — but it must still exist as the flex spacer
-       that keeps them right-aligned: .scaffold-back and .scaffold-actions are both
-       flex-shrink: 0 with no grower, so `display: none` here packed Back and the
-       actions hard LEFT. A zero-basis grower absorbs the leftover width instead.
-       `margin-left: auto` on .scaffold-actions would not do: it would also
-       right-align them on the SECOND row in the titled (Library) case. */
-    .scaffold-title:empty {
-        flex: 1 1 0;
     }
 
     .scaffold-title h1 {

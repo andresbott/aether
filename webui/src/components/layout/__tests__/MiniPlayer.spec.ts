@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import MiniPlayer from '../MiniPlayer.vue'
 
-const openSheet = vi.fn()
-vi.mock('@/composables/usePlayerSheet', () => ({
-    usePlayerSheet: () => ({ open: openSheet, close: vi.fn(), isOpen: ref(false) })
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ push })
 }))
 
 const togglePlayPause = vi.fn()
@@ -36,7 +36,7 @@ vi.mock('@/lib/api/subsonic', () => ({
 }))
 
 beforeEach(() => {
-    openSheet.mockClear()
+    push.mockClear()
     togglePlayPause.mockClear()
     playNext.mockClear()
     isPlaying.value = false
@@ -50,11 +50,11 @@ describe('MiniPlayer', () => {
         expect(mp.find('img.mini-cover').attributes('src')).toBe('/art/cov-1?size=96')
     })
 
-    it('play button toggles playback without opening the sheet', async () => {
+    it('play button toggles playback without navigating', async () => {
         const mp = mount(MiniPlayer)
         await mp.find('[aria-label="Play"]').trigger('click')
         expect(togglePlayPause).toHaveBeenCalledOnce()
-        expect(openSheet).not.toHaveBeenCalled()
+        expect(push).not.toHaveBeenCalled()
     })
 
     it('shows Pause while playing', () => {
@@ -62,28 +62,28 @@ describe('MiniPlayer', () => {
         expect(mount(MiniPlayer).find('[aria-label="Pause"]').exists()).toBe(true)
     })
 
-    it('next button skips without opening the sheet', async () => {
+    it('next button skips without navigating', async () => {
         const mp = mount(MiniPlayer)
         await mp.find('[aria-label="Next track"]').trigger('click')
         expect(playNext).toHaveBeenCalledOnce()
-        expect(openSheet).not.toHaveBeenCalled()
+        expect(push).not.toHaveBeenCalled()
     })
 
-    it('tapping the bar opens the player sheet, not a route', async () => {
+    it('tapping the bar navigates to the Now Playing route', async () => {
         const mp = mount(MiniPlayer)
-        await mp.find('[aria-label="Open player"]').trigger('click')
-        expect(openSheet).toHaveBeenCalledOnce()
+        await mp.find('[aria-label="Open Now Playing"]').trigger('click')
+        expect(push).toHaveBeenCalledWith({ name: 'home' })
     })
 
     // The open target is a SIBLING under the transport, not a role="button"
     // wrapper around it: nested, Enter/Space on Pause bubbled into the wrapper
-    // and opened the sheet (Space never pausing at all under .prevent).
-    it('keyboard-activating the transport never opens the sheet', async () => {
+    // and navigated (Space never pausing at all under .prevent).
+    it('keyboard-activating the transport never navigates', async () => {
         const mp = mount(MiniPlayer)
         const pause = mp.find('[aria-label="Play"]')
         await pause.trigger('keydown.enter')
         await pause.trigger('keydown.space')
-        expect(openSheet).not.toHaveBeenCalled()
+        expect(push).not.toHaveBeenCalled()
         expect(mp.find('.mini-player').attributes('role')).toBeUndefined()
     })
 

@@ -148,23 +148,29 @@ narrow viewports.
 
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
-components rather than inline `v-if` blocks). Mobile chrome components —
-`MobileTabBar` (Home/Library/Search/Playlists/More; any route change closes
-the More drawer so a system-back never navigates underneath it),
-`MobileMoreDrawer` (bottom drawer), `MiniPlayer` (tap opens Now Playing; phase
-2 will replace with a `PlayerSheet`) — live in `components/layout/`.
+components rather than inline `v-if` blocks). Mobile chrome components live in
+`components/layout/`: `MobileNavDrawer` (left drawer holding the whole nav —
+`AppSidebar`'s destinations plus the UserMenu account entries; any route change
+closes it so a system-back never navigates underneath it; its Now Playing entry
+is hidden while the queue is empty, since `/` would just bounce to the library)
+and `MiniPlayer` (bottom-most mobile chrome, reserves the safe-area bottom
+inset; tap navigates to `/`, and the bar is hidden on that route because the
+play view carries the full transport). The drawer is opened by the hamburger
+`ContentScaffold` puts at the head of every top-level view's header on the
+mobile shell (detail views show Back in that spot instead); its open state is
+the `useMobileNav` singleton, since the trigger lives inside the route views
+while the drawer is shell chrome.
 
-**PlayerSheet** is a full-screen now-playing overlay on the mobile shell, opened
-by `MiniPlayer` via `usePlayerSheet`. Overlay state, not a route (same philosophy
-as `LoginView`). On phones the system-back gesture must dismiss the sheet rather
-than leave the app, so `open()` pushes one history entry. **Two dismissal paths:**
-`close(onDone?)` consumes the entry via `history.back()` and runs `onDone` only
-after the popstate for our own entry (marker-gated); `dismiss()` touches no history
-and is what the route watcher and unmount use (the entry is already being consumed
-by something else, so another `back()` would bounce the navigation).
-`close(onDone?)` runs follow-up navigation only after the history entry is
-consumed via a one-shot popstate callback — `history.back()` is asynchronous, and
-pushing a route before the popstate lands would be rolled back.
+**Now Playing on the mobile shell is a first-class route, not an overlay.**
+`HomeView` mimics the desktop *flow* on phones: with tracks queued, `/` renders
+**`MobilePlayView`** (cover art, seek, transport, favorite, plus a queue face
+behind a header toggle that carries the shared `QueueHeaderActions`); with an
+empty queue it `replace()`s the route with the library — an empty play view is
+a dead end on a one-surface screen. Desktop `/` keeps `QueueView variant="full"`
+(empty state included). Both headers share `useQueueSummary` for the
+"N tracks • X min" string. The predecessor **`PlayerSheet` overlay (and
+`usePlayerSheet`'s history/focus-trap machinery) is deleted** — routing gives
+system-back dismissal for free; don't reintroduce a sheet for now-playing.
 
 **useMediaSession** is bound once from `PlayerLayout` (shell-independent — desktop
 gains hardware media keys from the same wiring), feature-detected so unsupported
@@ -255,8 +261,9 @@ destination whose initial it is, so **`O` and `/` are both unbound now** — `/`
 back to Firefox's quick-find. Don't re-add either as an alias.
 
 Every nav binding pushes a **named route with no params**: `C` → `home` (Now
-Playing is `/`, where `HomeView` renders `QueueView` — there is no separate
-now-playing route), `D` → `library` with no `folderId` (the cross-collection root
+Playing is `/`, where `HomeView` renders `QueueView` on desktop and
+`MobilePlayView` on the mobile shell — there is no separate now-playing
+route), `D` → `library` with no `folderId` (the cross-collection root
 that opens on the Discover feed — a `folderId` would scope it to one library,
 which is not what the sidebar's Library entry does), plus `P` → `playlists`,
 `G` → `genres`, `R` → `radio`, `S` → `search`.

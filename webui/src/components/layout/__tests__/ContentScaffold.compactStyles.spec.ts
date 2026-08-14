@@ -19,7 +19,12 @@ describe('ContentScaffold base header wrap', () => {
         expect(baseRules).toMatch(/\.scaffold-header-inner\s*\{[^}]*flex-wrap:\s*wrap/)
     })
 
-    it('sets min-width: 12rem on .scaffold-title at base width', () => {
+    // The pair that makes the phone header work without any phone flex
+    // override: the grower keeps the title beside the hamburger/Back button
+    // (and the actions right-aligned), the min-width forces a wide #actions
+    // to wrap below instead of crushing the title.
+    it('keeps .scaffold-title a min-12rem grower at base width', () => {
+        expect(baseRules).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1;/)
         expect(baseRules).toMatch(/\.scaffold-title\s*\{[^}]*min-width:\s*12rem/)
     })
 
@@ -44,33 +49,20 @@ describe('ContentScaffold compact phone header', () => {
         expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex-wrap:\s*wrap/)
     })
 
-    // A wide #actions (Library's three-option tab SelectButton) crushed the title
-    // to ~67px while the header row was nowrap. Now flex-wrap is in base rules
-    // so title wrapping is width-agnostic; this test verifies the title still
-    // owns the first line on phones by taking 100% flex basis.
-    it('gives the title a full-width row on phones', () => {
-        expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1 1 100%/)
+    // Since the nav moved into the hamburger drawer, the hamburger (or Back)
+    // and the title share the first row: the base `flex: 1` grower must NOT
+    // be re-based to a full-width row on phones — `flex: 1 1 100%` (the
+    // pre-hamburger layout) stranded the hamburger alone on its own row.
+    // The base min-width: 12rem is what still forces a wide #actions
+    // (Library's three-option tab SelectButton) to wrap below the title
+    // instead of crushing it.
+    it('keeps the title beside the hamburger (no full-width re-basing)', () => {
+        expect(media).not.toMatch(/\.scaffold-title[^{]*\{[^}]*flex:\s*1 1 100%/)
     })
 
-    // Detail views (/album, /artist, /playlist/:id, /genre/:name) render an empty
-    // title box. Two outcomes have to hold at once, and they pull opposite ways:
-    // the empty box must not claim a full-width row (that pushes the actions below
-    // the back button), yet it must still be the flex spacer that keeps the actions
-    // right-aligned — .scaffold-back and .scaffold-actions are both flex-shrink: 0
-    // with no grower, so removing the box from the flow packs them LEFT.
-    // `flex: 1 1 0` is the one value that satisfies both; `display: none` broke the
-    // second. `:empty` is 0,2,0 so it wins over `.scaffold-title` regardless of order.
-    it('keeps the empty title box as a spacer so the actions stay right-aligned', () => {
-        expect(media).toMatch(/\.scaffold-title:empty\s*\{[^}]*flex:\s*1 1 0/)
-        expect(media).not.toMatch(/\.scaffold-title:empty\s*\{[^}]*display:\s*none/)
-    })
-
-    // The titled case (Library) must be untouched by that fix: the title still takes
-    // the whole first row and the actions still wrap below it, left-aligned. Hence no
-    // `margin-left: auto` on .scaffold-actions, which would have right-aligned the
-    // second row too.
-    it('leaves the titled case with a full-width title and no actions offset', () => {
-        expect(media).toMatch(/\.scaffold-title\s*\{[^}]*flex:\s*1 1 100%/)
+    // When the actions DO wrap they land left-aligned. No `margin-left: auto`
+    // on .scaffold-actions: it would right-align that wrapped second row too.
+    it('leaves wrapped actions left-aligned', () => {
         expect(media).not.toMatch(/\.scaffold-actions\s*\{[^}]*margin-left:\s*auto/)
     })
 })

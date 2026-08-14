@@ -141,7 +141,7 @@ a:hover {
 // `.app-bottom-sheet` loses on specificity, and matching it exactly would leave the
 // winner up to stylesheet injection order.
 //
-// Hosts: TrackActionSheet.vue, MobileMoreDrawer.vue.
+// Hosts: TrackActionSheet.vue.
 .p-drawer-bottom .p-drawer.app-bottom-sheet {
     height: auto;
     max-height: 80dvh;
@@ -152,6 +152,19 @@ a:hover {
 .p-drawer-bottom .p-drawer.app-bottom-sheet .p-drawer-content {
     height: auto;
     overflow-y: auto;
+}
+
+// The mobile nav drawer (MobileNavDrawer, opened by ContentScaffold's
+// hamburger). Global for the same body-level-overlay reason as the bottom
+// sheet above. Capped against the viewport so a sliver of content always
+// stays visible as the "outside" to tap, and padded for the notch insets —
+// a left drawer sits under the status bar and, in landscape, the camera
+// housing on the left edge.
+.p-drawer-left .p-drawer.mobile-nav-drawer {
+    width: min(20rem, 85vw);
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
 }
 
 // Phone: form dialogs become full-screen sheets (spec §3.2). One global rule

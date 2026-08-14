@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { usePlayer } from '@/composables/usePlayer'
-import { usePlayerSheet } from '@/composables/usePlayerSheet'
 import { subsonicClient } from '@/lib/api/subsonic'
 
 const player = usePlayer()
-const { open: openPlayerSheet } = usePlayerSheet()
+const router = useRouter()
 
 const currentTrack = computed(() => player.currentTrack.value)
 
@@ -20,10 +20,12 @@ const progressPercent = computed(() => {
     return (player.currentTime.value / player.duration.value) * 100
 })
 
-// Phase 2: the tap target is the PlayerSheet overlay (was the home route in
-// phase 1 — this function body is the swap point the phase-1 comment promised).
+// The tap target is the Now Playing route: the play view is a first-class
+// screen (MobilePlayView on `/`), not an overlay, so opening it is plain
+// navigation. The bar is hidden on that route (see MobileShell), so this can
+// never push a duplicate entry for the view already on screen.
 const openNowPlaying = (): void => {
-    openPlayerSheet()
+    void router.push({ name: 'home' })
 }
 </script>
 
@@ -40,7 +42,7 @@ const openNowPlaying = (): void => {
         <button
             type="button"
             class="mini-open"
-            aria-label="Open player"
+            aria-label="Open Now Playing"
             @click="openNowPlaying"
         ></button>
 
@@ -79,9 +81,12 @@ const openNowPlaying = (): void => {
     display: flex;
     align-items: center;
     gap: 0.65rem;
-    height: var(--app-mini-player-height);
+    /* Bottom-most mobile chrome, so it reserves the home-indicator inset
+       (the tab bar used to, before the nav moved into the drawer). */
+    height: calc(var(--app-mini-player-height) + env(safe-area-inset-bottom));
     flex-shrink: 0;
-    padding: 0 0.75rem;
+    padding: 0 0.75rem env(safe-area-inset-bottom);
+    box-sizing: border-box;
     background-color: var(--app-player-bg);
     color: var(--app-player-text);
 }
