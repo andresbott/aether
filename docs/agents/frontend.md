@@ -110,14 +110,22 @@ When a view diverges from these registries, the registry wins.
 
 ### Shells
 
-`PlayerLayout` (`layouts/PlayerLayout.vue`) switches between `DesktopShell` and
-`MobileShell` (both in `layouts/`) via a `v-if` on `useViewport().shell`. The
-breakpoint decision is: desktop width (≥1024px) → desktop, phone width (<768px)
-→ mobile, tablet → orientation picks (landscape → desktop, portrait → mobile).
-The breakpoint constants live in `lib/breakpoints.ts` (`BP_PHONE_MAX = 768`,
-`BP_DESKTOP_MIN = 1024`) and are mirrored in SCSS (`_variables.scss`:
-`$bp-phone-max`, `$bp-desktop-min`); agreement is guarded by
-`assets/scss/__tests__/breakpoints.spec.ts`. Media queries can't read CSS
+`PlayerLayout` (`layouts/PlayerLayout.vue`) owns the shared skeleton —
+`AppSidebar`, the `main`/`RouterView` outlet, `QueueSidebar` — and swaps only
+the chrome components `DesktopShell` and `MobileShell` (both in `layouts/`)
+via a `v-if` on `useViewport().shell`. **The route outlet must stay outside
+the swap**: unmounting the active view on rotation would bypass its
+unsaved-edit guards (`onBeforeRouteLeave` / `beforeunload` are written for
+navigation, not teardown) and silently discard staged edits; guarded by
+`PlayerLayout.shellSwitch.spec.ts`. The breakpoint decision is: desktop width
+(≥1024px) → desktop, phone width (<768px) → mobile, tablet band → landscape
+**and at least 600px tall** → desktop, otherwise mobile. The height gate
+exists because landscape *phones* land in the tablet width band (iPhone 15:
+852×393) and must stay on the mobile shell. The constants live in
+`lib/breakpoints.ts` (`BP_PHONE_MAX = 768`, `BP_DESKTOP_MIN = 1024`,
+`BP_SHELL_MIN_HEIGHT = 600`); the widths are mirrored in SCSS
+(`_variables.scss`: `$bp-phone-max`, `$bp-desktop-min`); agreement is guarded
+by `assets/scss/__tests__/breakpoints.spec.ts`. Media queries can't read CSS
 custom properties, hence the SCSS twins.
 
 `useViewport` (singleton composable) reports `shell` ('desktop' | 'mobile'),
@@ -141,9 +149,10 @@ narrow viewports.
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
 components rather than inline `v-if` blocks). Mobile chrome components —
-`MobileTabBar` (Home/Library/Search/Playlists/More), `MobileMoreDrawer` (bottom
-drawer), `MiniPlayer` (tap opens Now Playing; phase 2 will replace with a
-`PlayerSheet`) — live in `components/layout/`.
+`MobileTabBar` (Home/Library/Search/Playlists/More; any route change closes
+the More drawer so a system-back never navigates underneath it),
+`MobileMoreDrawer` (bottom drawer), `MiniPlayer` (tap opens Now Playing; phase
+2 will replace with a `PlayerSheet`) — live in `components/layout/`.
 
 **PlayerSheet** is a full-screen now-playing overlay on the mobile shell, opened
 by `MiniPlayer` via `usePlayerSheet`. Overlay state, not a route (same philosophy

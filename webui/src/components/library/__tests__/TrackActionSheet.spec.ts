@@ -87,12 +87,22 @@ describe('TrackActionSheet', () => {
             (el.textContent ?? '').trim()
         )
         expect(labels).toEqual([
+            'Play',
             'Add to queue',
             'Add to favorites',
             'Add to playlist',
             'Go to album',
             'Go to artist'
         ])
+    })
+
+    // Rows are tap targets, not tab stops: the sheet (reached via the tabbable
+    // ⋮) is the keyboard path to starting playback at a specific track.
+    it('play emits to the host and closes', async () => {
+        const wrapper = await mountSheet()
+        actionByText('Play')?.click()
+        expect(wrapper.emitted('play')).toHaveLength(1)
+        expect(wrapper.emitted('update:visible')?.at(-1)).toEqual([false])
     })
 
     // @primeuix's styled mode caps every bottom drawer at 10rem, which showed ~2 of
@@ -215,7 +225,7 @@ describe('TrackActionSheet', () => {
     })
 
     it('renders without error when song is null and clicking actions does not call mocks', async () => {
-        await mountSheet(null)
+        const wrapper = await mountSheet(null)
         expect(actionByText('Add to queue')).toBeTruthy()
         expect(actionByText('Add to favorites')).toBeTruthy()
         expect(actionByText('Add to playlist')).toBeTruthy()
@@ -227,5 +237,8 @@ describe('TrackActionSheet', () => {
 
         actionByText('Add to favorites')?.click()
         expect(toggleFavorite).not.toHaveBeenCalled()
+
+        actionByText('Play')?.click()
+        expect(wrapper.emitted('play')).toBeUndefined()
     })
 })

@@ -99,6 +99,18 @@ const phoneCols = computed(() => tier.value === 'phone')
                             :disabled="canceling"
                             @click.stop="emit('cancel', data.id)"
                         />
+                        <!-- Keyboard path to the row dialog: @rowClick needs a
+                             pointer, and on phones the dialog is the only place
+                             the hidden Queued/Duration columns survive. -->
+                        <Button
+                            icon="pi pi-info-circle"
+                            text
+                            rounded
+                            size="small"
+                            severity="secondary"
+                            aria-label="Execution details"
+                            @click.stop="emit('rowClick', data as ExecutionInfo)"
+                        />
                     </template>
                 </Column>
             </DataTable>

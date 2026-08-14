@@ -71,8 +71,20 @@ describe('MiniPlayer', () => {
 
     it('tapping the bar opens the player sheet, not a route', async () => {
         const mp = mount(MiniPlayer)
-        await mp.find('.mini-player').trigger('click')
+        await mp.find('[aria-label="Open player"]').trigger('click')
         expect(openSheet).toHaveBeenCalledOnce()
+    })
+
+    // The open target is a SIBLING under the transport, not a role="button"
+    // wrapper around it: nested, Enter/Space on Pause bubbled into the wrapper
+    // and opened the sheet (Space never pausing at all under .prevent).
+    it('keyboard-activating the transport never opens the sheet', async () => {
+        const mp = mount(MiniPlayer)
+        const pause = mp.find('[aria-label="Play"]')
+        await pause.trigger('keydown.enter')
+        await pause.trigger('keydown.space')
+        expect(openSheet).not.toHaveBeenCalled()
+        expect(mp.find('.mini-player').attributes('role')).toBeUndefined()
     })
 
     it('renders the progress hairline from currentTime/duration', () => {

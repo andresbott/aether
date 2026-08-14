@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MobileMoreDrawer from '@/components/layout/MobileMoreDrawer.vue'
 
@@ -22,6 +22,17 @@ const route = useRoute()
 const router = useRouter()
 const moreOpen = ref(false)
 
+// The tab bar outlives navigation (it is shell chrome), so the drawer's own
+// item handlers are not enough: a system-back press with the drawer open pops
+// a route entry UNDERNEATH it. Any route change closes the drawer, so
+// navigation is never covered by a stale overlay.
+watch(
+    () => route.fullPath,
+    () => {
+        moreOpen.value = false
+    }
+)
+
 const isActive = (tab: Tab): boolean => route.name === tab.routeName
 
 // Named routes with no params — same contract as the keyboard shortcuts:
@@ -39,6 +50,7 @@ const go = (tab: Tab): void => {
             type="button"
             class="tab-item"
             :class="{ active: isActive(tab) }"
+            :aria-current="isActive(tab) ? 'page' : undefined"
             @click="go(tab)"
         >
             <i :class="tab.icon"></i>

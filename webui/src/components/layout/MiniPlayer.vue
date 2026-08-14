@@ -28,18 +28,21 @@ const openNowPlaying = (): void => {
 </script>
 
 <template>
-    <div
-        class="mini-player"
-        role="button"
-        tabindex="0"
-        aria-label="Open player"
-        @click="openNowPlaying"
-        @keydown.enter="openNowPlaying"
-        @keydown.space.prevent="openNowPlaying"
-    >
+    <div class="mini-player">
         <div class="mini-progress" aria-hidden="true">
             <div class="mini-progress-fill" :style="{ width: progressPercent + '%' }"></div>
         </div>
+
+        <!-- The whole-bar tap target: a real button UNDER the transport (which
+             is positioned above it) rather than a role="button" wrapper around
+             it — nested buttons break keyboard transport, since Enter/Space on
+             Pause bubbles into the wrapper and opens the sheet instead. -->
+        <button
+            type="button"
+            class="mini-open"
+            aria-label="Open player"
+            @click="openNowPlaying"
+        ></button>
 
         <img v-if="coverUrl" :src="coverUrl" alt="" class="mini-cover" />
         <div v-else class="mini-cover mini-cover--placeholder" aria-hidden="true">
@@ -51,12 +54,11 @@ const openNowPlaying = (): void => {
             <span class="mini-artist">{{ currentTrack?.artist }}</span>
         </div>
 
-        <!-- .stop: the transport must not also open Now Playing. -->
         <button
             type="button"
             class="mini-btn"
             :aria-label="player.isPlaying.value ? 'Pause' : 'Play'"
-            @click.stop="player.togglePlayPause()"
+            @click="player.togglePlayPause()"
         >
             <i :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"></i>
         </button>
@@ -64,7 +66,7 @@ const openNowPlaying = (): void => {
             type="button"
             class="mini-btn"
             aria-label="Next track"
-            @click.stop="player.playNext()"
+            @click="player.playNext()"
         >
             <i class="pi pi-step-forward"></i>
         </button>
@@ -82,6 +84,17 @@ const openNowPlaying = (): void => {
     padding: 0 0.75rem;
     background-color: var(--app-player-bg);
     color: var(--app-player-text);
+}
+
+/* Positioned after the static cover/meta in paint order, so the whole bar is
+   one tap target; the transport buttons are position: relative and later in
+   the DOM, so they stack above it and keep their own clicks. */
+.mini-open {
+    position: absolute;
+    inset: 0;
+    border: none;
+    background: none;
+    padding: 0;
     cursor: pointer;
 }
 
@@ -141,6 +154,7 @@ const openNowPlaying = (): void => {
 }
 
 .mini-btn {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;

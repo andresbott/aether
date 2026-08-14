@@ -38,6 +38,7 @@ const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
 
 const actionSong = ref<Song | null>(null)
+const actionIndex = ref(0)
 const actionSheetOpen = ref(false)
 
 // Touch tap-to-play: queue the playlist as shown (the live `working` list, so an
@@ -53,6 +54,7 @@ const openTrackMenu = (index: number): void => {
     const song = working.value[index]
     if (!song) return
     actionSong.value = song
+    actionIndex.value = index
     actionSheetOpen.value = true
 }
 
@@ -441,7 +443,11 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
-            <TrackActionSheet v-model:visible="actionSheetOpen" :song="actionSong" />
+            <TrackActionSheet
+                v-model:visible="actionSheetOpen"
+                :song="actionSong"
+                @play="playTrack(actionIndex)"
+            />
         </ContentScaffold>
 
         <ConfirmDialog />

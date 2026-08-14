@@ -12,7 +12,13 @@ import type { Song } from '@/types/subsonic'
 // The touch counterpart of the desktop hover affordances: one bottom sheet per
 // view, fed the row whose ⋮ was tapped (see unified-play-experience.md).
 const props = defineProps<{ song: Song | null; visible: boolean }>()
-const emit = defineEmits<{ (e: 'update:visible', value: boolean): void }>()
+const emit = defineEmits<{
+    (e: 'update:visible', value: boolean): void
+    // Play this row via the host's tap-to-play primitive. Rows are tap
+    // targets, not tab stops, so the sheet — reached through the tabbable ⋮ —
+    // is the keyboard path to starting playback at a specific track.
+    (e: 'play'): void
+}>()
 
 const router = useRouter()
 const player = usePlayer()
@@ -45,6 +51,12 @@ watch(
 )
 
 const close = (): void => emit('update:visible', false)
+
+const onPlay = (): void => {
+    if (!props.song) return
+    emit('play')
+    close()
+}
 
 const onQueue = (): void => {
     if (props.song) player.addToQueue(props.song)
@@ -115,6 +127,10 @@ const favoriteLabel = computed(() =>
         @update:visible="emit('update:visible', $event)"
     >
         <nav v-if="face === 'actions'" class="sheet-actions" aria-label="Track actions">
+            <button type="button" class="sheet-action" @click="onPlay">
+                <i class="pi pi-play"></i>
+                <span>Play</span>
+            </button>
             <button type="button" class="sheet-action" @click="onQueue">
                 <i class="pi pi-plus"></i>
                 <span>Add to queue</span>

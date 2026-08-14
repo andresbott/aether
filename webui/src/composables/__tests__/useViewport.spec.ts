@@ -28,6 +28,7 @@ function installMatchMedia(matching: Set<string>) {
 const Q_DESKTOP = '(min-width: 1024px)'
 const Q_PHONE = '(max-width: 767.98px)'
 const Q_LANDSCAPE = '(orientation: landscape)'
+const Q_TALL = '(min-height: 600px)'
 const Q_COARSE = '(pointer: coarse)'
 
 async function load() {
@@ -42,20 +43,24 @@ afterEach(() => {
 
 describe('useViewport shell decision table', () => {
     it.each([
-        // [desktopWidth, phoneWidth, landscape, expectedShell, expectedTier]
-        [true, false, true, 'desktop', 'desktop'],   // wide screen
-        [true, false, false, 'desktop', 'desktop'],  // wide, portrait monitor
-        [false, true, true, 'mobile', 'phone'],      // phone landscape stays mobile
-        [false, true, false, 'mobile', 'phone'],     // phone portrait
-        [false, false, true, 'desktop', 'tablet'],   // tablet landscape → desktop
-        [false, false, false, 'mobile', 'tablet']    // tablet portrait → mobile
+        // [desktopWidth, phoneWidth, landscape, tall, expectedShell, expectedTier]
+        [true, false, true, true, 'desktop', 'desktop'],   // wide screen
+        [true, false, false, true, 'desktop', 'desktop'],  // wide, portrait monitor
+        [false, true, true, false, 'mobile', 'phone'],     // narrow phone landscape stays mobile
+        [false, true, false, true, 'mobile', 'phone'],     // phone portrait
+        [false, false, true, true, 'desktop', 'tablet'],   // tablet landscape → desktop
+        // A LANDSCAPE PHONE: modern phones on their side land in the tablet
+        // width band (iPhone 15: 852x393) but are nowhere near tablet-tall.
+        [false, false, true, false, 'mobile', 'tablet'],   // landscape phone stays mobile
+        [false, false, false, true, 'mobile', 'tablet']    // tablet portrait → mobile
     ])(
-        'desktop=%s phone=%s landscape=%s → shell=%s tier=%s',
-        async (desktop, phone, landscape, expectedShell, expectedTier) => {
+        'desktop=%s phone=%s landscape=%s tall=%s → shell=%s tier=%s',
+        async (desktop, phone, landscape, tall, expectedShell, expectedTier) => {
             const matching = new Set<string>()
             if (desktop) matching.add(Q_DESKTOP)
             if (phone) matching.add(Q_PHONE)
             if (landscape) matching.add(Q_LANDSCAPE)
+            if (tall) matching.add(Q_TALL)
             installMatchMedia(matching)
             const { useViewport } = await load()
             const vp = useViewport()
@@ -65,11 +70,24 @@ describe('useViewport shell decision table', () => {
     )
 
     it('flips shell reactively when a tablet rotates', async () => {
-        const mm = installMatchMedia(new Set([Q_LANDSCAPE])) // tablet landscape
+        const mm = installMatchMedia(new Set([Q_LANDSCAPE, Q_TALL])) // tablet landscape
         const { useViewport } = await load()
         const vp = useViewport()
         expect(vp.shell.value).toBe('desktop')
         mm.set(Q_LANDSCAPE, false) // rotate to portrait
+        expect(vp.shell.value).toBe('mobile')
+    })
+
+    it('keeps a rotating phone on the mobile shell', async () => {
+        // Pixel 8 portrait: 412x915 → phone width, tall.
+        const mm = installMatchMedia(new Set([Q_PHONE, Q_TALL]))
+        const { useViewport } = await load()
+        const vp = useViewport()
+        expect(vp.shell.value).toBe('mobile')
+        // Rotate: 915x412 → tablet width band, landscape, NOT tall.
+        mm.set(Q_PHONE, false)
+        mm.set(Q_TALL, false)
+        mm.set(Q_LANDSCAPE, true)
         expect(vp.shell.value).toBe('mobile')
     })
 

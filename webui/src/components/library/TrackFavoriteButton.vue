@@ -77,4 +77,23 @@ const onClick = (event: Event): void => {
     opacity: 1;
     color: var(--app-text-primary);
 }
+
+/* Touch: the heart is a primary, always-visible affordance sitting one grid
+   gap from the ⋮, and a missed tap lands on the row — which REPLACES the
+   queue. Give it the host rows' full 2rem column and stretch the hit area to
+   ~44px with an invisible overlay; growing the element itself would overflow
+   the hosts' pinned 2rem grid tracks. */
+@media (pointer: coarse) {
+    .row-star {
+        position: relative;
+        width: 2rem;
+        height: 2rem;
+    }
+
+    .row-star::after {
+        content: '';
+        position: absolute;
+        inset: -6px;
+    }
+}
 </style>

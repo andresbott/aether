@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import QueueBody from '@/components/layout/QueueBody.vue'
 import { usePlayer } from '@/composables/usePlayer'
@@ -63,11 +63,58 @@ watch(
     }
 )
 
+// The sheet is a hand-rolled dialog (bespoke chrome, so no PrimeVue Drawer),
+// which means the modal focus contract is hand-rolled too: focus moves in on
+// open, Tab cycles inside, and closing hands focus back to the opener
+// (usually the MiniPlayer's open button). Without this, keyboard and
+// screen-reader focus stays in the page BEHIND the full-screen overlay.
+const sheetEl = ref<HTMLElement | null>(null)
+let lastFocused: HTMLElement | null = null
+
+const focusables = (): HTMLElement[] =>
+    Array.from(
+        sheetEl.value?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)') ??
+            []
+    )
+
+watch(isOpen, async (open) => {
+    if (open) {
+        lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+        await nextTick()
+        focusables()[0]?.focus()
+    } else if (lastFocused) {
+        // The opener can be gone (shell swap tore the mini player down); only
+        // restore focus to an element still in the document.
+        if (lastFocused.isConnected) lastFocused.focus()
+        lastFocused = null
+    }
+})
+
 // Esc closes. Bound to our own listener while open — the desktop shortcut
 // registry never runs in the mobile shell, so nothing else claims the key.
 const onKeydown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
         close()
+        return
+    }
+    // Focus trap: Tab wraps inside the sheet, and focus that escaped (or never
+    // entered) is pulled back in.
+    if (event.key === 'Tab') {
+        const els = focusables()
+        if (els.length === 0) return
+        const first = els[0]
+        const last = els[els.length - 1]
+        const active = document.activeElement
+        const inside = active instanceof HTMLElement && sheetEl.value?.contains(active) === true
+        if (event.shiftKey) {
+            if (!inside || active === first) {
+                event.preventDefault()
+                last.focus()
+            }
+        } else if (!inside || active === last) {
+            event.preventDefault()
+            first.focus()
+        }
     }
 }
 watch(
@@ -108,7 +155,14 @@ const onHeaderTouchEnd = (event: TouchEvent): void => {
 <template>
     <Teleport to="body">
         <Transition name="sheet">
-            <div v-if="isOpen" class="player-sheet" role="dialog" aria-label="Now playing">
+            <div
+                v-if="isOpen"
+                ref="sheetEl"
+                class="player-sheet"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Now playing"
+            >
                 <div
                     class="sheet-header"
                     @touchstart.passive="onHeaderTouchStart"

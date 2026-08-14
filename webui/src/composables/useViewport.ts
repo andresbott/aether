@@ -1,5 +1,5 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
-import { BP_DESKTOP_MIN, BP_PHONE_MAX } from '@/lib/breakpoints'
+import { BP_DESKTOP_MIN, BP_PHONE_MAX, BP_SHELL_MIN_HEIGHT } from '@/lib/breakpoints'
 
 export type ViewportTier = 'phone' | 'tablet' | 'desktop'
 export type ViewportShell = 'desktop' | 'mobile'
@@ -16,6 +16,9 @@ const QUERIES = {
     desktop: `(min-width: ${BP_DESKTOP_MIN}px)`,
     phone: `(max-width: ${BP_PHONE_MAX - 0.02}px)`,
     landscape: '(orientation: landscape)',
+    // Separates a landscape tablet from a landscape phone: both sit in the
+    // tablet width band, but a phone on its side is only ~360-440px tall.
+    tall: `(min-height: ${BP_SHELL_MIN_HEIGHT}px)`,
     coarse: '(pointer: coarse)'
 } as const
 
@@ -38,6 +41,7 @@ function createState(): ViewportState {
     const isDesktopWidth = ref(true)
     const isPhoneWidth = ref(false)
     const landscape = ref(true)
+    const tall = ref(true)
     const isTouch = ref(false)
 
     // jsdom (and nothing else we support) lacks matchMedia: default to the
@@ -46,6 +50,7 @@ function createState(): ViewportState {
         track(QUERIES.desktop, (m) => (isDesktopWidth.value = m))
         track(QUERIES.phone, (m) => (isPhoneWidth.value = m))
         track(QUERIES.landscape, (m) => (landscape.value = m))
+        track(QUERIES.tall, (m) => (tall.value = m))
         track(QUERIES.coarse, (m) => (isTouch.value = m))
     }
 
@@ -56,11 +61,14 @@ function createState(): ViewportState {
     })
 
     // The one shell decision everything keys off: desktop width → desktop,
-    // phone width → mobile, tablet → orientation picks (spec §2.1).
+    // phone width → mobile, tablet → orientation picks (spec §2.1). The
+    // height gate keeps landscape PHONES mobile: they match the tablet width
+    // band (iPhone 15 landscape is 852x393) but are nowhere near tablet-tall,
+    // and rotating a phone must never swap it into the desktop chrome.
     const shell = computed<ViewportShell>(() => {
         if (tier.value === 'desktop') return 'desktop'
         if (tier.value === 'phone') return 'mobile'
-        return landscape.value ? 'desktop' : 'mobile'
+        return landscape.value && tall.value ? 'desktop' : 'mobile'
     })
 
     return { shell, tier, isTouch }

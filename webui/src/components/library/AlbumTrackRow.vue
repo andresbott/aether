@@ -170,6 +170,18 @@ const onClick = (event: MouseEvent): void => {
     .col-star :deep(.row-star) {
         opacity: 1;
     }
+
+    /* 2rem button + 6px halo ≈ the 44px touch guideline without widening the
+       host's pinned 2rem grid column (TrackFavoriteButton does the same). */
+    .row-menu {
+        position: relative;
+    }
+
+    .row-menu::after {
+        content: '';
+        position: absolute;
+        inset: -6px;
+    }
 }
 
 .track-number {
