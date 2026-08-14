@@ -67,9 +67,35 @@ const onReorder = (indices: number[], target: number): void => {
     player.moveInQueue(indices, target)
 }
 
-const scrollCurrentIntoView = (block: ScrollLogicalPosition): void => {
+// Breathing room above the row when scrolling it to the top edge (the
+// scroll-margin-top that applied back when this used scrollIntoView).
+const CURRENT_BLOCK_TOP_MARGIN_PX = 16
+
+// Scrolls ONLY the queue's own scroller — never scrollIntoView on the row,
+// which also scrolls every scrollable ancestor to reveal it: inside
+// MobilePlayView the queue is the hidden second panel of a snap container,
+// and revealing the row on mount dragged the queue panel over the player
+// face, so the mini-player tap landed on `/#queue` instead of Now Playing.
+const scrollCurrentIntoView = (block: 'center' | 'nearest'): void => {
     nextTick(() => {
-        currentBlockRef.value?.scrollIntoView?.({ behavior: 'smooth', block })
+        const row = currentBlockRef.value
+        const scroller = queueBodyRef.value
+        if (!row || !scroller) return
+        const rowTop =
+            row.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top +
+            scroller.scrollTop
+        const rowHeight = row.offsetHeight
+        let top: number | null = null
+        if (block === 'center') {
+            top = rowTop - (scroller.clientHeight - rowHeight) / 2
+        } else if (rowTop - CURRENT_BLOCK_TOP_MARGIN_PX < scroller.scrollTop) {
+            top = rowTop - CURRENT_BLOCK_TOP_MARGIN_PX
+        } else if (rowTop + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+            top = rowTop + rowHeight - scroller.clientHeight
+        }
+        if (top === null) return
+        scroller.scrollTo?.({ top: Math.max(0, top), behavior: 'smooth' })
     })
 }
 
@@ -290,7 +316,8 @@ onMounted(() => scrollCurrentIntoView('center'))
 }
 
 .current-block {
-    scroll-margin-top: 1rem;
+    /* Top clearance lives in scrollCurrentIntoView (CURRENT_BLOCK_TOP_MARGIN_PX):
+       manual scrolling doesn't honor scroll-margin. */
     padding: 0.5rem 0;
 }
 

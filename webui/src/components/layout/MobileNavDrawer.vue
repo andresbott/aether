@@ -26,12 +26,18 @@ interface DrawerItem {
     folderId?: number
 }
 
-// Now Playing only exists while there is something queued: with an empty
-// queue, `/` replaces itself with the library (see HomeView), so an entry for
-// it would silently take the user somewhere else.
+// Now Playing and Queue only exist while there is something queued: with an
+// empty queue, `/` replaces itself with the library (see HomeView), so either
+// entry would silently take the user somewhere else. Queue is the same route
+// addressed to its second panel — `/#queue` scrolls MobilePlayView's snap
+// scroller to the queue face — and is drawer-only on purpose: the desktop
+// keeps the queue in its sidebar.
 const primaryItems = computed<DrawerItem[]>(() => [
     ...(queue.value.length > 0
-        ? [{ label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' }]
+        ? [
+              { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
+              { label: 'Queue', icon: 'pi pi-list-check', route: '/#queue', routeName: 'queue' }
+          ]
         : []),
     { label: 'Library', icon: 'pi pi-compass', route: '/library', routeName: 'library' },
     { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search' }
@@ -71,7 +77,10 @@ const accountItems = computed<DrawerItem[]>(() => {
 // Same discrimination as AppSidebar: the library root and the per-folder
 // entries share a route name, so the folderId decides which one lights up.
 const isActive = (item: DrawerItem): boolean => {
-    if (item.routeName === 'home') return route.name === 'home'
+    // Now Playing and Queue share the home route; the hash names the panel,
+    // and MobilePlayView keeps it in sync with the swiped-to panel.
+    if (item.routeName === 'home') return route.name === 'home' && route.hash !== '#queue'
+    if (item.routeName === 'queue') return route.name === 'home' && route.hash === '#queue'
     if (item.routeName === 'library') {
         if (route.name !== 'library') return false
         const raw = route.params.folderId
@@ -195,7 +204,9 @@ const onLogout = (): void => {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.85rem 0.5rem;
+    /* Horizontal inset lives here, not on the drawer content box, so the
+       item's background and accent bar span the drawer's full width. */
+    padding: 0.85rem 1.25rem;
     border: none;
     background: none;
     cursor: pointer;
@@ -203,7 +214,9 @@ const onLogout = (): void => {
     font-size: 0.95rem;
     text-align: left;
     width: 100%;
-    border-radius: var(--app-radius);
+    /* Square with an accent edge bar, matching AppSidebar's .nav-item.active
+       so the two nav surfaces read as one. */
+    border-radius: 0;
 }
 
 .drawer-item:hover {
@@ -213,6 +226,7 @@ const onLogout = (): void => {
 .drawer-item.active {
     background-color: var(--app-accent-soft);
     color: var(--app-accent);
+    box-shadow: inset -4px 0 0 var(--app-accent);
 }
 
 .drawer-item.danger {

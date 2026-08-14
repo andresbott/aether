@@ -10,7 +10,8 @@ const route = reactive({
     name: 'home' as string,
     params: {} as Record<string, unknown>,
     path: '/',
-    fullPath: '/'
+    fullPath: '/',
+    hash: ''
 })
 vi.mock('vue-router', () => ({
     useRouter: () => ({ push }),
@@ -61,6 +62,7 @@ beforeEach(() => {
     route.params = {}
     route.path = '/'
     route.fullPath = '/'
+    route.hash = ''
 })
 
 const itemLabels = () =>
@@ -75,6 +77,7 @@ describe('MobileNavDrawer', () => {
         // User settings → Admin → About) → Log out.
         expect(itemLabels()).toEqual([
             'Now Playing',
+            'Queue',
             'Library',
             'Search',
             'Playlists',
@@ -87,12 +90,46 @@ describe('MobileNavDrawer', () => {
     })
 
     // With an empty queue `/` replaces itself with the library (HomeView), so
-    // a Now Playing entry would silently take the user somewhere else.
-    it('hides Now Playing while the queue is empty', async () => {
+    // a Now Playing or Queue entry would silently take the user somewhere else.
+    it('hides Now Playing and Queue while the queue is empty', async () => {
         queue.value = []
         await mountDrawer()
         expect(itemLabels()).not.toContain('Now Playing')
+        expect(itemLabels()).not.toContain('Queue')
         expect(itemLabels()[0]).toBe('Library')
+    })
+
+    // The queue panel's address (see MobilePlayView): same route, the hash
+    // picks the panel. Desktop keeps the queue in its sidebar, so the entry
+    // exists only here in the drawer.
+    it('the Queue entry navigates to the home route addressed to the queue panel', async () => {
+        await mountDrawer()
+        const entry = Array.from(document.body.querySelectorAll('.drawer-item')).find(
+            (el) => el.textContent?.trim() === 'Queue'
+        ) as HTMLElement
+        entry.click()
+        expect(push).toHaveBeenCalledWith('/#queue')
+        expect(useMobileNav().isOpen.value).toBe(false)
+    })
+
+    // Now Playing and Queue share route name 'home'; the hash — kept in sync
+    // with the swiped-to panel by MobilePlayView — decides which lights up.
+    it('the hash decides whether Now Playing or Queue is marked current', async () => {
+        await mountDrawer()
+        let current = Array.from(document.body.querySelectorAll('[aria-current="page"]'))
+        expect(current).toHaveLength(1)
+        expect(current[0].textContent?.trim()).toBe('Now Playing')
+
+        // Navigating to the queue panel closes the drawer (route watcher);
+        // the highlight matters the next time it opens.
+        route.hash = '#queue'
+        route.fullPath = '/#queue'
+        await nextTick()
+        useMobileNav().open()
+        await nextTick()
+        current = Array.from(document.body.querySelectorAll('[aria-current="page"]'))
+        expect(current).toHaveLength(1)
+        expect(current[0].textContent?.trim()).toBe('Queue')
     })
 
     it('shows Admin only for admins', async () => {
@@ -113,7 +150,7 @@ describe('MobileNavDrawer', () => {
             { id: 2, name: 'Audiobooks' }
         ])
         await mountDrawer()
-        expect(itemLabels().slice(3, 5)).toEqual(['Music', 'Audiobooks'])
+        expect(itemLabels().slice(4, 6)).toEqual(['Music', 'Audiobooks'])
     })
 
     it('marks the current destination for AT, and only that one', async () => {

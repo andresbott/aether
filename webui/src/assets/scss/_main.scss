@@ -167,6 +167,14 @@ a:hover {
     padding-left: env(safe-area-inset-left);
 }
 
+// The nav items paint their own hover/active background with an accent edge
+// bar (matching AppSidebar); the theme's content padding would inset that
+// bar off the drawer's edge, so the items carry the horizontal inset instead.
+.p-drawer-left .p-drawer.mobile-nav-drawer .p-drawer-content {
+    padding-left: 0;
+    padding-right: 0;
+}
+
 // Phone: form dialogs become full-screen sheets (spec §3.2). One global rule
 // rather than per-dialog CSS so every current and future Dialog conforms.
 // Confirm popups are exempt — a full-screen "Are you sure?" reads as a new

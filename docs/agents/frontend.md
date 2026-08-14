@@ -151,8 +151,12 @@ Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 components rather than inline `v-if` blocks). Mobile chrome components live in
 `components/layout/`: `MobileNavDrawer` (left drawer holding the whole nav —
 `AppSidebar`'s destinations plus the UserMenu account entries; any route change
-closes it so a system-back never navigates underneath it; its Now Playing entry
-is hidden while the queue is empty, since `/` would just bounce to the library)
+closes it so a system-back never navigates underneath it; its Now Playing and
+Queue entries are hidden while the queue is empty, since `/` would just bounce
+to the library. Queue is drawer-only — desktop keeps the queue in its sidebar —
+and is not a route of its own: it pushes `/#queue`, the address of
+`MobilePlayView`'s queue panel, and the hash decides which of the two entries
+lights up)
 and `MiniPlayer` (bottom-most mobile chrome, reserves the safe-area bottom
 inset; tap navigates to `/`, and the bar is hidden on that route because the
 play view carries the full transport). The drawer is opened by the hamburger
@@ -163,12 +167,26 @@ while the drawer is shell chrome.
 
 **Now Playing on the mobile shell is a first-class route, not an overlay.**
 `HomeView` mimics the desktop *flow* on phones: with tracks queued, `/` renders
-**`MobilePlayView`** (cover art, seek, transport, favorite, plus a queue face
-behind a header toggle that carries the shared `QueueHeaderActions`); with an
+**`MobilePlayView`** (cover art, seek, a prev/play/next transport, favorite,
+plus the queue as a second snap panel below the player face — swiping the face
+up reveals it, a hint-chevron button scrolls there without the gesture, and
+the panel's own heading carries the queue actions: shuffle/repeat inline,
+with the shared `QueueHeaderActions` (edit/save/clear, `labels` variant)
+behind the scaffold's ⋮ overflow; there is no header toggle).
+The way **back** is the queue panel's own touch handler — a downward pull that
+starts with the list at its top — not native scroll chaining: a chained drag
+hands the mandatory-snap container no fling momentum, so it settles straight
+back on the queue, which is also why both queue scrollers contain their
+overscroll. **`/#queue` is the queue panel's address**: the drawer's Queue
+entry pushes it, arriving with it lands on the queue without animating, and
+`MobilePlayView` rewrites the hash (debounced `router.replace`) as the user
+swipes, so the drawer's Now Playing / Queue highlight follows the visible
+panel; with an
 empty queue it `replace()`s the route with the library — an empty play view is
 a dead end on a one-surface screen. Desktop `/` keeps `QueueView variant="full"`
-(empty state included). Both headers share `useQueueSummary` for the
-"N tracks • X min" string. The predecessor **`PlayerSheet` overlay (and
+(empty state included). Both surfaces share `useQueueSummary` for the
+"N tracks • X min" string — on desktop it sits in the scaffold header, on the
+phone under the queue panel's title (the scaffold header there is title-only). The predecessor **`PlayerSheet` overlay (and
 `usePlayerSheet`'s history/focus-trap machinery) is deleted** — routing gives
 system-back dismissal for free; don't reintroduce a sheet for now-playing.
 

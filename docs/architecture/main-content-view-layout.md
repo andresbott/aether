@@ -245,9 +245,11 @@ main content view. It splits per variant:
   side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
 On the **mobile shell**, `HomeView` renders **`MobilePlayView`** on `/` instead of
-`QueueView` — a first-class play screen (cover art, seek, transport, queue face behind a
-header toggle) also composed on `ContentScaffold`, so it gets the hamburger like every
-other top-level view. With an empty queue the phone `/` replaces itself with the library
+`QueueView` — a first-class play screen (cover art, seek, prev/play/next transport, queue
+as a swipe-up snap panel) also composed on `ContentScaffold`, so it gets the hamburger like
+every other top-level view. Its queue heading carries shuffle/repeat in `#actions` and
+`QueueHeaderActions` (labeled) in `#secondary-actions`, i.e. behind the scaffold ⋮ on
+phones. With an empty queue the phone `/` replaces itself with the library
 (see `HomeView`); desktop keeps the queue list's empty state.
 
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import

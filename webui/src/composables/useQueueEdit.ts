@@ -18,9 +18,18 @@ export function useQueueEdit() {
         if (!editMode.value) selection.clearSelection()
     }
 
+    /** Leave edit mode (no-op when off) — for hosts whose edit surface can
+     *  scroll out of view (MobilePlayView's queue panel). */
+    const exitEditMode = (): void => {
+        if (!editMode.value) return
+        editMode.value = false
+        selection.clearSelection()
+    }
+
     return {
         editMode,
         toggleEditMode,
+        exitEditMode,
         ...selection
     }
 }

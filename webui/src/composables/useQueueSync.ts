@@ -40,6 +40,12 @@ let playedHere = false
 // plain "am I restoring?" flag would not work, because the watchers restore()
 // trips fire on the next tick, by which time the flag is already cleared.
 let syncedSignature: string | null = null
+// Whether this page load has already adopted the server's queue. restore() is a
+// page-LOAD concern, but it is called from PlayerLayout's onMounted, and that
+// layout remounts on every trip through /settings — re-adopting the snapshot
+// there would clobber the live session (restoreSession re-points the active
+// element's src, which stops a playing track dead). Never reset by stop().
+let restoredThisLoad = false
 
 const signatureOf = (ids: string[], index: number): string => `${index}:${ids.join(',')}`
 
@@ -156,6 +162,11 @@ export function useQueueSync() {
     // applied via the player's resume path — stepping to any other track in the
     // restored queue starts from the beginning, as it should.
     const restore = async (): Promise<void> => {
+        // Once per page load — see restoredThisLoad. Set before the fetch, so a
+        // failed first attempt is not retried into a session that has since
+        // started playing.
+        if (restoredThisLoad) return
+        restoredThisLoad = true
         const saved = await subsonicClient.getPlayQueue()
         if (!saved || saved.entry.length === 0) return
 

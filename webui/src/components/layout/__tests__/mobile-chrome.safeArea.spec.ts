@@ -26,10 +26,10 @@ describe('mobile chrome safe-area insets', () => {
 
     // The mini player is hidden on the Now Playing route, so the play view is
     // the bottom-most surface there and reserves the inset itself — on both
-    // of its faces.
-    it('the play view reserves the bottom inset on both faces', () => {
+    // of its snap panels (the play face and the queue list).
+    it('the play view reserves the bottom inset on both panels', () => {
         const src = read('../MobilePlayView.vue')
-        expect(src).toContain('padding: 0 1.5rem calc(1.5rem + env(safe-area-inset-bottom))')
+        expect(src).toContain('padding: 0 1.5rem calc(0.5rem + env(safe-area-inset-bottom))')
         expect(src).toContain('padding-bottom: env(safe-area-inset-bottom)')
     })
 
