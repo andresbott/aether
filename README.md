@@ -4,8 +4,9 @@ Aether is a self-hosted music server that indexes your music folders and streams
 them over an OpenSubsonic-compatible API. It ships as a single Go binary with the
 Vue 3 web player embedded.
 
-> **Under active development.** Pre-release: there is no authentication yet and
-> no compatibility guarantees between versions.
+> **Under active development.** Pre-release: no compatibility guarantees between
+> versions. Authentication is implemented but **off by default** (`Auth.Method:
+> "none"`) — set it to `native` or `proxy-header` before exposing a server.
 
 ## Features
 
@@ -19,6 +20,9 @@ Vue 3 web player embedded.
   fanart.tv lookups.
 - **Metadata editor** — edit tags in the browser, identify tracks via
   MusicBrainz.
+- **Authentication** — optional: a built-in login with users and roles, or
+  identity from an authenticating reverse proxy (Authelia, oauth2-proxy).
+  Third-party clients authenticate with per-app tokens.
 - **Operations** — SQLite, YAML/env config, Debian packages.
 
 ## Development

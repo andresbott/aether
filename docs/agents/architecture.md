@@ -79,10 +79,13 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   `internal/unidecode.Normalize` output (lowercased ASCII transliteration) —
   used for identity and alphabetical indexing. Always populate them when
   writing names.
-- `StarredItem` — single `(item_type, item_id)` table, **no user column**:
-  the app is single-user today. Playlist has a pre-wired `Owner` column.
-  TODO.md records the chosen multi-user direction (per-entity star tables
-  with `user_id`) — don't invent a different one.
+- `StarredItem` — single junction table keyed `(owner, item_type, item_id)`
+  (unique index `idx_starred_item`). `Owner` is the authenticated user's
+  **login string**, the same convention as `Playlist`, `PlayQueue`,
+  `PlaylistPlay` and `Scrobble` — so every per-user surface is owner-scoped
+  today. Re-keying those columns on `User.ID` is the remaining multi-user step
+  (TODO.md, Future releases); a per-type star split is optional, not planned —
+  don't invent a different direction.
 
 ## Background work: taskrunner + scheduler
 

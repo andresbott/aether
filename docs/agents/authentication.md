@@ -268,7 +268,19 @@ Validation in `update` happens entirely before the first store write: the
 mutations are separate store calls rather than one transaction, so a late
 rejection would leave the update half-applied.
 
-Still missing from this mode: change-own-password UI.
+Still missing from this mode: **change own password, endpoint and UI both.**
+`SetPasswordHash` is reachable only from the CLI (`aether user reset-password`)
+and the admin-tier `PUT /api/v1/users/{id}`, so a non-admin has no way to change
+their own password and an admin must go through the admin panel. The fix is a
+session-tier route (verify current password, then set the new one) plus a form in
+UserSettingsView → General; unmounted in proxy mode, where the IdP owns
+credentials. TODO.md, 1.0.
+
+Also missing, and mode-independent: **nothing bounds password guessing** against
+`POST /api/v1/auth/login` — no rate limit, no lockout, no attempt counting, and
+the flow runs with a nil `AttemptStore` (which the library allows for
+single-factor policies; that store exists to persist multi-factor progress, not
+to throttle). TODO.md, 1.0.
 
 ## Mode: proxy-header (Authelia) — implemented
 
@@ -338,6 +350,13 @@ Login/logout endpoints and the users CRUD are not mounted;
 `/api/v1` + the SPA shell and whether login endpoints are mounted. `/rest`
 is configured identically in all authenticated modes. `/api/v1/me` reports
 the active mode so the SPA reacts correctly to 401s.
+
+`none` is still the **shipped default**, and `BindIp` defaults to every
+interface — so a binary started with no config file serves the whole library
+unauthenticated to the LAN. In that mode there is also no user store at all
+(`setupNativeAuth` returns nils), so nothing can be created, edited or reset
+until the method changes. Both halves are a 1.0 decision in TODO.md, not
+settled policy.
 
 Native extras under `Auth.AdminBootstrap`: `User` / `Pw` seed the initial
 admin while the user store is empty (idempotent — `bootstrapAdmin` in
