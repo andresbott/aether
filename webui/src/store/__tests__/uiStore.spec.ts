@@ -17,18 +17,4 @@ describe('uiStore settings sidebar', () => {
         ui.toggleSettingsSidebar()
         expect(ui.settingsSidebarCollapsed).toBe(false)
     })
-
-    it('collapseSettingsSidebar forces collapsed', () => {
-        const ui = useUiStore()
-        ui.collapseSettingsSidebar()
-        expect(ui.settingsSidebarCollapsed).toBe(true)
-    })
-
-    it('checkScreenWidth collapses both sidebars below 768px', () => {
-        const ui = useUiStore()
-        window.innerWidth = 500
-        ui.checkScreenWidth()
-        expect(ui.sidebarCollapsed).toBe(true)
-        expect(ui.settingsSidebarCollapsed).toBe(true)
-    })
 })

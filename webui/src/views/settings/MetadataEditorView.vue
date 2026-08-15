@@ -5,6 +5,7 @@ import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
 import Select from 'primevue/select'
 import Button from 'primevue/button'
+import Message from 'primevue/message'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import { useConfirm } from 'primevue/useconfirm'
@@ -12,6 +13,7 @@ import { useLibraries } from '@/composables/useLibraries'
 import { useTracks, useMetadataCapabilities } from '@/composables/useMetadataEditor'
 import { useEditSession, candidateToOverlay, albumPickToOverlay } from '@/composables/useEditSession'
 import { useIdentifyRuns } from '@/composables/useIdentifyRuns'
+import { useViewport } from '@/composables/useViewport'
 import FolderTree from './metadata-editor/FolderTree.vue'
 import TrackList from './metadata-editor/TrackList.vue'
 import EditPanel from './metadata-editor/EditPanel.vue'
@@ -26,6 +28,9 @@ const selectedPath = ref<string | null>(null)
 const selection = ref<Track[]>([])
 const dialogVisible = ref(false)
 const confirm = useConfirm()
+
+const { tier } = useViewport()
+const stacked = computed(() => tier.value === 'phone')
 
 const libraryOptions = computed(
     () => libraries.value?.map((l) => ({ label: l.name, value: l.id })) ?? []
@@ -246,7 +251,11 @@ function onAlbumReidentify() {
             />
         </div>
 
-        <Splitter class="editor-splitter">
+        <Message v-if="stacked" severity="info" :closable="false">
+            The metadata editor works best on a larger screen.
+        </Message>
+
+        <Splitter :layout="stacked ? 'vertical' : 'horizontal'" class="editor-splitter">
             <SplitterPanel :size="60" :minSize="20">
                 <TrackList
                     :tracks="tracksQuery.data.value ?? []"
@@ -403,5 +412,12 @@ function onAlbumReidentify() {
 .dialog-library label {
     font-size: 0.85rem;
     font-weight: 600;
+}
+
+@media (max-width: 767.98px) {
+    .editor-header {
+        flex-wrap: wrap;
+        row-gap: 0.75rem;
+    }
 }
 </style>

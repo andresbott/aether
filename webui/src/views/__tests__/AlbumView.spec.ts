@@ -17,6 +17,11 @@ const album = {
 // Mutable ref so individual tests can swap in a multi-disc album.
 const albumData = ref<unknown>(markRaw(album))
 
+const isTouch = ref(false)
+vi.mock('@/composables/useViewport', () => ({
+    useViewport: () => ({ isTouch, tier: ref('desktop'), shell: ref('classic') })
+}))
+
 const toggleStarMutate = vi.fn()
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useAlbum: () => ({ data: albumData, isLoading: ref(false), error: ref(null) }),
@@ -38,11 +43,13 @@ vi.mock('@/composables/useSongsDrag', () => ({
 const playAlbum = vi.fn()
 const addMultipleToQueue = vi.fn()
 const enqueueAndPlayIfIdle = vi.fn()
+const playNow = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({
         playAlbum,
         addMultipleToQueue,
         enqueueAndPlayIfIdle,
+        playNow,
         currentTrack: ref(null)
     })
 }))
@@ -66,15 +73,24 @@ const mountView = () =>
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
-            stubs: { RouterLink: true }
+            stubs: {
+                RouterLink: true,
+                TrackActionSheet: {
+                    name: 'TrackActionSheet',
+                    props: ['song', 'visible'],
+                    template: '<div />'
+                }
+            }
         }
     })
 
 beforeEach(() => {
     albumData.value = markRaw(album)
+    isTouch.value = false
     playAlbum.mockClear()
     addMultipleToQueue.mockClear()
     enqueueAndPlayIfIdle.mockClear()
+    playNow.mockClear()
     toggleStarMutate.mockClear()
     songsStart.mockClear()
     songsEnd.mockClear()
@@ -224,5 +240,47 @@ describe('AlbumView track favorites', () => {
     it('the star column has a header cell so rows stay aligned', () => {
         const w = mountView()
         expect(w.find('.track-list-header .col-star').exists()).toBe(true)
+    })
+})
+
+describe('AlbumView touch interactions', () => {
+    // A tap must queue the whole VISIBLE list and start at the tapped track — the
+    // touch counterpart of the hero Play. `playNow` would set queue=[song], so
+    // tapping track 2 used to discard track 1 and everything already queued.
+    it('tapping a row queues the album and starts at that track', async () => {
+        isTouch.value = true
+        const w = mountView()
+        await w.findAll('.album-track-row')[1].trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith(album.song, 1)
+        expect(playNow).not.toHaveBeenCalled()
+    })
+
+    // The queued list is the flat disc-ordered list, so the start index is the
+    // row's position in it — not its position within its own disc.
+    it('starts at the tapped track flat index across discs', async () => {
+        const multiDiscAlbum = {
+            id: 'al2',
+            name: 'Double Album',
+            artist: 'The Artist',
+            song: [
+                { id: 'd1t1', title: 'D1 One', discNumber: 1 },
+                { id: 'd1t2', title: 'D1 Two', discNumber: 1 },
+                { id: 'd2t1', title: 'D2 One', discNumber: 2 }
+            ]
+        }
+        albumData.value = markRaw(multiDiscAlbum)
+        isTouch.value = true
+        const w = mountView()
+        await w.findAll('.album-track-row')[2].trigger('click')
+        expect(playAlbum).toHaveBeenCalledWith(multiDiscAlbum.song, 2)
+    })
+
+    it('opens the action sheet from ⋮', async () => {
+        isTouch.value = true
+        const w = mountView()
+        await w.findAll('[aria-label="Track actions"]')[0].trigger('click')
+        expect(w.findComponent({ name: 'TrackActionSheet' }).props('visible')).toBe(true)
+        // The ⋮ is not a play affordance.
+        expect(playAlbum).not.toHaveBeenCalled()
     })
 })

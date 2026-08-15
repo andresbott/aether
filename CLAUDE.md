@@ -41,7 +41,7 @@ whole app whenever auth method `native` reports no session (see
 
 | View | Route | Purpose |
 |------|-------|---------|
-| `HomeView` | `/` | Landing / home |
+| `HomeView` | `/` | Now Playing. Desktop renders `QueueView variant="full"`; the mobile shell renders `MobilePlayView` (first-class play screen with the hamburger — no overlay sheet) and, with an empty queue, replaces the route with `/library` (the phone mimics the desktop flow: nothing to play → browse) |
 | `SearchView` | `/search` | Search results |
 | `LibraryView` | `/library/:folderId?` | Browse the music library by folder. Tabs: Discover / Albums / Artists. Discover is a ranked feed of albums + playlists (`getDiscovery` extension, infinite scroll, `DiscoveryFeed` component) and is the default tab on the root `/library` only — the ranking is cross-collection, so discovery is never library-scoped. There is deliberately no standalone `/discover` route |
 | `AlbumView` | `/album/:id` | Single album detail |

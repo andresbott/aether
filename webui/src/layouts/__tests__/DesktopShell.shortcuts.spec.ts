@@ -41,25 +41,24 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => reactive({ checkScreenWidth: vi.fn(), queueSidebarCollapsed: ref(false) })
+    useUiStore: () => reactive({ queueSidebarCollapsed: ref(false) })
 }))
 
 vi.mock('@/composables/useScrollbarWidth', () => ({
     useScrollbarWidth: () => ref(0)
 }))
 
-import PlayerLayout from '@/layouts/PlayerLayout.vue'
+import DesktopShell from '@/layouts/DesktopShell.vue'
 import { useShortcutHelp } from '@/composables/useShortcutHelp'
 
 const mountLayout = () =>
-    mount(PlayerLayout, {
+    mount(DesktopShell, {
         global: {
             directives: { tooltip: {} },
             stubs: {
                 AppSidebar: true,
                 PlayerControls: true,
-                QueueSidebar: true,
-                Toast: true
+                QueueSidebar: true
             }
         }
     })
@@ -69,9 +68,9 @@ beforeEach(() => {
     useShortcutHelp().close()
 })
 
-// The bindings live in the player layout, not globally: the settings layout is a
-// separate shell and deliberately gets no player shortcuts.
-describe('PlayerLayout keyboard shortcuts', () => {
+// The bindings live in the desktop shell, not globally: the settings layout and
+// mobile shell are separate shells and deliberately get no player shortcuts.
+describe('DesktopShell keyboard shortcuts', () => {
     it('binds the player shortcuts', () => {
         mountLayout()
         document.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }))

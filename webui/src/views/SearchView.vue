@@ -12,6 +12,7 @@ import ArtistRow from '@/components/library/ArtistRow.vue'
 import AlbumRow from '@/components/library/AlbumRow.vue'
 import GenreRow from '@/components/library/GenreRow.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import {
     useSearch,
     searchTermIsLongEnough,
@@ -30,6 +31,26 @@ const router = useRouter()
 const player = usePlayer()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionIndex = ref(0)
+const actionSheetOpen = ref(false)
+
+// Touch tap-to-play: queue the song results as shown and start at the tapped row.
+// NOT `playNow`, which would wipe the queue down to that one song
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
+const playTrack = (index: number): void => {
+    const list = songs.value
+    if (list[index]) player.playAlbum(list, index)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = songs.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionIndex.value = index
+    actionSheetOpen.value = true
+}
 
 const query = ref('')
 
@@ -305,6 +326,8 @@ watch(songs, () => clearSelection())
                                 :selected="isSelected(index)"
                                 @select="(p) => onRowClick(index, p)"
                                 @enqueue="enqueueTrack(index)"
+                                @play="playTrack(index)"
+                                @menu="openTrackMenu(index)"
                                 @dragstart="(e) => onRowDragStart(e, index)"
                                 @dragend="songsDrag.end"
                             />
@@ -313,6 +336,11 @@ watch(songs, () => clearSelection())
                 </div>
             </div>
         </div>
+        <TrackActionSheet
+            v-model:visible="actionSheetOpen"
+            :song="actionSong"
+            @play="playTrack(actionIndex)"
+        />
     </ContentScaffold>
 </template>
 
@@ -461,5 +489,19 @@ watch(songs, () => clearSelection())
 
 .track-list-header .col-duration {
     text-align: right;
+}
+
+/* Phone: GenreTrackRow hides its artist and album cells, so the shared template
+   and this view's header row must drop the same two tracks — otherwise every row
+   misaligns. 767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --genre-track-cols: 48px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist,
+    .track-list-header .col-album {
+        display: none;
+    }
 }
 </style>

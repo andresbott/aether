@@ -339,4 +339,34 @@ const onSelect = (event: { files: File[] }): void => {
     margin-right: 1rem;
     opacity: 0.5;
 }
+
+/* Phone: the side-by-side hero becomes a centered stack (spec §3.2), the way
+   every mobile music app presents a detail page. 767.98px = $bp-phone-max
+   - 0.02px (breakpoints.spec.ts guards the token). */
+@media (max-width: 767.98px) {
+    .hero-header {
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        text-align: center;
+    }
+
+    .hero-cover {
+        width: min(60vw, 250px);
+        height: auto;
+        aspect-ratio: 1;
+    }
+
+    .hero-info {
+        align-items: center;
+    }
+
+    :deep(.hero-name) {
+        font-size: 1.6rem;
+    }
+
+    :deep(.meta-row) {
+        justify-content: center;
+    }
+}
 </style>

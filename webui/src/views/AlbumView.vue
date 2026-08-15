@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
@@ -20,6 +21,27 @@ const toggleStar = useToggleStar()
 const albumDrag = useAlbumDrag()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionIndex = ref(0)
+const actionSheetOpen = ref(false)
+
+// Touch tap-to-play: queue the album as shown and start at the tapped track, the
+// same primitive the hero Play uses. NOT `playNow`, which would wipe the queue
+// down to the single tapped song and discard the rest of the album
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
+const playTrack = (index: number): void => {
+    const songs = orderedSongs.value
+    if (songs[index]) player.playAlbum(songs, index)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = orderedSongs.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionIndex.value = index
+    actionSheetOpen.value = true
+}
 
 const onAlbumDragStart = (event: DragEvent): void => {
     if (album.value) albumDrag.start(event, album.value, coverUrl.value)
@@ -207,6 +229,8 @@ watch(
                                 :playing="row.song.id === currentTrackId"
                                 @select="(p) => onRowClick(row.index, p)"
                                 @enqueue="enqueueTrack(row.index)"
+                                @play="playTrack(row.index)"
+                                @menu="openTrackMenu(row.index)"
                                 @dragstart="(e) => onRowDragStart(e, row.index)"
                                 @dragend="songsDrag.end"
                             />
@@ -214,6 +238,11 @@ watch(
                     </div>
                 </div>
             </div>
+            <TrackActionSheet
+                v-model:visible="actionSheetOpen"
+                :song="actionSong"
+                @play="playTrack(actionIndex)"
+            />
         </ContentScaffold>
     </div>
 </template>
@@ -290,6 +319,19 @@ watch(
 .track-list-header .col-index,
 .track-list-header .col-duration {
     text-align: right;
+}
+
+/* Phone: AlbumTrackRow hides its artist cell, so the shared template and this
+   view's header row must drop the same track — otherwise every row misaligns.
+   767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --album-track-cols: 38px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist {
+        display: none;
+    }
 }
 
 .disc-header {

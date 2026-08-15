@@ -11,6 +11,7 @@ import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
@@ -35,6 +36,27 @@ const player = usePlayer()
 const toast = useToast()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionIndex = ref(0)
+const actionSheetOpen = ref(false)
+
+// Touch tap-to-play: queue the playlist as shown (the live `working` list, so an
+// unsaved reorder plays in the order on screen) and start at the tapped track.
+// NOT `playNow`, which would wipe the queue down to that one song
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
+const playTrack = (index: number): void => {
+    const songs = working.value
+    if (songs[index]) player.playAlbum(songs, index)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = working.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionIndex.value = index
+    actionSheetOpen.value = true
+}
 
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
 const updatePlaylist = useUpdatePlaylist()
@@ -410,6 +432,8 @@ onUnmounted(() => {
                             :selected="isSelected(index)"
                             @select="(p) => onRowClick(index, p)"
                             @enqueue="enqueueTrack(index)"
+                            @play="playTrack(index)"
+                            @menu="openTrackMenu(index)"
                             @dragstart="(e) => onRowDragStart(e, index)"
                             @dragend="songsDrag.end"
                         />
@@ -419,6 +443,11 @@ onUnmounted(() => {
                     </div>
                 </div>
             </div>
+            <TrackActionSheet
+                v-model:visible="actionSheetOpen"
+                :song="actionSong"
+                @play="playTrack(actionIndex)"
+            />
         </ContentScaffold>
 
         <ConfirmDialog />
@@ -507,5 +536,19 @@ onUnmounted(() => {
 
 .track-list-header .col-duration {
     text-align: right;
+}
+
+/* Phone: GenreTrackRow hides its artist and album cells, so the shared template
+   and this view's header row must drop the same two tracks — otherwise every row
+   misaligns. 767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --genre-track-cols: 48px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist,
+    .track-list-header .col-album {
+        display: none;
+    }
 }
 </style>

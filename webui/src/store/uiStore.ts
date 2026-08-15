@@ -21,25 +21,12 @@ export const useUiStore = defineStore('ui', () => {
         settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
     }
 
-    const collapseSettingsSidebar = () => {
-        settingsSidebarCollapsed.value = true
-    }
-
-    const checkScreenWidth = () => {
-        if (window.innerWidth < 768) {
-            collapseSidebar()
-            collapseSettingsSidebar()
-        }
-    }
-
     return {
         sidebarCollapsed,
         settingsSidebarCollapsed,
         toggleSidebar,
         collapseSidebar,
         expandSidebar,
-        toggleSettingsSidebar,
-        collapseSettingsSidebar,
-        checkScreenWidth
+        toggleSettingsSidebar
     }
 })

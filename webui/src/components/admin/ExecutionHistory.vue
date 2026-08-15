@@ -12,6 +12,7 @@ import {
     EXECUTION_STATUS
 } from '@/composables/useTasks'
 import type { ExecutionInfo } from '@/types/tasks'
+import { useViewport } from '@/composables/useViewport'
 
 const props = defineProps<{
     executions: ExecutionInfo[]
@@ -49,6 +50,11 @@ const duration = (e: ExecutionInfo): string => {
     const s = sec % 60
     return s ? `${m}m ${s}s` : `${m}m`
 }
+
+const { tier } = useViewport()
+// Spec §5: settings tables must not overflow a phone; these columns are the
+// ones a phone admin can live without (the row's dialog still shows all).
+const phoneCols = computed(() => tier.value === 'phone')
 </script>
 
 <template>
@@ -60,41 +66,55 @@ const duration = (e: ExecutionInfo): string => {
                 · Complete: {{ counts.complete }} · Failed: {{ counts.failed }}
             </span>
         </p>
-        <DataTable
-            :value="executions"
-            :loading="isLoading"
-            dataKey="id"
-            stripedRows
-            class="queue-table"
-            @rowClick="(e: DataTableRowClickEvent) => emit('rowClick', e.data as ExecutionInfo)"
-        >
-            <template #empty><div class="empty-table">No executions found</div></template>
-            <Column field="task_name" header="Task" style="width: 140px" />
-            <Column header="Queued" style="width: 180px">
-                <template #body="{ data }">{{ formatDate(data.queued_at) }}</template>
-            </Column>
-            <Column header="Duration" style="width: 100px">
-                <template #body="{ data }">{{ duration(data) }}</template>
-            </Column>
-            <Column header="Status" style="width: 110px">
-                <template #body="{ data }">
-                    <Tag :value="getStatusLabel(data.status)" :severity="getStatusSeverity(data.status)" />
-                </template>
-            </Column>
-            <Column header="Actions" style="width: 120px">
-                <template #body="{ data }">
-                    <Button
-                        v-if="isActiveStatus(data.status)"
-                        label="Cancel"
-                        icon="pi pi-times"
-                        size="small"
-                        severity="secondary"
-                        :disabled="canceling"
-                        @click.stop="emit('cancel', data.id)"
-                    />
-                </template>
-            </Column>
-        </DataTable>
+        <div class="table-fit">
+            <DataTable
+                :value="executions"
+                :loading="isLoading"
+                dataKey="id"
+                stripedRows
+                class="queue-table"
+                @rowClick="(e: DataTableRowClickEvent) => emit('rowClick', e.data as ExecutionInfo)"
+            >
+                <template #empty><div class="empty-table">No executions found</div></template>
+                <Column field="task_name" header="Task" style="width: 140px" />
+                <Column header="Queued" :hidden="phoneCols" style="width: 180px">
+                    <template #body="{ data }">{{ formatDate(data.queued_at) }}</template>
+                </Column>
+                <Column header="Duration" :hidden="phoneCols" style="width: 100px">
+                    <template #body="{ data }">{{ duration(data) }}</template>
+                </Column>
+                <Column header="Status" style="width: 110px">
+                    <template #body="{ data }">
+                        <Tag :value="getStatusLabel(data.status)" :severity="getStatusSeverity(data.status)" />
+                    </template>
+                </Column>
+                <Column header="Actions" style="width: 120px">
+                    <template #body="{ data }">
+                        <Button
+                            v-if="isActiveStatus(data.status)"
+                            label="Cancel"
+                            icon="pi pi-times"
+                            size="small"
+                            severity="secondary"
+                            :disabled="canceling"
+                            @click.stop="emit('cancel', data.id)"
+                        />
+                        <!-- Keyboard path to the row dialog: @rowClick needs a
+                             pointer, and on phones the dialog is the only place
+                             the hidden Queued/Duration columns survive. -->
+                        <Button
+                            icon="pi pi-info-circle"
+                            text
+                            rounded
+                            size="small"
+                            severity="secondary"
+                            aria-label="Execution details"
+                            @click.stop="emit('rowClick', data as ExecutionInfo)"
+                        />
+                    </template>
+                </Column>
+            </DataTable>
+        </div>
     </div>
 </template>
 
@@ -111,5 +131,8 @@ const duration = (e: ExecutionInfo): string => {
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
+}
+.table-fit {
+    overflow-x: auto;
 }
 </style>

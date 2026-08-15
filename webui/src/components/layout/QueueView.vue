@@ -4,36 +4,18 @@ import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import SavePlaylistDialog from '@/components/layout/SavePlaylistDialog.vue'
 import QueueBody from '@/components/layout/QueueBody.vue'
 import QueueHeaderActions from '@/components/layout/QueueHeaderActions.vue'
-import { usePlayer } from '@/composables/usePlayer'
 import { useQueueActions } from '@/composables/useQueueActions'
 import { useQueueEdit } from '@/composables/useQueueEdit'
+import { useQueueSummary } from '@/composables/useQueueSummary'
 
 const props = defineProps<{ variant: 'full' | 'sidebar' }>()
 
-const player = usePlayer()
 const { showSaveDialog, playlistName, openSaveDialog, handleSave, isSaving, clearQueue } =
     useQueueActions()
 const { editMode, toggleEditMode } = useQueueEdit()
+const { trackCount, summary } = useQueueSummary()
 
 const title = computed(() => (props.variant === 'full' ? 'Now Playing' : 'Queue'))
-const trackCount = computed(() => player.queue.value.length)
-
-const totalDuration = computed(() => {
-    const total = player.queue.value.reduce((sum, s) => sum + (s.duration || 0), 0)
-    if (!total) return ''
-    const hours = Math.floor(total / 3600)
-    const mins = Math.floor((total % 3600) / 60)
-    return hours > 0 ? `${hours} hr ${mins} min` : `${mins} min`
-})
-
-// Pre-built as one string so the header has no stray whitespace between the
-// count and the unit word (keeps `.text()` assertions reliable in tests).
-// Empty at zero so ContentScaffold omits the summary element entirely.
-const summary = computed(() => {
-    if (trackCount.value === 0) return ''
-    const tracks = `${trackCount.value} ${trackCount.value === 1 ? 'track' : 'tracks'}`
-    return totalDuration.value ? `${tracks} • ${totalDuration.value}` : tracks
-})
 </script>
 
 <template>

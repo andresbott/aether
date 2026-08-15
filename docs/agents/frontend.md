@@ -38,7 +38,10 @@ When a view diverges from these registries, the registry wins.
   ContentScaffold, EditActionBar, HeroHeader/HeroActions).
 - `components/library/` — domain cards/grids/rows. **All card grids render
   through the shared `VirtualCardGrid`** (AlbumGrid, ArtistGrid,
-  RadioStationGrid…) — don't fork a new grid.
+  RadioStationGrid…) — don't fork a new grid. **`TrackActionSheet`** is the
+  touch counterpart of row hover affordances (add to queue, favorite, add to
+  playlist, go to album/artist), opened via the per-row ⋮ on
+  `useViewport().isTouch`.
   The four library bodies (`AlbumGrid`, `AlbumListView`, `ArtistGrid`,
   `ArtistListView`) take their data from **`useAlbumSource`/`useArtistSource`**
   (`composables/useLibrarySource.ts`), not from `useAlbumTable`/`useArtistTable`
@@ -87,8 +90,10 @@ When a view diverges from these registries, the registry wins.
   resolved write already means the DB is current; no polling needed.
 - `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v1`, overridable via
   `VITE_SERVER_URL_V1`) and `subsonic.ts` (`SubsonicClient`; same-origin
-  default via `initWithDefaults()`, no auth today — see
-  [subsonic-api.md](subsonic-api.md)).
+  default; `initWithDefaults()` is the **auth-method-`none`** path only —
+  authenticated modes call `setApiKey()` with the PAT minted by
+  `lib/subsonicSession.ts` — see [subsonic-api.md](subsonic-api.md) and
+  [authentication.md](authentication.md)).
 - `types/` — one file per API domain, mirroring backend response shapes.
 - `lib/apiError.ts` — **the only place a thrown API error becomes text.** Use
   `apiErrorMessage(err, fallback)` instead of re-deriving
@@ -102,6 +107,96 @@ When a view diverges from these registries, the registry wins.
   `{ error, rateLimited }` and the server already sends a showable sentence.
 - `store/uiStore.ts` — Pinia, UI-only state. Player persistence is
   localStorage (`musicPlayer:*` keys) via `utils/localStorage.ts`, not Pinia.
+
+### Shells
+
+`PlayerLayout` (`layouts/PlayerLayout.vue`) owns the shared skeleton —
+`AppSidebar`, the `main`/`RouterView` outlet, `QueueSidebar` — and swaps only
+the chrome components `DesktopShell` and `MobileShell` (both in `layouts/`)
+via a `v-if` on `useViewport().shell`. **The route outlet must stay outside
+the swap**: unmounting the active view on rotation would bypass its
+unsaved-edit guards (`onBeforeRouteLeave` / `beforeunload` are written for
+navigation, not teardown) and silently discard staged edits; guarded by
+`PlayerLayout.shellSwitch.spec.ts`. The breakpoint decision is: desktop width
+(≥1024px) → desktop, phone width (<768px) → mobile, tablet band → landscape
+**and at least 600px tall** → desktop, otherwise mobile. The height gate
+exists because landscape *phones* land in the tablet width band (iPhone 15:
+852×393) and must stay on the mobile shell. The constants live in
+`lib/breakpoints.ts` (`BP_PHONE_MAX = 768`, `BP_DESKTOP_MIN = 1024`,
+`BP_SHELL_MIN_HEIGHT = 600`); the widths are mirrored in SCSS
+(`_variables.scss`: `$bp-phone-max`, `$bp-desktop-min`); agreement is guarded
+by `assets/scss/__tests__/breakpoints.spec.ts`. Media queries can't read CSS
+custom properties, hence the SCSS twins.
+
+`useViewport` (singleton composable) reports `shell` ('desktop' | 'mobile'),
+`tier` ('phone' | 'tablet' | 'desktop'), and `isTouch` (from `(pointer:
+coarse)`).
+
+**Settings on phones.** `SettingsLayout` (`layouts/SettingsLayout.vue`)
+renders its sidebar as a horizontally-scrolling icon bar below 768px —
+collapse is a desktop concept with no room on a bar, so the collapse button
+and width machinery are hidden entirely. Settings tables use `useViewport().tier`
+to hide secondary columns on phones (via `Column :hidden` binding); hidden data
+either moves into a visible cell (the library path renders under the name on
+phone) or stays reachable through an icon-only button (the schedule calendar
+icon) or the row's edit dialog. The metadata editor (`MetadataEditorView`)
+stacks its split panels vertically and shows an info notice ("works best on a
+larger screen") on phone tier. **The `ContentScaffold` header wraps at any width
+and its title never shrinks below 12rem** (empty titles exempt) — this ensures
+the back button, title, and actions stay readable when the header reflows across
+narrow viewports.
+
+Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
+**`DesktopShell` only** — mount-scoped listeners (the reason the shells are
+components rather than inline `v-if` blocks). Mobile chrome components live in
+`components/layout/`: `MobileNavDrawer` (left drawer holding the whole nav —
+`AppSidebar`'s destinations plus the UserMenu account entries; any route change
+closes it so a system-back never navigates underneath it; its Now Playing and
+Queue entries are hidden while the queue is empty, since `/` would just bounce
+to the library. Queue is drawer-only — desktop keeps the queue in its sidebar —
+and is not a route of its own: it pushes `/#queue`, the address of
+`MobilePlayView`'s queue panel, and the hash decides which of the two entries
+lights up)
+and `MiniPlayer` (bottom-most mobile chrome, reserves the safe-area bottom
+inset; tap navigates to `/`, and the bar is hidden on that route because the
+play view carries the full transport). The drawer is opened by the hamburger
+`ContentScaffold` puts at the head of every top-level view's header on the
+mobile shell (detail views show Back in that spot instead); its open state is
+the `useMobileNav` singleton, since the trigger lives inside the route views
+while the drawer is shell chrome.
+
+**Now Playing on the mobile shell is a first-class route, not an overlay.**
+`HomeView` mimics the desktop *flow* on phones: with tracks queued, `/` renders
+**`MobilePlayView`** (cover art, seek, a prev/play/next transport, favorite,
+plus the queue as a second snap panel below the player face — swiping the face
+up reveals it, a hint-chevron button scrolls there without the gesture, and
+the panel's own heading carries the queue actions: shuffle/repeat inline,
+with the shared `QueueHeaderActions` (edit/save/clear, `labels` variant)
+behind the scaffold's ⋮ overflow; there is no header toggle).
+The way **back** is the queue panel's own touch handler — a downward pull that
+starts with the list at its top — not native scroll chaining: a chained drag
+hands the mandatory-snap container no fling momentum, so it settles straight
+back on the queue, which is also why both queue scrollers contain their
+overscroll. **`/#queue` is the queue panel's address**: the drawer's Queue
+entry pushes it, arriving with it lands on the queue without animating, and
+`MobilePlayView` rewrites the hash (debounced `router.replace`) as the user
+swipes, so the drawer's Now Playing / Queue highlight follows the visible
+panel; with an
+empty queue it `replace()`s the route with the library — an empty play view is
+a dead end on a one-surface screen. Desktop `/` keeps `QueueView variant="full"`
+(empty state included). Both surfaces share `useQueueSummary` for the
+"N tracks • X min" string — on desktop it sits in the scaffold header, on the
+phone under the queue panel's title (the scaffold header there is title-only). The predecessor **`PlayerSheet` overlay (and
+`usePlayerSheet`'s history/focus-trap machinery) is deleted** — routing gives
+system-back dismissal for free; don't reintroduce a sheet for now-playing.
+
+**useMediaSession** is bound once from `PlayerLayout` (shell-independent — desktop
+gains hardware media keys from the same wiring), feature-detected so unsupported
+browsers and jsdom are silent no-ops. Publishes `MediaMetadata` (title/artist/album
+plus artwork at 96/256/512px), mirrors `isPlaying` into `playbackState`, wires
+play/pause/previoustrack/nexttrack/seekto actions, and updates `setPositionState`
+on duration/seek changes — not on every `currentTime` tick (the browser
+extrapolates between updates).
 
 ## Player (`composables/usePlayer.ts`)
 
@@ -184,8 +279,9 @@ destination whose initial it is, so **`O` and `/` are both unbound now** — `/`
 back to Firefox's quick-find. Don't re-add either as an alias.
 
 Every nav binding pushes a **named route with no params**: `C` → `home` (Now
-Playing is `/`, where `HomeView` renders `QueueView` — there is no separate
-now-playing route), `D` → `library` with no `folderId` (the cross-collection root
+Playing is `/`, where `HomeView` renders `QueueView` on desktop and
+`MobilePlayView` on the mobile shell — there is no separate now-playing
+route), `D` → `library` with no `folderId` (the cross-collection root
 that opens on the Discover feed — a `folderId` would scope it to one library,
 which is not what the sidebar's Library entry does), plus `P` → `playlists`,
 `G` → `genres`, `R` → `radio`, `S` → `search`.

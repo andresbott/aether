@@ -1,3 +1,10 @@
+// Viewport breakpoints — TS twins in src/lib/breakpoints.ts, agreement guarded
+// by assets/scss/__tests__/breakpoints.spec.ts. Media queries can't read CSS
+// custom properties, hence SCSS vars. Use `$bp-phone-max - 0.02px` for
+// max-width phone queries so 768px itself is tablet, not phone.
+$bp-phone-max: 768px;
+$bp-desktop-min: 1024px;
+
 :root {
     /* Unified typography — Inter is bundled via @fontsource-variable/inter (no
        CDN). The fallbacks match docs/mockups/hero/_shared.css. */
@@ -57,6 +64,8 @@
     --app-sidebar-width: 260px;
     --app-sidebar-collapsed-width: 70px;
     --app-player-height: 116px;
+    /* Mobile-shell chrome height (the safe-area inset is added on top). */
+    --app-mini-player-height: 3.5rem;
     /* Small radius scale for cards/inputs — Dense Pro uses tight 6–10px corners. */
     --app-radius: 8px;
     /* Shared max width of the centered main-content column. The scaffold header
@@ -110,4 +119,17 @@
     --app-player-dim: #6a7681;
     --app-player-track: rgba(255, 255, 255, 0.14);
     --app-player-range: #7b8794;
+}
+
+/* Phone-width re-tokening. The recipes in
+   docs/architecture/main-content-view-layout.md all resolve through these
+   tokens, so every conforming view adapts from here with no per-view change.
+   The rail clearance collapses because the alphabet rail is display:none on
+   phones (AlphabetRail.vue) — the two must move together or content would sit
+   under a rail that is still visible. */
+@media (max-width: ($bp-phone-max - 0.02px)) {
+    :root {
+        --app-content-gutter: 0.75rem;
+        --app-rail-clearance: 0px;
+    }
 }

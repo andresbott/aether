@@ -128,11 +128,17 @@ export function useSearch(params: Ref<SearchParams> | ComputedRef<SearchParams>)
     })
 }
 
-export function usePlaylists() {
+// `options` so a caller that only sometimes needs the list can gate the request
+// (`enabled`) instead of fetching on every mount — TrackActionSheet is mounted by
+// four views but only ever opens on touch. Same options-spread shape as useAlbum.
+export function usePlaylists(
+    options?: Omit<UseQueryOptions<Playlist[]>, 'queryKey' | 'queryFn'>
+) {
     return useQuery({
         queryKey: queryKeys.playlists,
         queryFn: () => subsonicClient.getPlaylists(),
-        staleTime: 5 * 60 * 1000
+        staleTime: 5 * 60 * 1000,
+        ...options
     })
 }
 

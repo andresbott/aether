@@ -3,27 +3,31 @@ import { onMounted, onUnmounted } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 import Toast from 'primevue/toast'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
-import PlayerControls from '@/components/layout/PlayerControls.vue'
 import QueueSidebar from '@/components/layout/QueueSidebar.vue'
-import ShortcutHelpOverlay from '@/components/layout/ShortcutHelpOverlay.vue'
-import { useUiStore } from '@/store/uiStore'
-import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
+import DesktopShell from '@/layouts/DesktopShell.vue'
+import MobileShell from '@/layouts/MobileShell.vue'
 import { useQueueSync } from '@/composables/useQueueSync'
-import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts'
+import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
+import { useViewport } from '@/composables/useViewport'
+import { useMediaSession } from '@/composables/useMediaSession'
 
-const uiStore = useUiStore()
 const route = useRoute()
-const scrollbarWidth = useScrollbarWidth()
 const queueSync = useQueueSync()
+// One chrome at a time: v-if (not CSS hiding) so there is never a duplicate
+// tab order or ARIA tree, and shortcuts only bind in the desktop chrome. The
+// route outlet lives HERE, outside the swap: a rotation replaces the chrome
+// but must never unmount the active view — teardown bypasses the views'
+// unsaved-edit guards (onBeforeRouteLeave / beforeunload), which are written
+// for navigation, and would silently discard staged edits.
+const { shell } = useViewport()
+// Recipes read --sb-w in both shells; on phone overlay scrollbars it is 0.
+const scrollbarWidth = useScrollbarWidth()
 
-// Bound here rather than globally: these are player actions, and the settings
-// shell is a separate layout that deliberately gets none of them.
-useKeyboardShortcuts()
+// Lock-screen / hardware-key controls; shell-independent, so it lives here
+// rather than in either shell.
+useMediaSession()
 
 onMounted(async () => {
-    uiStore.checkScreenWidth()
-    window.addEventListener('resize', uiStore.checkScreenWidth)
-
     // Adopt the queue saved from another browser/device before arming the save
     // side: starting first would let a debounced local save race the state
     // arriving from the server.
@@ -32,40 +36,47 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-    window.removeEventListener('resize', uiStore.checkScreenWidth)
     queueSync.stop()
 })
 </script>
 
 <template>
-    <div class="app-container">
+    <div class="player-shell" :class="shell === 'desktop' ? 'desktop-shell' : 'mobile-shell'">
         <div class="body-row">
-            <AppSidebar />
+            <AppSidebar v-if="shell === 'desktop'" />
 
             <div class="content-area" :style="{ '--sb-w': scrollbarWidth + 'px' }">
                 <main class="main-content" :class="{ 'main-content--flush': route.meta.flush }">
                     <RouterView />
                 </main>
-                <QueueSidebar v-if="route.name !== 'home'" />
+                <QueueSidebar v-if="shell === 'desktop' && route.name !== 'home'" />
             </div>
         </div>
 
-        <PlayerControls />
-        <!-- Last, so its badges measure a player bar that is already laid out. -->
-        <ShortcutHelpOverlay />
-        <Toast />
+        <DesktopShell v-if="shell === 'desktop'" />
+        <MobileShell v-else />
     </div>
+    <Toast />
 </template>
 
 <style>
-.app-container {
+.player-shell {
     display: flex;
     flex-direction: column;
-    height: 100vh;
     width: 100%;
     overflow: hidden;
     background-color: var(--app-background);
+}
+
+.player-shell.desktop-shell {
+    height: 100vh;
     padding-bottom: var(--app-player-height);
+}
+
+.player-shell.mobile-shell {
+    /* dvh, not vh: mobile browser UI bars shrink the visible viewport, and a
+       100vh column would push the tab bar under them. */
+    height: 100dvh;
 }
 
 .body-row {
@@ -79,30 +90,7 @@ onUnmounted(() => {
     display: flex;
     flex: 1;
     min-width: 0;
+    min-height: 0;
     overflow: hidden;
-}
-
-.main-content {
-    flex: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    background-color: var(--app-background);
-    padding: 1rem 2rem;
-}
-
-@media (max-width: 768px) {
-    .main-content {
-        padding: 1rem;
-    }
-}
-
-/* Full-bleed routes (those with `meta: { flush: true }`) manage their own
-   horizontal gutter on their header/content, so drop the side padding here and
-   let their internal scroll area reach the content-area edge — putting the
-   scroll bar flush right. Declared last so it also wins inside the media query
-   above. */
-.main-content--flush {
-    padding-left: 0;
-    padding-right: 0;
 }
 </style>

@@ -31,9 +31,13 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 
 | Feature | Status | Where |
 |---|---|---|
-| Authentication | **Not implemented — everything is open** | Web SPA calls `/rest` with no credentials (`subsonicClient.initWithDefaults()` skips auth). Direction is decided: session auth for the SPA, PATs for third-party Subsonic clients via the `userauth` library — full model incl. the Authelia trusted-header deployment in [authentication.md](authentication.md). Do not invent a different scheme. |
-| Multi-user | Not implemented | Single-user; `Playlist.Owner` pre-wired; per-user star schema chosen in TODO.md |
-| Path traversal validation on stream/getCoverArt | Open TODO | Serving paths come from the trusted DB; the metadata editor validates via `metadataedit.ResolveInLibrary` — the `/rest` media handlers do not yet |
+| Authentication | **Implemented — both modes** | Full model in [authentication.md](authentication.md); do not invent a different scheme. `Auth.Method` selects `none` (open, the shipped default) / `native` (login + cookie session, `handlers/auth`, three-tier `sessionGuard` in `api_v1.go`) / `proxy-header` (`headerGuard` + JIT provisioning, `proxy_auth.go`). **`/rest` is PAT-only in every mode** via the `IdentityResolver` seam (`subsonic/subsonic.go`, injected by `patIdentityResolver` in `main.go`): `apiKey`, or `u`+`t`+`s`/`u`+`p` against `usertoken` PATs; errors 40/41/43/44/0; `apiKeyAuthentication` advertised. The SPA mints a 48h per-device `spa` token on boot (`POST /api/v1/auth/token`) and re-mints transparently |
+| Token (PAT) management | Implemented | `handlers/tokens` — mint + CRUD on `/api/v1/auth/token[s]` (session tier: any authenticated role); `MaxSessionsPerUser` = 10 with per-device + LRU sweep at mint; UI in `UserSettingsView` → Connected apps |
+| Native users CRUD + roles | Implemented, native only | `handlers/users` — admin role = membership in the `admin` group; `last_admin` refusal (409) and rename refusal (400) are load-bearing, see [authentication.md](authentication.md#users-crud-guards-native-only). UI in `/settings/users` |
+| Change own password | **Not implemented — no UI and no endpoint** | `SetPasswordHash` is reachable only from the CLI (`aether user reset-password`) and the **admin-only** `PUT /api/v1/users/{id}`, so a non-admin cannot change their own password at all. Needs a session-tier route + a General-panel form; TODO.md (1.0, Security & Authentication) |
+| Brute-force protection on login | **Not implemented** | No rate limiting or lockout anywhere in `app/`; the login flow runs with a nil `AttemptStore`. TODO.md (1.0) |
+| Multi-user | Implemented, with one caveat | Per-user scoping of queue, stars, playlists and history via owner-keyed schemas (`model.PlayQueue`/`star`/`playlist`/`scrobble` all carry `Owner`). The caveat: `owner` is the login **string**, not `User.ID` — contained, not live, because renaming is refused. Re-keying is TODO.md (Future releases, Multi-user) |
+| Path traversal validation on stream/getCoverArt | Implemented | `pathguard` confines every file the media handlers read to the configured library roots (`mediaPathAllowed`/`currentGuard` in `subsonic/media.go`, installed via `WithLibraryRoots` so runtime-added libraries are covered). No usable roots installs no guard — "no libraries yet" must not black out generated covers |
 
 ## Server administration (`/api/v1`)
 
@@ -80,4 +84,5 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 Last.fm scrobbling, DLNA/UPnP, jukebox/relay, transcoding, CUE sheets,
 app icon/branding, `/api/v1` → `/admin` path reorg, per-scan cover-path
 revalidation (known stale-cover bug with detailed root-cause notes),
-`getPlaylists` N+1 fix, favorites schema rework.
+`getPlaylists` N+1 fix, favorites schema rework, `getUser`/`getUsers`,
+change-own-password, login brute-force protection, image-cache eviction.

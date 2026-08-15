@@ -8,6 +8,7 @@ import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
+import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
 import { useGenres, useUpdateGenreCover } from '@/composables/useSubsonicQueries'
 import { useGenreSongsTable, GENRE_SONG_PAGE_SIZE } from '@/composables/useGenreSongsTable'
 import { usePlayer } from '@/composables/usePlayer'
@@ -26,6 +27,36 @@ const player = usePlayer()
 const updateCover = useUpdateGenreCover()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+const actionSong = ref<Song | null>(null)
+const actionIndex = ref(0)
+const actionSheetOpen = ref(false)
+
+// Touch tap-to-play: queue the list as shown and start at the tapped track, NOT
+// `playNow`, which would wipe the queue down to that one song
+// (see docs/architecture/unified-play-experience.md, "Touch contract").
+//
+// `items` is the SPARSE lazily-paged table: slots belonging to pages that have not
+// been scrolled into view yet are holes, and usePlayer's queue is a dense Song[].
+// So queue the entries that ARE loaded and start at the tapped song's position in
+// that dense list — the song under the finger is always the one that plays.
+// Scrolling on loads more pages but does not retro-fill the queue; gathering the
+// complete genre stays the hero Play's job (it pages through getSongsByGenre).
+const playTrack = (index: number): void => {
+    const tapped = items.value[index]
+    if (!tapped) return
+    const loaded = items.value.filter((s): s is Song => s !== undefined)
+    const start = loaded.indexOf(tapped)
+    player.playAlbum(loaded, start === -1 ? 0 : start)
+}
+
+const openTrackMenu = (index: number): void => {
+    const song = items.value[index]
+    if (!song) return
+    actionSong.value = song
+    actionIndex.value = index
+    actionSheetOpen.value = true
+}
 
 const { data: genres, isLoading, error } = useGenres()
 const genre = computed(() => genres.value?.find((g) => g.value === props.name))
@@ -303,6 +334,8 @@ watch(
                                 :playing="item?.id === currentTrackId"
                                 @select="(p) => onRowClick(options.index, p)"
                                 @enqueue="enqueueTrack(options.index)"
+                                @play="playTrack(options.index)"
+                                @menu="openTrackMenu(options.index)"
                                 @dragstart="(e) => onRowDragStart(e, options.index)"
                                 @dragend="songsDrag.end"
                             />
@@ -310,6 +343,11 @@ watch(
                     </VirtualScroller>
                 </div>
             </div>
+            <TrackActionSheet
+                v-model:visible="actionSheetOpen"
+                :song="actionSong"
+                @play="playTrack(actionIndex)"
+            />
         </ContentScaffold>
     </div>
 </template>
@@ -388,6 +426,20 @@ watch(
 
 .track-list-header .col-duration {
     text-align: right;
+}
+
+/* Phone: GenreTrackRow hides its artist and album cells, so the shared template
+   and this view's header row must drop the same two tracks — otherwise every row
+   misaligns. 767.98px = $bp-phone-max - 0.02px (guarded by breakpoints.spec.ts). */
+@media (max-width: 767.98px) {
+    .track-list {
+        --genre-track-cols: 48px minmax(0, 1fr) 2rem 2rem 62px;
+    }
+
+    .track-list-header .col-artist,
+    .track-list-header .col-album {
+        display: none;
+    }
 }
 
 .track-scroller {

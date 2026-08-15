@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends { id: string }">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { computeColumnWidth, computeGridColumns } from '@/utils/cardGrid'
+import { useViewport } from '@/composables/useViewport'
 
 /**
  * The single responsive card-grid LAYOUT in the app: it measures the available
@@ -32,16 +33,27 @@ const props = withDefaults(
 
 defineSlots<{ card(props: { item: T | undefined }): unknown }>()
 
+const { tier } = useViewport()
+
+// Phones get tighter cards: a 200px minimum drops a 390px viewport to a single
+// monster column. Callers' explicit smaller values are respected, and the caps are
+// idempotent — `VirtualCardGrid` applies the same ones before passing them down,
+// while `DiscoveryFeed` renders this component directly and relies on these.
+const effectiveMinColWidth = computed(() =>
+    tier.value === 'phone' ? Math.min(props.minColWidth, 150) : props.minColWidth
+)
+const effectiveGap = computed(() => (tier.value === 'phone' ? Math.min(props.gap, 16) : props.gap))
+
 const sizer = ref<HTMLElement | null>(null)
 const availableWidth = ref(0)
 
 const columns = computed(() =>
-    computeGridColumns(availableWidth.value, props.minColWidth, props.gap)
+    computeGridColumns(availableWidth.value, effectiveMinColWidth.value, effectiveGap.value)
 )
 
 /** Exposed so a virtualizing parent can size its scroll rows from the same math. */
 const columnWidth = computed(() =>
-    computeColumnWidth(availableWidth.value, columns.value, props.gap)
+    computeColumnWidth(availableWidth.value, columns.value, effectiveGap.value)
 )
 
 defineExpose({ columns, columnWidth })
@@ -50,7 +62,7 @@ const gridStyle = computed(() => ({
     display: 'grid',
     // minmax(0, ...) — never `minColWidth` — see the note above.
     gridTemplateColumns: `repeat(${columns.value}, minmax(0, 1fr))`,
-    gap: `${props.gap}px`
+    gap: `${effectiveGap.value}px`
 }))
 
 function measureWidth(): void {

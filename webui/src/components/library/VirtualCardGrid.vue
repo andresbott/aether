@@ -4,6 +4,7 @@ import VirtualScroller from 'primevue/virtualscroller'
 import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import AlphabetRail from '@/components/library/AlphabetRail.vue'
 import CardGrid from '@/components/library/CardGrid.vue'
+import { useViewport } from '@/composables/useViewport'
 import type { AlbumLetter } from '@/types/subsonic'
 import {
     chunkRows,
@@ -29,7 +30,16 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'lazyLoad', first: number, last: number): void }>()
 defineSlots<{ card(props: { item: T | undefined }): unknown }>()
 
+const { tier } = useViewport()
+
 const INFO_HEIGHT_ESTIMATE = 56
+
+// Phones get tighter cards: 200px minimums would drop a 390px viewport to a
+// single monster column. Callers' explicit smaller values are respected.
+const effectiveMinColWidth = computed(() =>
+    tier.value === 'phone' ? Math.min(props.minColWidth, 150) : props.minColWidth
+)
+const effectiveGap = computed(() => (tier.value === 'phone' ? Math.min(props.gap, 16) : props.gap))
 
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 const gridRoot = ref<HTMLElement | null>(null)
@@ -38,9 +48,9 @@ const sizer = ref<HTMLElement | null>(null)
 const availableWidth = ref(0)
 const infoHeight = ref(INFO_HEIGHT_ESTIMATE)
 
-const columns = computed(() => computeGridColumns(availableWidth.value, props.minColWidth, props.gap))
-const columnWidth = computed(() => computeColumnWidth(availableWidth.value, columns.value, props.gap))
-const itemSize = computed(() => Math.max(1, columnWidth.value + infoHeight.value + props.gap))
+const columns = computed(() => computeGridColumns(availableWidth.value, effectiveMinColWidth.value, effectiveGap.value))
+const columnWidth = computed(() => computeColumnWidth(availableWidth.value, columns.value, effectiveGap.value))
+const itemSize = computed(() => Math.max(1, columnWidth.value + infoHeight.value + effectiveGap.value))
 const rows = computed(() => chunkRows(props.items, columns.value))
 const rowStyle = computed(() => ({
     // VirtualScroller lays rows out in normal flow and only uses itemSize for the
@@ -49,7 +59,7 @@ const rowStyle = computed(() => ({
     // height equal itemSize (columnWidth + infoHeight + gap), avoiding scroll drift.
     // getBoundingClientRect (used to measure info height) excludes margins, so this
     // doesn't feed back into the sizing.
-    marginBottom: `${props.gap}px`
+    marginBottom: `${effectiveGap.value}px`
 }))
 
 let lastRowRange: { first: number; last: number } | null = null
@@ -150,8 +160,8 @@ watch(
                     class="grid-row"
                     :style="rowStyle"
                     :items="(row as (T | undefined)[])"
-                    :minColWidth="minColWidth"
-                    :gap="gap"
+                    :minColWidth="effectiveMinColWidth"
+                    :gap="effectiveGap"
                 >
                     <template #card="{ item }">
                         <slot name="card" :item="item as T | undefined" />

@@ -11,7 +11,9 @@ declare module 'vue-router' {
     interface RouteMeta {
         layout?: 'player' | 'settings'
         // Full-bleed main content view: the view owns its own horizontal gutter
-        // and self-scrolls, so PlayerLayout drops the shell's side padding.
+        // and self-scrolls, so the shells (DesktopShell / MobileShell) put
+        // `main-content--flush` on <main>; the padding it drops lives on
+        // `.main-content` in styles/_main.scss.
         flush?: boolean
     }
 }

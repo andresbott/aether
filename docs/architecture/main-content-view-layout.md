@@ -29,15 +29,18 @@ content views — including Now Playing itself — now use the scaffold. New vie
 
 ---
 
-## 1. The layout shell (`PlayerLayout.vue`)
+## 1. The layout shell (`DesktopShell.vue` / `MobileShell.vue`, switched by `PlayerLayout.vue`)
 
-Every route view is mounted inside a fixed-height flex column:
+Every route view is mounted inside a fixed-height flex column. `PlayerLayout` mounts
+**exactly one** shell — `useViewport().shell` picks it (`v-if`, never CSS hiding), so only
+one chrome exists in the DOM at a time:
 
 ```
-app-container (100vh, overflow hidden)
- └ body-row (flex, min-height:0)
-    └ content-area (flex, overflow hidden)
-       ├ main.main-content  ← RouterView renders here
+.desktop-shell (100vh, overflow hidden)      .mobile-shell (100dvh, overflow hidden)
+ └ .body-row (flex, min-height:0)             └ .mobile-content (--sb-w, flex, overflow hidden)
+    └ .content-area (--sb-w, flex,               └ main.main-content  ← RouterView renders here
+                     overflow hidden)          ├ MiniPlayer      (only when the queue is non-empty)
+       ├ main.main-content  ← RouterView       └ MobileNavDrawer (left overlay, via the header hamburger)
        └ QueueSidebar
 ```
 
@@ -47,13 +50,13 @@ app-container (100vh, overflow hidden)
   padding so the *view itself* owns its gutters and its scrollbar reaches the
   content-area's right edge. Flush is declared **per route via `meta.flush`** (co-located
   with the route, matching the existing `meta.layout` convention read in `App.vue`), and
-  `PlayerLayout` reads it:
+  each shell reads it:
 
   ```ts
   // router/index.ts — on each full-bleed route:
   { path: '/radio', name: 'radio', component: …, meta: { flush: true } }
 
-  // PlayerLayout.vue:
+  // DesktopShell.vue / MobileShell.vue:
   :class="{ 'main-content--flush': route.meta.flush }"
   ```
   The `flush?: boolean` field is declared on `RouteMeta` in `App.vue`.
@@ -81,7 +84,7 @@ if a view needs more.
 
 - **Props:** `title: string`, `summary?: string`, `showBack?: boolean`.
 - **Emits:** `@back` (when the back button is clicked).
-- **Slots:** `#actions` (right-aligned header controls), `#title-actions` (inline actions beside the title), default (the body).
+- **Slots:** `#actions` (right-aligned header controls, always visible), `#secondary-actions` (collapsible actions — inline on desktop/tablet tier, behind a ⋮ Popover on the phone tier; use for controls a phone header can't fit), `#title-actions` (inline actions beside the title), default (the body).
 - **Structure & exact styling** (match these values if you ever hand-roll the header):
   - Header is `flex-shrink:0`, full-width with
     `padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px))` (Recipe A: compensates for the body scroller's scrollbar twice) and a bottom border.
@@ -126,15 +129,18 @@ The body is a child that **scrolls itself** and centers its content — the scaf
 frames it. Content alignment is driven by four CSS custom properties and three recipes that
 handle scrollbar compensation at different depths.
 
-**Tokens** (defined in `_variables.scss`, `--sb-w` set by `PlayerLayout` on `.content-area`):
+**Tokens** (defined in `_variables.scss`; `--sb-w` is set by the shells — `DesktopShell` on
+`.content-area`, `MobileShell` on `.mobile-content`):
 
 | Token | Value | Meaning |
 |---|---|---|
 | `--app-content-max-width` | `1320px` | Inner content-box width of the column |
-| `--app-content-gutter` | `1rem` | Horizontal padding inside the column |
-| `--app-rail-clearance` | `2.75rem` | Alphabet-rail slot: rail 1.75rem + 1rem gap |
+| `--app-content-gutter` | `1rem` (→ `0.75rem` on phones) | Horizontal padding inside the column |
+| `--app-rail-clearance` | `2.75rem` (→ `0px` on phones) | Alphabet-rail slot: rail 1.75rem + 1rem gap |
 | `--app-list-header-top` | `1rem` | Gap above a list view's column header |
 | `--sb-w` | measured px | Native scrollbar width |
+
+Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-clearance` collapses to `0px` (the rail is `display:none`, so the clearance must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
 
 **`--app-list-header-top` goes on the header element, never on the scroll container
 above it.** Library → Albums and Artists have fixed headers where either would look
@@ -208,12 +214,15 @@ resolve to the same inner content box:
 For long alphabetically-indexed lists, the rail is a thin overlay **immediately left of the
 native scrollbar** — the scrollbar remains the outermost element.
 
-- `--sb-w` is now set once by `PlayerLayout` on `.content-area` — **views must not re-measure**;
-  inherit the var (it's `0` on overlay-scrollbar systems).
+- `--sb-w` is now set once by the active shell (`DesktopShell` on `.content-area`,
+  `MobileShell` on `.mobile-content`) — **views must not re-measure**; inherit the var
+  (it's `0` on overlay-scrollbar systems).
 - Set `scrollbar-gutter: stable` on the scroller.
 - Rail: `position:absolute; top:0; bottom:0; right: var(--sb-w, 0px); width:1.75rem`. The
   `--app-rail-clearance` token (2.75rem) includes this rail width + 1rem gap; recipes
-  reserve that clearance on the right so content never sits under the rail.
+  reserve that clearance on the right so content never sits under the rail. On phones
+  (below `$bp-phone-max` = 768px), the rail is `display:none` and `--app-rail-clearance`
+  is zeroed — the two must move together (paired, guarded by `AlphabetRail.phoneStyles.spec.ts`).
 - Rail `@select(offset)` → `scrollToIndex(offset)` (for lazily-windowed lists, `ensureRange`
   before scrolling — see `AlbumListView`).
 
@@ -235,6 +244,14 @@ main content view. It splits per variant:
   count badge, small buttons) — this variant is **not** governed by this guidance; it's
   side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
+On the **mobile shell**, `HomeView` renders **`MobilePlayView`** on `/` instead of
+`QueueView` — a first-class play screen (cover art, seek, prev/play/next transport, queue
+as a swipe-up snap panel) also composed on `ContentScaffold`, so it gets the hamburger like
+every other top-level view. Its queue heading carries shuffle/repeat in `#actions` and
+`QueueHeaderActions` (labeled) in `#secondary-actions`, i.e. behind the scaffold ⋮ on
+phones. With an empty queue the phone `/` replaces itself with the library
+(see `HomeView`); desktop keeps the queue list's empty state.
+
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import
 `ContentScaffold`** — do not reimplement. Hand-rolled headers are reserved for non-view
 chrome like the queue sidebar.
@@ -245,7 +262,8 @@ chrome like the queue sidebar.
 
 | View | Route | Conforms? |
 | --- | --- | --- |
-| Now Playing (`QueueView` full) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
+| Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
+| Now Playing (`MobilePlayView` — mobile shell) | `/` | ✅ `ContentScaffold` (play face + queue face) |
 | Library (discover/album/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
@@ -276,7 +294,7 @@ content views now conform; keep new ones on `ContentScaffold`.
    at the same x on every view.
 4. Add `meta: { flush: true }` to the route in `router/index.ts`.
 5. Long indexed list? Reuse `AlphabetRail` per §5 (never re-measure `--sb-w`; it's already
-   set by `PlayerLayout`).
+   set by the shells — `DesktopShell` on `.content-area`, `MobileShell` on `.mobile-content`).
 6. Test (Vitest): title renders, summary reflects the count (singular + plural) and is
    absent at zero, actions live in the header, empty/loading states show. See
    `RadioView.spec.ts` / `LibraryView.spec.ts` for the shape.

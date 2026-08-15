@@ -60,8 +60,9 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   starts only when the player was idle (empty queue or no loaded track), so a
   double-click on an idle player still makes sound while one on a playing queue never
   interrupts it. Hosts: `AlbumView`, `GenreDetailView`, `SearchView`,
-  `PlaylistDetailView`. **Replacing the queue is the hero Play button's job**
-  (`player.playAlbum`) — do not wire a row double-click back to `playAlbum`, and do not
+  `PlaylistDetailView`. **Replacing the queue belongs to the hero Play button**
+  (`player.playAlbum`) **and, on touch only, to a row tap** (see "Touch contract") —
+  do not wire a row double-click back to `playAlbum`, and do not
   add a per-view variant of the gesture: it means the same thing on every track list.
   `QueueRow` is the exception and keeps `play` — inside the queue, double-clicking a
   row means "jump to this slot" (`playQueueItem`), since the track is already queued.
@@ -69,8 +70,10 @@ to [`unified-edit-experience.md`](unified-edit-experience.md): edit chrome lives
   component, not a per-row copy of the card pattern. It owns the icon pair, the
   wording, the `.row-star`/`.is-starred` classes and the click swallowing (both
   `click` and `dblclick`: rows select on one and enqueue on the other). Each host row
-  supplies only its own reveal rule (`.<row>:hover .row-star { opacity: 1 }`),
-  because the hover selector is row-specific while nothing else is. Hosts:
+  supplies only its own reveal rules (`.<row>:hover .row-star { opacity: 1 }` plus the
+  `@media (pointer: coarse)` unconditional reveal, since touch has no hover),
+  because those selectors are row-specific while nothing else is. All three rows
+  carry both — a row with only the hover rule has an invisible heart on touch. Hosts:
   `AlbumTrackRow`, `GenreTrackRow` (genre detail, search, playlist detail) and
   `QueueRow` in view mode. Edit mode gets no heart — that mode is for reordering
   and removal.
@@ -144,6 +147,44 @@ A hero Favorite and a track-row Favorite are **different entities** on the same 
 AlbumView's hero star is the album's, its row hearts are each track's. A view listing
 songs therefore has row hearts regardless of whether it has a hero — Search and the
 queue have no hero and still star their tracks.
+
+## Touch contract
+
+On `useViewport().isTouch`, a track-row tap **plays the view's visible track list
+starting at the tapped track**: hosts wire `@play` → `player.playAlbum(list, index)`,
+the same primitive the hero Play uses. Say it plainly — **a tap REPLACES the queue**.
+That is the point: tapping track 3 of an album queues the whole album and starts at
+3. It must **not** be `player.playNow(song)`, which sets `queue = [song]` and so
+threw away the rest of the album plus whatever was already queued (and, on a
+touch-capable desktop, did that on one stray mouse click).
+
+Each host passes its own full list — `AlbumView` `orderedSongs` (flat, disc-ordered,
+so the start index is the row's flat position), `PlaylistDetailView` `working` (the
+live list, so an unsaved reorder plays as shown), `SearchView` `songs`, and
+`GenreDetailView` the loaded entries of its **sparse** `items`. The genre table is
+lazily paged, so unscrolled slots are holes and the queue must be dense: it queues
+the pages already loaded and starts at the tapped song's position in that dense
+list, which keeps the song under the finger the one that plays. Gathering the
+complete genre stays the hero Play's job.
+
+The per-row ⋮ (aria-label "Track actions") opens the shared **`TrackActionSheet`**
+(`webui/src/components/library/TrackActionSheet.vue`) — add to queue via
+`player.addToQueue`, favorite via `useSongFavorite`, add to playlist via
+`updatePlaylist` `songIdsToAdd`, go to album, and go to artist. The playlist picker's
+`getPlaylists` is **gated on first open** (`usePlaylists({ enabled })`): the sheet is
+mounted by every host view, and an ungated query cost a request per visit for a
+picker desktop users can never open. Add-to-playlist toasts both ways
+(success + `apiErrorMessage`) — it is a write with no visible result otherwise.
+
+Queue-replacing affordances are therefore the **hero Play** (both input kinds) and a
+**row tap** (touch only). Double-click-to-enqueue and hover reveals remain the
+**pointer contract** (additive, not replaced) — touch has no hover, so the heart is
+visible always, via a `@media (pointer: coarse) { .row-star { opacity: 1 } }` rule in
+each host row: `AlbumTrackRow`, `GenreTrackRow` **and `QueueRow`**. `QueueRow`
+deliberately gets that rule and nothing else — no ⋮ and no `TrackActionSheet` in the
+queue, where the sheet's actions are either meaningless (add to queue) or already
+present. **`TrackSelectButton` is pointer-only** (`v-if="!isTouch"`), so multi-select
+has no touch equivalent — the ⋮ takes its column on touch.
 
 ## Deliberately out of scope
 

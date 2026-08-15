@@ -481,6 +481,32 @@ describe('useQueueSync restoring', () => {
         expect(savePlayQueueMock).not.toHaveBeenCalled()
     })
 
+    // THE REGRESSION: PlayerLayout remounts on every trip through /settings and
+    // its onMounted calls restore() again. Re-adopting the server snapshot into a
+    // session that is already playing re-points the active element's src, which
+    // stops playback dead. restore() is a page-load concern: once per load.
+    it('restores only once per page load', async () => {
+        getPlayQueueMock.mockResolvedValue(savedQueue)
+        const player = usePlayer()
+        const sync = startSync()
+        await sync.restore()
+        sync.start()
+
+        // The user plays a different track than the restored one...
+        player.playQueueItem(2)
+        await nextTick()
+
+        // ...then round-trips through /settings: the layout remounts and runs
+        // the restore/start sequence again.
+        sync.stop()
+        await sync.restore()
+        sync.start()
+
+        expect(getPlayQueueMock).toHaveBeenCalledTimes(1)
+        expect(player.currentIndex.value).toBe(2)
+        expect(player.isPlaying.value).toBe(true)
+    })
+
     it('leaves the local queue untouched when the server has no saved queue', async () => {
         getPlayQueueMock.mockResolvedValue(null)
         const player = usePlayer()

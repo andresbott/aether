@@ -13,9 +13,12 @@ const settingsSidebarCollapsed = ref(false)
 const toggleSettingsSidebar = vi.fn(() => {
     settingsSidebarCollapsed.value = !settingsSidebarCollapsed.value
 })
-const checkScreenWidth = vi.fn()
 vi.mock('@/store/uiStore', () => ({
-    useUiStore: () => reactive({ settingsSidebarCollapsed, toggleSettingsSidebar, checkScreenWidth })
+    useUiStore: () =>
+        reactive({
+            settingsSidebarCollapsed,
+            toggleSettingsSidebar
+        })
 }))
 
 const versionData = ref<Record<string, string> | undefined>(undefined)
@@ -46,7 +49,6 @@ describe('SettingsLayout', () => {
         userManagement.value = false
         push.mockClear()
         toggleSettingsSidebar.mockClear()
-        checkScreenWidth.mockClear()
     })
 
     // Settings is administration only: the account concerns (profile, logout)
@@ -100,17 +102,25 @@ describe('SettingsLayout', () => {
         expect(w.text()).toContain('Users')
     })
 
-    it('checks the screen width on mount to auto-collapse on narrow screens', () => {
-        mountLayout()
-        expect(checkScreenWidth).toHaveBeenCalled()
-    })
-
     // Settings views report failures through useToast (library CRUD, task
     // actions). PrimeVue drops any toast raised with no Toast component mounted,
     // and the only other outlet is in PlayerLayout, which never renders under
     // /settings — so without this outlet those errors are silently swallowed.
     it('mounts a Toast outlet so settings views can surface errors', () => {
         expect(mountLayout().find('.toast-outlet').exists()).toBe(true)
+    })
+
+    // On phone, .nav-label is hidden, leaving icon-only buttons that must carry
+    // an accessible name (WCAG 4.1.2).
+    it('provides accessible names on all nav buttons', () => {
+        const w = mountLayout()
+        const navItems = w.findAll('.sidebar-nav .nav-item')
+        expect(navItems.length).toBeGreaterThan(0)
+        navItems.forEach((item) => {
+            expect(item.attributes('aria-label')).toBeTruthy()
+        })
+        const backBtn = w.find('.sidebar-footer-nav .nav-item')
+        expect(backBtn.attributes('aria-label')).toBe('Back to player')
     })
 
 })
