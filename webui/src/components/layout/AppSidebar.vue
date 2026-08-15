@@ -7,6 +7,7 @@ import { useMusicFolders } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
 import UserMenu from '@/components/layout/UserMenu.vue'
+import BrandMark from '@/components/common/BrandMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -180,10 +181,10 @@ onBeforeUnmount(resetEgg)
                         @click="goHome"
                     >
                         <!-- The diamond is also the easter-egg trigger. It stays
-                             a plain span inside the button so it is neither
-                             separately focusable nor announced — advertising it
-                             would stop it being hidden. -->
-                        <span class="brand-mark" @click="onBrandMarkClick">◈</span>
+                             a decorative image inside the button so it is
+                             neither separately focusable nor announced —
+                             advertising it would stop it being hidden. -->
+                        <BrandMark size="1.75rem" @click="onBrandMarkClick" />
                         <span class="logo">A<span class="logo-accent">e</span>ther</span>
                     </button>
                 </div>
@@ -383,12 +384,6 @@ onBeforeUnmount(resetEgg)
     font: inherit;
     color: inherit;
     cursor: pointer;
-}
-
-.brand-mark {
-    color: var(--app-accent);
-    font-size: 1.625rem;
-    line-height: 1;
 }
 
 .logo {

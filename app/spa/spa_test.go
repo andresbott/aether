@@ -18,6 +18,16 @@ func TestWebmanifestExtensionIsRegistered(t *testing.T) {
 	}
 }
 
+// favicon.ico is requested by clients that never read the HTML (bookmark bars,
+// pinned shortcuts), so it has to leave the server as an icon rather than as
+// sniffed application/octet-stream.
+func TestIcoExtensionIsRegistered(t *testing.T) {
+	got := mime.TypeByExtension(".ico")
+	if got != "image/vnd.microsoft.icon" {
+		t.Errorf("mime.TypeByExtension(\".ico\") = %q, want image/vnd.microsoft.icon", got)
+	}
+}
+
 // The registration only matters if it reaches the response, which it does via
 // net/http's file server. The embedded SPA is built by `make`, so this exercises
 // the same code path over a synthetic FS instead.

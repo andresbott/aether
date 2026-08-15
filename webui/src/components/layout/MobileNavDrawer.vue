@@ -6,6 +6,7 @@ import { useAuth } from '@/composables/useAuth'
 import { useMobileNav } from '@/composables/useMobileNav'
 import { usePlayer } from '@/composables/usePlayer'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import BrandMark from '@/components/common/BrandMark.vue'
 
 // The mobile shell's whole navigation surface, opened by the hamburger in
 // ContentScaffold's header. Mirrors AppSidebar's destinations, order, and
@@ -115,7 +116,7 @@ const onLogout = (): void => {
     <Drawer v-model:visible="isOpen" position="left" class="mobile-nav-drawer">
         <template #header>
             <span class="drawer-brand">
-                <span class="drawer-brand-mark">◈</span>
+                <BrandMark size="1.6rem" />
                 <span class="drawer-brand-logo">A<span class="drawer-brand-accent">e</span>ther</span>
             </span>
         </template>
@@ -175,12 +176,6 @@ const onLogout = (): void => {
     display: flex;
     align-items: center;
     gap: 0.625rem;
-}
-
-.drawer-brand-mark {
-    color: var(--app-accent);
-    font-size: 1.5rem;
-    line-height: 1;
 }
 
 .drawer-brand-logo {

@@ -13,12 +13,18 @@ var UiFiles embed.FS
 
 func init() {
 	// net/http serves the embedded SPA through mime.TypeByExtension, whose
-	// built-in table has no .webmanifest entry — the file then falls through to
-	// content sniffing and goes out as text/plain, which browsers refuse to
-	// treat as a web app manifest. /etc/mime.types would cover it on some
-	// distros but not in a scratch container, so register it explicitly.
-	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
-		panic(err)
+	// built-in table has neither a .webmanifest nor a .ico entry — those files
+	// then fall through to content sniffing and go out as text/plain resp.
+	// application/octet-stream, which browsers refuse to treat as a web app
+	// manifest resp. an icon. /etc/mime.types would cover them on some distros
+	// but not in a scratch container, so register them explicitly.
+	for ext, typ := range map[string]string{
+		".webmanifest": "application/manifest+json",
+		".ico":         "image/vnd.microsoft.icon",
+	} {
+		if err := mime.AddExtensionType(ext, typ); err != nil {
+			panic(err)
+		}
 	}
 }
 
