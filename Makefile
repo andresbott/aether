@@ -101,6 +101,10 @@ build-ui:
 build: package-ui ## use goreleaser to build to current OS/Arch
 	@goreleaser build --snapshot --clean --single-target
 
+.PHONY: icons
+icons: ## re-render the SPA icon set from zarf/icon into webui/public (needs inkscape + imagemagick)
+	@./zarf/icon/render.sh
+
 #==========================================================================================
 ##@ Release
 #==========================================================================================

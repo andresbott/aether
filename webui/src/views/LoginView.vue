@@ -8,6 +8,7 @@ import Password from 'primevue/password'
 import { useAuth } from '@/composables/useAuth'
 import { apiErrorMessage } from '@/lib/apiError'
 import { sessionLostUnexpectedly } from '@/lib/authState'
+import BrandMark from '@/components/common/BrandMark.vue'
 
 // Rendered by App.vue in place of the whole app whenever a session is
 // required and absent — it is not a route, so there is no /login URL to
@@ -58,7 +59,10 @@ async function onSubmit() {
              making the inputs, checkbox and button render their dark variants
              even while the app is in light mode. -->
         <form class="login-card dark-mode" @submit.prevent="onSubmit">
-            <h1 class="login-brand">A<span class="login-brand-accent">e</span>ther</h1>
+            <div class="login-brand-row">
+                <BrandMark size="2.5rem" />
+                <h1 class="login-brand">A<span class="login-brand-accent">e</span>ther</h1>
+            </div>
             <!-- Only for a session lost on its own: after a deliberate logout
                  the user knows why the form is here. -->
             <p v-if="sessionLostUnexpectedly" class="login-expired">
@@ -187,8 +191,17 @@ async function onSubmit() {
     --c-button-primary-active-border-color: var(--c-primary-active-color);
 }
 
+/* Mark and wordmark read as one logo, centered together. */
+.login-brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-bottom: 0.5rem;
+}
+
 .login-brand {
-    margin: 0 0 0.5rem;
+    margin: 0;
     text-align: center;
     font-size: 1.6rem;
     font-weight: 800;

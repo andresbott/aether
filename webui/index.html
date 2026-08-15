@@ -6,8 +6,20 @@
          the tab bar sits under the home-indicator on notched phones. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#141b24">
-    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <!-- Icons are rendered from zarf/icon by `make icons` into webui/public.
+         The SVG wins wherever it is supported; favicon.ico covers the rest and
+         the bookmark bar. iOS ignores the manifest icons, so it needs its own
+         opaque apple-touch-icon (see zarf/icon/web/icon-square.svg). -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="manifest" href="/manifest.webmanifest">
+    <!-- Home-screen launches run without browser chrome, matching the standalone
+         display mode the manifest asks for; Safari only honours its own metas. -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Aether">
     <title>Aether</title>
   </head>
   <body>

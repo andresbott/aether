@@ -88,7 +88,16 @@ describe('AppSidebar brand navigation', () => {
     it('exposes the whole brand as one button, not just the wordmark', () => {
         const brand = mountSidebar().find('.brand')
         expect(brand.element.tagName).toBe('BUTTON')
-        expect(brand.text()).toBe('◈Aether')
+        expect(brand.text()).toBe('Aether')
+    })
+
+    // The mark carries no text, so the wordmark alone must name the app: an
+    // announced mark would just repeat it.
+    it('renders the brand mark as a decorative image beside the wordmark', () => {
+        const mark = mountSidebar().find('.brand-mark')
+        expect(mark.element.tagName).toBe('IMG')
+        expect(mark.attributes('alt')).toBe('')
+        expect(mark.attributes('aria-hidden')).toBe('true')
     })
 
     it('names the destination in the accessible label', () => {
@@ -161,7 +170,9 @@ describe('AppSidebar hidden-theme easter egg', () => {
 
     it('leaves the trigger unfocusable so it stays hidden', async () => {
         const e = mountSidebar().find('.brand-mark')
-        expect(e.element.tagName).toBe('SPAN')
+        // An image, like the span before it: never a button, and nothing that
+        // would put it in the tab order or announce it as interactive.
+        expect(e.element.tagName).toBe('IMG')
         expect(e.attributes('tabindex')).toBeUndefined()
         expect(e.attributes('role')).toBeUndefined()
     })

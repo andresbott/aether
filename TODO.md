@@ -39,7 +39,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 ## Frontend 
 
-- [ ] Create an app icon / logo — PWA icons (various sizes) and favicon wiring. **Partly done**: source art exists in `zarf/icon/` (`icon.svg`, `favicon.svg`, `256.png`, `64.png`) and the sidebar has a text wordmark + `◈` brand mark (`AppSidebar.vue:186-187`). What remains is shipping them to the browser: `webui/index.html` declares **no `<link rel="icon">` and no manifest**, there is no `webui/public/`, and `/favicon.ico` falls through to the SPA handler (answers 200 with `text/html`). Also decide whether the wordmark stays as styled text or becomes the SVG.
+- [x] Create an app icon / logo. Browser/PWA side: `zarf/icon/web/` holds the cleaned web sources (rounded, square, maskable) derived from the `icon2.svg` master, `make icons` (`zarf/icon/render.sh`) renders them into `webui/public/` (`icon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-{192,512}.png`, `icon-maskable-{192,512}.png`), and `index.html` + the manifest link them all. In-app side: the diamond rendition (`assets/aether-mark.svg` via `components/common/BrandMark.vue`) replaced the `◈` placeholder in the sidebar and the mobile drawer and now sits beside the wordmark on the login card. The wordmark itself **stays styled text** — only the mark is artwork.
 - [] library also shows songs additionally to albums and artists
 - [] impelemt radio mode queue => keep playing based on same type/taste
 
@@ -74,6 +74,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
       (a checkbox-in-the-index-cell pattern already exists in queue *edit* mode — `components/layout/QueueRow.vue:68-82` — but the browsing song lists (`components/library/AlbumTrackRow.vue`, `GenreTrackRow.vue`) select by plain/ctrl/shift click with no hover affordance; they only tint the row on `:hover`)
 - [ ] Album cover drag and drop in the album view
 - [ ] Better genre handling — **needs scoping before it can be planned**
+- [ ] Search should also return genres
 - [ ] Playlist edit is not a nice experience for now — **needs scoping**: name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated
 
 ## Frontend — Metadata editor

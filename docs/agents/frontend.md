@@ -388,6 +388,41 @@ wordmark's "e" in `AppSidebar` unlock them for good (`aether:hiddenThemes` in
 localStorage) and cycle between them; once unlocked they appear in the
 User settings (`/user-settings`) theme picker. This is intentional — don't "clean it up".
 
+## Icons and static assets (`webui/public/`)
+
+Everything in `webui/public/` is copied verbatim into `webui/dist` by Vite and
+from there into the Go binary by `make package-ui` — so a file added here is
+served at its own root path (`/favicon.ico`) instead of hitting the SPA
+index.html fallback.
+
+The icon set is **generated, not hand-edited**: `zarf/icon/icon2.svg` is the
+Inkscape master, `zarf/icon/web/` holds three cleaned derivatives, and
+`make icons` (`zarf/icon/render.sh`, needs inkscape + ImageMagick) renders them
+into `webui/public/`. Re-run it after changing the artwork and commit the
+output.
+
+| Source | Output | Why it exists |
+|--------|--------|---------------|
+| `web/icon.svg` (rounded) | `icon.svg`, `favicon.ico` (16/32/48), `icon-192.png`, `icon-512.png` | tab favicon (SVG preferred, ICO for clients that just GET `/favicon.ico`) and the manifest's `purpose: any` icons |
+| `web/icon-square.svg` (full-bleed, opaque) | `apple-touch-icon.png` (180) | iOS home screen: Safari ignores manifest icons and applies its own corner mask, so this one must bleed into the corners and carry no alpha |
+| `web/icon-maskable.svg` (mark at 70%) | `icon-maskable-192.png`, `icon-maskable-512.png` | Android adaptive icons (`purpose: maskable`) only guarantee the inner 80% circle |
+
+**In-app brand mark.** The same artwork appears inside the UI as the diamond
+rendition: `assets/aether-mark.svg` (cleaned from `zarf/icon/icon.svg`), wrapped
+by `components/common/BrandMark.vue` — the single place that decides it is
+decorative (empty `alt` + `aria-hidden`, because the "Aether" wordmark always
+sits beside it) and takes a `size` prop. Used by `AppSidebar`, `MobileNavDrawer`
+and `LoginView`; in the sidebar it is also the hidden-themes easter-egg trigger,
+so it must stay a non-focusable, unannounced element. It is an `<img>`, not
+inline SVG, because two inlined copies would collide on the gradient's element
+id (sidebar and drawer are both in the DOM at the tablet breakpoint).
+
+Two server-side details make this work: `app/spa/spa.go` registers the
+`.webmanifest` and `.ico` MIME types (Go's built-in table has neither, and a
+sniffed `text/plain` manifest disables install/standalone mode), and
+`index.html` carries the `apple-mobile-web-app-*` metas — Safari needs its own
+copies of what the manifest already says.
+
 ## Testing (see [testing.md](testing.md))
 
 `npm test` = `vue-tsc --noEmit` + Vitest (jsdom). Specs live in `__tests__/`
