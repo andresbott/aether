@@ -23,23 +23,29 @@ describe('mobile chrome safe-area insets', () => {
         expect(src).toContain('padding-bottom: calc(1rem + env(safe-area-inset-bottom))')
     })
 
-    // The mini player is hidden on the Now Playing route, so the play view is
-    // the bottom-most surface there and reserves the inset itself — on both
-    // of its snap panels (the play face and the queue list).
-    it('the play view reserves the bottom inset on both panels', () => {
-        const src = read('../MobilePlayView.vue')
+    // The mini strip is off-screen while the sheet is up, so the face and the
+    // queue panel are the bottom-most surfaces of their detents and reserve
+    // the home-indicator inset themselves.
+    it('the player face reserves both insets', () => {
+        const src = read('../PlayerFace.vue')
         expect(src).toContain('calc(0.5rem + env(safe-area-inset-bottom))')
+        expect(src).toContain('padding: calc(0.25rem + env(safe-area-inset-top)) 1.5rem')
+    })
+
+    it('the queue panel reserves the top inset on its heading and the bottom under its list', () => {
+        const src = read('../QueuePanel.vue')
+        expect(src).toContain(
+            'padding: calc(0.5rem + env(safe-area-inset-top)) var(--app-content-gutter) 0.5rem'
+        )
         expect(src).toContain('padding-bottom: env(safe-area-inset-bottom)')
     })
 
-    // It has no scaffold header either, so both panels are the TOPMOST surface
-    // too: the face carries the nav chevron where the status bar would land,
-    // and the queue heading sits at its panel's top edge.
-    it('the play view reserves the top inset on both panels', () => {
-        const src = read('../MobilePlayView.vue')
-        expect(src).toContain('padding: calc(0.25rem + env(safe-area-inset-top)) 1.5rem')
+    // The spacer reserves the strip's height in the shell column, since the
+    // sheet overlays instead of docking.
+    it('the shell spacer reserves the strip height including the bottom inset', () => {
+        const src = read('../../../layouts/MobileShell.vue')
         expect(src).toContain(
-            'padding: calc(0.5rem + env(safe-area-inset-top)) var(--app-content-gutter) 0.5rem'
+            'height: calc(var(--app-mini-player-height) + env(safe-area-inset-bottom))'
         )
     })
 

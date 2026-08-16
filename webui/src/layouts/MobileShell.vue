@@ -1,23 +1,26 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router'
-import MiniPlayer from '@/components/layout/MiniPlayer.vue'
+import NowPlayingSheet from '@/components/layout/NowPlayingSheet.vue'
 import { usePlayer } from '@/composables/usePlayer'
 
 // Mobile-only docked chrome; PlayerLayout owns the shared skeleton (route
 // outlet included) so a shell swap never unmounts the active view. Rendered
-// as a fragment so the pieces stay direct flex children of the shell column.
+// as a fragment so the spacer stays a direct flex child of the shell column.
 //
-// The mini player is all of it: navigation is a ROUTE on this shell (/browse,
-// reached by the header hamburger), not the overlay drawer that used to live
-// here, so the chrome holds nothing that has to outlive a navigation.
+// The sheet is all of it: Now Playing, the queue and the mini strip are one
+// always-mounted overlay (NowPlayingSheet, addressed by the route hash), and
+// it overlays rather than docks — so the spacer below reserves the strip's
+// height in the flex column, keeping list bottoms clear of the bar.
 const { queue } = usePlayer()
-const route = useRoute()
 </script>
 
 <template>
-    <!-- Docked chrome: mini player only while there is something to play, and
-         never on the Now Playing route — the play view there carries the full
-         transport, so the bar would only duplicate it and its tap target
-         would go nowhere. -->
-    <MiniPlayer v-if="queue.length > 0 && route.name !== 'home'" />
+    <div v-if="queue.length > 0" class="mini-spacer" aria-hidden="true"></div>
+    <NowPlayingSheet v-if="queue.length > 0" />
 </template>
+
+<style scoped>
+.mini-spacer {
+    height: calc(var(--app-mini-player-height) + env(safe-area-inset-bottom));
+    flex-shrink: 0;
+}
+</style>
