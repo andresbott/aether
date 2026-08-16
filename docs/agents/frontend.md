@@ -132,6 +132,35 @@ custom properties, hence the SCSS twins.
 `tier` ('phone' | 'tablet' | 'desktop'), and `isTouch` (from `(pointer:
 coarse)`).
 
+**Never size anything in `vh`; the app-shell height chain owns the viewport.**
+`_main.scss` makes `<html>` the one viewport-sized box (`height: 100dvh`,
+`overflow: hidden`, `overscroll-behavior: none`) and `body` / `#app` / both
+player shells are `height: 100%` of it. `100vh` on a mobile browser is the
+URL-bar-HIDDEN (large) viewport: the document outgrows the screen, the page
+itself scrolls, and the `ContentScaffold` header (hamburger included) slides
+under the URL bar while the shell-less tail of `#app` shows as dead space above
+the system nav. Use `dvh` for the rare box that must measure the viewport
+itself (`SettingsLayout`, `LoginView`, the play view's artwork cap). **Scrollbar
+chrome is gated on `(pointer: fine)`** in the same file, with `(pointer:
+coarse)` hiding bars outright: styling `::-webkit-scrollbar` at all opts mobile
+Chrome out of its auto-hiding overlay scrollbars, turning them into permanently
+visible classic bars that also claim layout width — which is why `--sb-w`
+(`useScrollbarWidth`) measures 0 on touch and the recipes reserve no clearance
+there. Both invariants are pinned off disk by
+`assets/scss/__tests__/appShell.spec.ts`, because neither regression reproduces
+under DevTools device emulation — emulation has no retractable URL bar (`vh ==
+dvh`) and desktop-style scrollbars.
+
+**Never `scrollIntoView` inside the app shell** — scroll the intended scroller
+with `scrollTo` instead (`MobilePlayView`'s panel switch, `QueueBody`'s current
+row). `scrollIntoView` reveals its target in every scrollable *ancestor* and in
+the **visual viewport**: mobile Chrome's URL bar shrinks the visual viewport
+while the layout viewport stays large, so there is always URL-bar-height of room
+to offset it — revealing a panel slid the whole app up under the URL bar and
+left the layout viewport's tail as dead space above the system nav, permanently,
+since no document-level scroller can put it back. Emulation has no separate
+visual viewport, so it never reproduces.
+
 **Settings on phones.** `SettingsLayout` (`layouts/SettingsLayout.vue`)
 renders its sidebar as a horizontally-scrolling icon bar below 768px —
 collapse is a desktop concept with no room on a bar, so the collapse button
@@ -148,45 +177,106 @@ narrow viewports.
 
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
-components rather than inline `v-if` blocks). Mobile chrome components live in
-`components/layout/`: `MobileNavDrawer` (left drawer holding the whole nav —
-`AppSidebar`'s destinations plus the UserMenu account entries; any route change
-closes it so a system-back never navigates underneath it; its Now Playing and
-Queue entries are hidden while the queue is empty, since `/` would just bounce
-to the library. Queue is drawer-only — desktop keeps the queue in its sidebar —
-and is not a route of its own: it pushes `/#queue`, the address of
-`MobilePlayView`'s queue panel, and the hash decides which of the two entries
-lights up)
-and `MiniPlayer` (bottom-most mobile chrome, reserves the safe-area bottom
-inset; tap navigates to `/`, and the bar is hidden on that route because the
-play view carries the full transport). The drawer is opened by the hamburger
-`ContentScaffold` puts at the head of every top-level view's header on the
-mobile shell (detail views show Back in that spot instead); its open state is
-the `useMobileNav` singleton, since the trigger lives inside the route views
-while the drawer is shell chrome.
+components rather than inline `v-if` blocks). The mobile shell's only chrome is
+`MiniPlayer` (`components/layout/`, bottom-most mobile surface, reserves the
+safe-area bottom inset; the bar is hidden on `/` because the play view carries the
+full transport) — **navigation on this shell is a route, not chrome**: see the
+browse page below.
+
+**The mini player is also the play screen's handle: lifting it opens `/`**, the
+counterpart of `MobilePlayView`'s drag down to `/browse` (below), built the same
+way — the bar follows the finger, only the release decides, past 64px it lifts
+clear of its own strip and *then* navigates. Two details are specific to it: travel
+past the commit distance is **rubber-banded** (`* 0.4`), since 1:1 would fling a
+3.5rem bar into the middle of the page; and because lifting the bottom-most
+surface exposes the page behind it, a `::after` sized from an inline `--mini-lift`
+keeps the vacated strip painted. **A moved gesture swallows the click that
+follows it** (`tapSwallowed`) — the browser may still deliver one on release, and
+honouring it would open on a pull the user cancelled, or skip a track they were
+only dragging from. A plain tap still opens **immediately**: it has no motion to
+finish, and the bar's oldest interaction shouldn't grow latency. The predecessor
+**`MobileNavDrawer` overlay and its `useMobileNav` singleton are deleted**; don't
+reintroduce a drawer, for the same reason `PlayerSheet` is gone (a route gets
+system-back dismissal and needs no open state).
+
+**`/browse` (`MobileBrowseView`) is the mobile shell's landing page and its whole
+navigation surface** — the phone's stand-in for `AppSidebar`, and where the
+hamburger `ContentScaffold` puts at the head of every top-level view's header
+navigates (detail views show Back in that spot instead; the browse view itself
+passes `navRoot` so it grows no button back to itself). It is a *page*, so each
+destination shows what is in it: one `BrowseShelf` per section — Library (samples
+the ranked `useDiscoveryFeed`, the same query `/library`'s Discover tab renders in
+full), one `BrowseAlbumShelf` per dynamic library (its newest albums; a component
+per library because a composable cannot be called in a loop over a reactive list),
+then Playlists, Genres, Radio — each a heading, `BROWSE_SHELF_SIZE`
+(`lib/browseShelf.ts`) items in a horizontally snapping strip, and a "See all"
+link to the full view. Per-library shelves appear only above one library, matching
+the sidebar. Two things have no shelf to fill and sit in the header: Search, and
+the account entries the desktop keeps in `UserMenu` (User settings → Admin →
+About → Log out) behind a `⋮` PrimeVue `Menu` — the phone's **only** way to log
+out. Now Playing and the queue stay reachable through `MiniPlayer`. Mobile only:
+at desktop width the view `replace()`s the route with `/library`, the mirror of
+`HomeView`'s guard.
 
 **Now Playing on the mobile shell is a first-class route, not an overlay.**
 `HomeView` mimics the desktop *flow* on phones: with tracks queued, `/` renders
 **`MobilePlayView`** (cover art, seek, a prev/play/next transport, favorite,
 plus the queue as a second snap panel below the player face — swiping the face
-up reveals it, a hint-chevron button scrolls there without the gesture, and
-the panel's own heading carries the queue actions: shuffle/repeat inline,
-with the shared `QueueHeaderActions` (edit/save/clear, `labels` variant)
-behind the scaffold's ⋮ overflow; there is no header toggle).
-The way **back** is the queue panel's own touch handler — a downward pull that
-starts with the list at its top — not native scroll chaining: a chained drag
-hands the mandatory-snap container no fling momentum, so it settles straight
+up reveals it, a hint-chevron button scrolls there without the gesture).
+
+**It is the one main-content view with no `ContentScaffold`** (the layout doc's
+single exception): a fixed header above both panels showed the *queue's* heading
+over the player face, ate the artwork's height, and put its hamburger exactly
+where the browser URL bar sits. So:
+
+- **The heading belongs to the queue panel** (`.queue-heading`, above the list
+  scroller) and arrives with it — nothing hovers over the face, so there is no
+  fade, no `queue-up` class, and no height to hold constant. It carries "Queue" +
+  `useQueueSummary`'s summary, shuffle/repeat inline (queue behaviour, not
+  transport), and the shared `QueueHeaderActions` (edit/save/clear, `labels`
+  variant) behind its own `⋮` `Popover` — the arrangement `ContentScaffold` gives
+  `#secondary-actions` on phone tier, owned by this view directly.
+- **The face is bare, and dragging it down leaves for `/browse`** — the gesture
+  replaces the hamburger every other view carries. It is free there (the face is
+  the snap container's first panel, so a downward drag has nothing to scroll) and
+  it mirrors the upward swipe to the queue — which is why it is a **drag, not a
+  threshold**: the swipe up is a native scroll, so the panel tracks the finger and
+  the release settles or springs back. A threshold that fired mid-gesture and
+  navigated jumped, with nothing moving until it did. So `dragY` translates the
+  whole view 1:1 (`transform` bound at all times, `.is-dragging` suppressing the
+  transition while a finger owns it, downward-only and clamped at 0), and only the
+  release decides: past `max(64px, 20% of the view)` it slides the rest of the way
+  out and *then* `push()`es (`.is-leaving`), otherwise it springs back. **The
+  navigation must not depend on `transitionend` alone** — reduced motion turns the
+  transition off, so `finishLeave()` is idempotent behind both the event and a
+  safety timer, and reduced motion (`lib/motion.ts`'s `prefersReducedMotion()`,
+  shared with `MiniPlayer`) skips the slide entirely. The seek bar never
+  arms the drag (an off-axis slider drag would pull the view away mid-seek), nor
+  does a container part-way to the queue. Its non-gesture twin is the `⌄`
+  `.play-nav-hint` button at the face's top edge, which plays the same slide-out;
+  **don't leave the gesture as the only path**.
+- **Both panels reserve the top safe-area inset as well as the bottom** — with no
+  header and no mini player (hidden on this route) they are the outermost
+  surfaces in both directions.
+
+The way **back** from the queue is the queue *list's* touch handler — a downward
+pull that starts with the list at its top — not native scroll chaining: a chained
+drag hands the mandatory-snap container no fling momentum, so it settles straight
 back on the queue, which is also why both queue scrollers contain their
-overscroll. **`/#queue` is the queue panel's address**: the drawer's Queue
-entry pushes it, arriving with it lands on the queue without animating, and
+overscroll. Because that pull only arms at the list's top, **the queue heading is
+a drag handle too**, switching back at any list position (reading down a long
+queue otherwise means scrolling all the way up first). It takes a drag in
+*either* direction — the heading is not a scroller, so a drag there can only mean
+"leave the queue". The list's listeners sit on the list, not the panel, so one
+drag on the heading can't fire both handlers. **`/#queue` is the queue panel's
+address**: arriving with it lands on the queue without animating, and
 `MobilePlayView` rewrites the hash (debounced `router.replace`) as the user
-swipes, so the drawer's Now Playing / Queue highlight follows the visible
-panel; with an
-empty queue it `replace()`s the route with the library — an empty play view is
-a dead end on a one-surface screen. Desktop `/` keeps `QueueView variant="full"`
+swipes, so a link or bookmark to a panel reopens on it. With an
+empty queue it `replace()`s the route with `/browse` — an empty play view is
+a dead end on a one-surface screen, and browse is the phone's nav surface. Desktop `/` keeps `QueueView variant="full"`
 (empty state included). Both surfaces share `useQueueSummary` for the
-"N tracks • X min" string — on desktop it sits in the scaffold header, on the
-phone under the queue panel's title (the scaffold header there is title-only). The predecessor **`PlayerSheet` overlay (and
+"N tracks • X min" string — on desktop in the scaffold header, on the phone under
+the queue heading's title. The predecessor **`PlayerSheet` overlay (and
 `usePlayerSheet`'s history/focus-trap machinery) is deleted** — routing gives
 system-back dismissal for free; don't reintroduce a sheet for now-playing.
 
@@ -411,11 +501,10 @@ output.
 rendition: `assets/aether-mark.svg` (cleaned from `zarf/icon/icon.svg`), wrapped
 by `components/common/BrandMark.vue` — the single place that decides it is
 decorative (empty `alt` + `aria-hidden`, because the "Aether" wordmark always
-sits beside it) and takes a `size` prop. Used by `AppSidebar`, `MobileNavDrawer`
-and `LoginView`; in the sidebar it is also the hidden-themes easter-egg trigger,
-so it must stay a non-focusable, unannounced element. It is an `<img>`, not
-inline SVG, because two inlined copies would collide on the gradient's element
-id (sidebar and drawer are both in the DOM at the tablet breakpoint).
+sits beside it) and takes a `size` prop. Used by `AppSidebar` and `LoginView`; in
+the sidebar it is also the hidden-themes easter-egg trigger, so it must stay a
+non-focusable, unannounced element. It is an `<img>`, not inline SVG, because two
+inlined copies would collide on the gradient's element id.
 
 Two server-side details make this work: `app/spa/spa.go` registers the
 `.webmanifest` and `.ico` MIME types (Go's built-in table has neither, and a

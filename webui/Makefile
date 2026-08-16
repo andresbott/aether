@@ -1,6 +1,10 @@
 COMMIT_SHA_SHORT ?= $(shell git rev-parse --short=12 HEAD)
 PWD_DIR := ${CURDIR}
 
+# Address the vite dev server binds to. Default keeps it local-only;
+# use HOST=0.0.0.0 to reach it from other devices on the LAN (e.g. a phone).
+HOST ?= localhost
+
 default: help
 
 prepare: ## run dev preparation
@@ -15,8 +19,8 @@ lint: ## run eslint
 type-check: ## check correct types
 	@npm run type-check
 
-run: ## run the local dev
-	@npm run dev
+run: ## run the local dev (HOST=0.0.0.0 to expose it on the LAN)
+	@npm run dev -- --host $(HOST)
 
 build: ## build a production release
 	@npm run build

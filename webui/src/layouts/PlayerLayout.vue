@@ -68,15 +68,17 @@ onUnmounted(() => {
     background-color: var(--app-background);
 }
 
+/* Both shells take their height from the app-shell chain in _main.scss (html is
+   100dvh, body and #app are 100%) rather than measuring the viewport again
+   here: a `100vh` column is the URL-bar-hidden height on mobile browsers and
+   would hang below the visible area. */
 .player-shell.desktop-shell {
-    height: 100vh;
+    height: 100%;
     padding-bottom: var(--app-player-height);
 }
 
 .player-shell.mobile-shell {
-    /* dvh, not vh: mobile browser UI bars shrink the visible viewport, and a
-       100vh column would push the tab bar under them. */
-    height: 100dvh;
+    height: 100%;
 }
 
 .body-row {

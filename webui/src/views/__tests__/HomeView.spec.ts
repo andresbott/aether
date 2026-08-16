@@ -62,12 +62,13 @@ describe('HomeView', () => {
     })
 
     // The phone mimics the desktop flow: an empty queue means there is
-    // nothing to play, so `/` lands on the library instead.
-    it('mobile with an empty queue replaces the route with the library', () => {
+    // nothing to play, so `/` lands on the browse page — the phone's nav
+    // surface — instead.
+    it('mobile with an empty queue replaces the route with the browse page', () => {
         shell.value = 'mobile'
         queue.value = []
         const w = mount(HomeView)
-        expect(replace).toHaveBeenCalledWith({ name: 'library' })
+        expect(replace).toHaveBeenCalledWith({ name: 'browse' })
         // Nothing renders in the gap while the redirect is in flight.
         expect(w.find('.stub-play-view').exists()).toBe(false)
         expect(w.find('.stub-queue-view').exists()).toBe(false)
@@ -79,6 +80,6 @@ describe('HomeView', () => {
         expect(replace).not.toHaveBeenCalled()
         queue.value = []
         await nextTick()
-        expect(replace).toHaveBeenCalledWith({ name: 'library' })
+        expect(replace).toHaveBeenCalledWith({ name: 'browse' })
     })
 })

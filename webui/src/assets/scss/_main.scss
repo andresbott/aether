@@ -6,9 +6,25 @@
     box-sizing: border-box;
 }
 
+/* The app-shell height chain: <html> is the ONE viewport-sized box and
+   everything under it is 100% of it. `dvh`, not `vh`: on mobile browsers
+   `100vh` is the URL-bar-HIDDEN (large) viewport, so the document ends up
+   taller than the screen and the PAGE scrolls — the scaffold header (with the
+   hamburger) slides under the URL bar and the shell-less tail of #app shows as
+   dead space above the system nav. Device emulation never reproduces it: with
+   no retractable URL bar, vh == dvh there. Only real phones show it. */
+html {
+    height: 100dvh;
+    overflow: hidden;
+    /* Nothing scrolls the document — every scroller in the app is an inner one
+       — so drop the page-level rubber band and pull-to-refresh with it. */
+    overscroll-behavior: none;
+}
+
 body {
     margin: 0;
     padding: 0;
+    height: 100%;
     font-family: var(--font-sans);
     font-size: 15px;
     -webkit-font-smoothing: antialiased;
@@ -21,25 +37,44 @@ body {
 
 #app {
     width: 100%;
-    height: 100vh;
+    height: 100%;
 }
 
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+/* Scrollbar chrome is a POINTER affordance, hence the pointer gate: styling
+   ::-webkit-scrollbar at all opts mobile Chrome out of the platform's
+   auto-hiding overlay scrollbars — the bars become permanently visible classic
+   ones that also claim layout width. Touch surfaces get no bars at all (an 8px
+   drag target is not usable with a thumb anyway), which also keeps
+   useScrollbarWidth's probe at 0 there, so the recipes reserve no rail/scrollbar
+   clearance on phones. */
+@media (pointer: fine) {
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--app-border);
+        border-radius: 2px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--app-text-secondary);
+    }
 }
 
-::-webkit-scrollbar-track {
-    background: transparent;
-}
+@media (pointer: coarse) {
+    * {
+        scrollbar-width: none;
+    }
 
-::-webkit-scrollbar-thumb {
-    background: var(--app-border);
-    border-radius: 2px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--app-text-secondary);
+    *::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 *:focus-visible {
@@ -152,27 +187,6 @@ a:hover {
 .p-drawer-bottom .p-drawer.app-bottom-sheet .p-drawer-content {
     height: auto;
     overflow-y: auto;
-}
-
-// The mobile nav drawer (MobileNavDrawer, opened by ContentScaffold's
-// hamburger). Global for the same body-level-overlay reason as the bottom
-// sheet above. Capped against the viewport so a sliver of content always
-// stays visible as the "outside" to tap, and padded for the notch insets —
-// a left drawer sits under the status bar and, in landscape, the camera
-// housing on the left edge.
-.p-drawer-left .p-drawer.mobile-nav-drawer {
-    width: min(20rem, 85vw);
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-}
-
-// The nav items paint their own hover/active background with an accent edge
-// bar (matching AppSidebar); the theme's content padding would inset that
-// bar off the drawer's edge, so the items carry the horizontal inset instead.
-.p-drawer-left .p-drawer.mobile-nav-drawer .p-drawer-content {
-    padding-left: 0;
-    padding-right: 0;
 }
 
 // Phone: form dialogs become full-screen sheets (spec §3.2). One global rule

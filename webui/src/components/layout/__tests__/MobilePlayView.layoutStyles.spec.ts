@@ -75,46 +75,54 @@ describe('swipe-up queue reveal', () => {
 })
 
 /**
- * The queue heading ("Queue" + track-summary stack + actions) is rendered in
- * BOTH panel states, so the header's height comes from content that never
- * changes — and the switch is a fade (opacity), revealed mid-swipe rather
- * than popping in after the snap settles. `visibility` keeps the hidden
- * heading out of the accessibility tree and off the tap surface while it
- * still occupies layout.
+ * The heading ("Queue" + track summary + actions) belongs to the QUEUE panel
+ * and scrolls in with it — there is no fixed bar over the player face, so
+ * nothing to fade and no height to hold constant across the switch. It is a
+ * non-shrinking row above the list scroller, and the topmost surface on its
+ * panel, so it reserves the top inset itself.
  */
-describe('constant header height across the panel switch', () => {
-    it('the header is one non-wrapping, center-aligned row', () => {
-        const inner = ruleBodies(/:deep\(\.scaffold-header-inner\)/).join('\n')
-        expect(inner).toMatch(/flex-wrap:\s*nowrap/)
-        // The stacked heading has no single baseline for the buttons.
-        expect(inner).toMatch(/align-items:\s*center/)
+describe('the queue heading rides in the queue panel', () => {
+    const heading = ruleBodies(/^\s*\.queue-heading\s*$/m).join('\n')
+
+    it('is a non-shrinking row above the list scroller', () => {
+        expect(heading).toMatch(/display:\s*flex/)
+        expect(heading).toMatch(/align-items:\s*center/)
+        expect(heading).toMatch(/flex-shrink:\s*0/)
     })
 
-    it('the summary stacks under the title and ellipsizes on overflow', () => {
-        const title = ruleBodies(/^\s*\.mobile-play-view\s+:deep\(\.scaffold-title\)\s*$/m).join(
-            '\n'
+    it('reserves the top safe-area inset', () => {
+        expect(heading).toMatch(/env\(safe-area-inset-top\)/)
+    })
+
+    it('ellipsizes the summary instead of widening the row', () => {
+        expect(ruleBodies(/\.queue-heading-text/).join('\n')).toMatch(/min-width:\s*0/)
+        expect(ruleBodies(/\.queue-heading-summary/).join('\n')).toMatch(
+            /text-overflow:\s*ellipsis/
         )
-        expect(title).toMatch(/flex-direction:\s*column/)
-        // The scaffold's 12rem title floor would force an overflow on phones
-        // once the actions sit beside it; "Queue" never needs the floor.
-        expect(title).toMatch(/min-width:\s*0/)
-        const summary = ruleBodies(/:deep\(\.scaffold-summary\)/).join('\n')
-        expect(summary).toMatch(/flex-basis:\s*auto/)
-        expect(summary).toMatch(/text-overflow:\s*ellipsis/)
     })
 
-    it('the heading hides by opacity + delayed visibility, never by layout', () => {
-        const hidden = ruleBodies(/^\s*\.mobile-play-view\s+:deep\(\.scaffold-title\),/m).join('\n')
-        expect(hidden).toMatch(/opacity:\s*0/)
-        expect(hidden).toMatch(/visibility:\s*hidden/)
-        expect(hidden).toMatch(/transition:[\s\S]*opacity/)
-        expect(hidden).not.toMatch(/display:\s*none/)
+    // The predecessor was a ContentScaffold header faded in by a `queue-up`
+    // class; both are gone, and a leftover rule would style nothing.
+    it('keeps no scaffold or fade machinery', () => {
+        expect(styles).not.toMatch(/scaffold-/)
+        expect(styles).not.toMatch(/queue-up/)
+    })
+})
+
+/**
+ * With no header above it and no mini player below (hidden on this route), the
+ * face is the entire screen: it reserves both insets, or the status bar sits on
+ * the nav chevron that replaced the hamburger.
+ */
+describe('the bare player face', () => {
+    it('reserves both safe-area insets', () => {
+        const face = ruleBodies(/^\s*\.play-face\s*$/m).join('\n')
+        expect(face).toMatch(/env\(safe-area-inset-top\)/)
+        expect(face).toMatch(/env\(safe-area-inset-bottom\)/)
     })
 
-    it('the queue-up state fades the heading in', () => {
-        const shown = ruleBodies(/\.queue-up/).join('\n')
-        expect(shown).toMatch(/opacity:\s*1/)
-        expect(shown).toMatch(/visibility:\s*visible/)
+    it('never squashes the nav chevron — a short screen shrinks the artwork', () => {
+        expect(ruleBodies(/^\s*\.play-nav-hint\s*$/m).join('\n')).toMatch(/flex-shrink:\s*0/)
     })
 })
 

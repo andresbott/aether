@@ -116,7 +116,9 @@ async function onSubmit() {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+    /* dvh, not vh: 100vh is the URL-bar-hidden height on mobile browsers, which
+       would leave the card off-center and the page scrollable behind them. */
+    height: 100dvh;
     /* Moody deep-blue atmosphere (same in both themes — the scene is
        inherently dark, like the nav rail): a wide brand-blue glow rising
        from the lower left and a softer mid-height echo. */

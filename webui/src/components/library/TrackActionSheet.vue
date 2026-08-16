@@ -184,8 +184,9 @@ const favoriteLabel = computed(() =>
     flex-direction: column;
 }
 
-/* Same row anatomy as MobileNavDrawer's .drawer-item, kept separate because
-   this sheet lives in the library domain, not the app chrome. */
+/* Full-width tap rows: icon, label, nothing else — the touch counterpart of a
+   hover affordance has to be thumb-sized, so the row height comes from padding
+   rather than a font size. */
 .sheet-action {
     display: flex;
     align-items: center;

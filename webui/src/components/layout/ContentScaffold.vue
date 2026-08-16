@@ -1,21 +1,36 @@
 <script setup lang="ts">
 import { computed, ref, useSlots } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Popover from 'primevue/popover'
-import { useMobileNav } from '@/composables/useMobileNav'
 import { useViewport } from '@/composables/useViewport'
 
-const props = defineProps<{ title: string; summary?: string; showBack?: boolean }>()
+const props = defineProps<{
+    title: string
+    summary?: string
+    showBack?: boolean
+    // Set by the view the hamburger LEADS to (MobileBrowseView), which must not
+    // offer a button back to itself.
+    navRoot?: boolean
+}>()
 defineEmits<{ (e: 'back'): void }>()
 
 const slots = useSlots()
+const router = useRouter()
 const { tier, shell } = useViewport()
 
 // The mobile shell has no persistent nav chrome (no sidebar, no tab bar), so
-// top-level views carry the drawer trigger in their header. Detail views show
-// Back in that spot instead — backing out first is the standard drawer UX.
-const { isOpen: navOpen, open: openNav } = useMobileNav()
-const showNavButton = computed(() => shell.value === 'mobile' && !props.showBack)
+// top-level views carry the hamburger in their header. It NAVIGATES — /browse is
+// the phone's nav surface, a route rather than the overlay drawer it replaced —
+// so there is no open state to track and system-back leaves it for free. Detail
+// views show Back in that spot instead: backing out before branching off is the
+// standard mobile flow.
+const showNavButton = computed(
+    () => shell.value === 'mobile' && !props.showBack && !props.navRoot
+)
+const goBrowse = (): void => {
+    void router.push({ name: 'browse' })
+}
 
 // The slot convention (spec §3.2): #actions is always visible; a view that has
 // more controls than a phone header fits moves the collapsible ones to
@@ -37,9 +52,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                     text
                     rounded
                     aria-label="Open navigation"
-                    aria-haspopup="dialog"
-                    :aria-expanded="navOpen"
-                    @click="openNav"
+                    @click="goBrowse"
                 />
                 <Button
                     v-if="showBack"

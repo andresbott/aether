@@ -27,7 +27,7 @@ capability — gaps are catalogued with chosen directions — and
 
 ## Frontend Conventions
 
-- **Main content views must follow the uniform layout in [`docs/architecture/main-content-view-layout.md`](docs/architecture/main-content-view-layout.md).** Any top-level route view rendered into `PlayerLayout` uses the `ContentScaffold` header (title + count summary + `#actions`), a self-scrolling body centered on the `--app-content-max-width` column with a flush-right scrollbar, and `meta: { flush: true }` on its route. Read that doc before adding or refactoring a main content view. Now Playing (`QueueView`), Library, and Radio are the reference implementations.
+- **Main content views must follow the uniform layout in [`docs/architecture/main-content-view-layout.md`](docs/architecture/main-content-view-layout.md).** Any top-level route view rendered into `PlayerLayout` uses the `ContentScaffold` header (title + count summary + `#actions`), a self-scrolling body centered on the `--app-content-max-width` column with a flush-right scrollbar, and `meta: { flush: true }` on its route. Read that doc before adding or refactoring a main content view. Now Playing (`QueueView`), Library, and Radio are the reference implementations. The single deliberate exception is `MobilePlayView` (the phone's `/`): two full-screen snap panels with no scaffold header — the queue's heading rides in the queue panel and the bare player face drags down to `/browse`. Don't "fix" it back.
 
 ### Views
 
@@ -41,7 +41,8 @@ whole app whenever auth method `native` reports no session (see
 
 | View | Route | Purpose |
 |------|-------|---------|
-| `HomeView` | `/` | Now Playing. Desktop renders `QueueView variant="full"`; the mobile shell renders `MobilePlayView` (first-class play screen with the hamburger — no overlay sheet) and, with an empty queue, replaces the route with `/library` (the phone mimics the desktop flow: nothing to play → browse) |
+| `HomeView` | `/` | Now Playing. Desktop renders `QueueView variant="full"`; the mobile shell renders `MobilePlayView` (first-class play screen with the hamburger — no overlay sheet) and, with an empty queue, replaces the route with `/browse` (the phone mimics the desktop flow: nothing to play → browse) |
+| `MobileBrowseView` | `/browse` | **Mobile only** — the landing page and the whole navigation surface of the mobile shell (the phone's `AppSidebar`, and where every view's hamburger goes; passes `navRoot` so it shows none itself). One `BrowseShelf` per section — Library (samples the Discovery feed), one per dynamic library (`BrowseAlbumShelf`, newest albums, only above one library), Playlists, Genres, Radio — each with a heading, a few items in a swipeable strip and a "See all" link. Search and the `UserMenu` account entries (User settings / Admin / About / Log out — the phone's only logout) sit in the header, the latter behind `⋮`. Redirects to `/library` at desktop width. Replaced the deleted `MobileNavDrawer` |
 | `SearchView` | `/search` | Search results |
 | `LibraryView` | `/library/:folderId?` | Browse the music library by folder. Tabs: Discover / Albums / Artists. Discover is a ranked feed of albums + playlists (`getDiscovery` extension, infinite scroll, `DiscoveryFeed` component) and is the default tab on the root `/library` only — the ranking is cross-collection, so discovery is never library-scoped. There is deliberately no standalone `/discover` route |
 | `AlbumView` | `/album/:id` | Single album detail |
