@@ -93,10 +93,9 @@ afterEach(() => {
 })
 
 // Revealing the current track must move ONLY the queue's own scroller.
-// scrollIntoView also scrolls every scrollable ancestor: inside MobilePlayView
-// the queue is the hidden second panel of a snap container, and the ancestor
-// scroll dragged it over the player face — a mini-player tap landed on
-// `/#queue` instead of Now Playing.
+// scrollIntoView also scrolls every scrollable ancestor: inside NowPlayingSheet
+// the queue panel can be collapsed or behind the player face, and scrolling
+// the sheet itself (rather than just the list) would disrupt the detent.
 describe('QueueBody current-track scrolling', () => {
     it('centers the current track on mount by scrolling its own scroller only', async () => {
         const w = mountBody()

@@ -47,7 +47,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 ## Frontend - mobile
 - [] On broser the now playing has weird bars on top and bottom
 - [] the menu button is behind the url bar
-- [] better handling of back acctions
+- [x] better handling of back acctions
 
 
 ---
@@ -83,6 +83,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Better genre handling — **needs scoping before it can be planned**
 - [ ] Search should also return genres
 - [ ] Playlist edit is not a nice experience for now — **needs scoping**: name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated
+- [ ] Add filter to artist / album etc 
 
 ## Frontend — Metadata editor
 
@@ -90,6 +91,15 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Make it easier / faster to load a folder
 - [ ] Check if we can add comments to metadata as part of the standard (e.g. the unreleased Alesha Dixon "Fool 4 U I Love")
 - [ ] When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only)
+- [ ] the library selector should not be a drop donw as it takes too many clicks
+- [ ] the folder selector dialog should be bigger and have a filter option
+- [ ] once you have selected the album of one artist navigating to another album folder should be easy ( use nav bar on top)
+- [ ] in attached pictures, front cover should always be an option even if no picture is detected at all
+- [ ] generated cover files are not browsable by samba
+- [ ] in artist selection dialog, check if there might be more pictures for the same artist
+- [ ] when identifying albums sometiemes track position os wrong, can we improve that
+- [ ] for images i want some metadata info: size, dimensions and format, both for what is stored as well as what is found
+- [ ] in raw metadata edit, after save return to the non raw view
 
 ## Frontend — Player & Controls
 

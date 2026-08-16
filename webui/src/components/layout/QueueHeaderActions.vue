@@ -7,7 +7,7 @@ import Button from 'primevue/button'
 // the shared header-action convention (plain text+rounded, default
 // size/severity — see EditActionBar and the ContentScaffold views); the
 // sidebar passes size="small" to fit its tighter header. Inside the
-// scaffold's ⋮ overflow panel (MobilePlayView) `labels` spells the actions
+// scaffold's ⋮ overflow panel (QueuePanel) `labels` spells the actions
 // out — a stack of bare icons is not a readable menu, and tooltips don't
 // exist on touch.
 defineProps<{ editMode: boolean; disabled: boolean; size?: 'small'; labels?: boolean }>()

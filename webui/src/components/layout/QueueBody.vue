@@ -73,9 +73,9 @@ const CURRENT_BLOCK_TOP_MARGIN_PX = 16
 
 // Scrolls ONLY the queue's own scroller — never scrollIntoView on the row,
 // which also scrolls every scrollable ancestor to reveal it: inside
-// MobilePlayView the queue is the hidden second panel of a snap container,
-// and revealing the row on mount dragged the queue panel over the player
-// face, so the mini-player tap landed on `/#queue` instead of Now Playing.
+// NowPlayingSheet the queue panel can be collapsed or behind the player face,
+// and revealing the row on mount would scroll the sheet instead of just the
+// list, disrupting the detent.
 const scrollCurrentIntoView = (block: 'center' | 'nearest'): void => {
     nextTick(() => {
         const row = currentBlockRef.value

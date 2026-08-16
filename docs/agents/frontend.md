@@ -152,7 +152,7 @@ under DevTools device emulation — emulation has no retractable URL bar (`vh ==
 dvh`) and desktop-style scrollbars.
 
 **Never `scrollIntoView` inside the app shell** — scroll the intended scroller
-with `scrollTo` instead (`MobilePlayView`'s panel switch, `QueueBody`'s current
+with `scrollTo` instead (`QueueBody`'s current
 row). `scrollIntoView` reveals its target in every scrollable *ancestor* and in
 the **visual viewport**: mobile Chrome's URL bar shrinks the visual viewport
 while the layout viewport stays large, so there is always URL-bar-height of room
@@ -177,27 +177,36 @@ narrow viewports.
 
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
-components rather than inline `v-if` blocks). The mobile shell's only chrome is
-`MiniPlayer` (`components/layout/`, bottom-most mobile surface, reserves the
-safe-area bottom inset; the bar is hidden on `/` because the play view carries the
-full transport) — **navigation on this shell is a route, not chrome**: see the
-browse page below.
+components rather than inline `v-if` blocks).
 
-**The mini player is also the play screen's handle: lifting it opens `/`**, the
-counterpart of `MobilePlayView`'s drag down to `/browse` (below), built the same
-way — the bar follows the finger, only the release decides, past 64px it lifts
-clear of its own strip and *then* navigates. Two details are specific to it: travel
-past the commit distance is **rubber-banded** (`* 0.4`), since 1:1 would fling a
-3.5rem bar into the middle of the page; and because lifting the bottom-most
-surface exposes the page behind it, a `::after` sized from an inline `--mini-lift`
-keeps the vacated strip painted. **A moved gesture swallows the click that
-follows it** (`tapSwallowed`) — the browser may still deliver one on release, and
-honouring it would open on a pull the user cancelled, or skip a track they were
-only dragging from. A plain tap still opens **immediately**: it has no motion to
-finish, and the bar's oldest interaction shouldn't grow latency. The predecessor
-**`MobileNavDrawer` overlay and its `useMobileNav` singleton are deleted**; don't
-reintroduce a drawer, for the same reason `PlayerSheet` is gone (a route gets
-system-back dismissal and needs no open state).
+Mobile chrome is **one component**: `NowPlayingSheet` (`components/layout/`),
+an always-mounted bottom sheet rendered by `MobileShell` over the route
+content (plus a `.mini-spacer` flex child reserving the collapsed strip's
+height, since the sheet overlays rather than docks). The sheet has three
+detents — collapsed (mini strip) / playing (`PlayerFace`) / queue
+(`QueuePanel`) — addressed by the **hash of whatever route is underneath**:
+`''` / `#playing` / `#queue`. The hash is the single source of truth
+(spec: `docs/superpowers/specs/2026-08-16-mobile-sheet-navigation-design.md`):
+buttons and gestures commit it via `commitDetent` (deeper = `push`, so system
+back walks `#queue` → `#playing` → page; shallower = `back()` when
+vue-router's `history.state.back` matches the target, else `replace()`), and
+the sheet's hash watcher animates toward it. Do not add parallel open/close
+state, and do not turn Now Playing back into a route view — the content view
+staying mounted underneath is what makes the dismiss drag reveal real UI.
+
+Gestures (all finger-following, pure math in `lib/sheetGesture.ts`, state in
+the `useNowPlayingSheet` singleton): lift the strip to open; drag the face up
+for the queue or down to dismiss; pull the queue list down from its top — or
+drag the queue heading at any scroll position — to return to the face. Claims
+need 8px of dominant-vertical movement, the seek bar never arms, a claimed
+drag swallows its release click, and settles honour flick velocity. While the
+sheet is above collapsed, `PlayerLayout` sets `inert` on `.body-row`; the
+collapsed sheet body and the faded strip are likewise `inert`. Reduced motion
+is pure CSS (nothing waits on `transitionend`). On mobile, `/` is an alias:
+`HomeView` `replace()`s to `/browse#playing` (queue filled) or `/browse`
+(empty). The sheet strips a live sheet hash on unmount (queue emptied,
+rotation to desktop). `MiniPlayer` is the sheet's dumb collapsed strip — it
+renders and emits `open`, nothing more.
 
 **`/browse` (`MobileBrowseView`) is the mobile shell's landing page and its whole
 navigation surface** — the phone's stand-in for `AppSidebar`, and where the
@@ -217,68 +226,6 @@ About → Log out) behind a `⋮` PrimeVue `Menu` — the phone's **only** way t
 out. Now Playing and the queue stay reachable through `MiniPlayer`. Mobile only:
 at desktop width the view `replace()`s the route with `/library`, the mirror of
 `HomeView`'s guard.
-
-**Now Playing on the mobile shell is a first-class route, not an overlay.**
-`HomeView` mimics the desktop *flow* on phones: with tracks queued, `/` renders
-**`MobilePlayView`** (cover art, seek, a prev/play/next transport, favorite,
-plus the queue as a second snap panel below the player face — swiping the face
-up reveals it, a hint-chevron button scrolls there without the gesture).
-
-**It is the one main-content view with no `ContentScaffold`** (the layout doc's
-single exception): a fixed header above both panels showed the *queue's* heading
-over the player face, ate the artwork's height, and put its hamburger exactly
-where the browser URL bar sits. So:
-
-- **The heading belongs to the queue panel** (`.queue-heading`, above the list
-  scroller) and arrives with it — nothing hovers over the face, so there is no
-  fade, no `queue-up` class, and no height to hold constant. It carries "Queue" +
-  `useQueueSummary`'s summary, shuffle/repeat inline (queue behaviour, not
-  transport), and the shared `QueueHeaderActions` (edit/save/clear, `labels`
-  variant) behind its own `⋮` `Popover` — the arrangement `ContentScaffold` gives
-  `#secondary-actions` on phone tier, owned by this view directly.
-- **The face is bare, and dragging it down leaves for `/browse`** — the gesture
-  replaces the hamburger every other view carries. It is free there (the face is
-  the snap container's first panel, so a downward drag has nothing to scroll) and
-  it mirrors the upward swipe to the queue — which is why it is a **drag, not a
-  threshold**: the swipe up is a native scroll, so the panel tracks the finger and
-  the release settles or springs back. A threshold that fired mid-gesture and
-  navigated jumped, with nothing moving until it did. So `dragY` translates the
-  whole view 1:1 (`transform` bound at all times, `.is-dragging` suppressing the
-  transition while a finger owns it, downward-only and clamped at 0), and only the
-  release decides: past `max(64px, 20% of the view)` it slides the rest of the way
-  out and *then* `push()`es (`.is-leaving`), otherwise it springs back. **The
-  navigation must not depend on `transitionend` alone** — reduced motion turns the
-  transition off, so `finishLeave()` is idempotent behind both the event and a
-  safety timer, and reduced motion (`lib/motion.ts`'s `prefersReducedMotion()`,
-  shared with `MiniPlayer`) skips the slide entirely. The seek bar never
-  arms the drag (an off-axis slider drag would pull the view away mid-seek), nor
-  does a container part-way to the queue. Its non-gesture twin is the `⌄`
-  `.play-nav-hint` button at the face's top edge, which plays the same slide-out;
-  **don't leave the gesture as the only path**.
-- **Both panels reserve the top safe-area inset as well as the bottom** — with no
-  header and no mini player (hidden on this route) they are the outermost
-  surfaces in both directions.
-
-The way **back** from the queue is the queue *list's* touch handler — a downward
-pull that starts with the list at its top — not native scroll chaining: a chained
-drag hands the mandatory-snap container no fling momentum, so it settles straight
-back on the queue, which is also why both queue scrollers contain their
-overscroll. Because that pull only arms at the list's top, **the queue heading is
-a drag handle too**, switching back at any list position (reading down a long
-queue otherwise means scrolling all the way up first). It takes a drag in
-*either* direction — the heading is not a scroller, so a drag there can only mean
-"leave the queue". The list's listeners sit on the list, not the panel, so one
-drag on the heading can't fire both handlers. **`/#queue` is the queue panel's
-address**: arriving with it lands on the queue without animating, and
-`MobilePlayView` rewrites the hash (debounced `router.replace`) as the user
-swipes, so a link or bookmark to a panel reopens on it. With an
-empty queue it `replace()`s the route with `/browse` — an empty play view is
-a dead end on a one-surface screen, and browse is the phone's nav surface. Desktop `/` keeps `QueueView variant="full"`
-(empty state included). Both surfaces share `useQueueSummary` for the
-"N tracks • X min" string — on desktop in the scaffold header, on the phone under
-the queue heading's title. The predecessor **`PlayerSheet` overlay (and
-`usePlayerSheet`'s history/focus-trap machinery) is deleted** — routing gives
-system-back dismissal for free; don't reintroduce a sheet for now-playing.
 
 **useMediaSession** is bound once from `PlayerLayout` (shell-independent — desktop
 gains hardware media keys from the same wiring), feature-detected so unsupported
@@ -370,7 +317,7 @@ back to Firefox's quick-find. Don't re-add either as an alias.
 
 Every nav binding pushes a **named route with no params**: `C` → `home` (Now
 Playing is `/`, where `HomeView` renders `QueueView` on desktop and
-`MobilePlayView` on the mobile shell — there is no separate now-playing
+on mobile redirects to `/browse` with `NowPlayingSheet` open — there is no separate now-playing
 route), `D` → `library` with no `folderId` (the cross-collection root
 that opens on the Discover feed — a `folderId` would scope it to one library,
 which is not what the sidebar's Library entry does), plus `P` → `playlists`,

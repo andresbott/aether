@@ -3,7 +3,7 @@ import { usePlayer } from '@/composables/usePlayer'
 
 /**
  * The queue's header summary ("3 tracks • 12 min"), shared by the desktop
- * Now Playing (QueueView) and the phone play view (MobilePlayView). Pre-built
+ * Now Playing (QueueView) and the phone play view (QueuePanel). Pre-built
  * as one string so headers have no stray whitespace between the count and the
  * unit word (keeps `.text()` assertions reliable in tests). Empty at zero so
  * ContentScaffold omits the summary element entirely.
