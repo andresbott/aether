@@ -48,7 +48,7 @@ onUnmounted(() => {
 
 <template>
     <div class="player-shell" :class="shell === 'desktop' ? 'desktop-shell' : 'mobile-shell'">
-        <div class="body-row" :inert="shell === 'mobile' && sheet.open.value">
+        <div class="body-row" :inert="(shell === 'mobile' && sheet.open.value) || undefined">
             <AppSidebar v-if="shell === 'desktop'" />
 
             <div class="content-area" :style="{ '--sb-w': scrollbarWidth + 'px' }">

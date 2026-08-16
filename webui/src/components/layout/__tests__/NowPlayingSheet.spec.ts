@@ -10,9 +10,10 @@ const push = vi.fn()
 const replace = vi.fn()
 const back = vi.fn()
 const route = reactive({ path: '/library', fullPath: '/library', hash: '' })
+const currentRoute = { value: route }
 const resolve = vi.fn(({ hash }: { hash: string }) => ({ fullPath: `/library${hash}` }))
 vi.mock('vue-router', () => ({
-    useRouter: () => ({ push, replace, back, resolve }),
+    useRouter: () => ({ push, replace, back, resolve, currentRoute }),
     useRoute: () => route
 }))
 
@@ -111,13 +112,29 @@ describe('NowPlayingSheet — the hash is the source of truth', () => {
         route.hash = '#playing'
         await w.vm.$nextTick()
         w.unmount()
+        // Deferred a microtask: flush it.
+        await Promise.resolve()
         expect(replace).toHaveBeenCalledWith({ hash: '' })
         expect(useNowPlayingSheet().detent.value).toBe('collapsed')
     })
 
-    it('unmounting collapsed leaves the route alone', () => {
+    it('unmounting collapsed leaves the route alone', async () => {
         const w = mountSheet()
         w.unmount()
+        await Promise.resolve()
+        expect(replace).not.toHaveBeenCalled()
+    })
+
+    it('does not replace when the route hash already changed by the time the microtask runs', async () => {
+        const w = mountSheet()
+        route.hash = '#playing'
+        await w.vm.$nextTick()
+        // Concurrent navigation changed the hash before unmount's microtask runs
+        // (e.g. MobileBrowseView's desktop redirect on rotation).
+        currentRoute.value = { ...route, hash: '' }
+        w.unmount()
+        await Promise.resolve()
+        // The hash is already collapsed: no replace needed.
         expect(replace).not.toHaveBeenCalled()
     })
 })
@@ -164,5 +181,31 @@ describe('NowPlayingSheet — layered a11y', () => {
         expect(isInert(w, '.sheet-body')).toBe(false)
         expect(isInert(w, '.sheet-strip')).toBe(true)
         expect(w.find('.sheet-strip').classes()).toContain('strip-hidden')
+    })
+
+    it('playing: face panel is live, queue panel is inert', async () => {
+        const w = mountSheet()
+        useNowPlayingSheet().snapTo('playing')
+        await w.vm.$nextTick()
+        expect(isInert(w, '.sheet-panel-face')).toBe(false)
+        expect(isInert(w, '.sheet-panel-queue')).toBe(true)
+    })
+
+    it('queue: queue panel is live, face panel is inert', async () => {
+        const w = mountSheet()
+        useNowPlayingSheet().snapTo('queue')
+        await w.vm.$nextTick()
+        expect(isInert(w, '.sheet-panel-face')).toBe(true)
+        expect(isInert(w, '.sheet-panel-queue')).toBe(false)
+    })
+
+    it('collapsed: both panels are inert (body is inert covers them)', async () => {
+        const w = mountSheet()
+        // Already collapsed, but explicitly set it.
+        useNowPlayingSheet().snapTo('collapsed')
+        await w.vm.$nextTick()
+        expect(isInert(w, '.sheet-body')).toBe(true)
+        // Panels still have their own inert, but the body inert covers them.
+        expect(isInert(w, '.sheet-panel-queue')).toBe(true)
     })
 })

@@ -252,8 +252,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
    none of: the heading is an image plus a wordmark, and the actions are two round
    icon buttons. As a flex container the h1's baseline is its FIRST item's — the
    brand image's bottom edge — so baseline alignment lifts the whole brand above
-   the buttons. Center the row (and the title box inside it) instead; the same fix
-   NowPlayingSheet applies to its sheet panels for the same reason. */
+   the buttons. Center the row (and the title box inside it) instead. */
 .browse-view :deep(.scaffold-header-inner),
 .browse-view :deep(.scaffold-title) {
     align-items: center;

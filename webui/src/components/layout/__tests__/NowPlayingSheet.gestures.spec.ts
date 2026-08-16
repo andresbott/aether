@@ -11,9 +11,10 @@ const push = vi.fn()
 const replace = vi.fn()
 const back = vi.fn()
 const route = reactive({ path: '/library', fullPath: '/library', hash: '' })
+const currentRoute = { value: route }
 const resolve = vi.fn(({ hash }: { hash: string }) => ({ fullPath: `/library${hash}` }))
 vi.mock('vue-router', () => ({
-    useRouter: () => ({ push, replace, back, resolve }),
+    useRouter: () => ({ push, replace, back, resolve, currentRoute }),
     useRoute: () => route
 }))
 
@@ -146,6 +147,20 @@ describe('strip lift (collapsed → playing)', () => {
         // The drag's release-click must not ALSO open the sheet.
         expect(push).not.toHaveBeenCalled()
         // Only once: the next real tap works again.
+        await w.find('.stub-open').trigger('click')
+        expect(push).toHaveBeenCalledWith({ hash: '#playing' })
+    })
+
+    it('does not leak swallowClick when a claimed drag ends via touchcancel', async () => {
+        const w = mountSheet()
+        await touch(w, '.sheet-strip', 'touchstart', 700)
+        await touch(w, '.sheet-strip', 'touchmove', 600)
+        // Claimed drag ends via touchcancel instead of touchend → no click.
+        await w.find('.sheet-strip').trigger('touchcancel')
+        // The NEXT tap must still work — swallowClick should be reset by the
+        // new touchstart, not left armed from the canceled drag.
+        await touch(w, '.stub-open', 'touchstart', 700)
+        await release(w, '.stub-open')
         await w.find('.stub-open').trigger('click')
         expect(push).toHaveBeenCalledWith({ hash: '#playing' })
     })

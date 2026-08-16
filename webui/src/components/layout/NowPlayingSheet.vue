@@ -107,6 +107,12 @@ const queueScrolledDown = (target: EventTarget | null): boolean => {
 const beginDrag = (surface: DragSurface, event: TouchEvent): void => {
     const touch = event.touches[0]
     if (!touch) return
+    // Reset swallowClick at the start of every touch: a click to be swallowed
+    // always dispatches on the previous touchend, before the next touchstart.
+    // Without this, a claimed drag ending via touchcancel (or any browser path
+    // that suppresses the click) leaves swallowClick armed, so the NEXT tap
+    // gets eaten.
+    swallowClick = false
     const denied =
         (surface === 'face' &&
             event.target instanceof Element &&
@@ -238,7 +244,14 @@ onMounted(() => {
 // Unmounting (queue emptied, shell flipped to desktop) with a live sheet hash
 // would leave a stale #playing on a chrome that has no sheet: strip it.
 onUnmounted(() => {
-    if (detentForHash(route.hash) !== 'collapsed') void router.replace({ hash: '' })
+    // Deferred a microtask so a navigation racing this unmount (e.g.
+    // MobileBrowseView's desktop redirect on rotation) wins: re-check the
+    // route that navigation produced before rewriting its hash.
+    void Promise.resolve().then(() => {
+        if (detentForHash(router.currentRoute.value.hash) !== 'collapsed') {
+            void router.replace({ hash: '' })
+        }
+    })
     snapTo('collapsed')
 })
 </script>
@@ -257,6 +270,7 @@ onUnmounted(() => {
             <div class="sheet-track" :style="trackStyle">
                 <section
                     class="sheet-panel sheet-panel-face"
+                    :inert="detent === 'queue' || undefined"
                     @touchstart.passive="onFaceTouchStart"
                     @touchmove.passive="moveDrag"
                     @touchend.passive="endDrag"
@@ -272,6 +286,7 @@ onUnmounted(() => {
                 <section
                     ref="queuePanelEl"
                     class="sheet-panel sheet-panel-queue"
+                    :inert="detent !== 'queue' || undefined"
                     @touchstart.passive="onQueueTouchStart"
                     @touchmove="moveDrag"
                     @touchend.passive="endDrag"

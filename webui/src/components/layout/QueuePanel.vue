@@ -27,7 +27,10 @@ const { detent } = useNowPlayingSheet()
 // button or back button, all of which move the sheet — ends the editing
 // session, so returning to the queue never lands on a stale selection.
 watch(detent, (d) => {
-    if (d !== 'queue') exitEditMode()
+    if (d !== 'queue') {
+        exitEditMode()
+        overflowRef.value?.hide()
+    }
 })
 
 // The queue-management trio (edit/save/clear) behind the heading's ⋮ — three
