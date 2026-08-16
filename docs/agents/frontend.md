@@ -152,8 +152,8 @@ under DevTools device emulation — emulation has no retractable URL bar (`vh ==
 dvh`) and desktop-style scrollbars.
 
 **Never `scrollIntoView` inside the app shell** — scroll the intended scroller
-with `scrollTo` instead (`QueueBody`'s current
-row). `scrollIntoView` reveals its target in every scrollable *ancestor* and in
+with `scrollTo` instead (`QueueBody`'s current row). `scrollIntoView` reveals
+its target in every scrollable *ancestor* and in
 the **visual viewport**: mobile Chrome's URL bar shrinks the visual viewport
 while the layout viewport stays large, so there is always URL-bar-height of room
 to offset it — revealing a panel slid the whole app up under the URL bar and
@@ -316,9 +316,9 @@ destination whose initial it is, so **`O` and `/` are both unbound now** — `/`
 back to Firefox's quick-find. Don't re-add either as an alias.
 
 Every nav binding pushes a **named route with no params**: `C` → `home` (Now
-Playing is `/`, where `HomeView` renders `QueueView` on desktop and
-on mobile redirects to `/browse` with `NowPlayingSheet` open — there is no separate now-playing
-route), `D` → `library` with no `folderId` (the cross-collection root
+Playing is `/`, where `HomeView` renders `QueueView` on desktop and on mobile
+redirects to `/browse` with `NowPlayingSheet` open — there is no separate
+now-playing route), `D` → `library` with no `folderId` (the cross-collection root
 that opens on the Discover feed — a `folderId` would scope it to one library,
 which is not what the sidebar's Library entry does), plus `P` → `playlists`,
 `G` → `genres`, `R` → `radio`, `S` → `search`.

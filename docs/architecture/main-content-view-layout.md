@@ -39,7 +39,7 @@ one chrome exists in the DOM at a time:
 .desktop-shell (100vh, overflow hidden)      .mobile-shell (100dvh, overflow hidden)
  └ .body-row (flex, min-height:0)             └ .mobile-content (--sb-w, flex, overflow hidden)
     └ .content-area (--sb-w, flex,               └ main.main-content  ← RouterView renders here
-                     overflow hidden)          └ MiniPlayer      (only when the queue is non-empty)
+                     overflow hidden)          └ NowPlayingSheet (bottom sheet; only when the queue is non-empty)
        ├ main.main-content  ← RouterView
        └ QueueSidebar                          (nav is a route here: /browse, via the header hamburger)
 ```
@@ -244,23 +244,14 @@ main content view. It splits per variant:
   count badge, small buttons) — this variant is **not** governed by this guidance; it's
   side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
-On the **mobile shell**, `HomeView` renders **`MobilePlayView`** on `/` instead of
-`QueueView` — a first-class play screen (cover art, seek, prev/play/next transport, queue
-as a swipe-up snap panel). It is **the one main-content view that does not use
-`ContentScaffold`**, deliberately: a fixed header above both snap panels showed the
-*queue's* heading over the player face, ate the artwork's height, and put its hamburger
-exactly where the browser URL bar sits. Instead the heading (`"Queue"` + summary,
-shuffle/repeat inline, `QueueHeaderActions` labeled behind its own `⋮` `Popover`) is part
-of the **queue panel** and arrives with it, and the bare face replaces the hamburger with a
-downward *drag* to `/browse` — the view follows the finger and the release commits or springs
-back, matching the native-scroll feel of the swipe up to the queue — plus a `⌄` hint button
-that plays the same slide-out. Both panels reserve the top and bottom
-safe-area insets themselves, since nothing is docked above or below them. With an empty
-queue the phone `/` replaces itself with `/browse` (see `HomeView`); desktop keeps the queue
-list's empty state.
-
-This exception is narrow — it applies to a view that is *two full-screen snap panels*, not
-a title over a scrolling body. Anything of the ordinary shape still uses the scaffold.
+On the **mobile shell**, Now Playing is not a main content view at all — it is shell
+chrome. The phone renders `NowPlayingSheet` (an always-mounted hash-addressed bottom sheet
+over the route content) with three detents: collapsed (mini strip), playing (face), and
+queue. The sheet stacks over whatever route is underneath (`/library`, `/album/:id`, etc.),
+addressed by that route's hash (`#playing`, `#queue`). The queue heading is part of the
+**queue panel** and arrives with it; the player face has no fixed header. With an empty
+queue the sheet unmounts, leaving the route alone; `HomeView` on mobile redirects `/` to
+`/browse` when the queue is empty (desktop keeps the queue list's empty state).
 
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import
 `ContentScaffold`** — do not reimplement. Hand-rolled headers are reserved for non-view
@@ -273,7 +264,6 @@ chrome like the queue sidebar.
 | View | Route | Conforms? |
 | --- | --- | --- |
 | Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
-| Now Playing (`MobilePlayView` — mobile shell) | `/` | ⚠️ **deliberate exception** — no scaffold; heading lives in the queue panel, face swipes down to `/browse` (see §6) |
 | Browse (`MobileBrowseView`, mobile only) | `/browse` | ✅ `ContentScaffold` (`navRoot`, Recipe B body of `BrowseShelf` strips) |
 | Library (discover/album/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`) |
 | Search | `/search` | ✅ `ContentScaffold` |
@@ -289,8 +279,7 @@ chrome like the queue sidebar.
 | Podcast channel (`PodcastChannelView`) | `/podcast/:id` | ✅ `ContentScaffold` (cover in body hero) |
 | Settings sub-views | `/settings/*` | ❌ separate `SettingsLayout`, own headers |
 
-Settings sub-views intentionally use `SettingsLayout`, not this pattern, and
-`MobilePlayView` is the one intentional exception *within* it (§6). All other main content
+Settings sub-views intentionally use `SettingsLayout`, not this pattern. All main content
 views conform; keep new ones on `ContentScaffold`.
 
 ---
