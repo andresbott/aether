@@ -96,7 +96,7 @@ onUnmounted(() => {
     >
         <!-- Collapsed, everything above the strip is off-screen; inert keeps
              it out of the tab order and the AT tree without unmounting it. -->
-        <div class="sheet-body" :inert="expandF === 0 || undefined">
+        <div class="sheet-body" :inert="detent === 'collapsed' || undefined">
             <div class="sheet-track" :style="trackStyle">
                 <section class="sheet-panel sheet-panel-face">
                     <PlayerFace
