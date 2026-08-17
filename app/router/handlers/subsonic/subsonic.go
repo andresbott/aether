@@ -224,6 +224,9 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	// Genres (genreCoverArt extension; no standard updateGenre endpoint exists)
 	register("updateGenre", h.updateGenre)
 
+	// Albums (albumCoverArt extension; no standard updateAlbum endpoint exists)
+	register("updateAlbum", h.updateAlbum)
+
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
 	register("getAlbumList2Index", h.getAlbumList2Index)
