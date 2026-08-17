@@ -39,7 +39,7 @@ var pictureSlots = []string{"embedded", "folder"}
 // filePath / data is set when found.
 type resolvedPicture struct {
 	detail   string // e.g. the folder filename or "4 of 10 files"
-	filePath string // serve this file (db / folder slots)
+	filePath string // serve this file (folder slot)
 	data     []byte // serve these bytes (embedded slot)
 }
 
@@ -203,7 +203,7 @@ func (h *Handler) pictureForSlot(ctx context.Context, lib *librarySummary, abs s
 }
 
 type pictureSlotDTO struct {
-	Slot   string `json:"slot"` // "embedded" | "folder" | "db"
+	Slot   string `json:"slot"` // "embedded" | "folder"
 	Detail string `json:"detail,omitempty"`
 	// Mixed marks a folder slot whose art is not the same in every directory
 	// the album spans (a multi-disc release): one disc folder is missing it or
@@ -393,7 +393,7 @@ func pictureCacheSource(rp resolvedPicture) (string, func() ([]byte, error)) {
 		}
 		path := rp.filePath
 		return fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (asset store or album directory), never from the request
+			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (album directory), never from the request
 	}
 	if len(rp.data) > 0 {
 		data := rp.data
@@ -419,11 +419,10 @@ type applyPictureResult struct {
 	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
 
-// applyPicture saves an image of one picture type to one slot: aether's
-// managed store ("db"), an art file in the album folder ("folder"), or
-// embedded in the tags of the given tracks ("embedded"). The image source is
-// either an uploaded file part ("image") or a Cover Art Archive URL
-// ("image_url").
+// applyPicture saves an image of one picture type to one slot: an art file in
+// the album folder ("folder") or embedded in the tags of the given tracks
+// ("embedded"). The image source is either an uploaded file part ("image") or a
+// Cover Art Archive URL ("image_url").
 func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
@@ -488,16 +487,12 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-index the folder's tracks: the embedded slot changed their tags, and
-	// folder/db writes change which image the album should serve (reconcile
+	// folder writes change which image the album should serve (reconcile
 	// redetects album.CoverPath).
 	rs := h.rescanSaved(r.Context(), libModel.ID, resolved)
 	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID, Rescan: rs})
 }
 
-// savePictureToSlot writes the image bytes to the requested slot, returning
-// an HTTP status + error on failure (0, nil on success). DB-side effects
-// (album cover path, embedded-cover flag) only apply to the front cover —
-// they feed the app-wide cover serving, which only knows one cover per album.
 // savePictureToSlot writes the image bytes to the requested slot, returning
 // an HTTP status + error on failure (0, nil on success). Both slots are on
 // disk; the DB catches up through the caller's rescan, which re-reads the tags
