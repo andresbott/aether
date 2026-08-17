@@ -9,6 +9,7 @@ import (
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
+	"github.com/andresbott/aether/internal/tags"
 )
 
 func TestReconcileRepointsCoverPathToANewFolderImage(t *testing.T) {
@@ -118,4 +119,72 @@ func TestReconcileRepointsToAHigherRankedCover(t *testing.T) {
 	if album.CoverPath != filepath.Join(dir, "Artist/Album/cover.jpg") {
 		t.Fatalf("expected the cover path to repoint to cover.jpg, got %q", album.CoverPath)
 	}
+}
+
+// Regression test: a multi-disc album spanning several directories must not
+// lose its cover when a disc folder with no art reconciles. Albums are keyed
+// on (name, albumArtist, mbReleaseID), not on directory, so "Album/CD 1/"
+// holding cover.jpg and "Album/CD 2/" holding no art collapse to one album row.
+// Whichever disc reconciles last must not blank the other's find.
+func TestReconcilePreservesCoverAcrossMultiDiscAlbum(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/CD 1/01.mp3",
+		"Artist/Album/CD 1/cover.jpg",
+		"Artist/Album/CD 2/01.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	// Need a custom tag reader that returns the SAME album name for both discs,
+	// so they collapse into one album row.
+	albumName := "Multi Disc Album"
+	reader := customAlbumTagReader{albumName: albumName}
+
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should be exactly one album row despite two directories.
+	var albumCount int64
+	if err := st.DB().Model(&model.Album{}).Count(&albumCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if albumCount != 1 {
+		t.Fatalf("expected 1 album (multi-disc), got %d", albumCount)
+	}
+
+	var album model.Album
+	if err := st.DB().First(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(dir, "Artist/Album/CD 1/cover.jpg")
+	if album.CoverPath != want {
+		t.Fatalf("expected CoverPath = %q, got %q (blanked by art-less sibling folder)", want, album.CoverPath)
+	}
+}
+
+// customAlbumTagReader always returns the given album name regardless of directory.
+type customAlbumTagReader struct {
+	albumName string
+}
+
+func (r customAlbumTagReader) CanRead(absPath string) bool {
+	return scanner.IsAudioFile(absPath)
+}
+
+func (r customAlbumTagReader) Read(_ context.Context, absPath string) (tags.Metadata, error) {
+	return tags.Metadata{
+		Title:       filepath.Base(absPath),
+		Artist:      []string{"Test Artist"},
+		AlbumArtist: []string{"Test Artist"},
+		Album:       r.albumName,
+		Genre:       []string{"Rock"},
+		Year:        2020,
+		TrackNumber: 1,
+		Duration:    180,
+		Bitrate:     320,
+	}, nil
 }

@@ -49,11 +49,17 @@ without a scan task. Inadmissible paths are silently skipped and counted in
 `ScanStats.Errors`.
 
 `reconcile` owns `album.CoverPath` outright: it re-detects the best cover file in
-the track's directory on every pass and never trusts the stored value. Nothing
-else writes the field — the metadata editor writes art files on disk and relies
-on its post-write rescan to repoint the album. A cover uploaded through the
-`updateAlbum` extension lives in the asset store, not in `CoverPath`, and wins
-at serve time (`subsonic/media.go`, `albumCoverMeta`).
+the track's directory on every pass, but never lets a disc folder with no art
+blank out a cover found in a sibling folder of the same album (albums are keyed
+on name + album artist + mbReleaseID, not directory, so a multi-disc release
+laid out as `Album/CD 1/` + `Album/CD 2/` collapses to one row). An album's
+cover is updated when (a) art appears in THIS directory, (b) the stored path is
+unusable (`IsUsableCoverPath` rejects a missing or disqualified file), or (c)
+the stored path belongs to this directory and art here has since vanished.
+Nothing else writes the field — the metadata editor writes art files on disk and
+relies on its post-write rescan to repoint the album. A cover uploaded through
+the `updateAlbum` extension lives in the asset store, not in `CoverPath`, and
+wins at serve time (`subsonic/media.go`, `albumCoverMeta`).
 
 **A run indexed everything it should when `TracksProcessed ==
 len(absPaths) - TracksSkipped` and `Errors` is empty.** Never compare
@@ -124,12 +130,15 @@ can't read. `ErrUnsupported` marks unreadable file types.
 
 ## Cover art at scan time
 
-`reconcile.go` re-checks `album.CoverPath` on **every** pass rather than
-trusting a path already on record: `IsUsableCoverPath` (`cover.go`) rejects a
-path whose file has since been deleted or whose filename does not qualify as
-front art (a back scan, a disc label), and only then does
-`detectCoverInDir` pick a replacement from the track's directory. Tracks
-record `HasEmbeddedCover`.
+`reconcile.go` re-detects `album.CoverPath` per directory on every pass, but
+never lets a disc folder with no art blank a cover found in a sibling folder of
+the same album: albums are keyed on (name, album_artist_norm, mb_release_id),
+not directory, so a multi-disc release spanning several folders collapses to one
+row. `detectCoverInDir` picks the best front cover in the reconciled track's
+directory; that replaces the stored path when (a) art is found here, (b) the
+stored path is unusable (`IsUsableCoverPath` rejects a missing file or one no
+longer qualifying as front art), or (c) the stored path belongs to this
+directory and art here has since vanished. Tracks record `HasEmbeddedCover`.
 
 Still open in TODO.md: `store.GetCoverTrackPath` picks the *first* track with
 `has_embedded_cover=true` with no ordering, so which embedded cover wins is
