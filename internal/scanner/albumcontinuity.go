@@ -2,6 +2,7 @@
 package scanner
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/andresbott/aether/internal/store"
@@ -64,6 +65,10 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 			return err
 		}
 
+		// One row per identity: several albums claiming the same target is a
+		// merge, and the map iteration order must not decide who survives.
+		claims := map[store.AlbumIdentityKey][]uint{}
+		targets := map[store.AlbumIdentityKey]store.AlbumIdentity{}
 		for albumID, idents := range batch {
 			if len(idents) != counts[albumID] {
 				continue // part of the album is not in this batch: a split
@@ -75,21 +80,29 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 			if target.Key() == held[albumID].Key() {
 				continue // identity unchanged: nothing to plan
 			}
-			taken, err := tx.AlbumIDForIdentity(target.Key())
+			claims[target.Key()] = append(claims[target.Key()], albumID)
+			targets[target.Key()] = target
+		}
+
+		for key, sources := range claims {
+			taken, err := tx.AlbumIDForIdentity(key)
 			if err != nil {
 				return err
 			}
 			if taken != 0 {
 				continue // another row already holds it: a merge, not a rename
 			}
-			if err := tx.RetagAlbum(albumID, target); err != nil {
+			survivor := pickAlbumSurvivor(sources, counts)
+			if err := tx.RetagAlbum(survivor, targets[key]); err != nil {
 				if store.IsUniqueViolation(err) {
 					continue // a concurrent pass got there first
 				}
-				return err
+				return fmt.Errorf("retag album %d: %w", survivor, err)
 			}
-			slog.Debug("album retagged in place",
-				"album_id", albumID, "name", target.Name, "album_artist_norm", target.AlbumArtistNorm)
+			slog.Info("album retagged in place",
+				"album_id", survivor, "merged_from", len(sources)-1,
+				"prev_name", held[survivor].Name, "prev_album_artist_norm", held[survivor].AlbumArtistNorm,
+				"name", targets[key].Name, "album_artist_norm", targets[key].AlbumArtistNorm)
 		}
 		return nil
 	})
@@ -106,4 +119,21 @@ func sameAlbumIdentity(idents []store.AlbumIdentity) bool {
 		}
 	}
 	return true
+}
+
+// pickAlbumSurvivor chooses which of several albums collapsing into one
+// identity keeps its row: the one with the most tracks, lowest id as a
+// tiebreak. The others' tracks are repointed at the survivor by
+// FindOrCreateAlbum during the per-track pass, and their now-empty rows are
+// removed by DeleteOrphanedAggregates. Deliberately independent of map
+// iteration order — the survivor must not depend on which tag reader finished
+// first.
+func pickAlbumSurvivor(sources []uint, counts map[uint]int) uint {
+	best := sources[0]
+	for _, id := range sources[1:] {
+		if counts[id] > counts[best] || (counts[id] == counts[best] && id < best) {
+			best = id
+		}
+	}
+	return best
 }
