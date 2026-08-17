@@ -2,8 +2,10 @@ import { computed, toValue, unref } from 'vue'
 import type { MaybeRefOrGetter, Ref, ComputedRef } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { UseQueryOptions, UseMutationOptions, QueryClient } from '@tanstack/vue-query'
+import { useToast } from 'primevue/usetoast'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { artistImageSourceKey } from '@/composables/useArtistImageSource'
+import { apiErrorMessage } from '@/lib/apiError'
 import type {
     Album,
     AlbumWithSongs,
@@ -26,6 +28,8 @@ export const queryKeys = {
     musicFolders: ['subsonic', 'musicFolders'] as const,
     albumList: (type: string, size: number, offset: number, musicFolderId?: number) =>
         ['subsonic', 'albumList', type, size, offset, musicFolderId] as const,
+    // Prefix of every albumList query, for invalidating them all.
+    albumListAll: ['subsonic', 'albumList'] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     // The requested per-type counts are part of the key, not just the term: a
@@ -241,18 +245,28 @@ export function useUpdateArtistCover() {
 
 export function useUpdateAlbumCover() {
     const queryClient = useQueryClient()
+    const toast = useToast()
     return useMutation({
         mutationFn: (params: { albumId: string; coverFile?: File; coverClear?: boolean }) =>
             subsonicClient.updateAlbumCover(params.albumId, params.coverFile, params.coverClear),
         onSuccess: (_data, params) => {
             // Every cached surface that renders this album's cover has to go:
-            // the detail view, the album lists (library grid), the Discover feed
-            // (which ranks albums) and search results. The image URL is
-            // unchanged, so a stale cache would keep showing the old picture.
+            // the detail view, the album lists (library grid), the starred grid,
+            // the Discover feed (which ranks albums) and search results. The image
+            // URL is unchanged, so a stale cache would keep showing the old picture.
             queryClient.invalidateQueries({ queryKey: queryKeys.album(params.albumId) })
-            queryClient.invalidateQueries({ queryKey: ['subsonic', 'albumList'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.albumListAll })
+            queryClient.invalidateQueries({ queryKey: queryKeys.starred() })
             queryClient.invalidateQueries({ queryKey: queryKeys.discoveryAll })
             queryClient.invalidateQueries({ queryKey: queryKeys.searchAll })
+        },
+        onError: (err: any) => {
+            toast.add({
+                severity: 'error',
+                summary: 'Failed to save album cover',
+                detail: apiErrorMessage(err),
+                life: 5000
+            })
         }
     })
 }

@@ -5,6 +5,7 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { usePlayer } from '@/composables/usePlayer'
 import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{
     album?: Album
@@ -38,7 +39,8 @@ const onPlay = async (event: Event): Promise<void> => {
 const coverUrl = computed(() => {
     const art = props.album?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 200)
+    const base = subsonicClient.getCoverArtUrl(art, 200)
+    return versionedCoverUrl(base, art)
 })
 
 const onCardDragStart = (event: DragEvent): void => {

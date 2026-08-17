@@ -4,6 +4,7 @@ import type { Album } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 import { formatDuration } from '@/utils/formatDuration'
 
 const props = defineProps<{ album?: Album }>()
@@ -13,7 +14,8 @@ const toggleStar = useToggleStar()
 const coverUrl = computed(() => {
     const art = props.album?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 80)
+    const base = subsonicClient.getCoverArtUrl(art, 80)
+    return versionedCoverUrl(base, art)
 })
 
 const isStarred = computed(() => !!props.album?.starred)
