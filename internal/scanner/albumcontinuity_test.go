@@ -91,6 +91,13 @@ func TestReconcileKeepsTheAlbumIDWhenTheWholeAlbumIsRetagged(t *testing.T) {
 	if after.AlbumArtistNorm != "apocalyptica" {
 		t.Fatalf("expected the row to carry the new identity, got %q", after.AlbumArtistNorm)
 	}
+	if !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("created_at changed on retag (%v -> %v): the album would resurface in \"newest\" and the discovery feed",
+			before.CreatedAt, after.CreatedAt)
+	}
+	if after.CoverPath != before.CoverPath {
+		t.Fatalf("cover_path changed on retag (was %q, now %q): cover resolution broke", before.CoverPath, after.CoverPath)
+	}
 
 	var trackCount int64
 	if err := st.DB().Model(&model.Track{}).Where("album_id = ?", after.ID).Count(&trackCount).Error; err != nil {
@@ -311,5 +318,98 @@ func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 	}
 	if after.NameNorm != "cult" {
 		t.Fatalf("expected the surviving row to carry the new identity, got %q", after.NameNorm)
+	}
+}
+
+// The editor's real path: write tags, then RescanPaths the files just written.
+// A star and created_at must both come out the other side, because
+// DeleteOrphanedAggregates deletes the star row of an album that dies
+// (internal/store/scan_helpers.go) and created_at drives both the "newest"
+// album list and the discovery feed's recency term.
+func TestRescanPathsRetagPreservesStarsAndCreatedAt(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/01.mp3",
+		"Apocalyptica/Cult/02.mp3",
+	})
+	lib := seedLibrary(t, st, dir, nil)
+
+	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyAlbum(t, st)
+
+	if err := st.Star("alice", "album", before.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The editor renames the album on both files and rescans them.
+	reader.album = "Cult - Special Edition"
+	paths := []string{
+		filepath.Join(dir, "Apocalyptica/Cult/01.mp3"),
+		filepath.Join(dir, "Apocalyptica/Cult/02.mp3"),
+	}
+	if _, err := s.RescanPaths(context.Background(), lib.ID, paths); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyAlbum(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("album id changed on a RescanPaths retag: was %d, now %d", before.ID, after.ID)
+	}
+	if after.NameNorm != "cult - special edition" {
+		t.Fatalf("expected the new name on the row, got %q", after.NameNorm)
+	}
+	if !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("created_at changed on retag (%v -> %v): the album would resurface in \"newest\" and the discovery feed",
+			before.CreatedAt, after.CreatedAt)
+	}
+
+	var stars int64
+	if err := st.DB().Table("starred_items").
+		Where("item_type = ? AND item_id = ?", "album", before.ID).
+		Count(&stars).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stars != 1 {
+		t.Fatalf("expected the star to survive the retag, found %d rows", stars)
+	}
+}
+
+// A multi-disc release is one album row spanning two directories
+// (docs/agents/scanning.md). Retagging it wholesale must keep the row, and the
+// existing multi-disc cover behaviour must not move.
+func TestReconcileKeepsTheAlbumIDWhenAMultiDiscAlbumIsRetagged(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/CD 1/01.mp3",
+		"Apocalyptica/Cult/CD 1/cover.jpg",
+		"Apocalyptica/Cult/CD 2/02.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyAlbum(t, st)
+
+	reader.album = "Cult (Remastered)"
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyAlbum(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("multi-disc album id changed on retag: was %d, now %d", before.ID, after.ID)
+	}
+	want := filepath.Join(dir, "Apocalyptica/Cult/CD 1/cover.jpg")
+	if after.CoverPath != want {
+		t.Fatalf("expected the multi-disc cover to survive, wanted %q got %q", want, after.CoverPath)
 	}
 }
