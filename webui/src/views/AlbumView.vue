@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
+import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
-import { useAlbum, useToggleStar } from '@/composables/useSubsonicQueries'
+import { useAlbum, useToggleStar, useUpdateAlbumCover } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
+import { useAuth } from '@/composables/useAuth'
+import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { subsonicClient } from '@/lib/api/subsonic'
 import type { Song } from '@/types/subsonic'
 
@@ -54,11 +57,102 @@ const handleStar = () => {
 
 const { data: album, isLoading, error } = useAlbum(props.id)
 
+const MAX_COVER_BYTES = 5 * 1024 * 1024
+
+const updateCover = useUpdateAlbumCover()
+const { isAdmin } = useAuth()
+
+// --- Cover editing (mirrors GenreDetailView: staged locally, applied on Save) ---
+const editing = ref(false)
+const selectedFile = ref<File | null>(null)
+const previewUrl = ref<string | null>(null)
+const coverClear = ref(false)
+const coverSizeError = ref<string | null>(null)
+
+const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+
+function resetCoverStaging(): void {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = false
+    coverSizeError.value = null
+}
+
+const onCoverSelect = (file: File): void => {
+    if (file.size > MAX_COVER_BYTES) {
+        coverSizeError.value = `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — max is 5 MB`
+        return
+    }
+    coverSizeError.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    selectedFile.value = file
+    previewUrl.value = URL.createObjectURL(file)
+    coverClear.value = false
+}
+
+const onRemoveCover = (): void => {
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = null
+    selectedFile.value = null
+    coverClear.value = true
+    coverSizeError.value = null
+}
+
+const saveEdit = (): void => {
+    if (!dirty.value || !album.value?.id) {
+        editing.value = false
+        return
+    }
+    updateCover.mutate(
+        {
+            albumId: album.value.id,
+            coverFile: selectedFile.value ?? undefined,
+            coverClear: coverClear.value || undefined
+        },
+        {
+            onSuccess: () => {
+                resetCoverStaging()
+                // Shared, module-level version: a local ref would die with this
+                // component, so navigating away and back would re-show the old
+                // image from the browser's in-memory cache.
+                if (album.value?.coverArt) bumpCoverVersion(album.value.coverArt)
+                editing.value = false
+            }
+        }
+    )
+}
+
+const cancelEdit = (): void => {
+    resetCoverStaging()
+    editing.value = false
+}
+
+// Unsaved-changes guards (mirror Genre/Artist/Playlist detail views).
+onBeforeRouteLeave(() => {
+    if (dirty.value) {
+        return window.confirm('You have unsaved changes. Leave without saving?')
+    }
+})
+const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+    if (!dirty.value) return
+    e.preventDefault()
+    e.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onUnmounted(() => {
+    window.removeEventListener('beforeunload', onBeforeUnload)
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+})
+
 const currentTrackId = computed(() => player.currentTrack.value?.id)
 
 const coverUrl = computed(() => {
+    if (previewUrl.value) return previewUrl.value
+    if (coverClear.value) return null
     if (!album.value?.coverArt || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(album.value.coverArt, 250)
+    const base = subsonicClient.getCoverArtUrl(album.value.coverArt, 250)
+    return versionedCoverUrl(base, album.value.coverArt)
 })
 
 const totalDuration = computed(() => {
@@ -135,7 +229,11 @@ const onRowDragStart = (event: DragEvent, index: number): void => {
 // Discard the selection when navigating to a different album.
 watch(
     () => props.id,
-    () => clearSelection()
+    () => {
+        clearSelection()
+        resetCoverStaging()
+        editing.value = false
+    }
 )
 </script>
 
@@ -152,6 +250,16 @@ watch(
 
         <ContentScaffold v-else-if="album" title="" show-back @back="router.back()">
             <template #actions>
+                <EditActionBar
+                    v-if="isAdmin"
+                    v-model:editing="editing"
+                    :can-delete="false"
+                    :save-disabled="!dirty"
+                    :saving="updateCover.isPending.value"
+                    :dirty="dirty"
+                    @save="saveEdit"
+                    @cancel="cancelEdit"
+                />
                 <span
                     class="album-drag-handle"
                     draggable="true"
@@ -168,9 +276,12 @@ watch(
                     <HeroHeader
                         eyebrow="Album"
                         cover-placeholder-icon="pi pi-music"
+                        cover-back-label="Album cover"
                         :cover-url="coverUrl"
-                        :cover-editable="false"
-                        :editing="false"
+                        :cover-size-error="coverSizeError"
+                        v-model:editing="editing"
+                        @cover-select="onCoverSelect"
+                        @cover-remove="onRemoveCover"
                     >
                         <template #read>
                             <h2 class="hero-name">{{ album.name }}</h2>

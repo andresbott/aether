@@ -239,6 +239,24 @@ export function useUpdateArtistCover() {
     })
 }
 
+export function useUpdateAlbumCover() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (params: { albumId: string; coverFile?: File; coverClear?: boolean }) =>
+            subsonicClient.updateAlbumCover(params.albumId, params.coverFile, params.coverClear),
+        onSuccess: (_data, params) => {
+            // Every cached surface that renders this album's cover has to go:
+            // the detail view, the album lists (library grid), the Discover feed
+            // (which ranks albums) and search results. The image URL is
+            // unchanged, so a stale cache would keep showing the old picture.
+            queryClient.invalidateQueries({ queryKey: queryKeys.album(params.albumId) })
+            queryClient.invalidateQueries({ queryKey: ['subsonic', 'albumList'] })
+            queryClient.invalidateQueries({ queryKey: queryKeys.discoveryAll })
+            queryClient.invalidateQueries({ queryKey: queryKeys.searchAll })
+        }
+    })
+}
+
 export function useReplacePlaylistTracks() {
     const queryClient = useQueryClient()
     return useMutation({
