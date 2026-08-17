@@ -19,7 +19,7 @@ export function useQueueEdit() {
     }
 
     /** Leave edit mode (no-op when off) — for hosts whose edit surface can
-     *  scroll out of view (MobilePlayView's queue panel). */
+     *  scroll out of view (QueuePanel). */
     const exitEditMode = (): void => {
         if (!editMode.value) return
         editMode.value = false

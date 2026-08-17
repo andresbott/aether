@@ -1,4 +1,4 @@
-# TODO
+    # TODO
 
 Items are split into **1.0** (the release gate), **Future releases**, and a
 **Backlog** of things that need investigation before they can be scoped.
@@ -22,6 +22,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 - [ ] `getUser` / `getUsers` — spec endpoints, **not routed at all** (absent from the register list in `subsonic/subsonic.go:207-269`). Clients call `getUser` to discover what the authenticated user may do — `streamRole`, `playlistRole`, `downloadRole`, `adminRole`, `coverArtRole`, … — and some disable UI or refuse to start without it. Aether already has everything the response needs: `requestOwner(r)` gives the login, `users.RoleOf` gives the vertical (the same lookup `restAdminChecker` uses), so the roles are a fixed mapping with `adminRole` the only variable one. Two decisions: the `username` a PAT-authenticated caller sees (the real login, not the tokenID virtual username), and whether `getUsers` (admin-only, lists everyone) is worth mounting at all given the users CRUD already lives on `/api/v1` — `getUser` for the caller's own record is the part clients actually need.
 - [ ] XML response format — check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
+- [ ] expose server version correctly
 
 ## Backend — Data Integrity & Scanning
 
@@ -42,6 +43,12 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [x] Create an app icon / logo. Browser/PWA side: `zarf/icon/web/` holds the cleaned web sources (rounded, square, maskable) derived from the `icon2.svg` master, `make icons` (`zarf/icon/render.sh`) renders them into `webui/public/` (`icon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-{192,512}.png`, `icon-maskable-{192,512}.png`), and `index.html` + the manifest link them all. In-app side: the diamond rendition (`assets/aether-mark.svg` via `components/common/BrandMark.vue`) replaced the `◈` placeholder in the sidebar and the mobile drawer and now sits beside the wordmark on the login card. The wordmark itself **stays styled text** — only the mark is artwork.
 - [] library also shows songs additionally to albums and artists
 - [] impelemt radio mode queue => keep playing based on same type/taste
+  - if i just listened to an album put the next album of the same artists
+    - if the artist has no more albums, jup to the next artist with similar tags
+- [] now playing should alow you to navigate to artists similar like album
+
+## Frontend - mobile
+
 
 ---
 
@@ -65,6 +72,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 ## Backend — Library
 
 - [ ] Add statistics in backend library: e.g. albums, artists, songs, genres, disk space used
+- [ ] rework kibraries as virual filtered items instead of mapped to filesystem
 
 ## Frontend — Music Browsing & Features
 
@@ -76,6 +84,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Better genre handling — **needs scoping before it can be planned**
 - [ ] Search should also return genres
 - [ ] Playlist edit is not a nice experience for now — **needs scoping**: name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated
+- [ ] Add filter to artist / album etc 
 
 ## Frontend — Metadata editor
 
@@ -83,6 +92,18 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] Make it easier / faster to load a folder
 - [ ] Check if we can add comments to metadata as part of the standard (e.g. the unreleased Alesha Dixon "Fool 4 U I Love")
 - [ ] When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only)
+- [ ] the library selector should not be a drop donw as it takes too many clicks
+- [ ] the folder selector dialog should be bigger and have a filter option
+- [ ] once you have selected the album of one artist navigating to another album folder should be easy ( use nav bar on top)
+- [ ] in attached pictures, front cover should always be an option even if no picture is detected at all
+- [ ] generated cover files are not browsable by samba
+- [ ] in artist selection dialog, check if there might be more pictures for the same artist
+- [ ] when identifying albums sometiemes track position os wrong, can we improve that
+- [ ] for images i want some metadata info: size, dimensions and format, both for what is stored as well as what is found
+- [ ] in raw metadata edit, after save return to the non raw view
+- [ ] identify album selections should print more details in the header
+- [ ] 431 Request Header Fields Too Large
+  /api/v1/metadata/pictures?library_id=1&path=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1&type=Front+Cover&slot=embedded&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F01+-+Path.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F02+-+Struggle.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F03+-+Romance.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F04+-+Pray!.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F05+-+In+Memoriam.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F06+-+Hyperventilation.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F07+-+Beyont+Time.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F08+-+Hope.mp3&paths=Apocalipti 
 
 ## Frontend — Player & Controls
 

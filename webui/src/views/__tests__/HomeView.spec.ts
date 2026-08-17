@@ -10,10 +10,6 @@ vi.mock('@/components/layout/QueueView.vue', () => ({
     }
 }))
 
-vi.mock('@/components/layout/MobilePlayView.vue', () => ({
-    default: { name: 'MobilePlayView', template: '<div class="stub-play-view"></div>' }
-}))
-
 const replace = vi.fn()
 vi.mock('vue-router', () => ({
     useRouter: () => ({ replace })
@@ -41,7 +37,6 @@ describe('HomeView', () => {
     it('desktop renders QueueView in the full variant', () => {
         const w = mount(HomeView)
         expect(w.find('.stub-queue-view').text()).toBe('full')
-        expect(w.find('.stub-play-view').exists()).toBe(false)
     })
 
     // Desktop keeps Now Playing on `/` even with nothing queued — the queue
@@ -53,32 +48,28 @@ describe('HomeView', () => {
         expect(replace).not.toHaveBeenCalled()
     })
 
-    it('mobile renders the play view when the queue has tracks', () => {
+    it('mobile with a queue: `/` aliases to the landing page with the sheet open', () => {
         shell.value = 'mobile'
-        const w = mount(HomeView)
-        expect(w.find('.stub-play-view').exists()).toBe(true)
-        expect(w.find('.stub-queue-view').exists()).toBe(false)
-        expect(replace).not.toHaveBeenCalled()
+        mount(HomeView)
+        expect(replace).toHaveBeenCalledWith({ name: 'browse', hash: '#playing' })
     })
 
     // The phone mimics the desktop flow: an empty queue means there is
-    // nothing to play, so `/` lands on the library instead.
-    it('mobile with an empty queue replaces the route with the library', () => {
+    // nothing to play, so `/` lands on the browse page — the phone's nav
+    // surface — instead.
+    it('mobile with an empty queue replaces the route with the browse page', () => {
         shell.value = 'mobile'
         queue.value = []
-        const w = mount(HomeView)
-        expect(replace).toHaveBeenCalledWith({ name: 'library' })
-        // Nothing renders in the gap while the redirect is in flight.
-        expect(w.find('.stub-play-view').exists()).toBe(false)
-        expect(w.find('.stub-queue-view').exists()).toBe(false)
+        mount(HomeView)
+        expect(replace).toHaveBeenCalledWith({ name: 'browse' })
     })
 
-    it('redirects when the queue empties while the play view is on screen', async () => {
+    it('redirects when the queue empties', async () => {
         shell.value = 'mobile'
         mount(HomeView)
-        expect(replace).not.toHaveBeenCalled()
+        expect(replace).toHaveBeenCalledWith({ name: 'browse', hash: '#playing' })
         queue.value = []
         await nextTick()
-        expect(replace).toHaveBeenCalledWith({ name: 'library' })
+        expect(replace).toHaveBeenCalledWith({ name: 'browse' })
     })
 })

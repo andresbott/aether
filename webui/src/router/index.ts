@@ -9,6 +9,15 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        // Mobile-only landing page and nav surface — the phone's stand-in for the
+        // desktop sidebar, and where every top-level view's hamburger goes. The
+        // view redirects to /library at desktop width (see MobileBrowseView).
+        path: '/browse',
+        name: 'browse',
+        component: () => import('@/views/MobileBrowseView.vue'),
+        meta: { flush: true }
+    },
+    {
         path: '/search',
         name: 'search',
         component: () => import('@/views/SearchView.vue'),

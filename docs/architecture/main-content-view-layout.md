@@ -39,9 +39,9 @@ one chrome exists in the DOM at a time:
 .desktop-shell (100vh, overflow hidden)      .mobile-shell (100dvh, overflow hidden)
  └ .body-row (flex, min-height:0)             └ .mobile-content (--sb-w, flex, overflow hidden)
     └ .content-area (--sb-w, flex,               └ main.main-content  ← RouterView renders here
-                     overflow hidden)          ├ MiniPlayer      (only when the queue is non-empty)
-       ├ main.main-content  ← RouterView       └ MobileNavDrawer (left overlay, via the header hamburger)
-       └ QueueSidebar
+                     overflow hidden)          └ NowPlayingSheet (bottom sheet; only when the queue is non-empty)
+       ├ main.main-content  ← RouterView
+       └ QueueSidebar                          (nav is a route here: /browse, via the header hamburger)
 ```
 
 - `.main-content` is `flex:1; overflow-y:auto; padding: 1rem 2rem` **by default**. Simple
@@ -244,13 +244,14 @@ main content view. It splits per variant:
   count badge, small buttons) — this variant is **not** governed by this guidance; it's
   side-panel chrome, and the scaffold's `h1`/wide paddings don't fit it.
 
-On the **mobile shell**, `HomeView` renders **`MobilePlayView`** on `/` instead of
-`QueueView` — a first-class play screen (cover art, seek, prev/play/next transport, queue
-as a swipe-up snap panel) also composed on `ContentScaffold`, so it gets the hamburger like
-every other top-level view. Its queue heading carries shuffle/repeat in `#actions` and
-`QueueHeaderActions` (labeled) in `#secondary-actions`, i.e. behind the scaffold ⋮ on
-phones. With an empty queue the phone `/` replaces itself with the library
-(see `HomeView`); desktop keeps the queue list's empty state.
+On the **mobile shell**, Now Playing is not a main content view at all — it is shell
+chrome. The phone renders `NowPlayingSheet` (an always-mounted hash-addressed bottom sheet
+over the route content) with three detents: collapsed (mini strip), playing (face), and
+queue. The sheet stacks over whatever route is underneath (`/library`, `/album/:id`, etc.),
+addressed by that route's hash (`#playing`, `#queue`). The queue heading is part of the
+**queue panel** and arrives with it; the player face has no fixed header. With an empty
+queue the sheet unmounts, leaving the route alone; `HomeView` on mobile redirects `/` to
+`/browse` when the queue is empty (desktop keeps the queue list's empty state).
 
 **Guidance:** for a plain view (title + count + a few actions + a scrolling body), **import
 `ContentScaffold`** — do not reimplement. Hand-rolled headers are reserved for non-view
@@ -263,7 +264,7 @@ chrome like the queue sidebar.
 | View | Route | Conforms? |
 | --- | --- | --- |
 | Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
-| Now Playing (`MobilePlayView` — mobile shell) | `/` | ✅ `ContentScaffold` (play face + queue face) |
+| Browse (`MobileBrowseView`, mobile only) | `/browse` | ✅ `ContentScaffold` (`navRoot`, Recipe B body of `BrowseShelf` strips) |
 | Library (discover/album/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
@@ -278,8 +279,8 @@ chrome like the queue sidebar.
 | Podcast channel (`PodcastChannelView`) | `/podcast/:id` | ✅ `ContentScaffold` (cover in body hero) |
 | Settings sub-views | `/settings/*` | ❌ separate `SettingsLayout`, own headers |
 
-Settings sub-views intentionally use `SettingsLayout`, not this pattern. All other main
-content views now conform; keep new ones on `ContentScaffold`.
+Settings sub-views intentionally use `SettingsLayout`, not this pattern. All main content
+views conform; keep new ones on `ContentScaffold`.
 
 ---
 

@@ -421,7 +421,7 @@ const {
 }
 
 /* Only .dark-mode escapes scoping — a fully global .play-btn also matched
-   MobilePlayView's transport buttons, which share the class name. */
+   PlayerFace's transport buttons, which share the class name. */
 :global(.dark-mode) .play-btn {
     box-shadow: 0 3px 12px rgba(47, 211, 239, 0.3);
 }

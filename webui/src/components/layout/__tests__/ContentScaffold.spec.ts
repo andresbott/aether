@@ -3,7 +3,11 @@ import { mount } from '@vue/test-utils'
 import { computed, ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
-import { useMobileNav, resetMobileNavForTests } from '@/composables/useMobileNav'
+
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ push })
+}))
 
 // Mock useViewport for secondary actions tests
 const tier = ref<'phone' | 'tablet' | 'desktop'>('desktop')
@@ -102,19 +106,26 @@ describe('secondary actions', () => {
 })
 
 // The mobile shell has no persistent nav chrome, so top-level views carry the
-// drawer trigger in their scaffold header; detail views show Back there
-// instead, and the desktop shell has the sidebar.
-describe('nav drawer hamburger', () => {
-    beforeEach(() => resetMobileNavForTests())
+// hamburger in their scaffold header; detail views show Back there instead, and
+// the desktop shell has the sidebar.
+describe('nav hamburger', () => {
+    beforeEach(() => push.mockClear())
 
-    it('shows the hamburger on the mobile shell and opens the nav drawer', async () => {
+    it('shows the hamburger on the mobile shell and navigates to the browse page', async () => {
         tier.value = 'phone'
         const scaffold = mount(ContentScaffold, { props: { title: 'Library' } })
         const burger = scaffold.find('.scaffold-nav-btn')
         expect(burger.exists()).toBe(true)
-        expect(burger.attributes('aria-haspopup')).toBe('dialog')
         await burger.trigger('click')
-        expect(useMobileNav().isOpen.value).toBe(true)
+        expect(push).toHaveBeenCalledWith({ name: 'browse' })
+    })
+
+    // /browse is the hamburger's destination, so the view that renders it must
+    // not offer a button back to itself.
+    it('renders no hamburger on the nav root itself', () => {
+        tier.value = 'phone'
+        const scaffold = mount(ContentScaffold, { props: { title: 'Browse', navRoot: true } })
+        expect(scaffold.find('.scaffold-nav-btn').exists()).toBe(false)
     })
 
     it('yields its spot to the back button on detail views', () => {

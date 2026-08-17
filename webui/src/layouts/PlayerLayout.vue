@@ -10,6 +10,7 @@ import { useQueueSync } from '@/composables/useQueueSync'
 import { useScrollbarWidth } from '@/composables/useScrollbarWidth'
 import { useViewport } from '@/composables/useViewport'
 import { useMediaSession } from '@/composables/useMediaSession'
+import { useNowPlayingSheet } from '@/composables/useNowPlayingSheet'
 
 const route = useRoute()
 const queueSync = useQueueSync()
@@ -22,6 +23,11 @@ const queueSync = useQueueSync()
 const { shell } = useViewport()
 // Recipes read --sb-w in both shells; on phone overlay scrollbars it is 0.
 const scrollbarWidth = useScrollbarWidth()
+
+// While the sheet is above collapsed it covers the whole shell: inert takes
+// the covered content out of the tab order and the AT tree — the lightweight
+// replacement for the focus trap the old overlay needed.
+const sheet = useNowPlayingSheet()
 
 // Lock-screen / hardware-key controls; shell-independent, so it lives here
 // rather than in either shell.
@@ -42,7 +48,7 @@ onUnmounted(() => {
 
 <template>
     <div class="player-shell" :class="shell === 'desktop' ? 'desktop-shell' : 'mobile-shell'">
-        <div class="body-row">
+        <div class="body-row" :inert="(shell === 'mobile' && sheet.open.value) || undefined">
             <AppSidebar v-if="shell === 'desktop'" />
 
             <div class="content-area" :style="{ '--sb-w': scrollbarWidth + 'px' }">
@@ -61,6 +67,7 @@ onUnmounted(() => {
 
 <style>
 .player-shell {
+    position: relative;
     display: flex;
     flex-direction: column;
     width: 100%;
@@ -68,15 +75,17 @@ onUnmounted(() => {
     background-color: var(--app-background);
 }
 
+/* Both shells take their height from the app-shell chain in _main.scss (html is
+   100dvh, body and #app are 100%) rather than measuring the viewport again
+   here: a `100vh` column is the URL-bar-hidden height on mobile browsers and
+   would hang below the visible area. */
 .player-shell.desktop-shell {
-    height: 100vh;
+    height: 100%;
     padding-bottom: var(--app-player-height);
 }
 
 .player-shell.mobile-shell {
-    /* dvh, not vh: mobile browser UI bars shrink the visible viewport, and a
-       100vh column would push the tab bar under them. */
-    height: 100dvh;
+    height: 100%;
 }
 
 .body-row {

@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { usePlayer } from '@/composables/usePlayer'
 import { subsonicClient } from '@/lib/api/subsonic'
 
+// The Now Playing sheet's collapsed strip (NowPlayingSheet.vue). Dumb on
+// purpose: the sheet owns the lift gesture, the strip cross-fade and the
+// click-after-drag swallowing — this bar only renders the track and emits
+// `open` for a tap. It never navigates itself, so it works no matter which
+// route sits under the sheet.
+const emit = defineEmits<{ (e: 'open'): void }>()
+
 const player = usePlayer()
-const router = useRouter()
 
 const currentTrack = computed(() => player.currentTrack.value)
 
@@ -19,14 +24,6 @@ const progressPercent = computed(() => {
     if (!player.duration.value) return 0
     return (player.currentTime.value / player.duration.value) * 100
 })
-
-// The tap target is the Now Playing route: the play view is a first-class
-// screen (MobilePlayView on `/`), not an overlay, so opening it is plain
-// navigation. The bar is hidden on that route (see MobileShell), so this can
-// never push a duplicate entry for the view already on screen.
-const openNowPlaying = (): void => {
-    void router.push({ name: 'home' })
-}
 </script>
 
 <template>
@@ -43,7 +40,7 @@ const openNowPlaying = (): void => {
             type="button"
             class="mini-open"
             aria-label="Open Now Playing"
-            @click="openNowPlaying"
+            @click="emit('open')"
         ></button>
 
         <img v-if="coverUrl" :src="coverUrl" alt="" class="mini-cover" />
