@@ -357,8 +357,8 @@ export interface StagedPictureSource {
 }
 
 // An image this album already has in another type+slot cell, offered in the
-// picker as a copy source (e.g. copy the embedded front cover into the
-// internal store). Exactly one of file / imageUrl / fetchUrl resolves it:
+// picker as a copy source (e.g. copy the embedded front cover into the folder).
+// Exactly one of file / imageUrl / fetchUrl resolves it:
 // - file:     an upload already staged in this session
 // - imageUrl: a Cover Art Archive URL already staged in this session
 // - fetchUrl: an image the server holds; the browser fetches the bytes and

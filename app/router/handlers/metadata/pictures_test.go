@@ -852,7 +852,7 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 // explicit paths, selectionPaths -> folderTrackPaths recursively lists every
 // file the *editor's* reader accepts under the album dir, which is wider than
 // the scanner's admission (extra extensions, excludes ignored). The frontend
-// always sends paths: undefined for folder/db slots, so this is THE normal
+// always sends paths: undefined for the folder slot, so this is THE normal
 // path — one .oga sibling or one excluded subfolder must not make a correct
 // cover removal warn about the index.
 func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {

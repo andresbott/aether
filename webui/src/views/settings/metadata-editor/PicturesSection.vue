@@ -223,7 +223,7 @@ function openPicker(type: string, slot: PictureSlot) {
 
 // Every other cell of this album that currently holds an image — the picker
 // offers them as copy sources (e.g. copy the embedded front cover into the
-// internal store). A staged image hands over its own file/URL; a server-held
+// folder). A staged image hands over its own file/URL; a server-held
 // one is downloaded by the picker from its image endpoint. The cell being
 // edited is excluded: copying it onto itself is a no-op.
 const copySources = computed<PictureCopySource[]>(() => {

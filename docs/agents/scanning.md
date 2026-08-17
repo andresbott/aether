@@ -48,6 +48,13 @@ without a scan task. Inadmissible paths are silently skipped and counted in
 `ScanStats.TracksSkipped`; only real tag-read failures land in
 `ScanStats.Errors`.
 
+`reconcile` owns `album.CoverPath` outright: it re-detects the best cover file in
+the track's directory on every pass and never trusts the stored value. Nothing
+else writes the field — the metadata editor writes art files on disk and relies
+on its post-write rescan to repoint the album. A cover uploaded through the
+`updateAlbum` extension lives in the asset store, not in `CoverPath`, and wins
+at serve time (`subsonic/media.go`, `albumCoverMeta`).
+
 **A run indexed everything it should when `TracksProcessed ==
 len(absPaths) - TracksSkipped` and `Errors` is empty.** Never compare
 `TracksProcessed` to `len(absPaths)`: the editor's file listing is deliberately
@@ -57,8 +64,8 @@ len(absPaths) - TracksSkipped` and `Errors` is empty.** Never compare
 perfectly correct save therefore routinely hands `RescanPaths` paths it will
 not index, and the picture endpoints do so on the *normal* path
 (`selectionPaths` → `folderTrackPaths` lists the whole album dir recursively
-when the client sends no explicit paths, which is what the editor does for
-folder/db slots). A full `Scan`'s paths all come from its own walk, so
+when the client sends no explicit paths, which is what the editor does for the
+folder slot). A full `Scan`'s paths all come from its own walk, so
 `TracksSkipped` stays zero there.
 
 Admission must stay a superset-free mirror of `Walk`: `Walk` prunes whole
