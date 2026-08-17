@@ -642,8 +642,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         } else {
                             out = await deletePictureMutation.mutateAsync({
                                 libraryId: lib,
-                                // The entry key identifies the album, not a
-                                // location: the server needs a real folder.
+                                // For embedded/folder slots, the path is the directory
+                                // containing the files.
                                 path: dirOf(op.paths[0] ?? ''),
                                 type,
                                 slot,

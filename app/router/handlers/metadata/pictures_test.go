@@ -435,9 +435,6 @@ func TestApplyPicture_FolderWritesEverySelectionDirectory(t *testing.T) {
 	}
 }
 
-// The embedded slot already targets the listed files: it is not affected by
-// the folder fan-out.
-
 func TestApplyPicture_DefaultTypeIsFrontCover(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "album")

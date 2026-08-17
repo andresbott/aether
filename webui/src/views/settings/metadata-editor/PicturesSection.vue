@@ -326,7 +326,7 @@ function undoCell(type: string, slot: PictureSlot) {
                             v-if="i > 0"
                             class="slot-priority"
                             aria-hidden="true"
-                            v-tooltip.top="'Loading priority: embedded in file, then album folder'"
+                            v-tooltip.top="'Editor display order (not serving precedence)'"
                         >
                             <i class="pi pi-angle-right"></i>
                         </div>

@@ -283,6 +283,12 @@ watch(
                         @cover-select="onCoverSelect"
                         @cover-remove="onRemoveCover"
                     >
+                        <template #cover-note>
+                            <div class="cover-help">
+                                Remove clears aether's managed cover and reverts to the folder or
+                                embedded artwork.
+                            </div>
+                        </template>
                         <template #read>
                             <h2 class="hero-name">{{ album.name }}</h2>
                             <router-link
@@ -469,5 +475,22 @@ watch(
 
 .album-drag-handle:active {
     cursor: grabbing;
+}
+
+.cover-help {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    background: var(--app-bg-subtle);
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.4;
+    text-align: center;
 }
 </style>
