@@ -68,6 +68,7 @@ func TestReconcileKeepsTheAlbumIDWhenTheWholeAlbumIsRetagged(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 		"Apocalyptica/Cult/03.mp3",
+		"Apocalyptica/Cult/cover.jpg",
 	})
 	seedLibrary(t, st, dir, nil)
 
@@ -77,6 +78,10 @@ func TestReconcileKeepsTheAlbumIDWhenTheWholeAlbumIsRetagged(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := theOnlyAlbum(t, st)
+
+	if before.CoverPath == "" {
+		t.Fatal("fixture must produce a cover for the later cover_path assertion to mean anything")
+	}
 
 	// The editor fixes the misspelled album artist on every file of the album.
 	reader.albumArtist = "Apocalyptica"
@@ -95,8 +100,11 @@ func TestReconcileKeepsTheAlbumIDWhenTheWholeAlbumIsRetagged(t *testing.T) {
 		t.Fatalf("created_at changed on retag (%v -> %v): the album would resurface in \"newest\" and the discovery feed",
 			before.CreatedAt, after.CreatedAt)
 	}
+	// Guards that planAlbumContinuity writes identity columns only. If the
+	// pre-pass blanked or rewrote cover_path this would fail. Does not prove
+	// continuity preserves the cover — reconcile re-detects it from disk anyway.
 	if after.CoverPath != before.CoverPath {
-		t.Fatalf("cover_path changed on retag (was %q, now %q): cover resolution broke", before.CoverPath, after.CoverPath)
+		t.Fatalf("cover_path changed on retag (was %q, now %q): the pre-pass wrote a column it should not have", before.CoverPath, after.CoverPath)
 	}
 
 	var trackCount int64
@@ -409,7 +417,10 @@ func TestReconcileKeepsTheAlbumIDWhenAMultiDiscAlbumIsRetagged(t *testing.T) {
 		t.Fatalf("multi-disc album id changed on retag: was %d, now %d", before.ID, after.ID)
 	}
 	want := filepath.Join(dir, "Apocalyptica/Cult/CD 1/cover.jpg")
+	// Guards that planAlbumContinuity writes identity columns only. Does not
+	// prove continuity preserves the cover — reconcile would re-detect the same
+	// cover.jpg from disk even if the row had been recreated.
 	if after.CoverPath != want {
-		t.Fatalf("expected the multi-disc cover to survive, wanted %q got %q", want, after.CoverPath)
+		t.Fatalf("cover_path changed (wanted %q got %q): the pre-pass wrote a column it should not have", want, after.CoverPath)
 	}
 }
