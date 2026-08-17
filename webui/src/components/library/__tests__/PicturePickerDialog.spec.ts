@@ -112,8 +112,8 @@ describe('PicturePickerDialog', () => {
     })
 
     it('shows the type and slot in the header', () => {
-        const wrapper = mountPicker({ pictureType: 'Back Cover', pictureSlot: 'db' })
-        expect(wrapper.find('.dialog-header').text()).toBe('Change back cover \u2014 internal store')
+        const wrapper = mountPicker({ pictureType: 'Back Cover', pictureSlot: 'folder' })
+        expect(wrapper.find('.dialog-header').text()).toBe('Change back cover \u2014 album folder')
     })
 
     it('disables Select until a source is chosen', () => {

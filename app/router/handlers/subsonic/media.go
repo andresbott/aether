@@ -160,9 +160,9 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	return meta
 }
 
-// albumCoverMeta resolves an album's cover. A cover saved to aether's managed
-// store (the metadata editor's "save to DB" target) takes precedence over the
-// folder file, which in turn beats embedded art.
+// albumCoverMeta resolves an album's cover. A cover uploaded through the
+// updateAlbum extension ("albumCoverArt") takes precedence over the folder file,
+// which in turn beats embedded art.
 func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 	key := strconv.FormatUint(uint64(album.ID), 10)
 	meta := coverMeta{

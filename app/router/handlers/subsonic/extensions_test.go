@@ -49,6 +49,7 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 		"playlistCoverArt",
 		"artistCoverArt",
 		"genreCoverArt",
+		"albumCoverArt",
 		"playlistStar",
 		"playlistScrobble",
 		"playlistStats",

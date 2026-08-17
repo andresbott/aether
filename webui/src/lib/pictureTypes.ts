@@ -25,15 +25,14 @@ export function pictureTypeLabel(id: string): string {
     return PICTURE_TYPES.find((t) => t.id === id)?.label ?? id
 }
 
-// The editor's slot display/preference order (embedded first) and labels.
-// This is NOT the app's serving precedence, which stays db → folder →
-// embedded on the server.
-export const PICTURE_SLOTS: readonly PictureSlot[] = ['embedded', 'folder', 'db'] as const
+// The editor's slot display/preference order (embedded first) and labels. Both
+// slots are on disk; this is NOT the app's serving precedence, which still
+// prefers an uploaded cover in aether's store over the folder file.
+export const PICTURE_SLOTS: readonly PictureSlot[] = ['embedded', 'folder'] as const
 
 export const PICTURE_SLOT_LABELS: Record<PictureSlot, string> = {
     embedded: 'embedded in file',
-    folder: 'album folder',
-    db: 'internal store'
+    folder: 'album folder'
 }
 
 // candidateMatchesType reports whether a Cover Art Archive candidate depicts

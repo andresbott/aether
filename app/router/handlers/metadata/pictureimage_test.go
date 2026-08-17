@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
-	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -43,13 +42,17 @@ func bigPNG(t *testing.T, w, h int) []byte {
 }
 
 // pictureImageServer wires a metadata handler with an image cache and seeds an
-// album whose front cover lives in the managed store.
+// album whose front cover lives in the folder as cover.png.
 func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Library, string) {
 	t.Helper()
 	libRoot := t.TempDir()
 	trackAbs := filepath.Join(libRoot, "a.flac")
 	if err := os.WriteFile(trackAbs, []byte("audio"), 0o600); err != nil {
 		t.Fatalf("write track: %v", err)
+	}
+	coverAbs := filepath.Join(libRoot, "cover.png")
+	if err := os.WriteFile(coverAbs, src, 0o600); err != nil {
+		t.Fatalf("write cover: %v", err)
 	}
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -66,15 +69,9 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	}
 	key := seedAlbum(t, s, lib, trackAbs)
 
-	as := assetstore.New(t.TempDir())
-	if err := as.PutManualNamed(assetstore.KindAlbum, key, "cover", "png", src); err != nil {
-		t.Fatalf("PutManualNamed: %v", err)
-	}
-
 	h := &metaHandler.Handler{
 		Store:  s,
 		Reader: nullReader{},
-		Assets: as,
 		Images: imagecache.New(t.TempDir()),
 	}
 	r := mux.NewRouter()
@@ -84,13 +81,13 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	return srv, lib, key
 }
 
-// pictureImageURL builds a request for the album's db-slot front cover.
+// pictureImageURL builds a request for the album's folder-slot front cover.
 func pictureImageURL(srv *httptest.Server, lib *model.Library, size string) string {
 	q := url.Values{
 		"library_id": {libIDStr(lib)},
 		"path":       {"."},
 		"type":       {"Front Cover"},
-		"slot":       {"db"},
+		"slot":       {"folder"},
 	}
 	if size != "" {
 		q.Set("size", size)

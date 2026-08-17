@@ -311,6 +311,20 @@ class SubsonicClient {
         await this.submitMultipart(url, body)
     }
 
+    async updateAlbumCover(
+        albumId: string,
+        coverFile?: File,
+        coverClear?: boolean
+    ): Promise<void> {
+        if (!this.isConfigured()) return
+        const url = this.buildUrl('updateAlbum.view')
+        const body = new FormData()
+        body.append('id', albumId)
+        if (coverFile) body.append('coverFile', coverFile)
+        if (coverClear) body.append('coverClear', 'true')
+        await this.submitMultipart(url, body)
+    }
+
     async search(params: SearchParams): Promise<SearchResult3> {
         if (!this.isConfigured()) return {}
         const response = await this.request<{ searchResult3: SearchResult3 }>(

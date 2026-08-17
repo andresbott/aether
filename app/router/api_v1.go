@@ -216,7 +216,6 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 			mh := &metadataHandler.Handler{
 				Store:                     h.store,
 				Reader:                    h.tagReader,
-				Assets:                    h.assets,
 				CoverArt:                  coverart.New(userAgent),
 				Images:                    h.images,
 				IdentifyUnavailableReason: h.identifyOff,

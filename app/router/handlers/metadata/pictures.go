@@ -13,10 +13,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
 	"gorm.io/gorm"
@@ -31,16 +29,17 @@ const (
 var errPictureSource = errors.New("an image file or image_url is required")
 
 // pictureSlots lists the storage slots a picture may live in, in the editor's
-// display/preference order (embedded first). This is NOT the app's serving
-// precedence — the winning album cover served elsewhere stays db → folder →
-// embedded (see handlers/subsonic).
-var pictureSlots = []string{"embedded", "folder", "db"}
+// display/preference order (embedded first). The editor deals exclusively with
+// metadata on disk: a picture is either embedded in the song's tags or an art
+// file in the album folder. Aether's managed store is NOT an editor concern —
+// manual album covers are set through the /rest updateAlbum extension.
+var pictureSlots = []string{"embedded", "folder"}
 
 // resolvedPicture is one type+slot cell's current image. Exactly one of
 // filePath / data is set when found.
 type resolvedPicture struct {
 	detail   string // e.g. the folder filename or "4 of 10 files"
-	filePath string // serve this file (db / folder slots)
+	filePath string // serve this file (folder slot)
 	data     []byte // serve these bytes (embedded slot)
 }
 
@@ -100,18 +99,6 @@ func distinctDirs(trackPaths []string) []string {
 		}
 	}
 	return out
-}
-
-// albumForSelection resolves the scanned album of the selection. It tries the
-// selected tracks first (a multi-disc album's requested folder is the parent of
-// the disc folders and holds no track of its own), then the requested folder.
-func (h *Handler) albumForSelection(ctx context.Context, lib *librarySummary, abs string, paths []string) (*model.Album, error) {
-	for _, trackAbs := range h.selectionPaths(ctx, lib, abs, paths) {
-		if album, err := h.Store.GetAlbumByTrackPath(trackAbs); err == nil {
-			return album, nil
-		}
-	}
-	return h.Store.GetAlbumByTrackDir(abs)
 }
 
 // folderTrackPaths returns the absolute paths of the audio tracks in abs.
@@ -198,21 +185,15 @@ func fileSum(path string) ([sha256.Size]byte, error) {
 // picture is looked up in (empty = the requested folder).
 func (h *Handler) pictureForSlot(ctx context.Context, lib *librarySummary, abs string, pt metadataedit.PictureType, slot string, paths []string) (resolvedPicture, bool) {
 	switch slot {
-	case "db":
-		album, err := h.albumForSelection(ctx, lib, abs, paths)
-		if err != nil || h.Assets == nil {
-			return resolvedPicture{}, false
-		}
-		key := strconv.FormatUint(uint64(album.ID), 10)
-		if p, ok := h.Assets.GetNamed(assetstore.KindAlbum, key, pt.FileBase); ok {
-			return resolvedPicture{filePath: p}, true
-		}
 	case "folder":
 		if name, path, _, found := folderPictureAcross(h.selectionDirs(ctx, lib, abs, paths), pt); found {
 			return resolvedPicture{detail: name, filePath: path}, true
 		}
 	case "embedded":
-		for _, trackAbs := range h.embeddedProbeOrder(ctx, lib, abs, pt, paths) {
+		// Probed in selection order. There is deliberately no "prefer the
+		// scanned album's cover track" step: that was a DB lookup, and the
+		// editor no longer reads the library index.
+		for _, trackAbs := range h.selectionPaths(ctx, lib, abs, paths) {
 			if data, ok, err := metadataedit.ReadEmbeddedPicture(trackAbs, pt.ID); err == nil && ok {
 				return resolvedPicture{data: data}, true
 			}
@@ -221,23 +202,8 @@ func (h *Handler) pictureForSlot(ctx context.Context, lib *librarySummary, abs s
 	return resolvedPicture{}, false
 }
 
-// embeddedProbeOrder lists the tracks to probe for an embedded picture,
-// preferring the scanned album's flagged cover track for front covers.
-func (h *Handler) embeddedProbeOrder(ctx context.Context, lib *librarySummary, abs string, pt metadataedit.PictureType, paths []string) []string {
-	tracks := h.selectionPaths(ctx, lib, abs, paths)
-	if pt.ID != frontCoverType {
-		return tracks
-	}
-	if album, err := h.albumForSelection(ctx, lib, abs, paths); err == nil {
-		if tp, e := h.Store.GetCoverTrackPath(album.ID); e == nil && tp != "" {
-			return append([]string{tp}, tracks...)
-		}
-	}
-	return tracks
-}
-
 type pictureSlotDTO struct {
-	Slot   string `json:"slot"` // "embedded" | "folder" | "db"
+	Slot   string `json:"slot"` // "embedded" | "folder"
 	Detail string `json:"detail,omitempty"`
 	// Mixed marks a folder slot whose art is not the same in every directory
 	// the album spans (a multi-disc release): one disc folder is missing it or
@@ -278,10 +244,6 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var albumKey string
-	if album, aerr := h.albumForSelection(r.Context(), lib, abs, r.URL.Query()["paths"]); aerr == nil {
-		albumKey = strconv.FormatUint(uint64(album.ID), 10)
-	}
 	// Folder art is looked up in every directory the selection spans, so a
 	// multi-disc album reports the art of its disc folders as one cell.
 	dirs := h.selectionDirs(r.Context(), lib, abs, r.URL.Query()["paths"])
@@ -297,11 +259,6 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 		}
 		if name, _, mixed, found := folderPictureAcross(dirs, pt); found {
 			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name, Mixed: mixed})
-		}
-		if albumKey != "" && h.Assets != nil {
-			if _, ok := h.Assets.GetNamed(assetstore.KindAlbum, albumKey, pt.FileBase); ok {
-				slots = append(slots, pictureSlotDTO{Slot: "db"})
-			}
 		}
 		if len(slots) > 0 {
 			out = append(out, pictureDTO{Type: pt.ID, Slots: slots})
@@ -325,7 +282,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.URL.Query().Get("slot")
 	if !validSlot(slot) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder, db")
+		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
@@ -436,7 +393,7 @@ func pictureCacheSource(rp resolvedPicture) (string, func() ([]byte, error)) {
 		}
 		path := rp.filePath
 		return fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (asset store or album directory), never from the request
+			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (album directory), never from the request
 	}
 	if len(rp.data) > 0 {
 		data := rp.data
@@ -462,11 +419,10 @@ type applyPictureResult struct {
 	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
 
-// applyPicture saves an image of one picture type to one slot: aether's
-// managed store ("db"), an art file in the album folder ("folder"), or
-// embedded in the tags of the given tracks ("embedded"). The image source is
-// either an uploaded file part ("image") or a Cover Art Archive URL
-// ("image_url").
+// applyPicture saves an image of one picture type to one slot: an art file in
+// the album folder ("folder") or embedded in the tags of the given tracks
+// ("embedded"). The image source is either an uploaded file part ("image") or a
+// Cover Art Archive URL ("image_url").
 func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
@@ -480,7 +436,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	target := r.FormValue("target")
 	if !validSlot(target) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "target must be one of embedded, folder, db")
+		writeErr(w, http.StatusBadRequest, "validation_error", "target must be one of embedded, folder")
 		return
 	}
 	pt, terr := requestedType(r)
@@ -531,57 +487,31 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-index the folder's tracks: the embedded slot changed their tags, and
-	// folder/db writes change which image the album should serve (reconcile
+	// folder writes change which image the album should serve (reconcile
 	// redetects album.CoverPath).
 	rs := h.rescanSaved(r.Context(), libModel.ID, resolved)
 	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID, Rescan: rs})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
-// an HTTP status + error on failure (0, nil on success). DB-side effects
-// (album cover path, embedded-cover flag) only apply to the front cover —
-// they feed the app-wide cover serving, which only knows one cover per album.
+// an HTTP status + error on failure (0, nil on success). Both slots are on
+// disk; the DB catches up through the caller's rescan, which re-reads the tags
+// and re-detects the album's cover file.
 func (h *Handler) savePictureToSlot(target string, pt metadataedit.PictureType, resolved []string, ext string, data []byte) (int, error) {
 	switch target {
-	case "db":
-		album, err := h.Store.GetAlbumByTrackPath(resolved[0])
-		if err != nil {
-			return http.StatusNotFound, errors.New("album not found for this folder; a library scan is required before saving a picture to the aether store")
-		}
-		key := strconv.FormatUint(uint64(album.ID), 10)
-		if err := h.Assets.PutManualNamed(assetstore.KindAlbum, key, pt.FileBase, ext, data); err != nil {
-			return http.StatusInternalServerError, err
-		}
 	case "folder":
 		// An album can span several directories (a multi-disc release laid out
 		// as CD 1/, CD 2/): write the same art file into each of them, so every
 		// disc folder carries the album's picture.
-		var firstPath string
 		for _, dir := range distinctDirs(resolved) {
-			picPath, err := metadataedit.WriteFolderPicture(dir, pt.FileBase, ext, data)
-			if err != nil {
+			if _, err := metadataedit.WriteFolderPicture(dir, pt.FileBase, ext, data); err != nil {
 				return http.StatusInternalServerError, err
-			}
-			if firstPath == "" {
-				firstPath = picPath
-			}
-		}
-		// Point the DB album at the new front cover so it serves immediately
-		// (best effort — a not-yet-scanned folder still keeps the written file).
-		if pt.ID == frontCoverType {
-			if album, aerr := h.Store.GetAlbumByTrackPath(resolved[0]); aerr == nil {
-				_ = h.Store.SetAlbumCoverPath(album.ID, firstPath)
 			}
 		}
 	case "embedded":
 		for _, abs := range resolved {
 			if err := metadataedit.WriteEmbeddedPicture(abs, pt.ID, data, ""); err != nil {
 				return http.StatusInternalServerError, err
-			}
-			// Mark the flag so the embedded front cover serves without a rescan
-			// (best effort — the file write is what matters).
-			if pt.ID == frontCoverType {
-				_ = h.Store.SetTrackHasEmbeddedCover(abs, true)
 			}
 		}
 	}
@@ -609,19 +539,6 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 	// directory listing when the client sends no explicit paths.
 	rescanPaths := h.selectionPaths(r.Context(), lib, abs, paths)
 	switch r.URL.Query().Get("slot") {
-	case "db":
-		album, aerr := h.albumForSelection(r.Context(), lib, abs, paths)
-		if aerr != nil {
-			writeErr(w, http.StatusNotFound, "not_found", "album not found for this folder")
-			return
-		}
-		if h.Assets != nil {
-			key := strconv.FormatUint(uint64(album.ID), 10)
-			if derr := h.Assets.DeleteNamed(assetstore.KindAlbum, key, pt.FileBase); derr != nil {
-				writeErr(w, http.StatusInternalServerError, "internal", derr.Error())
-				return
-			}
-		}
 	case "folder":
 		// Mirrors the save fan-out: the art was written into every directory the
 		// album spans, so remove it from each of them.
@@ -635,23 +552,15 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if pt.ID == frontCoverType {
-			if album, aerr := h.albumForSelection(r.Context(), lib, abs, paths); aerr == nil {
-				_ = h.Store.SetAlbumCoverPath(album.ID, "")
-			}
-		}
 	case "embedded":
 		for _, trackAbs := range rescanPaths {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
 				writeErr(w, http.StatusInternalServerError, "internal", werr.Error())
 				return
 			}
-			if pt.ID == frontCoverType {
-				_ = h.Store.SetTrackHasEmbeddedCover(trackAbs, false)
-			}
 		}
 	default:
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder, db")
+		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
 		return
 	}
 	out := map[string]any{"ok": true}

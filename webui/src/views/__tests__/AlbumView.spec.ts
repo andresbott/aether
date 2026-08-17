@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { ref, markRaw } from 'vue'
 import PrimeVue from 'primevue/config'
+import FileUpload from 'primevue/fileupload'
 
 const album = {
     id: 'al1',
@@ -23,9 +24,12 @@ vi.mock('@/composables/useViewport', () => ({
 }))
 
 const toggleStarMutate = vi.fn()
+const updateCoverMutate = vi.fn()
+const updateCoverIsPending = ref(false)
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useAlbum: () => ({ data: albumData, isLoading: ref(false), error: ref(null) }),
-    useToggleStar: () => ({ mutate: toggleStarMutate })
+    useToggleStar: () => ({ mutate: toggleStarMutate }),
+    useUpdateAlbumCover: () => ({ mutate: updateCoverMutate, isPending: updateCoverIsPending })
 }))
 
 const start = vi.fn()
@@ -54,6 +58,11 @@ vi.mock('@/composables/usePlayer', () => ({
     })
 }))
 
+const isAdmin = ref(true)
+vi.mock('@/composables/useAuth', () => ({
+    useAuth: () => ({ isAdmin })
+}))
+
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
@@ -62,10 +71,17 @@ vi.mock('@/lib/api/subsonic', () => ({
 }))
 
 vi.mock('vue-router', () => ({
-    useRouter: () => ({ back: vi.fn() })
+    useRouter: () => ({ back: vi.fn() }),
+    onBeforeRouteLeave: vi.fn()
+}))
+
+vi.mock('primevue/useconfirm', () => ({
+    useConfirm: () => ({ require: (opts: { accept: () => void }) => opts.accept() })
 }))
 
 import AlbumView from '@/views/AlbumView.vue'
+import HeroHeader from '@/components/layout/HeroHeader.vue'
+import { resetCoverVersions } from '@/composables/useCoverVersion'
 
 const mountView = () =>
     mount(AlbumView, {
@@ -94,6 +110,12 @@ beforeEach(() => {
     toggleStarMutate.mockClear()
     songsStart.mockClear()
     songsEnd.mockClear()
+    updateCoverMutate.mockClear()
+    updateCoverIsPending.value = false
+    isAdmin.value = true
+    resetCoverVersions()
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock')
+    global.URL.revokeObjectURL = vi.fn()
 })
 
 describe('AlbumView album drag', () => {
@@ -282,5 +304,71 @@ describe('AlbumView touch interactions', () => {
         expect(w.findComponent({ name: 'TrackActionSheet' }).props('visible')).toBe(true)
         // The ⋮ is not a play affordance.
         expect(playAlbum).not.toHaveBeenCalled()
+    })
+})
+
+describe('AlbumView cover editing', () => {
+    const enterEdit = async (w: ReturnType<typeof mountView>) => {
+        await w.find('.edit-action-edit').trigger('click')
+    }
+
+    it('offers an editable hero cover for admins', () => {
+        const w = mountView()
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+    })
+
+    it('hides the edit action bar from non-admins', () => {
+        isAdmin.value = false
+        const w = mountView()
+        expect(w.find('.edit-action-edit').exists()).toBe(false)
+    })
+
+    it('save is disabled until an image is staged', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        const save = w.find('.edit-action-save')
+        expect(save.attributes('disabled')).toBeDefined()
+
+        const file = new File(['test'], 'cover.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await flushPromises()
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeUndefined()
+    })
+
+    it('uploads the staged file through updateAlbumCover', async () => {
+        const w = mountView()
+        const file = new File(['test'], 'cover.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [file] })
+        await flushPromises()
+
+        await enterEdit(w)
+        await w.find('.edit-action-save').trigger('click')
+        expect(updateCoverMutate).toHaveBeenCalledWith(
+            { albumId: 'al1', coverFile: file, coverClear: undefined },
+            expect.anything()
+        )
+    })
+
+    it('clears the cover through coverClear', async () => {
+        const w = mountView()
+        w.findComponent(HeroHeader).vm.$emit('cover-remove')
+        await flushPromises()
+
+        await enterEdit(w)
+        await w.find('.edit-action-save').trigger('click')
+        expect(updateCoverMutate).toHaveBeenCalledWith(
+            { albumId: 'al1', coverFile: undefined, coverClear: true },
+            expect.anything()
+        )
+    })
+
+    it('rejects a file over the 5 MB cap without staging it', async () => {
+        const w = mountView()
+        const big = new File([new Uint8Array(6 * 1024 * 1024)], 'big.png', { type: 'image/png' })
+        w.findComponent(FileUpload).vm.$emit('select', { files: [big] })
+        await flushPromises()
+
+        await enterEdit(w)
+        expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
     })
 })

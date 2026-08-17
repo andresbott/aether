@@ -642,16 +642,16 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         } else {
                             out = await deletePictureMutation.mutateAsync({
                                 libraryId: lib,
-                                // The entry key identifies the album, not a
-                                // location: the server needs a real folder.
+                                // For embedded/folder slots, the path is the directory
+                                // containing the files.
                                 path: dirOf(op.paths[0] ?? ''),
                                 type,
                                 slot,
-                                // Embedded removal applies to the staged files;
-                                // a folder removal needs them too, to reach
-                                // every directory the album spans. The db slot
-                                // is one album-wide entry.
-                                paths: slot === 'db' ? undefined : op.paths
+                                // Both slots need the staged files: embedded
+                                // removal applies to them directly, and a folder
+                                // removal needs them to reach every directory the
+                                // album spans.
+                                paths: op.paths
                             })
                         }
                         if (out?.rescan && !out.rescan.ok) {

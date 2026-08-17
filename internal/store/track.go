@@ -110,23 +110,6 @@ func (s *Store) GetTrackFilePath(id uint) (string, error) {
 	return track.FilePath, nil
 }
 
-// SetTrackHasEmbeddedCover updates the embedded-cover flag for the track at the
-// given absolute file path, and (when set true) also marks its album as having
-// an embedded cover so the cover serves immediately without a rescan.
-func (s *Store) SetTrackHasEmbeddedCover(absPath string, v bool) error {
-	var track model.Track
-	if err := s.db.Select("id", "album_id").Where("file_path = ?", absPath).First(&track).Error; err != nil {
-		return err
-	}
-	if err := s.db.Model(&model.Track{}).Where("id = ?", track.ID).Update("has_embedded_cover", v).Error; err != nil {
-		return err
-	}
-	if v {
-		return s.db.Model(&model.Album{}).Where("id = ?", track.AlbumID).Update("has_embedded_cover", true).Error
-	}
-	return nil
-}
-
 // GetCoverTrackPath returns the file whose embedded cover represents the album.
 // The order is explicit and deterministic — lowest (disc, track) wins — because
 // a rescan reinserts an album's tracks in directory-walk order: without it, which

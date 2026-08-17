@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Fourteen extensions exist today — copy their shape.
+  Sixteen extensions exist today — copy their shape.
 - **Never route music features through `/api/v1`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -232,6 +232,16 @@ convention).
 requests work; no transcoding). `getCoverArt` resolves, in order: assetstore
 image → folder cover from disk → embedded front cover → deterministic generated
 cover (`internal/covergen`).
+
+**Cover-art management extensions:**
+
+- `updateAlbum` (the `albumCoverArt` extension) is the only way to set a manual
+  album cover. It is a multipart POST carrying `id` (an `al-` id) plus either a
+  `coverFile` part or `coverClear=true`, and stores the image as a manual entry
+  under `assetstore.KindAlbum` keyed by the album's DB ID — the key
+  `albumCoverMeta` reads, so an upload serves through `getCoverArt` at once.
+  Mirrors `updateArtist` / `updateGenre`. The metadata editor deliberately does
+  NOT write here: it only edits metadata on disk.
 
 **No cover is ever served as its original bytes.** Every response is a
 display-sized, re-encoded derivative from `internal/imagecache`, cached under

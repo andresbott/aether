@@ -99,12 +99,20 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	album.ReleaseType = meta.ReleaseType
 	album.HasEmbeddedCover = meta.HasCover
 
-	// Detect external cover. A path already on record is re-checked rather than
-	// trusted: it may point at a file that has since been deleted, or at art
-	// that does not qualify as a front cover (a back scan, a disc label).
+	// Detect external cover. Always re-detect for art in THIS directory (so
+	// cover.jpg supersedes folder.jpg and a deleted file clears), but never let
+	// a disc folder with no art blank out a cover found in a sibling folder of
+	// the same album: an album can span several directories (a multi-disc release
+	// laid out as CD 1/, CD 2/). Re-detection is the only thing that sets this
+	// field — the metadata editor writes art files and lets the rescan pick them up.
 	dir := filepath.Dir(tr.walk.FilePath)
-	if !IsUsableCoverPath(album.CoverPath) {
-		album.CoverPath = detectCoverInDir(dir)
+	detected := detectCoverInDir(dir)
+	// Always re-detect for art in THIS directory (so cover.jpg supersedes
+	// folder.jpg and a deleted file clears), but never let a disc folder with no
+	// art blank out a cover found in a sibling folder of the same album: an album
+	// can span several directories (a multi-disc release laid out as CD 1/, CD 2/).
+	if detected != "" || !IsUsableCoverPath(album.CoverPath) || filepath.Dir(album.CoverPath) == dir {
+		album.CoverPath = detected
 	}
 
 	db := tx.DB()

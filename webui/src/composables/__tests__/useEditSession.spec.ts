@@ -349,17 +349,17 @@ describe('picture staging', () => {
 
     it('a set op overwrites a staged removal on the same cell and vice versa', () => {
         const session = mkSession()
-        session.stagePictureRemoval(ALBUM, 'Media', 'db', ['album/a.mp3'])
-        expect(session.getPictureOp(ALBUM, 'Media', 'db')).toEqual({
+        session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
+        expect(session.getPictureOp(ALBUM, 'Media', 'folder')).toEqual({
             kind: 'remove',
             paths: ['album/a.mp3']
         })
-        session.stagePictureSet(ALBUM, 'Media', 'db', { file: null, imageUrl: 'u' }, [
+        session.stagePictureSet(ALBUM, 'Media', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
-        expect(session.getPictureOp(ALBUM, 'Media', 'db')?.kind).toBe('set')
-        session.stagePictureRemoval(ALBUM, 'Media', 'db', ['album/a.mp3'])
-        expect(session.getPictureOp(ALBUM, 'Media', 'db')).toEqual({
+        expect(session.getPictureOp(ALBUM, 'Media', 'folder')?.kind).toBe('set')
+        session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
+        expect(session.getPictureOp(ALBUM, 'Media', 'folder')).toEqual({
             kind: 'remove',
             paths: ['album/a.mp3']
         })
@@ -407,11 +407,10 @@ describe('picture staging', () => {
         expect(session.picturesSavedAt.value).toBeGreaterThan(0)
     })
 
-    it('save deletes removals, omitting paths only for the album-wide db slot', async () => {
+    it('save deletes removals, always sending the staged paths', async () => {
         const session = mkSession()
         session.stagePictureRemoval(ALBUM, 'Front Cover', 'embedded', ['album/a.mp3'])
-        session.stagePictureRemoval(ALBUM, 'Back Cover', 'folder', ['album/a.mp3'])
-        session.stagePictureRemoval(ALBUM, 'Media', 'db', ['album/a.mp3'])
+        session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
@@ -420,21 +419,12 @@ describe('picture staging', () => {
             slot: 'embedded',
             paths: ['album/a.mp3']
         })
-        // The folder slot needs the paths too: they name the directories to
-        // clean, which for a multi-disc album is more than one.
-        expect(deletePictureSpy).toHaveBeenCalledWith({
-            libraryId: 3,
-            path: 'album',
-            type: 'Back Cover',
-            slot: 'folder',
-            paths: ['album/a.mp3']
-        })
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
             path: 'album',
             type: 'Media',
-            slot: 'db',
-            paths: undefined
+            slot: 'folder',
+            paths: ['album/a.mp3']
         })
         expect(session.hasStagedChanges.value).toBe(false)
     })
@@ -552,7 +542,7 @@ describe('picture staging', () => {
         expect(session.stagedPaths.value.has('album/c.mp3')).toBe(false)
     })
 
-    it('flags every track of the directory in stagedPaths for folder/db ops', () => {
+    it('flags every track of the directory in stagedPaths for folder ops', () => {
         const tracks = [
             mkTrack({ path: 'album/a.mp3' }),
             mkTrack({ path: 'album/b.mp3' }),
@@ -568,11 +558,11 @@ describe('picture staging', () => {
 
     it('clears stagedPaths again when the op is discarded or saved', async () => {
         const session = mkSession()
-        session.stagePictureSet(ALBUM, 'Back Cover', 'db', { file: null, imageUrl: 'u' }, [
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
         expect(session.stagedPaths.value.has('album/a.mp3')).toBe(true)
-        session.discardPictureOp(ALBUM, 'Back Cover', 'db')
+        session.discardPictureOp(ALBUM, 'Back Cover', 'folder')
         expect(session.stagedPaths.value.has('album/a.mp3')).toBe(false)
 
         session.stagePictureRemoval(ALBUM, 'Back Cover', 'embedded', ['album/a.mp3'])
@@ -666,7 +656,7 @@ describe('picture staging', () => {
         session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file, imageUrl: null }, [
             'album/a.mp3'
         ])
-        session.stagePictureRemoval(ALBUM, 'Media', 'db', ['album/a.mp3'])
+        session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
         session.discardAll()
         expect(session.hasStagedChanges.value).toBe(false)
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')

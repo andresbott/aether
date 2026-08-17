@@ -307,11 +307,12 @@ export interface CoverCandidate {
     comment: string
 }
 
-// Where an attached picture is stored:
+// Where an attached picture is stored. Both are on disk: the metadata editor
+// edits nothing else. Manual album covers held in aether's own store are set
+// from the album view (the /rest updateAlbum extension), not here.
 // - 'embedded': in the tags of the selected tracks (primary)
 // - 'folder': an art file in the album folder (e.g. cover.jpg, back.jpg)
-// - 'db': aether's managed store (music files untouched, last resort)
-export type PictureSlot = 'embedded' | 'folder' | 'db'
+export type PictureSlot = 'embedded' | 'folder'
 
 // One occupied slot of a picture type, as reported by the pictures endpoint.
 export interface PictureSlotInfo {
@@ -356,8 +357,8 @@ export interface StagedPictureSource {
 }
 
 // An image this album already has in another type+slot cell, offered in the
-// picker as a copy source (e.g. copy the embedded front cover into the
-// internal store). Exactly one of file / imageUrl / fetchUrl resolves it:
+// picker as a copy source (e.g. copy the embedded front cover into the folder).
+// Exactly one of file / imageUrl / fetchUrl resolves it:
 // - file:     an upload already staged in this session
 // - imageUrl: a Cover Art Archive URL already staged in this session
 // - fetchUrl: an image the server holds; the browser fetches the bytes and

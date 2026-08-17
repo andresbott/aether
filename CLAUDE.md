@@ -45,7 +45,7 @@ whole app whenever auth method `native` reports no session (see
 | `MobileBrowseView` | `/browse` | **Mobile only** — the landing page and the whole navigation surface of the mobile shell (the phone's `AppSidebar`, and where every view's hamburger goes; passes `navRoot` so it shows none itself). One `BrowseShelf` per section — Library (samples the Discovery feed), one per dynamic library (`BrowseAlbumShelf`, newest albums, only above one library), Playlists, Genres, Radio — each with a heading, a few items in a swipeable strip and a "See all" link. Search and the `UserMenu` account entries (User settings / Admin / About / Log out — the phone's only logout) sit in the header, the latter behind `⋮`. Redirects to `/library` at desktop width. Replaced the deleted `MobileNavDrawer` |
 | `SearchView` | `/search` | Search results |
 | `LibraryView` | `/library/:folderId?` | Browse the music library by folder. Tabs: Discover / Albums / Artists. Discover is a ranked feed of albums + playlists (`getDiscovery` extension, infinite scroll, `DiscoveryFeed` component) and is the default tab on the root `/library` only — the ranking is cross-collection, so discovery is never library-scoped. There is deliberately no standalone `/discover` route |
-| `AlbumView` | `/album/:id` | Single album detail |
+| `AlbumView` | `/album/:id` | Single album detail. Hero cover is editable (`updateAlbum` / `albumCoverArt` extension) — the only place a manual album cover is set, since the metadata editor is file-only |
 | `ArtistView` | `/artist/:id` | Single artist detail |
 | `PlaylistsView` | `/playlists` | List of playlists |
 | `PlaylistDetailView` | `/playlist/:id` | Single playlist detail |

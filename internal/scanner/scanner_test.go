@@ -144,8 +144,10 @@ func TestScannerRefreshesStaleAlbumCoverPath(t *testing.T) {
 	if err := os.WriteFile(back, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetAlbumCoverPath(album.ID, back); err != nil {
-		t.Fatal(err)
+	if err := st.DB().Model(&model.Album{}).
+		Where("id = ?", album.ID).
+		Update("cover_path", back).Error; err != nil {
+		t.Fatalf("seed stale cover path: %v", err)
 	}
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
