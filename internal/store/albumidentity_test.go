@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -109,5 +110,84 @@ func TestAlbumIDForIdentity(t *testing.T) {
 	}
 	if free != 0 {
 		t.Fatalf("expected 0 for an unheld identity, got %d", free)
+	}
+}
+
+func TestRetagAlbumKeepsTheRowAndItsCreatedAt(t *testing.T) {
+	s := testStore(t)
+	id := seedAlbumWithTracks(t, s,
+		store.AlbumIdentity{Name: "Cult", NameNorm: "cult", AlbumArtistNorm: "apocaliptica"},
+		[]string{"/music/01.mp3"})
+
+	var before model.Album
+	if err := s.DB().First(&before, id).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	want := store.AlbumIdentity{
+		Name:            "Cult",
+		NameNorm:        "cult",
+		AlbumArtistNorm: "apocalyptica",
+		MBReleaseID:     "rel-1",
+	}
+	if err := s.RetagAlbum(id, want); err != nil {
+		t.Fatal(err)
+	}
+
+	var after model.Album
+	if err := s.DB().First(&after, id).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("expected the same row, got %d after %d", after.ID, before.ID)
+	}
+	if !after.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("created_at must survive a retag (it drives \"newest\" and the discovery feed): %v -> %v",
+			before.CreatedAt, after.CreatedAt)
+	}
+	got := store.AlbumIdentity{
+		Name:            after.Name,
+		NameNorm:        after.NameNorm,
+		AlbumArtistNorm: after.AlbumArtistNorm,
+		MBReleaseID:     after.MBReleaseID,
+	}
+	if got != want {
+		t.Fatalf("expected identity %+v, got %+v", want, got)
+	}
+}
+
+func TestRetagAlbumReportsAMissingRow(t *testing.T) {
+	s := testStore(t)
+	err := s.RetagAlbum(4242, store.AlbumIdentity{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"})
+	if err == nil {
+		t.Fatal("expected an error when the album does not exist")
+	}
+}
+
+// Retagging onto an identity another row already holds must surface as a unique
+// violation the caller can recognise and fall back on, not as a silent overwrite.
+func TestRetagAlbumIntoATakenIdentityIsAUniqueViolation(t *testing.T) {
+	s := testStore(t)
+	taken := store.AlbumIdentity{Name: "Cult", NameNorm: "cult", AlbumArtistNorm: "apocalyptica"}
+	seedAlbumWithTracks(t, s, taken, []string{"/music/01.mp3"})
+	other := seedAlbumWithTracks(t, s,
+		store.AlbumIdentity{Name: "Reflections", NameNorm: "reflections", AlbumArtistNorm: "apocalyptica"},
+		[]string{"/music/02.mp3"})
+
+	err := s.RetagAlbum(other, taken)
+	if err == nil {
+		t.Fatal("expected a unique violation")
+	}
+	if !store.IsUniqueViolation(err) {
+		t.Fatalf("expected IsUniqueViolation to recognise %v", err)
+	}
+}
+
+func TestIsUniqueViolationIgnoresOtherErrors(t *testing.T) {
+	if store.IsUniqueViolation(nil) {
+		t.Fatal("nil is not a unique violation")
+	}
+	if store.IsUniqueViolation(errors.New("disk on fire")) {
+		t.Fatal("an unrelated error must not be reported as a unique violation")
 	}
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/andresbott/aether/internal/model"
 	"gorm.io/gorm"
@@ -146,4 +147,41 @@ func (s *Store) AlbumIDForIdentity(key AlbumIdentityKey) (uint, error) {
 		return 0, err
 	}
 	return album.ID, nil
+}
+
+// RetagAlbum rewrites an album row's identity columns in place, keeping its id,
+// its created_at and everything keyed on them: stars, the manual cover in the
+// asset store, the "newest" ordering, and every client-side /album/:id.
+//
+// Writing an identity another row already holds violates idx_album_identity;
+// the error is returned as-is so the caller can recognise it with
+// IsUniqueViolation and fall back to matching instead of renaming.
+func (s *Store) RetagAlbum(id uint, ident AlbumIdentity) error {
+	res := s.db.Model(&model.Album{}).Where("id = ?", id).Updates(map[string]any{
+		"name":              ident.Name,
+		"name_norm":         ident.NameNorm,
+		"album_artist_norm": ident.AlbumArtistNorm,
+		"mb_release_id":     ident.MBReleaseID,
+	})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// IsUniqueViolation reports whether err is a unique-index conflict. The driver
+// does not always map it to gorm.ErrDuplicatedKey, so the message is the
+// fallback — same approach as handlers/libraries and handlers/users.
+func IsUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint failed") || strings.Contains(msg, "duplicate")
 }
