@@ -44,11 +44,6 @@ func (s *Store) GetAlbumByTrackPath(absPath string) (*model.Album, error) {
 	return s.GetAlbum(track.AlbumID)
 }
 
-// SetAlbumCoverPath sets the album's external cover file path.
-func (s *Store) SetAlbumCoverPath(albumID uint, path string) error {
-	return s.db.Model(&model.Album{}).Where("id = ?", albumID).Update("cover_path", path).Error
-}
-
 // GetAlbumByTrackDir resolves the album of any track located directly in absDir.
 // Used by the metadata editor to show the same cover the app serves for a folder,
 // without depending on tag-reading. Returns gorm.ErrRecordNotFound when the folder
