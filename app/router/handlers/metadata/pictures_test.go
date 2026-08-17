@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
-	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
@@ -56,14 +55,14 @@ func (s stubCoverArt) DownloadImage(context.Context, string) ([]byte, string, er
 	return s.downloadData, s.downloadExt, nil
 }
 
-func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClient) (*store.Store, *mux.Router, *model.Library, *assetstore.Store) {
+func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClient) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
 	return newPictureHandlerWithRescan(t, libRoot, ca, nil)
 }
 
 func newPictureHandlerWithRescan(
 	t *testing.T, libRoot string, ca metaHandler.CoverArtClient, rs metaHandler.TrackRescanner,
-) (*store.Store, *mux.Router, *model.Library, *assetstore.Store) {
+) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -77,11 +76,10 @@ func newPictureHandlerWithRescan(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	as := assetstore.New(t.TempDir())
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Assets: as, CoverArt: ca, Rescan: rs}
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return s, r, lib, as
+	return s, r, lib
 }
 
 func libIDStr(lib *model.Library) string {
@@ -89,7 +87,7 @@ func libIDStr(lib *model.Library) string {
 }
 
 // seedAlbum creates a DB album with one track at trackAbs and returns the
-// album's assetstore key.
+// album ID.
 func seedAlbum(t *testing.T, s *store.Store, lib *model.Library, trackAbs string) string {
 	t.Helper()
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
@@ -147,12 +145,7 @@ func TestPictures_MatrixListsPresentSlots(t *testing.T) {
 	if err := metadataedit.WriteEmbeddedPicture(trackAbs, "Media", pngBytes, ""); err != nil {
 		t.Fatal(err)
 	}
-	// A scanned album with a named db picture.
-	s, r, lib, as := newPictureHandler(t, root, nil)
-	key := seedAlbum(t, s, lib, trackAbs)
-	if err := as.PutManualNamed(assetstore.KindAlbum, key, "booklet", "png", pngBytes); err != nil {
-		t.Fatal(err)
-	}
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body := fetchPictures(t, r, lib.ID, "&paths=album/01.flac")
 	got := map[string]map[string]string{}
@@ -170,9 +163,6 @@ func TestPictures_MatrixListsPresentSlots(t *testing.T) {
 	}
 	if d, ok := got["Media"]["embedded"]; !ok || d != "1 of 1 files" {
 		t.Fatalf("media embedded slot: %+v", got)
-	}
-	if _, ok := got["Leaflet Page"]["db"]; !ok {
-		t.Fatalf("booklet db slot missing: %+v", got)
 	}
 	// Types with nothing anywhere are omitted.
 	if _, ok := got["Artist"]; ok {
@@ -201,7 +191,7 @@ func TestPictures_FolderSlotSpansSelectionDirectories(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(one, "back.jpg"), pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body := fetchPictures(t, r, lib.ID, "&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac")
 	detail, mixed, ok := findSlot(body, "Back Cover", "folder")
@@ -252,7 +242,7 @@ func TestPictures_FolderSlotMixedOnlyWhenContentsDiffer(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(two, "back.jpg"), tc.twoBytes, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, r, lib, _ := newPictureHandler(t, root, nil)
+			_, r, lib := newPictureHandler(t, root, nil)
 
 			body := fetchPictures(t, r, lib.ID, "&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac")
 			_, mixed, ok := findSlot(body, "Back Cover", "folder")
@@ -271,7 +261,7 @@ func TestPictures_Empty(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "album"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 	body := fetchPictures(t, r, lib.ID, "")
 	if len(body.Pictures) != 0 {
 		t.Fatalf("expected no pictures, got %+v", body.Pictures)
@@ -291,7 +281,7 @@ func TestPictureImage_ServesFolderFileByType(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), backBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	get := func(typ, slot string) *httptest.ResponseRecorder {
 		url := "/metadata/pictures/image?library_id=" + libIDStr(lib) + "&path=album&slot=" + slot + "&type=" + typ
@@ -322,7 +312,7 @@ func TestPictureImage_FolderSlotFindsArtInAnotherDiscFolder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(two, "back.jpg"), backBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	// path= is CD 1 (the primary folder, which has no art at all).
 	url := "/metadata/pictures/image?library_id=" + libIDStr(lib) +
@@ -338,36 +328,12 @@ func TestPictureImage_FolderSlotFindsArtInAnotherDiscFolder(t *testing.T) {
 	}
 }
 
-func TestPictureImage_ServesDBSlot(t *testing.T) {
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.Mkdir(albumDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	trackAbs := filepath.Join(albumDir, "01.flac")
-	if err := os.WriteFile(trackAbs, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s, r, lib, as := newPictureHandler(t, root, nil)
-	key := seedAlbum(t, s, lib, trackAbs)
-	if err := as.PutManualNamed(assetstore.KindAlbum, key, "back", "png", pngBytes); err != nil {
-		t.Fatal(err)
-	}
-
-	url := "/metadata/pictures/image?library_id=" + libIDStr(lib) + "&path=album&slot=db&type=Back%20Cover"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
-	if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), pngBytes) {
-		t.Fatalf("db slot: status %d", w.Code)
-	}
-}
-
 func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "album"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/image?library_id="+libIDStr(lib)+"&path=album&slot=folder&type=Bogus", nil))
 	if w.Code != http.StatusBadRequest {
@@ -377,6 +343,14 @@ func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/image?library_id="+libIDStr(lib)+"&path=album&slot=bogus", nil))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("unknown slot: want 400, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/image?library_id="+libIDStr(lib)+"&path=album&slot=db", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("db slot: want 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
+		t.Fatalf("db slot error message: %s", w.Body.String())
 	}
 }
 
@@ -422,7 +396,7 @@ func TestApplyPicture_FolderByType(t *testing.T) {
 	if err := os.Mkdir(albumDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body, ct := buildPictureForm(t, lib.ID, "folder", "Back Cover", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
@@ -442,7 +416,7 @@ func TestApplyPicture_FolderByType(t *testing.T) {
 func TestApplyPicture_FolderWritesEverySelectionDirectory(t *testing.T) {
 	root := t.TempDir()
 	one, two := mkDiscDirs(t, root)
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body, ct := buildPictureForm(t, lib.ID, "folder", "Back Cover",
 		[]string{"album/CD 1/01.flac", "album/CD 1/02.flac", "album/CD 2/01.flac"},
@@ -461,46 +435,8 @@ func TestApplyPicture_FolderWritesEverySelectionDirectory(t *testing.T) {
 	}
 }
 
-// The embedded slot already targets the listed files, and the db slot is one
-// album-wide entry: neither may be affected by the folder fan-out.
-func TestApplyPicture_DBWritesOneEntryForMultiDiscSelection(t *testing.T) {
-	root := t.TempDir()
-	one, two := mkDiscDirs(t, root)
-	s, r, lib, as := newPictureHandler(t, root, nil)
-	// Both discs' tracks belong to the same scanned album.
-	trackOne := filepath.Join(one, "01.flac")
-	key := seedAlbum(t, s, lib, trackOne)
-	s.DB().Create(&model.Track{
-		AlbumID:   parseUintOrFail(t, key),
-		LibraryID: lib.ID,
-		Filename:  "01.flac",
-		FilePath:  filepath.Join(two, "01.flac"),
-	})
-
-	body, ct := buildPictureForm(t, lib.ID, "db", "Back Cover",
-		[]string{"album/CD 1/01.flac", "album/CD 2/01.flac"}, "art.png", pngBytes)
-	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body.String())
-	}
-	if _, ok := as.GetNamed(assetstore.KindAlbum, key, "back"); !ok {
-		t.Fatal("back picture not stored in asset store")
-	}
-	// No stray art files: the db slot must not touch the music folders.
-	for _, dir := range []string{one, two} {
-		if _, err := os.Stat(filepath.Join(dir, "back.png")); !os.IsNotExist(err) {
-			t.Errorf("db save must not write a folder file in %s", dir)
-		}
-	}
-}
-
-func parseUintOrFail(t *testing.T, s string) uint {
-	t.Helper()
-	n, err := strconv.ParseUint(s, 10, 64)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return uint(n)
-}
+// The embedded slot already targets the listed files: it is not affected by
+// the folder fan-out.
 
 func TestApplyPicture_DefaultTypeIsFrontCover(t *testing.T) {
 	root := t.TempDir()
@@ -508,7 +444,7 @@ func TestApplyPicture_DefaultTypeIsFrontCover(t *testing.T) {
 	if err := os.Mkdir(albumDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body, ct := buildPictureForm(t, lib.ID, "folder", "", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
@@ -516,47 +452,6 @@ func TestApplyPicture_DefaultTypeIsFrontCover(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(albumDir, "cover.png")); err != nil {
 		t.Fatalf("cover.png not written: %v", err)
-	}
-}
-
-func TestApplyPicture_DBNamedEntry(t *testing.T) {
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.Mkdir(albumDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	s, r, lib, as := newPictureHandler(t, root, nil)
-	trackAbs := filepath.Join(albumDir, "01.flac")
-	key := seedAlbum(t, s, lib, trackAbs)
-
-	body, ct := buildPictureForm(t, lib.ID, "db", "Back Cover", []string{"album/01.flac"}, "art.png", pngBytes)
-	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body.String())
-	}
-	p, ok := as.GetNamed(assetstore.KindAlbum, key, "back")
-	if !ok {
-		t.Fatal("back picture not stored in asset store")
-	}
-	stored, _ := os.ReadFile(p)
-	if !bytes.Equal(stored, pngBytes) {
-		t.Fatal("stored picture differs")
-	}
-	// The front-cover entry must not exist.
-	if _, ok := as.Get(assetstore.KindAlbum, key); ok {
-		t.Fatal("saving a back cover must not create a front-cover entry")
-	}
-}
-
-func TestApplyPicture_DB_NoAlbum(t *testing.T) {
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "album"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
-
-	body, ct := buildPictureForm(t, lib.ID, "db", "Back Cover", []string{"album/01.flac"}, "art.png", pngBytes)
-	if w := postPicture(t, r, body, ct); w.Code != http.StatusNotFound {
-		t.Fatalf("want 404 when album not scanned, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -572,7 +467,7 @@ func TestApplyPicture_EmbeddedByType(t *testing.T) {
 	}
 	dst := filepath.Join(albumDir, "01.flac")
 	copyFixture(t, src, dst)
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body, ct := buildPictureForm(t, lib.ID, "embedded", "Back Cover", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
@@ -588,10 +483,18 @@ func TestApplyPicture_EmbeddedByType(t *testing.T) {
 }
 
 func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
-	_, r, lib, _ := newPictureHandler(t, t.TempDir(), nil)
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	body, ct := buildPictureForm(t, lib.ID, "bogus", "", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad target: want 400, got %d", w.Code)
+	}
+	body, ct = buildPictureForm(t, lib.ID, "db", "", []string{"album/01.flac"}, "art.png", pngBytes)
+	w := postPicture(t, r, body, ct)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("db target: want 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "target must be one of embedded, folder") {
+		t.Fatalf("db target error message: %s", w.Body.String())
 	}
 	body, ct = buildPictureForm(t, lib.ID, "folder", "Bogus Type", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusBadRequest {
@@ -613,7 +516,7 @@ func TestDeletePicture_FolderByType(t *testing.T) {
 	if err := os.WriteFile(backFile, pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=album&slot=folder&type=Back%20Cover"
 	w := httptest.NewRecorder()
@@ -642,7 +545,7 @@ func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
 		"&path=album&slot=folder&type=Back%20Cover" +
@@ -659,39 +562,6 @@ func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "cover.png")); err != nil {
 			t.Errorf("cover.png must survive in %s: %v", dir, err)
 		}
-	}
-}
-
-func TestDeletePicture_DBLeavesOtherEntries(t *testing.T) {
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.Mkdir(albumDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	trackAbs := filepath.Join(albumDir, "01.flac")
-	if err := os.WriteFile(trackAbs, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	s, r, lib, as := newPictureHandler(t, root, nil)
-	key := seedAlbum(t, s, lib, trackAbs)
-	if err := as.PutManual(assetstore.KindAlbum, key, "png", pngBytes); err != nil {
-		t.Fatal(err)
-	}
-	if err := as.PutManualNamed(assetstore.KindAlbum, key, "back", "png", pngBytes); err != nil {
-		t.Fatal(err)
-	}
-
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=album&slot=db&type=Back%20Cover"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
-	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", w.Code, w.Body.String())
-	}
-	if _, ok := as.GetNamed(assetstore.KindAlbum, key, "back"); ok {
-		t.Fatal("back entry was not removed")
-	}
-	if _, ok := as.Get(assetstore.KindAlbum, key); !ok {
-		t.Fatal("front cover must survive deleting the back entry")
 	}
 }
 
@@ -717,7 +587,7 @@ func TestDeletePicture_EmbeddedSelectedPathsAndType(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	// Delete the embedded back cover only from the selected track 01.flac.
 	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
@@ -740,12 +610,21 @@ func TestDeletePicture_EmbeddedSelectedPathsAndType(t *testing.T) {
 }
 
 func TestDeletePicture_InvalidSlot(t *testing.T) {
-	_, r, lib, _ := newPictureHandler(t, t.TempDir(), nil)
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=&slot=bogus"
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", w.Code)
+	}
+	url = "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=&slot=db"
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("db slot: want 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
+		t.Fatalf("db slot error message: %s", w.Body.String())
 	}
 }
 
@@ -753,7 +632,7 @@ func TestPictureCandidates(t *testing.T) {
 	ca := stubCoverArt{images: []coverart.CoverImage{
 		{ID: "1", ImageURL: "http://img/f.jpg", ThumbURL: "http://img/f-250.jpg", IsFront: true},
 	}}
-	_, r, _, _ := newPictureHandler(t, t.TempDir(), ca)
+	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates?mbid=rel-1", nil))
@@ -777,7 +656,7 @@ func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
 		Kind:    upstream.KindUnavailable,
 		Status:  http.StatusInternalServerError,
 	}}
-	_, r, _, _ := newPictureHandler(t, t.TempDir(), ca)
+	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates?mbid=rel-1", nil))
@@ -810,7 +689,7 @@ func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
 		Kind:    upstream.KindRateLimited,
 		Status:  http.StatusTooManyRequests,
 	}}
-	_, r, _, _ := newPictureHandler(t, t.TempDir(), ca)
+	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
 
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates?mbid=rel-1", nil))
@@ -839,12 +718,12 @@ func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 		Kind:    upstream.KindUnavailable,
 		Status:  http.StatusBadGateway,
 	}}
-	_, r, lib, _ := newPictureHandler(t, root, ca)
+	_, r, lib := newPictureHandler(t, root, ca)
 
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("library_id", libIDStr(lib))
-	_ = mw.WriteField("target", "db")
+	_ = mw.WriteField("target", "folder")
 	_ = mw.WriteField("paths", "album/01.flac")
 	_ = mw.WriteField("image_url", "http://img/f.jpg")
 	_ = mw.Close()
@@ -868,7 +747,7 @@ func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 }
 
 func TestPictureCandidates_RequiresMBID(t *testing.T) {
-	_, r, _, _ := newPictureHandler(t, t.TempDir(), stubCoverArt{})
+	_, r, _ := newPictureHandler(t, t.TempDir(), stubCoverArt{})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", "/metadata/pictures/candidates", nil))
 	if w.Code != http.StatusBadRequest {
@@ -890,7 +769,7 @@ func TestEmbeddedFrontCover_LegacyReadImage(t *testing.T) {
 	}
 	dst := filepath.Join(albumDir, "01.flac")
 	copyFixture(t, src, dst)
-	_, r, lib, _ := newPictureHandler(t, root, nil)
+	_, r, lib := newPictureHandler(t, root, nil)
 
 	body, ct := buildPictureForm(t, lib.ID, "embedded", "Front Cover", []string{"album/01.flac"}, "art.png", pngBytes)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
@@ -933,7 +812,7 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 	copyFixture(t, src, trackAbs)
 
 	rs := &fakeRescanner{}
-	_, r, lib, _ := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
 
 	body := &bytes.Buffer{}
 	mw := multipart.NewWriter(body)
@@ -1005,7 +884,6 @@ func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T
 	h := &metaHandler.Handler{
 		Store:  s,
 		Reader: wideReader{},
-		Assets: assetstore.New(t.TempDir()),
 		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
 	}
 	r := mux.NewRouter()
@@ -1053,7 +931,7 @@ func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
 		TracksProcessed: 0,
 		Errors:          []error{errors.New(`read tags "01.flac": broken`)},
 	}}
-	_, r, lib, _ := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
 
 	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
 		"&path=album&slot=folder&type=Back%20Cover&paths=album/01.flac"

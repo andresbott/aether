@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
@@ -34,13 +33,15 @@ type TrackRescanner interface {
 	RescanPaths(ctx context.Context, libraryID uint, absPaths []string) (scanner.ScanStats, error)
 }
 
-// Handler serves the metadata editor API. It depends on the library portion of
-// the store, a tags.Reader for on-demand per-file reads, and (for cover-art
-// management) the asset store and a Cover Art Archive client.
+// Handler serves the metadata editor API. It edits metadata that lives on disk —
+// the songs' tags and the album folder's art files — and never writes to the
+// library index itself: every write is followed by a rescan of the touched
+// files. It depends on the library portion of the store (to resolve library_id
+// to a root path), a tags.Reader for on-demand per-file reads, and a Cover Art
+// Archive client as an online image source.
 type Handler struct {
 	Store    *store.Store
 	Reader   tags.Reader
-	Assets   *assetstore.Store
 	CoverArt CoverArtClient
 	// Images serves display-sized copies of the editor's picture cells, so a
 	// grid of thumbnails does not download full-resolution scans. Optional: nil
