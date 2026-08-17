@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 
 	"github.com/andresbott/aether/internal/model"
@@ -29,35 +28,6 @@ func (s *Store) FindOrCreateAlbum(name, albumArtistNorm, mbReleaseID string) (*m
 		if err := s.db.Create(&album).Error; err != nil {
 			return nil, err
 		}
-	}
-	return &album, nil
-}
-
-// GetAlbumByTrackPath resolves the album a track belongs to from its absolute
-// file path. Used by the metadata editor, which works by file path, to find the
-// DB album id for cover storage/serving.
-func (s *Store) GetAlbumByTrackPath(absPath string) (*model.Album, error) {
-	var track model.Track
-	if err := s.db.Select("album_id").Where("file_path = ?", absPath).First(&track).Error; err != nil {
-		return nil, err
-	}
-	return s.GetAlbum(track.AlbumID)
-}
-
-// GetAlbumByTrackDir resolves the album of any track located directly in absDir.
-// Used by the metadata editor to show the same cover the app serves for a folder,
-// without depending on tag-reading. Returns gorm.ErrRecordNotFound when the folder
-// has no scanned track.
-func (s *Store) GetAlbumByTrackDir(absDir string) (*model.Album, error) {
-	var track model.Track
-	// Trailing separator via Join keeps "album/" from also matching "album2/".
-	like := filepath.Join(absDir, "%")
-	if err := s.db.Select("album_id").Where("file_path LIKE ?", like).First(&track).Error; err != nil {
-		return nil, err
-	}
-	var album model.Album
-	if err := s.db.First(&album, track.AlbumID).Error; err != nil {
-		return nil, err
 	}
 	return &album, nil
 }
