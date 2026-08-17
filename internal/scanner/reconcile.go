@@ -47,24 +47,14 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
 	// through the reader as separate list entries already.
-	artistNames := nonEmpty(meta.Artist)
-	if len(artistNames) == 0 {
-		artistNames = []string{"Unknown Artist"}
-	}
+	artistNames := TrackArtistNames(meta)
 	artists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
 		return err
 	}
 
 	// Resolve album artists
-	albumArtistNames := nonEmpty(meta.AlbumArtist)
-	if len(albumArtistNames) == 0 {
-		if meta.Compilation {
-			albumArtistNames = []string{"Various Artists"}
-		} else {
-			albumArtistNames = artistNames
-		}
-	}
+	albumArtistNames := AlbumArtistNames(meta)
 	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
 		return err
@@ -82,13 +72,11 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 		return err
 	}
 
-	// Resolve album
-	albumName := meta.Album
-	if albumName == "" {
-		albumName = "Unknown Album"
-	}
-	albumArtistNorm := unidecode.Normalize(albumArtistNames[0])
-	album, err := tx.FindOrCreateAlbum(albumName, albumArtistNorm, meta.MBReleaseID)
+	// Resolve album. AlbumIdentityOf is the same function planAlbumContinuity
+	// used to decide whether this album's row could be retagged in place, so a
+	// row it retagged is found here rather than duplicated.
+	ident := AlbumIdentityOf(meta)
+	album, err := tx.FindOrCreateAlbum(ident.Name, ident.AlbumArtistNorm, ident.MBReleaseID)
 	if err != nil {
 		return err
 	}
