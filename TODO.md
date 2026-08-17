@@ -1,4 +1,4 @@
-# TODO
+    # TODO
 
 Items are split into **1.0** (the release gate), **Future releases**, and a
 **Backlog** of things that need investigation before they can be scoped.
@@ -43,11 +43,11 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [x] Create an app icon / logo. Browser/PWA side: `zarf/icon/web/` holds the cleaned web sources (rounded, square, maskable) derived from the `icon2.svg` master, `make icons` (`zarf/icon/render.sh`) renders them into `webui/public/` (`icon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-{192,512}.png`, `icon-maskable-{192,512}.png`), and `index.html` + the manifest link them all. In-app side: the diamond rendition (`assets/aether-mark.svg` via `components/common/BrandMark.vue`) replaced the `◈` placeholder in the sidebar and the mobile drawer and now sits beside the wordmark on the login card. The wordmark itself **stays styled text** — only the mark is artwork.
 - [] library also shows songs additionally to albums and artists
 - [] impelemt radio mode queue => keep playing based on same type/taste
+  - if i just listened to an album put the next album of the same artists
+    - if the artist has no more albums, jup to the next artist with similar tags
+- [] now playing should alow you to navigate to artists similar like album
 
 ## Frontend - mobile
-- [] On broser the now playing has weird bars on top and bottom
-- [] the menu button is behind the url bar
-- [x] better handling of back acctions
 
 
 ---
@@ -72,6 +72,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 ## Backend — Library
 
 - [ ] Add statistics in backend library: e.g. albums, artists, songs, genres, disk space used
+- [ ] rework kibraries as virual filtered items instead of mapped to filesystem
 
 ## Frontend — Music Browsing & Features
 
@@ -100,6 +101,9 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 - [ ] when identifying albums sometiemes track position os wrong, can we improve that
 - [ ] for images i want some metadata info: size, dimensions and format, both for what is stored as well as what is found
 - [ ] in raw metadata edit, after save return to the non raw view
+- [ ] identify album selections should print more details in the header
+- [ ] 431 Request Header Fields Too Large
+  /api/v1/metadata/pictures?library_id=1&path=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1&type=Front+Cover&slot=embedded&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F01+-+Path.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F02+-+Struggle.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F03+-+Romance.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F04+-+Pray!.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F05+-+In+Memoriam.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F06+-+Hyperventilation.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F07+-+Beyont+Time.mp3&paths=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1%2F08+-+Hope.mp3&paths=Apocalipti 
 
 ## Frontend — Player & Controls
 
