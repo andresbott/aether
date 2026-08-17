@@ -1,4 +1,3 @@
-//nolint:dupl // Intentional structural parallel with the sibling cover-art extension handlers
 package subsonic
 
 import (
