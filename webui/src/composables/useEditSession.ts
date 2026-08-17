@@ -647,11 +647,11 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                                 path: dirOf(op.paths[0] ?? ''),
                                 type,
                                 slot,
-                                // Embedded removal applies to the staged files;
-                                // a folder removal needs them too, to reach
-                                // every directory the album spans. The db slot
-                                // is one album-wide entry.
-                                paths: slot === 'db' ? undefined : op.paths
+                                // Both slots need the staged files: embedded
+                                // removal applies to them directly, and a folder
+                                // removal needs them to reach every directory the
+                                // album spans.
+                                paths: op.paths
                             })
                         }
                         if (out?.rescan && !out.rescan.ok) {

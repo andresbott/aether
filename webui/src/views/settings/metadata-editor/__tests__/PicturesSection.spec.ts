@@ -123,13 +123,24 @@ describe('PicturesSection', () => {
         deletePictureSpy.mockReset()
     })
 
-    it('requests the matrix for the selected track’s own directory with the selection paths', async () => {
+    it("requests the matrix for the selected track's own directory with the selection paths", async () => {
         mountSection([mkTrack({ path: 'Artist/Album/01.flac' })])
         await flushPromises()
         expect(getPicturesSpy).toHaveBeenCalledWith(3, 'Artist/Album', ['Artist/Album/01.flac'])
     })
 
-    it('renders one block per present type with its three slots', async () => {
+    it('renders only the embedded and folder slots', async () => {
+        getPicturesSpy.mockResolvedValue([
+            { type: 'Front Cover', slots: [{ slot: 'embedded', detail: '2 of 2 files' }] }
+        ])
+        const { wrapper } = mountSection([mkTrack()])
+        await flushPromises()
+        expect(wrapper.find('[data-test="picture-cell-Front Cover-embedded"]').exists()).toBe(true)
+        expect(wrapper.find('[data-test="picture-cell-Front Cover-folder"]').exists()).toBe(true)
+        expect(wrapper.find('[data-test="picture-cell-Front Cover-db"]').exists()).toBe(false)
+    })
+
+    it('renders one block per present type with its two slots', async () => {
         const pictures: PictureInfo[] = [
             {
                 type: 'Front Cover',
@@ -138,7 +149,7 @@ describe('PicturesSection', () => {
                     { slot: 'folder', detail: 'cover.jpg' }
                 ]
             },
-            { type: 'Back Cover', slots: [{ slot: 'db' }] }
+            { type: 'Back Cover', slots: [{ slot: 'folder' }] }
         ]
         getPicturesSpy.mockResolvedValue(pictures)
         const { wrapper } = mountSection([mkTrack()])
@@ -146,32 +157,30 @@ describe('PicturesSection', () => {
 
         const front = wrapper.find('[data-test="picture-type-Front Cover"]')
         expect(front.exists()).toBe(true)
-        expect(front.findAll('.picture-cell')).toHaveLength(3)
+        expect(front.findAll('.picture-cell')).toHaveLength(2)
         expect(front.find('[data-test="picture-cell-Front Cover-embedded"]').text()).toContain(
             '1 of 2 files'
         )
         expect(front.find('[data-test="picture-cell-Front Cover-folder"]').text()).toContain(
             'cover.jpg'
         )
-        // Occupied cells get a thumbnail from the image endpoint; empty ones don't.
+        // Occupied cells get a thumbnail from the image endpoint.
+        expect(
+            front
+                .find('[data-test="picture-cell-Front Cover-embedded"] img.cell-thumb')
+                .attributes('src')
+        ).toContain('slot=embedded')
         expect(
             front
                 .find('[data-test="picture-cell-Front Cover-folder"] img.cell-thumb')
                 .attributes('src')
         ).toContain('slot=folder')
+        // Both occupied cells have a flip layer for controls.
         expect(
-            front.find('[data-test="picture-cell-Front Cover-db"] img.cell-thumb').exists()
-        ).toBe(false)
-        // An occupied cell flips its image to the controls; an empty one has no
-        // flip layer — its add button IS the placeholder.
+            front.find('[data-test="picture-cell-Front Cover-embedded"] .cell-flip').exists()
+        ).toBe(true)
         expect(
             front.find('[data-test="picture-cell-Front Cover-folder"] .cell-flip').exists()
-        ).toBe(true)
-        expect(front.find('[data-test="picture-cell-Front Cover-db"] .cell-flip').exists()).toBe(
-            false
-        )
-        expect(
-            front.find('[data-test="picture-cell-Front Cover-db"] .cell-art button').exists()
         ).toBe(true)
 
         expect(wrapper.find('[data-test="picture-type-Back Cover"]').exists()).toBe(true)
@@ -194,8 +203,8 @@ describe('PicturesSection', () => {
         await items.find((i) => i.text() === 'Back cover')!.trigger('click')
         const block = wrapper.find('[data-test="picture-type-Back Cover"]')
         expect(block.exists()).toBe(true)
-        // All-empty block: three cells, no thumbnails, no remove buttons.
-        expect(block.findAll('.picture-cell')).toHaveLength(3)
+        // All-empty block: two cells, no thumbnails, no remove buttons.
+        expect(block.findAll('.picture-cell')).toHaveLength(2)
         expect(block.find('img.cell-thumb').exists()).toBe(false)
         expect(block.find('[data-test="picture-remove-Back Cover-folder"]').exists()).toBe(false)
     })
@@ -246,7 +255,7 @@ describe('PicturesSection', () => {
     })
 
     describe('picker copy sources', () => {
-        it('offers the album’s other occupied cells, excluding the target cell', async () => {
+        it("offers the album's other occupied cells, excluding the target cell", async () => {
             getPicturesSpy.mockResolvedValue([
                 {
                     type: 'Front Cover',
@@ -255,21 +264,21 @@ describe('PicturesSection', () => {
                         { slot: 'folder', detail: 'cover.jpg' }
                     ]
                 },
-                { type: 'Back Cover', slots: [{ slot: 'db' }] }
+                { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg' }] }
             ])
             const { wrapper } = mountSection([mkTrack()])
             await flushPromises()
 
-            // Editing the (empty) internal-store front cover: every other
-            // occupied cell of the album is a copy source.
-            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            // Editing the (empty) embedded back cover: every other occupied
+            // cell of the album is a copy source.
+            await wrapper.find('[data-test="picture-change-Back Cover-embedded"]').trigger('click')
             const sources = wrapper
                 .findComponent({ name: 'PicturePickerDialog' })
                 .props('sources') as Array<Record<string, unknown>>
             expect(sources.map((s) => s.key)).toEqual([
                 'Front Cover-embedded',
                 'Front Cover-folder',
-                'Back Cover-db'
+                'Back Cover-folder'
             ])
             const embedded = sources[0]
             expect(embedded.label).toBe('Front cover — embedded in file')
@@ -306,7 +315,7 @@ describe('PicturesSection', () => {
             ])
             await flushPromises()
 
-            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            await wrapper.find('[data-test="picture-change-Front Cover-embedded"]').trigger('click')
             const sources = wrapper
                 .findComponent({ name: 'PicturePickerDialog' })
                 .props('sources') as Array<Record<string, unknown>>
@@ -328,7 +337,7 @@ describe('PicturesSection', () => {
             await flushPromises()
             await wrapper.find('[data-test="picture-remove-Front Cover-folder"]').trigger('click')
 
-            await wrapper.find('[data-test="picture-change-Front Cover-db"]').trigger('click')
+            await wrapper.find('[data-test="picture-change-Front Cover-embedded"]').trigger('click')
             expect(wrapper.findComponent({ name: 'PicturePickerDialog' }).props('sources')).toEqual(
                 []
             )
@@ -372,7 +381,7 @@ describe('PicturesSection', () => {
         expect(cell.classes()).toContain('pending')
     })
 
-    it('still shows folder/db ops staged from another track of the album', async () => {
+    it('still shows folder ops staged from another track of the album', async () => {
         const trackA = mkTrack({ path: 'album/01.flac' })
         const trackB = mkTrack({ path: 'album/02.flac' })
         const { wrapper, session } = mountSection([trackA, trackB])
@@ -485,7 +494,7 @@ describe('PicturesSection', () => {
             expect(params.getAll('paths')).toEqual(['Release/CD 1/01.flac', 'Release/CD 2/01.flac'])
         })
 
-        it('warns when the folder art differs across the album’s folders', async () => {
+        it("warns when the folder art differs across the album's folders", async () => {
             getPicturesSpy.mockResolvedValue([
                 {
                     type: 'Front Cover',

@@ -192,7 +192,7 @@ function serverPictureUrl(type: string, slot: PictureSlot, size?: number): strin
         // Embedded: narrow the probe to the selected tracks. Folder: name the
         // directories the album spans, since the art may sit in a later disc
         // folder than the primary one this URL is anchored on.
-        slot === 'db' ? undefined : selectionPaths.value,
+        selectionPaths.value,
         size
     )
 }
@@ -293,9 +293,8 @@ function undoCell(type: string, slot: PictureSlot) {
         title="Attached pictures"
         :help="
             'Artwork attached to the album: front/back cover, disc, booklet… ' +
-            'Each picture can be embedded in the song files, stored as an image ' +
-            'file in the album folder, or kept in the internal store without ' +
-            'touching your files.'
+            'Each picture can be embedded in the song files or stored as an ' +
+            'image file in the album folder.'
         "
         data-test="pictures-block"
     >
@@ -327,10 +326,7 @@ function undoCell(type: string, slot: PictureSlot) {
                             v-if="i > 0"
                             class="slot-priority"
                             aria-hidden="true"
-                            v-tooltip.top="
-                                'Loading priority: embedded in file, then album folder, ' +
-                                'then internal store'
-                            "
+                            v-tooltip.top="'Loading priority: embedded in file, then album folder'"
                         >
                             <i class="pi pi-angle-right"></i>
                         </div>
