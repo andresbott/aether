@@ -79,3 +79,43 @@ func TestReconcileClearsAVanishedCoverPath(t *testing.T) {
 		t.Fatalf("expected the stale cover path to be cleared, got %q", album.CoverPath)
 	}
 }
+
+// A folder that already carries a usable folder.jpg must still switch to a
+// higher-ranked cover.jpg when one appears — the editor writes cover.<ext>, and
+// nothing else repoints CoverPath now that the editor no longer touches the DB.
+func TestReconcileRepointsToAHigherRankedCover(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01.mp3",
+		"Artist/Album/folder.jpg",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var album model.Album
+	if err := st.DB().First(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if album.CoverPath != filepath.Join(dir, "Artist/Album/folder.jpg") {
+		t.Fatalf("unexpected initial cover path: %q", album.CoverPath)
+	}
+
+	// folder.jpg stays in place and is still a perfectly usable cover, so the
+	// old "only re-detect an unusable path" rule would keep serving it.
+	createTestFiles(t, dir, []string{"Artist/Album/cover.jpg"})
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB().First(&album, album.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if album.CoverPath != filepath.Join(dir, "Artist/Album/cover.jpg") {
+		t.Fatalf("expected the cover path to repoint to cover.jpg, got %q", album.CoverPath)
+	}
+}
