@@ -25,6 +25,17 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// One directory listing per artist folder is enough for the whole pass.
 	imageCache := map[string]string{}
 
+	// Preserve album rows across a wholesale retag before any track is
+	// reconciled: once a row carries the new identity, FindOrCreateAlbum below
+	// finds it instead of creating a second row. A failure here is not fatal —
+	// it degrades to the old behaviour (a new row and a new id), which is worse
+	// than a preserved id but better than a failed scan.
+	if ctx.Err() == nil {
+		if err := s.planAlbumContinuity(results); err != nil {
+			slog.Warn("album continuity planning failed; retagged albums may get new ids", "err", err)
+		}
+	}
+
 	for _, tr := range results {
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
