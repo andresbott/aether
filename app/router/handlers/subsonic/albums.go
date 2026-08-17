@@ -15,6 +15,9 @@ import (
 // covers are keyed by DB ID, the same key albumCoverMeta reads, so an upload
 // serves through getCoverArt immediately.
 func (h *Handler) updateAlbum(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	if !isMultipart(r) {
 		writeError(w, 0, "updateAlbum requires a multipart request")
 		return
