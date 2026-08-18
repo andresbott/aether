@@ -126,3 +126,49 @@ func TestRelinkTrackReportsNoChangeWhenThePathMoved(t *testing.T) {
 		t.Fatalf("FilePath = %q, want it untouched", after.FilePath)
 	}
 }
+
+func TestTracksByAudioHashes(t *testing.T) {
+	s := testStore(t)
+	album, _, _ := createTestAlbumAndArtist(t, s)
+	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+
+	hashed := seedIdentityTrack(t, s, album.ID, "/music/a.mp3", 4, mod, "A")
+	if err := s.DB().Model(&hashed).Update("audio_hash", "fnv1a64:aaaa").Error; err != nil {
+		t.Fatal(err)
+	}
+	other := seedIdentityTrack(t, s, album.ID, "/music/b.mp3", 8, mod, "B")
+	if err := s.DB().Model(&other).Update("audio_hash", "fnv1a64:bbbb").Error; err != nil {
+		t.Fatal(err)
+	}
+	// A row with no hash: indexed before the column existed, or a format
+	// libs/audiohash cannot read. It must stay invisible to this lookup.
+	seedIdentityTrack(t, s, album.ID, "/music/c.mp3", 4, mod, "C")
+
+	rows, err := s.TracksByAudioHashes([]string{"fnv1a64:aaaa", "fnv1a64:zzzz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected exactly the one matching row, got %d: %+v", len(rows), rows)
+	}
+	if rows[0].ID != hashed.ID || rows[0].FilePath != "/music/a.mp3" {
+		t.Fatalf("unexpected row: %+v", rows[0])
+	}
+	if rows[0].AudioHash != "fnv1a64:aaaa" {
+		t.Fatalf("the projection must carry audio_hash, got %q", rows[0].AudioHash)
+	}
+	if rows[0].Title != "A" || rows[0].FileSize != 4 || rows[0].Duration != 180 {
+		t.Fatalf("the projection must carry the rest of the proof's columns: %+v", rows[0])
+	}
+
+	// An empty key must never match the rows that have no hash.
+	none, err := s.TracksByAudioHashes([]string{""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range none {
+		if r.AudioHash == "" {
+			t.Fatalf("an empty hash must not be a usable key, matched %+v", r)
+		}
+	}
+}

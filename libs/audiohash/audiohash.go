@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ const maxHashBytes = 256 << 10
 // File returns the metadata-invariant hash of the audio file at path. It is a
 // convenience wrapper that opens the file and delegates to Reader.
 func File(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: hashing the caller's file is the entire purpose of this function; the path is supplied by the caller, which in aether is a library file the scanner already admitted and opened to read tags.
 	if err != nil {
 		return "", err
 	}
@@ -127,22 +128,35 @@ func mp3AudioEnd(f io.ReaderAt, floor, size int64) int64 {
 			end -= 128
 		}
 	}
-	// APEv2: a 32-byte footer with an "APETAGEX" preamble. Its declared size
-	// covers the items plus this footer; a flag marks an optional 32-byte
-	// header sitting on top of the tag.
-	if end-floor >= 32 {
-		foot := make([]byte, 32)
-		if _, err := f.ReadAt(foot, end-32); err == nil && string(foot[:8]) == "APETAGEX" {
-			total := int64(binary.LittleEndian.Uint32(foot[12:16]))
-			if flags := binary.LittleEndian.Uint32(foot[20:24]); flags&0x80000000 != 0 {
-				total += 32 // header present
-			}
-			if total >= 32 && end-floor >= total {
-				end -= total
-			}
-		}
-	}
+	// APEv2 sits just before any ID3v1 trailer.
+	end -= apeTagLen(f, end, floor)
 	return end
+}
+
+// apeTagLen returns the length of the APEv2 tag ending at end, or 0 when there
+// is none. Its 32-byte footer carries an "APETAGEX" preamble and a declared size
+// covering the items plus that footer; a flag marks an optional 32-byte header
+// sitting on top of the tag. Nothing is reported past floor, so a corrupt length
+// can never reach into the leading ID3v2 tag or before the start of the file.
+func apeTagLen(f io.ReaderAt, end, floor int64) int64 {
+	if end-floor < 32 {
+		return 0
+	}
+	foot := make([]byte, 32)
+	if _, err := f.ReadAt(foot, end-32); err != nil {
+		return 0
+	}
+	if string(foot[:8]) != "APETAGEX" {
+		return 0
+	}
+	total := int64(binary.LittleEndian.Uint32(foot[12:16]))
+	if flags := binary.LittleEndian.Uint32(foot[20:24]); flags&0x80000000 != 0 {
+		total += 32 // header present
+	}
+	if total < 32 || end-floor < total {
+		return 0
+	}
+	return total
 }
 
 // id3v2Len returns the total byte length of a leading ID3v2 tag, or 0 when the
@@ -194,7 +208,11 @@ func findBox(f io.ReaderAt, size int64, want string) (start, length int64, err e
 			if _, err := f.ReadAt(ext, off+8); err != nil {
 				return 0, 0, fmt.Errorf("audiohash: read MP4 largesize: %w", err)
 			}
-			boxSize = int64(binary.BigEndian.Uint64(ext))
+			large := binary.BigEndian.Uint64(ext)
+			if large > math.MaxInt64 {
+				return 0, 0, fmt.Errorf("audiohash: MP4 box %q declares an out-of-range largesize", boxType)
+			}
+			boxSize = int64(large)
 			headerLen = 16
 		case 0: // box runs to end of file
 			boxSize = size - off
@@ -224,7 +242,8 @@ func payloadHash(f io.ReaderAt, start, end int64) (string, error) {
 
 	h := fnv.New64a()
 	var lenBuf [8]byte
-	binary.BigEndian.PutUint64(lenBuf[:], uint64(payloadLen))
+	// payloadLen is non-negative by construction: end is clamped to start above.
+	binary.BigEndian.PutUint64(lenBuf[:], uint64(payloadLen)) //nolint:gosec // G115: payloadLen >= 0, so the conversion cannot wrap.
 	_, _ = h.Write(lenBuf[:])
 	if readLen > 0 {
 		if _, err := io.Copy(h, io.NewSectionReader(f, start, readLen)); err != nil {

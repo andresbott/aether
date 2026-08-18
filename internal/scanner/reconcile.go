@@ -173,6 +173,12 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	track.Duration = int(meta.Duration.Seconds())
 	track.Bitrate = meta.Bitrate
 	track.MBRecordingID = meta.MBRecordingID
+	// Only ever overwrite the stored hash with a real one. An unsupported format
+	// or an unreadable payload yields "", and erasing a value an earlier scan
+	// recorded would silently disarm the move proof for that track.
+	if tr.audioHash != "" {
+		track.AudioHash = tr.audioHash
+	}
 	track.Lyrics = meta.Lyrics
 	track.ReplayGainTrackGain = meta.ReplayGain.TrackGain
 	track.ReplayGainTrackPeak = meta.ReplayGain.TrackPeak

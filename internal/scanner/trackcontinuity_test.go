@@ -181,48 +181,6 @@ func TestScanDoesNotRelinkACopiedFile(t *testing.T) {
 	}
 }
 
-// A move that also rewrote the tags changes the bytes, so file_size no longer
-// matches and the proof fails by design. Locks in the declined tier: matching
-// across a retag would rest on MBRecordingID, which identifies a recording
-// rather than a file.
-func TestScanDoesNotRelinkWhenTheFileSizeChanged(t *testing.T) {
-	st := testScanStore(t)
-	dir := t.TempDir()
-	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
-
-	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
-	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
-	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
-		t.Fatal(err)
-	}
-	before := theOnlyTrack(t, st)
-
-	// Retag + re-file: the file is gone from the old path and the new one holds
-	// more bytes, because the tags were rewritten on the way.
-	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.mp3")
-	if err := os.Remove(src); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(dst, []byte("fake plus fresh tags"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	reader.titles[dst] = "Path Of Glory"
-
-	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	after := theOnlyTrack(t, st)
-	if after.ID == before.ID {
-		t.Fatal("a retagged move must not be re-linked: the proof rests on file_size")
-	}
-}
-
 // A move with a differing duration must not be re-linked: duration is part of
 // the proof. This tests the durationsAgree reject path.
 func TestScanDoesNotRelinkWhenTheDurationDiffers(t *testing.T) {
@@ -829,5 +787,221 @@ func TestScanKeepsTrackAndAlbumIdentityWhenAWholeAlbumMoves(t *testing.T) {
 	}
 	if !afterAlbum.CreatedAt.Equal(beforeAlbum.CreatedAt) {
 		t.Fatalf("album created_at changed (%v -> %v)", beforeAlbum.CreatedAt, afterAlbum.CreatedAt)
+	}
+}
+
+// ----- Retagged moves: the audio-hash proof -----
+
+// writeMP3WithTag writes a file libs/audiohash reads as an MP3: a real ID3v2
+// header declaring tagLen bytes of tag body, then the audio payload.
+//
+// Varying tagLen is exactly what a tag edit does on disk — the tag region grows
+// or shrinks and the audio after it is untouched — so two files written with the
+// same payload and different tagLen have different sizes and the *same*
+// metadata-invariant hash. That is the whole property under test, and using the
+// real header format means these tests exercise libs/audiohash rather than a
+// stand-in for it.
+func writeMP3WithTag(t *testing.T, path string, tagLen int, payload string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	hdr := make([]byte, 10)
+	copy(hdr, "ID3")
+	hdr[3] = 3 // ID3v2.3
+	// Bytes 6..9 are the tag size as a synchsafe integer (7 bits per byte).
+	hdr[6] = byte((tagLen >> 21) & 0x7f)
+	hdr[7] = byte((tagLen >> 14) & 0x7f)
+	hdr[8] = byte((tagLen >> 7) & 0x7f)
+	hdr[9] = byte(tagLen & 0x7f)
+
+	body := make([]byte, 0, 10+tagLen+len(payload))
+	body = append(body, hdr...)
+	body = append(body, make([]byte, tagLen)...)
+	body = append(body, payload...)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The case the size-and-title proof cannot reach: a tagger fixed the tags and
+// re-filed the track in one operation, so the path, the title AND the byte count
+// all changed at once. Only the audio hash still connects the two ends — and it
+// has to, because this is what Picard and beets do by default.
+func TestScanRelinksARetaggedMoveByAudioHash(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Apocaliptica/Cult/01.mp3")
+	writeMP3WithTag(t, src, 20, "the-audio-payload")
+	seedLibrary(t, st, dir, nil)
+
+	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+	if before.AudioHash == "" {
+		t.Fatal("the scan must record an audio hash, or there is nothing for the proof to match on")
+	}
+	if err := st.Star("alice", "track", before.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The tagger rewrote the tags (bigger tag region, corrected title) and moved
+	// the file into a corrected folder. The audio payload is byte-identical.
+	dst := filepath.Join(dir, "Apocalyptica/Cult/01 - Path Of Glory.mp3")
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	writeMP3WithTag(t, dst, 120, "the-audio-payload")
+	delete(reader.titles, src)
+	reader.titles[dst] = "Path Of Glory"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("a retagged move must keep the row: id was %d, now %d", before.ID, after.ID)
+	}
+	if after.FilePath != dst {
+		t.Fatalf("expected the row to carry the new path, got %q", after.FilePath)
+	}
+	if after.FileSize == before.FileSize {
+		t.Fatal("the fixture is wrong: the retag must change the file size, or the size proof would have carried this")
+	}
+	if after.AudioHash != before.AudioHash {
+		t.Fatalf("the audio hash must survive a tag edit: was %q, now %q", before.AudioHash, after.AudioHash)
+	}
+
+	var stars int64
+	if err := st.DB().Table("starred_items").
+		Where("item_type = ? AND item_id = ?", "track", before.ID).
+		Count(&stars).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stars != 1 {
+		t.Fatalf("expected the star to survive the retagged move, found %d rows", stars)
+	}
+}
+
+// The hash is metadata-invariant, not content-invariant: when the audio itself
+// differs, both proofs must decline. Re-encoding a track at another bitrate and
+// re-filing it is a new file, not a move.
+func TestScanDoesNotRelinkWhenTheAudioItselfChanged(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	writeMP3WithTag(t, src, 20, "the-audio-payload")
+	seedLibrary(t, st, dir, nil)
+
+	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	dst := filepath.Join(dir, "Apocalyptica/Cult/01 - Path.mp3")
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	writeMP3WithTag(t, dst, 20, "a-different-audio-payload")
+	delete(reader.titles, src)
+	reader.titles[dst] = "Path"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID == before.ID {
+		t.Fatal("different audio must not be re-linked onto the old row: the hash is metadata-invariant, not content-invariant")
+	}
+}
+
+// A format libs/audiohash cannot read has no hash, so a retagged move of it
+// keeps only the size-and-title proof — which a retag defeats. Locks in the
+// declined tier and the graceful fallback: no hash must never mean no scan.
+func TestScanDoesNotRelinkARetaggedMoveWithoutAHash(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.ogg")
+	if err := os.MkdirAll(filepath.Dir(src), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src, []byte("ogg-audio-payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seedLibrary(t, st, dir, nil)
+
+	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+	if before.AudioHash != "" {
+		t.Fatalf("an unsupported format must store no hash, got %q", before.AudioHash)
+	}
+
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.ogg")
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("ogg-audio-payload-with-bigger-tags"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delete(reader.titles, src)
+	reader.titles[dst] = "Path Of Glory"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID == before.ID {
+		t.Fatal("without a hash there is no proof for a retagged move; it must fall back to insert plus delete")
+	}
+}
+
+// A tag edit in place (no move) must leave the stored hash alone, because that
+// stored value is what a *later* move will be proved with. This is the editor's
+// own path: it writes tags and calls RescanPaths on what it wrote.
+func TestRescanPathsKeepsTheAudioHashAcrossAnInPlaceRetag(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	writeMP3WithTag(t, path, 20, "the-audio-payload")
+	lib := seedLibrary(t, st, dir, nil)
+
+	reader := &movingTagReader{titles: map[string]string{path: "Path"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	// The editor rewrites the tags of the same file: bigger tag region, same audio.
+	writeMP3WithTag(t, path, 200, "the-audio-payload")
+	reader.titles[path] = "Path Of Glory"
+	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{path}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("an in-place retag must not churn the row: id was %d, now %d", before.ID, after.ID)
+	}
+	if after.AudioHash != before.AudioHash {
+		t.Fatalf("the hash must be unchanged by a tag edit: was %q, now %q", before.AudioHash, after.AudioHash)
+	}
+	if after.FileSize == before.FileSize {
+		t.Fatal("the fixture is wrong: the retag must change the file size")
 	}
 }

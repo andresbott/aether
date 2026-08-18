@@ -44,6 +44,10 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
    use case, since reorganising a library moves whole directories.
    `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
    subtree fails with EACCES rather than merely looking empty.
+   Accepted for now on an explicit assumption — mounts are library *roots*, never
+   directories inside a library — which is what keeps this out of reach, since a
+   dropped root mount trips the guards above. Full analysis and the candidate fixes:
+   [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
 2. **Change filter** — incremental scans skip files whose size/modtime match
    the DB (`store.FilterChanged`); unchanged files only get their
    `last_seen_at` bumped in 500-row chunks (`store.BulkUpdateLastSeen`).
@@ -151,16 +155,34 @@ tag and picture writes.
   `reconcile` does, re-points a row at the path its file moved to instead of
   letting the move become a delete plus an insert — which would hard-delete the
   track's `playlist_tracks`, `play_histories`, `play_queue_entries` and
-  `starred_items` rows via `DeleteOrphanedAggregates`. The proof per pair: equal
-  `file_size`, equal `title`, `duration` within ±1s, the old path **gone from
-  disk** (this is what tells a move from a copy), and exactly one vanished row
-  and one new file sharing the fingerprint (`file_mod_time` breaks a tie and is
-  never required, because plenty of copy tools do not preserve it). It runs
+  `starred_items` rows via `DeleteOrphanedAggregates`. Every pair must satisfy
+  three requirements — `duration` within ±1s, the old path **gone from disk**
+  (this is what tells a move from a copy), and exactly one vanished row and one
+  new file sharing the key (`file_mod_time` breaks a tie and is never required,
+  because plenty of copy tools do not preserve it) — and then one of **two
+  proofs**, tried in order:
+  1. **`file_size` + `title`.** Free, since the walk and the tag read already
+     produced both. Catches a plain move.
+  2. **`tracks.audio_hash`** — `libs/audiohash`, a metadata-invariant hash of the
+     audio payload (`scanner.audioHashOf`, stored by `reconcileTrack`, looked up
+     by `store.TracksByAudioHashes`). Catches a move that **also retagged**: a tag
+     edit rewrites the file, so proof 1 loses both anchors, while the hash reads
+     only the audio and comes out identical. This is the common real-world case,
+     because the tools that rename files from tags (Picard, beets) retag and
+     re-file in one operation. The hash is computed in the tag-read worker pool
+     for the files a pass actually reads, so an incremental scan hashes exactly
+     what changed and a steady state hashes nothing; `audiohash` reads at most
+     256 KiB of payload per file.
+  A file claimed by proof 1 is withdrawn before proof 2 runs. It all runs
   **before** `planAlbumContinuity` so a moved album is not counted as a split.
-  Deliberate misses: a move that also rewrote tags (the bytes change, so
-  `file_size` cannot anchor it), two files swapping paths, a move straddling two
-  scan runs, and any ambiguous fingerprint — a false match would merge two
-  tracks' listening history, which is worse than losing one's.
+  Deliberate misses: a retagged move of a format `audiohash` does not cover (it
+  handles FLAC/MP3/MP4; `walk.go` admits sixteen extensions) or of a row that has
+  not been hashed yet — **one full scan arms it**, since incremental scans only
+  read changed files; two files swapping paths; a move straddling two scan runs;
+  and any ambiguous key — a false match would merge two tracks' listening
+  history, which is worse than losing one's. Note that byte-identical duplicates
+  of the same track share an audio hash as well as a size, so both proofs rely on
+  the same one-of-each rule to stay out of trouble.
   Design: [`../superpowers/specs/2026-08-18-track-identity-across-moves-design.md`](../superpowers/specs/2026-08-18-track-identity-across-moves-design.md).
 - **Album identity is the composite unique index** `(name_norm,
   album_artist_norm, mb_release_id)` — created in `model.Migrate`, matched by

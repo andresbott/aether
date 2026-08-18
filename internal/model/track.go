@@ -20,6 +20,15 @@ type Track struct {
 	Duration            int
 	Bitrate             int
 	MBRecordingID       string
+	// AudioHash is a metadata-invariant hash of the file's audio payload
+	// (libs/audiohash). It survives a tag rewrite and changes only when the
+	// audio does, which is what lets the scanner recognise a file that was
+	// moved AND retagged — the case the size-and-title move proof cannot
+	// anchor, because a tag edit changes both of its parts. Empty for formats
+	// audiohash does not cover and for rows indexed before it existed; the
+	// re-link falls back to its other signals then. Indexed because the
+	// re-link looks rows up by it once per scan batch.
+	AudioHash           string `gorm:"index"`
 	Lyrics              string
 	ReplayGainTrackGain *float64
 	ReplayGainTrackPeak *float64

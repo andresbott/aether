@@ -49,6 +49,10 @@ func New(cfg Config, s *store.Store, tagReader tags.Reader) *Scanner {
 type tagResult struct {
 	walk WalkResult
 	meta tags.Metadata
+	// audioHash is the file's metadata-invariant audio hash, or "" when it has
+	// none. Read alongside the tags, because both are per-file work that wants
+	// the worker pool rather than the reconcile transaction.
+	audioHash string
 }
 
 // libraryWalk is one library plus the walk that cleared its guards. It exists so
@@ -215,8 +219,15 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 					mu.Unlock()
 					continue
 				}
+				// Hashed in the worker, next to the tag read: it is bounded
+				// per-file I/O (audiohash reads at most 256 KiB of payload) and
+				// belongs on the pool rather than in reconcile's per-track
+				// transaction. Only files this pass reads get one, so an
+				// incremental scan hashes exactly what changed and a steady
+				// state hashes nothing.
+				hash := audioHashOf(wr.FilePath)
 				mu.Lock()
-				tagResults = append(tagResults, tagResult{walk: wr, meta: meta})
+				tagResults = append(tagResults, tagResult{walk: wr, meta: meta, audioHash: hash})
 				mu.Unlock()
 			}
 		}()
