@@ -1383,7 +1383,7 @@ func TestCoverCacheKeyMatchesAssetKey(t *testing.T) {
 		t.Errorf("artist cacheKey = %q, want %q", got, want)
 	}
 
-	// Radio - construct meta as resolveCoverMeta does for "radio" case
+	// Radio - drive through resolveCoverMeta to test the real implementation
 	station := model.InternetRadioStation{
 		Name:      "Test Station",
 		StreamURL: "http://example.com/stream",
@@ -1391,19 +1391,17 @@ func TestCoverCacheKeyMatchesAssetKey(t *testing.T) {
 	if err := db.Create(&station).Error; err != nil {
 		t.Fatalf("create radio station: %v", err)
 	}
-	radioMeta := coverMeta{
-		seed:      station.Name,
-		cacheKind: assetstore.KindRadio,
-		cacheKey:  assetkey.Radio(station.StreamURL),
-	}
-	if p, ok := h.assets.Get(assetstore.KindRadio, assetkey.Radio(station.StreamURL)); ok {
-		radioMeta.coverPath, radioMeta.coverManaged = p, true
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	radioMeta, ok := h.resolveCoverMeta(w, r, "radio", station.ID)
+	if !ok {
+		t.Fatalf("resolveCoverMeta returned ok=false for radio")
 	}
 	if got, want := radioMeta.cacheKey, assetkey.Radio(station.StreamURL); got != want {
 		t.Errorf("radio cacheKey = %q, want %q", got, want)
 	}
 
-	// Playlist - construct meta as resolveCoverMeta does for "playlist" case
+	// Playlist - drive through resolveCoverMeta to test the real implementation
 	pl := model.Playlist{
 		Name:  "Test Playlist",
 		Owner: "admin",
@@ -1412,35 +1410,28 @@ func TestCoverCacheKeyMatchesAssetKey(t *testing.T) {
 	if err := db.Create(&pl).Error; err != nil {
 		t.Fatalf("create playlist: %v", err)
 	}
-	playlistMeta := coverMeta{
-		seed:      pl.Name,
-		cacheKind: assetstore.KindPlaylist,
-		cacheKey:  assetkey.PlaylistOf(&pl),
-	}
-	key := assetkey.PlaylistOf(&pl)
-	if key != "" {
-		if p, ok := h.assets.Get(assetstore.KindPlaylist, key); ok {
-			playlistMeta.coverPath, playlistMeta.coverManaged = p, true
-		}
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/", nil)
+	playlistMeta, ok := h.resolveCoverMeta(w, r, "playlist", pl.ID)
+	if !ok {
+		t.Fatalf("resolveCoverMeta returned ok=false for playlist")
 	}
 	if got, want := playlistMeta.cacheKey, assetkey.PlaylistOf(&pl); got != want {
 		t.Errorf("playlist cacheKey = %q, want %q", got, want)
 	}
 
-	// Genre - construct meta as resolveCoverMeta does for "genre" case
+	// Genre - drive through resolveCoverMeta to test the real implementation
 	genre := model.Genre{
 		Name: "Test Genre",
 	}
 	if err := db.Create(&genre).Error; err != nil {
 		t.Fatalf("create genre: %v", err)
 	}
-	genreMeta := coverMeta{
-		seed:      genre.Name,
-		cacheKind: assetstore.KindGenre,
-		cacheKey:  assetkey.GenreOf(&genre),
-	}
-	if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(&genre)); ok {
-		genreMeta.coverPath, genreMeta.coverManaged = p, true
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/", nil)
+	genreMeta, ok := h.resolveCoverMeta(w, r, "genre", genre.ID)
+	if !ok {
+		t.Fatalf("resolveCoverMeta returned ok=false for genre")
 	}
 	if got, want := genreMeta.cacheKey, assetkey.GenreOf(&genre); got != want {
 		t.Errorf("genre cacheKey = %q, want %q", got, want)
