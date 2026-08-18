@@ -2,7 +2,9 @@
 package scanner
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"sort"
@@ -90,6 +92,8 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 		}
 		if _, err := os.Stat(row.FilePath); err == nil {
 			continue
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			continue // on EACCES, EIO, ELOOP etc, leave the row alone
 		}
 		key := trackFingerprint{FileSize: row.FileSize, Title: row.Title}
 		vanished[key] = append(vanished[key], row)

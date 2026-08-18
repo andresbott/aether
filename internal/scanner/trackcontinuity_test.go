@@ -252,3 +252,84 @@ func TestScanDoesNotRelinkWhenTheDurationDiffers(t *testing.T) {
 		t.Fatal("a move with a differing duration must not be re-linked: duration is part of the proof")
 	}
 }
+
+// A copy on an incremental scan must not be re-linked: the os.Stat guard is the
+// only defence when inBatch does not cover the original path. This test verifies
+// that the stat check genuinely runs and prevents the copy from stealing the
+// original's identity.
+func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	// Copy the file to a second path with the same bytes and title.
+	dst := filepath.Join(dir, "Compilations/Best Of/01.mp3")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader.titles[dst] = reader.titles[src]
+
+	// Incremental scan: only the new path is in results, so inBatch does not
+	// cover src. The os.Stat check is the sole defence against re-linking.
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: false}); err != nil {
+		t.Fatal(err)
+	}
+
+	var tracks []model.Track
+	if err := st.DB().Order("id").Find(&tracks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("expected 2 rows (original + copy), got %d: %+v", len(tracks), tracks)
+	}
+	if tracks[0].ID != before.ID || tracks[0].FilePath != src {
+		t.Fatalf("the original row must keep its id and its path, got %+v", tracks[0])
+	}
+}
+
+// A move where the duration differs by exactly 1 second (within the tolerance)
+// must still be re-linked. This tests the durationsAgree accept path: production
+// uses tags.NewFallbackReader(taglib, ffprobe), and the same file read by
+// different readers can round differently.
+func TestScanRelinksWhenTheDurationDiffersBy1Second(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	// Move the file and report a duration 1 second longer (within tolerance).
+	reader.duration = 181 * time.Second
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01 - Path Of Glory.mp3")
+	moveFile(t, reader, src, dst)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("track id changed on a 1-second duration difference (within tolerance): was %d, now %d", before.ID, after.ID)
+	}
+	if after.FilePath != dst {
+		t.Fatalf("FilePath = %q, want the new path %q", after.FilePath, dst)
+	}
+}
