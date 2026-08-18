@@ -3,9 +3,12 @@ package scanner_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
@@ -401,6 +404,154 @@ func TestRescanPathsRetagPreservesStarsAndCreatedAt(t *testing.T) {
 	}
 	if stars != 1 {
 		t.Fatalf("expected the star to survive the retag, found %d rows", stars)
+	}
+}
+
+// Asset re-key hook tests: the manual album cover must follow the row when
+// planAlbumContinuity retags it in place.
+
+func TestReconcileRekeysAlbumImagesWhenTheAlbumIsRetagged(t *testing.T) {
+	st := testScanStore(t)
+	assetRoot := t.TempDir()
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/01.mp3",
+		"Apocalyptica/Cult/02.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
+	assets := assetstore.New(assetRoot)
+	cfg := scanner.Config{AssetRekeyer: assets}
+	s := scanner.New(cfg, st, reader)
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	album := theOnlyAlbum(t, st)
+
+	// Store a manual cover under the old identity's key.
+	oldKey := assetkey.Album("cult", "apocaliptica", "")
+	if err := assets.PutManual("album", oldKey, "jpg", []byte("old cover")); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := assets.Get("album", oldKey); !ok {
+		t.Fatal("fixture: manual cover must be present under old key")
+	}
+
+	// The editor fixes the misspelled album artist on every file.
+	reader.albumArtist = "Apocalyptica"
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The album row must have been retagged (continuity preserved the id).
+	after := theOnlyAlbum(t, st)
+	if after.ID != album.ID {
+		t.Fatalf("expected album id to survive retag, was %d now %d", album.ID, after.ID)
+	}
+	if after.AlbumArtistNorm != "apocalyptica" {
+		t.Fatalf("expected the row to carry the new identity, got %q", after.AlbumArtistNorm)
+	}
+
+	// The cover must now resolve under the new identity's key and NOT the old one.
+	newKey := assetkey.Album("cult", "apocalyptica", "")
+	if path, ok := assets.Get("album", newKey); !ok {
+		t.Fatalf("cover not found under new key %q", newKey)
+	} else {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != "old cover" {
+			t.Fatalf("cover under new key has wrong content")
+		}
+	}
+	if _, ok := assets.Get("album", oldKey); ok {
+		t.Fatalf("cover still resolves under old key %q; the re-key did not move it", oldKey)
+	}
+}
+
+func TestReconcileToleratesAnOccupiedDestinationKey(t *testing.T) {
+	st := testScanStore(t)
+	assetRoot := t.TempDir()
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/01.mp3",
+		"Apocalyptica/Cult/02.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
+	assets := assetstore.New(assetRoot)
+	cfg := scanner.Config{AssetRekeyer: assets}
+	s := scanner.New(cfg, st, reader)
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	oldKey := assetkey.Album("cult", "apocaliptica", "")
+	newKey := assetkey.Album("cult", "apocalyptica", "")
+	if err := assets.PutManual("album", oldKey, "jpg", []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := assets.PutManual("album", newKey, "jpg", []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retag: the destination key already holds images (a merge case).
+	reader.albumArtist = "Apocalyptica"
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The album row must have been retagged (the scan succeeded).
+	album := theOnlyAlbum(t, st)
+	if album.AlbumArtistNorm != "apocalyptica" {
+		t.Fatalf("expected the row to carry the new identity, got %q", album.AlbumArtistNorm)
+	}
+
+	// Both images must still be intact (the move was refused, not forced).
+	if path, ok := assets.Get("album", oldKey); !ok {
+		t.Fatal("old key's image was destroyed")
+	} else if data, _ := os.ReadFile(path); string(data) != "old" {
+		t.Fatal("old key's image has wrong content")
+	}
+	if path, ok := assets.Get("album", newKey); !ok {
+		t.Fatal("new key's image was destroyed")
+	} else if data, _ := os.ReadFile(path); string(data) != "new" {
+		t.Fatal("new key's image has wrong content")
+	}
+}
+
+func TestReconcileRetagsAlbumWithNoAssetRekeyer(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/01.mp3",
+		"Apocalyptica/Cult/02.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
+	// No AssetRekeyer in Config: the hook must be optional.
+	s := scanner.New(scanner.Config{}, st, reader)
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyAlbum(t, st)
+
+	reader.albumArtist = "Apocalyptica"
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The album row must have been retagged: a nil rekeyer does not break continuity.
+	after := theOnlyAlbum(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("expected album id to survive retag, was %d now %d", before.ID, after.ID)
+	}
+	if after.AlbumArtistNorm != "apocalyptica" {
+		t.Fatalf("expected the row to carry the new identity, got %q", after.AlbumArtistNorm)
 	}
 }
 

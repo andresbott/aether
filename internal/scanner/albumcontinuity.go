@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/store"
 )
 
@@ -112,6 +113,8 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 				"name_norm", targets[key].NameNorm,
 				"album_artist_norm", targets[key].AlbumArtistNorm,
 				"mb_release_id", targets[key].MBReleaseID)
+
+			s.rekeyAlbumImages(survivor, held[survivor], targets[key])
 		}
 		return nil
 	})
@@ -164,4 +167,24 @@ func sortedIdentityKeys(claims map[store.AlbumIdentityKey][]uint) []store.AlbumI
 		return keys[i].MBReleaseID < keys[j].MBReleaseID
 	})
 	return keys
+}
+
+// rekeyAlbumImages moves the album's stored images from the old identity's
+// key to the new one, so a manual cover survives the retag. It is called
+// after a successful RetagAlbum and is optional (no hook, no error). Any
+// failure is tolerated: the row moved and the image did not, which is today's
+// behaviour and recoverable.
+func (s *Scanner) rekeyAlbumImages(albumID uint, oldIdent, newIdent store.AlbumIdentity) {
+	if s.cfg.AssetRekeyer == nil {
+		return
+	}
+	oldKey := assetkey.Album(oldIdent.NameNorm, oldIdent.AlbumArtistNorm, oldIdent.MBReleaseID)
+	newKey := assetkey.Album(newIdent.NameNorm, newIdent.AlbumArtistNorm, newIdent.MBReleaseID)
+	if oldKey == newKey {
+		return
+	}
+	if err := s.cfg.AssetRekeyer.Rekey("album", oldKey, newKey); err != nil {
+		slog.Warn("album image re-key failed; the row moved but the stored images did not",
+			"album_id", albumID, "old_key", oldKey, "new_key", newKey, "err", err)
+	}
 }

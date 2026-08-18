@@ -125,7 +125,10 @@ func runServer(configFile string) error {
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
 	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
-	scanCfg := scanner.Config{TagReadWorkers: cfg.TaskRunner.TagReadWorkers}
+	scanCfg := scanner.Config{
+		TagReadWorkers: cfg.TaskRunner.TagReadWorkers,
+		AssetRekeyer:   assets,
+	}
 
 	// Task runner
 	logDir := cfg.TaskRunner.LogDir
