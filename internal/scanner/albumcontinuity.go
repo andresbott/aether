@@ -39,7 +39,14 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 		want[tr.walk.FilePath] = AlbumIdentityOf(tr.meta)
 	}
 
-	return s.store.Transaction(func(tx *store.Store) error {
+	type albumRekey struct {
+		albumID  uint
+		oldIdent store.AlbumIdentity
+		newIdent store.AlbumIdentity
+	}
+	var rekeys []albumRekey
+
+	err := s.store.Transaction(func(tx *store.Store) error {
 		// Reads and the UPDATE share one transaction: the counts below are only
 		// a valid proof if nothing inserts a track into the album in between.
 		current, err := tx.TrackAlbumIDs(paths)
@@ -114,10 +121,24 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 				"album_artist_norm", targets[key].AlbumArtistNorm,
 				"mb_release_id", targets[key].MBReleaseID)
 
-			s.rekeyAlbumImages(survivor, held[survivor], targets[key])
+			rekeys = append(rekeys, albumRekey{
+				albumID:  survivor,
+				oldIdent: held[survivor],
+				newIdent: targets[key],
+			})
 		}
 		return nil
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// Re-key the albums' stored images after the transaction commits.
+	for _, rk := range rekeys {
+		s.rekeyAlbumImages(rk.albumID, rk.oldIdent, rk.newIdent)
+	}
+	return nil
 }
 
 // sameAlbumIdentity reports whether every entry resolves to the same album.
@@ -180,9 +201,7 @@ func (s *Scanner) rekeyAlbumImages(albumID uint, oldIdent, newIdent store.AlbumI
 	}
 	oldKey := assetkey.Album(oldIdent.NameNorm, oldIdent.AlbumArtistNorm, oldIdent.MBReleaseID)
 	newKey := assetkey.Album(newIdent.NameNorm, newIdent.AlbumArtistNorm, newIdent.MBReleaseID)
-	if oldKey == newKey {
-		return
-	}
+	// "album" is assetstore.KindAlbum, duplicated to keep this package free of an assetstore import.
 	if err := s.cfg.AssetRekeyer.Rekey("album", oldKey, newKey); err != nil {
 		slog.Warn("album image re-key failed; the row moved but the stored images did not",
 			"album_id", albumID, "old_key", oldKey, "new_key", newKey, "err", err)

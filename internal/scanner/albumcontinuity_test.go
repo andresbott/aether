@@ -432,10 +432,10 @@ func TestReconcileRekeysAlbumImagesWhenTheAlbumIsRetagged(t *testing.T) {
 
 	// Store a manual cover under the old identity's key.
 	oldKey := assetkey.Album("cult", "apocaliptica", "")
-	if err := assets.PutManual("album", oldKey, "jpg", []byte("old cover")); err != nil {
+	if err := assets.PutManual(assetstore.KindAlbum, oldKey, "jpg", []byte("old cover")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := assets.Get("album", oldKey); !ok {
+	if _, ok := assets.Get(assetstore.KindAlbum, oldKey); !ok {
 		t.Fatal("fixture: manual cover must be present under old key")
 	}
 
@@ -455,8 +455,8 @@ func TestReconcileRekeysAlbumImagesWhenTheAlbumIsRetagged(t *testing.T) {
 	}
 
 	// The cover must now resolve under the new identity's key and NOT the old one.
-	newKey := assetkey.Album("cult", "apocalyptica", "")
-	if path, ok := assets.Get("album", newKey); !ok {
+	newKey := assetkey.AlbumOf(&after)
+	if path, ok := assets.Get(assetstore.KindAlbum, newKey); !ok {
 		t.Fatalf("cover not found under new key %q", newKey)
 	} else {
 		data, err := os.ReadFile(path)
@@ -464,7 +464,7 @@ func TestReconcileRekeysAlbumImagesWhenTheAlbumIsRetagged(t *testing.T) {
 			t.Fatalf("cover under new key has wrong content")
 		}
 	}
-	if _, ok := assets.Get("album", oldKey); ok {
+	if _, ok := assets.Get(assetstore.KindAlbum, oldKey); ok {
 		t.Fatalf("cover still resolves under old key %q; the re-key did not move it", oldKey)
 	}
 }
@@ -490,10 +490,10 @@ func TestReconcileToleratesAnOccupiedDestinationKey(t *testing.T) {
 
 	oldKey := assetkey.Album("cult", "apocaliptica", "")
 	newKey := assetkey.Album("cult", "apocalyptica", "")
-	if err := assets.PutManual("album", oldKey, "jpg", []byte("old")); err != nil {
+	if err := assets.PutManual(assetstore.KindAlbum, oldKey, "jpg", []byte("old")); err != nil {
 		t.Fatal(err)
 	}
-	if err := assets.PutManual("album", newKey, "jpg", []byte("new")); err != nil {
+	if err := assets.PutManual(assetstore.KindAlbum, newKey, "jpg", []byte("new")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -510,12 +510,12 @@ func TestReconcileToleratesAnOccupiedDestinationKey(t *testing.T) {
 	}
 
 	// Both images must still be intact (the move was refused, not forced).
-	if path, ok := assets.Get("album", oldKey); !ok {
+	if path, ok := assets.Get(assetstore.KindAlbum, oldKey); !ok {
 		t.Fatal("old key's image was destroyed")
 	} else if data, _ := os.ReadFile(path); string(data) != "old" {
 		t.Fatal("old key's image has wrong content")
 	}
-	if path, ok := assets.Get("album", newKey); !ok {
+	if path, ok := assets.Get(assetstore.KindAlbum, newKey); !ok {
 		t.Fatal("new key's image was destroyed")
 	} else if data, _ := os.ReadFile(path); string(data) != "new" {
 		t.Fatal("new key's image has wrong content")
