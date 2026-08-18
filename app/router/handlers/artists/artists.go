@@ -12,6 +12,7 @@ import (
 
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -229,12 +230,12 @@ func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if artist.MBArtistID != "" {
-		if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, artist.MBArtistID); ok {
+		if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, assetkey.Artist(artist.MBArtistID, artist.NameNorm)); ok {
 			writeJSON(w, http.StatusOK, storedImageSource(p, manual))
 			return
 		}
 	}
-	if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+	if p, manual, ok := h.Assets.GetEntry(assetstore.KindArtist, assetkey.Artist("", artist.NameNorm)); ok {
 		writeJSON(w, http.StatusOK, storedImageSource(p, manual))
 		return
 	}
@@ -252,18 +253,6 @@ func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 }
 
 var mbidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
-// artistCoverKey is the asset-store key a manual image for this artist goes
-// under: the MusicBrainz ID when matched, otherwise the DB ID. Mirrors the
-// identically named helper in handlers/subsonic (which serves these files) —
-// cover resolution reads the MBID slot first, so both sides must agree on the
-// slot or a manual pick loses to an auto-fetched image.
-func artistCoverKey(a *model.Artist) string {
-	if a.MBArtistID != "" {
-		return a.MBArtistID
-	}
-	return strconv.FormatUint(uint64(a.ID), 10)
-}
 
 // fetchImageForMBID runs the configured provider chain for an arbitrary MBID —
 // the same fetch the `fetch-artist-images` job uses, but driven by the user's own
@@ -352,7 +341,7 @@ func (h *Handler) setImageFromSearch(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := h.Assets.PutManual(assetstore.KindArtist, artistCoverKey(artist), ext, data); err != nil {
+	if err := h.Assets.PutManual(assetstore.KindArtist, assetkey.ArtistOf(artist), ext, data); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}

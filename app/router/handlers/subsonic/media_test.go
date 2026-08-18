@@ -463,7 +463,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			if err := s.DB().Create(&artist).Error; err != nil {
 				t.Fatal(err)
 			}
-			putUpload(t, as, assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10))
+			putUpload(t, as, assetstore.KindArtist, assetkey.Artist("", artist.NameNorm))
 			return encodeArtistID(artist.ID)
 		}},
 		{"genre", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
@@ -1154,7 +1154,7 @@ func TestGetCoverArtRevalidatesWhenTheServedFileChanges(t *testing.T) {
 
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
-	key := strconv.FormatUint(uint64(artist.ID), 10)
+	key := assetkey.Artist("", artist.NameNorm)
 	if err := as.PutManual(assetstore.KindArtist, key, "png", realPNG(t, 150, 300)); err != nil {
 		t.Fatal(err)
 	}

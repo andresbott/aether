@@ -16,6 +16,7 @@ import (
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -506,7 +507,9 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	if err := s.SetArtistImagePath(id, imgPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := as.PutManual(assetstore.KindArtist, strconv.FormatUint(uint64(id), 10), "png", []byte("x")); err != nil {
+	// Store under the name-hash key (unmatched artist).
+	nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+	if err := as.PutManual(assetstore.KindArtist, nameHashKey, "png", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -636,7 +639,9 @@ func TestGetArtistImageSource_DistinguishesUploadFromFetched(t *testing.T) {
 				t.Fatal(err)
 			}
 			id := strconv.FormatUint(uint64(artists[0].ID), 10)
-			if err := tt.put(as, id); err != nil {
+			// Store under the name-hash key (unmatched artist).
+			nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+			if err := tt.put(as, nameHashKey); err != nil {
 				t.Fatal(err)
 			}
 
@@ -797,8 +802,9 @@ func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 	}
 
-	// Stored under the artist's own key, as a manual upload.
-	path, manual, ok := as.GetEntry(assetstore.KindArtist, idStr)
+	// Stored under the artist's name-hash key (unmatched artist), as a manual upload.
+	nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+	path, manual, ok := as.GetEntry(assetstore.KindArtist, nameHashKey)
 	if !ok {
 		t.Fatal("no image stored for the artist")
 	}

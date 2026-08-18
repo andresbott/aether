@@ -131,10 +131,11 @@ type coverMeta struct {
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
 // (auto-fetched or a manual upload made while the artist was matched) takes
-// precedence; then the DB-ID slot used for manual uploads on unmatched artists;
-// then an image found next to the artist's albums on disk (`ImagePath`, set by
-// the scanner for `<collection>/<artist>/<album>` layouts). Nothing found means
-// the name-seeded generated avatar.
+// precedence; then the name-hash slot used for unmatched artists or artists
+// that gained an MBID since their upload; then an image found next to the
+// artist's albums on disk (`ImagePath`, set by the scanner for
+// `<collection>/<artist>/<album>` layouts). Nothing found means the
+// name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	id := artist.ID
 	meta := coverMeta{
@@ -146,12 +147,12 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 		},
 	}
 	if artist.MBArtistID != "" {
-		if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+		if p, ok := h.assets.Get(assetstore.KindArtist, assetkey.Artist(artist.MBArtistID, artist.NameNorm)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
 	if meta.coverPath == "" {
-		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+		if p, ok := h.assets.Get(assetstore.KindArtist, assetkey.Artist("", artist.NameNorm)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
