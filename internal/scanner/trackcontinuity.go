@@ -150,14 +150,29 @@ func durationsAgree(a, b int) bool {
 }
 
 // matchOne returns the single pair a fingerprint group proves. One vanished row
-// and one new file is the whole common case; anything else is ambiguous, because
-// real libraries hold byte-identical duplicates of the same track, and gets
-// skipped. Task 4 adds the mod-time tiebreak.
+// and one new file is the whole common case. When either side has several
+// entries the group is ambiguous — real libraries hold byte-identical duplicates
+// of the same track — and only an exact mod time can still single one out,
+// because a move on one filesystem preserves it. Anything else is skipped:
+// merging two tracks' history is worse than losing one's. Both sides having
+// several entries is never resolved; matching them up pairwise would be
+// guesswork.
 func matchOne(files []tagResult, rows []store.TrackRow) (store.TrackRow, tagResult, bool) {
-	if len(files) != 1 || len(rows) != 1 {
+	switch {
+	case len(files) == 0 || len(rows) == 0:
 		return store.TrackRow{}, tagResult{}, false
+	case len(files) == 1 && len(rows) == 1:
+		return rows[0], files[0], true
+	case len(files) == 1:
+		if row, ok := onlyRowWithModTime(rows, files[0].walk.ModTime.Unix()); ok {
+			return row, files[0], true
+		}
+	case len(rows) == 1:
+		if file, ok := onlyFileWithModTime(files, rows[0].FileModTime.Unix()); ok {
+			return rows[0], file, true
+		}
 	}
-	return rows[0], files[0], true
+	return store.TrackRow{}, tagResult{}, false
 }
 
 // sortedSizes returns the distinct sizes in ascending order, so the candidate
@@ -184,4 +199,30 @@ func sortedFingerprints(m map[trackFingerprint][]tagResult) []trackFingerprint {
 		return out[i].Title < out[j].Title
 	})
 	return out
+}
+
+// onlyRowWithModTime returns the one row whose mod time is sec, and reports
+// false when none or several are — whole seconds, because a nanosecond that has
+// been through SQLite and back is not a value to bet a row's history on.
+func onlyRowWithModTime(rows []store.TrackRow, sec int64) (store.TrackRow, bool) {
+	var found store.TrackRow
+	n := 0
+	for _, row := range rows {
+		if row.FileModTime.Unix() == sec {
+			found, n = row, n+1
+		}
+	}
+	return found, n == 1
+}
+
+// onlyFileWithModTime is onlyRowWithModTime for the other side of the match.
+func onlyFileWithModTime(files []tagResult, sec int64) (tagResult, bool) {
+	var found tagResult
+	n := 0
+	for _, f := range files {
+		if f.walk.ModTime.Unix() == sec {
+			found, n = f, n+1
+		}
+	}
+	return found, n == 1
 }

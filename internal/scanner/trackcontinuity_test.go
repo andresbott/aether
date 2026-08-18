@@ -333,3 +333,172 @@ func TestScanRelinksWhenTheDurationDiffersBy1Second(t *testing.T) {
 		t.Fatalf("FilePath = %q, want the new path %q", after.FilePath, dst)
 	}
 }
+
+// stampModTime pins a file's mod time so the tiebreak is deterministic instead
+// of depending on how the clock fell during fixture creation.
+func stampModTime(t *testing.T, path string, when time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, when, when); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two byte-identical files with the same title: one is deleted and one is moved.
+// The fingerprint cannot say which row the surviving file is, and with equal mod
+// times nothing else can either — so nothing is re-linked. Merging two tracks'
+// history is worse than losing one's.
+func TestScanDoesNotRelinkAnAmbiguousFingerprint(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	one := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	two := filepath.Join(dir, "Apocalyptica/Cult/02.mp3")
+	same := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	stampModTime(t, one, same)
+	stampModTime(t, two, same)
+
+	// Same title on both: duplicates of one track, which is what makes the
+	// fingerprint ambiguous.
+	reader := &movingTagReader{titles: map[string]string{one: "Beyond Time", two: "Beyond Time"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var seeded []model.Track
+	if err := st.DB().Order("id").Find(&seeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded) != 2 {
+		t.Fatalf("expected 2 seeded rows, got %d", len(seeded))
+	}
+
+	if err := os.Remove(one); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/02.mp3")
+	moveFile(t, reader, two, dst)
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	for _, before := range seeded {
+		if after.ID == before.ID {
+			t.Fatalf("row %d was re-linked from an ambiguous fingerprint", before.ID)
+		}
+	}
+}
+
+// Same ambiguity, except the two files have different mod times and the moved
+// one kept its own (os.Rename preserves it). That singles out exactly one
+// vanished row, so the move is provable after all.
+func TestScanRelinksTheVanishedRowWhoseModTimeMatches(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	one := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	two := filepath.Join(dir, "Apocalyptica/Cult/02.mp3")
+	stampModTime(t, one, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC))
+	stampModTime(t, two, time.Date(2026, 8, 2, 11, 0, 0, 0, time.UTC))
+
+	reader := &movingTagReader{titles: map[string]string{one: "Beyond Time", two: "Beyond Time"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var twoRow model.Track
+	if err := st.DB().Where("file_path = ?", two).First(&twoRow).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(one); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/02.mp3")
+	moveFile(t, reader, two, dst)
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != twoRow.ID {
+		t.Fatalf("expected the row whose mod time matches (%d) to be re-linked, got %d", twoRow.ID, after.ID)
+	}
+	if after.FilePath != dst {
+		t.Fatalf("FilePath = %q, want %q", after.FilePath, dst)
+	}
+}
+
+// Mirrors TestScanRelinksTheVanishedRowWhoseModTimeMatches: one vanished row,
+// several new files with the same fingerprint, but only one has the matching
+// mod time. This exercises the onlyFileWithModTime tiebreak branch.
+func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	stampedTime := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	stampModTime(t, src, stampedTime)
+
+	reader := &movingTagReader{titles: map[string]string{src: "Beyond Time"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	// Move the file to a new path.
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.mp3")
+	moveFile(t, reader, src, dst)
+
+	// Create a second new file with the same 4-byte body and same title, but a
+	// clearly different mod time. Both paths are unclaimed and share the
+	// fingerprint; only one vanished row exists; the mod time must pick the moved
+	// file.
+	other := filepath.Join(dir, "Apocalyptica/Cult (2000)/duplicate.mp3")
+	if err := os.WriteFile(other, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stampModTime(t, other, time.Date(2026, 8, 2, 11, 0, 0, 0, time.UTC))
+	reader.titles[other] = "Beyond Time"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var tracks []model.Track
+	if err := st.DB().Order("id").Find(&tracks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("expected exactly 2 rows (relinked + new), got %d: %+v", len(tracks), tracks)
+	}
+
+	// The row whose file_path is dst must have kept the original id.
+	var movedRow *model.Track
+	var otherRow *model.Track
+	for i := range tracks {
+		if tracks[i].FilePath == dst {
+			movedRow = &tracks[i]
+		} else {
+			otherRow = &tracks[i]
+		}
+	}
+	if movedRow == nil || otherRow == nil {
+		t.Fatalf("expected one row at %q and one at %q, got %+v", dst, other, tracks)
+	}
+	if movedRow.ID != before.ID {
+		t.Fatalf("expected the file whose mod time matches to be re-linked (id %d), got %d", before.ID, movedRow.ID)
+	}
+	if otherRow.ID == before.ID {
+		t.Fatalf("the other file must have a different id, got %d", otherRow.ID)
+	}
+}
