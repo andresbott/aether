@@ -2,8 +2,8 @@ package subsonic
 
 import (
 	"net/http"
-	"strconv"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 )
 
@@ -45,7 +45,7 @@ func (h *Handler) updateGenre(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := strconv.FormatUint(uint64(genre.ID), 10)
+	key := assetkey.GenreOf(genre)
 	switch {
 	case coverBytes != nil:
 		if err := h.assets.PutManual(assetstore.KindGenre, key, coverExt, coverBytes); err != nil {

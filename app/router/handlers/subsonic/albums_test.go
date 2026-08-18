@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 )
@@ -45,12 +46,16 @@ func TestUpdateAlbumUploadsCover(t *testing.T) {
 	if status, code := postAlbum(t, srv.URL, body, ct); status != "ok" {
 		t.Fatalf("status=%s code=%d", status, code)
 	}
-	// The key getCoverArt reads (albumCoverMeta in media.go) is the album DB ID.
-	if _, ok := as.Get(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)); !ok {
-		t.Fatal("expected cover under the album DB-ID key")
-	}
+	// Round trip: the uploaded cover must be served through getCoverArt.
 	if !servesUploadedCover(t, srv.URL, encodeAlbumID(album.ID)) {
 		t.Fatal("getCoverArt should serve the uploaded cover")
+	}
+	// The cover must be stored under the identity-derived key, not the DB id.
+	if _, ok := as.Get(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)); ok {
+		t.Fatal("cover still stored under the DB-ID key; expected identity-derived key")
+	}
+	if _, ok := as.Get(assetstore.KindAlbum, assetkey.AlbumOf(&album)); !ok {
+		t.Fatal("expected cover under the identity-derived key")
 	}
 }
 
@@ -63,7 +68,7 @@ func TestUpdateAlbumCoverClear(t *testing.T) {
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
-	key := strconv.FormatUint(uint64(album.ID), 10)
+	key := assetkey.AlbumOf(&album)
 	if err := as.PutManual(assetstore.KindAlbum, key, "png", pngBytes(t)); err != nil {
 		t.Fatal(err)
 	}

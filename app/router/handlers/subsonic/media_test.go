@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
@@ -454,7 +455,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			if err := s.DB().Create(&album).Error; err != nil {
 				t.Fatal(err)
 			}
-			putUpload(t, as, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10))
+			putUpload(t, as, assetstore.KindAlbum, assetkey.AlbumOf(&album))
 			return encodeAlbumID(album.ID)
 		}},
 		{"artist", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
@@ -470,7 +471,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			if err := s.DB().Create(&genre).Error; err != nil {
 				t.Fatal(err)
 			}
-			putUpload(t, as, assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10))
+			putUpload(t, as, assetstore.KindGenre, assetkey.GenreOf(&genre))
 			return encodeGenreID(genre.ID)
 		}},
 		{"radio", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
@@ -880,7 +881,7 @@ func TestGetCoverArtAlbumServesManagedStoreImage(t *testing.T) {
 	// A cover saved to aether's managed store for this album.
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", realPNG(t, 300, 150)); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png", realPNG(t, 300, 150)); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
 

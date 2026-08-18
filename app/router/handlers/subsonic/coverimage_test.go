@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
@@ -51,7 +52,7 @@ func albumWithStoredCover(t *testing.T, size int) (*store.Store, *assetstore.Sto
 	}
 	src := realPNG(t, size, size)
 	as := assetstore.New(t.TempDir())
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", src); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png", src); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
 	return s, as, album, src
@@ -398,8 +399,7 @@ func TestGetCoverArtRebuildsDerivativeAfterCoverChanges(t *testing.T) {
 	}
 
 	// A new upload replaces the stored cover with visibly different art.
-	key := strconv.FormatUint(uint64(album.ID), 10)
-	if err := as.PutManual(assetstore.KindAlbum, key, "png", realPNG(t, 400, 900)); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png", realPNG(t, 400, 900)); err != nil {
 		t.Fatalf("replace cover: %v", err)
 	}
 

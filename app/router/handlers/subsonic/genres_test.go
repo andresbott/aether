@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 )
@@ -81,11 +82,16 @@ func TestUpdateGenreUploadsCover(t *testing.T) {
 	if status, code := postGenre(t, srv.URL, body, ct); status != "ok" {
 		t.Fatalf("status=%s code=%d", status, code)
 	}
-	if _, ok := as.Get(assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10)); !ok {
-		t.Fatal("expected cover under DB-ID key")
-	}
+	// Round trip: the uploaded cover must be served through getCoverArt.
 	if !servesUploadedCover(t, srv.URL, encodeGenreID(genre.ID)) {
 		t.Fatal("getCoverArt should serve the uploaded cover")
+	}
+	// The cover must be stored under the identity-derived key, not the DB id.
+	if _, ok := as.Get(assetstore.KindGenre, strconv.FormatUint(uint64(genre.ID), 10)); ok {
+		t.Fatal("cover still stored under the DB-ID key; expected identity-derived key")
+	}
+	if _, ok := as.Get(assetstore.KindGenre, assetkey.GenreOf(&genre)); !ok {
+		t.Fatal("expected cover under the identity-derived key")
 	}
 }
 
@@ -98,7 +104,7 @@ func TestUpdateGenreCoverClear(t *testing.T) {
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
-	key := strconv.FormatUint(uint64(genre.ID), 10)
+	key := assetkey.GenreOf(&genre)
 	if err := as.PutManual(assetstore.KindGenre, key, "png", pngBytes(t)); err != nil {
 		t.Fatal(err)
 	}

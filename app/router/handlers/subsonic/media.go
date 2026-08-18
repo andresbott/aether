@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -164,16 +165,15 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 // updateAlbum extension ("albumCoverArt") takes precedence over the folder file,
 // which in turn beats embedded art.
 func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
-	key := strconv.FormatUint(uint64(album.ID), 10)
 	meta := coverMeta{
 		coverPath: album.CoverPath,
 		albumID:   album.ID,
 		seed:      album.AlbumArtistNorm + "|" + album.NameNorm,
 		cacheKind: assetstore.KindAlbum,
-		cacheKey:  key,
+		cacheKey:  strconv.FormatUint(uint64(album.ID), 10),
 		styleFor:  h.albumStyleFor(album.ID),
 	}
-	if p, ok := h.assets.Get(assetstore.KindAlbum, key); ok {
+	if p, ok := h.assets.Get(assetstore.KindAlbum, assetkey.AlbumOf(album)); ok {
 		meta.coverPath, meta.coverManaged = p, true
 	}
 	return meta
@@ -251,14 +251,13 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		}
 		// A manually uploaded cover (see updateGenre) takes precedence; otherwise
 		// fall through to the name-seeded generated cover (same mechanism as
-		// artists/radio/playlists). Keyed by DB ID — genre names may contain
-		// characters the assetstore key regexp rejects.
+		// artists/radio/playlists).
 		meta := coverMeta{
 			seed:      genre.Name,
 			cacheKind: assetstore.KindGenre,
 			cacheKey:  strconv.FormatUint(uint64(genre.ID), 10),
 		}
-		if p, ok := h.assets.Get(assetstore.KindGenre, meta.cacheKey); ok {
+		if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(genre)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
