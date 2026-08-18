@@ -78,7 +78,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	s := testStore(t)
 	st, _ := s.CreateInternetRadioStation("R1", "http://r1", "")
 
-	// Store a PNG into the asset store keyed by RadioKey(streamURL).
+	// Store a PNG into the asset store keyed by assetkey.Radio(streamURL).
 	var buf bytes.Buffer
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	if err := png.Encode(&buf, img); err != nil {
@@ -86,7 +86,7 @@ func TestGetCoverArtRadioUploadedServed(t *testing.T) {
 	}
 	assetDir := t.TempDir()
 	as := assetstore.New(assetDir)
-	if err := as.PutManual(assetstore.KindRadio, RadioKey(st.StreamURL), "png", buf.Bytes()); err != nil {
+	if err := as.PutManual(assetstore.KindRadio, assetkey.Radio(st.StreamURL), "png", buf.Bytes()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -447,7 +447,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			putUpload(t, as, assetstore.KindPlaylist, playlistCoverKey(pl.ID))
+			putUpload(t, as, assetstore.KindPlaylist, assetkey.PlaylistOf(pl))
 			return encodePlaylistID(pl.ID)
 		}},
 		{"album", func(t *testing.T, s *store.Store, as *assetstore.Store) string {
@@ -479,7 +479,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			putUpload(t, as, assetstore.KindRadio, RadioKey(st.StreamURL))
+			putUpload(t, as, assetstore.KindRadio, assetkey.Radio(st.StreamURL))
 			return encodeRadioID(st.ID)
 		}},
 	}

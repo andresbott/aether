@@ -222,7 +222,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			cacheKind: assetstore.KindRadio,
 			cacheKey:  strconv.FormatUint(uint64(station.ID), 10),
 		}
-		if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
+		if p, ok := h.assets.Get(assetstore.KindRadio, assetkey.Radio(station.StreamURL)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
@@ -240,8 +240,11 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 			cacheKind: assetstore.KindPlaylist,
 			cacheKey:  strconv.FormatUint(uint64(pl.ID), 10),
 		}
-		if p, ok := h.assets.Get(assetstore.KindPlaylist, meta.cacheKey); ok {
-			meta.coverPath, meta.coverManaged = p, true
+		key := assetkey.PlaylistOf(pl)
+		if key != "" {
+			if p, ok := h.assets.Get(assetstore.KindPlaylist, key); ok {
+				meta.coverPath, meta.coverManaged = p, true
+			}
 		}
 		return meta, true
 	case "genre":

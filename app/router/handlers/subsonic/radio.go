@@ -5,16 +5,14 @@
 package subsonic
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"gorm.io/gorm"
 )
@@ -26,13 +24,6 @@ const (
 	// Hard cap on the whole multipart request body (cover + form fields).
 	maxRadioRequestBytes = radioCoverMaxBytes + radioMultipartMemory
 )
-
-// RadioKey is the durable asset-store key for a station's cover: a hash of the
-// stream URL, stable across DB drops.
-func RadioKey(streamURL string) string {
-	sum := sha256.Sum256([]byte(streamURL))
-	return hex.EncodeToString(sum[:])
-}
 
 func (h *Handler) getInternetRadioStations(w http.ResponseWriter, r *http.Request) {
 	stations, err := h.store.GetInternetRadioStations()
@@ -119,7 +110,7 @@ func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if coverBytes != nil {
-		if err := h.assets.PutManual(assetstore.KindRadio, RadioKey(streamURL), coverExt, coverBytes); err != nil {
+		if err := h.assets.PutManual(assetstore.KindRadio, assetkey.Radio(streamURL), coverExt, coverBytes); err != nil {
 			writeError(w, 0, "internal error")
 			return
 		}
@@ -220,8 +211,8 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldKey := RadioKey(existing.StreamURL)
-	newKey := RadioKey(streamURL)
+	oldKey := assetkey.Radio(existing.StreamURL)
+	newKey := assetkey.Radio(streamURL)
 	switch {
 	case coverBytes != nil:
 		if err := h.assets.PutManual(assetstore.KindRadio, newKey, coverExt, coverBytes); err != nil {
@@ -238,13 +229,18 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		// URL changed with no cover change: re-key the existing cover so it
-		// isn't orphaned.
+		// isn't orphaned. Rekey is a lossless directory rename that preserves
+		// named entries and auto variants.
 		if oldKey != newKey {
-			if p, ok := h.assets.Get(assetstore.KindRadio, oldKey); ok {
-				if data, rerr := os.ReadFile(p); rerr == nil { //nolint:gosec // p is a path returned by our own asset store
-					ext := strings.TrimPrefix(filepath.Ext(p), ".")
-					_ = h.assets.PutManual(assetstore.KindRadio, newKey, ext, data)
-					_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			if err := h.assets.Rekey(assetstore.KindRadio, oldKey, newKey); err != nil {
+				if errors.Is(err, assetstore.ErrKeyOccupied) {
+					// The station's own update already succeeded, and both images
+					// stay intact. Log the collision but don't fail the request.
+					slog.Warn("radio cover re-key skipped: destination occupied",
+						"old_url", existing.StreamURL, "new_url", streamURL)
+				} else {
+					writeError(w, 0, "internal error")
+					return
 				}
 			}
 		}
@@ -280,7 +276,7 @@ func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Requ
 		writeError(w, 0, "internal error")
 		return
 	}
-	_ = h.assets.Delete(assetstore.KindRadio, RadioKey(existing.StreamURL))
+	_ = h.assets.Delete(assetstore.KindRadio, assetkey.Radio(existing.StreamURL))
 	writeResponse(w, nil)
 }
 
