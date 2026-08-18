@@ -24,6 +24,19 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// One directory listing per artist folder is enough for the whole pass.
 	imageCache := map[string]string{}
 
+	// Re-link tracks whose file moved before anything else looks at paths: a
+	// re-pointed row keeps its id, so playlists, play history, stars and queue
+	// entries survive. Doing it first also means planAlbumContinuity below sees
+	// the moved tracks at their new paths instead of counting them as missing and
+	// mistaking a move for a split. A failure here is not fatal — it degrades to
+	// the old behaviour (delete plus insert, and the user-authored rows go with
+	// it), which is worse than a re-link but better than a failed scan.
+	if ctx.Err() == nil {
+		if err := s.planTrackContinuity(results); err != nil {
+			slog.Warn("track continuity planning failed; moved files lose playlists, history and stars", "err", err)
+		}
+	}
+
 	// Preserve album rows across a wholesale retag before any track is
 	// reconciled: once a row carries the new identity, FindOrCreateAlbum below
 	// finds it instead of creating a second row. A failure here is not fatal —
