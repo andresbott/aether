@@ -22,6 +22,7 @@ var audioExtensions = map[string]bool{
 type WalkResult struct {
 	FilePath  string
 	LibraryID uint
+	FileSize  int64
 	ModTime   time.Time
 	Dir       string
 }
@@ -131,16 +132,28 @@ func appendAudio(path string, d fs.DirEntry, libID uint, results *[]WalkResult) 
 	if !IsAudioFile(d.Name()) {
 		return
 	}
-	info, err := d.Info()
+	info, err := audioFileInfo(path, d)
 	if err != nil {
 		return
 	}
 	*results = append(*results, WalkResult{
 		FilePath:  path,
 		LibraryID: libID,
+		FileSize:  info.Size(),
 		ModTime:   info.ModTime(),
 		Dir:       filepath.Dir(path),
 	})
+}
+
+// audioFileInfo describes the audio file rather than the directory entry that
+// led to it: for a symlink, d.Info() is an lstat of the link, whose size is the
+// length of its target path. planTrackContinuity matches moved files on
+// file_size, so a link's own size would be a false fingerprint.
+func audioFileInfo(path string, d fs.DirEntry) (os.FileInfo, error) {
+	if d.Type()&fs.ModeSymlink != 0 {
+		return os.Stat(path)
+	}
+	return d.Info()
 }
 
 func symWalk(root string, fn fs.WalkDirFunc) error {

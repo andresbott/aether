@@ -106,6 +106,7 @@ func (s *Scanner) admitPath(libRoot string, libID uint, abs string, excludes []*
 	return WalkResult{
 		FilePath:  abs,
 		LibraryID: libID,
+		FileSize:  info.Size(),
 		ModTime:   info.ModTime(),
 		Dir:       filepath.Dir(abs),
 	}, true

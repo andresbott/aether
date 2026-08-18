@@ -4,7 +4,6 @@ package scanner
 import (
 	"context"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -138,7 +137,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	track.LibraryID = tr.walk.LibraryID
 	track.Filename = filepath.Base(tr.walk.FilePath)
 	track.FilePath = tr.walk.FilePath
-	track.FileSize = fileSize(tr.walk.FilePath)
+	track.FileSize = tr.walk.FileSize
 	track.FileModTime = tr.walk.ModTime
 	// LastSeenAt is monotonic: only ever advanced, never moved backwards.
 	// It is the liveness marker store.Cleanup uses to delete "tracks nobody
@@ -244,14 +243,6 @@ func nonEmpty(ss []string) []string {
 		}
 	}
 	return out
-}
-
-func fileSize(path string) int64 {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
 }
 
 // alignMBIDs returns mbids only when they line up 1:1 with names; otherwise nil.
