@@ -146,6 +146,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 - [ ] Add statistics in backend library: e.g. albums, artists, songs, genres, disk space used
 - [ ] rework kibraries as virual filtered items instead of mapped to filesystem
+- [ ] Guard a vanished sub-tree *inside* a present library root — a mounted subdirectory that is not attached leaves a hollow directory whose files are indistinguishable from deletions, so those tracks are swept **and can be re-linked onto a byte-identical file elsewhere**, moving their stars, playlist entries and history onto the wrong file with no error. Full analysis, the assumption that defers it, and five candidate fixes with their objections: [`docs/architecture/caveats.md`](docs/architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root). **Deferred on an explicit assumption: mounts happen at a library root (`mount /music/library1`), never at a directory inside a library** — when the mount *is* the root, phase 1's guards already fail the scan atomically. Revisit the moment a sub-mount, bind mount, junction or autofs subdirectory appears under a library root. Favoured direction is the portable "volume tripwire" (generalise the existing zero-files guard from *all* to *too many*); note soft delete fixes only the loss half, not the misattribution half, because re-linking happens before any deletion.
 
 ## Frontend — Music Browsing & Features
 
