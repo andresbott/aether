@@ -63,6 +63,13 @@ func servesUploadedCover(t *testing.T, srvURL, id string) bool {
 // these dimensions.
 const uploadedCoverEdge = 2
 
+// largerPNG creates a 4x4 PNG, larger than uploadedCoverEdge, so tests can
+// distinguish which slot was served when both are seeded.
+func largerPNG(t *testing.T) []byte {
+	t.Helper()
+	return realPNG(t, 4, 4)
+}
+
 func TestUpdateArtistMatchedUploadsUnderMBID(t *testing.T) {
 	s := testStore(t)
 	artist := model.Artist{Name: "Matched", NameNorm: "matched", MBArtistID: "mbid-up"}
@@ -225,10 +232,38 @@ func TestUpdateArtistCoverClearBothSlots(t *testing.T) {
 	}
 }
 
-// A manual upload must outrank an auto-fetched image for a matched artist.
-// The read order is MBID slot first (manual), then name-hash slot, so both must
-// be checked.
-func TestUpdateArtistManualOutranksAutoFetched(t *testing.T) {
+// The MBID slot must be checked before the name-hash slot, so a matched
+// artist's MBID-slot image takes precedence over a stale name-hash-slot image
+// (e.g., one uploaded before the artist was matched).
+func TestUpdateArtistMBIDSlotBeatsNameHashSlot(t *testing.T) {
+	s := testStore(t)
+	artist := model.Artist{Name: "Ordered", NameNorm: "ordered", MBArtistID: "mbid-ordered"}
+	if err := s.DB().Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+	srv, as := newRadioServer(t, s)
+	defer srv.Close()
+
+	// Seed BOTH slots with distinguishable images. The MBID slot holds a 2x2 PNG
+	// (pngBytes fixture), the name-hash slot holds a 4x4 PNG. If the read order
+	// were swapped, getCoverArt would serve the 4x4.
+	mbidKey := "mbid-ordered"
+	nameHashKey := assetkey.Artist("", artist.NameNorm)
+	if err := as.PutManual(assetstore.KindArtist, mbidKey, "png", pngBytes(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := as.PutManual(assetstore.KindArtist, nameHashKey, "png", largerPNG(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	// getCoverArt must serve the MBID-slot image (2x2), not the name-hash-slot one (4x4).
+	if !servesUploadedCover(t, srv.URL, encodeArtistID(artist.ID)) {
+		t.Fatal("getCoverArt should serve the 2x2 MBID-slot image, not the 4x4 name-hash-slot image")
+	}
+}
+
+// A manual upload must outrank an auto-fetched image within the same slot.
+func TestUpdateArtistManualOutranksAutoWithinSlot(t *testing.T) {
 	s := testStore(t)
 	artist := model.Artist{Name: "Ranked", NameNorm: "ranked", MBArtistID: "mbid-ranked"}
 	if err := s.DB().Create(&artist).Error; err != nil {
@@ -242,19 +277,19 @@ func TestUpdateArtistManualOutranksAutoFetched(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Upload a manual image.
+	// Upload a manual image into the same slot.
 	body, ct := buildMultipart(t, map[string]string{"id": encodeArtistID(artist.ID)}, pngBytes(t), "a.png")
 	if status, code := postArtist(t, srv.URL, body, ct); status != "ok" {
 		t.Fatalf("status=%s code=%d", status, code)
 	}
 
-	// The manual image must have overwritten the auto-fetched one in the MBID slot.
+	// The manual image must outrank the auto-fetched one in the MBID slot.
 	p, manual, ok := as.GetEntry(assetstore.KindArtist, "mbid-ranked")
 	if !ok {
 		t.Fatal("no image in MBID slot after upload")
 	}
 	if !manual {
-		t.Fatalf("MBID slot still holds auto-fetched image (%s); manual upload did not overwrite", p)
+		t.Fatalf("MBID slot still holds auto-fetched image (%s); manual upload did not outrank auto", p)
 	}
 	if !servesUploadedCover(t, srv.URL, encodeArtistID(artist.ID)) {
 		t.Fatal("getCoverArt should serve the manual upload")
