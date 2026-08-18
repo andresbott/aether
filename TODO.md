@@ -51,9 +51,11 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
   discards its history, star and queue position.** `scanner.planTrackContinuity`
   re-points the row at the new path when it can prove the move (equal
   `file_size` + `title`, `duration` ±1s, old path gone from disk, unambiguous
-  1:1), so `tracks.id` survives and nothing cascades. `scanLibrary` also fails
-  the scan rather than sweeping a library whose root is unavailable or
-  unexpectedly empty. Design:
+  1:1), so `tracks.id` survives and nothing cascades. `Scan` is also two-phase
+  now — `preflight` validates and walks every library before any is reconciled —
+  so a library whose root is unavailable or unexpectedly empty fails the scan
+  before the first write instead of having its rows harvested by an
+  earlier-sorting library's re-link pass. Design:
   `docs/superpowers/specs/2026-08-18-track-identity-across-moves-design.md`.
 - [ ] **A move that also rewrites the tags still loses playlists, history and
   stars.** The bytes change, so `file_size` cannot anchor the match and the only
@@ -67,10 +69,22 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
   soft-delete plus re-link on reappearance — which makes every read path
   (`/rest` browsing, playlists, search, queue) decide whether to show missing
   tracks and makes a purge flow mandatory. A feature, not a fix.
-- [ ] **An unreadable subtree is still swept silently.** `makeWalkFn` swallows
-  per-entry errors, so a directory that becomes unreadable (permissions, a
-  partial mount) looks like a deletion. Needs a way to tell transient from
-  permanent per-entry failures; the root-level guards do not cover it.
+- [ ] **An unreadable subtree is still swept silently — and can now be *re-linked*.**
+  `makeWalkFn` swallows per-entry errors, so a directory that becomes unreadable
+  (permissions, a partial mount) looks like a deletion. Needs a way to tell
+  transient from permanent per-entry failures; the root-level guards do not cover
+  it — `Scan`'s two-phase preflight validates every library *root* before any
+  library is reconciled, which fixes the cross-library case, but a sub-mount
+  inside a present root (`/music/flac` on its own mount, unmounted, leaving an
+  empty mountpoint directory) is invisible to it. Those files stat ENOENT
+  indistinguishably from deleted ones, so `planTrackContinuity` can now re-point
+  such a row onto a byte-identical new file elsewhere, transferring stars,
+  playlist entries and history to the wrong track — a step worse than being
+  swept. Deliberately not fixed by requiring a vanished row's parent directory to
+  exist: reorganising a library moves whole directories, which is the primary use
+  case. The `fs.ErrNotExist` narrowing (pinned by
+  `TestScanDoesNotRelinkWhenTheOldDirectoryIsUnreadable`) only covers the EACCES
+  flavour, not an empty mountpoint.
 - [ ] **Artist and genre ids churn on a rename, taking covers, stars and cached derivatives with them.** Same root cause as the closed album item above, still open for the two remaining scanner-derived aggregates.
     - **Artists:** identity is `name_norm` alone (`internal/store/artist.go:21`, unique index `internal/model/artist.go:8`), so correcting a spelling creates a new row and `DeleteOrphanedAggregates` deletes the old one (`scan_helpers.go:75`). Lost with it: the star (`scan_helpers.go:83`), the imagecache derivative (keyed on the DB id, `subsonic/media.go:141,153`), `LastImageFetchAt` — which resets to nil, so the artist-image task re-hits the rate-limited fanart.tv / TheAudioDB — and `/artist/:id` links. **The manual cover survives only for artists with an MBID**: `artistCoverKey` prefers `MBArtistID` and falls back to the DB id (`subsonic/artists.go:15-20`). So the covers that break are exactly the unmatched artists' — the ones most likely to hold a *hand-uploaded* image, since no MBID means no auto-fetch.
     - **Genres:** identity is `name`, not even normalised (`internal/store/genre.go:19`, unique index `internal/model/genre.go:9`), and the cover keys on the DB id with no fallback (`subsonic/genres.go:48`), so a genre rename always orphans it. Milder otherwise — there is no genre star type in the cleanup list, and `/genre/:name` routes by name, so links survive.

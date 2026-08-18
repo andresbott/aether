@@ -7,17 +7,43 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 
 ## Pipeline (per library, `scanner.go`)
 
-1. **Walk** (`walk.go`) — collect audio files under `Library.Path`, honoring
-   JSON-encoded `Library.ExcludePatterns` (`excludes.go`) and
-   `FollowSymlinks`. `scanLibrary` refuses to walk a root that does not stat as
-   a directory, and refuses to *continue* when the walk found no audio files
-   while `CountTracksForLibrary` is non-zero: `makeWalkFn` swallows every error
-   including the root's, so an unmounted share would otherwise scan
-   "successfully" with zero results and let step 5 delete the whole library. Both
-   guards fail the scan task for **every** library — the run stops before
-   `Cleanup`. A user who really did empty a library deletes the library instead.
-   Still unguarded: an unreadable *subtree* (permissions, partial mount) is
-   swallowed per-entry and its tracks are still swept.
+1. **Preflight + walk** (`scanner.go`, `walk.go`) — `Scan` is **two-phase**:
+   `preflight` validates and walks *every* library before *any* library is
+   reconciled, and phase 2 (`scanLibrary`) then reconciles each one from the walk
+   preflight already produced — the tree is never walked twice. Phase 1 collects
+   audio files under `Library.Path`, honoring JSON-encoded
+   `Library.ExcludePatterns` (`excludes.go`) and `FollowSymlinks`, and applies two
+   guards: it refuses a root that does not stat as a directory, and refuses to
+   *continue* when the walk found no audio files while `CountTracksForLibrary` is
+   non-zero. `makeWalkFn` swallows every error including the root's, so an
+   unmounted share would otherwise scan "successfully" with zero results and let
+   step 5 delete the whole library. Both guards fail the scan task for **every**
+   library, and because they all run in phase 1 the run stops before the first
+   write: nothing is committed and `Cleanup` never runs, so the abort is atomic.
+   A user who really did empty a library deletes the library instead — which
+   cascades its tracks and with them the playlist entries, stars and play history
+   attached to them, and the guard's error message says so, because that is the
+   very deletion it just refused to perform.
+   **The phase split is load-bearing, not tidiness.**
+   `planTrackContinuity`'s candidate pool is deliberately *not* library-scoped (a
+   move between two collections has to keep its row), so a single-phase loop let a
+   library sorting earlier by name — `ListLibraries` orders `name ASC` — harvest
+   the rows of an unavailable library that had not reached its own guard yet:
+   every path of an unplugged drive stats ENOENT, and one byte-identical new file
+   was enough to re-link such a row, moving its stars, playlist entries, history
+   and `library_id` onto a file from another collection before the later guard
+   failed the scan too late to undo it.
+   `LastScanStartedAt` is stamped in **phase 2**, so a library the run never got
+   to reconcile does not claim it was scanned.
+   Still unguarded, and sharper than "swept silently": an unreadable or absent
+   *subtree* inside a root that is present — a per-directory mount that is gone
+   leaves an empty mountpoint directory behind. Its files stat ENOENT
+   indistinguishably from deleted ones, so those rows are swept **and can be
+   re-linked** onto a byte-identical new file elsewhere. Not fixable by requiring
+   a vanished row's parent directory to still exist: that would break the primary
+   use case, since reorganising a library moves whole directories.
+   `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
+   subtree fails with EACCES rather than merely looking empty.
 2. **Change filter** — incremental scans skip files whose size/modtime match
    the DB (`store.FilterChanged`); unchanged files only get their
    `last_seen_at` bumped in 500-row chunks (`store.BulkUpdateLastSeen`).
@@ -43,6 +69,16 @@ track look stale to the other run's `Cleanup` and delete it, taking its
 playlist memberships, play history and stars with it. Within a single scan
 every row is either already at `scanStart` or older, so the guards never skip
 a bump that was needed.
+
+**One deliberate exception.** `store.RelinkTrack` is a third writer that touches
+a track during a scan and does **not** advance `last_seen_at` — it rewrites
+`file_path`, `filename` and `library_id` only. That is safe because the row now
+carries the new path, so `reconcileTrack` finds it moments later in the same
+batch and sets the marker there; and if *that* transaction fails, `Cleanup`
+deletes the row exactly as it would have without the re-link. Writing the marker
+in `RelinkTrack` would instead invent a new way to keep a row alive that no
+reconcile ever confirmed. Anything else that starts touching tracks mid-scan
+still has to advance it.
 
 ## Targeted rescan (`rescan.go`)
 
