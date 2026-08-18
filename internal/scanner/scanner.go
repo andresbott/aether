@@ -51,6 +51,14 @@ type tagResult struct {
 	meta tags.Metadata
 }
 
+// libraryWalk is one library plus the walk that cleared its guards. It exists so
+// the guards can run for *every* library before *any* library is reconciled
+// (see preflight) without walking the tree twice.
+type libraryWalk struct {
+	lib  *model.Library
+	walk []WalkResult
+}
+
 func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error) {
 	scanStart := time.Now()
 	stats := ScanStats{}
@@ -64,11 +72,19 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		return stats, nil
 	}
 
-	for i := range libs {
+	// Phase 1: validate and walk everything. Nothing is written yet, so a guard
+	// tripping here aborts the whole run atomically.
+	walks, err := s.preflight(ctx, libs)
+	if err != nil {
+		return stats, err
+	}
+
+	// Phase 2: reconcile.
+	for i := range walks {
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		if err := s.scanLibrary(ctx, &libs[i], scanStart, opts, &stats); err != nil {
+		if err := s.scanLibrary(ctx, walks[i], scanStart, opts, &stats); err != nil {
 			return stats, err
 		}
 	}
@@ -82,35 +98,78 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	return stats, nil
 }
 
-func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart time.Time, opts ScanOptions, stats *ScanStats) error {
-	if err := checkLibraryRoot(lib.Path); err != nil {
-		return fmt.Errorf("library %q: %w", lib.Name, err)
-	}
+// preflight runs both sweep guards and the walk for every library before Scan
+// reconciles the first one, and returns the walk results so phase 2 does not
+// repeat the I/O (walking twice would also risk seeing two different trees).
+//
+// The two-phase split is what makes an aborted run harmless. Scan returns on the
+// first library that fails a guard, but planTrackContinuity's candidate pool is
+// deliberately not library-scoped — a move between two collections has to keep
+// its row — so an unavailable library that is merely *later* in
+// ListLibraries' name order used to have all of its rows stat ENOENT and land in
+// `vanished` while an earlier library was still being reconciled. A single
+// byte-identical new file there was enough to re-link an unreachable library's
+// row, moving its stars, playlist memberships, history and library_id onto a file
+// it has nothing to do with, and the guard then failed the scan too late to undo
+// any of it. Validating first makes the abort happen before the first write.
+//
+// Still not covered, and not coverable here: an unreadable or unmounted *subtree*
+// inside a root that is present (a per-directory mount that is gone leaves an
+// empty mountpoint directory behind). Its files stat ENOENT exactly like deleted
+// ones, so those rows can be swept — and, since the fingerprint cannot tell the
+// difference either, re-linked onto a byte-identical new file. Requiring a
+// vanished row's parent directory to still exist would break the primary use
+// case, because reorganising a library moves whole directories. The narrowing to
+// fs.ErrNotExist in planTrackContinuity is the only defence, and it only helps
+// when the failure is a permission error rather than an empty mountpoint.
+func (s *Scanner) preflight(ctx context.Context, libs []model.Library) ([]libraryWalk, error) {
+	out := make([]libraryWalk, 0, len(libs))
+	for i := range libs {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		lib := &libs[i]
 
+		if err := checkLibraryRoot(lib.Path); err != nil {
+			return nil, fmt.Errorf("library %q: %w", lib.Name, err)
+		}
+
+		excludes, err := compileExcludes(lib.ExcludePatterns)
+		if err != nil {
+			return nil, fmt.Errorf("library %q: %w", lib.Name, err)
+		}
+
+		walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
+		if err != nil {
+			return nil, err
+		}
+
+		// An absent tree is not an empty tree. Walk swallows every error, including
+		// the root's, so a share that is present but unpopulated (a bare mountpoint)
+		// looks exactly like a library the user emptied — and Cleanup would delete
+		// every track of it, with the playlists, stars, play history and queue
+		// entries attached to them. The DB still holding tracks is the only evidence
+		// available, so it decides.
+		if err := s.checkEmptyScanWithIndexedTracks(lib, walkResults); err != nil {
+			return nil, err
+		}
+
+		out = append(out, libraryWalk{lib: lib, walk: walkResults})
+	}
+	return out, nil
+}
+
+// scanLibrary is phase 2: everything from the LastScanStartedAt stamp onwards,
+// for a library preflight has already validated and walked.
+func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, opts ScanOptions, stats *ScanStats) error {
+	lib, walkResults := lw.lib, lw.walk
+
+	// Stamped in phase 2 on purpose: a library whose run aborted in preflight must
+	// not claim it was scanned.
 	now := time.Now()
 	lib.LastScanStartedAt = &now
 	if err := s.store.UpdateLibrary(lib); err != nil {
 		return fmt.Errorf("update library scan timestamp: %w", err)
-	}
-
-	excludes, err := compileExcludes(lib.ExcludePatterns)
-	if err != nil {
-		return fmt.Errorf("library %q: %w", lib.Name, err)
-	}
-
-	walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
-	if err != nil {
-		return err
-	}
-
-	// An absent tree is not an empty tree. Walk swallows every error, including
-	// the root's, so a share that is present but unpopulated (a bare mountpoint)
-	// looks exactly like a library the user emptied — and Cleanup would delete
-	// every track of it, with the playlists, stars, play history and queue
-	// entries attached to them. The DB still holding tracks is the only evidence
-	// available, so it decides.
-	if err := s.checkEmptyScanWithIndexedTracks(lib, walkResults); err != nil {
-		return err
 	}
 
 	allPaths := make([]string, len(walkResults))
@@ -254,9 +313,14 @@ func (s *Scanner) checkEmptyScanWithIndexedTracks(lib *model.Library, walkResult
 		return fmt.Errorf("library %q: count indexed tracks: %w", lib.Name, err)
 	}
 	if indexed > 0 {
+		// The remedy has a price and has to say so: Track.LibraryID carries
+		// constraint:OnDelete:CASCADE, so deleting the library is exactly the
+		// hard-delete this guard just refused to perform.
 		return fmt.Errorf("library %q: no audio files under %q but %d tracks are indexed; "+
-			"refusing to delete them — check that the path is mounted, or delete the library "+
-			"in Settings → Libraries if it really is gone", lib.Name, lib.Path, indexed)
+			"refusing to delete them — check that the path is mounted; if it really is gone, "+
+			"delete the library in Settings → Libraries, which also removes those %d tracks and "+
+			"everything attached to them (playlist entries, stars, play history)",
+			lib.Name, lib.Path, indexed, indexed)
 	}
 	return nil
 }

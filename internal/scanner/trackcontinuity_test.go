@@ -264,6 +264,11 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 	seedLibrary(t, st, dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	// An old, whole-second mod time so FilterChanged provably filters src out of
+	// the incremental batch below. Without it the test could pass vacuously: a
+	// src that re-enters the batch is covered by inBatch and never reaches the
+	// os.Stat guard this test exists to exercise.
+	stampModTime(t, src, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC))
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
 	s := scanner.New(scanner.Config{}, st, reader)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -283,8 +288,14 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 
 	// Incremental scan: only the new path is in results, so inBatch does not
 	// cover src. The os.Stat check is the sole defence against re-linking.
-	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: false}); err != nil {
+	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: false})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if stats.TracksProcessed != 1 {
+		t.Fatalf("expected only the new path in the incremental batch (TracksProcessed=1), got %d — "+
+			"src re-entered the batch, so inBatch covers it and the os.Stat guard is untested",
+			stats.TracksProcessed)
 	}
 
 	var tracks []model.Track
@@ -296,6 +307,67 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 	}
 	if tracks[0].ID != before.ID || tracks[0].FilePath != src {
 		t.Fatalf("the original row must keep its id and its path, got %+v", tracks[0])
+	}
+}
+
+// An unreadable directory is not a deletion. planTrackContinuity narrows its
+// "the old file is gone" test to fs.ErrNotExist exactly so an EACCES stat cannot
+// put a live row into `vanished` — and since Scan's preflight only guards library
+// *roots*, that narrowing is the last defence for a subtree that became
+// unreachable inside a root that is present (a permission change, a per-directory
+// mount that went away). Widening the check to "any stat error means gone" passes
+// every other test in the suite; this is the one that fails.
+func TestScanDoesNotRelinkWhenTheOldDirectoryIsUnreadable(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	// The file stays on disk; only the way to it is taken away, so stat-ing it
+	// fails with EACCES instead of ENOENT.
+	srcDir := filepath.Dir(src)
+	if err := os.Chmod(srcDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	// Registered after t.TempDir's own cleanup and therefore run before it, which
+	// is the only reason the temp tree can still be removed.
+	t.Cleanup(func() { _ = os.Chmod(srcDir, 0o750) })
+	if _, err := os.Stat(src); err == nil {
+		t.Skip("this process stats through mode 0000 (running as root); the EACCES path is unreachable here")
+	}
+
+	// A byte-identical file with the same title elsewhere in the same library:
+	// every part of the proof except the stat says "this is where 01.mp3 moved
+	// to". It also keeps the walk non-empty, so the sweep guard does not fire
+	// first and mask the case under test.
+	dst := filepath.Join(dir, "Compilations/Best Of/01.mp3")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader.titles[dst] = "Path Of Glory"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var moved model.Track
+	if err := st.DB().Where("file_path = ?", dst).First(&moved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if moved.ID == before.ID {
+		t.Fatalf("row %d was re-linked onto %q although its old file only became unreadable rather "+
+			"than deleted: an EACCES stat is not evidence of absence", before.ID, dst)
 	}
 }
 
@@ -500,6 +572,86 @@ func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
 	}
 	if otherRow.ID == before.ID {
 		t.Fatalf("the other file must have a different id, got %d", otherRow.ID)
+	}
+}
+
+// namedLibrary is seedLibrary with the name spelled out, because ListLibraries
+// orders by name and the test below needs the unavailable library to sort *after*
+// the healthy one — that ordering is the whole bug.
+func namedLibrary(t *testing.T, s *store.Store, name, path string) *model.Library {
+	t.Helper()
+	lib := &model.Library{Name: name, Path: path, FollowSymlinks: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	return lib
+}
+
+// An unavailable library must not have its rows harvested by an earlier
+// library's re-link pass. Scan returns on the first failing guard, but the
+// candidate pool is deliberately cross-library, so before Scan was split into
+// preflight + reconcile every row of an unmounted "Zarchive" stat-ed ENOENT and
+// became a move candidate while "Music" was still being reconciled — a single
+// byte-identical new file was enough to move an unreachable library's stars,
+// playlists, history and library_id onto it, and the guard then failed the scan
+// too late to undo any of it.
+func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
+	st := testScanStore(t)
+	musicDir := t.TempDir()
+	archiveDir := t.TempDir()
+	createTestFiles(t, musicDir, []string{"Apocalyptica/Cult/01.mp3"})
+	createTestFiles(t, archiveDir, []string{"Mirror/Cult/01.mp3"})
+	namedLibrary(t, st, "Music", musicDir)
+	archiveLib := namedLibrary(t, st, "Zarchive", archiveDir)
+
+	music := filepath.Join(musicDir, "Apocalyptica/Cult/01.mp3")
+	archived := filepath.Join(archiveDir, "Mirror/Cult/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{
+		music:    "Beyond Time",
+		archived: "Path Of Glory",
+	}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var before model.Track
+	if err := st.DB().Where("file_path = ?", archived).First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// The archive drive goes away, and a new file lands in Music that is
+	// byte-identical to the archived one and carries its title: everything the
+	// proof asks for except that the old file is not actually gone.
+	if err := os.RemoveAll(archiveDir); err != nil {
+		t.Fatal(err)
+	}
+	bait := filepath.Join(musicDir, "Apocalyptica/Cult/02.mp3")
+	if err := os.WriteFile(bait, []byte("fake"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader.titles[bait] = "Path Of Glory"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
+		t.Fatal("expected the scan to fail on the unavailable library")
+	}
+
+	var after model.Track
+	if err := st.DB().First(&after, before.ID).Error; err != nil {
+		t.Fatalf("the unavailable library's row must survive untouched: %v", err)
+	}
+	if after.FilePath != archived {
+		t.Fatalf("row %d was re-linked to %q by an earlier library's pass; it belongs to a library "+
+			"whose guard had not run yet", before.ID, after.FilePath)
+	}
+	if after.LibraryID != archiveLib.ID {
+		t.Fatalf("LibraryID = %d, want the archive library %d", after.LibraryID, archiveLib.ID)
+	}
+	var count int64
+	if err := st.DB().Model(&model.Track{}).Where("file_path = ?", bait).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("no library may be reconciled when a later one fails its guard, but %q was indexed", bait)
 	}
 }
 

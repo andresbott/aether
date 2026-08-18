@@ -44,6 +44,7 @@ type trackFingerprint struct {
 // a move straddling two scan runs (Cleanup already deleted the row).
 func (s *Scanner) planTrackContinuity(results []tagResult) error {
 	if len(results) == 0 {
+		logTrackContinuity(0, 0, 0)
 		return nil
 	}
 	paths := make([]string, 0, len(results))
@@ -69,7 +70,8 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 		sizeSet[key.FileSize] = true
 	}
 	if unclaimed == 0 {
-		return nil // nothing new in this batch, so nothing moved into it
+		logTrackContinuity(0, 0, 0) // nothing new in this batch, so nothing moved into it
+		return nil
 	}
 
 	rows, err := s.store.TracksByFileSizes(sortedSizes(sizeSet))
@@ -100,7 +102,9 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 		vanishedRows++
 	}
 	if vanishedRows == 0 {
-		return nil // nothing of this shape left the library: every new path is a new file
+		// Nothing of this shape left the library: every new path is a new file.
+		logTrackContinuity(unclaimed, 0, 0)
+		return nil
 	}
 
 	// Sorted iteration: which pair wins must not depend on which tag reader
@@ -128,10 +132,18 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 		slog.Info("track relinked after a move",
 			"track_id", row.ID, "from", row.FilePath, "to", tr.walk.FilePath)
 	}
-	// Makes the conservative misses visible instead of silent: new paths and
-	// vanished rows that did not add up to a proof are the difference here.
-	slog.Info("track continuity", "new_paths", unclaimed, "vanished_rows", vanishedRows, "relinked", relinked)
+	logTrackContinuity(unclaimed, vanishedRows, relinked)
 	return nil
+}
+
+// logTrackContinuity makes the conservative misses visible instead of silent:
+// new paths and vanished rows that did not add up to a proof are the difference
+// between the counters. It is emitted on every path that got far enough to know
+// them, the all-zero "nothing moved" case included — a scan that logs nothing is
+// indistinguishable from a pre-pass that never ran, which is exactly the shape of
+// bug the counters exist to expose.
+func logTrackContinuity(newPaths, vanishedRows, relinked int) {
+	slog.Info("track continuity", "new_paths", newPaths, "vanished_rows", vanishedRows, "relinked", relinked)
 }
 
 func fingerprintOf(tr tagResult) trackFingerprint {
