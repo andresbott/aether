@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/andresbott/aether/internal/assetkey"
@@ -141,7 +140,13 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	meta := coverMeta{
 		seed:      artist.NameNorm,
 		cacheKind: assetstore.KindArtist,
-		cacheKey:  strconv.FormatUint(uint64(artist.ID), 10),
+		// The cache key is derived from identity (MusicBrainz ID when matched,
+		// otherwise name_norm hash) so it remains stable across DB rebuilds.
+		// Consequence: if an artist gains an MBID after derivatives are cached,
+		// ArtistOf changes and those derivatives are orphaned (a leak, not a
+		// misattribution — no other artist can inherit them). This is accepted
+		// rather than adding cache-eviction logic here.
+		cacheKey: assetkey.ArtistOf(artist),
 		styleFor: func() (string, error) {
 			return h.store.CoverStyleForArtist(id)
 		},
@@ -171,7 +176,7 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 		albumID:   album.ID,
 		seed:      album.AlbumArtistNorm + "|" + album.NameNorm,
 		cacheKind: assetstore.KindAlbum,
-		cacheKey:  strconv.FormatUint(uint64(album.ID), 10),
+		cacheKey:  assetkey.AlbumOf(album),
 		styleFor:  h.albumStyleFor(album.ID),
 	}
 	if p, ok := h.assets.Get(assetstore.KindAlbum, assetkey.AlbumOf(album)); ok {
@@ -220,7 +225,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		meta := coverMeta{
 			seed:      station.Name,
 			cacheKind: assetstore.KindRadio,
-			cacheKey:  strconv.FormatUint(uint64(station.ID), 10),
+			cacheKey:  assetkey.Radio(station.StreamURL),
 		}
 		if p, ok := h.assets.Get(assetstore.KindRadio, assetkey.Radio(station.StreamURL)); ok {
 			meta.coverPath, meta.coverManaged = p, true
@@ -238,7 +243,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		meta := coverMeta{
 			seed:      pl.Name,
 			cacheKind: assetstore.KindPlaylist,
-			cacheKey:  strconv.FormatUint(uint64(pl.ID), 10),
+			cacheKey:  assetkey.PlaylistOf(pl),
 		}
 		key := assetkey.PlaylistOf(pl)
 		if key != "" {
@@ -259,7 +264,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		meta := coverMeta{
 			seed:      genre.Name,
 			cacheKind: assetstore.KindGenre,
-			cacheKey:  strconv.FormatUint(uint64(genre.ID), 10),
+			cacheKey:  assetkey.GenreOf(genre),
 		}
 		if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(genre)); ok {
 			meta.coverPath, meta.coverManaged = p, true

@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/assetkey"
@@ -235,7 +234,7 @@ func TestGetCoverArtWritesDerivativeToCacheTree(t *testing.T) {
 
 	getCover(t, fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=200", srv.URL, album.ID), "image/webp")
 
-	entries, err := os.ReadDir(filepath.Join(cacheDir, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)))
+	entries, err := os.ReadDir(filepath.Join(cacheDir, assetstore.KindAlbum, assetkey.AlbumOf(&album)))
 	if err != nil {
 		t.Fatalf("read cache entry dir: %v", err)
 	}

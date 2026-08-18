@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,7 +67,7 @@ func TestGetCoverArtGeneratesWhenMissing(t *testing.T) {
 	}
 
 	// The derivative is cached under the album's identity, in the size bucket.
-	names := cachedDerivativeNames(t, cacheDir, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10))
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindAlbum, assetkey.AlbumOf(&album))
 	if len(names) != 1 || !strings.HasSuffix(names[0], ".256.jpg") {
 		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.jpg", names)
 	}
@@ -133,7 +132,7 @@ func TestGetCoverArtRadioFallbackGenerated(t *testing.T) {
 	if cfg.Width != 256 {
 		t.Errorf("generated cover width = %d, want 256", cfg.Width)
 	}
-	names := cachedDerivativeNames(t, cacheDir, assetstore.KindRadio, strconv.FormatUint(uint64(st.ID), 10))
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindRadio, assetkey.Radio(st.StreamURL))
 	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") {
 		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.<ext>", names)
 	}
@@ -167,7 +166,7 @@ func TestGetCoverArtPlaylistFallbackGenerated(t *testing.T) {
 	if cfg.Width != 256 {
 		t.Errorf("generated cover width = %d, want 256", cfg.Width)
 	}
-	names := cachedDerivativeNames(t, cacheDir, assetstore.KindPlaylist, strconv.FormatUint(uint64(pl.ID), 10))
+	names := cachedDerivativeNames(t, cacheDir, assetstore.KindPlaylist, assetkey.PlaylistOf(pl))
 	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") {
 		t.Errorf("cached derivatives = %v, want one generated.<fingerprint>.256.<ext>", names)
 	}
@@ -1328,7 +1327,7 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 	// style is part of the derivative's source fingerprint (not its filename),
 	// so switching styles supersedes this file instead of serving it stale —
 	// which the auto-vs-bauhaus comparison below proves.
-	albumKey := strconv.FormatUint(uint64(album.ID), 10)
+	albumKey := assetkey.AlbumOf(&album)
 	names := cachedDerivativeNames(t, cacheDir, assetstore.KindAlbum, albumKey)
 	if len(names) != 1 || !strings.HasPrefix(names[0], "generated.") || !strings.Contains(names[0], ".160.") {
 		t.Fatalf("cached derivatives = %v, want one generated.<fingerprint>.160.<ext>", names)
@@ -1343,5 +1342,107 @@ func TestGetCoverArtHonoursLibraryCoverStyle(t *testing.T) {
 	auto := fetch()
 	if bytes.Equal(styled, auto) {
 		t.Fatal("bauhaus-styled and auto covers are byte-identical; style config had no effect")
+	}
+}
+
+// TestCoverCacheKeyMatchesAssetKey verifies that the imagecache key for each
+// entity kind derives from the same natural identity the asset store uses, not
+// from the autoincrement database id. This prevents a DB rebuild from
+// misattributing cached derivatives when ids reassign.
+func TestCoverCacheKeyMatchesAssetKey(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	h := &Handler{store: s, assets: assetstore.New(t.TempDir())}
+
+	// Album
+	album := model.Album{
+		Name:            "Test Album",
+		NameNorm:        "test album",
+		AlbumArtistNorm: "test artist",
+		MBReleaseID:     "mb-release-123",
+	}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatalf("create album: %v", err)
+	}
+	albumMeta := h.albumCoverMeta(&album)
+	if got, want := albumMeta.cacheKey, assetkey.AlbumOf(&album); got != want {
+		t.Errorf("album cacheKey = %q, want %q", got, want)
+	}
+
+	// Artist
+	artist := model.Artist{
+		Name:       "Test Artist",
+		NameNorm:   "test artist",
+		MBArtistID: "mb-artist-456",
+	}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatalf("create artist: %v", err)
+	}
+	artistMeta := h.artistCoverMeta(&artist)
+	if got, want := artistMeta.cacheKey, assetkey.ArtistOf(&artist); got != want {
+		t.Errorf("artist cacheKey = %q, want %q", got, want)
+	}
+
+	// Radio - construct meta as resolveCoverMeta does for "radio" case
+	station := model.InternetRadioStation{
+		Name:      "Test Station",
+		StreamURL: "http://example.com/stream",
+	}
+	if err := db.Create(&station).Error; err != nil {
+		t.Fatalf("create radio station: %v", err)
+	}
+	radioMeta := coverMeta{
+		seed:      station.Name,
+		cacheKind: assetstore.KindRadio,
+		cacheKey:  assetkey.Radio(station.StreamURL),
+	}
+	if p, ok := h.assets.Get(assetstore.KindRadio, assetkey.Radio(station.StreamURL)); ok {
+		radioMeta.coverPath, radioMeta.coverManaged = p, true
+	}
+	if got, want := radioMeta.cacheKey, assetkey.Radio(station.StreamURL); got != want {
+		t.Errorf("radio cacheKey = %q, want %q", got, want)
+	}
+
+	// Playlist - construct meta as resolveCoverMeta does for "playlist" case
+	pl := model.Playlist{
+		Name:  "Test Playlist",
+		Owner: "admin",
+		UUID:  "test-uuid-789",
+	}
+	if err := db.Create(&pl).Error; err != nil {
+		t.Fatalf("create playlist: %v", err)
+	}
+	playlistMeta := coverMeta{
+		seed:      pl.Name,
+		cacheKind: assetstore.KindPlaylist,
+		cacheKey:  assetkey.PlaylistOf(&pl),
+	}
+	key := assetkey.PlaylistOf(&pl)
+	if key != "" {
+		if p, ok := h.assets.Get(assetstore.KindPlaylist, key); ok {
+			playlistMeta.coverPath, playlistMeta.coverManaged = p, true
+		}
+	}
+	if got, want := playlistMeta.cacheKey, assetkey.PlaylistOf(&pl); got != want {
+		t.Errorf("playlist cacheKey = %q, want %q", got, want)
+	}
+
+	// Genre - construct meta as resolveCoverMeta does for "genre" case
+	genre := model.Genre{
+		Name: "Test Genre",
+	}
+	if err := db.Create(&genre).Error; err != nil {
+		t.Fatalf("create genre: %v", err)
+	}
+	genreMeta := coverMeta{
+		seed:      genre.Name,
+		cacheKind: assetstore.KindGenre,
+		cacheKey:  assetkey.GenreOf(&genre),
+	}
+	if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(&genre)); ok {
+		genreMeta.coverPath, genreMeta.coverManaged = p, true
+	}
+	if got, want := genreMeta.cacheKey, assetkey.GenreOf(&genre); got != want {
+		t.Errorf("genre cacheKey = %q, want %q", got, want)
 	}
 }
