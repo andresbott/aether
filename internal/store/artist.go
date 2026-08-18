@@ -44,9 +44,11 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 				return nil, nil, err
 			}
 			// Report this artist as having gained an MBID only when the old
-			// MBID was empty. An MBID change (old != "" && old != new) is not
-			// provably a rename — it could be a mistaken match being corrected
-			// — so we do not attempt to preserve the old MBID's manual cover.
+			// MBID was empty. An MBID change (old != "" && old != new) is
+			// deliberately excluded: the MBID slot is shared with the auto-fetcher
+			// and is content-addressed by the real-world artist. Moving stored
+			// images from one MBID to another would misattribute the old artist's
+			// portrait to the new artist, which is worse than stranding it.
 			if oldMBID == "" {
 				gained = append(gained, &artist)
 			}

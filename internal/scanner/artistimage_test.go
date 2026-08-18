@@ -360,6 +360,26 @@ func TestReconcileRekeysArtistImagesWhenTheArtistGainsAnMBID(t *testing.T) {
 	}
 }
 
+// recordingRekeyer wraps an AssetRekeyer and records each Rekey call, for
+// testing that the hook was invoked with expected keys.
+type recordingRekeyer struct {
+	delegate scanner.AssetRekeyer
+	calls    []rekeyCall
+}
+
+type rekeyCall struct {
+	kind   string
+	oldKey string
+	newKey string
+	err    error
+}
+
+func (r *recordingRekeyer) Rekey(kind, oldKey, newKey string) error {
+	err := r.delegate.Rekey(kind, oldKey, newKey)
+	r.calls = append(r.calls, rekeyCall{kind: kind, oldKey: oldKey, newKey: newKey, err: err})
+	return err
+}
+
 // A malformed MBID falls back to hashing, so old and new keys may be equal.
 // The re-key must handle that gracefully and log nothing spurious.
 func TestReconcileToleratesMalformedMBIDWhereKeysCoincide(t *testing.T) {
@@ -394,6 +414,9 @@ func TestReconcileToleratesMalformedMBIDWhereKeysCoincide(t *testing.T) {
 
 	// Rescan with a malformed MBID (contains "/" which is not key-safe).
 	// assetkey.Artist will fall back to hashing, so old and new keys are equal.
+	// Wrap assets in a recording decorator to verify the hook ran.
+	recorder := &recordingRekeyer{delegate: assets}
+	s = scanner.New(scanner.Config{AssetRekeyer: recorder}, st, reader)
 	reader.mbid = "malformed/mbid"
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
@@ -415,5 +438,23 @@ func TestReconcileToleratesMalformedMBIDWhereKeysCoincide(t *testing.T) {
 		if err != nil || string(data) != "manual cover" {
 			t.Fatal("cover has wrong content after malformed MBID")
 		}
+	}
+
+	// The hook must have been called exactly once with oldKey == newKey.
+	if len(recorder.calls) != 1 {
+		t.Fatalf("expected 1 Rekey call, got %d", len(recorder.calls))
+	}
+	call := recorder.calls[0]
+	if call.kind != assetstore.KindArtist {
+		t.Fatalf("expected kind %q, got %q", assetstore.KindArtist, call.kind)
+	}
+	if call.oldKey != call.newKey {
+		t.Fatalf("expected oldKey == newKey (the no-op path), got old=%q new=%q", call.oldKey, call.newKey)
+	}
+	if call.oldKey != key {
+		t.Fatalf("expected key %q, got old=%q new=%q", key, call.oldKey, call.newKey)
+	}
+	if call.err != nil {
+		t.Fatalf("expected Rekey to return nil, got %v", call.err)
 	}
 }
