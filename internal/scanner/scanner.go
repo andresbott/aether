@@ -109,16 +109,8 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 	// every track of it, with the playlists, stars, play history and queue
 	// entries attached to them. The DB still holding tracks is the only evidence
 	// available, so it decides.
-	if len(walkResults) == 0 {
-		indexed, err := s.store.CountTracksForLibrary(lib.ID)
-		if err != nil {
-			return fmt.Errorf("library %q: count indexed tracks: %w", lib.Name, err)
-		}
-		if indexed > 0 {
-			return fmt.Errorf("library %q: no audio files under %q but %d tracks are indexed; "+
-				"refusing to delete them — check that the path is mounted, or delete the library "+
-				"in Settings → Libraries if it really is gone", lib.Name, lib.Path, indexed)
-		}
+	if err := s.checkEmptyScanWithIndexedTracks(lib, walkResults); err != nil {
+		return err
 	}
 
 	allPaths := make([]string, len(walkResults))
@@ -246,6 +238,25 @@ func checkLibraryRoot(path string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("root %q is not a directory", path)
+	}
+	return nil
+}
+
+// checkEmptyScanWithIndexedTracks refuses to continue when a library walk found
+// zero files while the database still holds tracks for it, as this indicates an
+// unmounted share or permission issue rather than a genuinely emptied library.
+func (s *Scanner) checkEmptyScanWithIndexedTracks(lib *model.Library, walkResults []WalkResult) error {
+	if len(walkResults) > 0 {
+		return nil
+	}
+	indexed, err := s.store.CountTracksForLibrary(lib.ID)
+	if err != nil {
+		return fmt.Errorf("library %q: count indexed tracks: %w", lib.Name, err)
+	}
+	if indexed > 0 {
+		return fmt.Errorf("library %q: no audio files under %q but %d tracks are indexed; "+
+			"refusing to delete them — check that the path is mounted, or delete the library "+
+			"in Settings → Libraries if it really is gone", lib.Name, lib.Path, indexed)
 	}
 	return nil
 }

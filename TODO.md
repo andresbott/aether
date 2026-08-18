@@ -47,7 +47,41 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
       and the identity rules in `docs/agents/scanning.md`. **Still open:** the
       asset-store / image-cache sweep for albums that genuinely disappear —
       that is the item below on resource leaks, not this one.)
-
+- [x] **Moving or renaming a music file no longer drops it from playlists or
+  discards its history, star and queue position.** `scanner.planTrackContinuity`
+  re-points the row at the new path when it can prove the move (equal
+  `file_size` + `title`, `duration` ±1s, old path gone from disk, unambiguous
+  1:1), so `tracks.id` survives and nothing cascades. `scanLibrary` also fails
+  the scan rather than sweeping a library whose root is unavailable or
+  unexpectedly empty. Design:
+  `docs/superpowers/specs/2026-08-18-track-identity-across-moves-design.md`.
+- [ ] **A move that also rewrites the tags still loses playlists, history and
+  stars.** The bytes change, so `file_size` cannot anchor the match and the only
+  remaining signals are `duration` + `title` + `track_number` +
+  `MBRecordingID` — and `MBRecordingID` identifies a *recording*, not a file
+  (the same recording on an album and a compilation shares it). Declined
+  deliberately: the false-merge surface outweighs the coverage. Revisit only
+  with a signal that survives a retag (an audio-stream hash).
+- [ ] **A move that straddles two scan runs is unrecoverable.** By the time the
+  new path appears, `Cleanup` has deleted the row. Fixing it means tombstones —
+  soft-delete plus re-link on reappearance — which makes every read path
+  (`/rest` browsing, playlists, search, queue) decide whether to show missing
+  tracks and makes a purge flow mandatory. A feature, not a fix.
+- [ ] **An unreadable subtree is still swept silently.** `makeWalkFn` swallows
+  per-entry errors, so a directory that becomes unreadable (permissions, a
+  partial mount) looks like a deletion. Needs a way to tell transient from
+  permanent per-entry failures; the root-level guards do not cover it.
+- [ ] **Artist and genre ids churn on a rename, taking covers, stars and cached derivatives with them.** Same root cause as the closed album item above, still open for the two remaining scanner-derived aggregates.
+    - **Artists:** identity is `name_norm` alone (`internal/store/artist.go:21`, unique index `internal/model/artist.go:8`), so correcting a spelling creates a new row and `DeleteOrphanedAggregates` deletes the old one (`scan_helpers.go:75`). Lost with it: the star (`scan_helpers.go:83`), the imagecache derivative (keyed on the DB id, `subsonic/media.go:141,153`), `LastImageFetchAt` — which resets to nil, so the artist-image task re-hits the rate-limited fanart.tv / TheAudioDB — and `/artist/:id` links. **The manual cover survives only for artists with an MBID**: `artistCoverKey` prefers `MBArtistID` and falls back to the DB id (`subsonic/artists.go:15-20`). So the covers that break are exactly the unmatched artists' — the ones most likely to hold a *hand-uploaded* image, since no MBID means no auto-fetch.
+    - **Genres:** identity is `name`, not even normalised (`internal/store/genre.go:19`, unique index `internal/model/genre.go:9`), and the cover keys on the DB id with no fallback (`subsonic/genres.go:48`), so a genre rename always orphans it. Milder otherwise — there is no genre star type in the cleanup list, and `/genre/:name` routes by name, so links survive.
+    - **Why the album fix does not port.** `planAlbumContinuity` proves continuity from "every track this album holds is in this batch". An artist spans many albums and hundreds of tracks through two associations (`album_artists` and `track_artists`), so that test is essentially never true for an incremental scan — the guard would decline precisely when it is needed — and credits are multi-valued, so "the tracks agree on one new identity" does not even have the same shape. Artists need a different signal, most plausibly the MBID (already their durable asset key) plus explicit rename detection. Also recorded in `docs/agents/scanning.md`'s known-scanner-debt list.
+    - **Three fix shapes exist and the codebase already contains one of each:** *preserve the row* (albums — `planAlbumContinuity`); *migrate on re-key* (radio — `subsonic/radio.go:223-245` computes old and new `RadioKey(streamURL)` and moves the cover so a URL edit does not orphan it); *key on content* (artist MBIDs). The remaining work is applying them, not inventing them.
+    - **Cheap partial win, independent of rename detection:** stop keying genre and unmatched-artist covers on a positional id. That merges with the backlog item on DB rebuilds misattributing images — both want a non-positional key and should be scoped together.
+- [ ] **`PRAGMA busy_timeout` is applied to one pooled connection out of ten, so nine have none.** `app/cmd/server.go:102-104` sets `SetMaxOpenConns(10)` and then issues `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` as two `db.Exec` calls, which run on whichever single connection the pool hands out. WAL is recorded in the database file so it sticks; **`busy_timeout` is per-connection state and does not**, so the other nine connections keep the default of 0 and return `SQLITE_BUSY` immediately instead of waiting. Fix: set it in the DSN (a `_pragma=busy_timeout(5000)` parameter on the `sqlite.Open` path) so every connection acquires it on open. Pre-existing and unrelated to album continuity, but surfaced by that review — and scans already write concurrently with `/rest` reads, with one more write transaction now taken from this pool.
+- [ ] Small code-health follow-ups noted during the album-continuity review:
+    - `internal/store/albumidentity.go` defines a third copy of the 500-row chunk constant (`FilterChanged` and `BulkUpdateLastSeen` in `scan_helpers.go` each have their own), and `store.IsUniqueViolation` is the third copy of the `UNIQUE constraint failed`/`duplicate` string sniff (`handlers/libraries/libraries.go:439-445`, `handlers/users/users.go:421`). The store version is the best of the three — handles `nil`, tries `gorm.ErrDuplicatedKey` first, lowercases before matching — so hoist the constant and have both handlers call it.
+    - `planAlbumContinuity` runs a whole batch in one transaction while its proof is per album, so one album's DB error rolls back every other album's retag in that batch (`internal/scanner/albumcontinuity.go`). Not a correctness bug — the caller logs and degrades to the old behaviour — but the granularity does not match the proof.
+- [] Big review of the whole import task
 
 
 ## Backend — Resource Leaks
@@ -168,6 +202,7 @@ to be planned work.
 - [ ] **Rebuilding the DB without also wiping the asset store attaches stored images to the wrong entities.** Post-1.0 investigation: decide whether it is worth fixing at all, and if so whether the answer is UUIDs (or another non-positional key) instead of table ids. Direction deliberately open.
     - **Root cause:** durable images are filed under the entity's *autoincrement primary key* — `strconv(album.ID)` for album covers (`handlers/subsonic/albums.go:51`), the same for genres (`updateGenre`), the DB-ID slot for artists (`artistCoverKey`), and every `imagecache` derivative (`subsonic/media.go:172`). Those ids are positional: they are handed out in the order the scanner happens to reconcile tracks. Drop the DB, keep `data/metadata/`, rescan — album 5 is now a *different* album, and it inherits the cover uploaded for the old album 5. Not a leak (that is the separate never-evicted problem below), an actual **mix-up**: wrong art on the wrong album, silently, with no way to tell from the UI.
     - **Same root as "album ids are not stable"** (see Backend — Data Integrity & Scanning) but a distinct failure mode: that one *loses* an image on retag, this one *misattributes* one on rebuild. Preserving the album row across retags does nothing for this — a rebuild restarts the counter regardless.
+    - **Scope this together with "Artist and genre ids churn on a rename"** in the same section: the cheap half of that item is "stop keying genre and unmatched-artist covers on a positional id", which is this item's question asked about two more entities. One non-positional-key decision answers both.
     - **Current mitigation is procedural only:** drop `data/metadata/` whenever you drop the DB. Fine while there are no users, worthless as advice once there are, and it throws away every manual cover to fix an attribution bug.
     - **Note what is already immune:** the artist MBID slot and `RadioKey(streamURL)` are content-derived, so they survive a rebuild intact — which is the existing precedent that a non-positional key works here (`docs/superpowers/specs/2026-06-30-durable-artist-image-store-design.md`).
     - **Open questions for the scoping pass:** is a per-entity UUID column enough (assigned at create, keyed on by the asset store), or does it just relocate the problem — a rebuild mints *new* UUIDs too, so the store would still need a way to re-attach them to the same album; does that push toward a genuinely content-derived key (tag tuple, directory, MBID) with all the churn trade-offs already catalogued; or is the honest answer a rebuild-time reconciliation step / sidecar manifest mapping stored assets back to entities. Also: whether "rebuild the DB" should stay a supported operation at all once 1.0 has users, since that is the only trigger.

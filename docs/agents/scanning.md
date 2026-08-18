@@ -9,7 +9,15 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 
 1. **Walk** (`walk.go`) — collect audio files under `Library.Path`, honoring
    JSON-encoded `Library.ExcludePatterns` (`excludes.go`) and
-   `FollowSymlinks`.
+   `FollowSymlinks`. `scanLibrary` refuses to walk a root that does not stat as
+   a directory, and refuses to *continue* when the walk found no audio files
+   while `CountTracksForLibrary` is non-zero: `makeWalkFn` swallows every error
+   including the root's, so an unmounted share would otherwise scan
+   "successfully" with zero results and let step 5 delete the whole library. Both
+   guards fail the scan task for **every** library — the run stops before
+   `Cleanup`. A user who really did empty a library deletes the library instead.
+   Still unguarded: an unreadable *subtree* (permissions, partial mount) is
+   swallowed per-entry and its tracks are still swept.
 2. **Change filter** — incremental scans skip files whose size/modtime match
    the DB (`store.FilterChanged`); unchanged files only get their
    `last_seen_at` bumped in 500-row chunks (`store.BulkUpdateLastSeen`).
@@ -102,8 +110,22 @@ tag and picture writes.
 
 ## Identity & normalization rules
 
-- **Track identity is `FilePath`** (unique index). Moved files are a
-  delete + insert.
+- **Track identity is `FilePath`** (unique index), but a path is *transferable*.
+  `scanner.planTrackContinuity` (`trackcontinuity.go`), the first thing
+  `reconcile` does, re-points a row at the path its file moved to instead of
+  letting the move become a delete plus an insert — which would hard-delete the
+  track's `playlist_tracks`, `play_histories`, `play_queue_entries` and
+  `starred_items` rows via `DeleteOrphanedAggregates`. The proof per pair: equal
+  `file_size`, equal `title`, `duration` within ±1s, the old path **gone from
+  disk** (this is what tells a move from a copy), and exactly one vanished row
+  and one new file sharing the fingerprint (`file_mod_time` breaks a tie and is
+  never required, because plenty of copy tools do not preserve it). It runs
+  **before** `planAlbumContinuity` so a moved album is not counted as a split.
+  Deliberate misses: a move that also rewrote tags (the bytes change, so
+  `file_size` cannot anchor it), two files swapping paths, a move straddling two
+  scan runs, and any ambiguous fingerprint — a false match would merge two
+  tracks' listening history, which is worse than losing one's.
+  Design: [`../superpowers/specs/2026-08-18-track-identity-across-moves-design.md`](../superpowers/specs/2026-08-18-track-identity-across-moves-design.md).
 - **Album identity is the composite unique index** `(name_norm,
   album_artist_norm, mb_release_id)` — created in `model.Migrate`, matched by
   `store.FindOrCreateAlbum`, and derived from tags by **one** function,
