@@ -261,3 +261,75 @@ func TestScannerKeepsAllTagValues(t *testing.T) {
 		t.Fatalf("expected 2 genres, got %d", genreCount)
 	}
 }
+
+// A library root that is gone (an unmounted share) must fail the scan. Walking
+// it yields zero files and no error, which store.Cleanup would read as "the user
+// deleted their whole library" and act on.
+func TestScanFailsWhenTheLibraryRootIsMissing(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
+		t.Fatal("expected an error when the library root is gone")
+	}
+
+	var count int64
+	st.DB().Model(&model.Track{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("the indexed track must survive an unreadable root, got %d rows", count)
+	}
+}
+
+// The mountpoint case: the directory exists and is empty, so it stats fine. The
+// only evidence that this is not a deletion is that the DB still holds tracks
+// for the library.
+func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(dir, "Artist")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
+		t.Fatal("expected an error when a library with indexed tracks holds no audio files")
+	}
+
+	var count int64
+	st.DB().Model(&model.Track{}).Count(&count)
+	if count != 1 {
+		t.Fatalf("the indexed track must survive, got %d rows", count)
+	}
+}
+
+// The guard must not block the legitimate empty case: a freshly added library
+// with nothing in it yet.
+func TestScanAllowsAnEmptyLibraryWithNothingIndexed(t *testing.T) {
+	st := testScanStore(t)
+	seedLibrary(t, st, t.TempDir(), nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
+	if err != nil {
+		t.Fatalf("an empty library with no indexed tracks must scan cleanly: %v", err)
+	}
+	if stats.TracksProcessed != 0 {
+		t.Fatalf("expected 0 tracks processed, got %d", stats.TracksProcessed)
+	}
+}

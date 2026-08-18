@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"regexp"
 	"runtime"
 	"sync"
@@ -82,6 +83,10 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 }
 
 func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart time.Time, opts ScanOptions, stats *ScanStats) error {
+	if err := checkLibraryRoot(lib.Path); err != nil {
+		return fmt.Errorf("library %q: %w", lib.Name, err)
+	}
+
 	now := time.Now()
 	lib.LastScanStartedAt = &now
 	if err := s.store.UpdateLibrary(lib); err != nil {
@@ -96,6 +101,24 @@ func (s *Scanner) scanLibrary(ctx context.Context, lib *model.Library, scanStart
 	walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
 	if err != nil {
 		return err
+	}
+
+	// An absent tree is not an empty tree. Walk swallows every error, including
+	// the root's, so a share that is present but unpopulated (a bare mountpoint)
+	// looks exactly like a library the user emptied — and Cleanup would delete
+	// every track of it, with the playlists, stars, play history and queue
+	// entries attached to them. The DB still holding tracks is the only evidence
+	// available, so it decides.
+	if len(walkResults) == 0 {
+		indexed, err := s.store.CountTracksForLibrary(lib.ID)
+		if err != nil {
+			return fmt.Errorf("library %q: count indexed tracks: %w", lib.Name, err)
+		}
+		if indexed > 0 {
+			return fmt.Errorf("library %q: no audio files under %q but %d tracks are indexed; "+
+				"refusing to delete them — check that the path is mounted, or delete the library "+
+				"in Settings → Libraries if it really is gone", lib.Name, lib.Path, indexed)
+		}
 	}
 
 	allPaths := make([]string, len(walkResults))
@@ -212,3 +235,17 @@ func compileExcludes(jsonPatterns string) ([]*regexp.Regexp, error) {
 	return out, nil
 }
 
+// checkLibraryRoot refuses to scan a root the walk could not read. filepath.WalkDir
+// reports the root's own stat error to the walk function, which swallows it
+// (walk.go), so without this an unmounted library scans "successfully" with zero
+// results and Cleanup deletes everything in it.
+func checkLibraryRoot(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("root %q is unavailable: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("root %q is not a directory", path)
+	}
+	return nil
+}
