@@ -9,8 +9,8 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Artist, error) {
-	artists := make([]*model.Artist, 0, len(names))
+func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*model.Artist, gained []*model.Artist, err error) {
+	artists = make([]*model.Artist, 0, len(names))
 	for i, name := range names {
 		mbid := ""
 		if i < len(mbids) {
@@ -23,29 +23,37 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) ([]*model.Ar
 			// A real DB failure must not be mistaken for "artist does not
 			// exist" — creating a duplicate row on top of a transient error is
 			// how a scan silently corrupts the artist index.
-			return nil, err
+			return nil, nil, err
 		}
 		if err != nil {
 			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 			if err := s.db.Create(&artist).Error; err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		} else if mbid != "" && artist.MBArtistID != mbid {
 			// Tag is source of truth: overwrite a differing (or previously
 			// empty) MBID and reset the image-fetch timestamp so the artist
 			// image is refetched for the corrected match.
+			oldMBID := artist.MBArtistID
 			artist.MBArtistID = mbid
 			artist.LastImageFetchAt = nil
 			if err := s.db.Model(&artist).Updates(map[string]interface{}{
 				"mb_artist_id":        mbid,
 				"last_image_fetch_at": nil,
 			}).Error; err != nil {
-				return nil, err
+				return nil, nil, err
+			}
+			// Report this artist as having gained an MBID only when the old
+			// MBID was empty. An MBID change (old != "" && old != new) is not
+			// provably a rename — it could be a mistaken match being corrected
+			// — so we do not attempt to preserve the old MBID's manual cover.
+			if oldMBID == "" {
+				gained = append(gained, &artist)
 			}
 		}
 		artists = append(artists, &artist)
 	}
-	return artists, nil
+	return artists, gained, nil
 }
 
 // GetArtists returns the artist index: artists credited on at least one album

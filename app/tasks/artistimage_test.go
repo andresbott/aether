@@ -72,7 +72,7 @@ func (f *errFetcher) Fetch(_ context.Context, _ string) ([]byte, string, error) 
 func TestFetchTaskLogsFetchErrors(t *testing.T) {
 	st := newTestStore(t)
 	_ = st.Transaction(func(tx *store.Store) error {
-		_, e := tx.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"mbid-pf"})
+		_, _, e := tx.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"mbid-pf"})
 		return e
 	})
 	as := assetstore.New(t.TempDir())
@@ -110,7 +110,7 @@ func TestFetchTaskLogsFetchErrors(t *testing.T) {
 func TestFetchTaskStoresImageAndSkipsExisting(t *testing.T) {
 	st := newTestStore(t)
 	_ = st.Transaction(func(tx *store.Store) error {
-		_, e := tx.FindOrCreateArtists([]string{"A"}, []string{"mbid-a"})
+		_, _, e := tx.FindOrCreateArtists([]string{"A"}, []string{"mbid-a"})
 		return e
 	})
 	as := assetstore.New(t.TempDir())
@@ -140,7 +140,7 @@ func TestFetchAndStoreArtistImage_Success(t *testing.T) {
 	st := newTestStore(t)
 	var artist *model.Artist
 	_ = st.Transaction(func(tx *store.Store) error {
-		artists, e := tx.FindOrCreateArtists([]string{"A"}, []string{"mbid-a"})
+		artists, _, e := tx.FindOrCreateArtists([]string{"A"}, []string{"mbid-a"})
 		artist = artists[0]
 		return e
 	})
@@ -163,7 +163,7 @@ func TestFetchAndStoreArtistImage_NoImageFound(t *testing.T) {
 	st := newTestStore(t)
 	var artist *model.Artist
 	_ = st.Transaction(func(tx *store.Store) error {
-		artists, e := tx.FindOrCreateArtists([]string{"B"}, []string{"mbid-b"})
+		artists, _, e := tx.FindOrCreateArtists([]string{"B"}, []string{"mbid-b"})
 		artist = artists[0]
 		return e
 	})
@@ -183,7 +183,7 @@ func TestFetchAndStoreArtistImage_FetchError(t *testing.T) {
 	st := newTestStore(t)
 	var artist *model.Artist
 	_ = st.Transaction(func(tx *store.Store) error {
-		artists, e := tx.FindOrCreateArtists([]string{"C"}, []string{"mbid-c"})
+		artists, _, e := tx.FindOrCreateArtists([]string{"C"}, []string{"mbid-c"})
 		artist = artists[0]
 		return e
 	})

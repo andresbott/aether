@@ -270,7 +270,7 @@ func TestSearchMusicBrainzReleases_UpstreamError(t *testing.T) {
 
 func TestSetMBID_SetsAndFetchesImage(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{data: []byte("IMG"), ext: "jpg"})
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestSetMBID_SetsAndFetchesImage(t *testing.T) {
 func TestSetMBID_ClearSkipsFetch(t *testing.T) {
 	fetcher := &fakeFetcher{data: []byte("IMG"), ext: "jpg"}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestSetMBID_ClearSkipsFetch(t *testing.T) {
 
 func TestSetMBID_InvalidUUID(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestSetMBID_UnknownArtist404(t *testing.T) {
 func TestSetMBID_FetchFailureStillSavesMbid(t *testing.T) {
 	fetcher := &fakeFetcher{err: errors.New("provider down")}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func TestSetMBID_FetchFailureStillSavesMbid(t *testing.T) {
 func TestSetMBID_NoImageFoundSetsFetchError(t *testing.T) {
 	fetcher := &fakeFetcher{}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestSetMBID_NoImageFoundSetsFetchError(t *testing.T) {
 
 func TestGetMBID_ReturnsCurrentValue(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"existing-mbid"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"existing-mbid"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestGetArtistImageSource_FolderImage(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 // avatar; the UI shows no note for that.
 func TestGetArtistImageSource_None(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func TestGetArtistImageSource_None(t *testing.T) {
 // getCoverArt would fall through to the generated avatar.
 func TestGetArtistImageSource_MissingFolderImage(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +634,7 @@ func TestGetArtistImageSource_DistinguishesUploadFromFetched(t *testing.T) {
 			r := mux.NewRouter()
 			h.Routes(r)
 
-			artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+			artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -678,7 +678,7 @@ func TestGetArtistImageSource_FolderReportsFilename(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +785,7 @@ func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -829,7 +829,7 @@ func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -865,7 +865,7 @@ func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
 
 func TestSetArtistImageFromSearch_NoImageFound(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{})
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/unidecode"
@@ -17,6 +18,11 @@ type reconcileStats struct {
 	Processed int
 	New       int
 	Updated   int
+}
+
+type artistRekey struct {
+	nameNorm string
+	mbid     string
 }
 
 func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time) (reconcileStats, error) {
@@ -48,16 +54,22 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 		}
 	}
 
+	var pendingArtistRekeys []artistRekey
+
 	for _, tr := range results {
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
 
+		pendingArtistRekeys = pendingArtistRekeys[:0]
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats)
+			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats, &pendingArtistRekeys)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
 			continue
+		}
+		for _, rk := range pendingArtistRekeys {
+			s.rekeyArtistImages(rk)
 		}
 		stats.Processed++
 	}
@@ -65,22 +77,28 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats, pendingArtistRekeys *[]artistRekey) error {
 	meta := tr.meta
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
 	// through the reader as separate list entries already.
 	artistNames := TrackArtistNames(meta)
-	artists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
+	artists, gainedTrackArtists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
 		return err
+	}
+	for _, a := range gainedTrackArtists {
+		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
 	}
 
 	// Resolve album artists
 	albumArtistNames := AlbumArtistNames(meta)
-	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
+	albumArtists, gainedAlbumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
 		return err
+	}
+	for _, a := range gainedAlbumArtists {
+		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
 	}
 
 	// Detect an artist-folder image for every artist this track mentions.
@@ -272,4 +290,22 @@ func alignMBIDs(names, mbids []string) []string {
 		return mbids
 	}
 	return nil
+}
+
+// rekeyArtistImages moves the artist's stored images from the name-hash key to
+// the MBID key, so a manual cover survives the MBID gain. It is called after a
+// successful per-track transaction and is optional (no hook, no error). Any
+// failure is tolerated: the row moved and the image did not, which is today's
+// behaviour and recoverable.
+func (s *Scanner) rekeyArtistImages(rk artistRekey) {
+	if s.cfg.AssetRekeyer == nil {
+		return
+	}
+	oldKey := assetkey.Artist("", rk.nameNorm)
+	newKey := assetkey.Artist(rk.mbid, rk.nameNorm)
+	// "artist" is assetstore.KindArtist, duplicated to keep this package free of an assetstore import.
+	if err := s.cfg.AssetRekeyer.Rekey("artist", oldKey, newKey); err != nil {
+		slog.Warn("artist image re-key failed; the row moved but the stored images did not",
+			"name_norm", rk.nameNorm, "mbid", rk.mbid, "old_key", oldKey, "new_key", newKey, "err", err)
+	}
 }
