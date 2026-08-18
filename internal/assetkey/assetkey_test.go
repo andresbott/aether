@@ -217,6 +217,39 @@ func TestPlaylistDistinctness(t *testing.T) {
 	}
 }
 
+// TestPlaylistEmptyUUID verifies an empty UUID returns an empty key rather than
+// a hash. This is intentional: rows created before this change carry UUID = "",
+// and returning a hash would cause every legacy playlist to share one cover
+// directory — exactly the collision bug this branch exists to prevent.
+// assetstore.entityDir rejects an empty key, so a write attempt fails loudly
+// rather than colliding.
+func TestPlaylistEmptyUUID(t *testing.T) {
+	key := assetkey.Playlist("")
+	if key != "" {
+		t.Errorf("Playlist(\"\") = %q, want empty string to prevent collision", key)
+	}
+}
+
+// TestPlaylistOf verifies the helper extracts the UUID field correctly.
+func TestPlaylistOf(t *testing.T) {
+	p := &model.Playlist{UUID: "uuid-789"}
+	want := assetkey.Playlist("uuid-789")
+	got := assetkey.PlaylistOf(p)
+	if got != want {
+		t.Errorf("PlaylistOf = %q, want %q", got, want)
+	}
+}
+
+// TestPlaylistOfEmptyUUID verifies PlaylistOf on a row with an empty UUID
+// returns an empty key, matching the Playlist("") behavior.
+func TestPlaylistOfEmptyUUID(t *testing.T) {
+	p := &model.Playlist{UUID: ""}
+	key := assetkey.PlaylistOf(p)
+	if key != "" {
+		t.Errorf("PlaylistOf with empty UUID = %q, want empty string", key)
+	}
+}
+
 // TestRadioStability verifies the same stream URL yields the same key across calls.
 func TestRadioStability(t *testing.T) {
 	url := "https://example.com/stream"

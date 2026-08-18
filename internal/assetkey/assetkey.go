@@ -101,8 +101,21 @@ func GenreOf(g *model.Genre) string {
 // derived from tags, and a rebuild destroys the playlist itself — so there is
 // nothing to re-attach and a surrogate is the correct key. The UUID exists only
 // to stop a reused autoincrement id handing a stale cover to a new playlist.
+//
+// An empty UUID returns the empty string rather than a hash: rows created before
+// this change carry UUID = "", and returning a hash would cause every legacy
+// playlist to share one cover directory — exactly the collision bug this branch
+// exists to prevent. assetstore.entityDir rejects an empty key, so a write
+// attempt fails loudly rather than colliding.
 func Playlist(uuid string) string {
+	if uuid == "" {
+		return ""
+	}
 	return hashKey("playlist", uuid)
+}
+
+func PlaylistOf(p *model.Playlist) string {
+	return Playlist(p.UUID)
 }
 
 // Radio keys on the stream URL, which is the station's natural identity.

@@ -1,12 +1,31 @@
 package store
 
 import (
+	"crypto/rand"
+	"fmt"
+
 	"github.com/andresbott/aether/internal/model"
 	"gorm.io/gorm"
 )
 
+// generateUUID creates a random v4-style UUID using crypto/rand.
+func generateUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	// Set version (4) and variant (RFC 4122)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
 func (s *Store) CreatePlaylist(name, owner string, public bool, trackIDs []uint) (*model.Playlist, error) {
-	pl := model.Playlist{Name: name, Owner: owner, Public: public}
+	uuid, err := generateUUID()
+	if err != nil {
+		return nil, err
+	}
+	pl := model.Playlist{UUID: uuid, Name: name, Owner: owner, Public: public}
 	if err := s.db.Create(&pl).Error; err != nil {
 		return nil, err
 	}
