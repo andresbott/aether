@@ -34,8 +34,19 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
     - Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile re-detects the stored path every pass, but nothing arbitrates between albums competing for one file.
       (updated: reconcile now *always* re-detects rather than only when the stored path is unusable, so a newly written `cover.jpg` supersedes an existing `folder.jpg`. It deliberately does **not** re-detect when the current track's directory holds no art and the album's stored cover lives in a sibling directory — otherwise an art-less disc folder of a multi-disc release blanks the whole album's cover. `IsUsableCoverPath` guards exactly that case. See `internal/scanner/reconcile.go` and the multi-disc regression test in `reconcile_test.go`.)
       (one contributing cause removed: the grid/list components now build their cover URLs through `versionedCoverUrl` like the artist ones do, so an *own* cover edited in-session no longer lingers from the browser's image cache. That was a separate mechanism from the wrong-album problem, which is still open.)
--  [] Album ids are not stable across the very edits this editor performs.
-      (now higher stakes: manual album covers are keyed by the album's DB id in the asset store (`assetstore.KindAlbum`), and album rows are hard-deleted and re-created when tags change — as `internal/scanner/blastradius_throwaway_test.go` documents. So retagging an album orphans its uploaded cover: the directory survives under a dead id and the new album row has none. This was equally true of the old metadata-editor `db` slot, but `updateAlbum` is now the *only* way to set a manual album cover, so the id instability is the whole feature's durability story. A content- or MBID-derived key would survive; that decision belongs with this item.)
+- [x] Album ids are not stable across the very edits this editor performs.
+      (done: `scanner.planAlbumContinuity` retags an album row in place when a
+      whole album moves in one pass, so `albums.id` and `created_at` — and with
+      them the manual cover in the asset store, stars, the `newest` ordering,
+      the discovery feed's recency term and client-cached `/album/:id` — survive
+      the editor's retags, including `identify-album` writing an MBID to a whole
+      selection. Partial edits, splits, merges into an existing identity and
+      identity swaps still churn by design; a merge inside one batch keeps the
+      largest album's row. See
+      [`docs/superpowers/specs/2026-08-18-album-identity-continuity.md`](docs/superpowers/specs/2026-08-18-album-identity-continuity.md)
+      and the identity rules in `docs/agents/scanning.md`. **Still open:** the
+      asset-store / image-cache sweep for albums that genuinely disappear —
+      that is the item below on resource leaks, not this one.)
 
 
 
@@ -153,6 +164,13 @@ to be planned work.
     - **OpenSubsonic has no mechanism for this.** `savePlayQueue`'s `id`/`current` are defined strictly as song ids; `PlayQueue.entry` is an array of `Child` ("the list of songs in the queue") with a MUST that `current` be "a valid id in the list of songs"; `Child.type` ∈ `{music, podcast, audiobook, video}` and `mediaType` ∈ `{song, album, artist}` — no stream/radio value, no `streamUrl` field. Stations are a separate entity with their own CRUD: the spec's model is that a station is something you *play*, not something you *queue*. The extension registry (11 entries) has nothing for it — podcast episodes got a dedicated extension, radio-in-queue never did — so there is no upstream extension to adopt, only one to author.
     - **Options:** **(A)** follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. **(B)** author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later.
     - **Trap for (B):** `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves **track 3's file**. A latent bug a radio-in-queue design walks straight into — and worth fixing on its own regardless.
+
+- [ ] **Rebuilding the DB without also wiping the asset store attaches stored images to the wrong entities.** Post-1.0 investigation: decide whether it is worth fixing at all, and if so whether the answer is UUIDs (or another non-positional key) instead of table ids. Direction deliberately open.
+    - **Root cause:** durable images are filed under the entity's *autoincrement primary key* — `strconv(album.ID)` for album covers (`handlers/subsonic/albums.go:51`), the same for genres (`updateGenre`), the DB-ID slot for artists (`artistCoverKey`), and every `imagecache` derivative (`subsonic/media.go:172`). Those ids are positional: they are handed out in the order the scanner happens to reconcile tracks. Drop the DB, keep `data/metadata/`, rescan — album 5 is now a *different* album, and it inherits the cover uploaded for the old album 5. Not a leak (that is the separate never-evicted problem below), an actual **mix-up**: wrong art on the wrong album, silently, with no way to tell from the UI.
+    - **Same root as "album ids are not stable"** (see Backend — Data Integrity & Scanning) but a distinct failure mode: that one *loses* an image on retag, this one *misattributes* one on rebuild. Preserving the album row across retags does nothing for this — a rebuild restarts the counter regardless.
+    - **Current mitigation is procedural only:** drop `data/metadata/` whenever you drop the DB. Fine while there are no users, worthless as advice once there are, and it throws away every manual cover to fix an attribution bug.
+    - **Note what is already immune:** the artist MBID slot and `RadioKey(streamURL)` are content-derived, so they survive a rebuild intact — which is the existing precedent that a non-positional key works here (`docs/superpowers/specs/2026-06-30-durable-artist-image-store-design.md`).
+    - **Open questions for the scoping pass:** is a per-entity UUID column enough (assigned at create, keyed on by the asset store), or does it just relocate the problem — a rebuild mints *new* UUIDs too, so the store would still need a way to re-attach them to the same album; does that push toward a genuinely content-derived key (tag tuple, directory, MBID) with all the churn trade-offs already catalogued; or is the honest answer a rebuild-time reconciliation step / sidecar manifest mapping stored assets back to entities. Also: whether "rebuild the DB" should stay a supported operation at all once 1.0 has users, since that is the only trigger.
 
 ---
 

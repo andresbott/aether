@@ -106,10 +106,28 @@ tag and picture writes.
   delete + insert.
 - **Album identity is the composite unique index** `(name_norm,
   album_artist_norm, mb_release_id)` — created in `model.Migrate`, matched by
-  `store.FindOrCreateAlbum`. All three parts flow through
-  `unidecode.Normalize` (lowercase ASCII transliteration) where applicable.
-  Change album identity semantics in both places or scans will duplicate
-  albums.
+  `store.FindOrCreateAlbum`, and derived from tags by **one** function,
+  `scanner.AlbumIdentityOf` (`internal/scanner/albumidentity.go`), which
+  `reconcileTrack` and `planAlbumContinuity` both call. All three parts flow
+  through `unidecode.Normalize` (lowercase ASCII transliteration) where
+  applicable. Change album identity semantics in **all** of those places or
+  scans will duplicate albums.
+- **Album *row continuity* is decided by track-set overlap, not by the tuple.**
+  `scanner.planAlbumContinuity` (`albumcontinuity.go`), which runs once per
+  `reconcile` batch before the per-track loop, retags an album row **in place**
+  when every track the album currently holds is in this batch, they all resolve
+  to the same new identity, and no other row holds it. That keeps `albums.id`
+  and `created_at` across the retags the metadata editor performs — and with
+  them the manual cover in the asset store (keyed on the DB id in
+  `handlers/subsonic/albums.go`), stars, the `newest` ordering, the discovery
+  feed's recency term, and client-cached `/album/:id`. Everything unprovable
+  falls through to `FindOrCreateAlbum` and churns the id as before: partial
+  edits, splits, merges into an existing identity, identity swaps, albums
+  spanning two libraries (`reconcile` runs per library), and albums with a track
+  deleted from disk but not yet swept by `Cleanup`. Several albums collapsing
+  into one identity in one batch keep the row of the album with the most tracks
+  (lowest id as tiebreak) — deliberately independent of tag-reader ordering.
+  Design: [`../superpowers/specs/2026-08-18-album-identity-continuity.md`](../superpowers/specs/2026-08-18-album-identity-continuity.md).
 - Fallbacks when tags are empty: artist → "Unknown Artist"; album artist →
   "Various Artists" if `Compilation`, else the track artists; album →
   "Unknown Album".
@@ -208,7 +226,15 @@ user picks by name rather than the artist's stored `MBArtistID`:
 ## Known scanner debt (TODO.md, direction chosen)
 
 - Full scan should drop-and-reinsert a track's derived rows so renamed
-  artists/genres don't linger (currently updates in place).
+  artists/genres don't linger (currently updates in place). **Scope it to
+  associations and track-level rows only** — dropping and re-inserting *album*
+  rows would re-introduce the id churn `planAlbumContinuity` exists to prevent,
+  taking stars, manual covers and `created_at` with it.
+- Artists and genres still churn their ids on a rename: `artists.name_norm` and
+  `genres.name` are their identities, and artist covers key on **MBID or DB id**,
+  so the DB-id slot fails exactly as album covers did. The album planner
+  generalises, but the continuity signal is weaker for an artist; needs its own
+  spec.
 - `FindOrCreateArtists`/`FindOrCreateAlbum` should use
   `errors.Is(err, gorm.ErrRecordNotFound)` to distinguish not-found from
   real DB errors.
