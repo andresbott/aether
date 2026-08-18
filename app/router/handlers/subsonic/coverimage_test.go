@@ -341,7 +341,7 @@ func TestGetCoverArtFallsBackToGeneratedWhenSourceIsUndecodable(t *testing.T) {
 	}
 	as := assetstore.New(t.TempDir())
 	// Right magic bytes, no decodable image behind them.
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png",
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png",
 		[]byte("\x89PNG\r\n\x1a\nTRUNCATED")); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
