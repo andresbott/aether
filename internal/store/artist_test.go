@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/unidecode"
 	"gorm.io/gorm"
 )
 
@@ -412,7 +413,9 @@ func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file 
 	if err != nil {
 		t.Fatal(err)
 	}
-	album, err := s.FindOrCreateAlbum("Album of "+artistName, artistName, "")
+	albumName := "Album of " + artistName
+	ident := store.AlbumIdentity{Name: albumName, NameNorm: unidecode.Normalize(albumName), AlbumArtistNorm: artistName, MBReleaseID: ""}
+	album, err := s.FindOrCreateAlbum(ident)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +443,8 @@ func seedGuestAppearance(t *testing.T, s *store.Store, libID uint, albumName, ow
 	if err != nil {
 		t.Fatal(err)
 	}
-	album, err = s.FindOrCreateAlbum(albumName, ownerName, "")
+	ident := store.AlbumIdentity{Name: albumName, NameNorm: unidecode.Normalize(albumName), AlbumArtistNorm: ownerName, MBReleaseID: ""}
+	album, err = s.FindOrCreateAlbum(ident)
 	if err != nil {
 		t.Fatal(err)
 	}

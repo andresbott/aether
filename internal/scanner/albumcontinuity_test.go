@@ -195,8 +195,8 @@ func TestRescanPathsSplitsAnAlbumWhenOnlySomeTracksAreRetagged(t *testing.T) {
 	}
 }
 
-// A batch that disagrees with itself is a split, not a rename: the row keeps
-// its identity and the moved track gets a new row.
+// A batch that disagrees with itself is a split, not a rename: every track moves
+// but they disagree on the target, so no row is retagged and the originals die.
 func TestReconcileDoesNotRetagWhenTheBatchDisagrees(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
@@ -214,9 +214,13 @@ func TestReconcileDoesNotRetagWhenTheBatchDisagrees(t *testing.T) {
 	}
 	before := theOnlyAlbum(t, st)
 
-	// One of the three files now claims a different album; the other two do not.
+	// Every track moves to a different new identity: two targets, both different
+	// from what the row currently holds. The planner declines (batch disagrees),
+	// falls back to FindOrCreate, and both targets get fresh rows.
 	reader.perPath = map[string]string{
-		filepath.Join(dir, "Apocalyptica/Cult/03.mp3"): "Cult (Bonus)",
+		filepath.Join(dir, "Apocalyptica/Cult/01.mp3"): "One",
+		filepath.Join(dir, "Apocalyptica/Cult/02.mp3"): "Two",
+		filepath.Join(dir, "Apocalyptica/Cult/03.mp3"): "Two",
 	}
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
@@ -227,10 +231,14 @@ func TestReconcileDoesNotRetagWhenTheBatchDisagrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(albums) != 2 {
-		t.Fatalf("expected 2 rows after the split, got %d: %+v", len(albums), albums)
+		t.Fatalf("expected 2 rows (One + Two), got %d: %+v", len(albums), albums)
 	}
-	if albums[0].ID != before.ID || albums[0].NameNorm != "cult" {
-		t.Fatalf("the majority must keep the original row untouched: %+v", albums[0])
+	// The decisive assertion: neither carries the original album's id. If either
+	// did, it would mean the planner renamed on a split, which is the bug.
+	for _, album := range albums {
+		if album.ID == before.ID {
+			t.Fatalf("original album %d survived; the planner renamed on a disagreeing batch: %+v", before.ID, album)
+		}
 	}
 }
 
@@ -285,7 +293,8 @@ func TestReconcileMergesIntoAnExistingAlbumIdentity(t *testing.T) {
 // Two albums collapsing into one identity in a single batch: one row must die,
 // but which one must not depend on the order the tag readers finished in. The
 // album with more tracks keeps its id, so the odds of preserving a cover or a
-// star are as high as they can be.
+// star are as high as they can be. Three claimants with distinct track counts
+// makes an arbitrary pick wrong ~2/3 of the time.
 func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
@@ -294,14 +303,22 @@ func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 		"Apocalyptica/CD1/02.mp3",
 		"Apocalyptica/CD1/03.mp3",
 		"Apocalyptica/CD2/04.mp3",
+		"Apocalyptica/CD2/05.mp3",
+		"Apocalyptica/CD3/06.mp3",
 	})
 	seedLibrary(t, st, dir, nil)
 
-	disc2 := filepath.Join(dir, "Apocalyptica/CD2/04.mp3")
+	cd2a := filepath.Join(dir, "Apocalyptica/CD2/04.mp3")
+	cd2b := filepath.Join(dir, "Apocalyptica/CD2/05.mp3")
+	cd3 := filepath.Join(dir, "Apocalyptica/CD3/06.mp3")
 	reader := &retagReader{
 		album:       "Cult (Disc 1)",
 		albumArtist: "Apocalyptica",
-		perPath:     map[string]string{disc2: "Cult (Disc 2)"},
+		perPath: map[string]string{
+			cd2a: "Cult (Disc 2)",
+			cd2b: "Cult (Disc 2)",
+			cd3:  "Cult (Disc 3)",
+		},
 	}
 	s := scanner.New(scanner.Config{}, st, reader)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -313,7 +330,7 @@ func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Both discs are retagged to one album name.
+	// All three discs are retagged to one album name.
 	reader.album = "Cult"
 	reader.perPath = nil
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {

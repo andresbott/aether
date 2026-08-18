@@ -4,6 +4,7 @@ package scanner
 import (
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/andresbott/aether/internal/store"
 )
@@ -84,7 +85,11 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 			targets[target.Key()] = target
 		}
 
-		for key, sources := range claims {
+		// Iterate claims in a stable order so chained renames are deterministic.
+		keys := sortedIdentityKeys(claims)
+
+		for _, key := range keys {
+			sources := claims[key]
 			taken, err := tx.AlbumIDForIdentity(key)
 			if err != nil {
 				return err
@@ -101,8 +106,12 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 			}
 			slog.Info("album retagged in place",
 				"album_id", survivor, "merged_from", len(sources)-1,
-				"prev_name", held[survivor].Name, "prev_album_artist_norm", held[survivor].AlbumArtistNorm,
-				"name", targets[key].Name, "album_artist_norm", targets[key].AlbumArtistNorm)
+				"prev_name_norm", held[survivor].NameNorm,
+				"prev_album_artist_norm", held[survivor].AlbumArtistNorm,
+				"prev_mb_release_id", held[survivor].MBReleaseID,
+				"name_norm", targets[key].NameNorm,
+				"album_artist_norm", targets[key].AlbumArtistNorm,
+				"mb_release_id", targets[key].MBReleaseID)
 		}
 		return nil
 	})
@@ -136,4 +145,23 @@ func pickAlbumSurvivor(sources []uint, counts map[uint]int) uint {
 		}
 	}
 	return best
+}
+
+// sortedIdentityKeys returns the keys of claims sorted by (NameNorm,
+// AlbumArtistNorm, MBReleaseID), making iteration over claims deterministic.
+func sortedIdentityKeys(claims map[store.AlbumIdentityKey][]uint) []store.AlbumIdentityKey {
+	keys := make([]store.AlbumIdentityKey, 0, len(claims))
+	for key := range claims {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].NameNorm != keys[j].NameNorm {
+			return keys[i].NameNorm < keys[j].NameNorm
+		}
+		if keys[i].AlbumArtistNorm != keys[j].AlbumArtistNorm {
+			return keys[i].AlbumArtistNorm < keys[j].AlbumArtistNorm
+		}
+		return keys[i].MBReleaseID < keys[j].MBReleaseID
+	})
+	return keys
 }

@@ -87,7 +87,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	// used to decide whether this album's row could be retagged in place, so a
 	// row it retagged is found here rather than duplicated.
 	ident := AlbumIdentityOf(meta)
-	album, err := tx.FindOrCreateAlbum(ident.Name, ident.AlbumArtistNorm, ident.MBReleaseID)
+	album, err := tx.FindOrCreateAlbum(ident)
 	if err != nil {
 		return err
 	}

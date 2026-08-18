@@ -126,7 +126,9 @@ tag and picture writes.
   spanning two libraries (`reconcile` runs per library), and albums with a track
   deleted from disk but not yet swept by `Cleanup`. Several albums collapsing
   into one identity in one batch keep the row of the album with the most tracks
-  (lowest id as tiebreak) — deliberately independent of tag-reader ordering.
+  (lowest id as tiebreak). The entire pre-pass is deliberately independent of
+  tag-reader ordering — the survivor pick and the iteration order over claims
+  are both deterministic.
   Design: [`../superpowers/specs/2026-08-18-album-identity-continuity.md`](../superpowers/specs/2026-08-18-album-identity-continuity.md).
 - Fallbacks when tags are empty: artist → "Unknown Artist"; album artist →
   "Various Artists" if `Compilation`, else the track artists; album →
