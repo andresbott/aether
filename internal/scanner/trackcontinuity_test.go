@@ -502,3 +502,180 @@ func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
 		t.Fatalf("the other file must have a different id, got %d", otherRow.ID)
 	}
 }
+
+// The whole point. Each of these four is hard-deleted by
+// DeleteOrphanedAggregates when a track id dies (internal/store/scan_helpers.go)
+// and none of it is recoverable or re-derivable — it is the user's own data.
+func TestScanMoveKeepsPlaylistsStarsHistoryAndQueue(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+
+	if _, err := st.CreatePlaylist("Mix", "alice", false, []uint{before.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Star("alice", "track", before.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordPlay("alice", before.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SavePlayQueue("alice", []uint{before.ID}, 0, 0, "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.mp3")
+	moveFile(t, reader, src, dst)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("track id changed on a move: was %d, now %d", before.ID, after.ID)
+	}
+
+	for _, c := range []struct {
+		table string
+		where string
+		args  []any
+	}{
+		{"playlist_tracks", "track_id = ?", []any{before.ID}},
+		{"starred_items", "item_type = ? AND item_id = ?", []any{"track", before.ID}},
+		{"play_histories", "track_id = ?", []any{before.ID}},
+		{"play_queue_entries", "track_id = ?", []any{before.ID}},
+	} {
+		var n int64
+		if err := st.DB().Table(c.table).Where(c.where, c.args...).Count(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("%s: expected 1 row for track %d after the move, found %d", c.table, before.ID, n)
+		}
+	}
+}
+
+// Moving a file into another collection keeps the row and rewrites library_id.
+// The source library keeps a second file so the move does not empty it — an
+// emptied library is a different case, and the sweep guard (Task 6) stops the
+// scan there on purpose.
+func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
+	st := testScanStore(t)
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	createTestFiles(t, dirA, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
+	createTestFiles(t, dirB, []string{"Metallica/S&M/01.mp3"})
+	seedLibrary(t, st, dirA, nil)
+	libB := seedLibrary(t, st, dirB, nil)
+
+	moving := filepath.Join(dirA, "Apocalyptica/Cult/01.mp3")
+	stayingA := filepath.Join(dirA, "Apocalyptica/Cult/02.mp3")
+	stayingB := filepath.Join(dirB, "Metallica/S&M/01.mp3")
+	reader := &movingTagReader{titles: map[string]string{
+		moving:   "Path Of Glory",
+		stayingA: "Beyond Time",
+		stayingB: "No Leaf Clover",
+	}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var before model.Track
+	if err := st.DB().Where("file_path = ?", moving).First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(dirB, "Apocalyptica/Cult/01.mp3")
+	moveFile(t, reader, moving, dst)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var after model.Track
+	if err := st.DB().Where("file_path = ?", dst).First(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("track id changed on a cross-library move: was %d, now %d", before.ID, after.ID)
+	}
+	if after.LibraryID != libB.ID {
+		t.Fatalf("LibraryID = %d, want the destination library %d", after.LibraryID, libB.ID)
+	}
+}
+
+// A whole album folder moved: every track id survives, and so does the album
+// row. The album part is a regression guard on the ordering inside reconcile —
+// planAlbumContinuity counts an album's tracks by looking up the batch's paths,
+// so re-linking has to happen first for a move never to look like a split.
+func TestScanKeepsTrackAndAlbumIdentityWhenAWholeAlbumMoves(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Apocalyptica/Cult/01.mp3",
+		"Apocalyptica/Cult/02.mp3",
+		"Apocalyptica/Cult/03.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	titles := map[string]string{}
+	for i, name := range []string{"01.mp3", "02.mp3", "03.mp3"} {
+		titles[filepath.Join(dir, "Apocalyptica/Cult", name)] = string(rune('A' + i))
+	}
+	reader := &movingTagReader{titles: titles}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeIDs := map[string]uint{}
+	var seeded []model.Track
+	if err := st.DB().Find(&seeded).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, track := range seeded {
+		beforeIDs[track.Title] = track.ID
+	}
+	if len(beforeIDs) != 3 {
+		t.Fatalf("expected 3 distinct titles, got %d", len(beforeIDs))
+	}
+	beforeAlbum := theOnlyAlbum(t, st)
+
+	for _, name := range []string{"01.mp3", "02.mp3", "03.mp3"} {
+		moveFile(t, reader,
+			filepath.Join(dir, "Apocalyptica/Cult", name),
+			filepath.Join(dir, "Music/Apocalyptica - Cult", name))
+	}
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var moved []model.Track
+	if err := st.DB().Find(&moved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 3 {
+		t.Fatalf("expected 3 rows after the move, got %d", len(moved))
+	}
+	for _, track := range moved {
+		if beforeIDs[track.Title] != track.ID {
+			t.Errorf("%q: id changed from %d to %d", track.Title, beforeIDs[track.Title], track.ID)
+		}
+	}
+
+	afterAlbum := theOnlyAlbum(t, st)
+	if afterAlbum.ID != beforeAlbum.ID {
+		t.Fatalf("album id changed when the album moved: was %d, now %d", beforeAlbum.ID, afterAlbum.ID)
+	}
+	if !afterAlbum.CreatedAt.Equal(beforeAlbum.CreatedAt) {
+		t.Fatalf("album created_at changed (%v -> %v)", beforeAlbum.CreatedAt, afterAlbum.CreatedAt)
+	}
+}
