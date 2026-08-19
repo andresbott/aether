@@ -100,8 +100,7 @@ Items are split into **1.0** (the release gate), **Future releases**, and a
 
 ## Backend — Resource Leaks
 
-- [ ] Nothing ever evicts from the image cache — `Cache.Delete(kind, key)` exists (`internal/imagecache/imagecache.go:130`) and still has **zero callers of any kind, production or test**, so deleting an entity leaves its derivative directory behind forever. No prune task exists in `app/tasks` either. Superseded *fingerprints* of a still-live entry are already swept on rebuild (`Cache.sweep`), so this is only about entities that go away. Wire `Delete` in alongside the existing `assets.Delete` calls: `subsonic/artists.go:67`, `subsonic/genres.go:56`, `subsonic/playlists.go:330,355`, `subsonic/radio.go:226-274`, plus album deletion in the scanner's orphan cleanup (`store.DeleteOrphanedAggregates`, which has no assetstore counterpart today). Two traps:
-    - **The cache key is not always the assetstore key.** imagecache always keys on the DB ID (`media.go` `cacheKey:` sites), while assetstore keys can be an MBID (artist) or `RadioKey(streamURL)` (radio). Copying the key from the adjacent `assets.Delete` call would silently delete nothing — pass the DB ID.
+- [ ] Nothing ever evicts from the image cache — `Cache.Delete(kind, key)` exists (`internal/imagecache/imagecache.go:130`) and still has **zero callers of any kind, production or test**, so deleting an entity leaves its derivative directory behind forever. No prune task exists in `app/tasks` either. Superseded *fingerprints* of a still-live entry are already swept on rebuild (`Cache.sweep`), so this is only about entities that go away. Wire `Delete` in alongside the existing `assets.Delete` calls: `subsonic/artists.go:67`, `subsonic/genres.go:56`, `subsonic/playlists.go:330,355`, `subsonic/radio.go:226-274`, plus album deletion in the scanner's orphan cleanup (`store.DeleteOrphanedAggregates`, which has no assetstore counterpart today). One trap:
     - **Editor thumbnails (`kind: "editor"`) can't be swept this way at all** — `pictureThumbKey` keys them by a hash of the file path or the image bytes (`metadata/pictures.go:419`), which is not derivable from an entity id. They need either a different key scheme or an age-based sweep, so a periodic prune task in `app/tasks` may be the better shape for the whole problem than per-deletion hooks. **The editor-thumbnail half is the 1.0-critical part** — those grow on every normal use of the metadata editor, not just on deletion. The per-entity wiring could slip to a later release if needed.
 
 ## Frontend 
@@ -214,13 +213,29 @@ to be planned work.
     - **Options:** **(A)** follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. **(B)** author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later.
     - **Trap for (B):** `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves **track 3's file**. A latent bug a radio-in-queue design walks straight into — and worth fixing on its own regardless.
 
-- [ ] **Rebuilding the DB without also wiping the asset store attaches stored images to the wrong entities.** Post-1.0 investigation: decide whether it is worth fixing at all, and if so whether the answer is UUIDs (or another non-positional key) instead of table ids. Direction deliberately open.
-    - **Root cause:** durable images are filed under the entity's *autoincrement primary key* — `strconv(album.ID)` for album covers (`handlers/subsonic/albums.go:51`), the same for genres (`updateGenre`), the DB-ID slot for artists (`artistCoverKey`), and every `imagecache` derivative (`subsonic/media.go:172`). Those ids are positional: they are handed out in the order the scanner happens to reconcile tracks. Drop the DB, keep `data/metadata/`, rescan — album 5 is now a *different* album, and it inherits the cover uploaded for the old album 5. Not a leak (that is the separate never-evicted problem below), an actual **mix-up**: wrong art on the wrong album, silently, with no way to tell from the UI.
-    - **Same root as "album ids are not stable"** (see Backend — Data Integrity & Scanning) but a distinct failure mode: that one *loses* an image on retag, this one *misattributes* one on rebuild. Preserving the album row across retags does nothing for this — a rebuild restarts the counter regardless.
-    - **Scope this together with "Artist and genre ids churn on a rename"** in the same section: the cheap half of that item is "stop keying genre and unmatched-artist covers on a positional id", which is this item's question asked about two more entities. One non-positional-key decision answers both.
-    - **Current mitigation is procedural only:** drop `data/metadata/` whenever you drop the DB. Fine while there are no users, worthless as advice once there are, and it throws away every manual cover to fix an attribution bug.
-    - **Note what is already immune:** the artist MBID slot and `RadioKey(streamURL)` are content-derived, so they survive a rebuild intact — which is the existing precedent that a non-positional key works here (`docs/superpowers/specs/2026-06-30-durable-artist-image-store-design.md`).
-    - **Open questions for the scoping pass:** is a per-entity UUID column enough (assigned at create, keyed on by the asset store), or does it just relocate the problem — a rebuild mints *new* UUIDs too, so the store would still need a way to re-attach them to the same album; does that push toward a genuinely content-derived key (tag tuple, directory, MBID) with all the churn trade-offs already catalogued; or is the honest answer a rebuild-time reconciliation step / sidecar manifest mapping stored assets back to entities. Also: whether "rebuild the DB" should stay a supported operation at all once 1.0 has users, since that is the only trigger.
+- [x] **Rebuilding the DB without also wiping the asset store attaches stored images to the wrong entities.**
+    - **Shipped:** asset keys are derived from natural identity (`internal/assetkey`)
+      — the same tuple the database uses as its unique index — rather than
+      autoincrement ids. Albums hash `idx_album_identity`; matched artists keep
+      literal MBID keys (shared with the auto-fetcher); unmatched artists hash
+      `name_norm`; genres hash the raw name (no normalisation, because genre
+      names are stored and matched exactly); playlists key on a new `uuid` column
+      (user-owned rather than tag-derived); radio hashes the stream URL. The
+      imagecache uses the same key as its source asset. A rebuild re-attaches
+      every image to the entity that means the same thing — no misattribution, no
+      manifest, no reconciliation pass. Three re-key hooks carry images when
+      continuity moves the row: the album planner when it retags, an artist
+      gaining an MBID, and a radio stream-URL edit. All tolerate failure without
+      failing the scan or request. See `docs/agents/subsonic-api.md` (key scheme)
+      and `docs/agents/scanning.md` (re-key hooks).
+    - **Operational note:** changing the keys strands existing files under
+      `data/metadata/` at their old keys. Under the no-backwards-compatibility
+      rule, delete that directory and re-upload. A bridge would contradict the
+      project rule.
+    - **Still open:** artist and genre **rename** continuity — a renamed artist
+      is a different artist to the data model, and no continuity proof exists
+      (the album planner's proof does not transfer); star loss on aggregate churn
+      (row churn, not a key problem); imagecache eviction (the item below).
 
 ---
 

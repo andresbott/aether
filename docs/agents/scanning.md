@@ -198,18 +198,48 @@ tag and picture writes.
   when every track the album currently holds is in this batch, they all resolve
   to the same new identity, and no other row holds it. That keeps `albums.id`
   and `created_at` across the retags the metadata editor performs — and with
-  them the manual cover in the asset store (keyed on the DB id in
-  `handlers/subsonic/albums.go`), stars, the `newest` ordering, the discovery
-  feed's recency term, and client-cached `/album/:id`. Everything unprovable
-  falls through to `FindOrCreateAlbum` and churns the id as before: partial
-  edits, splits, merges into an existing identity, identity swaps, albums
-  spanning two libraries (`reconcile` runs per library), and albums with a track
-  deleted from disk but not yet swept by `Cleanup`. Several albums collapsing
-  into one identity in one batch keep the row of the album with the most tracks
-  (lowest id as tiebreak). The entire pre-pass is deliberately independent of
-  tag-reader ordering — the survivor pick and the iteration order over claims
-  are both deterministic.
+  them the manual cover in the asset store (via the re-key hook below), stars,
+  the `newest` ordering, the discovery feed's recency term, and client-cached
+  `/album/:id`. Everything unprovable falls through to `FindOrCreateAlbum` and
+  churns the id as before: partial edits, splits, merges into an existing
+  identity, identity swaps, albums spanning two libraries (`reconcile` runs per
+  library), and albums with a track deleted from disk but not yet swept by
+  `Cleanup`. Several albums collapsing into one identity in one batch keep the
+  row of the album with the most tracks (lowest id as tiebreak). The entire
+  pre-pass is deliberately independent of tag-reader ordering — the survivor
+  pick and the iteration order over claims are both deterministic.
   Design: [`../superpowers/specs/2026-08-18-album-identity-continuity.md`](../superpowers/specs/2026-08-18-album-identity-continuity.md).
+- **Stored images follow the row when continuity moves it.** Three re-key hooks
+  (`assetstore.Rekey`, `internal/assetstore/assetstore.go:231-265`) carry an
+  entity's asset-store images to its new identity-derived key:
+  1. **The album planner** (`scanner.rekeyAlbumImages`, `albumcontinuity.go:198-209`)
+     re-keys an album's images **after** its transaction commits, so a rollback
+     cannot leave a directory moved while the row is not. Failure is tolerated —
+     the row moved and the image did not, which is recoverable — and logged.
+  2. **An artist gaining an MBID** (`store.FindOrCreateArtists`, `internal/store/artist.go:33-54`)
+     appends the artist to a `gained` slice; `reconcileTrack` drains it into
+     `pendingArtistRekeys` (`reconcile.go:71-73,91,101`), and `rekeyArtistImages`
+     (`reconcile.go:300-310`) runs **after** the transaction. An MBID **change**
+     (old MBID non-empty and different from new) is deliberately excluded
+     (`artist.go:52-54`): the MBID slot is content-addressed by the real-world
+     artist, so moving images when tags reassert a different MusicBrainz artist
+     would attach the old artist's portrait to the new one — a misattribution,
+     worse than the stranding it avoids. The store already resets
+     `LastImageFetchAt` on a change so the image is re-fetched.
+  3. **Radio stream-URL edit** (`PUT /rest/updateInternetRadioStation`,
+     `handlers/subsonic/radio.go:223-245`) re-keys unless the user also uploaded
+     a cover in the same request (which is a replace, not a move). Refuses an
+     occupied destination (`assetstore.ErrKeyOccupied`) and logs it rather than
+     failing the request, since the station update already succeeded. Replaced
+     the old read-and-re-put, which silently dropped named entries and the auto
+     variant; a directory rename is lossless.
+  **An artist or genre rename still leaves its images behind.** The model says a
+  renamed artist is a different artist, and no continuity proof exists: an artist
+  spans many albums through two associations (`album_artists`, `track_artists`),
+  so "every track crediting this artist is in this batch" is essentially never
+  true on an incremental scan, and credits are multi-valued so "they agree on
+  one new identity" does not have the same shape as the album proof. The
+  continuity signal is weaker; needs its own spec.
 - Fallbacks when tags are empty: artist → "Unknown Artist"; album artist →
   "Various Artists" if `Compilation`, else the track artists; album →
   "Unknown Album".

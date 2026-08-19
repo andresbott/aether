@@ -238,10 +238,55 @@ cover (`internal/covergen`).
 - `updateAlbum` (the `albumCoverArt` extension) is the only way to set a manual
   album cover. It is a multipart POST carrying `id` (an `al-` id) plus either a
   `coverFile` part or `coverClear=true`, and stores the image as a manual entry
-  under `assetstore.KindAlbum` keyed by the album's DB ID — the key
+  under `assetstore.KindAlbum` keyed by the album's natural identity — the key
   `albumCoverMeta` reads, so an upload serves through `getCoverArt` at once.
   Mirrors `updateArtist` / `updateGenre`. The metadata editor deliberately does
   NOT write here: it only edits metadata on disk.
+
+**Asset keys are derived from each entity's natural identity**
+(`internal/assetkey`, the single authority) rather than its autoincrement DB id.
+Autoincrement ids are positional — handed out in whatever order the scanner
+reconciles tracks — so dropping the DB and rescanning while keeping
+`data/metadata/` did not merely orphan images, it **misattributed** them: album 5
+became a different album and silently inherited the old album 5's cover. A key
+derived from identity is recomputable from the entity at any moment, which makes
+a rebuild correct by construction.
+
+The scheme is `sha256("<kind>:v1:<canonical identity>")` in hex. Hashing is
+**forced, not stylistic**: `assetstore.entityDir` (`internal/assetstore/assetstore.go:41-44`)
+validates keys against `^[A-Za-z0-9._-]+$` and rejects `..`, so a genre named
+`Rock & Roll` or an artist with a `/` cannot be a directory name. The `v1` marker
+makes a future change to identity semantics a detectable key-scheme change rather
+than a silent re-attachment. Per kind:
+
+- **Album:** hashes the `idx_album_identity` tuple (`name_norm`, `album_artist_norm`,
+  `mb_release_id`) via `assetkey.AlbumOf(album)`.
+- **Artist (matched):** the **literal MBID**, unhashed — shared with the auto-fetcher
+  (`app/tasks/artistimage.go:48`), so today's on-disk layout for matched artists
+  stays valid. But only when the MBID is key-safe, since MBIDs come straight from
+  unvalidated file tags; a malformed one is hashed instead (`assetkey.Artist` checks
+  `isKeySafe`, `internal/assetkey/assetkey.go:53-54,78-79`).
+- **Artist (unmatched):** hashes `name_norm`.
+- **Genre:** hashes the **raw name**. Genre names are stored and matched exactly
+  (`internal/store/genre.go:19`), with no normalisation, so `Rock` and `rock` are
+  different genres — the key must not invent normalisation the DB lacks.
+- **Playlist:** hashes the row's `uuid` column (assigned at creation). A playlist is
+  user-owned rather than tag-derived, and a rebuild destroys the playlist itself, so
+  there is nothing to re-attach — the UUID exists only to stop a reused id handing
+  a stale cover to a new playlist. An empty UUID yields an empty key
+  (`assetkey.Playlist`, `internal/assetkey/assetkey.go:110-114`), so legacy rows
+  cannot collide; reads and writes skip it.
+- **Radio:** hashes the stream URL.
+
+**The imagecache uses the same key as its source asset** (`handlers/subsonic/media.go`
+`cacheKey:` sites — artist `:149`, album `:179`, radio `:228`, playlist `:246`,
+genre `:267`). Two key schemes living side by side was the root cause of the
+misattribution bug class, and removing the divergence makes `assetstore.Rekey`
+(below) move derivatives along with their source for free. One exception: the
+**artist** cache key uses the MBID-preferring derivation and deliberately does not
+track which of the two slots the image came from (manual upload vs. auto-fetched),
+so an artist later gaining an MBID orphans its old derivatives — a leak, not a
+misattribution, since no other artist can inherit them.
 
 **No cover is ever served as its original bytes.** Every response is a
 display-sized, re-encoded derivative from `internal/imagecache`, cached under
