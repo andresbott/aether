@@ -255,7 +255,7 @@ a rebuild correct by construction.
 The scheme hashes `kind ‖ 0x00 ‖ "v1" (‖ 0x00 ‖ part)*` with SHA-256 and encodes
 to hex, where `‖` is concatenation and the parts are the entity's canonical
 identity components separated by NUL bytes (0x00). Hashing is **forced, not
-stylistic**: `assetstore.entityDir` (`internal/assetstore/assetstore.go:44-47`)
+stylistic**: `assetstore.entityDir` (`internal/assetstore/assetstore.go:51-56`)
 validates keys against `^[A-Za-z0-9._-]+$`, rejects `..`, and requires the key
 equal `filepath.Clean(key)` and not be exactly `"."`, so a genre named
 `Rock & Roll` or an artist with a `/` cannot be a directory name. The `v1`
@@ -268,7 +268,7 @@ rather than a silent re-attachment. Per kind:
   (`app/tasks/artistimage.go:48`), so today's on-disk layout for matched artists
   stays valid. But only when the MBID is key-safe, since MBIDs come straight from
   unvalidated file tags; a malformed one is hashed instead (`assetkey.Artist` checks
-  `isKeySafe`, `internal/assetkey/assetkey.go:53-54,78-79`).
+  `isKeySafe`, `internal/assetkey/assetkey.go:50-52,74-79`).
 - **Artist (unmatched):** hashes `name_norm`.
 - **Genre:** hashes the **raw name**. Genre names are stored and matched exactly
   (`internal/store/genre.go:19`), with no normalisation, so `Rock` and `rock` are
