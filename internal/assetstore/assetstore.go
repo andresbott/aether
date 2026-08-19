@@ -38,8 +38,18 @@ var keyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // so unlike keys they must not contain dots.
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// KeySafe reports whether s is safe as an entity key: non-empty, matches
+// ^[A-Za-z0-9._-]+$, contains no "..", unchanged by filepath.Clean, and not
+// exactly ".". This is the single predicate assetkey delegates to; the
+// constraint is load-bearing because entityDir uses the key as a directory
+// component under the store root, so a traversal or path-equivalence escape
+// would break containment.
+func KeySafe(s string) bool {
+	return s != "" && keyRe.MatchString(s) && !strings.Contains(s, "..") && filepath.Clean(s) == s && s != "."
+}
+
 func (s *Store) entityDir(kind, key string) (string, error) {
-	if !keyRe.MatchString(kind) || !keyRe.MatchString(key) || strings.Contains(key, "..") {
+	if !KeySafe(kind) || !KeySafe(key) {
 		return "", fmt.Errorf("assetstore: unsafe kind/key %q/%q", kind, key)
 	}
 	return filepath.Join(s.root, kind, key), nil

@@ -1,18 +1,16 @@
 package assetkey_test
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/andresbott/aether/internal/assetkey"
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 )
 
-var keySafetyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-
 func isKeySafe(key string) bool {
-	return keySafetyRe.MatchString(key) && !strings.Contains(key, "..")
+	return assetstore.KeySafe(key)
 }
 
 // TestAlbumStability verifies the same album identity yields the same key across calls.
@@ -113,6 +111,7 @@ func TestArtistMBIDValidation(t *testing.T) {
 		{"contains slash", "foo/bar", false},
 		{"dotdot in MBID", "foo..bar", false},
 		{"special chars", "Rock & Roll", false},
+		{"single dot", ".", false},
 	}
 
 	for _, tc := range cases {
@@ -275,12 +274,15 @@ func TestRadioDistinctness(t *testing.T) {
 	}
 }
 
-// TestCrossKindCollision verifies an album and a genre with textually identical
-// identity strings yield different keys.
+// TestCrossKindCollision verifies two kinds with the same arity and textually
+// identical identity strings yield different keys. The kind prefix in the hash
+// input is what prevents the collision.
 func TestCrossKindCollision(t *testing.T) {
-	albumKey := assetkey.Album("rock", "", "")
-	genreKey := assetkey.Genre("rock")
-	if albumKey == genreKey {
-		t.Errorf("Album and Genre keys collide: %q", albumKey)
+	// Compare two same-arity kinds (Genre has one part, Artist's unmatched path
+	// hashes one part) that differ only by the kind prefix.
+	genreKey := assetkey.Genre("x")
+	artistKey := assetkey.Artist("", "x")
+	if genreKey == artistKey {
+		t.Errorf("Genre and Artist keys collide: %q", genreKey)
 	}
 }

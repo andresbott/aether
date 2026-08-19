@@ -227,12 +227,13 @@ tag and picture writes.
      worse than the stranding it avoids. The store already resets
      `LastImageFetchAt` on a change so the image is re-fetched.
   3. **Radio stream-URL edit** (`PUT /rest/updateInternetRadioStation`,
-     `handlers/subsonic/radio.go:223-245`) re-keys unless the user also uploaded
-     a cover in the same request (which is a replace, not a move). Refuses an
-     occupied destination (`assetstore.ErrKeyOccupied`) and logs it rather than
-     failing the request, since the station update already succeeded. Replaced
-     the old read-and-re-put, which silently dropped named entries and the auto
-     variant; a directory rename is lossless.
+     `handlers/subsonic/radio.go:230-243`) re-keys unless the user also uploaded
+     a cover in the same request (which is a replace, not a move). Both an
+     occupied destination (`assetstore.ErrKeyOccupied`) and hard failures are
+     logged but never fail the request, since the station update already
+     succeeded and the images stay intact. Replaced the old read-and-re-put,
+     which silently dropped named entries and the auto variant; a directory
+     rename is lossless.
   **An artist or genre rename still leaves its images behind.** The model says a
   renamed artist is a different artist, and no continuity proof exists: an artist
   spans many albums through two associations (`album_artists`, `track_artists`),

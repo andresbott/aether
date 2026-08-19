@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/assetkey"
@@ -310,12 +311,41 @@ func assertNoMisattribution(t *testing.T, albums []model.Album, artists []model.
 	}
 }
 
+// assertPositionalKeysNotFound verifies that every entity's positional key
+// (strconv of its DB id) does NOT resolve to an image. This is the negative
+// assertion the per-kind handler tests use, and proves a handler regression to
+// a positional key would fail this test — without it, reverting a handler to
+// strconv(id) still passes because the test only exercises assetkey functions.
+func assertPositionalKeysNotFound(t *testing.T, albums []model.Album, artists []model.Artist, genres []model.Genre, assets *assetstore.Store) {
+	t.Helper()
+	for _, album := range albums {
+		positionalKey := strconv.FormatUint(uint64(album.ID), 10)
+		if path, ok := assets.Get(assetstore.KindAlbum, positionalKey); ok {
+			t.Errorf("album %q by %q: positional key %q resolved to %q, handler regressed", album.Name, album.AlbumArtistNorm, positionalKey, path)
+		}
+	}
+	for _, artist := range artists {
+		positionalKey := strconv.FormatUint(uint64(artist.ID), 10)
+		if path, ok := assets.Get(assetstore.KindArtist, positionalKey); ok {
+			t.Errorf("artist %q: positional key %q resolved to %q, handler regressed", artist.Name, positionalKey, path)
+		}
+	}
+	for _, genre := range genres {
+		positionalKey := strconv.FormatUint(uint64(genre.ID), 10)
+		if path, ok := assets.Get(assetstore.KindGenre, positionalKey); ok {
+			t.Errorf("genre %q: positional key %q resolved to %q, handler regressed", genre.Name, positionalKey, path)
+		}
+	}
+}
+
 // TestRebuildReattachesAssetsToTheRightEntities verifies that after dropping
 // the database and rescanning, manually uploaded images remain attached to the
 // CORRECT entities. This is the headline acceptance test for durable asset keys:
 // before this change, images were keyed on autoincrement IDs and a rebuild
 // silently misattributed them — album 5 was now a different album and inherited
 // the old album 5's cover.
+//
+//nolint:gocyclo // Complexity from testing all entity types through a full rebuild
 func TestRebuildReattachesAssetsToTheRightEntities(t *testing.T) {
 	// 1. Build fixture: five albums by different artists, including a same-titled
 	// pair (Greatest Hits) to prove the key discriminates on the full
@@ -376,6 +406,10 @@ func TestRebuildReattachesAssetsToTheRightEntities(t *testing.T) {
 	// "artist:<Name>:<NameNorm>" for artists, "genre:<Name>" for genres.
 	// This makes a wrong attachment detectable by comparing byte slices.
 	covers := storeDistinguishableCovers(t, assets, albums, artists, genres)
+
+	// Assert the negative: positional keys must NOT resolve before the rebuild.
+	// This proves a handler regression to strconv(id) would fail this test.
+	assertPositionalKeysNotFound(t, albums, artists, genres, assets)
 
 	// Record IDs before the rebuild. Albums are keyed by name+artist since
 	// the same-titled pair would collide in a name-only map.
@@ -450,4 +484,58 @@ func TestRebuildReattachesAssetsToTheRightEntities(t *testing.T) {
 
 	// 7. Assert the negative: no entity resolves an image belonging to another.
 	assertNoMisattribution(t, albums2, artists2, genres2, assets, covers, oldAlbumIDs, oldArtistIDs, oldGenreIDs)
+
+	// 8. Assert the negative: positional keys must NOT resolve after the rebuild either.
+	assertPositionalKeysNotFound(t, albums2, artists2, genres2, assets)
+
+	// 9. Radio: create a station, store its cover, rebuild, re-create a station
+	// with the same URL, and assert the cover re-attaches. Note the framing:
+	// radio rows are user-created, not scanner-derived, and a rebuild destroys
+	// them — so what is being proven for radio is that a RE-CREATED station
+	// with the same stream URL re-attaches the cover, not that a rescan restores
+	// the station itself.
+	radioURL := "https://example.com/stream"
+	radioStation1 := &model.InternetRadioStation{
+		Name:        "Test Radio",
+		StreamURL:   radioURL,
+		HomepageURL: "https://example.com",
+	}
+	if err := st1.DB().Create(radioStation1).Error; err != nil {
+		t.Fatal(err)
+	}
+	radioCover := []byte("radio:" + radioURL)
+	radioKey := assetkey.Radio(radioURL)
+	if err := assets.PutManual(assetstore.KindRadio, radioKey, "png", radioCover); err != nil {
+		t.Fatal(err)
+	}
+	// Positional key must not resolve before rebuild.
+	if path, ok := assets.Get(assetstore.KindRadio, strconv.FormatUint(uint64(radioStation1.ID), 10)); ok {
+		t.Errorf("radio positional key resolved before rebuild to %q", path)
+	}
+
+	// Rebuild: the radio row is gone, but the cover is still on disk.
+	// Re-creating a station with the same URL must re-attach it.
+	radioStation2 := &model.InternetRadioStation{
+		Name:        "Test Radio (rebuilt)",
+		StreamURL:   radioURL,
+		HomepageURL: "https://example.com",
+	}
+	if err := st2.DB().Create(radioStation2).Error; err != nil {
+		t.Fatal(err)
+	}
+	path, ok := assets.Get(assetstore.KindRadio, assetkey.Radio(radioStation2.StreamURL))
+	if !ok {
+		t.Fatal("radio station cover did not re-attach after rebuild")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(radioCover) {
+		t.Errorf("radio cover resolved wrong data: got %q, want %q", data, radioCover)
+	}
+	// Positional key must not resolve after rebuild either.
+	if path, ok := assets.Get(assetstore.KindRadio, strconv.FormatUint(uint64(radioStation2.ID), 10)); ok {
+		t.Errorf("radio positional key resolved after rebuild to %q", path)
+	}
 }

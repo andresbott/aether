@@ -18,9 +18,8 @@ package assetkey
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"regexp"
-	"strings"
 
+	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 )
 
@@ -28,9 +27,6 @@ import (
 // change to identity semantics becomes a detectable key-scheme change rather
 // than a silent re-attachment of every stored image.
 const keyVersion = "v1"
-
-// keyRe matches the character set assetstore.entityDir accepts.
-var keyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // hashKey builds the key for one kind from its canonical identity components.
 // The kind prefix prevents two kinds whose identity strings happen to match
@@ -48,10 +44,11 @@ func hashKey(kind string, parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// isKeySafe reports whether s is safe for assetstore.entityDir: it matches
-// ^[A-Za-z0-9._-]+$ and contains no "..".
+// isKeySafe delegates to the single exported predicate in assetstore, which
+// validates that s is safe as a directory component: non-empty, matches the
+// character class, contains no "..", unchanged by filepath.Clean, and not ".".
 func isKeySafe(s string) bool {
-	return keyRe.MatchString(s) && !strings.Contains(s, "..")
+	return assetstore.KeySafe(s)
 }
 
 // Album keys on the idx_album_identity tuple. Callers that hold a

@@ -252,12 +252,15 @@ became a different album and silently inherited the old album 5's cover. A key
 derived from identity is recomputable from the entity at any moment, which makes
 a rebuild correct by construction.
 
-The scheme is `sha256("<kind>:v1:<canonical identity>")` in hex. Hashing is
-**forced, not stylistic**: `assetstore.entityDir` (`internal/assetstore/assetstore.go:41-44`)
-validates keys against `^[A-Za-z0-9._-]+$` and rejects `..`, so a genre named
-`Rock & Roll` or an artist with a `/` cannot be a directory name. The `v1` marker
-makes a future change to identity semantics a detectable key-scheme change rather
-than a silent re-attachment. Per kind:
+The scheme hashes `kind ‖ 0x00 ‖ "v1" (‖ 0x00 ‖ part)*` with SHA-256 and encodes
+to hex, where `‖` is concatenation and the parts are the entity's canonical
+identity components separated by NUL bytes (0x00). Hashing is **forced, not
+stylistic**: `assetstore.entityDir` (`internal/assetstore/assetstore.go:44-47`)
+validates keys against `^[A-Za-z0-9._-]+$`, rejects `..`, and requires the key
+equal `filepath.Clean(key)` and not be exactly `"."`, so a genre named
+`Rock & Roll` or an artist with a `/` cannot be a directory name. The `v1`
+marker makes a future change to identity semantics a detectable key-scheme change
+rather than a silent re-attachment. Per kind:
 
 - **Album:** hashes the `idx_album_identity` tuple (`name_norm`, `album_artist_norm`,
   `mb_release_id`) via `assetkey.AlbumOf(album)`.
@@ -277,6 +280,24 @@ than a silent re-attachment. Per kind:
   (`assetkey.Playlist`, `internal/assetkey/assetkey.go:110-114`), so legacy rows
   cannot collide; reads and writes skip it.
 - **Radio:** hashes the stream URL.
+
+**Two key-identity limits** the spec's framing wrongly implied away by claiming
+each key is "exactly what the DB's unique index covers":
+
+- **Radio stations with the same `StreamURL` share one cover directory.**
+  `InternetRadioStation.StreamURL` has **no** unique index
+  (`internal/model/radiostation.go`), so two stations with identical URLs
+  (different names, home pages, or other metadata) legitimately coexist in the
+  DB while their keys collide in the asset store. An upload to one changes the
+  other, and deleting either deletes both covers. This is defensible — the
+  stream *is* the station's identity to a player — but it is a limit.
+- **Two artist rows with different `name_norm` but the same `MBArtistID` share
+  a directory.** The MBID-preferring key derivation (`assetkey.Artist`) uses the
+  MBID verbatim when present and key-safe, so matched artists with different
+  spellings that resolve to one MusicBrainz artist collapse to one cover
+  directory, and an upload to either changes both. Again defensible — the MBID
+  is the canonical identity — but a limit, not the claimed 1:1 with the DB's
+  unique index.
 
 **The imagecache uses the same key as its source asset** (`handlers/subsonic/media.go`
 `cacheKey:` sites — artist `:149`, album `:179`, radio `:228`, playlist `:246`,

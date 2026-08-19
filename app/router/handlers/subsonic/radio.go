@@ -233,15 +233,11 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		// named entries and auto variants.
 		if oldKey != newKey {
 			if err := h.assets.Rekey(assetstore.KindRadio, oldKey, newKey); err != nil {
-				if errors.Is(err, assetstore.ErrKeyOccupied) {
-					// The station's own update already succeeded, and both images
-					// stay intact. Log the collision but don't fail the request.
-					slog.Warn("radio cover re-key skipped: destination occupied",
-						"old_url", existing.StreamURL, "new_url", streamURL)
-				} else {
-					writeError(w, 0, "internal error")
-					return
-				}
+				// The station's own update already succeeded, so both
+				// ErrKeyOccupied and hard failures are logged but don't fail
+				// the request — the edit committed, and the images stay intact.
+				slog.Warn("radio cover re-key failed",
+					"old_url", existing.StreamURL, "new_url", streamURL, "error", err)
 			}
 		}
 	}

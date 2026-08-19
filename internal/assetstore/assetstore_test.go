@@ -65,6 +65,21 @@ func TestInvalidKeyRejected(t *testing.T) {
 	}
 }
 
+func TestSingleDotKeyRejected(t *testing.T) {
+	s := New(t.TempDir())
+	// A key of "." must be rejected — it cleans to the kind root, so a
+	// Delete would destroy every entity's images.
+	if err := s.PutManual(KindArtist, ".", "jpg", []byte("x")); err == nil {
+		t.Fatal("expected error for key=\".\"")
+	}
+	if _, ok := s.Get(KindArtist, "."); ok {
+		t.Fatal("expected ok=false for key=\".\"")
+	}
+	if err := s.Delete(KindArtist, "."); err == nil {
+		t.Fatal("expected error for Delete with key=\".\"")
+	}
+}
+
 func TestNamedEntriesCoexist(t *testing.T) {
 	s := New(t.TempDir())
 	_ = s.PutManual(KindAlbum, "1", "jpg", []byte("front"))
