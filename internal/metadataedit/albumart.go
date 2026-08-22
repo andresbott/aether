@@ -16,10 +16,11 @@ import (
 )
 
 // errNoSelection is returned by ResolveAlbum when given no paths at all.
-// Every caller either has an explicit, non-empty selection or has already
-// fallen back to enumerating (and, failing that, seeding with) a browsed
-// folder before calling in — so this is a caller bug, not a user-facing
-// condition.
+// Every caller guarantees a non-empty selection before calling in: the
+// inventory, raw-tags, and removal endpoints reject an empty selection up
+// front via decodeSelection, and applyPicture validates its own non-empty
+// selection — there is no server-side fallback to a browsed folder. So this
+// is a caller bug, not a user-facing condition.
 var errNoSelection = errors.New("metadataedit: at least one path is required")
 
 // Album is a resolved, HTTP-agnostic view of one picture-editing selection:
