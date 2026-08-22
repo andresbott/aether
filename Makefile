@@ -12,6 +12,9 @@ test: ## run fast go tests
 ui-test: ## run webui unit tests
 	@cd webui && npm test
 
+spec-lint: ## lint docs/openapi/aether-v1.yaml against .spectral.yaml (header-safe bounded-URL invariant)
+	@cd webui && npm run spec-lint
+
 lint: ## run go linter
 	# depends on https://github.com/golangci/golangci-lint
 	@golangci-lint run
@@ -55,7 +58,7 @@ license-check: ## check for invalid licenses
 .PHONY: verify
 verify: ## run all checks; runs every check and fails if any fail
 	@fail=0; \
-	for target in test ui-test license-check lint benchmark coverage; do \
+	for target in test ui-test spec-lint license-check lint benchmark coverage; do \
 		echo "==================== make $$target ===================="; \
 		$(MAKE) --no-print-directory $$target || fail=1; \
 	done; \
