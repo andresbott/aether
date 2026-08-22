@@ -59,8 +59,8 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 			"library_id and at least two paths are required")
 		return
 	}
-	if len(body.Paths) > maxIdentifyPaths {
-		writeErr(w, http.StatusBadRequest, "validation_error", "too many paths in one request")
+	if len(body.Paths) > maxSelectionPaths {
+		writeErr(w, http.StatusBadRequest, "validation_error", errTooManyPaths.Error())
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)

@@ -19,10 +19,6 @@ type IdentifyService interface {
 	IdentifyFile(ctx context.Context, absPath string) ([]acoustid.Recording, error)
 }
 
-// maxIdentifyPaths caps a single identify request: each path costs one fpcalc
-// run (~1s of CPU) plus one rate-limited AcoustID call.
-const maxIdentifyPaths = 50
-
 // defaultIdentifyUnavailableReason is used when identification is off but the
 // application did not say why, so the UI never has to invent an explanation.
 const defaultIdentifyUnavailableReason = "audio identification is not available on this server"
@@ -90,9 +86,8 @@ func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "validation_error", "library_id and paths are required")
 		return
 	}
-	if len(body.Paths) > maxIdentifyPaths {
-		writeErr(w, http.StatusBadRequest, "validation_error",
-			"too many paths in one request")
+	if len(body.Paths) > maxSelectionPaths {
+		writeErr(w, http.StatusBadRequest, "validation_error", errTooManyPaths.Error())
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)

@@ -240,9 +240,21 @@ func OpenSource(libRoot string, s Source) (data []byte, filePath, fingerprint st
 	}
 	switch s.Slot {
 	case "folder":
+		// A client-supplied file= that is empty (DecodeSource resolves an
+		// omitted file= to the library root — ResolveInLibrary treats "" as
+		// valid) or that names a directory must not reach http.ServeFile: a
+		// directory path there redirects (301) before it has anything to say
+		// about existing, then 404s on the missing index — a confusing detour
+		// around the clean 404 this is meant to answer with.
+		if s.RelPath == "" {
+			return nil, "", "", errors.New("metadataedit: source file is required")
+		}
 		info, statErr := os.Stat(abs)
 		if statErr != nil {
 			return nil, "", "", statErr
+		}
+		if info.IsDir() {
+			return nil, "", "", fmt.Errorf("metadataedit: source %q is a directory, not a file", s.RelPath)
 		}
 		fp := fmt.Sprintf("file|%s|%d|%d", abs, info.Size(), info.ModTime().UnixNano())
 		return nil, abs, fp, nil

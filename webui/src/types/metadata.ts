@@ -355,7 +355,7 @@ export interface PicturesResponse {
 
 export interface ApplyPictureResult {
     ok: boolean
-    target: PictureSlot
+    slot: PictureSlot
     type: string
     rescan?: RescanStatus
 }

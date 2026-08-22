@@ -311,7 +311,7 @@ describe('picture staging', () => {
         updateTracksSpy.mockReset()
         updateTracksSpy.mockResolvedValue({ results: [{ path: 'album/a.mp3', ok: true }] })
         applyPictureSpy.mockReset()
-        applyPictureSpy.mockResolvedValue({ ok: true, target: 'folder', type: 'Back Cover' })
+        applyPictureSpy.mockResolvedValue({ ok: true, slot: 'folder', type: 'Back Cover' })
         deletePictureSpy.mockReset()
         deletePictureSpy.mockResolvedValue({ ok: true })
         invalidateSpy.mockReset()
@@ -438,7 +438,7 @@ describe('picture staging', () => {
         const session = mkSession()
         applyPictureSpy.mockResolvedValue({
             ok: true,
-            target: 'folder',
+            slot: 'folder',
             type: 'Back Cover',
             rescan: { ok: false, error: 'db is locked' }
         })

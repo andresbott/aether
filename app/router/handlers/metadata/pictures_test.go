@@ -1043,6 +1043,37 @@ func TestPictureImage_RejectsTraversalFile(t *testing.T) {
 	}
 }
 
+// TestPictureImage_MalformedFolderFileIs404 confirms an otherwise-valid
+// request (known library, valid slot=folder) whose file= is empty (an
+// omitted file= — DecodeSource resolves "" to the library root itself,
+// since ResolveInLibrary treats an empty relative path as valid) or names a
+// directory answers a clean 404. Before OpenSource's folder-branch hardening
+// this passed os.Stat (the library root/directory exists) and fell through
+// to http.ServeFile on a directory, which redirects (301) before it has
+// anything to say about existing — a spurious 301-then-404 instead of the
+// documented, direct 404 pictureImage promises for an unresolved source.
+func TestPictureImage_MalformedFolderFileIs404(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "album"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+	base := "/metadata/pictures/image?library_id=" + libIDStr(lib) + "&slot=folder&type=Front%20Cover"
+
+	get := func(url string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
+		return w
+	}
+
+	if w := get(base); w.Code != http.StatusNotFound {
+		t.Fatalf("omitted file=: status %d, want 404: %s", w.Code, w.Body.String())
+	}
+	if w := get(base + "&file=album"); w.Code != http.StatusNotFound {
+		t.Fatalf("file= a directory: status %d, want 404: %s", w.Code, w.Body.String())
+	}
+}
+
 // TestInventory_PostBodyReturnsImageURLs is the brief's seed test for the
 // production 431 fix: the selection travels in the POST body, never the URL,
 // and each populated cell carries a ready-to-render image URL that actually

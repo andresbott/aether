@@ -57,7 +57,7 @@ func pictureTypeByIDOrDefault(id string) (metadataedit.PictureType, error) {
 	}
 	pt, ok := metadataedit.PictureTypeByID(id)
 	if !ok {
-		return metadataedit.PictureType{}, fmt.Errorf("unknown picture type %q", id)
+		return metadataedit.PictureType{}, fmt.Errorf("%w %q", errUnknownType, id)
 	}
 	return pt, nil
 }
@@ -95,8 +95,9 @@ type pictureDTO struct {
 
 // pictureImagePath is the picture image endpoint's route, relative to
 // wherever Routes is mounted (see the Routes doc comment in metadata.go).
-// pictureImageRef reuses it so the inventory's generated URLs can never drift
-// from the registered route.
+// Both Routes (mounting it) and pictureImageRef (building the inventory's
+// URLs) reuse this constant so the registered route and the generated URLs
+// can never drift apart.
 const pictureImagePath = "/metadata/pictures/image"
 
 // inventoryThumbSize is the thumbnail size the picture grid's cells request
@@ -134,11 +135,10 @@ func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	al, aerr := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
-	if aerr != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
-		return
-	}
+	// decodeSelection already guarantees sel.Paths is non-empty (or it would
+	// have failed above with errNoSelection), and ResolveAlbum only ever
+	// errors on an empty selection, so this cannot fail here.
+	al, _ := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
 
 	matrix := al.Matrix(r.Context(), h.Reader)
 	out := make([]pictureDTO, 0, len(matrix))
@@ -182,7 +182,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.URL.Query().Get("slot")
 	if !validSlot(slot) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
+		writeErr(w, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
@@ -330,7 +330,7 @@ func validSlot(slot string) bool {
 
 type applyPictureResult struct {
 	OK     bool          `json:"ok"`
-	Target string        `json:"target"`
+	Slot   string        `json:"slot"`
 	Type   string        `json:"type"`
 	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
@@ -352,7 +352,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.FormValue("slot")
 	if !validSlot(slot) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
+		writeErr(w, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
 		return
 	}
 	pt, terr := requestedType(r)
@@ -362,7 +362,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	paths := r.Form["paths"]
 	if len(paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "validation_error", "at least one path is required")
+		writeErr(w, http.StatusBadRequest, "validation_error", errNoSelection.Error())
 		return
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
@@ -412,7 +412,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	// folder writes change which image the album should serve (reconcile
 	// redetects album.CoverPath).
 	rs := h.rescanSaved(r.Context(), libModel.ID, al.Tracks())
-	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: slot, Type: pt.ID, Rescan: rs})
+	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Rescan: rs})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
@@ -460,16 +460,15 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validSlot(sel.Slot) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
+		writeErr(w, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
 		return
 	}
 	// Resolved once: this is both the selection the removal acts on and the
 	// set handed to the post-removal re-index, so the two can never disagree.
-	al, aerr := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
-	if aerr != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
-		return
-	}
+	// decodeSelection already guarantees sel.Paths is non-empty (or it would
+	// have failed above with errNoSelection), and ResolveAlbum only ever
+	// errors on an empty selection, so this cannot fail here.
+	al, _ := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
 	switch sel.Slot {
 	case "folder":
 		// Mirrors the save fan-out: the art was written into every directory the

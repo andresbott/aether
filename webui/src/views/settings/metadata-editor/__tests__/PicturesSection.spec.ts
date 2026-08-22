@@ -28,7 +28,6 @@ vi.mock('primevue/usetoast', () => ({
     useToast: () => ({ add: vi.fn() })
 }))
 
-// Keep getPictureUrl real (pure), stub the network call.
 const getPicturesSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', async (importActual) => {
     const actual = await importActual<typeof import('@/lib/api/Metadata')>()

@@ -148,7 +148,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/pictures/inventory").Methods(http.MethodPost).HandlerFunc(h.inventory)
 	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
 	r.Path("/metadata/pictures/removals").Methods(http.MethodPost).HandlerFunc(h.removals)
-	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
+	r.Path(pictureImagePath).Methods(http.MethodGet).HandlerFunc(h.pictureImage)
 	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
 }
 
@@ -205,12 +205,6 @@ type librarySummary struct {
 	Path string
 }
 
-// maxSelectionPaths caps a picture-selection POST body: defense in depth now
-// that the selection travels in a body instead of a query string (the body
-// itself already removes the 431 risk; this bounds the work/DoS surface).
-// Mirrors maxIdentifyPaths (identify.go) and maxRawPaths (raw.go).
-const maxSelectionPaths = 50
-
 // pictureSelection is the request body of a picture-selection POST endpoint:
 // the library and the selected track paths (library-relative), carried in
 // the body rather than the URL so a large multi-disc selection can never
@@ -234,9 +228,11 @@ func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pic
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
 		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
 	}
-	if len(sel.Paths) == 0 || len(sel.Paths) > maxSelectionPaths {
-		return nil, pictureSelection{}, http.StatusBadRequest,
-			fmt.Errorf("paths must contain between 1 and %d entries", maxSelectionPaths)
+	if len(sel.Paths) == 0 {
+		return nil, pictureSelection{}, http.StatusBadRequest, errNoSelection
+	}
+	if len(sel.Paths) > maxSelectionPaths {
+		return nil, pictureSelection{}, http.StatusBadRequest, errTooManyPaths
 	}
 	libModel, gerr := h.Store.GetLibrary(sel.LibraryID)
 	if gerr != nil {
