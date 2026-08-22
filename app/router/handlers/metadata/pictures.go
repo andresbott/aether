@@ -165,8 +165,9 @@ func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
 // never re-resolves an album selection — a Source addresses exactly one
 // file, so this stays a bounded, header-safe GET even for a deep multi-disc
 // path. 404 when the source cannot be opened (a stale link: the embedded
-// picture was removed, or the folder file no longer exists); 422 on a bad
-// type or slot (well-formed but invalid); 400 on a bad file reference.
+// picture was removed, or the folder file no longer exists); 422 on a type
+// or slot value that fails validation (well-formed but invalid); 400 on a
+// missing slot or a bad file reference.
 func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	// path is absent from this endpoint's query (see the Routes doc comment);
 	// resolveLibraryRel tolerates that (an empty path resolves to the library
@@ -182,6 +183,10 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slot := r.URL.Query().Get("slot")
+	if slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		return
+	}
 	if !validSlot(slot) {
 		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
@@ -352,6 +357,10 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slot := r.FormValue("slot")
+	if slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		return
+	}
 	if !validSlot(slot) {
 		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
@@ -458,6 +467,10 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 	pt, terr := pictureTypeByIDOrDefault(sel.Type)
 	if terr != nil {
 		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
+		return
+	}
+	if sel.Slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(sel.Slot) {

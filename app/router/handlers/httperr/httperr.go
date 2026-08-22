@@ -32,8 +32,12 @@ type Problem struct {
 	Instance string `json:"instance,omitempty"`
 }
 
-// FieldError is one field-level validation failure, addressed by a JSON
-// Pointer (RFC 6901) into the request body that failed to validate.
+// FieldError is one field-level validation failure. Pointer names the failing
+// field using JSON Pointer (RFC 6901) syntax — e.g. "/paths" or "/paths/0" —
+// whether or not the request actually carried a JSON body: a query parameter
+// or multipart form field is addressed the same way, by the name it would
+// have in the endpoint's JSON shape, since callers only need to know which
+// field failed.
 type FieldError struct {
 	Pointer string `json:"pointer"`
 	Detail  string `json:"detail"`

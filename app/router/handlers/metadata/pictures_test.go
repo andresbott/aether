@@ -393,6 +393,24 @@ func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	}
 }
 
+// TestPictureImage_MissingSlotIs400 confirms an omitted slot — a missing
+// required scalar — stays 400, unlike an explicitly bogus one (422, asserted
+// above): nothing defaults an empty slot the way an empty type defaults to
+// Front Cover, so it must be told apart from "present but invalid" before
+// validSlot ever sees it.
+func TestPictureImage_MissingSlotIs400(t *testing.T) {
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
+	url := "/metadata/pictures/image?library_id=" + libIDStr(lib) + "&type=Front%20Cover"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("omitted slot: want 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "slot is required") {
+		t.Fatalf("omitted slot error message: %s", w.Body.String())
+	}
+}
+
 // buildPictureForm builds a multipart body for POST /metadata/pictures with an
 // uploaded image file. An empty pictureType omits the field (defaults server-side).
 func buildPictureForm(t *testing.T, libID uint, slot, pictureType string, paths []string, filename string, data []byte) (*bytes.Buffer, string) {
