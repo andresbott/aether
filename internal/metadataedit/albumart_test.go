@@ -150,9 +150,11 @@ func TestResolveAlbum_SkipsUnresolvableEntries(t *testing.T) {
 // TestResolveAlbum_AllEntriesUnresolvableYieldsEmptyAlbumNoError confirms a
 // non-empty relTrackPaths whose entries are *all* unresolvable is not itself
 // an error (only a literally-empty relTrackPaths is): it yields an Album
-// with no tracks and no dirs, leaving it to the caller to fall back (the
-// picture handlers fall back to the browsed folder — see
-// TestPictures_AllPathsUnresolvableFallsBackToBrowsedFolder).
+// with no tracks and no dirs, leaving it to the caller to degrade
+// gracefully — the inventory endpoint answers an empty matrix rather than
+// falling back to a browsed folder (see
+// TestInventory_AllPathsUnresolvableReturnsEmptyMatrix in
+// app/router/handlers/metadata/pictures_test.go).
 func TestResolveAlbum_AllEntriesUnresolvableYieldsEmptyAlbumNoError(t *testing.T) {
 	root := t.TempDir()
 	al, err := metadataedit.ResolveAlbum(root, []string{"/etc/passwd", "../outside"})

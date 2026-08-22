@@ -52,13 +52,13 @@ type Album struct {
 // own input) checks that beforehand; ResolveAlbum itself only ever returns
 // an error when relTrackPaths is empty.
 //
-// relTrackPaths must be non-empty: callers guarantee that (the picture
-// endpoints fall back to enumerating the browsed folder, and ultimately to
-// the folder itself, before calling in; a write endpoint validates a
-// non-empty selection up front). Note that a non-empty relTrackPaths whose
-// entries all fail to resolve is not an error: it yields an Album with no
-// tracks and no dirs, exactly like passing none at all would if this
-// function allowed it.
+// relTrackPaths must be non-empty: callers guarantee that. The inventory,
+// raw-tags, and removal endpoints reject an empty selection up front via
+// decodeSelection (errNoSelection), and applyPicture validates a non-empty
+// selection itself — there is no server-side fallback to a browsed folder.
+// Note that a non-empty relTrackPaths whose entries all fail to resolve is
+// not an error: it yields an Album with no tracks and no dirs, exactly like
+// passing none at all would if this function allowed it.
 func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
 	if len(relTrackPaths) == 0 {
 		return Album{}, errNoSelection
