@@ -1,6 +1,7 @@
 package metadata_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -49,13 +50,17 @@ func newRawHandlerUnsupported(
 	return r, lib
 }
 
-func getRaw(t *testing.T, r *mux.Router, libID uint, paths ...string) *httptest.ResponseRecorder {
+// postRaw POSTs a raw-tags selection request: library_id + paths[] travel in
+// the JSON body (never the URL), the transport this endpoint moved to so a
+// large multi-disc selection can never overflow a header buffer.
+func postRaw(t *testing.T, r *mux.Router, libID uint, paths ...string) *httptest.ResponseRecorder {
 	t.Helper()
-	url := "/metadata/tracks/raw?library_id=" + strconv.FormatUint(uint64(libID), 10)
-	for _, p := range paths {
-		url += "&paths=" + p
+	payload, err := json.Marshal(map[string]any{"library_id": libID, "paths": paths})
+	if err != nil {
+		t.Fatal(err)
 	}
-	req := httptest.NewRequest("GET", url, nil)
+	req := httptest.NewRequest("POST", "/metadata/tracks/raw-tags", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
@@ -70,7 +75,7 @@ func TestRawTags_ReturnsFullTagMap(t *testing.T) {
 	r, lib := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
 		return fixture, nil
 	})
-	w := getRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, lib.ID, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -101,7 +106,7 @@ func TestRawTags_IncludesUnsupportedFrames(t *testing.T) {
 			return []string{"PRIV/com.example.junk", "GEOB", "UNKNOWN/XXXX"}, nil
 		},
 	)
-	w := getRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, lib.ID, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -132,7 +137,7 @@ func TestRawTags_FiltersCoverArtDescriptors(t *testing.T) {
 			return []string{"APIC", "covr", "WM/Picture", "Cover Art (Front)", "PRIV/junk"}, nil
 		},
 	)
-	w := getRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, lib.ID, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -173,7 +178,7 @@ func TestRawTags_UnsupportedReadFailureDegrades(t *testing.T) {
 			return nil, errors.New("boom")
 		},
 	)
-	w := getRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, lib.ID, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -197,7 +202,7 @@ func TestRawTags_PerPathErrors(t *testing.T) {
 	r, lib := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
 		return nil, errors.New("boom")
 	})
-	w := getRaw(t, r, lib.ID, "song.mp3", "../outside.mp3")
+	w := postRaw(t, r, lib.ID, "song.mp3", "../outside.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -214,14 +219,19 @@ func TestRawTags_PerPathErrors(t *testing.T) {
 
 func TestRawTags_Validation(t *testing.T) {
 	r, lib := newRawHandler(t, t.TempDir(), nil)
-	if w := getRaw(t, r, lib.ID); w.Code != http.StatusBadRequest {
+	if w := postRaw(t, r, lib.ID); w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing paths, got %d", w.Code)
 	}
-	req := httptest.NewRequest("GET", "/metadata/tracks/raw?paths=a.mp3", nil)
+	// An omitted (zero-value) library_id resolves like any other unknown
+	// library_id — decodeSelection's uniform "library not found" mapping,
+	// shared with the picture-selection endpoints — rather than a distinct
+	// "library_id required" 400.
+	req := httptest.NewRequest("POST", "/metadata/tracks/raw-tags", strings.NewReader(`{"paths":["a.mp3"]}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing library, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing library, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

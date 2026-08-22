@@ -139,6 +139,27 @@ func fetchPictures(t *testing.T, r *mux.Router, libID uint, paths []string) pict
 	return body
 }
 
+// postRemovals POSTs a picture-removal request: library_id, paths[], type and
+// slot all travel in the JSON body — never the URL. Does not itself assert a
+// status, unlike fetchPictures: several callers below check non-200 outcomes.
+func postRemovals(t *testing.T, r *mux.Router, libID uint, paths []string, pictureType, slot string) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"library_id": libID,
+		"paths":      paths,
+		"type":       pictureType,
+		"slot":       slot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/metadata/pictures/removals", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
 func TestInventory_MatrixListsPresentSlots(t *testing.T) {
 	src := "../../../../internal/metadataedit/testdata/empty.flac"
 	if _, err := os.Stat(src); err != nil {
@@ -359,12 +380,12 @@ func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 
 // buildPictureForm builds a multipart body for POST /metadata/pictures with an
 // uploaded image file. An empty pictureType omits the field (defaults server-side).
-func buildPictureForm(t *testing.T, libID uint, target, pictureType string, paths []string, filename string, data []byte) (*bytes.Buffer, string) {
+func buildPictureForm(t *testing.T, libID uint, slot, pictureType string, paths []string, filename string, data []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(libID), 10))
-	_ = mw.WriteField("target", target)
+	_ = mw.WriteField("slot", slot)
 	if pictureType != "" {
 		_ = mw.WriteField("type", pictureType)
 	}
@@ -493,7 +514,7 @@ func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("db target: want 400, got %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "target must be one of embedded, folder") {
+	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db target error message: %s", w.Body.String())
 	}
 	body, ct = buildPictureForm(t, lib.ID, "folder", "Bogus Type", []string{"album/01.flac"}, "art.png", pngBytes)
@@ -502,7 +523,7 @@ func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	}
 }
 
-func TestDeletePicture_FolderByType(t *testing.T) {
+func TestRemovals_FolderByType(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "album")
 	if err := os.Mkdir(albumDir, 0o755); err != nil {
@@ -518,9 +539,10 @@ func TestDeletePicture_FolderByType(t *testing.T) {
 	}
 	_, r, lib := newPictureHandler(t, root, nil)
 
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=album&slot=folder&type=Back%20Cover"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	// "album" itself, a bare directory entry: ResolveAlbum seeds a
+	// folder-only album from it (Dirs=[albumDir], Tracks=nil) — there is no
+	// separate track file here, and none is needed for a folder-slot removal.
+	w := postRemovals(t, r, lib.ID, []string{"album"}, "Back Cover", "folder")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -534,7 +556,7 @@ func TestDeletePicture_FolderByType(t *testing.T) {
 
 // Removing folder art for a multi-disc album deletes it from every directory
 // the selection spans, mirroring the fan-out on save.
-func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
+func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	root := t.TempDir()
 	one, two := mkDiscDirs(t, root)
 	for _, dir := range []string{one, two} {
@@ -547,11 +569,8 @@ func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	}
 	_, r, lib := newPictureHandler(t, root, nil)
 
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
-		"&path=album&slot=folder&type=Back%20Cover" +
-		"&paths=album/CD%201/01.flac&paths=album/CD%202/01.flac"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w := postRemovals(t, r, lib.ID,
+		[]string{"album/CD 1/01.flac", "album/CD 2/01.flac"}, "Back Cover", "folder")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -565,7 +584,7 @@ func TestDeletePicture_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	}
 }
 
-func TestDeletePicture_EmbeddedSelectedPathsAndType(t *testing.T) {
+func TestRemovals_EmbeddedSelectedPathsAndType(t *testing.T) {
 	src := "../../../../internal/metadataedit/testdata/empty.flac"
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("no fixture at %s: %v", src, err)
@@ -590,10 +609,7 @@ func TestDeletePicture_EmbeddedSelectedPathsAndType(t *testing.T) {
 	_, r, lib := newPictureHandler(t, root, nil)
 
 	// Delete the embedded back cover only from the selected track 01.flac.
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
-		"&path=album&slot=embedded&type=Back%20Cover&paths=album/01.flac"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Back Cover", "embedded")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -609,17 +625,13 @@ func TestDeletePicture_EmbeddedSelectedPathsAndType(t *testing.T) {
 	}
 }
 
-func TestDeletePicture_InvalidSlot(t *testing.T) {
+func TestRemovals_InvalidSlot(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=&slot=bogus"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w := postRemovals(t, r, lib.ID, []string{"a.flac"}, "", "bogus")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", w.Code)
 	}
-	url = "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=&slot=db"
-	w = httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w = postRemovals(t, r, lib.ID, []string{"a.flac"}, "", "db")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("db slot: want 400, got %d", w.Code)
 	}
@@ -723,7 +735,7 @@ func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("library_id", libIDStr(lib))
-	_ = mw.WriteField("target", "folder")
+	_ = mw.WriteField("slot", "folder")
 	_ = mw.WriteField("paths", "album/01.flac")
 	_ = mw.WriteField("image_url", "http://img/f.jpg")
 	_ = mw.Close()
@@ -817,7 +829,7 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 	body := &bytes.Buffer{}
 	mw := multipart.NewWriter(body)
 	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(lib.ID), 10))
-	_ = mw.WriteField("target", "folder")
+	_ = mw.WriteField("slot", "folder")
 	_ = mw.WriteField("type", "Front Cover")
 	_ = mw.WriteField("paths", "Artist/Album/01.flac")
 	part, _ := mw.CreateFormFile("image", "cover.png")
@@ -848,14 +860,15 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 	}
 }
 
-// The picture endpoints never let the user pick the rescan path list: with no
-// explicit paths, selectionPaths -> folderTrackPaths recursively lists every
-// file the *editor's* reader accepts under the album dir, which is wider than
-// the scanner's admission (extra extensions, excludes ignored). The frontend
-// always sends paths: undefined for the folder slot, so this is THE normal
-// path — one .oga sibling or one excluded subfolder must not make a correct
-// cover removal warn about the index.
-func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
+// The picture endpoints never let the user pick the rescan path list: paths[]
+// IS the selection now (mandatory, non-empty — there is no more "browse this
+// folder with nothing selected" fallback to enumerate it server-side), and the
+// frontend's selection comes straight from the editor's own track listing,
+// which is wider than the scanner's admission on purpose (extra extensions,
+// excludes ignored). This is THE normal path — one .oga sibling or one
+// excluded subfolder among the selected paths must not make a correct cover
+// removal warn about the index.
+func TestRemovals_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"
 	if _, err := os.Stat(fx); err != nil {
 		t.Skipf("no fixture: %v", err)
@@ -889,10 +902,12 @@ func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	// No paths param — exactly what useEditSession sends for a folder slot.
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) + "&path=album&slot=folder&type=Back%20Cover"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	// The full editor-visible selection for this folder — exactly what the
+	// frontend sends (it has no separate "browse this folder" fallback to
+	// lean on any more): the admissible track plus the two the scanner will
+	// skip.
+	w := postRemovals(t, r, lib.ID,
+		[]string{"album/01.flac", "album/02.oga", "album/Live/01.flac"}, "Back Cover", "folder")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -913,7 +928,7 @@ func TestDeletePicture_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T
 
 // A picture delete whose re-index indexed nothing must report ok:false, while
 // still answering 200 — the file is already gone from disk.
-func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
+func TestRemovals_PartialRescanReportsNotOK(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "album")
 	if err := os.MkdirAll(albumDir, 0o755); err != nil {
@@ -922,8 +937,6 @@ func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), pngBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// selectionPaths falls back to the folder's tracks; nullReader reports none,
-	// so pass the path explicitly to give the rescan something to do.
 	if err := os.WriteFile(filepath.Join(albumDir, "01.flac"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -933,10 +946,7 @@ func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
 	}}
 	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
 
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
-		"&path=album&slot=folder&type=Back%20Cover&paths=album/01.flac"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Back Cover", "folder")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -1134,9 +1144,15 @@ func TestInventory_MalformedJSON400(t *testing.T) {
 	}
 }
 
-// TestDeletePicture_MalformedPathEntryDegradesGracefully mirrors the pictures
-// list case for the delete endpoint.
-func TestDeletePicture_MalformedPathEntryDegradesGracefully(t *testing.T) {
+// TestRemovals_MalformedPathEntryDegradesGracefully mirrors the
+// TestInventory_MalformedPathEntryDegradesGracefully case for removals: a
+// paths[] mix of a valid entry and one that fails to resolve (escaping the
+// library root) still clears the folder art via the valid entry, instead of
+// 500ing or rejecting the whole request. Unlike the old query-string
+// deletePicture there is no separate "browsed folder" to fall back to when
+// EVERY entry is bad (see TestInventory_AllPathsUnresolvableReturnsEmptyMatrix)
+// — paths[] is the whole selection now — so this keeps one resolvable entry.
+func TestRemovals_MalformedPathEntryDegradesGracefully(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "album")
 	if err := os.Mkdir(albumDir, 0o755); err != nil {
@@ -1148,15 +1164,12 @@ func TestDeletePicture_MalformedPathEntryDegradesGracefully(t *testing.T) {
 	}
 	_, r, lib := newPictureHandler(t, root, nil)
 
-	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
-		"&path=album&slot=folder&type=Back%20Cover&paths=..%2Foutside"
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	w := postRemovals(t, r, lib.ID, []string{"album/01.flac", "../outside"}, "Back Cover", "folder")
 	if w.Code != http.StatusOK {
-		t.Fatalf("status %d: %s (a malformed paths[] entry must degrade to the browsed folder, not 500)", w.Code, w.Body.String())
+		t.Fatalf("status %d: %s (a malformed paths[] entry must degrade to the valid ones, not fail the request)", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(backFile); !os.IsNotExist(err) {
-		t.Fatal("back.jpg was not removed: the malformed paths[] entry should fall back to the browsed folder, not block the delete")
+		t.Fatal("back.jpg was not removed: a malformed paths[] entry should not block removal via the valid ones")
 	}
 }
 
@@ -1182,4 +1195,67 @@ func TestApplyPicture_RejectsUnresolvablePath(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(albumDir, "back.png")); !os.IsNotExist(err) {
 		t.Fatal("must not have written anything when one path is invalid")
 	}
+}
+
+// TestRemovals_PostBodyClearsCell is the brief's seed test for
+// POST /metadata/pictures/removals: the selection travels in the POST body
+// (never the URL), a removal actually clears the cell — the folder file is
+// deleted, the embedded frame is gone — and repeating the same removal
+// against the now-empty cell still answers ok:true: clearing something that
+// is already gone is a no-op, not an error.
+func TestRemovals_PostBodyClearsCell(t *testing.T) {
+	src := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backFile := filepath.Join(albumDir, "back.jpg")
+	if err := os.WriteFile(backFile, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trackAbs := filepath.Join(albumDir, "01.flac")
+	copyFixture(t, src, trackAbs)
+	if err := metadataedit.WriteEmbeddedPicture(trackAbs, "Front Cover", pngBytes, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	assertOK := func(w *httptest.ResponseRecorder, label string) {
+		t.Helper()
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", label, w.Code, w.Body.String())
+		}
+		var body struct {
+			OK bool `json:"ok"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || !body.OK {
+			t.Fatalf("%s: expected ok:true, got %s", label, w.Body.String())
+		}
+	}
+
+	// Folder slot: the file is actually deleted.
+	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Back Cover", "folder")
+	assertOK(w, "folder removal")
+	if _, err := os.Stat(backFile); !os.IsNotExist(err) {
+		t.Fatal("back.jpg was not removed")
+	}
+
+	// Repeating it against the now-empty folder cell is still idempotent.
+	w = postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Back Cover", "folder")
+	assertOK(w, "repeat folder removal on an empty cell")
+
+	// Embedded slot: the frame is actually gone.
+	w = postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Front Cover", "embedded")
+	assertOK(w, "embedded removal")
+	if _, ok, _ := metadataedit.ReadEmbeddedPicture(trackAbs, "Front Cover"); ok {
+		t.Fatal("embedded front cover was not removed")
+	}
+
+	// Repeating it against the now-empty embedded cell is still idempotent.
+	w = postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Front Cover", "embedded")
+	assertOK(w, "repeat embedded removal on an empty cell")
 }

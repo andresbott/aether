@@ -7,7 +7,7 @@ import {
     useApplyPicture,
     useDeletePicture
 } from '@/composables/useMetadataEditor'
-import { albumKey, dirOf } from '@/lib/albumIdentity'
+import { albumKey } from '@/lib/albumIdentity'
 import { apiErrorMessage } from '@/lib/apiError'
 import type {
     ArtistCredit,
@@ -633,7 +633,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         if (op.kind === 'set') {
                             const form = new FormData()
                             form.append('library_id', String(lib))
-                            form.append('target', slot)
+                            form.append('slot', slot)
                             form.append('type', type)
                             for (const p of op.paths) form.append('paths', p)
                             if (op.file) form.append('image', op.file)
@@ -642,9 +642,6 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         } else {
                             out = await deletePictureMutation.mutateAsync({
                                 libraryId: lib,
-                                // For embedded/folder slots, the path is the directory
-                                // containing the files.
-                                path: dirOf(op.paths[0] ?? ''),
                                 type,
                                 slot,
                                 // Both slots need the staged files: embedded

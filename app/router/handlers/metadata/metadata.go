@@ -142,12 +142,12 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/identify").Methods(http.MethodPost).HandlerFunc(h.identify)
 	r.Path("/metadata/identify-album").Methods(http.MethodPost).HandlerFunc(h.identifyAlbum)
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
-	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
+	r.Path("/metadata/tracks/raw-tags").Methods(http.MethodPost).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)
 	r.Path("/metadata/pictures/inventory").Methods(http.MethodPost).HandlerFunc(h.inventory)
 	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
-	r.Path("/metadata/pictures").Methods(http.MethodDelete).HandlerFunc(h.deletePicture)
+	r.Path("/metadata/pictures/removals").Methods(http.MethodPost).HandlerFunc(h.removals)
 	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
 	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
 }
@@ -216,31 +216,36 @@ const maxSelectionPaths = 50
 // the body rather than the URL so a large multi-disc selection can never
 // overflow a header buffer (the production 431 this redesign fixes). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
+//
+// Type/Slot address one picture cell within the selection; only removals
+// sets them, defaulting Type to Front Cover like the other picture endpoints
+// when empty — inventory and raw-tags leave both at their zero value.
 type pictureSelection struct {
 	LibraryID uint     `json:"library_id"`
 	Paths     []string `json:"paths"`
+	Type      string   `json:"type,omitempty"`
+	Slot      string   `json:"slot,omitempty"`
 }
 
 // decodeSelection decodes and validates a picture-selection POST body,
 // resolving library_id to its root path. status/err are zero/nil on success;
 // callers on failure answer writeErr(w, status, codeFor(status), err.Error()).
-func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, paths []string, status int, err error) {
-	var body pictureSelection
-	if derr := json.NewDecoder(r.Body).Decode(&body); derr != nil {
-		return nil, nil, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
+func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
+	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
+		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
 	}
-	if len(body.Paths) == 0 || len(body.Paths) > maxSelectionPaths {
-		return nil, nil, http.StatusBadRequest,
+	if len(sel.Paths) == 0 || len(sel.Paths) > maxSelectionPaths {
+		return nil, pictureSelection{}, http.StatusBadRequest,
 			fmt.Errorf("paths must contain between 1 and %d entries", maxSelectionPaths)
 	}
-	libModel, gerr := h.Store.GetLibrary(body.LibraryID)
+	libModel, gerr := h.Store.GetLibrary(sel.LibraryID)
 	if gerr != nil {
 		if errors.Is(gerr, gorm.ErrRecordNotFound) {
-			return nil, nil, http.StatusNotFound, gerr
+			return nil, pictureSelection{}, http.StatusNotFound, gerr
 		}
-		return nil, nil, http.StatusInternalServerError, gerr
+		return nil, pictureSelection{}, http.StatusInternalServerError, gerr
 	}
-	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, body.Paths, 0, nil
+	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, sel, 0, nil
 }
 
 type folderDTO struct {

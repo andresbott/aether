@@ -387,7 +387,7 @@ describe('picture staging', () => {
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
     })
 
-    it('save posts one form per set op including type and target', async () => {
+    it('save posts one form per set op including type and slot', async () => {
         const session = mkSession()
         session.stagePictureSet(
             ALBUM,
@@ -399,7 +399,7 @@ describe('picture staging', () => {
         await session.save()
         expect(applyPictureSpy).toHaveBeenCalledTimes(1)
         const form = applyPictureSpy.mock.calls[0][0] as FormData
-        expect(form.get('target')).toBe('folder')
+        expect(form.get('slot')).toBe('folder')
         expect(form.get('type')).toBe('Back Cover')
         expect(form.get('image_url')).toBe('http://img/x.jpg')
         expect(form.getAll('paths')).toEqual(['album/a.mp3'])
@@ -414,14 +414,12 @@ describe('picture staging', () => {
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'album',
             type: 'Front Cover',
             slot: 'embedded',
             paths: ['album/a.mp3']
         })
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'album',
             type: 'Media',
             slot: 'folder',
             paths: ['album/a.mp3']
@@ -616,7 +614,6 @@ describe('picture staging', () => {
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'Release/CD 1',
             type: 'Front Cover',
             slot: 'folder',
             paths: discPaths

@@ -41,10 +41,15 @@ export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTra
 
 // getRawTags reads the complete tag map of the given files, including keys
 // the structured editor does not manage.
+//
+// The selection travels in the POST body rather than the URL: a large
+// multi-disc selection as a repeated ?paths= query param overflowed a
+// production reverse proxy's header buffer (HTTP 431) — the same fix as
+// getPictures below.
 export async function getRawTags(libraryId: number, paths: string[]) {
-    const { data } = await apiClient.get<RawTagsResponse>('/metadata/tracks/raw', {
-        params: { library_id: libraryId, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+    const { data } = await apiClient.post<RawTagsResponse>('/metadata/tracks/raw-tags', {
+        library_id: libraryId,
+        paths
     })
     return data.results
 }
@@ -122,19 +127,26 @@ export async function getPictures(libraryId: number, paths: string[]): Promise<P
     return data.pictures ?? []
 }
 
-// deletePicture removes one picture type+slot cell. For 'embedded', paths are
-// the selected tracks the removal applies to. Returns the whole response, not
-// just ok: the server also reports whether its post-write re-index succeeded.
+// deletePicture removes one picture type+slot cell across paths: for
+// 'embedded' it applies directly to those tracks; for 'folder' it reaches
+// every directory the selection spans. Returns the whole response, not just
+// ok: the server also reports whether its post-write re-index succeeded.
+//
+// POST, not DELETE-with-body: the selection (paths, mandatory and non-empty)
+// travels in the body rather than the URL, the same header-safety fix as
+// getPictures/getRawTags above — a POST action rather than a DELETE-with-body
+// avoids attaching a payload to a DELETE verb.
 export async function deletePicture(
     libraryId: number,
-    path: string,
+    paths: string[],
     type: string,
-    slot: PictureSlot,
-    paths?: string[]
+    slot: PictureSlot
 ): Promise<DeletePictureResult> {
-    const { data } = await apiClient.delete<DeletePictureResult>('/metadata/pictures', {
-        params: { library_id: libraryId, path, type, slot, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+    const { data } = await apiClient.post<DeletePictureResult>('/metadata/pictures/removals', {
+        library_id: libraryId,
+        paths,
+        type,
+        slot
     })
     return data
 }

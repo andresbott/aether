@@ -84,7 +84,7 @@ describe('metadata write invalidation', () => {
         const { mutation, invalidateSpy } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
             libraryId: 1,
-            path: 'Artist/Album',
+            paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
         })
@@ -130,7 +130,7 @@ describe('picture write rescan reporting', () => {
         const { mutation } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
             libraryId: 1,
-            path: 'Artist/Album',
+            paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
         })
