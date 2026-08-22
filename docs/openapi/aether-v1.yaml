@@ -39,7 +39,6 @@ tags:
     description: Folder/track browsing that backs the metadata editor's file picker.
 security:
   - sessionCookie: []
-  - bearerToken: []
 
 paths:
   /metadata/pictures/inventory:
@@ -115,11 +114,13 @@ paths:
           in: query
           required: false
           description: >
-            Thumbnail edge length in px, clamped server-side to 1024. Omit
-            for the original, full-fidelity bytes — the editor's
-            copy-to-another-slot flow depends on getting back the untouched
-            source rather than a downscaled re-encode.
-          schema: { type: integer, minimum: 1, maximum: 1024 }
+            Thumbnail edge length in px. The server never rejects this value:
+            non-numeric, zero or negative is treated as "no thumbnail" (same
+            as omitting it), and anything above 1024 is silently clamped down
+            to 1024 rather than erroring. Omit for the original, full-fidelity
+            bytes — the editor's copy-to-another-slot flow depends on getting
+            back the untouched source rather than a downscaled re-encode.
+          schema: { type: integer }
         - name: sv
           in: query
           required: false
@@ -195,8 +196,6 @@ paths:
               paths:
                 style: form
                 explode: true
-              image:
-                contentType: image/jpeg, image/png
       responses:
         '200':
           description: Applied.
@@ -356,22 +355,20 @@ components:
       description: >
         Native-mode session cookie (see docs/agents/authentication.md).
         `/api/v1` defaults every route to admin-only, so a valid, enabled
-        admin session is required for the whole metadata surface. In
-        proxy-header mode this cookie plays no role — identity instead comes
-        from reverse-proxy-injected headers that are not representable as a
-        client-chosen OpenAPI security scheme (the proxy establishes it, not
-        the API caller); that mode is intentionally not modelled here.
-    bearerToken:
-      type: http
-      scheme: bearer
-      description: >
-        Personal API token (PAT), presented as `Authorization: Bearer
-        <token>` (see docs/agents/authentication.md). NOTE: today Aether's
-        PAT system is verified only on `/rest` (via `apiKey`, or `u`+`t`+`s`
-        / `u`+`p`); no `/api/v1` middleware currently validates an
-        Authorization header. This scheme documents the intended alternative
-        credential for this surface per the design brief, not a
-        currently-enforced code path — see the Task 1 report for this gap.
+        admin session is required for the whole metadata surface. This is the
+        only credential `/api/v1` actually validates: no route on this
+        surface reads an `Authorization` header, and Aether's PATs
+        (bearer-shaped credentials) are verified exclusively on `/rest` (via
+        `apiKey`, or `u`+`t`+`s` / `u`+`p`), never here.
+
+
+        In **proxy-header mode**, this cookie plays no role either — identity
+        instead comes from reverse-proxy-injected headers (`Remote-User` /
+        `Remote-Groups`), validated by `headerGuard`. That trust is
+        established between the proxy and Aether, not chosen by the API
+        caller, so it has no client-facing credential to model as an OpenAPI
+        security scheme; it is intentionally left undeclared here rather than
+        represented by a scheme nothing in the protocol actually sends.
 
   parameters:
     LibraryId:
@@ -603,7 +600,10 @@ components:
         image:
           type: string
           format: binary
-          description: An uploaded image file part.
+          description: >
+            An uploaded image file part. The server accepts whatever bytes
+            are uploaded (no content-type enforcement); it only sniffs the
+            filename/bytes to pick a jpg/png extension for the stored file.
         image_url:
           type: string
           format: uri
