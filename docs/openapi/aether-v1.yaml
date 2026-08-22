@@ -2,6 +2,9 @@ openapi: 3.1.0
 info:
   title: Aether /api/v1 API
   version: 0.1.0
+  contact:
+    name: Andres Bott
+    url: https://github.com/andresbott/aether
   description: >
     Internal, admin-only server-management API — collections/libraries,
     scanning, tasks/scheduling, and other administration concerns. This is

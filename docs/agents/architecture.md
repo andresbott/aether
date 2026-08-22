@@ -264,8 +264,13 @@ album.
 
 Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
 `Problem{type, title, status, detail, instance}` body (see
-[api-conventions.md](api-conventions.md)). Most handler packages (metadata,
-tokens, libraries, artists, radiobrowser, users) build one directly via
+[api-conventions.md](api-conventions.md)) — except the metadata package's
+batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
+`{results: [...]}` envelope instead, forwarded as plain `application/json`
+even on `updateTracks`' failing `500` (`rawTags` always answers `200`); see
+api-conventions.md's error-shape section for the detail. Most handler
+packages (metadata, tokens, libraries, artists, radiobrowser, users) build a
+Problem directly via
 `app/router/handlers/httperr`; `tasks` calls it directly for its one JSON
 error body (`queue_full`) and otherwise still answers bare `http.Error`.
 Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v1` —

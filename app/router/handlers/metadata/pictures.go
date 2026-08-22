@@ -232,7 +232,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rp.filePath != "" {
-		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInLibrary — rejecting absolute/traversing paths and confining the result to the library root
+		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInLibrary — confined lexically to the library root (rejects absolute paths and ".." escapes via filepath.Rel; does not resolve symlinks)
 		return
 	}
 	writeImage(w, rp.data)

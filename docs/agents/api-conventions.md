@@ -152,8 +152,10 @@ object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
 through untouched, so the two mechanisms never double-wrap each other.
 `jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
 together with the handler packages calling `httperr` directly, it is *how*
-`/api/v1` stays uniform: every response under this mount, handler-authored or
-not, ends up `application/problem+json`. (Outside the mount — chiefly
+`/api/v1` stays uniform: every error response under this mount,
+handler-authored or not, ends up `application/problem+json` — with one
+deliberate exception, the batch endpoints described below. (Outside the
+mount — chiefly
 `/rest` — the same middleware answers the legacy, pre-RFC-9457
 `apiError{error,code}` shape instead; see
 [architecture.md](architecture.md)'s error-envelope section — `/rest` must
@@ -174,10 +176,29 @@ stock message rather than a handler-authored sentence.
 `docs/openapi/aether-v1.yaml` documents it as `application/problem+json` like
 every other response on that path.
 
+**The batch endpoints are the one deliberate exception.** `updateTracks`
+(`PUT /metadata/tracks`) and its read-only sibling `rawTags` (`POST
+/metadata/tracks/raw-tags`), both in `app/router/handlers/metadata`, each act
+on a list of files and answer a per-row envelope instead of a single
+`Problem` — `{results: [{path, ok, error}, ...]}` for `updateTracks`,
+`{results: [{path, tags, unsupported, error}, ...]}` for `rawTags` — so a
+client can tell which files in the batch failed and why, rather than losing
+that detail behind one top-level error. `rawTags` always answers `200`: an
+unreadable file is just that row's `error`, never a failed batch.
+`updateTracks` answers `200` when at least one file in the batch was written
+and `500` only when every row failed. Both build the body with the
+package's own `writeJSON`, which sets `Content-Type: application/json`
+directly; `jsonErrorEnvelope` sees an already-a-JSON-object body
+(`isJSONObject`) and forwards it untouched, so `updateTracks`' `500` is the
+one `/api/v1` failure status that leaves the server as plain
+`application/json`, never `application/problem+json`.
+
 **Enforcement/reference:** `docs/openapi/aether-v1.yaml`'s
 `components.schemas.{Problem,ValidationProblem,FieldError}` and
 `components.responses.{BadRequest,NotFound,UnprocessableEntity,TooManyRequests,UpstreamError}`
-— all typed `application/problem+json`, with no exception left.
+— all typed `application/problem+json`, with no exception left among
+single-resource error responses; the batch endpoints above remain
+`/api/v1`'s one deliberate departure from that shape.
 
 ## Mount-relative paths — model the base through `servers:`
 
