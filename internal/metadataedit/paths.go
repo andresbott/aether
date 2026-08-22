@@ -1,7 +1,9 @@
 // Package metadataedit provides library-relative filesystem operations
 // and tag read/write for the admin metadata editor. It deliberately
-// avoids any coupling to the scanner, store (tracks/albums/artists),
-// or player code so it can be extracted into a standalone tool.
+// avoids any coupling to the store (tracks/albums/artists) or player
+// code, and to the scanner beyond its front-cover filename heuristic
+// (scanner.BestCover, a one-way dependency: the scanner does not import
+// this package), so it can be extracted into a standalone tool.
 package metadataedit
 
 import (
