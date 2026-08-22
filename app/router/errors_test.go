@@ -10,12 +10,14 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 )
 
-// The production middleware wraps any >=400 body in a JSON envelope. Our
-// /api/v1 handlers already answer JSON, so without care the client receives an
-// envelope whose "error" is an escaped JSON *document* — which the UI then shows
-// verbatim (the {"error":...,"code":"upstream_error"} string users saw on a
-// failed cover search). These tests pin the contract: one envelope, "error" is
-// a sentence, and the handler's own code survives.
+// The production middleware wraps any >=400 body in a problem+json envelope.
+// Our /api/v1 handlers already answer JSON (most already problem+json via
+// httperr), so without care the client receives an envelope whose "detail" is
+// an escaped JSON *document* — which the UI then shows verbatim (the
+// {"error":...,"code":"upstream_error"} string users saw on a failed cover
+// search, back when the envelope's own shape was that ad hoc object rather
+// than a Problem). These tests pin the contract: one envelope, "detail" is a
+// sentence, and the handler's own type/slug survives.
 //
 // GET /api/v1/radiobrowser/search without q is a real registered handler that
 // answers a JSON 400 through writeError, so it exercises the whole stack.
@@ -104,9 +106,12 @@ func TestSubsonicErrorEnvelopeIsUntouched(t *testing.T) {
 	}
 }
 
-// Handlers that answer plain text (http.Error) still need the JSON envelope —
-// the SPA parses every /api/v1 failure as JSON.
-func TestPlainTextHandlerErrorsStillGetJSONEnvelope(t *testing.T) {
+// Handlers that answer plain text (http.Error) still need an envelope — the
+// SPA parses every /api/v1 failure as problem+json, not just the ones a
+// handler builds itself via httperr. This exercises the real /api/v1
+// catch-all (api_v1.go), which answers unmatched paths with a bare
+// http.Error.
+func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil))
@@ -114,13 +119,52 @@ func TestPlainTextHandlerErrorsStillGetJSONEnvelope(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
-	var body struct {
-		Error string `json:"error"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("plain-text handler error was not wrapped as JSON: %s", w.Body.String())
+		t.Fatalf("plain-text handler error was not wrapped as problem+json: %s", w.Body.String())
 	}
-	if !strings.Contains(body.Error, "wrong api call") {
-		t.Errorf("error = %q, want the handler's message", body.Error)
+	if !strings.Contains(body.Detail, "wrong api call") {
+		t.Errorf("detail = %q, want the handler's message", body.Detail)
+	}
+	if got := httperr.Slug(body.Type); got != "validation_error" {
+		t.Errorf("slug = %q, want validation_error (400)", got)
+	}
+	if body.Instance != "/api/v1/does-not-exist" {
+		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+}
+
+// A bare http.NotFound (the pictureImage "cell not found" case, or any other
+// handler that answers 404 without going through httperr) must come out as
+// problem+json too, exercised directly against the middleware rather than a
+// specific registered route.
+func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/nope", nil)
+	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})).ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var body httperr.Problem
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("http.NotFound body was not wrapped as problem+json: %s", w.Body.String())
+	}
+	if body.Status != http.StatusNotFound {
+		t.Errorf("Status = %d, want 404", body.Status)
+	}
+	if got := httperr.Slug(body.Type); got != "not_found" {
+		t.Errorf("slug = %q, want not_found", got)
+	}
+	if body.Instance != "/api/v1/nope" {
+		t.Errorf("instance = %q, want the request path", body.Instance)
 	}
 }

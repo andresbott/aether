@@ -131,36 +131,46 @@ when the provider is rate-limiting Aether, otherwise `502`/`504` — `detail`
 is always `upstream`'s human sentence or a fallback, **never a raw Go
 error**.
 
-**Reality check — this is the target shape, not yet universal.** Six handler
-packages are fully migrated today: `metadata`, `tokens`, `libraries`,
-`artists`, `radiobrowser`, `users` (`httperr.go`'s own package doc names
-them). Two things on `/api/v1` are not yet on `httperr` and still answer
-through the older, blanket `jsonErrorEnvelope` middleware
-(`app/router/errors.go`, wired in `app/router/main.go`) instead: the `tasks`
-handler package (plain `http.Error` and ad hoc `map[string]string` JSON
-bodies) and the front-door session/role gate itself
-(`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
-`app/router/proxy_auth.go`, which answer `401`/`403` via plain `http.Error`,
-`text/plain`). `jsonErrorEnvelope` isn't being retired — it's the safety net
-that normalizes any plain-text error into `{"error":"<sentence>",
-"code":"<slug>"}` and passes an already-JSON body (like an `httperr`
-problem) through untouched — but it is not RFC 9457, so don't point to it as
-evidence the whole surface is already unified. When you touch `tasks` or the
-auth gate, migrating that error path to `httperr` is in scope and welcome,
-not a separate, later project.
+**Status — uniform across all of `/api/v1`.** Six handler packages call
+`httperr` directly today: `metadata`, `tokens`, `libraries`, `artists`,
+`radiobrowser`, `users` (`httperr.go`'s own package doc names them). Two
+things on `/api/v1` still answer through plain `http.Error`/`http.NotFound`
+rather than calling `httperr` themselves: the `tasks` handler package, and the
+front-door session/role gate (`sessionGuard`/`headerGuard` in
+`app/router/api_v1.go` and `app/router/proxy_auth.go`, which answer
+`401`/`403`). Neither is a gap in the *shape* the client sees, though: the
+router-level `jsonErrorEnvelope` middleware (`app/router/errors.go`, wired in
+`app/router/main.go`) guarantees the exact same `Problem` for any bare
+plain-text error that reaches it — `errorCodeFor` maps the response status to
+a slug (`401` → `unauthorized`, `403` → `forbidden`, …), `httperr.TitleFor`
+maps that slug to its human title, and the plain-text body becomes `detail`
+verbatim. A body that is already a JSON object (an `httperr` Problem, or
+Subsonic's own `writeError` envelope) is passed through untouched, so the two
+mechanisms never double-wrap each other. `jsonErrorEnvelope` isn't a
+lesser, non-RFC-9457 fallback to work around — together with the handler
+packages calling `httperr` directly, it is *how* `/api/v1` stays uniform: every
+response, handler-authored or not, ends up `application/problem+json`.
+`middleware.Cfg.JsonErrors` stays `false` regardless (see
+[architecture.md](architecture.md)) — that flag is go-bumbu's own blind
+wrapper, unrelated to `jsonErrorEnvelope`. When you touch `tasks` or the auth
+gate, migrating that error path to call `httperr` directly (rather than
+relying on the router fallback) is in scope and welcome, not a separate, later
+project — the two are equivalent to a client either way.
 
-There is also one deliberate exception inside an already-migrated package:
-`pictureImage`'s "cell not found" `404` is Go's bare `http.NotFound` —
-`text/plain`, not `application/problem+json` — because that response is an
-image stream, not a JSON one. It's documented as a local, accurately-typed
-response in `docs/openapi/aether-v1.yaml` rather than silently promised as
-problem+json via the shared `NotFound` response component.
+`pictureImage`'s "cell not found" `404` (inside the already-migrated
+`metadata` package) takes the router-fallback path rather than calling
+`httperr` directly: the handler answers Go's bare `http.NotFound` because that
+endpoint is an image stream, not a JSON one. The envelope still turns it into
+the same `Problem{type: .../probs/not_found, title: "Not found", detail:
+"404 page not found", ...}` shape as everywhere else — `detail` is just Go's
+stock message rather than a handler-authored sentence.
+`docs/openapi/aether-v1.yaml` documents it as `application/problem+json` like
+every other response on that path.
 
 **Enforcement/reference:** `docs/openapi/aether-v1.yaml`'s
 `components.schemas.{Problem,ValidationProblem,FieldError}` and
 `components.responses.{BadRequest,NotFound,UnprocessableEntity,TooManyRequests,UpstreamError}`
-— all typed `application/problem+json` except the one documented exception
-above.
+— all typed `application/problem+json`, with no exception left.
 
 ## Mount-relative paths — model the base through `servers:`
 

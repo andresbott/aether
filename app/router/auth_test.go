@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -131,17 +132,20 @@ func TestLoginRejectsBadCredentials(t *testing.T) {
 func TestSessionGuardBlocksApiV1(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
-	// Without a session, a protected route answers 401 in our JSON envelope.
+	// Without a session, a protected route answers 401 as a problem+json
+	// envelope — sessionGuard itself only calls bare http.Error, so this is
+	// the router-level jsonErrorEnvelope fallback building the Problem.
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("GET /api/v1/users without session = %d, want 401: %s", w.Code, w.Body.String())
 	}
-	var envelope struct {
-		Code string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", ct)
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || envelope.Code != "unauthorized" {
-		t.Errorf("401 body = %s, want the JSON envelope with code unauthorized", w.Body.String())
+	var envelope httperr.Problem
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || httperr.Slug(envelope.Type) != "unauthorized" {
+		t.Errorf("401 body = %s, want a Problem with slug unauthorized", w.Body.String())
 	}
 
 	// The public bootstrap set stays reachable.

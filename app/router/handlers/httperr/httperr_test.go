@@ -148,6 +148,21 @@ func TestSlugRoundTrips(t *testing.T) {
 	}
 }
 
+func TestTypeURI(t *testing.T) {
+	for _, slug := range []string{"not_found", "validation_error", "forbidden"} {
+		want := problemBaseURI + "/" + slug
+		if got := TypeURI(slug); got != want {
+			t.Errorf("TypeURI(%q) = %q, want %q", slug, got, want)
+		}
+		// TypeURI and Slug must round-trip: the router-level fallback builds a
+		// Type from a bare status via TypeURI, and a client reads it back via
+		// Slug, exactly as it would for a Problem built by Write.
+		if got := Slug(TypeURI(slug)); got != slug {
+			t.Errorf("Slug(TypeURI(%q)) = %q, want %q", slug, got, slug)
+		}
+	}
+}
+
 func TestTitleFor(t *testing.T) {
 	for slug, want := range map[string]string{
 		"validation_error":      "Validation error",
@@ -155,6 +170,10 @@ func TestTitleFor(t *testing.T) {
 		"internal":              "Internal error",
 		"upstream_error":        "Upstream error",
 		"upstream_rate_limited": "Upstream rate limited",
+		"forbidden":             "Forbidden",
+		"rate_limited":          "Rate limited",
+		"unavailable":           "Unavailable",
+		"upstream_timeout":      "Upstream timeout",
 	} {
 		if got := TitleFor(slug); got != want {
 			t.Errorf("TitleFor(%q) = %q, want %q", slug, got, want)

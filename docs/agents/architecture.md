@@ -262,28 +262,38 @@ album.
 
 ## The `/api/v1` error envelope
 
-Every `/api/v1` failure answers `{"error": "<sentence>", "code": "<slug>"}`.
-`app/router/errors.go` (`jsonErrorEnvelope`) guarantees it: a handler body that
-is already a JSON object passes through untouched, and plain-text errors
-(`http.Error`, `http.NotFound`) get an envelope built for them.
+Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
+`Problem{type, title, status, detail, instance}` body (see
+[api-conventions.md](api-conventions.md)). Most handler packages (metadata,
+tokens, libraries, artists, radiobrowser, users) build one directly via
+`app/router/handlers/httperr`. Anything that instead falls back to a bare
+`http.Error`/`http.NotFound` — the `tasks` handler package, the
+`sessionGuard`/`headerGuard` auth gate's `401`/`403`, the `/api/v1` catch-all's
+`400`, or a stray `http.NotFound` inside an otherwise-migrated handler
+(`pictureImage`'s "cell not found") — is still guaranteed the same shape by
+`app/router/errors.go`'s `jsonErrorEnvelope` middleware: a handler body that
+is already a JSON object (an `httperr` Problem, or Subsonic's own `writeError`
+envelope) passes through untouched, and a plain-text body gets a Problem built
+for it from the response status alone (`errorCodeFor` maps status → slug,
+`httperr.TitleFor` maps slug → title, the plain-text body becomes `detail`
+verbatim).
 
 **`middleware.Cfg.JsonErrors` must stay `false`.** It wraps *every* error body
-blindly, escaping our JSON into the `error` string — the client then receives a
+blindly, escaping our JSON into a string field — the client then receives a
 document where it expects a sentence. The go-bumbu middleware is still wired for
 logging and Prometheus. Successful responses are never buffered, so streaming
-(audio, task logs) is unaffected; `/rest` reports its own errors inside a 200
-Subsonic envelope and is untouched.
+(audio, task logs) is unaffected.
 
-**This is the router-level safety net, not the current target shape.** Most
-`/api/v1` handlers (metadata, tokens, libraries, artists, radiobrowser, users)
-now answer errors as RFC 9457 `application/problem+json` via
-`app/router/handlers/httperr` — already a JSON object, so `jsonErrorEnvelope`
-passes it through untouched. What's described above is what a handler still
-gets by default when it *hasn't* migrated (`tasks`, the `sessionGuard`/
-`headerGuard` auth gate): a plain-text `http.Error` comes back wrapped as
-`{"error":"<sentence>","code":"<slug>"}`, not a Problem. See
-[api-conventions.md](api-conventions.md) for the full house rules and which
-packages have moved.
+`jsonErrorEnvelope` is mounted on the root router (`main.go`), so it also
+wraps `/rest` — but Subsonic's own error path (`writeError`) always answers
+HTTP 200 with its own `subsonic-response` JSON envelope, so it never reaches
+the buffering branch and is untouched. A handful of `/rest` media-serving edge
+cases (a cover/stream file vanishing mid-request, no cover source at all) do
+answer a bare 404/500 and so fall through the same Problem fallback as
+`/api/v1` — harmless, since that response carries no Subsonic-specified error
+shape to begin with and no OpenSubsonic client parses it as structured data.
+
+See [api-conventions.md](api-conventions.md) for the full house rules.
 
 ## Decision records and historical docs
 

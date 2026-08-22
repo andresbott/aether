@@ -166,14 +166,17 @@ paths:
         '404':
           description: >
             The resolved cell could not be opened (a stale link: the embedded
-            picture was removed, or the folder file no longer exists). Unlike
-            every other error response on this surface, this is Go's plain
-            `http.NotFound` — `text/plain`, **not**
-            `application/problem+json` — which is why it is documented here
-            rather than via the shared NotFound response.
+            picture was removed, or the folder file no longer exists). The
+            handler itself answers with Go's plain `http.NotFound`, but the
+            router-level error envelope (see `app/router/errors.go`) wraps
+            every bare `/api/v1` error — this one included — into the same
+            `application/problem+json` Problem shape every other response on
+            this surface uses, so it is not documented via the shared
+            NotFound response only because its Detail text differs
+            ("404 page not found" rather than a handler-authored message).
           content:
-            text/plain:
-              schema: { type: string, example: "404 page not found" }
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
 
   /metadata/pictures:

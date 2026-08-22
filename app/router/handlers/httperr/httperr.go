@@ -104,10 +104,24 @@ func Slug(typeURI string) string {
 	return typeURI
 }
 
+// TypeURI is Slug's inverse: it builds the stable Type URI (problemBaseURI +
+// "/" + slug) a Problem carries. Exported for the one caller outside this
+// package that must build a Problem body without a ResponseWriter to hand to
+// Write — the /api/v1 router-level error-envelope fallback for a bare
+// http.Error/http.NotFound (see jsonErrorEnvelope in app/router/errors.go),
+// which only has a status code and a plain-text message to work with.
+func TypeURI(slug string) string {
+	return problemBaseURI + "/" + slug
+}
+
 // titles maps a known slug to the human title its Problem should carry. It
-// covers every slug the six migrated /api/v1 handler packages (metadata,
-// tokens, libraries, artists, radiobrowser, users) pass to their local
-// writeError/writeErr shims.
+// covers every slug the /api/v1 handler packages (metadata, tokens,
+// libraries, artists, radiobrowser, users) pass to their local
+// writeError/writeErr shims, plus the status-derived slugs the router-level
+// error-envelope fallback builds for a bare http.Error/http.NotFound that
+// never reaches this package directly (errorCodeFor in app/router/errors.go
+// — "forbidden", "rate_limited", "unavailable" and "upstream_timeout" are
+// only ever produced there).
 var titles = map[string]string{ //nolint:gosec // G101: human-readable slug titles, not credentials
 	"validation_error":      "Validation error",
 	"not_found":             "Not found",
@@ -116,12 +130,16 @@ var titles = map[string]string{ //nolint:gosec // G101: human-readable slug titl
 	"upstream_rate_limited": "Upstream rate limited",
 	"identify_unavailable":  "Identification unavailable",
 	"unauthorized":          "Unauthorized",
+	"forbidden":             "Forbidden",
 	"too_many_tokens":       "Too many tokens",
 	"usertoken_unavailable": "User token unavailable",
 	"not_configured":        "Not configured",
 	"config_managed":        "Config managed",
 	"last_admin":            "Last admin",
 	"conflict":              "Conflict",
+	"rate_limited":          "Rate limited",
+	"unavailable":           "Unavailable",
+	"upstream_timeout":      "Upstream timeout",
 }
 
 // TitleFor returns the human title for slug, or slug itself when it is not
