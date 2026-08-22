@@ -8,9 +8,10 @@ backwards-compatibility obligations** (see CLAUDE.md: no migration code, no
 compat shims — change schemas freely; the user drops the DB).
 
 Read next, per area: [subsonic-api.md](subsonic-api.md) ·
-[scanning.md](scanning.md) · [frontend.md](frontend.md) ·
-[features.md](features.md) · [authentication.md](authentication.md) ·
-[testing.md](testing.md) · [releasing.md](releasing.md)
+[api-conventions.md](api-conventions.md) · [scanning.md](scanning.md) ·
+[frontend.md](frontend.md) · [features.md](features.md) ·
+[authentication.md](authentication.md) · [testing.md](testing.md) ·
+[releasing.md](releasing.md)
 
 ## Layering
 
@@ -272,6 +273,17 @@ document where it expects a sentence. The go-bumbu middleware is still wired for
 logging and Prometheus. Successful responses are never buffered, so streaming
 (audio, task logs) is unaffected; `/rest` reports its own errors inside a 200
 Subsonic envelope and is untouched.
+
+**This is the router-level safety net, not the current target shape.** Most
+`/api/v1` handlers (metadata, tokens, libraries, artists, radiobrowser, users)
+now answer errors as RFC 9457 `application/problem+json` via
+`app/router/handlers/httperr` — already a JSON object, so `jsonErrorEnvelope`
+passes it through untouched. What's described above is what a handler still
+gets by default when it *hasn't* migrated (`tasks`, the `sessionGuard`/
+`headerGuard` auth gate): a plain-text `http.Error` comes back wrapped as
+`{"error":"<sentence>","code":"<slug>"}`, not a Problem. See
+[api-conventions.md](api-conventions.md) for the full house rules and which
+packages have moved.
 
 ## Decision records and historical docs
 
