@@ -183,7 +183,7 @@ on a list of files and answer a per-row envelope instead of a single
 `Problem` — `{results: [{path, ok, error}, ...]}` for `updateTracks`,
 `{results: [{path, tags, unsupported, error}, ...]}` for `rawTags` — so a
 client can tell which files in the batch failed and why, rather than losing
-that detail behind one top-level error. `rawTags` always answers `200`: an
+that detail behind one top-level error. `rawTags` always answers `200` once the selection is valid: an
 unreadable file is just that row's `error`, never a failed batch.
 `updateTracks` answers `200` when at least one file in the batch was written
 and `500` only when every row failed. Both build the body with the

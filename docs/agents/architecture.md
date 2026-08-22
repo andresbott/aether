@@ -267,7 +267,7 @@ Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
 [api-conventions.md](api-conventions.md)) — except the metadata package's
 batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
 `{results: [...]}` envelope instead, forwarded as plain `application/json`
-even on `updateTracks`' failing `500` (`rawTags` always answers `200`); see
+even on `updateTracks`' failing `500` (`rawTags` always answers `200` once the selection is valid); see
 api-conventions.md's error-shape section for the detail. Most handler
 packages (metadata, tokens, libraries, artists, radiobrowser, users) build a
 Problem directly via
