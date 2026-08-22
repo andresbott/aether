@@ -957,3 +957,133 @@ func TestDeletePicture_PartialRescanReportsNotOK(t *testing.T) {
 		t.Fatalf("expected the tag-read error, got %q", resp.Rescan.Error)
 	}
 }
+
+// TestPictures_MalformedPathEntryDegradesGracefully confirms a paths[] mix
+// of a valid track and an entry that fails to resolve (escaping the library
+// root) still resolves the valid one instead of 500ing. Regression test for
+// a Task 1 review finding: ResolveAlbum was briefly strict, turning any bad
+// paths[] entry into a 500 for this endpoint instead of degrading gracefully
+// like the selectionPaths/selectionDirs helpers it replaced.
+func TestPictures_MalformedPathEntryDegradesGracefully(t *testing.T) {
+	src := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	trackAbs := filepath.Join(albumDir, "01.flac")
+	copyFixture(t, src, trackAbs)
+	if err := metadataedit.WriteEmbeddedPicture(trackAbs, "Media", pngBytes, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	// fetchPictures itself asserts status 200, so a regression back to a
+	// strict ResolveAlbum (500 on the escaping entry) fails right there.
+	body := fetchPictures(t, r, lib.ID, "&paths=album/01.flac&paths=../outside")
+	detail, _, ok := findSlot(body, "Media", "embedded")
+	if !ok || detail != "1 of 1 files" {
+		t.Fatalf("media embedded slot: %+v (want the valid path still resolved despite the escaping entry)", body.Pictures)
+	}
+}
+
+// TestPictures_AllPathsUnresolvableFallsBackToBrowsedFolder confirms a
+// paths[] selection whose entries are all unresolvable (not merely empty)
+// still falls back to the browsed folder, exactly as an empty paths[] would.
+func TestPictures_AllPathsUnresolvableFallsBackToBrowsedFolder(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "cover.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	body := fetchPictures(t, r, lib.ID, "&paths=/etc/passwd&paths=../outside")
+	detail, _, ok := findSlot(body, "Front Cover", "folder")
+	if !ok || detail != "cover.png" {
+		t.Fatalf("front cover folder slot: %+v (want a fallback to the browsed folder)", body.Pictures)
+	}
+}
+
+// TestPictureImage_MalformedPathEntryDegradesGracefully mirrors the pictures
+// list case for the image endpoint: an unresolvable paths[] entry must not
+// 500 it, and (being the only entry given) the album falls back to the
+// browsed folder for its folder art.
+func TestPictureImage_MalformedPathEntryDegradesGracefully(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "cover.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	url := "/metadata/pictures/image?library_id=" + libIDStr(lib) +
+		"&path=album&slot=folder&type=Front%20Cover&paths=..%2Foutside"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s (a malformed paths[] entry must degrade to the browsed folder, not 500)", w.Code, w.Body.String())
+	}
+	if !bytes.Equal(w.Body.Bytes(), pngBytes) {
+		t.Fatalf("served wrong bytes: %q", w.Body.Bytes())
+	}
+}
+
+// TestDeletePicture_MalformedPathEntryDegradesGracefully mirrors the pictures
+// list case for the delete endpoint.
+func TestDeletePicture_MalformedPathEntryDegradesGracefully(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	backFile := filepath.Join(albumDir, "back.jpg")
+	if err := os.WriteFile(backFile, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	url := "/metadata/pictures?library_id=" + libIDStr(lib) +
+		"&path=album&slot=folder&type=Back%20Cover&paths=..%2Foutside"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("DELETE", url, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s (a malformed paths[] entry must degrade to the browsed folder, not 500)", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(backFile); !os.IsNotExist(err) {
+		t.Fatal("back.jpg was not removed: the malformed paths[] entry should fall back to the browsed folder, not block the delete")
+	}
+}
+
+// TestApplyPicture_RejectsUnresolvablePath confirms applyPicture keeps its
+// own strict validation of paths[]: unlike the read/delete endpoints above,
+// a write must not silently drop a bad path and save fewer files than asked.
+// Regression guard for the same fix that made ResolveAlbum lenient —
+// applyPicture must not inherit that leniency.
+func TestApplyPicture_RejectsUnresolvablePath(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	body, ct := buildPictureForm(t, lib.ID, "folder", "Back Cover",
+		[]string{"album/01.flac", "../outside"}, "art.png", pngBytes)
+	w := postPicture(t, r, body, ct)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d: %s, want 400 for an unresolvable path", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(albumDir, "back.png")); !os.IsNotExist(err) {
+		t.Fatal("must not have written anything when one path is invalid")
+	}
+}

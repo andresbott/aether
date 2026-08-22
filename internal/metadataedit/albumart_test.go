@@ -117,6 +117,56 @@ func TestResolveAlbum_EmptyInputErrors(t *testing.T) {
 	}
 }
 
+// TestResolveAlbum_SkipsUnresolvableEntries confirms a paths[] entry that
+// fails to resolve (absolute, or escaping the library root) is dropped, not
+// fatal: the rest of the selection still resolves and ResolveAlbum returns
+// no error. This is the lenient behaviour selectionPaths/selectionDirs had
+// before this Album replaced them — regression coverage for a Task 1 review
+// finding (a strict ResolveAlbum turned a malformed paths[] entry into a 500
+// for pictures/pictureImage/deletePicture instead of a graceful degrade).
+func TestResolveAlbum_SkipsUnresolvableEntries(t *testing.T) {
+	root := t.TempDir()
+	mustMkdir(t, filepath.Join(root, "album"))
+	mustWrite(t, filepath.Join(root, "album", "01.flac"), "a")
+
+	al, err := metadataedit.ResolveAlbum(root, []string{
+		"album/01.flac", // valid
+		"/etc/passwd",   // absolute: rejected by ResolveInLibrary
+		"../outside",    // escapes the library root
+	})
+	if err != nil {
+		t.Fatalf("ResolveAlbum returned an error for a partially-invalid selection: %v", err)
+	}
+	wantTrack := filepath.Join(root, "album", "01.flac")
+	if tracks := al.Tracks(); len(tracks) != 1 || tracks[0] != wantTrack {
+		t.Errorf("tracks = %v, want [%s] (the bad entries skipped)", tracks, wantTrack)
+	}
+	wantDir := filepath.Join(root, "album")
+	if dirs := al.Dirs(); len(dirs) != 1 || dirs[0] != wantDir {
+		t.Errorf("dirs = %v, want [%s]", dirs, wantDir)
+	}
+}
+
+// TestResolveAlbum_AllEntriesUnresolvableYieldsEmptyAlbumNoError confirms a
+// non-empty relTrackPaths whose entries are *all* unresolvable is not itself
+// an error (only a literally-empty relTrackPaths is): it yields an Album
+// with no tracks and no dirs, leaving it to the caller to fall back (the
+// picture handlers fall back to the browsed folder — see
+// TestPictures_AllPathsUnresolvableFallsBackToBrowsedFolder).
+func TestResolveAlbum_AllEntriesUnresolvableYieldsEmptyAlbumNoError(t *testing.T) {
+	root := t.TempDir()
+	al, err := metadataedit.ResolveAlbum(root, []string{"/etc/passwd", "../outside"})
+	if err != nil {
+		t.Fatalf("expected no error for an all-invalid but non-empty selection, got %v", err)
+	}
+	if tracks := al.Tracks(); len(tracks) != 0 {
+		t.Errorf("tracks = %v, want none", tracks)
+	}
+	if dirs := al.Dirs(); len(dirs) != 0 {
+		t.Errorf("dirs = %v, want none", dirs)
+	}
+}
+
 // TestResolveAlbum_TracksAndDirs confirms Tracks() is the per-track embedded
 // fan-out (in selection order) and Dirs() the distinct parent directories
 // (the folder fan-out), matching today's selectionPaths/distinctDirs.

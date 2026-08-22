@@ -74,11 +74,42 @@ func (h *Handler) effectiveSelection(ctx context.Context, lib *librarySummary, a
 		}
 		return out
 	}
+	return []string{folderSeed(lib, abs)}
+}
+
+// folderSeed returns abs's path relative to the library root — the fallback
+// selection entry for "nothing else resolved", anchoring a directory-only
+// Album on the browsed folder itself (Dirs()=[abs], Tracks()=nil).
+func folderSeed(lib *librarySummary, abs string) string {
 	rel, err := filepath.Rel(lib.Path, abs)
 	if err != nil {
-		rel = "."
+		return "."
 	}
-	return []string{rel}
+	return rel
+}
+
+// resolveAlbum builds the Album for a request: paths[] (or, absent that,
+// every admissible track in the browsed folder — see effectiveSelection)
+// resolved leniently — an entry that fails to resolve (an absolute path, or
+// one escaping the library root) is skipped, not fatal — falling back to the
+// browsed folder itself when nothing in the selection resolves at all,
+// whether because every explicit path was malformed or the folder holds no
+// tracks. This exactly mirrors what selectionPaths/selectionDirs did before
+// they became this Album: a bad or empty selection degrades gracefully
+// (200, or 404 for a truly-missing image) rather than failing the request.
+func (h *Handler) resolveAlbum(ctx context.Context, lib *librarySummary, abs string, paths []string) (metadataedit.Album, error) {
+	al, err := metadataedit.ResolveAlbum(lib.Path, h.effectiveSelection(ctx, lib, abs, paths))
+	if err != nil {
+		return al, err
+	}
+	if len(al.Dirs()) == 0 {
+		// Every entry in the selection failed to resolve (effectiveSelection
+		// itself only ever returns paths, enumerated tracks, or the folder
+		// seed — all of which resolve on their own, so this is specifically
+		// the "explicit paths[] given but all of them bad" case).
+		return metadataedit.ResolveAlbum(lib.Path, []string{folderSeed(lib, abs)})
+	}
+	return al, nil
 }
 
 // findCell returns the (typeID, slot) cell from a picture matrix, or nil when
@@ -121,7 +152,7 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	al, aerr := metadataedit.ResolveAlbum(lib.Path, h.effectiveSelection(r.Context(), lib, abs, r.URL.Query()["paths"]))
+	al, aerr := h.resolveAlbum(r.Context(), lib, abs, r.URL.Query()["paths"])
 	if aerr != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
 		return
@@ -165,7 +196,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 
-	al, aerr := metadataedit.ResolveAlbum(lib.Path, h.effectiveSelection(r.Context(), lib, abs, r.URL.Query()["paths"]))
+	al, aerr := h.resolveAlbum(r.Context(), lib, abs, r.URL.Query()["paths"])
 	if aerr != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
 		return
@@ -354,6 +385,19 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// applyPicture's own per-path validation predates ResolveAlbum and stays
+	// strict, unlike the read/delete endpoints above: a save must not
+	// silently write fewer files than the caller asked for. ResolveAlbum
+	// itself is lenient — it skips an unresolvable entry rather than failing
+	// the whole call, so pictures/pictureImage/deletePicture can fall back to
+	// the browsed folder instead of erroring on a stray bad path — so that
+	// leniency is not relied on here.
+	for _, p := range paths {
+		if _, rerr := metadataedit.ResolveInLibrary(libModel.Path, p); rerr != nil {
+			writeErr(w, http.StatusBadRequest, "validation_error", rerr.Error())
+			return
+		}
+	}
 	al, aerr := metadataedit.ResolveAlbum(libModel.Path, paths)
 	if aerr != nil {
 		writeErr(w, http.StatusBadRequest, "validation_error", aerr.Error())
@@ -416,7 +460,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 	// acts on and the set handed to the post-delete re-index, so the two can
 	// never disagree. Re-deriving it inside a case would mean a second
 	// directory listing when the client sends no explicit paths.
-	al, aerr := metadataedit.ResolveAlbum(lib.Path, h.effectiveSelection(r.Context(), lib, abs, paths))
+	al, aerr := h.resolveAlbum(r.Context(), lib, abs, paths)
 	if aerr != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
 		return

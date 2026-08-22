@@ -44,10 +44,21 @@ type Album struct {
 // album folder — by passing the folder's own path, so folder-art lookups
 // still resolve against it.
 //
+// An entry that fails to resolve (an absolute path, or one escaping libRoot)
+// is skipped, not fatal — mirroring the lenient behaviour of the
+// selectionPaths/selectionDirs helpers this replaces, so a stray malformed
+// entry degrades the selection instead of failing the whole request. A
+// caller that must reject a bad entry outright (e.g. a write validating its
+// own input) checks that beforehand; ResolveAlbum itself only ever returns
+// an error when relTrackPaths is empty.
+//
 // relTrackPaths must be non-empty: callers guarantee that (the picture
 // endpoints fall back to enumerating the browsed folder, and ultimately to
 // the folder itself, before calling in; a write endpoint validates a
-// non-empty selection up front).
+// non-empty selection up front). Note that a non-empty relTrackPaths whose
+// entries all fail to resolve is not an error: it yields an Album with no
+// tracks and no dirs, exactly like passing none at all would if this
+// function allowed it.
 func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
 	if len(relTrackPaths) == 0 {
 		return Album{}, errNoSelection
@@ -58,7 +69,7 @@ func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
 	for _, rel := range relTrackPaths {
 		abs, err := ResolveInLibrary(libRoot, rel)
 		if err != nil {
-			return Album{}, err
+			continue
 		}
 		dir := abs
 		if info, statErr := os.Stat(abs); statErr != nil || !info.IsDir() {
