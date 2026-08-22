@@ -266,14 +266,16 @@ Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
 `Problem{type, title, status, detail, instance}` body (see
 [api-conventions.md](api-conventions.md)). Most handler packages (metadata,
 tokens, libraries, artists, radiobrowser, users) build one directly via
-`app/router/handlers/httperr`. Anything that instead falls back to a bare
-`http.Error`/`http.NotFound` — the `tasks` handler package, the
-`sessionGuard`/`headerGuard` auth gate's `401`/`403`, the `/api/v1` catch-all's
-`400`, or a stray `http.NotFound` inside an otherwise-migrated handler
-(`pictureImage`'s "cell not found") — is still guaranteed the same shape by
+`app/router/handlers/httperr`; `tasks` calls it directly for its one JSON
+error body (`queue_full`) and otherwise still answers bare `http.Error`.
+Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v1` —
+`tasks`' remaining plain-text errors, the `sessionGuard`/`headerGuard` auth
+gate's `401`/`403`, the `/api/v1` catch-all's `400`, or a stray
+`http.NotFound` inside an otherwise-migrated handler (`pictureImage`'s "cell
+not found") — is still guaranteed the same shape by
 `app/router/errors.go`'s `jsonErrorEnvelope` middleware: a handler body that
-is already a JSON object (an `httperr` Problem, or Subsonic's own `writeError`
-envelope) passes through untouched, and a plain-text body gets a Problem built
+is already a JSON object (an `httperr` Problem, or an ad hoc handler JSON
+body) passes through untouched, and a plain-text body gets a Problem built
 for it from the response status alone (`errorCodeFor` maps status → slug,
 `httperr.TitleFor` maps slug → title, the plain-text body becomes `detail`
 verbatim).
@@ -284,14 +286,21 @@ document where it expects a sentence. The go-bumbu middleware is still wired for
 logging and Prometheus. Successful responses are never buffered, so streaming
 (audio, task logs) is unaffected.
 
-`jsonErrorEnvelope` is mounted on the root router (`main.go`), so it also
-wraps `/rest` — but Subsonic's own error path (`writeError`) always answers
-HTTP 200 with its own `subsonic-response` JSON envelope, so it never reaches
-the buffering branch and is untouched. A handful of `/rest` media-serving edge
-cases (a cover/stream file vanishing mid-request, no cover source at all) do
-answer a bare 404/500 and so fall through the same Problem fallback as
-`/api/v1` — harmless, since that response carries no Subsonic-specified error
-shape to begin with and no OpenSubsonic client parses it as structured data.
+**The `application/problem+json` rewrite is scoped to the admin API mount
+only.** `jsonErrorEnvelope` is mounted on the root router (`main.go`), so it
+technically also wraps `/rest` — but the middleware checks `r.URL.Path`
+against `apiV1MountPrefix` ("/api/v1") before choosing a shape: only a path
+under that prefix gets a `Problem`. Every other path — `/rest` foremost —
+keeps the original, non-RFC-9457 `apiError{error, code}` envelope this
+middleware has always answered with, byte-identical to before problem+json
+existed here. In practice `/rest` almost never reaches either fallback branch
+at all: Subsonic's own error path (`writeError`) always answers HTTP 200 with
+its own `subsonic-response` JSON envelope, never reaching the buffering
+branch (status < 400). The exceptions are a handful of `/rest` media-serving
+edge cases (a cover/stream file vanishing mid-request, no cover source at
+all; see `media.go`'s `http.Error`/`http.NotFound` calls) — these fall to the
+legacy `apiError` shape, unchanged from before this middleware ever spoke
+RFC 9457. `/rest` must never answer `application/problem+json`.
 
 See [api-conventions.md](api-conventions.md) for the full house rules.
 

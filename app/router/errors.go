@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 )
@@ -14,32 +15,45 @@ import (
 // forwarded unwrapped rather than held in memory.
 const maxErrorBodyBytes = 8 << 10
 
-// jsonErrorEnvelope guarantees every /api/v1 error response (>= 400) leaves
-// the server as an RFC 9457 "Problem Details for HTTP APIs"
-// application/problem+json object — the same httperr.Problem shape the
-// migrated handler packages (metadata, tokens, libraries, artists,
-// radiobrowser, users) write directly — so the surface is uniform even for a
-// bare http.Error/http.NotFound (the tasks package, the sessionGuard/
+// apiV1MountPrefix is the internal admin API's mount path — must match
+// main.go's app.router.PathPrefix("/api/v1").Subrouter() call. It is the one
+// surface finish() may rewrite into RFC 9457 application/problem+json; every
+// other path keeps the legacy apiError{error,code} shape below, byte-for-byte
+// unchanged from before this middleware knew about problem+json at all. If
+// the admin mount ever moves (the OpenAPI seed doc already flags a planned
+// /api/admin reorg), update this constant alongside main.go's — the
+// end-to-end tests in errors_test.go exercise the real router at this literal
+// path and will fail loudly if the two drift apart.
+const apiV1MountPrefix = "/api/v1"
+
+// jsonErrorEnvelope guarantees every internal admin API (apiV1MountPrefix)
+// error response (>= 400) leaves the server as an RFC 9457 "Problem Details
+// for HTTP APIs" application/problem+json object — the same httperr.Problem
+// shape the migrated handler packages (metadata, tokens, libraries, artists,
+// radiobrowser, users) write directly — so that surface is uniform even for
+// a bare http.Error/http.NotFound (the tasks package, the sessionGuard/
 // headerGuard auth gate's 401/403, the /api/v1 catch-all's 400, a stray
 // http.NotFound inside an otherwise-migrated handler).
 //
-// It exists because the generic approach — wrap *every* error body — corrupts
-// handlers that already answer JSON: their document gets escaped into the
-// Problem's "detail" field, and the SPA then displays the raw JSON document
-// text to the user instead of a message. So a body that is already a JSON
-// object (a handler's own Problem, or Subsonic's writeError envelope) is
-// forwarded untouched, and only plain-text errors (http.Error, http.NotFound,
-// ServeFile) get a Problem built for them from the response status alone.
+// Every OTHER path — chiefly /rest, which must stay byte-identical to
+// Subsonic's own error shapes, and never RFC 9457 — keeps the original,
+// non-RFC-9457 apiError{error,code} envelope this middleware has always used.
+// This middleware is mounted on the root router (main.go), so it technically
+// wraps /rest too, but Subsonic's own error path (writeError) always answers
+// HTTP 200 with its own "subsonic-response" JSON envelope, never reaching the
+// buffering branch below (status < 400) at all. A handful of /rest
+// media-serving edge cases (a cover/stream file vanishing mid-request, no
+// cover source at all — see media.go) do answer a bare 404/500 and so reach
+// the legacy fallback, exactly as they did before problem+json existed here.
 //
-// This middleware is mounted on the root router (main.go), so it also wraps
-// /rest — but Subsonic's own error path (writeError) always answers HTTP 200
-// with its own "subsonic-response" JSON envelope, never reaching the
-// buffering branch below (status < 400), so it is untouched. A handful of
-// /rest media-serving edge cases (a cover/stream file vanishing mid-request,
-// no cover source at all) do answer a bare 404/500 and so fall through the
-// same Problem fallback as /api/v1 — harmless, since that response carries no
-// Subsonic-specified error shape to begin with and no OpenSubsonic client
-// parses it as structured data.
+// It exists because the generic approach — wrap *every* error body — corrupts
+// handlers that already answer JSON: their document gets escaped into a
+// string field, and the SPA then displays the raw JSON document text to the
+// user instead of a message. So a body that is already a JSON object (a
+// handler's own Problem, an ad hoc handler JSON body, or Subsonic's
+// writeError envelope) is forwarded untouched, and only plain-text errors
+// (http.Error, http.NotFound, ServeFile) get an envelope built for them from
+// the response status alone — shaped by mount, as above.
 //
 // Non-error responses are passed straight through unbuffered, so streaming
 // (audio, task logs) is unaffected.
@@ -122,7 +136,9 @@ func (w *errorEnvelopeWriter) commitHeader() {
 }
 
 // finish writes the buffered error body, wrapping it only when it is not
-// already a JSON object.
+// already a JSON object. Which shape it wraps into depends on the mount: the
+// internal admin API gets httperr.Problem; everything else keeps the legacy
+// apiError envelope (see jsonErrorEnvelope's doc comment).
 func (w *errorEnvelopeWriter) finish() {
 	if w.overflowed || !w.buffering {
 		w.commitHeader()
@@ -132,7 +148,8 @@ func (w *errorEnvelopeWriter) finish() {
 
 	if isJSONObject(body) {
 		// The handler already speaks a JSON error shape (its own httperr
-		// Problem, or Subsonic's writeError envelope) — forward it as it is.
+		// Problem, an ad hoc handler JSON body, or Subsonic's writeError
+		// envelope) — forward it as it is.
 		if w.Header().Get("Content-Type") == "" {
 			w.Header().Set("Content-Type", "application/json")
 		}
@@ -146,17 +163,33 @@ func (w *errorEnvelopeWriter) finish() {
 	if msg == "" {
 		msg = http.StatusText(w.status)
 	}
-	slug := errorCodeFor(w.status)
-	var instance string
+
+	var path string
 	if w.req != nil {
-		instance = w.req.URL.Path
+		path = w.req.URL.Path
 	}
+	if strings.HasPrefix(path, apiV1MountPrefix) {
+		w.writeProblemFallback(msg, path)
+		return
+	}
+	w.writeLegacyFallback(msg)
+}
+
+// writeProblemFallback answers a bare plain-text admin-API error (a route
+// that never called httperr directly: the sessionGuard/headerGuard auth
+// gate, the tasks package's remaining http.Error calls, the /api/v1
+// catch-all, a stray http.NotFound inside an otherwise-migrated handler) with
+// the same httperr.Problem shape every migrated handler package builds
+// directly, so the client sees one uniform shape regardless of which path
+// produced it.
+func (w *errorEnvelopeWriter) writeProblemFallback(msg, path string) {
+	slug := errorCodeFor(w.status)
 	payload, err := json.Marshal(httperr.Problem{
 		Type:     httperr.TypeURI(slug),
 		Title:    httperr.TitleFor(slug),
 		Status:   w.status,
 		Detail:   msg,
-		Instance: instance,
+		Instance: path,
 	})
 	if err != nil { // unreachable: every field is a plain string or int
 		payload = []byte(`{"type":"` + httperr.TypeURI("internal") + `","title":"Internal error","status":500,"detail":"internal error"}`)
@@ -167,9 +200,37 @@ func (w *errorEnvelopeWriter) finish() {
 	_, _ = w.ResponseWriter.Write(payload)
 }
 
+// writeLegacyFallback answers a bare plain-text error OUTSIDE the admin API
+// — in practice, /rest's three raw-status media-serving edge cases (a
+// cover/stream file vanishing mid-request, no cover source at all; see
+// media.go's http.Error/http.NotFound calls) — with the ad hoc envelope this
+// middleware has always used, unchanged, so those responses stay
+// byte-identical to what a client received before this middleware learned
+// about problem+json at all. /rest must never speak RFC 9457.
+func (w *errorEnvelopeWriter) writeLegacyFallback(msg string) {
+	payload, err := json.Marshal(apiError{Error: msg, Code: errorCodeFor(w.status)})
+	if err != nil { // unreachable: both fields are plain strings
+		payload = []byte(`{"error":"internal error","code":"internal"}`)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+	w.commitHeader()
+	_, _ = w.ResponseWriter.Write(payload)
+}
+
 // Unwrap exposes the underlying writer so http.ResponseController can still
 // reach optional interfaces (Flusher, Hijacker) on non-error responses.
 func (w *errorEnvelopeWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// apiError is the legacy, non-RFC-9457 error shape every HTTP surface other
+// than the internal admin API still answers with when a handler writes a
+// bare plain-text error — chiefly /rest (see writeLegacyFallback). Do not
+// extend this shape to the admin API: that migration is what
+// writeProblemFallback and the six httperr-direct handler packages are for.
+type apiError struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
 
 func isJSONObject(b []byte) bool {
 	if len(b) == 0 || b[0] != '{' {
@@ -179,10 +240,11 @@ func isJSONObject(b []byte) bool {
 	return json.Unmarshal(b, &probe) == nil
 }
 
-// errorCodeFor maps a status to the slug finish() uses to build a fallback
-// Problem's Type/Title for a plain-text error (http.Error, http.NotFound)
-// that never went through httperr directly, so the slug is always a stable
-// string and never a bare number.
+// errorCodeFor maps a status to the slug both fallback shapes use — the
+// admin API's Problem Type/Title (writeProblemFallback) and /rest's legacy
+// "code" field (writeLegacyFallback) — for a plain-text error (http.Error,
+// http.NotFound) that never went through httperr directly, so the slug is
+// always a stable string and never a bare number.
 func errorCodeFor(status int) string {
 	switch status {
 	case http.StatusBadRequest:

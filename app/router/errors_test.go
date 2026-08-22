@@ -10,14 +10,17 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 )
 
-// The production middleware wraps any >=400 body in a problem+json envelope.
-// Our /api/v1 handlers already answer JSON (most already problem+json via
-// httperr), so without care the client receives an envelope whose "detail" is
-// an escaped JSON *document* — which the UI then shows verbatim (the
-// {"error":...,"code":"upstream_error"} string users saw on a failed cover
-// search, back when the envelope's own shape was that ad hoc object rather
-// than a Problem). These tests pin the contract: one envelope, "detail" is a
-// sentence, and the handler's own type/slug survives.
+// The production middleware wraps any >=400 body in an envelope, shaped by
+// mount: the internal admin API (apiV1MountPrefix, "/api/v1") gets a
+// problem+json Problem; everything else (chiefly /rest) keeps the legacy
+// apiError{error,code} shape unchanged. Our /api/v1 handlers already answer
+// JSON (most already problem+json via httperr), so without care the client
+// receives an envelope whose "detail" is an escaped JSON *document* — which
+// the UI then shows verbatim (the {"error":...,"code":"upstream_error"}
+// string users saw on a failed cover search, back when the envelope's own
+// shape was that ad hoc object rather than a Problem). These tests pin the
+// contract: one envelope per mount, "detail" is a sentence, and the
+// handler's own type/slug survives.
 //
 // GET /api/v1/radiobrowser/search without q is a real registered handler that
 // answers a JSON 400 through writeError, so it exercises the whole stack.
@@ -166,5 +169,45 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	}
 	if body.Instance != "/api/v1/nope" {
 		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+}
+
+// A bare plain-text error OUTSIDE the admin API — e.g. one of /rest's three
+// raw-status media-serving edge cases (media.go's http.NotFound/http.Error
+// calls, for a vanished cover/stream file or no cover source at all) — must
+// keep the legacy apiError{error,code} shape, byte-identical to what a
+// client received before this middleware ever learned about problem+json:
+// /rest must never answer application/problem+json.
+func TestBareErrorOutsideApiV1KeepsLegacyShape(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/rest/getCoverArt.view", nil)
+	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})).ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json (the legacy shape, not problem+json)", ct)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not the legacy envelope: %s", w.Body.String())
+	}
+	if body.Code != "not_found" {
+		t.Errorf("code = %q, want not_found", body.Code)
+	}
+	if body.Error != "404 page not found" {
+		t.Errorf("error = %q, want Go's stock http.NotFound message", body.Error)
+	}
+	// A Problem's own field names must be absent — proves this is genuinely
+	// the legacy shape, not a Problem that happened to also decode leniently
+	// into the struct above.
+	if strings.Contains(w.Body.String(), `"type"`) || strings.Contains(w.Body.String(), `"instance"`) {
+		t.Errorf("body looks like a Problem, want the legacy {error,code} shape: %s", w.Body.String())
 	}
 }

@@ -132,30 +132,37 @@ is always `upstream`'s human sentence or a fallback, **never a raw Go
 error**.
 
 **Status — uniform across all of `/api/v1`.** Six handler packages call
-`httperr` directly today: `metadata`, `tokens`, `libraries`, `artists`,
-`radiobrowser`, `users` (`httperr.go`'s own package doc names them). Two
-things on `/api/v1` still answer through plain `http.Error`/`http.NotFound`
-rather than calling `httperr` themselves: the `tasks` handler package, and the
-front-door session/role gate (`sessionGuard`/`headerGuard` in
-`app/router/api_v1.go` and `app/router/proxy_auth.go`, which answer
-`401`/`403`). Neither is a gap in the *shape* the client sees, though: the
-router-level `jsonErrorEnvelope` middleware (`app/router/errors.go`, wired in
-`app/router/main.go`) guarantees the exact same `Problem` for any bare
-plain-text error that reaches it — `errorCodeFor` maps the response status to
-a slug (`401` → `unauthorized`, `403` → `forbidden`, …), `httperr.TitleFor`
-maps that slug to its human title, and the plain-text body becomes `detail`
-verbatim. A body that is already a JSON object (an `httperr` Problem, or
-Subsonic's own `writeError` envelope) is passed through untouched, so the two
-mechanisms never double-wrap each other. `jsonErrorEnvelope` isn't a
-lesser, non-RFC-9457 fallback to work around — together with the handler
-packages calling `httperr` directly, it is *how* `/api/v1` stays uniform: every
-response, handler-authored or not, ends up `application/problem+json`.
-`middleware.Cfg.JsonErrors` stays `false` regardless (see
-[architecture.md](architecture.md)) — that flag is go-bumbu's own blind
-wrapper, unrelated to `jsonErrorEnvelope`. When you touch `tasks` or the auth
-gate, migrating that error path to call `httperr` directly (rather than
-relying on the router fallback) is in scope and welcome, not a separate, later
-project — the two are equivalent to a client either way.
+`httperr` directly for every error today: `metadata`, `tokens`, `libraries`,
+`artists`, `radiobrowser`, `users` (`httperr.go`'s own package doc names
+them). `tasks` calls it directly for one error (`TriggerTask`'s `queue_full`
+`429`, previously an ad hoc `{"message":...}` body `isJSONObject` would have
+forwarded untouched, invisible to the SPA's `detail`/`title` reader) but
+otherwise, like the front-door session/role gate
+(`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
+`app/router/proxy_auth.go`, which answer `401`/`403`), still answers plain
+`http.Error`/`http.NotFound`. Neither is a gap in the *shape* the client
+sees, though: the router-level `jsonErrorEnvelope` middleware
+(`app/router/errors.go`, wired in `app/router/main.go`) guarantees the exact
+same `Problem` for any bare plain-text error that reaches it **on a path
+under the admin API mount** (`apiV1MountPrefix`, `"/api/v1"`) — `errorCodeFor`
+maps the response status to a slug (`401` → `unauthorized`, `403` →
+`forbidden`, …), `httperr.TitleFor` maps that slug to its human title, and
+the plain-text body becomes `detail` verbatim. A body that is already a JSON
+object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
+through untouched, so the two mechanisms never double-wrap each other.
+`jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
+together with the handler packages calling `httperr` directly, it is *how*
+`/api/v1` stays uniform: every response under this mount, handler-authored or
+not, ends up `application/problem+json`. (Outside the mount — chiefly
+`/rest` — the same middleware answers the legacy, pre-RFC-9457
+`apiError{error,code}` shape instead; see
+[architecture.md](architecture.md)'s error-envelope section — `/rest` must
+never speak problem+json.) `middleware.Cfg.JsonErrors` stays `false`
+regardless — that flag is go-bumbu's own blind wrapper, unrelated to
+`jsonErrorEnvelope`. When you touch `tasks`' remaining plain-text errors or
+the auth gate, migrating that error path to call `httperr` directly (rather
+than relying on the router fallback) is in scope and welcome, not a separate,
+later project — the two are equivalent to a client either way.
 
 `pictureImage`'s "cell not found" `404` (inside the already-migrated
 `metadata` package) takes the router-fallback path rather than calling

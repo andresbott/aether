@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
@@ -181,5 +182,50 @@ func TestDeleteTaskScheduleNoSchedule(t *testing.T) {
 	h.DeleteTaskSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete status = %d, want 404 (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+// TriggerTask's queue-full case used to answer an ad hoc {"message":...}
+// body, which the middleware's isJSONObject check forwards untouched (it's
+// already a JSON object) — so it never got the router-level problem+json
+// fallback the way a bare http.Error would. It must call httperr directly so
+// the SPA's shared error parser (which reads detail/title) can surface it.
+func TestTriggerTaskQueueFull(t *testing.T) {
+	// QueueSize: 1 and the runner is never Start()ed, so nothing ever drains
+	// the one waiting slot: the second AddRun is guaranteed to see it full.
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{QueueSize: 1})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+	h := &Handler{Runner: runner}
+
+	trigger := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger", nil)
+		req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+		rec := httptest.NewRecorder()
+		h.TriggerTask().ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := trigger(); rec.Code != http.StatusAccepted {
+		t.Fatalf("first trigger status = %d, want 202 (%s)", rec.Code, rec.Body.String())
+	}
+
+	rec := trigger()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second trigger status = %d, want 429 (%s)", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Errorf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var body httperr.Problem
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not problem+json: %s", rec.Body.String())
+	}
+	if got := httperr.Slug(body.Type); got != "queue_full" {
+		t.Errorf("slug = %q, want queue_full", got)
+	}
+	if body.Detail != "Task queue is full. Try again later." {
+		t.Errorf("detail = %q, want the queue-full message", body.Detail)
 	}
 }

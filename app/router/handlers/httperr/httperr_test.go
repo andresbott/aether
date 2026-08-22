@@ -174,6 +174,7 @@ func TestTitleFor(t *testing.T) {
 		"rate_limited":          "Rate limited",
 		"unavailable":           "Unavailable",
 		"upstream_timeout":      "Upstream timeout",
+		"queue_full":            "Queue full",
 	} {
 		if got := TitleFor(slug); got != want {
 			t.Errorf("TitleFor(%q) = %q, want %q", slug, got, want)
