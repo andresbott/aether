@@ -204,16 +204,19 @@ type pictureSelection struct {
 
 // decodeSelection decodes and validates a picture-selection POST body,
 // resolving library_id to its root path. status/err are zero/nil on success;
-// callers on failure answer writeErr(w, r, status, codeFor(status), err.Error()).
+// callers on failure answer writeSelectionErr(w, r, status, err), which
+// itemises an empty/over-cap paths[] as a 422 validation problem and falls
+// back to writeErr(w, r, status, codeFor(status), err.Error()) for everything
+// else (malformed JSON, an unknown or unreachable library).
 func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
 		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
 	}
 	if len(sel.Paths) == 0 {
-		return nil, pictureSelection{}, http.StatusBadRequest, errNoSelection
+		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errNoSelection
 	}
 	if len(sel.Paths) > maxSelectionPaths {
-		return nil, pictureSelection{}, http.StatusBadRequest, errTooManyPaths
+		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errTooManyPaths
 	}
 	libModel, gerr := h.Store.GetLibrary(sel.LibraryID)
 	if gerr != nil {
@@ -223,6 +226,18 @@ func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pic
 		return nil, pictureSelection{}, http.StatusInternalServerError, gerr
 	}
 	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, sel, 0, nil
+}
+
+// writeSelectionErr answers a decodeSelection failure. An empty or over-cap
+// paths[] is well-formed-but-invalid input (422, itemising the paths field);
+// a malformed body or a library lookup failure is unrelated to the
+// selection's shape and keeps decodeSelection's original status.
+func writeSelectionErr(w http.ResponseWriter, r *http.Request, status int, err error) {
+	if errors.Is(err, errNoSelection) || errors.Is(err, errTooManyPaths) {
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/paths", Detail: err.Error()})
+		return
+	}
+	writeErr(w, r, status, codeFor(status), err.Error())
 }
 
 type folderDTO struct {

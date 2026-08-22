@@ -77,18 +77,22 @@ func TestCapAppliesUniformly(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
-			if w.Code != http.StatusBadRequest {
-				t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
+			// Over-cap paths[] is well-formed but invalid input: 422, not 400.
+			if w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status %d, want 422: %s", w.Code, w.Body.String())
 			}
 			if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 				t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 			}
-			var got httperr.Problem
+			var got httperr.ValidationProblem
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
 			if got.Detail != "too many paths in one request" {
 				t.Fatalf("detail = %q, want the shared errTooManyPaths message", got.Detail)
+			}
+			if len(got.Errors) == 0 || got.Errors[0].Pointer != "/paths" {
+				t.Fatalf("expected a /paths field error, got %+v", got.Errors)
 			}
 		})
 	}

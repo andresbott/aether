@@ -133,7 +133,7 @@ func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
 func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
 	lib, sel, status, err := h.decodeSelection(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
 	// decodeSelection already guarantees sel.Paths is non-empty (or it would
@@ -165,8 +165,8 @@ func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
 // never re-resolves an album selection — a Source addresses exactly one
 // file, so this stays a bounded, header-safe GET even for a deep multi-disc
 // path. 404 when the source cannot be opened (a stale link: the embedded
-// picture was removed, or the folder file no longer exists); 400 on a bad
-// type, slot, or file.
+// picture was removed, or the folder file no longer exists); 422 on a bad
+// type or slot (well-formed but invalid); 400 on a bad file reference.
 func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	// path is absent from this endpoint's query (see the Routes doc comment);
 	// resolveLibraryRel tolerates that (an empty path resolves to the library
@@ -178,12 +178,12 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	slot := r.URL.Query().Get("slot")
 	if !validSlot(slot) {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
@@ -353,17 +353,17 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.FormValue("slot")
 	if !validSlot(slot) {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	paths := r.Form["paths"]
 	if len(paths) == 0 {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errNoSelection.Error())
+		httperr.WriteValidation(w, r, errNoSelection.Error(), httperr.FieldError{Pointer: "/paths", Detail: errNoSelection.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
@@ -452,16 +452,16 @@ func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al
 func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 	lib, sel, status, err := h.decodeSelection(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
 	pt, terr := pictureTypeByIDOrDefault(sel.Type)
 	if terr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	if !validSlot(sel.Slot) {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errUnknownSlot.Error())
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	// Resolved once: this is both the selection the removal acts on and the

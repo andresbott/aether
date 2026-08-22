@@ -215,14 +215,30 @@ func validRole(role string) error {
 	return nil
 }
 
+// errPasswordTooLong flags a password that is present but would silently
+// truncate at bcrypt's 72-byte input limit — a well-formed-but-invalid value,
+// unlike an outright missing password.
+var errPasswordTooLong = errors.New("password must be at most 72 characters")
+
 func validPassword(pw string) error {
 	if pw == "" {
 		return errors.New("password is required")
 	}
 	if len(pw) > maxPasswordLen {
-		return errors.New("password must be at most 72 characters")
+		return errPasswordTooLong
 	}
 	return nil
+}
+
+// writePasswordErr answers a validPassword failure with the right status: an
+// empty password is a missing required field (400); an over-length one is
+// well-formed but invalid (422).
+func writePasswordErr(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errPasswordTooLong) {
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/password", Detail: err.Error()})
+		return
+	}
+	writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -237,19 +253,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if tokenShapedLogin.MatchString(in.Login) {
-		writeError(w, r, http.StatusBadRequest, "validation_error",
-			"login must not look like a token id (10 lowercase letters/digits)")
+		msg := "login must not look like a token id (10 lowercase letters/digits)"
+		httperr.WriteValidation(w, r, msg, httperr.FieldError{Pointer: "/login", Detail: msg})
 		return
 	}
 	if err := validPassword(in.Password); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		writePasswordErr(w, r, err)
 		return
 	}
 	if in.Role == "" {
 		in.Role = RoleUser
 	}
 	if err := validRole(in.Role); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/role", Detail: err.Error()})
 		return
 	}
 	enabled := in.Enabled == nil || *in.Enabled
@@ -283,13 +299,13 @@ func (h *Handler) validateUpdate(w http.ResponseWriter, r *http.Request, id stri
 	}
 	if in.Password != "" {
 		if err := validPassword(in.Password); err != nil {
-			writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+			writePasswordErr(w, r, err)
 			return true
 		}
 	}
 	if in.Role != "" {
 		if err := validRole(in.Role); err != nil {
-			writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+			httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/role", Detail: err.Error()})
 			return true
 		}
 	}

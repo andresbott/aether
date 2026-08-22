@@ -61,7 +61,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Paths) > maxSelectionPaths {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errTooManyPaths.Error())
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)

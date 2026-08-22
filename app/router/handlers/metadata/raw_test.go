@@ -219,8 +219,9 @@ func TestRawTags_PerPathErrors(t *testing.T) {
 
 func TestRawTags_Validation(t *testing.T) {
 	r, lib := newRawHandler(t, t.TempDir(), nil)
-	if w := postRaw(t, r, lib.ID); w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing paths, got %d", w.Code)
+	// Empty paths[] is well-formed but invalid input: 422, not 400.
+	if w := postRaw(t, r, lib.ID); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for missing paths, got %d", w.Code)
 	}
 	// An omitted (zero-value) library_id resolves like any other unknown
 	// library_id — decodeSelection's uniform "library not found" mapping,

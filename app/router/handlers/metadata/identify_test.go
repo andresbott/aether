@@ -239,12 +239,24 @@ func TestIdentify_ValidationErrors(t *testing.T) {
 		t.Fatalf("expected 400 for empty paths, got %d", w.Code)
 	}
 
+	// Over-cap paths[] is well-formed but invalid (422), unlike the missing-
+	// input case above, which stays 400 — see decodeSelection's identical cap.
 	tooMany := make([]string, 51)
 	for i := range tooMany {
 		tooMany[i] = "a.mp3"
 	}
 	w = postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": tooMany})
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for too many paths, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for too many paths, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var validation httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
+		t.Fatal(err)
+	}
+	if len(validation.Errors) == 0 || validation.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", validation.Errors)
 	}
 }

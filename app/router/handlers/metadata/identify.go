@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/libs/acoustid"
 	"gorm.io/gorm"
@@ -87,7 +88,7 @@ func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Paths) > maxSelectionPaths {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", errTooManyPaths.Error())
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)

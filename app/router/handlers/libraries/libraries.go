@@ -186,29 +186,49 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 // validateDTO checks every field of an incoming library payload and returns the
-// absolute path. It answers 400 itself; ok is false when the request is done.
+// absolute path. It answers the response itself; ok is false when the request
+// is done. A missing required field (name/path) is 400; a present-but-invalid
+// value (too long, an unusable path, a bad regex/enum) is well-formed-but-
+// invalid input, answered as a 422 validation problem.
 func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO) (abs string, ok bool) {
 	if err := ValidateName(in.Name); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		writeFieldValidationErr(w, r, "/name", err)
 		return "", false
 	}
 	abs, err := ValidatePath(in.Path)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		writeFieldValidationErr(w, r, "/path", err)
 		return "", false
 	}
-	for _, check := range []error{
-		ValidateExcludePatterns(in.ExcludePatterns),
-		ValidateDefaultView(in.DefaultView),
-		ValidateIcon(in.Icon),
-		ValidateCoverStyle(in.CoverStyle),
+	// Unlike name/path, none of these four ever fail on a missing value (an
+	// empty/omitted field is always accepted, defaulted elsewhere) — any
+	// failure here is unconditionally a present-but-invalid value.
+	for _, check := range []struct {
+		pointer string
+		err     error
+	}{
+		{"/exclude_patterns", ValidateExcludePatterns(in.ExcludePatterns)},
+		{"/default_view", ValidateDefaultView(in.DefaultView)},
+		{"/icon", ValidateIcon(in.Icon)},
+		{"/cover_style", ValidateCoverStyle(in.CoverStyle)},
 	} {
-		if check != nil {
-			writeError(w, r, http.StatusBadRequest, "validation_error", check.Error())
+		if check.err != nil {
+			httperr.WriteValidation(w, r, check.err.Error(), httperr.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
 			return "", false
 		}
 	}
 	return abs, true
+}
+
+// writeFieldValidationErr answers a ValidateName/ValidatePath failure: a
+// missing required field stays 400; a present-but-invalid value (too long,
+// not a usable directory, ...) is well-formed-but-invalid (422).
+func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer string, err error) {
+	if isValueError(err) {
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: pointer, Detail: err.Error()})
+		return
+	}
+	writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {

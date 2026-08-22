@@ -354,28 +354,42 @@ func TestPictureImage_ServesFolderFileByType(t *testing.T) {
 }
 
 // TestPictureImage_InvalidTypeAndSlot confirms type/slot validation happens
-// independently of file resolution: a bogus type or slot 400s even with no
-// file named at all.
+// independently of file resolution: a bogus type or slot is well-formed but
+// invalid input (422) even with no file named at all.
 func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	base := "/metadata/pictures/image?library_id=" + libIDStr(lib)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", base+"&slot=folder&type=Bogus", nil))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unknown type: want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown type: want 422, got %d", w.Code)
+	}
+	var typeProblem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &typeProblem); err != nil {
+		t.Fatal(err)
+	}
+	if len(typeProblem.Errors) == 0 || typeProblem.Errors[0].Pointer != "/type" {
+		t.Fatalf("expected a /type field error, got %+v", typeProblem.Errors)
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", base+"&slot=bogus", nil))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unknown slot: want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unknown slot: want 422, got %d", w.Code)
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", base+"&slot=db", nil))
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("db slot: want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("db slot: want 422, got %d", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db slot error message: %s", w.Body.String())
+	}
+	var slotProblem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &slotProblem); err != nil {
+		t.Fatal(err)
+	}
+	if len(slotProblem.Errors) == 0 || slotProblem.Errors[0].Pointer != "/slot" {
+		t.Fatalf("expected a /slot field error, got %+v", slotProblem.Errors)
 	}
 }
 
@@ -507,20 +521,35 @@ func TestApplyPicture_EmbeddedByType(t *testing.T) {
 func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	body, ct := buildPictureForm(t, lib.ID, "bogus", "", []string{"album/01.flac"}, "art.png", pngBytes)
-	if w := postPicture(t, r, body, ct); w.Code != http.StatusBadRequest {
-		t.Fatalf("bad target: want 400, got %d", w.Code)
+	if w := postPicture(t, r, body, ct); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad target: want 422, got %d", w.Code)
 	}
 	body, ct = buildPictureForm(t, lib.ID, "db", "", []string{"album/01.flac"}, "art.png", pngBytes)
 	w := postPicture(t, r, body, ct)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("db target: want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("db target: want 422, got %d", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db target error message: %s", w.Body.String())
 	}
+	var slotProblem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &slotProblem); err != nil {
+		t.Fatal(err)
+	}
+	if len(slotProblem.Errors) == 0 || slotProblem.Errors[0].Pointer != "/slot" {
+		t.Fatalf("expected a /slot field error, got %+v", slotProblem.Errors)
+	}
 	body, ct = buildPictureForm(t, lib.ID, "folder", "Bogus Type", []string{"album/01.flac"}, "art.png", pngBytes)
-	if w := postPicture(t, r, body, ct); w.Code != http.StatusBadRequest {
-		t.Fatalf("bad type: want 400, got %d", w.Code)
+	w = postPicture(t, r, body, ct)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("bad type: want 422, got %d", w.Code)
+	}
+	var typeProblem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &typeProblem); err != nil {
+		t.Fatal(err)
+	}
+	if len(typeProblem.Errors) == 0 || typeProblem.Errors[0].Pointer != "/type" {
+		t.Fatalf("expected a /type field error, got %+v", typeProblem.Errors)
 	}
 }
 
@@ -629,15 +658,22 @@ func TestRemovals_EmbeddedSelectedPathsAndType(t *testing.T) {
 func TestRemovals_InvalidSlot(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	w := postRemovals(t, r, lib.ID, []string{"a.flac"}, "", "bogus")
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("want 422, got %d", w.Code)
 	}
 	w = postRemovals(t, r, lib.ID, []string{"a.flac"}, "", "db")
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("db slot: want 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("db slot: want 422, got %d", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db slot error message: %s", w.Body.String())
+	}
+	var problem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/slot" {
+		t.Fatalf("expected a /slot field error, got %+v", problem.Errors)
 	}
 }
 
@@ -1113,7 +1149,8 @@ func TestInventory_PostBodyReturnsImageURLs(t *testing.T) {
 }
 
 // TestInventory_RequiresNonEmptyPaths confirms decodeSelection rejects an
-// empty paths[] instead of ResolveAlbum's own (caller-bug-only) error.
+// empty paths[] instead of ResolveAlbum's own (caller-bug-only) error. This is
+// well-formed but invalid input, so it answers 422, not 400.
 func TestInventory_RequiresNonEmptyPaths(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	body := `{"library_id": ` + libIDStr(lib) + `, "paths": []}`
@@ -1121,14 +1158,24 @@ func TestInventory_RequiresNonEmptyPaths(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var problem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", problem.Errors)
 	}
 }
 
 // TestInventory_RejectsTooManyPaths confirms the maxSelectionPaths cap:
 // defense in depth now that the selection travels in a body instead of a
-// query string.
+// query string. Well-formed but invalid input, so it answers 422, not 400.
 func TestInventory_RejectsTooManyPaths(t *testing.T) {
 	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
 	paths := make([]string, 51)
@@ -1143,8 +1190,8 @@ func TestInventory_RejectsTooManyPaths(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for 51 paths, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for 51 paths, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

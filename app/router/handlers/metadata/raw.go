@@ -29,7 +29,7 @@ type rawTagsResultDTO struct {
 func (h *Handler) rawTags(w http.ResponseWriter, r *http.Request) {
 	lib, sel, status, err := h.decodeSelection(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
 
