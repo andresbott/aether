@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 )
 
 // The production middleware wraps any >=400 body in a JSON envelope. Our
@@ -36,16 +38,18 @@ func TestApiErrorBodyIsNotDoubleWrapped(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
-	var body map[string]any
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var body httperr.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("error body is not JSON: %s", w.Body.String())
 	}
-	msg, ok := body["error"].(string)
-	if !ok {
-		t.Fatalf(`"error" is not a string: %s`, w.Body.String())
+	if body.Detail == "" {
+		t.Fatalf(`"detail" is empty: %s`, w.Body.String())
 	}
-	if strings.Contains(msg, `{`) || strings.Contains(msg, `"`) {
-		t.Fatalf("error message contains a nested JSON document: %q", msg)
+	if strings.Contains(body.Detail, `{`) || strings.Contains(body.Detail, `"`) {
+		t.Fatalf("error message contains a nested JSON document: %q", body.Detail)
 	}
 }
 
@@ -56,18 +60,15 @@ func TestApiErrorKeepsHandlerCode(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, jsonErrPath, nil))
 
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
-	}
+	var body httperr.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not the expected envelope: %s", w.Body.String())
 	}
-	if body.Code != "validation_error" {
-		t.Errorf("code = %q, want the handler's own code to survive", body.Code)
+	if got := httperr.Slug(body.Type); got != "validation_error" {
+		t.Errorf("code = %q, want the handler's own code to survive", got)
 	}
-	if body.Error != "q is required" {
-		t.Errorf("error = %q, want the handler's own message", body.Error)
+	if body.Detail != "q is required" {
+		t.Errorf("error = %q, want the handler's own message", body.Detail)
 	}
 }
 

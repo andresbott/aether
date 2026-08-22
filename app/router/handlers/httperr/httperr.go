@@ -100,6 +100,35 @@ func Slug(typeURI string) string {
 	return typeURI
 }
 
+// titles maps a known slug to the human title its Problem should carry. It
+// covers every slug the six migrated /api/v1 handler packages (metadata,
+// tokens, libraries, artists, radiobrowser, users) pass to their local
+// writeError/writeErr shims.
+var titles = map[string]string{ //nolint:gosec // G101: human-readable slug titles, not credentials
+	"validation_error":      "Validation error",
+	"not_found":             "Not found",
+	"internal":              "Internal error",
+	"upstream_error":        "Upstream error",
+	"upstream_rate_limited": "Upstream rate limited",
+	"identify_unavailable":  "Identification unavailable",
+	"unauthorized":          "Unauthorized",
+	"too_many_tokens":       "Too many tokens",
+	"usertoken_unavailable": "User token unavailable",
+	"not_configured":        "Not configured",
+	"config_managed":        "Config managed",
+	"last_admin":            "Last admin",
+	"conflict":              "Conflict",
+}
+
+// TitleFor returns the human title for slug, or slug itself when it is not
+// one of the known problem slugs above.
+func TitleFor(slug string) string {
+	if title, ok := titles[slug]; ok {
+		return title
+	}
+	return slug
+}
+
 // writeProblem sets the problem+json content type and status before encoding
 // body, satisfying every caller's requirement to set headers before
 // WriteHeader.

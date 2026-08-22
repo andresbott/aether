@@ -33,17 +33,17 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	}
 	showHidden, err := parseBoolParam(r.URL.Query().Get("show_hidden"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "show_hidden must be a boolean")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "show_hidden must be a boolean")
 		return
 	}
 	if !filepath.IsAbs(path) {
-		writeError(w, http.StatusBadRequest, "validation_error", "path must be absolute")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "path must be absolute")
 		return
 	}
 	path = filepath.Clean(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
-		writeError(w, http.StatusBadRequest, "validation_error", "path is not a readable directory")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "path is not a readable directory")
 		return
 	}
 	folders, err := metadataedit.ListFolders(path, metadataedit.ListFoldersOptions{
@@ -51,7 +51,7 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 		IncludeSymlinks: true,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]browseFolderDTO, 0, len(folders))

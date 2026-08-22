@@ -137,3 +137,20 @@ func TestSlugRoundTrips(t *testing.T) {
 		t.Errorf(`Slug("no-slash-here") = %q, want input echoed back`, got)
 	}
 }
+
+func TestTitleFor(t *testing.T) {
+	for slug, want := range map[string]string{
+		"validation_error":      "Validation error",
+		"not_found":             "Not found",
+		"internal":              "Internal error",
+		"upstream_error":        "Upstream error",
+		"upstream_rate_limited": "Upstream rate limited",
+	} {
+		if got := TitleFor(slug); got != want {
+			t.Errorf("TitleFor(%q) = %q, want %q", slug, got, want)
+		}
+	}
+	if got := TitleFor("some_unmapped_slug"); got != "some_unmapped_slug" {
+		t.Errorf("TitleFor(unmapped) = %q, want the slug echoed back", got)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -138,12 +139,12 @@ func TestIdentify_UnavailableIncludesReason(t *testing.T) {
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", w.Code)
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Error != reason || body.Code != "identify_unavailable" {
+	if body.Detail != reason || httperr.Slug(body.Type) != "identify_unavailable" {
 		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }

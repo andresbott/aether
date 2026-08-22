@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -79,14 +80,15 @@ func TestCapAppliesUniformly(t *testing.T) {
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("status %d, want 400: %s", w.Code, w.Body.String())
 			}
-			var got struct {
-				Error string `json:"error"`
+			if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+				t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 			}
+			var got httperr.Problem
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}
-			if got.Error != "too many paths in one request" {
-				t.Fatalf("error = %q, want the shared errTooManyPaths message", got.Error)
+			if got.Detail != "too many paths in one request" {
+				t.Fatalf("detail = %q, want the shared errTooManyPaths message", got.Detail)
 			}
 		})
 	}

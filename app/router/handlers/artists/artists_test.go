@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -129,19 +130,19 @@ func TestSearchMusicBrainz_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Code != "upstream_error" {
-		t.Errorf("code = %q, want upstream_error", body.Code)
+	if got := httperr.Slug(body.Type); got != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", got)
 	}
-	if !strings.Contains(body.Error, "MusicBrainz") || !strings.Contains(body.Error, "unavailable") {
-		t.Errorf("error is not a human sentence: %q", body.Error)
+	if !strings.Contains(body.Detail, "MusicBrainz") || !strings.Contains(body.Detail, "unavailable") {
+		t.Errorf("error is not a human sentence: %q", body.Detail)
 	}
-	if strings.Contains(body.Error, "search failed") || strings.Contains(body.Error, "status") {
-		t.Errorf("error leaks internal wording: %q", body.Error)
+	if strings.Contains(body.Detail, "search failed") || strings.Contains(body.Detail, "status") {
+		t.Errorf("error leaks internal wording: %q", body.Detail)
 	}
 }
 
@@ -158,12 +159,13 @@ func TestSearchMusicBrainz_RateLimitedReturns429(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d", w.Code)
 	}
-	var body struct {
-		Code string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Code != "upstream_rate_limited" {
-		t.Errorf("code = %q, want upstream_rate_limited", body.Code)
+	if got := httperr.Slug(body.Type); got != "upstream_rate_limited" {
+		t.Errorf("code = %q, want upstream_rate_limited", got)
 	}
 }
 

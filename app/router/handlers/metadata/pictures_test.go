@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/metadataedit"
@@ -675,22 +676,22 @@ func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("status %d, want 502", w.Code)
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Code != "upstream_error" {
-		t.Errorf("code = %q, want upstream_error", body.Code)
+	if got := httperr.Slug(body.Type); got != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", got)
 	}
-	if !strings.Contains(body.Error, "Cover Art Archive") ||
-		!strings.Contains(body.Error, "temporarily unavailable") {
-		t.Errorf("error is not a human sentence: %q", body.Error)
+	if !strings.Contains(body.Detail, "Cover Art Archive") ||
+		!strings.Contains(body.Detail, "temporarily unavailable") {
+		t.Errorf("error is not a human sentence: %q", body.Detail)
 	}
-	if strings.Contains(body.Error, "status 500") || strings.Contains(body.Error, "lookup failed") {
-		t.Errorf("error leaks internal wording: %q", body.Error)
+	if strings.Contains(body.Detail, "status 500") || strings.Contains(body.Detail, "lookup failed") {
+		t.Errorf("error leaks internal wording: %q", body.Detail)
 	}
 }
 
@@ -708,16 +709,16 @@ func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("status %d, want 429", w.Code)
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Code != "upstream_rate_limited" {
-		t.Errorf("code = %q, want upstream_rate_limited", body.Code)
+	if got := httperr.Slug(body.Type); got != "upstream_rate_limited" {
+		t.Errorf("code = %q, want upstream_rate_limited", got)
 	}
-	if !strings.Contains(body.Error, "too many requests") {
-		t.Errorf("unhelpful message: %q", body.Error)
+	if !strings.Contains(body.Detail, "too many requests") {
+		t.Errorf("unhelpful message: %q", body.Detail)
 	}
 }
 
@@ -748,12 +749,12 @@ func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("status %d, want 502: %s", w.Code, w.Body.String())
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if !strings.Contains(body.Error, "Cover Art Archive") || body.Code != "upstream_error" {
+	if !strings.Contains(body.Detail, "Cover Art Archive") || httperr.Slug(body.Type) != "upstream_error" {
 		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }

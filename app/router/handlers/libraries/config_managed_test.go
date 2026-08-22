@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 )
@@ -35,12 +36,13 @@ func TestUpdateConfigManagedLibraryRefused(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("expected 409, got %d, body=%s", w.Code, w.Body.String())
 	}
-	var apiErr struct {
-		Code string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	_ = json.Unmarshal(w.Body.Bytes(), &apiErr)
-	if apiErr.Code != "config_managed" {
-		t.Fatalf("expected code config_managed, got %q", apiErr.Code)
+	var problem httperr.Problem
+	_ = json.Unmarshal(w.Body.Bytes(), &problem)
+	if got := httperr.Slug(problem.Type); got != "config_managed" {
+		t.Fatalf("expected code config_managed, got %q", got)
 	}
 	// The row must be untouched.
 	got, err := s.GetLibrary(lib.ID)

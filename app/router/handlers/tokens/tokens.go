@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/gorilla/mux"
 )
@@ -78,13 +79,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 // caller returns the guard-established user ID via the injected resolver.
@@ -154,24 +150,24 @@ func truncateRunes(s string, max int) string {
 func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.caller(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 	var in mintInput
 	if r.Body != nil {
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
-			writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+			writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
 	}
 	if !validDeviceID(in.DeviceID) {
-		writeError(w, http.StatusBadRequest, "validation_error",
+		writeError(w, r, http.StatusBadRequest, "validation_error",
 			"deviceId is required: 1-64 characters of [A-Za-z0-9_-]")
 		return
 	}
 	recs, err := h.Tokens.List(userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	deviceScope := DeviceScopePrefix + in.DeviceID
@@ -204,7 +200,7 @@ func (h *Handler) mintSPAToken(w http.ResponseWriter, r *http.Request) {
 	token, rec, err := h.Tokens.Mint(userID, name, []string{SPAScope, deviceScope}, &expiresAt, pat.HashOnly)
 	if err != nil {
 		status, code := mapPatError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -298,12 +294,12 @@ func toDTO(rec pat.TokenRecord, kind string) tokenDTO {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.caller(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 	recs, err := h.Tokens.List(userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	now := time.Now()
@@ -332,19 +328,19 @@ type createInput struct {
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.caller(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 	var in createInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if in.Type == "" {
 		in.Type = TypeAPIKey
 	}
 	if in.Type != TypeAPIKey && in.Type != TypeUserToken {
-		writeError(w, http.StatusBadRequest, "validation_error", "type must be \"apikey\" or \"usertoken\"")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "type must be \"apikey\" or \"usertoken\"")
 		return
 	}
 	scopes := []string{ClientScope}
@@ -356,7 +352,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	token, rec, err := h.Tokens.Mint(userID, in.Name, scopes, in.ExpiresAt, storage)
 	if err != nil {
 		status, code := mapPatError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	body := map[string]any{
@@ -374,7 +370,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		// splits the same plaintext Mint just returned.
 		_, secret, ok := pat.ParseToken("aether", token)
 		if !ok {
-			writeError(w, http.StatusInternalServerError, "internal", "minted token failed to parse")
+			writeError(w, r, http.StatusInternalServerError, "internal", "minted token failed to parse")
 			return
 		}
 		body["username"] = rec.TokenID
@@ -388,12 +384,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) revoke(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.caller(r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthorized", "authentication required")
+		writeError(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 		return
 	}
 	if err := h.Tokens.Revoke(userID, mux.Vars(r)["tokenId"]); err != nil {
 		status, code := mapPatError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

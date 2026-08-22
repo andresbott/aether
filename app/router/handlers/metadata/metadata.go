@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -70,11 +70,6 @@ type Handler struct {
 	// UI can drop its caches without polling. nil disables re-indexing; the
 	// file write still succeeds and the index catches up on the next scan.
 	Rescan TrackRescanner
-}
-
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
 }
 
 // rescanStatus reports the outcome of the post-write re-index. A failure is
@@ -158,22 +153,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
-}
-
-// writeUpstreamErr reports a failed call to an external service. The body
-// carries the upstream package's human-readable sentence (or fallback for an
-// error that isn't upstream-typed) — never a raw Go error — and the status
-// mirrors the upstream condition so the UI can tell "retry later" (429/504)
-// from "it's broken" (502).
-func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
-	status := upstream.HTTPStatus(err)
-	code := "upstream_error"
-	if status == http.StatusTooManyRequests {
-		code = "upstream_rate_limited"
-	}
-	writeErr(w, status, code, upstream.UserMessage(err, fallback))
+func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {
@@ -223,7 +204,7 @@ type pictureSelection struct {
 
 // decodeSelection decodes and validates a picture-selection POST body,
 // resolving library_id to its root path. status/err are zero/nil on success;
-// callers on failure answer writeErr(w, status, codeFor(status), err.Error()).
+// callers on failure answer writeErr(w, r, status, codeFor(status), err.Error()).
 func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
 		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
@@ -253,7 +234,7 @@ type folderDTO struct {
 func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// No symlinks here, unlike the library path picker: this tree is confined to
@@ -261,7 +242,7 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	// followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]folderDTO, 0, len(folders))
@@ -295,12 +276,12 @@ type trackDTO struct {
 func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]trackDTO, 0, len(rows))
@@ -407,20 +388,20 @@ func validateUpdateRequest(body updateRequest) string {
 func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if msg := validateUpdateRequest(body); msg != "" {
-		writeErr(w, http.StatusBadRequest, "validation_error", msg)
+		writeErr(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", err.Error())
+			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	patch := metadataedit.Patch{
@@ -450,7 +431,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	for _, p := range body.Paths {
 		abs, err := metadataedit.ResolveInLibrary(libModel.Path, p)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "validation_error", err.Error())
+			writeErr(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
 		resolved = append(resolved, abs)
