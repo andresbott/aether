@@ -80,32 +80,6 @@ export async function identifyAlbum(body: IdentifyAlbumRequest, signal?: AbortSi
     return data
 }
 
-// getPictureUrl builds the URL of one picture type+slot cell for use as an
-// <img> src. The optional bust value forces a reload after a change (the
-// endpoint sets Cache-Control: no-cache but the URL is otherwise unchanged).
-// For the embedded slot, paths narrow the probe to the selected tracks.
-//
-// size requests an optimized, display-sized copy instead of the original — pass
-// it for grid thumbnails. Omit it when the bytes themselves matter (copying a
-// picture into another slot, see fetchPictureFile), since a derivative is a
-// downscaled re-encode of the source.
-export function getPictureUrl(
-    libraryId: number,
-    path: string,
-    type: string,
-    slot: PictureSlot,
-    bust?: number,
-    paths?: string[],
-    size?: number
-): string {
-    const base = apiClient.defaults.baseURL ?? ''
-    const params = new URLSearchParams({ library_id: String(libraryId), path, type, slot })
-    if (bust !== undefined) params.set('t', String(bust))
-    for (const p of paths ?? []) params.append('paths', p)
-    if (size) params.set('size', String(size))
-    return `${base}/metadata/pictures/image?${params.toString()}`
-}
-
 export async function listReleaseCovers(mbid: string, releaseGroup?: string) {
     const { data } = await apiClient.get<CoverCandidate[]>('/metadata/pictures/candidates', {
         params: { mbid, release_group: releaseGroup }
@@ -131,17 +105,19 @@ export async function applyPicture(form: FormData) {
     return data
 }
 
-// getPictures reports every picture type present for the folder and which
-// slots hold it. Embedded presence is counted over the given paths (or every
-// folder track when omitted).
-export async function getPictures(
-    libraryId: number,
-    path: string,
-    paths?: string[]
-): Promise<PictureInfo[]> {
-    const { data } = await apiClient.get<PicturesResponse>('/metadata/pictures', {
-        params: { library_id: libraryId, path, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+// getPictures reports every picture type present for the selection and which
+// slots hold it, each populated slot carrying its ready-to-render image URL
+// (server-resolved — see PictureImageRef). Embedded presence is counted over
+// paths; folder art spans the distinct directories paths resolves to.
+//
+// The selection travels in the POST body rather than the URL: a large
+// multi-disc selection as a repeated ?paths= query param overflowed a
+// production reverse proxy's header buffer (HTTP 431). The image endpoint it
+// returns stays a GET, keyed on one resolved file instead of the selection.
+export async function getPictures(libraryId: number, paths: string[]): Promise<PictureInfo[]> {
+    const { data } = await apiClient.post<PicturesResponse>('/metadata/pictures/inventory', {
+        library_id: libraryId,
+        paths
     })
     return data.pictures ?? []
 }

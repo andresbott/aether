@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/imagecache"
@@ -112,20 +113,11 @@ func (h *Handler) resolveAlbum(ctx context.Context, lib *librarySummary, abs str
 	return al, nil
 }
 
-// findCell returns the (typeID, slot) cell from a picture matrix, or nil when
-// that type+slot is absent.
-func findCell(matrix []metadataedit.TypeSlots, typeID, slot string) *metadataedit.SlotState {
-	for _, ts := range matrix {
-		if ts.Type.ID != typeID {
-			continue
-		}
-		for i := range ts.Slots {
-			if ts.Slots[i].Slot == slot {
-				return &ts.Slots[i]
-			}
-		}
-	}
-	return nil
+type pictureImageDTO struct {
+	URL string `json:"url"`
+	// ThumbURL requests the same source at inventoryThumbSize — the picture
+	// grid's cell size — instead of full fidelity.
+	ThumbURL string `json:"thumb_url,omitempty"`
 }
 
 type pictureSlotDTO struct {
@@ -136,6 +128,15 @@ type pictureSlotDTO struct {
 	// holds a different image. The editor shows the first one and warns that
 	// saving overwrites all of them.
 	Mixed bool `json:"mixed,omitempty"`
+	// PresentCount/TotalCount describe an embedded slot: how many of the
+	// selected paths carry this picture type, out of how many were selected.
+	// Both are omitted (the zero value) for a folder slot.
+	PresentCount int `json:"present_count,omitempty"`
+	TotalCount   int `json:"total_count,omitempty"`
+	// Image is this cell's ready-to-render URLs. Always populated: inventory
+	// only ever lists populated slots, and every populated slot has a
+	// representative Source.
+	Image pictureImageDTO `json:"image"`
 }
 
 type pictureDTO struct {
@@ -143,16 +144,48 @@ type pictureDTO struct {
 	Slots []pictureSlotDTO `json:"slots"`
 }
 
-// pictures reports, for every registry type present somewhere, which slots
-// hold it. Embedded presence is counted over the selected paths (or the whole
-// folder when none are given).
-func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+// pictureImagePath is the picture image endpoint's route, relative to
+// wherever Routes is mounted (see the Routes doc comment in metadata.go).
+// pictureImageRef reuses it so the inventory's generated URLs can never drift
+// from the registered route.
+const pictureImagePath = "/metadata/pictures/image"
+
+// inventoryThumbSize is the thumbnail size the picture grid's cells request
+// (mirrors PICTURE_CELL_SIZE in PicturesSection.vue): the cells render at
+// roughly 160 CSS pixels; 320 keeps them sharp on 2x displays while staying a
+// fraction of a full-resolution scan.
+const inventoryThumbSize = 320
+
+// pictureImageRef builds one present slot's ready-to-render image URLs from
+// its representative Source. The URLs are mount-relative — no scheme/host,
+// and never a hard-coded /api/v1 prefix — so the handler stays agnostic to
+// whatever prefix it is mounted under (the planned /admin reorg); the SPA
+// prepends apiClient.defaults.baseURL when rendering (see serverPictureUrl in
+// PicturesSection.vue).
+func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
+	q := src.Values()
+	q.Set("library_id", strconv.FormatUint(uint64(libID), 10))
+	imgURL := pictureImagePath + "?" + q.Encode()
+	q.Set("size", strconv.Itoa(inventoryThumbSize))
+	thumbURL := pictureImagePath + "?" + q.Encode()
+	return pictureImageDTO{URL: imgURL, ThumbURL: thumbURL}
+}
+
+// inventory reports, for every registry type present somewhere in the
+// selection, which slots hold it and the ready-to-render URL of each
+// populated cell. The selection is exactly paths[] — the user's selected
+// tracks — carried in the request body rather than the URL: this is the
+// endpoint the production 431 was reported against (a large multi-disc
+// selection, as a repeated ?paths= query param, overflowed the forward_auth
+// proxy's header buffer). Embedded presence is counted over paths[]; folder
+// art is resolved across the distinct directories paths[] spans.
+func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
+	lib, paths, status, err := h.decodeSelection(r)
 	if err != nil {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
 	}
-	al, aerr := h.resolveAlbum(r.Context(), lib, abs, r.URL.Query()["paths"])
+	al, aerr := metadataedit.ResolveAlbum(lib.Path, paths)
 	if aerr != nil {
 		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
 		return
@@ -163,23 +196,32 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 	for _, ts := range matrix {
 		slots := make([]pictureSlotDTO, 0, len(ts.Slots))
 		for _, sl := range ts.Slots {
-			dto := pictureSlotDTO{Slot: sl.Slot, Mixed: sl.Mixed}
-			if sl.Slot == "embedded" {
-				dto.Detail = fmt.Sprintf("%d of %d files", sl.PresentCount, sl.TotalCount)
-			} else {
-				dto.Detail = sl.Detail
-			}
-			slots = append(slots, dto)
+			slots = append(slots, pictureSlotDTO{
+				Slot:         sl.Slot,
+				Detail:       sl.Detail, // "" for embedded, the filename for folder
+				Mixed:        sl.Mixed,
+				PresentCount: sl.PresentCount,
+				TotalCount:   sl.TotalCount,
+				Image:        pictureImageRef(lib.ID, sl.Source),
+			})
 		}
 		out = append(out, pictureDTO{Type: ts.Type.ID, Slots: slots})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pictures": out})
 }
 
-// pictureImage serves the image of one type+slot cell. 404 when the cell is
-// empty.
+// pictureImage serves the bytes of one resolved Source: the single
+// representative file an inventory cell already picked (pictureImageRef). It
+// never re-resolves an album selection — a Source addresses exactly one
+// file, so this stays a bounded, header-safe GET even for a deep multi-disc
+// path. 404 when the source cannot be opened (a stale link: the embedded
+// picture was removed, or the folder file no longer exists); 400 on a bad
+// type, slot, or file.
 func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+	// path is absent from this endpoint's query (see the Routes doc comment);
+	// resolveLibraryRel tolerates that (an empty path resolves to the library
+	// root itself), so it is reused here purely for the library_id lookup.
+	lib, _, status, err := h.resolveLibraryRel(r)
 	if err != nil {
 		writeErr(w, status, codeFor(status), err.Error())
 		return
@@ -196,19 +238,30 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 
-	al, aerr := h.resolveAlbum(r.Context(), lib, abs, r.URL.Query()["paths"])
-	if aerr != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", aerr.Error())
+	_, src, derr := metadataedit.DecodeSource(lib.Path, r.URL.Query())
+	if derr != nil {
+		writeErr(w, http.StatusBadRequest, "validation_error", derr.Error())
 		return
 	}
-	cell := findCell(al.Matrix(r.Context(), h.Reader), pt.ID, slot)
-	if cell == nil {
-		http.NotFound(w, r)
-		return
-	}
-	data, filePath, fingerprint, operr := al.Open(cell.Source)
+	// type/slot go through the registry validation above (which, unlike
+	// DecodeSource's raw query read, defaults an omitted type to Front
+	// Cover); this keeps that default working for the one field that has one.
+	src.TypeID = pt.ID
+	src.Slot = slot
+
+	data, filePath, fingerprint, operr := metadataedit.OpenSource(lib.Path, src)
 	if operr != nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	// A strong ETag off the resolved content lets a client that already has
+	// this exact image skip the download entirely, and retires the old ?t=
+	// cache-bust hack's reason for existing (a bust value still works — it is
+	// just another query param the server ignores).
+	w.Header().Set("ETag", `"`+fingerprint+`"`)
+	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, fingerprint) {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	rp := resolvedPicture{filePath: filePath, data: data}

@@ -145,7 +145,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)
-	r.Path("/metadata/pictures").Methods(http.MethodGet).HandlerFunc(h.pictures)
+	r.Path("/metadata/pictures/inventory").Methods(http.MethodPost).HandlerFunc(h.inventory)
 	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
 	r.Path("/metadata/pictures").Methods(http.MethodDelete).HandlerFunc(h.deletePicture)
 	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
@@ -203,6 +203,44 @@ func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPa
 type librarySummary struct {
 	ID   uint
 	Path string
+}
+
+// maxSelectionPaths caps a picture-selection POST body: defense in depth now
+// that the selection travels in a body instead of a query string (the body
+// itself already removes the 431 risk; this bounds the work/DoS surface).
+// Mirrors maxIdentifyPaths (identify.go) and maxRawPaths (raw.go).
+const maxSelectionPaths = 50
+
+// pictureSelection is the request body of a picture-selection POST endpoint:
+// the library and the selected track paths (library-relative), carried in
+// the body rather than the URL so a large multi-disc selection can never
+// overflow a header buffer (the production 431 this redesign fixes). See
+// docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
+type pictureSelection struct {
+	LibraryID uint     `json:"library_id"`
+	Paths     []string `json:"paths"`
+}
+
+// decodeSelection decodes and validates a picture-selection POST body,
+// resolving library_id to its root path. status/err are zero/nil on success;
+// callers on failure answer writeErr(w, status, codeFor(status), err.Error()).
+func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, paths []string, status int, err error) {
+	var body pictureSelection
+	if derr := json.NewDecoder(r.Body).Decode(&body); derr != nil {
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
+	}
+	if len(body.Paths) == 0 || len(body.Paths) > maxSelectionPaths {
+		return nil, nil, http.StatusBadRequest,
+			fmt.Errorf("paths must contain between 1 and %d entries", maxSelectionPaths)
+	}
+	libModel, gerr := h.Store.GetLibrary(body.LibraryID)
+	if gerr != nil {
+		if errors.Is(gerr, gorm.ErrRecordNotFound) {
+			return nil, nil, http.StatusNotFound, gerr
+		}
+		return nil, nil, http.StatusInternalServerError, gerr
+	}
+	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, body.Paths, 0, nil
 }
 
 type folderDTO struct {
