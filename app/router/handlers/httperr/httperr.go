@@ -92,7 +92,7 @@ func WriteUpstream(w http.ResponseWriter, r *http.Request, err error, fallback s
 	if status == http.StatusTooManyRequests {
 		slug = "upstream_rate_limited"
 	}
-	Write(w, r, status, slug, http.StatusText(status), upstream.UserMessage(err, fallback))
+	Write(w, r, status, slug, TitleFor(slug), upstream.UserMessage(err, fallback))
 }
 
 // Slug returns the last path segment of a problem's Type URI — the old "code"

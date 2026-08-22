@@ -99,6 +99,9 @@ func TestWriteUpstreamRateLimited(t *testing.T) {
 	if got.Status != http.StatusTooManyRequests {
 		t.Fatalf("Status = %d, want %d", got.Status, http.StatusTooManyRequests)
 	}
+	if want := TitleFor("upstream_rate_limited"); got.Title != want {
+		t.Fatalf("Title = %q, want %q", got.Title, want)
+	}
 	if got.Detail != stub.UserMessage() {
 		t.Fatalf("Detail = %q, want %q", got.Detail, stub.UserMessage())
 	}
@@ -123,6 +126,13 @@ func TestWriteUpstreamFallsBackTo502ForNonUpstreamError(t *testing.T) {
 	}
 	if got.Detail != "fallback message" {
 		t.Fatalf("Detail = %q, want fallback message", got.Detail)
+	}
+	// Title must match TitleFor(slug), the same title a direct writeError
+	// call for this slug would carry — not http.StatusText(status), which
+	// would say "Bad Gateway" and diverge from other responses sharing this
+	// same type URI.
+	if want := TitleFor("upstream_error"); got.Title != want {
+		t.Fatalf("Title = %q, want %q", got.Title, want)
 	}
 }
 

@@ -571,6 +571,30 @@ func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	}
 }
 
+// TestApplyPicture_MissingSlotIs400 mirrors TestPictureImage_MissingSlotIs400
+// for the save endpoint: an omitted slot form field — a missing required
+// scalar — must stay 400, unlike an explicitly bogus one (422, asserted by
+// TestApplyPicture_InvalidTargetAndType above).
+func TestApplyPicture_MissingSlotIs400(t *testing.T) {
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(lib.ID), 10))
+	_ = mw.WriteField("type", "Front Cover")
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := postPicture(t, r, &buf, mw.FormDataContentType())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("omitted slot: want 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "slot is required") {
+		t.Fatalf("omitted slot error message: %s", w.Body.String())
+	}
+}
+
 func TestRemovals_FolderByType(t *testing.T) {
 	root := t.TempDir()
 	albumDir := filepath.Join(root, "album")
@@ -692,6 +716,35 @@ func TestRemovals_InvalidSlot(t *testing.T) {
 	}
 	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/slot" {
 		t.Fatalf("expected a /slot field error, got %+v", problem.Errors)
+	}
+}
+
+// TestRemovals_MissingSlotIs400 mirrors TestPictureImage_MissingSlotIs400 for
+// the removals endpoint: an omitted slot — a missing required scalar — must
+// stay 400, unlike an explicitly bogus one (422, asserted by
+// TestRemovals_InvalidSlot above). Built without postRemovals, which always
+// serializes a "slot" key, so the JSON body here truly omits it.
+func TestRemovals_MissingSlotIs400(t *testing.T) {
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
+
+	payload, err := json.Marshal(map[string]any{
+		"library_id": lib.ID,
+		"paths":      []string{"a.flac"},
+		"type":       "Front Cover",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/metadata/pictures/removals", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("omitted slot: want 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "slot is required") {
+		t.Fatalf("omitted slot error message: %s", w.Body.String())
 	}
 }
 
