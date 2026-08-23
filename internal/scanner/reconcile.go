@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -27,8 +28,10 @@ type artistRekey struct {
 
 func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time) (reconcileStats, error) {
 	var stats reconcileStats
-	// One directory listing per artist folder is enough for the whole pass.
-	imageCache := map[string]string{}
+	// Artist-folder images are reconciled in one pass after every track is in
+	// (reconcileArtistImages), not per track. probes collects, per artist touched
+	// this run, the track directories to search and the path already on the row.
+	probes := map[uint]*artistImageProbe{}
 
 	// Re-link tracks whose file moved before anything else looks at paths: a
 	// re-pointed row keeps its id, so playlists, play history, stars and queue
@@ -63,7 +66,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 
 		pendingArtistRekeys = pendingArtistRekeys[:0]
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats, &pendingArtistRekeys)
+			return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
 			continue
@@ -74,10 +77,14 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 		stats.Processed++
 	}
 
+	// Every artist folder is listed at most once per run here, instead of once
+	// per track inside the loop above.
+	s.reconcileArtistImages(libRoot, probes)
+
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats, pendingArtistRekeys *[]artistRekey) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImageProbe, tr tagResult, scanStart time.Time, stats *reconcileStats, pendingArtistRekeys *[]artistRekey) error {
 	meta := tr.meta
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
@@ -101,10 +108,8 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
 	}
 
-	// Detect an artist-folder image for every artist this track mentions.
-	if err := syncArtistImages(tx, libRoot, imageCache, tr.walk.FilePath, artists, albumArtists); err != nil {
-		return err
-	}
+	// Record every artist this track mentions for the post-loop artist-image pass.
+	recordArtistProbes(probes, tr.walk.FilePath, artists, albumArtists)
 
 	// Resolve genres
 	genreNames := nonEmpty(meta.Genre)
@@ -217,42 +222,68 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	return nil
 }
 
-// syncArtistImages records, for each artist the track mentions, the image found
-// in the artist's own folder on disk (`<collection>/<artist>/artist.jpg`). A
-// path already on record is re-checked rather than trusted: the file may have
-// been removed or the tree reorganised. imageCache holds one detection result
-// per (artist folder scope) so a 200-track library does not list the same
-// directory 200 times.
-func syncArtistImages(tx *store.Store, libRoot string, imageCache map[string]string, trackPath string, artistSets ...[]*model.Artist) error {
-	seen := map[uint]bool{}
+// artistImageProbe holds what the post-loop artist-image pass needs for one
+// artist: the name (for the folder-name match), the ImagePath already on the row
+// (so a still-valid path is kept when the disk yields nothing), and the distinct
+// track directories seen this run to search from.
+type artistImageProbe struct {
+	name        string
+	currentPath string
+	dirs        []string
+}
+
+// recordArtistProbes notes, for every artist a track credits, the directory the
+// track sits in. Directories are de-duplicated per artist so an artist with many
+// albums — or a multi-disc release split over CD 1/, CD 2/ — lists each folder
+// once. The ImagePath is captured the first time an artist is seen.
+func recordArtistProbes(probes map[uint]*artistImageProbe, trackPath string, artistSets ...[]*model.Artist) {
+	dir := filepath.Dir(trackPath)
 	for _, set := range artistSets {
 		for _, a := range set {
-			if seen[a.ID] {
-				continue
+			p := probes[a.ID]
+			if p == nil {
+				p = &artistImageProbe{name: a.Name, currentPath: a.ImagePath}
+				probes[a.ID] = p
 			}
-			seen[a.ID] = true
-
-			key := filepath.Dir(trackPath) + "\x00" + a.NameNorm
-			img, cached := imageCache[key]
-			if !cached {
-				img = DetectArtistImage(libRoot, trackPath, a.Name)
-				imageCache[key] = img
+			seen := false
+			for _, d := range p.dirs {
+				if d == dir {
+					seen = true
+					break
+				}
 			}
-			// Keep a path that is still valid when this track's own tree yields
-			// nothing: another library layout may have supplied it.
-			if img == "" && IsUsableArtistImagePath(a.ImagePath) {
-				continue
+			if !seen {
+				p.dirs = append(p.dirs, dir)
 			}
-			if img == a.ImagePath {
-				continue
-			}
-			if err := tx.SetArtistImagePath(a.ID, img); err != nil {
-				return err
-			}
-			a.ImagePath = img
 		}
 	}
-	return nil
+}
+
+// reconcileArtistImages runs once per library after every track is reconciled:
+// for each artist touched this run it records the artist-folder image found on
+// disk (<collection>/<artist>/artist.jpg). A path already on the row is
+// re-checked, not trusted, and kept only when the disk yields nothing — another
+// library's layout may still hold it. Empty detection with no usable stored path
+// clears the row. Failures are logged, never fatal: the field is a soft fallback.
+func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistImageProbe) {
+	for id, p := range probes {
+		img := ""
+		for _, dir := range p.dirs {
+			if got := artistimage.Detect(libRoot, dir, p.name); got != "" {
+				img = got
+				break
+			}
+		}
+		if img == "" && artistimage.IsUsablePath(p.currentPath) {
+			continue
+		}
+		if img == p.currentPath {
+			continue
+		}
+		if err := s.store.SetArtistImagePath(id, img); err != nil {
+			slog.Warn("set artist image path failed", "artist_id", id, "err", err)
+		}
+	}
 }
 
 func detectCoverInDir(dir string) string {
