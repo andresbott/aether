@@ -49,7 +49,7 @@ func TestBestFilename(t *testing.T) {
 
 func TestIsUsablePath(t *testing.T) {
 	dir := t.TempDir()
-	createTestFiles(t, dir, []string{"Pink Floyd/artist.jpg", "Pink Floyd/cover.jpg"})
+	createTestFiles(t, dir, []string{"Pink Floyd/artist.jpg", "Pink Floyd/cover.jpg", "Some Artist/artist.jpg/keep"})
 	tests := []struct {
 		name string
 		path string
@@ -60,6 +60,7 @@ func TestIsUsablePath(t *testing.T) {
 		{"missing file", filepath.Join(dir, "Pink Floyd/artistthumb.png"), false},
 		{"empty path", "", false},
 		{"directory", filepath.Join(dir, "Pink Floyd"), false},
+		{"directory named like an image", filepath.Join(dir, "Some Artist/artist.jpg"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -112,6 +113,37 @@ func TestDetect(t *testing.T) {
 			if tt.want != "" {
 				want = filepath.Join(dir, tt.want)
 			}
+			startDir := filepath.Dir(filepath.Join(dir, tt.trackPath))
+			if got := artistimage.Detect(dir, startDir, tt.artist); got != want {
+				t.Errorf("Detect(%q, %q) = %q, want %q", tt.trackPath, tt.artist, got, want)
+			}
+		})
+	}
+}
+
+// Detect returns the image from the NEAREST same-named ancestor that has one; a
+// deeper artist-named folder without an image falls through to a shallower one.
+func TestDetectNearestSameNamedAncestorWins(t *testing.T) {
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Pink Floyd/artist.jpg",            // shallow ancestor has an image
+		"Pink Floyd/Pink Floyd/artist.jpg", // deeper ancestor also has one
+		"Pink Floyd/Pink Floyd/The Wall/01.flac",
+		"Genesis/artist.jpg", // only the shallow ancestor has an image
+		"Genesis/Genesis/The Lamb/01.flac",
+	})
+	tests := []struct {
+		name      string
+		trackPath string
+		artist    string
+		want      string
+	}{
+		{"nearest same-named ancestor wins", "Pink Floyd/Pink Floyd/The Wall/01.flac", "Pink Floyd", "Pink Floyd/Pink Floyd/artist.jpg"},
+		{"falls through to a shallower ancestor when the nearer has none", "Genesis/Genesis/The Lamb/01.flac", "Genesis", "Genesis/artist.jpg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := filepath.Join(dir, tt.want)
 			startDir := filepath.Dir(filepath.Join(dir, tt.trackPath))
 			if got := artistimage.Detect(dir, startDir, tt.artist); got != want {
 				t.Errorf("Detect(%q, %q) = %q, want %q", tt.trackPath, tt.artist, got, want)
