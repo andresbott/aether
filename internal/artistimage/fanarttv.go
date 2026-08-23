@@ -28,35 +28,6 @@ func NewFanartTV(apiKey string) *FanartTV {
 
 func (p *FanartTV) Name() string { return "fanart.tv" }
 
-func (p *FanartTV) Fetch(ctx context.Context, mbid string) ([]byte, string, error) {
-	if p.APIKey == "" || mbid == "" {
-		return nil, "", nil
-	}
-	u := fmt.Sprintf("%s/v3/music/%s?api_key=%s", p.BaseURL, mbid, p.APIKey)
-	// A 4xx here means "this provider has no artwork for the MBID", which is
-	// not an error — only transient failures (retried by the Doer) are.
-	resp, err := p.Doer.Get(ctx, u, nil)
-	if err != nil {
-		if upstream.IsRejected(err) {
-			return nil, "", nil
-		}
-		return nil, "", err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var body struct {
-		ArtistThumb []struct {
-			URL string `json:"url"`
-		} `json:"artistthumb"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, "", err
-	}
-	if len(body.ArtistThumb) == 0 || body.ArtistThumb[0].URL == "" {
-		return nil, "", nil
-	}
-	return download(ctx, p.Doer, body.ArtistThumb[0].URL)
-}
-
 func (p *FanartTV) List(ctx context.Context, mbid string) ([]ImageCandidate, error) {
 	if p.APIKey == "" || mbid == "" {
 		return nil, nil
@@ -78,7 +49,7 @@ func (p *FanartTV) List(ctx context.Context, mbid string) ([]ImageCandidate, err
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, err
 	}
-	out := make([]ImageCandidate, 0, len(body.ArtistThumb))
+	var out []ImageCandidate
 	for _, t := range body.ArtistThumb {
 		if t.URL == "" {
 			continue

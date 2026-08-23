@@ -4,6 +4,7 @@ package artistimage
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"path"
 	"strings"
@@ -24,9 +25,6 @@ type ImageCandidate struct {
 }
 
 type Provider interface {
-	// Fetch returns image bytes and a file extension ("jpg"/"png"), or
-	// (nil, "", nil) when the provider has no image for this MBID.
-	Fetch(ctx context.Context, mbid string) ([]byte, string, error)
 	// List returns the provider's portrait candidates for the MBID, in the
 	// order the provider returns them, or nil when it has none.
 	List(ctx context.Context, mbid string) ([]ImageCandidate, error)
@@ -41,17 +39,44 @@ type Chain struct {
 
 func NewChain(ps ...Provider) *Chain { return &Chain{providers: ps} }
 
-func (c *Chain) Fetch(ctx context.Context, mbid string) ([]byte, string, error) {
+func (c *Chain) List(ctx context.Context, mbid string) ([]ImageCandidate, error) {
+	var all []ImageCandidate
+	var lastErr error
 	for _, p := range c.providers {
-		data, ext, err := p.Fetch(ctx, mbid)
+		cs, err := p.List(ctx, mbid)
 		if err != nil {
-			continue // treat provider error as "no image from this provider"
+			lastErr = err // a provider that errors is skipped, not fatal…
+			continue
 		}
-		if len(data) > 0 {
-			return data, ext, nil
+		all = append(all, cs...)
+	}
+	if len(all) == 0 && lastErr != nil {
+		return nil, lastErr // …unless nobody produced anything, then surface it
+	}
+	return all, nil
+}
+
+func (c *Chain) Download(ctx context.Context, providerName, url string) ([]byte, string, error) {
+	for _, p := range c.providers {
+		if p.Name() == providerName {
+			return p.Download(ctx, url)
 		}
 	}
-	return nil, "", nil
+	return nil, "", fmt.Errorf("artistimage: no provider named %q", providerName)
+}
+
+// Fetch keeps the one-shot contract the auto-fetch job and setMBID rely on:
+// list candidates, download the first. fanart.tv lists first, so the first
+// candidate is still its top thumb.
+func (c *Chain) Fetch(ctx context.Context, mbid string) ([]byte, string, error) {
+	cands, err := c.List(ctx, mbid)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(cands) == 0 {
+		return nil, "", nil
+	}
+	return c.Download(ctx, cands[0].Provider, cands[0].FullURL)
 }
 
 // extFromURL derives a normalized image extension from a URL, defaulting to jpg.
