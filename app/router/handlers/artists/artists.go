@@ -15,7 +15,6 @@ import (
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
@@ -251,7 +250,7 @@ func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 	}
 	// A recorded path whose file has gone away is not the served image —
 	// getCoverArt falls through to the generated avatar, so report "none".
-	if scanner.IsUsableArtistImagePath(artist.ImagePath) {
+	if artistimage.IsUsablePath(artist.ImagePath) {
 		writeJSON(w, http.StatusOK, imageSourceResponse{
 			Source:   "folder",
 			Path:     artist.ImagePath,
