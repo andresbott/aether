@@ -104,6 +104,7 @@ func TestDetect(t *testing.T) {
 		{"no album level means no artist folder", "Flat Artist/01.flac", "Flat Artist", ""},
 		{"directory name does not match the artist", "Compilations/Some Sampler/01.flac", "Various Artists", ""},
 		{"artist name matched after normalisation", "Pink Floyd/The Wall/01.flac", "pink floyd", "Pink Floyd/artist.jpg"},
+		{"empty artist name", "Pink Floyd/The Wall/01.flac", "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
