@@ -85,6 +85,21 @@ proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GRO
 	@[ "$(origin USER)" = "command line" ] || ( echo ">> USER is not set, usage: make proxy USER=admin GROUP=aether-admin"; exit 1 )
 	@go run ./zarf/devproxy -user "$(USER)" -groups "$(GROUP)"
 
+DATA_DIR ?= ./data
+.PHONY: reset-data
+reset-data: ## delete the local data dir — user DB, image cache, metadata, task logs, session/PAT keys (FORCE=1 skips the prompt)
+	@if [ ! -e "$(DATA_DIR)" ]; then \
+		echo "nothing to remove: '$(DATA_DIR)' does not exist"; \
+	else \
+		if [ "$(FORCE)" != "1" ]; then \
+			printf ">> delete ALL local data in '%s' (DB, caches, metadata, keys)? [y/N] " "$(DATA_DIR)"; \
+			read ans; \
+			case "$$ans" in [yY]|[yY][eE][sS]) ;; *) echo "aborted"; exit 1;; esac; \
+		fi; \
+		rm -rf "$(DATA_DIR)"; \
+		echo "✅ removed '$(DATA_DIR)' (recreated on next 'make run')"; \
+	fi
+
 #==========================================================================================
 ##@ Building
 #==========================================================================================
