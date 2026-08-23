@@ -14,3 +14,8 @@ rules:
       - "$.paths[*][*].parameters[?(@.in=='query' && @.schema.type=='array')].schema"
       - "$.paths[*].parameters[?(@.in=='query' && @.schema.type=='array')].schema"
     then: { field: "maxItems", function: truthy }
+  no-hardcoded-api-base:
+    description: "A paths key must not hard-code the /api base — that belongs in servers:, so a handler can be remounted under a different prefix without rewriting its paths keys."
+    severity: error
+    given: "$.paths"
+    then: { field: "@key", function: pattern, functionOptions: { notMatch: "^/api" } }

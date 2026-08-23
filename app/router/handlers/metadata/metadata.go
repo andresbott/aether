@@ -203,12 +203,19 @@ type pictureSelection struct {
 }
 
 // decodeSelection decodes and validates a picture-selection POST body,
-// resolving library_id to its root path. status/err are zero/nil on success;
-// callers on failure answer writeSelectionErr(w, r, status, err), which
-// itemises an empty/over-cap paths[] as a 422 validation problem and falls
-// back to writeErr(w, r, status, codeFor(status), err.Error()) for everything
-// else (malformed JSON, an unknown or unreachable library).
-func (h *Handler) decodeSelection(r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
+// resolving library_id to its root path. The body is wrapped in
+// http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes) before decoding —
+// defense in depth against a pathologically large body, now that a
+// multi-disc selection travels in the body instead of the URL — so an
+// over-cap body fails json.Decode and is reported through the same
+// malformed-JSON 400 branch as any other unparseable body. status/err are
+// zero/nil on success; callers on failure answer writeSelectionErr(w, r,
+// status, err), which itemises an empty/over-cap paths[] as a 422 validation
+// problem and falls back to writeErr(w, r, status, codeFor(status),
+// err.Error()) for everything else (malformed JSON, an unknown or
+// unreachable library).
+func (h *Handler) decodeSelection(w http.ResponseWriter, r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
 		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
 	}

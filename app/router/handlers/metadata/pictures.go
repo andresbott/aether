@@ -131,7 +131,7 @@ func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
 // proxy's header buffer). Embedded presence is counted over paths[]; folder
 // art is resolved across the distinct directories paths[] spans.
 func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(r)
+	lib, sel, status, err := h.decodeSelection(w, r)
 	if err != nil {
 		writeSelectionErr(w, r, status, err)
 		return
@@ -375,6 +375,14 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		httperr.WriteValidation(w, r, errNoSelection.Error(), httperr.FieldError{Pointer: "/paths", Detail: errNoSelection.Error()})
 		return
 	}
+	// Mirrors decodeSelection's cap for the JSON-body picture-selection
+	// endpoints (inventory, raw-tags, removals): applyPicture reads its
+	// paths[] from a multipart form instead, so it needs its own count guard
+	// to keep the bound from drifting between the two decoding paths.
+	if len(paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
+		return
+	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -459,7 +467,7 @@ func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al
 // answers {ok:true} — removing a file that is not there, or a picture a
 // track never had, is a no-op, not an error.
 func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(r)
+	lib, sel, status, err := h.decodeSelection(w, r)
 	if err != nil {
 		writeSelectionErr(w, r, status, err)
 		return

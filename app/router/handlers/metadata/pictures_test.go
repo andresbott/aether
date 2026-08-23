@@ -293,6 +293,50 @@ func TestInventory_FolderSlotMixedOnlyWhenContentsDiffer(t *testing.T) {
 	}
 }
 
+// TestInventory_FolderArtInLaterDiscDirServesCorrectBytes closes a coverage
+// gap left by TestInventory_FolderSlotSpansSelectionDirectories above: a
+// multi-disc album's folder art does not have to live in the first disc
+// directory paths[] spans. CD 1 here carries no cover at all — only CD 2
+// does — so folderPictureAcross (albumart.go) must pick the first directory
+// that actually HAS the picture, not literally dirs[0], and the matrix's
+// returned Source must address CD 2's file. Confirmed end to end: POST
+// inventory, take the folder cell's returned image URL, GET it, and check it
+// serves CD 2's bytes rather than 404ing or serving nothing.
+func TestInventory_FolderArtInLaterDiscDirServesCorrectBytes(t *testing.T) {
+	root := t.TempDir()
+	_, two := mkDiscDirs(t, root) // CD 1 deliberately has no cover file.
+	cd2Cover := []byte("CD2-COVER-BYTES")
+	if err := os.WriteFile(filepath.Join(two, "cover.png"), cd2Cover, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+
+	body := fetchPictures(t, r, lib.ID, []string{"album/CD 1/01.flac", "album/CD 2/01.flac"})
+	sl, ok := findSlot(body, "Front Cover", "folder")
+	if !ok {
+		t.Fatalf("front cover folder slot not reported: %+v", body.Pictures)
+	}
+	if sl.Detail != "cover.png" {
+		t.Errorf("detail = %q, want cover.png", sl.Detail)
+	}
+	if !sl.Mixed {
+		t.Error("expected mixed=true: CD 1 lacks the art CD 2 has")
+	}
+	if sl.Image.URL == "" {
+		t.Fatal("slot.image.url must not be empty")
+	}
+
+	resp, got := fetchPicture(t, srv.URL+sl.Image.URL)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: status %d", sl.Image.URL, resp.StatusCode)
+	}
+	if !bytes.Equal(got, cd2Cover) {
+		t.Fatalf("image URL served wrong bytes: %q, want CD 2's cover %q", got, cd2Cover)
+	}
+}
+
 // TestInventory_EmptyFolderReturnsNoPictures confirms an album whose
 // selection resolves to an empty folder (nothing embedded, nothing in the
 // folder) reports no pictures. A bare directory entry in paths[] seeds a
@@ -592,6 +636,32 @@ func TestApplyPicture_MissingSlotIs400(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "slot is required") {
 		t.Fatalf("omitted slot error message: %s", w.Body.String())
+	}
+}
+
+// TestApplyPicture_RejectsTooManyPaths confirms applyPicture enforces the
+// same maxSelectionPaths cap as decodeSelection's JSON-body endpoints
+// (TestInventory_RejectsTooManyPaths): applyPicture reads paths[] from a
+// multipart form rather than decodeSelection, so it needs its own count
+// guard. 51 paths[] fields is well-formed but invalid input, so it answers
+// 422, not 400.
+func TestApplyPicture_RejectsTooManyPaths(t *testing.T) {
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
+	paths := make([]string, 51)
+	for i := range paths {
+		paths[i] = "album/" + strconv.Itoa(i) + ".flac"
+	}
+	body, ct := buildPictureForm(t, lib.ID, "folder", "", paths, "art.png", pngBytes)
+	w := postPicture(t, r, body, ct)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for 51 paths, got %d: %s", w.Code, w.Body.String())
+	}
+	var problem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", problem.Errors)
 	}
 }
 
@@ -1291,6 +1361,38 @@ func TestInventory_MalformedJSON400(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestInventory_OversizedBodyIsRejected confirms decodeSelection wraps the
+// request body in http.MaxBytesReader(maxSelectionBodyBytes) before
+// decoding: a body over the cap must never reach a complete json.Decode, so
+// it fails with the standard "request body too large" I/O error partway
+// through — which the existing malformed-JSON branch already turns into a
+// 400, exactly like any other unparseable body (TestInventory_MalformedJSON400
+// above).
+func TestInventory_OversizedBodyIsRejected(t *testing.T) {
+	_, r, lib := newPictureHandler(t, t.TempDir(), nil)
+	// A well-formed selection plus enough padding in an ignored field to push
+	// the encoded body past the 1 MiB cap; decodeSelection must reject it
+	// before paths[] is ever inspected, let alone resolved.
+	payload, err := json.Marshal(map[string]any{
+		"library_id": lib.ID,
+		"paths":      []string{"album/01.flac"},
+		"padding":    strings.Repeat("x", 2<<20), // 2 MiB, well over the 1 MiB cap
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/metadata/pictures/inventory", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for an over-cap body, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "too large") {
+		t.Fatalf("expected a body-too-large message, got: %s", w.Body.String())
 	}
 }
 

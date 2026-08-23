@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: Bad hardcoded-API-base fixture
+  version: 0.1.0
+  description: >
+    Negative fixture for the `no-hardcoded-api-base` Spectral rule (see
+    ../../../.spectral.yaml). This document MUST fail
+    `spectral lint -r .spectral.yaml` — it exists to prove the rule fires,
+    not to describe a real endpoint. Kept under `testdata/` so the normal
+    `make spec-lint` gate (which lints only `docs/openapi/aether-v1.yaml`)
+    never touches it.
+servers:
+  - url: /api/v1
+paths:
+  /api/v1/foo:
+    get:
+      operationId: getFoo
+      summary: A paths key that hard-codes the /api base — the violation under test.
+      description: >
+        The mount prefix already lives in `servers:` above; baking it into a
+        `paths:` key as well ties the document to today's mount point, so a
+        handler remounted under a different prefix (e.g. the /admin reorg
+        under consideration) would need every paths key rewritten.
+        `no-hardcoded-api-base` must reject this.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]

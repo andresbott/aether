@@ -16,6 +16,16 @@ import "errors"
 // cannot drift between them.
 const maxSelectionPaths = 50
 
+// maxSelectionBodyBytes caps the size of a picture-selection POST body
+// (inventory, raw-tags, removals — decoded via decodeSelection), applied via
+// http.MaxBytesReader before json.Decode ever runs: defense in depth against
+// a pathologically large body, independent of the maxSelectionPaths count
+// check above (a request could try to inflate its body some other way, e.g.
+// absurdly long relpaths). A selection of at most maxSelectionPaths short
+// relpaths is a few KB, so 1 MiB only rejects abuse, never a legitimate
+// selection.
+const maxSelectionBodyBytes = 1 << 20 // 1 MiB
+
 // errTooManyPaths is returned when a request's paths[] exceeds
 // maxSelectionPaths.
 var errTooManyPaths = errors.New("too many paths in one request")
