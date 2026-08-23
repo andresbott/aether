@@ -268,6 +268,8 @@ func recordArtistProbes(probes map[uint]*artistImageProbe, trackPath string, art
 func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistImageProbe) {
 	for id, p := range probes {
 		img := ""
+		// First directory that yields an image wins (deterministic, first-seen
+		// order) — the old per-track code instead let the last-processed track win.
 		for _, dir := range p.dirs {
 			if got := artistimage.Detect(libRoot, dir, p.name); got != "" {
 				img = got

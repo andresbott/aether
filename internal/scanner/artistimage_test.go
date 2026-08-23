@@ -123,6 +123,51 @@ func TestScannerClearsStaleArtistImagePath(t *testing.T) {
 	}
 }
 
+// An artist-folder image already on record is KEPT, not cleared, when a later
+// run detects nothing but the recorded file still exists (another directory or
+// library layout supplied it). Here an incremental scan only re-processes a new
+// track that lives outside any artist folder, so this run's detection is empty
+// while the original artist.jpg is untouched on disk.
+func TestScannerKeepsUsableArtistImageWhenRunDetectsNothing(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Test Artist/Album One/01.mp3",
+		"Test Artist/artist.jpg",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var artist model.Artist
+	if err := st.DB().Where("name_norm = ?", "test artist").First(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "Test Artist/artist.jpg")
+	if artist.ImagePath != want {
+		t.Fatalf("setup: ImagePath = %q, want %q", artist.ImagePath, want)
+	}
+
+	// A new track for the same artist, outside any artist-named folder.
+	createTestFiles(t, dir, []string{"Loose Tracks/02.mp3"})
+
+	// Incremental scan: only the new flat-layout track is processed, so detection
+	// finds no artist folder this run — but the recorded artist.jpg still exists,
+	// so the path must be kept.
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB().First(&artist, artist.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if artist.ImagePath != want {
+		t.Fatalf("ImagePath = %q, want it kept as %q", artist.ImagePath, want)
+	}
+}
+
 // Asset re-key hook test: a manual artist cover stored while the artist was
 // unmatched must still resolve after the artist gains an MBID. The manual upload
 // must also continue to outrank an auto-fetched image.
