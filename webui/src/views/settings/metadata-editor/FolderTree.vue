@@ -6,7 +6,7 @@ import type { TreeNode } from 'primevue/treenode'
 import { listFolders } from '@/lib/api/Metadata'
 import { apiErrorMessage } from '@/lib/apiError'
 
-const props = defineProps<{ libraryId: number | null }>()
+const props = defineProps<{ libraryId: number | null; expandTo?: string | null }>()
 const emit = defineEmits<{
     (e: 'select', path: string): void
 }>()
@@ -39,6 +39,33 @@ async function loadChildren(parentPath: string): Promise<TreeNode[]> {
     )
 }
 
+// expandToPath opens the tree down to `target` (a full relative path), lazily
+// loading each level, so the folder picker can jump straight to the breadcrumb
+// segment the user clicked. Every ancestor and the target itself are expanded,
+// but nothing is selected: a pre-selected node would need two clicks to load
+// (PrimeVue single-select toggles the selected node off first), so we leave
+// selection to the user's click. If a segment no longer exists on disk it stops
+// at the deepest folder that does — expanding what it reached.
+async function expandToPath(target: string) {
+    if (!target || props.libraryId === null) return
+    const parts = target.split('/')
+    let level = nodes.value
+    let acc = ''
+    const nextExpanded: TreeExpandedKeys = {}
+    for (let i = 0; i < parts.length; i++) {
+        acc = acc ? `${acc}/${parts[i]}` : parts[i]
+        const node = level.find((n) => n.data.path === acc)
+        if (!node) break
+        if (node.leaf) break
+        if (!node.children || node.children.length === 0) {
+            node.children = await loadChildren(node.data.path)
+        }
+        nextExpanded[node.key as string] = true
+        level = node.children ?? []
+    }
+    expandedKeys.value = nextExpanded
+}
+
 async function resetTree() {
     nodes.value = []
     expandedKeys.value = {}
@@ -47,6 +74,7 @@ async function resetTree() {
     if (props.libraryId === null) return
     try {
         nodes.value = await loadChildren('')
+        if (props.expandTo) await expandToPath(props.expandTo)
     } catch (err: any) {
         loadError.value = apiErrorMessage(err)
     }
@@ -66,6 +94,15 @@ function onNodeSelect(node: TreeNode) {
 }
 
 watch(() => props.libraryId, resetTree, { immediate: true })
+
+// A new target while the tree is already mounted (the picker stays open and the
+// user picks another breadcrumb) re-walks without reloading the root.
+watch(
+    () => props.expandTo,
+    (target) => {
+        if (target) expandToPath(target).catch((err) => (loadError.value = apiErrorMessage(err)))
+    }
+)
 </script>
 
 <template>
@@ -91,7 +128,13 @@ watch(() => props.libraryId, resetTree, { immediate: true })
     border: 1px solid var(--app-border);
     border-radius: 6px;
     padding: 0.5rem;
+    /* Fill the picker's tree column and scroll internally, so a big folder list
+       stays inside the dialog instead of stretching it past the viewport. The
+       min-height is the floor when the column is unbounded (phone: stacked). */
+    height: 100%;
     min-height: 300px;
+    overflow: auto;
+    box-sizing: border-box;
     background: var(--app-surface);
 }
 .error-banner {
