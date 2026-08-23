@@ -76,6 +76,7 @@ const stubs = {
         template:
             '<button :data-test="$attrs[\'data-test\']" :aria-label="$attrs[\'aria-label\']" @click="$emit(\'click\')">{{ label }}</button>'
     },
+    InputText: { name: 'InputText', props: ['modelValue'], template: '<input />' },
     FolderTree: {
         name: 'FolderTree',
         props: ['libraryId', 'expandTo'],

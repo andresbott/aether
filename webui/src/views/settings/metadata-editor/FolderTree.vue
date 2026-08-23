@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Tree from 'primevue/tree'
 import type { TreeExpandedKeys } from 'primevue/tree'
 import type { TreeNode } from 'primevue/treenode'
-import { listFolders } from '@/lib/api/Metadata'
+import { listFolders, searchFolders } from '@/lib/api/Metadata'
 import { apiErrorMessage } from '@/lib/apiError'
+import { buildFilteredFolderTree } from './folderFilter'
 
-const props = defineProps<{ libraryId: number | null; expandTo?: string | null }>()
+const props = defineProps<{
+    libraryId: number | null
+    expandTo?: string | null
+    // A non-blank filter switches the tree to server-side search mode.
+    filter?: string | null
+}>()
 const emit = defineEmits<{
     (e: 'select', path: string): void
 }>()
@@ -15,6 +21,54 @@ const nodes = ref<TreeNode[]>([])
 const expandedKeys = ref<TreeExpandedKeys>({})
 const selectionKeys = ref<Record<string, boolean>>({})
 const loadError = ref<string | null>(null)
+
+// ----- Filter (search) mode -----
+// A non-blank `filter` switches from lazy per-level browsing to a flat
+// server-side search: searchFolders returns every folder whose name matches, and
+// buildFilteredFolderTree turns those paths into a tree of just the matching
+// branches, fully expanded, so a deep folder is reachable without expanding to
+// it. Clearing the filter falls straight back to the lazy `nodes`.
+const filterQuery = computed(() => (props.filter ?? '').trim())
+const filtering = computed(() => filterQuery.value !== '' && props.libraryId !== null)
+const filteredNodes = ref<TreeNode[]>([])
+const filteredExpandedKeys = ref<TreeExpandedKeys>({})
+const searching = ref(false)
+const searchTruncated = ref(false)
+
+const displayNodes = computed(() => (filtering.value ? filteredNodes.value : nodes.value))
+const displayExpandedKeys = computed(() =>
+    filtering.value ? filteredExpandedKeys.value : expandedKeys.value
+)
+
+async function runSearch() {
+    if (!filtering.value) {
+        filteredNodes.value = []
+        filteredExpandedKeys.value = {}
+        searchTruncated.value = false
+        return
+    }
+    searching.value = true
+    loadError.value = null
+    try {
+        const { folders, truncated } = await searchFolders(
+            props.libraryId as number,
+            filterQuery.value
+        )
+        const built = buildFilteredFolderTree(folders)
+        filteredNodes.value = built.nodes
+        filteredExpandedKeys.value = built.expandedKeys
+        searchTruncated.value = truncated
+    } catch (err: any) {
+        loadError.value = apiErrorMessage(err)
+        filteredNodes.value = []
+        filteredExpandedKeys.value = {}
+        searchTruncated.value = false
+    } finally {
+        searching.value = false
+    }
+}
+
+watch([filterQuery, () => props.libraryId], runSearch, { immediate: true })
 
 function makeNode(name: string, path: string, leaf: boolean): TreeNode {
     return {
@@ -108,18 +162,33 @@ watch(
 <template>
     <div class="folder-tree">
         <div v-if="loadError" class="error-banner">{{ loadError }}</div>
+        <div v-if="filtering && searchTruncated && !loadError" class="truncated-hint">
+            Showing the first matches — refine your search to narrow it down.
+        </div>
         <Tree
-            :value="nodes"
-            :expandedKeys="expandedKeys"
+            :value="displayNodes"
+            :expandedKeys="displayExpandedKeys"
             selectionMode="single"
             v-model:selectionKeys="selectionKeys"
             @node-expand="onNodeExpand"
             @node-select="onNodeSelect"
         />
-        <div v-if="!loadError && nodes.length === 0 && libraryId !== null" class="empty">
+        <div v-if="libraryId === null" class="empty">Pick a library above.</div>
+        <div
+            v-else-if="filtering && searching && filteredNodes.length === 0"
+            class="empty"
+        >
+            Searching…
+        </div>
+        <div
+            v-else-if="filtering && !searching && filteredNodes.length === 0 && !loadError"
+            class="empty"
+        >
+            No folders match “{{ filterQuery }}”.
+        </div>
+        <div v-else-if="!filtering && !loadError && nodes.length === 0" class="empty">
             Loading…
         </div>
-        <div v-if="libraryId === null" class="empty">Pick a library above.</div>
     </div>
 </template>
 
@@ -149,5 +218,12 @@ watch(
     padding: 1rem;
     color: var(--app-text-secondary);
     font-size: 0.9rem;
+}
+.truncated-hint {
+    padding: 0.4rem 0.5rem;
+    margin-bottom: 0.5rem;
+    color: var(--app-text-secondary);
+    font-size: 0.8rem;
+    font-style: italic;
 }
 </style>

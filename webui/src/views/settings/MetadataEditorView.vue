@@ -4,6 +4,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
 import Listbox from 'primevue/listbox'
+import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Splitter from 'primevue/splitter'
@@ -31,6 +32,28 @@ const dialogVisible = ref(false)
 // breadcrumb segment); null opens at the library root. Cleared when the picker
 // closes so re-picking the same segment re-triggers the expand.
 const pendingExpandPath = ref<string | null>(null)
+
+// Folder search: `folderSearch` is the raw text field; `folderFilter` is the
+// debounced value handed to FolderTree, which switches to a server-side name
+// search when it is non-blank. Debounced so a fast typist does not trigger a
+// folder walk per keystroke; clearing is applied at once (nothing to wait for).
+const folderSearch = ref('')
+const folderFilter = ref('')
+let folderSearchTimer: ReturnType<typeof setTimeout> | undefined
+watch(folderSearch, (v) => {
+    if (folderSearchTimer) clearTimeout(folderSearchTimer)
+    if (v.trim() === '') {
+        folderFilter.value = ''
+        return
+    }
+    folderSearchTimer = setTimeout(() => (folderFilter.value = v), 400)
+})
+function clearFolderSearch() {
+    if (folderSearchTimer) clearTimeout(folderSearchTimer)
+    folderSearch.value = ''
+    folderFilter.value = ''
+}
+
 const confirm = useConfirm()
 
 const { tier } = useViewport()
@@ -116,8 +139,10 @@ function guardUnsaved(action: () => void) {
 
 function onLibraryChange(val: number | null) {
     guardUnsaved(() => {
-        // A different library invalidates any pending expand target.
+        // A different library invalidates any pending expand target and any
+        // active folder filter (its matches were scoped to the old library).
         pendingExpandPath.value = null
+        clearFolderSearch()
         selectedLibraryId.value = val
         selectedPath.value = null
         selection.value = []
@@ -143,7 +168,10 @@ function openFolderPicker(expandTo: string | null) {
 // Forget the target once the picker closes, so clicking the same segment again
 // is a real change FolderTree's watcher acts on.
 watch(dialogVisible, (open) => {
-    if (!open) pendingExpandPath.value = null
+    if (!open) {
+        pendingExpandPath.value = null
+        clearFolderSearch()
+    }
 })
 
 // Reload re-reads the folder AND forgets the cached identify answers: reloading
@@ -358,11 +386,24 @@ function onAlbumReidentify() {
                     />
                 </div>
                 <div class="tree-column">
-                    <FolderTree
-                        :libraryId="selectedLibraryId"
-                        :expandTo="pendingExpandPath"
-                        @select="onFolderSelect"
-                    />
+                    <div class="tree-search">
+                        <label class="tree-search-label" for="folder-filter">Search folders</label>
+                        <InputText
+                            id="folder-filter"
+                            v-model="folderSearch"
+                            placeholder="Filter folders by name"
+                            class="tree-search-input"
+                            :disabled="selectedLibraryId === null"
+                        />
+                    </div>
+                    <div class="tree-body">
+                        <FolderTree
+                            :libraryId="selectedLibraryId"
+                            :filter="folderFilter"
+                            :expandTo="pendingExpandPath"
+                            @select="onFolderSelect"
+                        />
+                    </div>
                 </div>
             </div>
         </Dialog>
@@ -525,6 +566,31 @@ function onAlbumReidentify() {
 .tree-column {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* The search sits at the top of the tree column, level with the Library label
+   in the left column. */
+.tree-search {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.tree-search-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.tree-search-input {
+    width: 100%;
+}
+
+.tree-body {
+    flex: 1;
+    min-height: 0;
 }
 
 @media (max-width: 767.98px) {

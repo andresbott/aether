@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -211,10 +212,33 @@ type folderDTO struct {
 	HasSubfolders bool   `json:"has_subfolders"`
 }
 
+// maxFolderSearchResults bounds a folder search so a one-letter query on a huge
+// library returns a manageable response; the UI shows a "refine your search"
+// hint when the result is truncated.
+const maxFolderSearchResults = 500
+
 func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
 		writeErr(w, status, codeFor(status), err.Error())
+		return
+	}
+	// A `q` turns the endpoint into a filter: instead of one directory level it
+	// walks the whole subtree under `abs` (the library root when no path is
+	// given) and returns every folder whose name matches, so the picker can find
+	// a deep folder without the user expanding to it first.
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		matches, truncated, err := metadataedit.SearchFolders(
+			abs, q, metadataedit.ListFoldersOptions{}, maxFolderSearchResults)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+			return
+		}
+		out := make([]folderDTO, 0, len(matches))
+		for _, f := range matches {
+			out = append(out, folderDTO{Name: f.Name, Path: f.Path, HasSubfolders: f.HasSubfolders})
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"folders": out, "truncated": truncated})
 		return
 	}
 	// No symlinks here, unlike the library path picker: this tree is confined to

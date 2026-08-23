@@ -8,6 +8,15 @@ export interface ListFoldersResponse {
     folders: Folder[]
 }
 
+// SearchFoldersResponse is the folder endpoint's shape when a `q` query is
+// given: every folder (at any depth) whose name matches, each carrying its full
+// library-relative path. `truncated` is true when the match set hit the server's
+// cap and more folders would match.
+export interface SearchFoldersResponse {
+    folders: Folder[]
+    truncated: boolean
+}
+
 export interface Track {
     path: string
     name: string
