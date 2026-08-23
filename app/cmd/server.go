@@ -16,6 +16,7 @@ import (
 	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router"
 	"github.com/andresbott/aether/app/router/handlers"
+	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -282,7 +283,7 @@ func runServer(configFile string) error {
 // buildArtistFetcher assembles the artist-image fetcher from whatever provider
 // API keys are set. If none are configured it returns nil and the task reports
 // a clear "not configured" message when run (the task is always registered).
-func buildArtistFetcher(cfg ArtistImagesCfg) tasks.Fetcher {
+func buildArtistFetcher(cfg ArtistImagesCfg) artistsHandler.Fetcher {
 	var providers []artistimage.Provider
 	if cfg.FanartApiKey != "" {
 		providers = append(providers, artistimage.NewFanartTV(cfg.FanartApiKey))

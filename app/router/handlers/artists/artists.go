@@ -30,10 +30,19 @@ type Searcher interface {
 	ReleaseGroupGenres(ctx context.Context, mbid string) ([]string, error)
 }
 
+// Fetcher lists and downloads artist images. Satisfied by *artistimage.Chain.
+// Fetch is the one-shot auto-pick used by setMBID; List/Download drive the
+// manual gallery. nil when no image-provider API key is configured.
+type Fetcher interface {
+	Fetch(ctx context.Context, mbid string) ([]byte, string, error)
+	List(ctx context.Context, mbid string) ([]artistimage.ImageCandidate, error)
+	Download(ctx context.Context, providerName, url string) ([]byte, string, error)
+}
+
 type Handler struct {
 	Store   *store.Store
 	Assets  *assetstore.Store
-	Fetcher tasks.Fetcher // nil when no image-provider API key is configured
+	Fetcher Fetcher // nil when no image-provider API key is configured
 	Search  Searcher
 }
 
@@ -44,11 +53,12 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
 	r.Path("/artists/{id:[0-9]+}/image-source").Methods(http.MethodGet).HandlerFunc(h.getImageSource)
-	// Manual online image search: preview by MBID (no artist context needed),
-	// then store the pick for a specific artist. Registered before the {id}
-	// route above would shadow it — "image-preview" is not a numeric id, so the
-	// {id:[0-9]+} pattern already excludes it.
-	r.Path("/artists/image-preview").Methods(http.MethodGet).HandlerFunc(h.previewImage)
+	// Manual online image search: list every candidate portrait for a
+	// MusicBrainz artist (no artist context needed), then store a chosen URL
+	// for a specific artist. Registered before the {id} route above would
+	// shadow it — "image-candidates" is not a numeric id, so the {id:[0-9]+}
+	// pattern already excludes it.
+	r.Path("/artists/image-candidates").Methods(http.MethodGet).HandlerFunc(h.imageCandidates)
 	r.Path("/artists/{id:[0-9]+}/image-from-search").Methods(http.MethodPut).HandlerFunc(h.setImageFromSearch)
 }
 
@@ -254,60 +264,41 @@ func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 
 var mbidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// fetchImageForMBID runs the configured provider chain for an arbitrary MBID —
-// the same fetch the `fetch-artist-images` job uses, but driven by the user's own
-// MusicBrainz pick instead of the artist's stored match. It writes the error
-// response itself and returns ok=false on failure.
-func (h *Handler) fetchImageForMBID(w http.ResponseWriter, r *http.Request, mbid string) (data []byte, ext string, ok bool) {
+type imageCandidate struct {
+	URL      string `json:"url"`
+	ThumbURL string `json:"thumbUrl"`
+	Provider string `json:"provider"`
+}
+
+// imageCandidates lists the portrait images the providers hold for a MusicBrainz
+// artist. It returns URLs only — the browser loads the thumbnails straight from
+// the provider CDNs, so this spends no image bandwidth here.
+func (h *Handler) imageCandidates(w http.ResponseWriter, r *http.Request) {
+	mbid := r.URL.Query().Get("mbid")
 	if !mbidRe.MatchString(mbid) {
 		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
-		return nil, "", false
+		return
 	}
 	if h.Fetcher == nil {
 		writeError(w, http.StatusServiceUnavailable, "not_configured",
 			"Artist image fetching is not configured. Add an image-provider API key to use it.")
-		return nil, "", false
+		return
 	}
-	data, ext, err := h.Fetcher.Fetch(r.Context(), mbid)
+	cands, err := h.Fetcher.List(r.Context(), mbid)
 	if err != nil {
 		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
-		return nil, "", false
-	}
-	if len(data) == 0 {
-		writeError(w, http.StatusNotFound, "not_found", "No image found for this artist.")
-		return nil, "", false
-	}
-	return data, ext, true
-}
-
-// previewImage streams the provider image for a MusicBrainz artist so the user
-// can see what they are about to save. Nothing is stored; the pick is committed
-// separately via setImageFromSearch.
-func (h *Handler) previewImage(w http.ResponseWriter, r *http.Request) {
-	// The provider's extension only matters when storing; here the sniffed type
-	// governs what the browser is told.
-	data, _, ok := h.fetchImageForMBID(w, r, r.URL.Query().Get("mbid"))
-	if !ok {
 		return
 	}
-	// Sniff the bytes rather than trusting the provider's extension, and refuse
-	// anything that is not an image: these bytes come from a third-party API and
-	// are echoed straight back to the browser.
-	contentType := http.DetectContentType(data)
-	if !strings.HasPrefix(contentType, "image/") {
-		writeError(w, http.StatusBadGateway, "upstream_error",
-			"The image provider returned something that is not an image.")
-		return
+	out := make([]imageCandidate, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, imageCandidate{URL: c.FullURL, ThumbURL: c.ThumbURL, Provider: c.Provider})
 	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	// A preview is a transient view of an upstream image, not aether state.
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(data) //nolint:gosec // G705: sniffed image bytes served with a non-HTML content type + nosniff
+	writeJSON(w, http.StatusOK, out)
 }
 
 type imageFromSearchRequest struct {
 	MBID string `json:"mbid"`
+	URL  string `json:"url"`
 }
 
 // setImageFromSearch stores the image of a user-chosen MusicBrainz artist for
@@ -331,14 +322,46 @@ func (h *Handler) setImageFromSearch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
+	if !mbidRe.MatchString(in.MBID) {
+		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		return
+	}
+	if h.Fetcher == nil {
+		writeError(w, http.StatusServiceUnavailable, "not_configured",
+			"Artist image fetching is not configured. Add an image-provider API key to use it.")
+		return
+	}
 	artist, _, err := h.Store.GetArtist(id)
 	if err != nil {
 		status, code := mapStoreError(err)
 		writeError(w, status, code, err.Error())
 		return
 	}
-	data, ext, ok := h.fetchImageForMBID(w, r, in.MBID)
-	if !ok {
+	// SSRF guard: re-list and only download a URL the provider itself just
+	// offered for this MBID — never an arbitrary URL from the client.
+	cands, err := h.Fetcher.List(r.Context(), in.MBID)
+	if err != nil {
+		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		return
+	}
+	var chosen *artistimage.ImageCandidate
+	for i := range cands {
+		if cands[i].FullURL == in.URL {
+			chosen = &cands[i]
+			break
+		}
+	}
+	if chosen == nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "url is not among the candidates for this artist")
+		return
+	}
+	data, ext, err := h.Fetcher.Download(r.Context(), chosen.Provider, chosen.FullURL)
+	if err != nil {
+		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		return
+	}
+	if len(data) == 0 {
+		writeError(w, http.StatusNotFound, "not_found", "No image found for this artist.")
 		return
 	}
 	if err := h.Assets.PutManual(assetstore.KindArtist, assetkey.ArtistOf(artist), ext, data); err != nil {
