@@ -140,6 +140,18 @@ func TestChainFetchDownloadsFirstCandidate(t *testing.T) {
 	}
 }
 
+// If the first candidate's image download fails — even though its provider
+// listed successfully — Fetch must fall through to the next candidate,
+// possibly from a different provider, instead of giving up for the run.
+func TestChainFetchFallsThroughOnDownloadError(t *testing.T) {
+	a := stubProvider{name: "A", cands: []ImageCandidate{{FullURL: "a", Provider: "A"}}, downloadErr: errors.New("download failed")}
+	b := stubProvider{name: "B", cands: []ImageCandidate{{FullURL: "b", Provider: "B"}}, data: []byte("B"), ext: "jpg"}
+	data, ext, err := NewChain(a, b).Fetch(context.Background(), "m")
+	if err != nil || string(data) != "B" || ext != "jpg" {
+		t.Fatalf("fetch: data=%q ext=%q err=%v", data, ext, err)
+	}
+}
+
 func TestDownloadNon200(t *testing.T) {
 	mux := http.NewServeMux()
 	var base string
@@ -254,11 +266,12 @@ func TestProviderDownload(t *testing.T) {
 }
 
 type stubProvider struct {
-	name  string
-	cands []ImageCandidate
-	data  []byte
-	ext   string
-	err   error
+	name        string
+	cands       []ImageCandidate
+	data        []byte
+	ext         string
+	err         error
+	downloadErr error
 }
 
 func (s stubProvider) Name() string {
@@ -271,5 +284,5 @@ func (s stubProvider) List(_ context.Context, _ string) ([]ImageCandidate, error
 	return s.cands, s.err
 }
 func (s stubProvider) Download(_ context.Context, _ string) ([]byte, string, error) {
-	return s.data, s.ext, nil
+	return s.data, s.ext, s.downloadErr
 }

@@ -772,6 +772,12 @@ func TestImageFromSearch_RejectsURLNotInCandidateSet(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for a URL outside the listed set, got %d: %s", w.Code, w.Body.String())
 	}
+	// fakeFetcher.calls is only incremented by Fetch/Download, not List, so this
+	// proves the rejected URL was never downloaded — not just that the request
+	// was rejected for some other, structurally-similar reason.
+	if f.calls != 0 {
+		t.Errorf("expected no download attempt for a URL outside the listed set, got %d calls", f.calls)
+	}
 }
 
 // Saving stores the image as a *manual* upload, so it outranks whatever the

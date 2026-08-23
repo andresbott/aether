@@ -66,17 +66,27 @@ func (c *Chain) Download(ctx context.Context, providerName, url string) ([]byte,
 }
 
 // Fetch keeps the one-shot contract the auto-fetch job and setMBID rely on:
-// list candidates, download the first. fanart.tv lists first, so the first
-// candidate is still its top thumb.
+// list candidates and download the first that succeeds, falling through to
+// the next candidate — possibly from a different provider — when a download
+// fails or comes back empty. fanart.tv lists first, so its top thumb is still
+// tried first.
 func (c *Chain) Fetch(ctx context.Context, mbid string) ([]byte, string, error) {
 	cands, err := c.List(ctx, mbid)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(cands) == 0 {
-		return nil, "", nil
+	var lastErr error
+	for _, cand := range cands {
+		data, ext, derr := c.Download(ctx, cand.Provider, cand.FullURL)
+		if derr != nil {
+			lastErr = derr // this candidate's image download failed; try the next
+			continue
+		}
+		if len(data) > 0 {
+			return data, ext, nil
+		}
 	}
-	return c.Download(ctx, cands[0].Provider, cands[0].FullURL)
+	return nil, "", lastErr // nil when there were no candidates at all
 }
 
 // extFromURL derives a normalized image extension from a URL, defaulting to jpg.
