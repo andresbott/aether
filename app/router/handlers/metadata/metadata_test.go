@@ -95,6 +95,42 @@ func TestFolders_UnknownLibrary404(t *testing.T) {
 	}
 }
 
+func TestFolders_SearchByQueryFindsDeepMatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "Alexia dixon", "fire up"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "Other", "thing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newTestHandler(t, root)
+	// A search query returns matching folders from anywhere in the library, not
+	// just the immediate children the plain listing would return.
+	url := "/metadata/folders?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&q=up"
+	req := httptest.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Folders []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"folders"`
+		Truncated bool `json:"truncated"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Folders) != 1 || body.Folders[0].Path != "Alexia dixon/fire up" {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+	if body.Truncated {
+		t.Fatalf("did not expect truncation for one match")
+	}
+}
+
 type stubTagReader struct{}
 
 func (stubTagReader) CanRead(p string) bool {

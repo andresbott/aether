@@ -107,6 +107,11 @@ watch(albumId, () => {
 // embedded op staged for another track in this folder must not surface here).
 const visibleTypes = computed(() => {
     const present = new Set<string>()
+    // The front cover always has a visible slot, set or not, so there is always
+    // an obvious place to add one without going through "Add picture…" first.
+    // It drops out of the "Add picture…" menu for free (addableTypes excludes
+    // anything already visible). Every other type is added on demand.
+    present.add('Front Cover')
     for (const p of serverPictures.value) present.add(p.type)
     const entry = albumId.value !== null ? props.session.getPictureOps(albumId.value) : undefined
     if (entry) {
@@ -421,10 +426,6 @@ function undoCell(type: string, slot: PictureSlot) {
                     </template>
                 </div>
             </div>
-
-            <div v-if="visibleTypes.length === 0" class="no-pictures" data-test="no-pictures">
-                No attached pictures. Use “Add picture…” to add one.
-            </div>
         </template>
         <small v-else class="mixed-note" data-test="pictures-multi-album">
             Select tracks from a single album to manage its pictures.
@@ -579,10 +580,6 @@ function undoCell(type: string, slot: PictureSlot) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-.no-pictures {
-    font-size: 0.8rem;
-    color: var(--app-text-secondary);
 }
 .mixed-note {
     font-size: 0.75rem;

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/andresbott/aether/internal/fsx"
 	"go.senan.xyz/taglib"
 )
 
@@ -106,7 +107,7 @@ func WriteFolderPicture(dir, base, ext string, data []byte) (string, error) {
 	}
 	final := filepath.Join(dir, base+"."+ext)
 
-	tmp, err := os.CreateTemp(dir, base+"-*.tmp")
+	tmp, err := fsx.CreateTemp(dir, base+"-*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("write folder picture: temp: %w", err)
 	}

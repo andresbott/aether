@@ -14,6 +14,7 @@ import type {
     PictureSlot,
     PicturesResponse,
     RawTagsResponse,
+    SearchFoldersResponse,
     UpdateTracksRequest,
     UpdateTracksResponse
 } from '@/types/metadata'
@@ -23,6 +24,20 @@ export async function listFolders(libraryId: number, path: string) {
         params: { library_id: libraryId, path }
     })
     return data.folders
+}
+
+// searchFolders filters the library's folders by name: it returns every folder
+// (at any depth) whose name contains query, so the picker can jump straight to a
+// deep folder without the user expanding to it first. truncated is true when the
+// match set hit the server's cap.
+export async function searchFolders(
+    libraryId: number,
+    query: string
+): Promise<SearchFoldersResponse> {
+    const { data } = await apiClient.get<SearchFoldersResponse>('/metadata/folders', {
+        params: { library_id: libraryId, q: query }
+    })
+    return { folders: data.folders ?? [], truncated: data.truncated ?? false }
 }
 
 export async function listTracks(libraryId: number, path: string) {

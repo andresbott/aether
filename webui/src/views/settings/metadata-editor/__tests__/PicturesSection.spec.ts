@@ -529,9 +529,23 @@ describe('PicturesSection', () => {
         })
     })
 
-    it('shows the empty note when nothing is present or staged', async () => {
+    it('always renders the Front cover block as a placeholder when nothing is present or staged', async () => {
         const { wrapper } = mountSection([mkTrack()])
         await flushPromises()
-        expect(wrapper.find('[data-test="no-pictures"]').exists()).toBe(true)
+        const front = wrapper.find('[data-test="picture-type-Front Cover"]')
+        expect(front.exists()).toBe(true)
+        // Empty placeholder: both slots offer an add button and show no thumbnail.
+        expect(front.find('[data-test="picture-change-Front Cover-embedded"]').exists()).toBe(true)
+        expect(front.find('[data-test="picture-change-Front Cover-folder"]').exists()).toBe(true)
+        expect(front.find('img.cell-thumb').exists()).toBe(false)
+    })
+
+    it('never offers Front cover in the Add picture menu, since it is always shown', async () => {
+        const { wrapper } = mountSection([mkTrack()])
+        await flushPromises()
+        const labels = wrapper.findAll('.add-menu-item').map((i) => i.text())
+        expect(labels).not.toContain('Front cover')
+        // The rest of the types are still offered.
+        expect(labels).toContain('Back cover')
     })
 })

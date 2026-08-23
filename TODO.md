@@ -117,16 +117,22 @@ Notes for editors:
 - [x] Fast library switch from the top path bar
   Make the path shown at the top (beside 'choose folder') a fast way to load libraries.
 - [x] Make it easier / faster to load a folder
-- [ ] Check if we can add comments to metadata as part of the standard
-  e.g. the unreleased Alesha Dixon "Fool 4 U I Love".
-- [ ] Stage only a subset of identify changes
+- [x] Check if we can add comments to metadata as part of the standard
+  e.g. the unreleased Alesha Dixon "Fool 4 U I Love". Investigated 2026-08-23: COMMENT is a standard, ubiquitous tag (ID3 `COMM`, Vorbis `COMMENT`, MP4 `©cmt`), so it can be added — but it is not a trivial promotion like Lyrics/Release type, because our tag library flattens comments. Split out into the "Support track comments" backlog item, which captures the limitation.
+- [ ] Explore exposing Lyrics as an editable field
+  Already read and stored (`tags.Metadata.Lyrics` → `track.Lyrics`, `scanner/reconcile.go:200`) but the editor can't set it, so a mis-tagged lyric is unfixable in-app. Only the write side is missing: `metadataedit.Track`/`Patch`/`BuildTagMap` (`taglib.Lyrics`), `managedTagKeys`, and the frontend `Track`/`PatchFields`/`MANAGED_TAG_KEYS` + `EditPanel`.
+- [ ] Explore exposing Release type as an editable field
+  Same shape as lyrics: read and stored (`tags.Metadata.ReleaseType` → `album.ReleaseType`, `scanner/reconcile.go:128`) but not editable, so album/EP/single/compilation classification can't be corrected in the UI. `taglib.ReleaseType` (`RELEASETYPE`).
+- [ ] Explore sort keys as editable fields
+  MusicBrainz-style sort tags — ArtistSort/AlbumSort/TitleSort/AlbumArtistSort/ComposerSort (`TSOP`/`TSOA`/`TSOT`/`TSO2`/`TSOC`) — control browse ordering, which is aether's whole job. Bigger slice than the two above: not read today, so it needs scanner read + a store column *and* the editor field, not just the write side.
+- [x] Stage only a subset of identify changes
   When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only).
-- [ ] Library selector shouldn't be a dropdown
+- [x] Library selector shouldn't be a dropdown
   A dropdown takes too many clicks.
 - [ ] The folder selector dialog should be bigger and have a filter option
-- [ ] Easy navigation between album folders
+- [x] Easy navigation between album folders
   Once you've selected one artist's album, navigating to another album folder should be easy (use the nav bar on top).
-- [ ] Front cover always selectable in attached pictures
+- [x] Front cover always selectable in attached pictures
   Front cover should always be an option even if no picture is detected at all.
 - [ ] Generated cover files are not browsable by samba
 - [ ] Artist selection: look for more pictures
@@ -145,6 +151,7 @@ Notes for editors:
 - [ ] Align v1 API with OpenAPI spec
 - [ ] Download artist images into the artist folder
   Let the editor download an artist's image into the artist folder on disk, alongside the music — not only into Aether's asset store.
+- [ ] check resource use for if we have a lot of foldres
 
 # Future releases
 
@@ -223,6 +230,8 @@ Notes for editors:
 
 # Backlog — needs investigation
 
+- [ ] Support track comments
+  COMMENT is a standard, ubiquitous tag (ID3 `COMM`, Vorbis `COMMENT`, MP4 `©cmt`), so exposing it is feasible — but unlike the Lyrics/Release type items it is not a clean promotion, because our tag library flattens comments. `go-taglib` (a binding over TagLib) reads every tag through TagLib's "property map", which represents a comment as plain text under a single `COMMENT` key. That drops the comment's language sub-field and its description/label, and cannot distinguish the several distinctly-labelled comments a file may hold — apps stash private data in labelled comment frames (e.g. iTunes' `iTunNORM`). So a naive single "Comment" text box could show/edit the wrong comment, silently overwrite or erase that hidden app data, or collapse multiple comments into one on save. This is a limitation of TagLib's property-map abstraction (upstream, inherited by the fork), not the file format and not aether: the library offers no per-frame API, only the flat map plus a delete-only "unsupported frames" list, so a faithful comment editor would need a different or extended library. A safe minimal design is to only ever read/write the unlabelled "main" comment and leave labelled frames untouched — but that is a deliberate policy call. Investigated 2026-08-23.
 - [ ] Radio stations not saved in the play queue
   Radio stations aren't persisted in the play queue across sessions / devices. Investigated 2026-08-11, not fixed; needs a direction decision before any code.
   - [ ] Root cause: radio enters the queue as a synthetic non-`tr-` `Song`
