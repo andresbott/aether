@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import { useMusicBrainzSearch } from '@/composables/useMusicBrainzSearch'
-import { artistImagePreviewUrl } from '@/lib/api/Artists'
-import type { ArtistImagePick, MusicBrainzCandidate } from '@/types/artists'
+import { useArtistImageCandidates } from '@/composables/useArtistImageCandidates'
+import type { ArtistImagePick, ArtistImageCandidate, MusicBrainzCandidate } from '@/types/artists'
 
 const props = defineProps<{
     visible: boolean
@@ -23,23 +23,19 @@ const emit = defineEmits<{
 // image comes from the same provider chain, driven by the user's pick instead of
 // the artist's stored match.
 const { results, loading: searching, error: searchError, search } = useMusicBrainzSearch()
+// The candidate portraits for whichever MusicBrainz artist is picked below.
+const { candidates, loading: loadingImages, error: imagesError, load, reset } = useArtistImageCandidates()
 
 const query = ref('')
-const picked = ref<MusicBrainzCandidate | null>(null)
-// Set when the preview <img> fails: the providers hold no image for this
-// candidate, so there is nothing to pick.
-const previewFailed = ref(false)
-
-const previewUrl = computed(() =>
-    picked.value ? artistImagePreviewUrl(picked.value.mbid) : null
-)
-const canConfirm = computed(() => picked.value !== null && !previewFailed.value)
+const pickedArtist = ref<MusicBrainzCandidate | null>(null)
+const pickedImage = ref<ArtistImageCandidate | null>(null)
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 watch(query, () => {
-    // Editing the query invalidates the pick — the preview below it is stale.
-    picked.value = null
-    previewFailed.value = false
+    // Editing the query invalidates both picks — the grid below is stale.
+    pickedArtist.value = null
+    pickedImage.value = null
+    reset()
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => search(query.value), 400)
 })
@@ -49,28 +45,29 @@ watch(
     (visible) => {
         if (!visible) return
         query.value = props.artistName
-        picked.value = null
-        previewFailed.value = false
+        pickedArtist.value = null
+        pickedImage.value = null
+        reset()
         search(props.artistName)
     },
     { immediate: true }
 )
 
-function pick(c: MusicBrainzCandidate): void {
-    picked.value = c
-    previewFailed.value = false
+function pickArtist(c: MusicBrainzCandidate): void {
+    pickedArtist.value = c
+    pickedImage.value = null
+    void load(c.mbid)
+}
+
+function pickImage(c: ArtistImageCandidate): void {
+    pickedImage.value = c
 }
 
 function confirm(): void {
-    const c = picked.value
-    if (!c || previewFailed.value) return
-    emit('select', {
-        mbid: c.mbid,
-        name: c.name,
-        // The parent shows this as the staged cover preview, so it doesn't have
-        // to rebuild the URL.
-        previewUrl: artistImagePreviewUrl(c.mbid)
-    })
+    const a = pickedArtist.value
+    const img = pickedImage.value
+    if (!a || !img) return
+    emit('select', { mbid: a.mbid, name: a.name, url: img.url, previewUrl: img.thumbUrl })
     emit('update:visible', false)
 }
 
@@ -108,8 +105,8 @@ function lifeSpan(c: MusicBrainzCandidate): string {
                     v-for="c in results"
                     :key="c.mbid"
                     class="result-row"
-                    :class="{ selected: c.mbid === picked?.mbid }"
-                    @click="pick(c)"
+                    :class="{ selected: c.mbid === pickedArtist?.mbid }"
+                    @click="pickArtist(c)"
                 >
                     <div class="result-name">
                         {{ c.name }}
@@ -124,20 +121,26 @@ function lifeSpan(c: MusicBrainzCandidate): string {
             <p v-else class="no-results">No matches</p>
         </div>
 
-        <!-- The browser does the fetching: `src` hits the preview endpoint, which
-             runs the provider chain but stores nothing. A load error means the
-             providers have no image for this candidate. -->
-        <div v-if="previewUrl" class="image-preview">
-            <div class="preview-title">Image for this artist:</div>
-            <img
-                :src="previewUrl"
-                alt="Artist image preview"
-                @error="previewFailed = true"
-                @load="previewFailed = false"
-            />
-            <p v-if="previewFailed" class="preview-error">
-                No image available for this artist. Try another match.
-            </p>
+        <!-- The grid loads each thumbnail straight from the provider CDN — no
+             endpoint of ours is hit to preview it, only to list the URLs. -->
+        <div v-if="pickedArtist" class="image-section">
+            <div class="preview-title">Choose an image for this artist:</div>
+            <div v-if="loadingImages" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
+            <Message v-else-if="imagesError" severity="error" :closable="false">{{ imagesError }}</Message>
+            <div v-else-if="candidates.length > 0" class="image-grid">
+                <img
+                    v-for="c in candidates"
+                    :key="c.url"
+                    data-test="candidate-thumb"
+                    :src="c.thumbUrl"
+                    loading="lazy"
+                    alt="Artist image candidate"
+                    class="candidate"
+                    :class="{ selected: c.url === pickedImage?.url }"
+                    @click="pickImage(c)"
+                />
+            </div>
+            <p v-else class="no-results">No images available for this artist. Try another match.</p>
         </div>
 
         <template #footer>
@@ -147,7 +150,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
             <Button
                 label="Use this image"
                 data-test="image-search-save"
-                :disabled="!canConfirm"
+                :disabled="!pickedImage"
                 @click="confirm"
             />
         </template>
@@ -211,29 +214,36 @@ function lifeSpan(c: MusicBrainzCandidate): string {
     color: var(--app-text-secondary);
     padding: 1.5rem 0;
 }
-.image-preview {
+.image-section {
     border-top: 1px solid var(--app-border);
     padding-top: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.5rem;
 }
 .preview-title {
     align-self: flex-start;
     font-size: 0.8rem;
     font-weight: 600;
     color: var(--app-text-secondary);
+    margin-bottom: 0.5rem;
 }
-.image-preview img {
-    max-width: 200px;
-    max-height: 200px;
-    border-radius: var(--app-radius);
+.image-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.5rem;
+    max-height: 16rem;
+    overflow-y: auto;
+}
+.candidate {
+    width: 100%;
+    aspect-ratio: 1;
     object-fit: cover;
+    border-radius: var(--app-radius);
+    border: 2px solid transparent;
+    cursor: pointer;
 }
-.preview-error {
-    margin: 0;
-    color: #ef4444;
-    font-size: 0.85rem;
+.candidate:hover {
+    border-color: var(--app-border);
+}
+.candidate.selected {
+    border-color: var(--app-accent);
 }
 </style>
