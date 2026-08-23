@@ -49,7 +49,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Task runner, schedules, execution history + logs + cancel | Implemented | `handlers/tasks`, `internal/taskrunner` |
 | Artist image fetching | Implemented, key-gated | task `fetch-artist-images`, `internal/artistimage` (fanart.tv → TheAudioDB chain) |
 | Artist image from disk (`<collection>/<artist>/artist.jpg`) | Implemented | `scanner/artistimage.go` → `artist.ImagePath`, last fallback in `artistCoverMeta` ([scanning.md](scanning.md)) |
-| Manual artist image search (same providers, user-picked MusicBrainz match) | Implemented, key-gated | `ArtistImageSearchDialog`, `/artists/image-preview` + `/artists/{id}/image-from-search` ([scanning.md](scanning.md)) |
+| Manual artist image search (same providers, user-picked MusicBrainz match) | Implemented, key-gated | `ArtistImageSearchDialog` (grid picks one of several provider portraits), `/artists/image-candidates` + `/artists/{id}/image-from-search` (URL-validated) ([scanning.md](scanning.md)) |
 | Metadata editor (on-disk tags + folder art, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` — file-only by design: no DB writes beyond the post-write rescan |
 | Manual album cover (aether's managed store) | Implemented | `updateAlbum` / `albumCoverArt` extension in `handlers/subsonic/albums.go`, set from `AlbumView` |
 | Album identify (map a multi-file selection onto one release) | Implemented, key-gated | `POST /metadata/identify-album` → `internal/albumidentify`; `IdentifyAlbumDialog.vue` ([architecture.md](architecture.md)) |

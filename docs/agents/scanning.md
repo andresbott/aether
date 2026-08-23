@@ -316,25 +316,29 @@ together or the note will describe an image the user isn't looking at.
 
 `ArtistView`'s "Search online" button (`ArtistImageSearchDialog`) drives the same
 provider chain as the `fetch-artist-images` job, but from a MusicBrainz artist the
-user picks by name rather than the artist's stored `MBArtistID`:
+user picks by name rather than the artist's stored `MBArtistID`, and shows every
+candidate portrait as a selectable grid rather than auto-picking one:
 
-- `GET /api/v1/artists/image-preview?mbid=…` runs the chain and streams the image
-  back without storing it. Third-party bytes, so the response type is
-  `http.DetectContentType`-sniffed (not the provider's claimed extension),
-  non-image payloads are refused with 502, and it carries `nosniff` +
-  `Cache-Control: no-store`.
-- `PUT /api/v1/artists/{id}/image-from-search` — called by the **editor's Save**,
-  not the dialog: a pick is staged in `ArtistView` like a file upload (previewed
-  in the cover, marks the editor dirty, discarded by Cancel/Remove). The three
-  staged edits (file, clear, searched pick) are mutually exclusive; the last one
-  wins, and `saveEdit` routes a pick here instead of `updateArtist`. It stores
-  the pick as a **manual**
-  upload, so it outranks anything the job later writes to the auto slot. It files
-  under `artistCoverKey` (MBID slot when matched, else DB ID) — the same slot a
-  normal upload uses, because cover resolution reads the MBID slot first and a
-  pick filed under the DB ID would lose to an auto-fetched image. The *chosen*
-  MBID is not written to `artist.MBArtistID`: picking a portrait is not asserting
-  a metadata match.
+- `GET /api/v1/artists/image-candidates?mbid=…` runs `Chain.List` and returns
+  every provider's portraits as `{url, thumbUrl, provider}` JSON — no bytes
+  downloaded server-side, since the browser loads each `thumbUrl` straight from
+  the provider's own CDN for the grid.
+- `PUT /api/v1/artists/{id}/image-from-search` (body `{mbid, url}`) — called by
+  the **editor's Save**, not the dialog: a pick is staged in `ArtistView` like a
+  file upload (previewed in the cover, marks the editor dirty, discarded by
+  Cancel/Remove). The three staged edits (file, clear, searched pick) are
+  mutually exclusive; the last one wins, and `saveEdit` routes a pick here
+  instead of `updateArtist`. The handler re-runs `Chain.List` for `mbid` itself
+  and only accepts `url` if it matches a `FullURL` that call just returned — an
+  SSRF guard against downloading an arbitrary client-supplied URL — then
+  downloads through the matched provider (`Chain.Download(provider, url)`) and
+  stores it as a **manual** upload, so it outranks anything the job later writes
+  to the auto slot. It files under the artist's asset key (MBID slot when
+  matched, else DB ID) — the same slot a normal upload uses, because cover
+  resolution reads the MBID slot first and a pick filed under the DB ID would
+  lose to an auto-fetched image. The *chosen* MBID is only used for the `List`/
+  `Download` calls — it is never written to `artist.MBArtistID`: picking a
+  portrait is not asserting a metadata match.
 
 ## Known scanner debt (TODO.md, direction chosen)
 
