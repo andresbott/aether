@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -45,7 +46,7 @@ func FetchAndStoreArtistImage(ctx context.Context, s *store.Store, as *assetstor
 		}
 		return false, nil
 	}
-	storeErr := as.PutAuto(assetstore.KindArtist, a.MBArtistID, ext, data)
+	storeErr := as.PutAuto(assetstore.KindArtist, assetkey.Artist(a.MBArtistID, a.NameNorm), ext, data)
 	if uerr := s.SetArtistImageFetchedAt(a.ID, now); uerr != nil {
 		return false, fmt.Errorf("stamp fetch time: %w", uerr)
 	}
@@ -74,7 +75,7 @@ func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher,
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if _, ok := as.Get(assetstore.KindArtist, a.MBArtistID); ok {
+			if _, ok := as.Get(assetstore.KindArtist, assetkey.Artist(a.MBArtistID, a.NameNorm)); ok {
 				skipped++
 				continue
 			}

@@ -4,11 +4,11 @@ package scanner
 import (
 	"context"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/unidecode"
@@ -20,21 +20,56 @@ type reconcileStats struct {
 	Updated   int
 }
 
+type artistRekey struct {
+	nameNorm string
+	mbid     string
+}
+
 func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time) (reconcileStats, error) {
 	var stats reconcileStats
 	// One directory listing per artist folder is enough for the whole pass.
 	imageCache := map[string]string{}
+
+	// Re-link tracks whose file moved before anything else looks at paths: a
+	// re-pointed row keeps its id, so playlists, play history, stars and queue
+	// entries survive. Doing it first also means planAlbumContinuity below sees
+	// the moved tracks at their new paths instead of counting them as missing and
+	// mistaking a move for a split. A failure here is not fatal — it degrades to
+	// the old behaviour (delete plus insert, and the user-authored rows go with
+	// it), which is worse than a re-link but better than a failed scan.
+	if ctx.Err() == nil {
+		if err := s.planTrackContinuity(results); err != nil {
+			slog.Warn("track continuity planning failed; moved files lose playlists, history and stars", "err", err)
+		}
+	}
+
+	// Preserve album rows across a wholesale retag before any track is
+	// reconciled: once a row carries the new identity, FindOrCreateAlbum below
+	// finds it instead of creating a second row. A failure here is not fatal —
+	// it degrades to the old behaviour (a new row and a new id), which is worse
+	// than a preserved id but better than a failed scan.
+	if ctx.Err() == nil {
+		if err := s.planAlbumContinuity(results); err != nil {
+			slog.Warn("album continuity planning failed; retagged albums may get new ids", "err", err)
+		}
+	}
+
+	var pendingArtistRekeys []artistRekey
 
 	for _, tr := range results {
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
 
+		pendingArtistRekeys = pendingArtistRekeys[:0]
 		if err := s.store.Transaction(func(tx *store.Store) error {
-			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats)
+			return s.reconcileTrack(tx, libRoot, imageCache, tr, scanStart, &stats, &pendingArtistRekeys)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
 			continue
+		}
+		for _, rk := range pendingArtistRekeys {
+			s.rekeyArtistImages(rk)
 		}
 		stats.Processed++
 	}
@@ -42,32 +77,28 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats) error {
+func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map[string]string, tr tagResult, scanStart time.Time, stats *reconcileStats, pendingArtistRekeys *[]artistRekey) error {
 	meta := tr.meta
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
 	// through the reader as separate list entries already.
-	artistNames := nonEmpty(meta.Artist)
-	if len(artistNames) == 0 {
-		artistNames = []string{"Unknown Artist"}
-	}
-	artists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
+	artistNames := TrackArtistNames(meta)
+	artists, gainedTrackArtists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
 		return err
+	}
+	for _, a := range gainedTrackArtists {
+		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
 	}
 
 	// Resolve album artists
-	albumArtistNames := nonEmpty(meta.AlbumArtist)
-	if len(albumArtistNames) == 0 {
-		if meta.Compilation {
-			albumArtistNames = []string{"Various Artists"}
-		} else {
-			albumArtistNames = artistNames
-		}
-	}
-	albumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
+	albumArtistNames := AlbumArtistNames(meta)
+	albumArtists, gainedAlbumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
 		return err
+	}
+	for _, a := range gainedAlbumArtists {
+		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
 	}
 
 	// Detect an artist-folder image for every artist this track mentions.
@@ -82,13 +113,11 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 		return err
 	}
 
-	// Resolve album
-	albumName := meta.Album
-	if albumName == "" {
-		albumName = "Unknown Album"
-	}
-	albumArtistNorm := unidecode.Normalize(albumArtistNames[0])
-	album, err := tx.FindOrCreateAlbum(albumName, albumArtistNorm, meta.MBReleaseID)
+	// Resolve album. AlbumIdentityOf is the same function planAlbumContinuity
+	// used to decide whether this album's row could be retagged in place, so a
+	// row it retagged is found here rather than duplicated.
+	ident := AlbumIdentityOf(meta)
+	album, err := tx.FindOrCreateAlbum(ident)
 	if err != nil {
 		return err
 	}
@@ -139,7 +168,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	track.LibraryID = tr.walk.LibraryID
 	track.Filename = filepath.Base(tr.walk.FilePath)
 	track.FilePath = tr.walk.FilePath
-	track.FileSize = fileSize(tr.walk.FilePath)
+	track.FileSize = tr.walk.FileSize
 	track.FileModTime = tr.walk.ModTime
 	// LastSeenAt is monotonic: only ever advanced, never moved backwards.
 	// It is the liveness marker store.Cleanup uses to delete "tracks nobody
@@ -162,6 +191,12 @@ func (s *Scanner) reconcileTrack(tx *store.Store, libRoot string, imageCache map
 	track.Duration = int(meta.Duration.Seconds())
 	track.Bitrate = meta.Bitrate
 	track.MBRecordingID = meta.MBRecordingID
+	// Only ever overwrite the stored hash with a real one. An unsupported format
+	// or an unreadable payload yields "", and erasing a value an earlier scan
+	// recorded would silently disarm the move proof for that track.
+	if tr.audioHash != "" {
+		track.AudioHash = tr.audioHash
+	}
 	track.Lyrics = meta.Lyrics
 	track.ReplayGainTrackGain = meta.ReplayGain.TrackGain
 	track.ReplayGainTrackPeak = meta.ReplayGain.TrackPeak
@@ -247,14 +282,6 @@ func nonEmpty(ss []string) []string {
 	return out
 }
 
-func fileSize(path string) int64 {
-	info, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return info.Size()
-}
-
 // alignMBIDs returns mbids only when they line up 1:1 with names; otherwise nil.
 // Multi-value splitting can desync the two lists, so we assign MBIDs only in the
 // unambiguous case and fall back to the generated avatar otherwise.
@@ -263,4 +290,22 @@ func alignMBIDs(names, mbids []string) []string {
 		return mbids
 	}
 	return nil
+}
+
+// rekeyArtistImages moves the artist's stored images from the name-hash key to
+// the MBID key, so a manual cover survives the MBID gain. It is called after a
+// successful per-track transaction and is optional (no hook, no error). Any
+// failure is tolerated: the row moved and the image did not, which is today's
+// behaviour and recoverable.
+func (s *Scanner) rekeyArtistImages(rk artistRekey) {
+	if s.cfg.AssetRekeyer == nil {
+		return
+	}
+	oldKey := assetkey.Artist("", rk.nameNorm)
+	newKey := assetkey.Artist(rk.mbid, rk.nameNorm)
+	// "artist" is assetstore.KindArtist, duplicated to keep this package free of an assetstore import.
+	if err := s.cfg.AssetRekeyer.Rekey("artist", oldKey, newKey); err != nil {
+		slog.Warn("artist image re-key failed; the row moved but the stored images did not",
+			"name_norm", rk.nameNorm, "mbid", rk.mbid, "old_key", oldKey, "new_key", newKey, "err", err)
+	}
 }

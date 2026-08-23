@@ -2,8 +2,8 @@ package subsonic
 
 import (
 	"net/http"
-	"strconv"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 )
 
@@ -48,7 +48,7 @@ func (h *Handler) updateAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := strconv.FormatUint(uint64(album.ID), 10)
+	key := assetkey.AlbumOf(album)
 	switch {
 	case coverBytes != nil:
 		if err := h.assets.PutManual(assetstore.KindAlbum, key, coverExt, coverBytes); err != nil {

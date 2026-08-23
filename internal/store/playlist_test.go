@@ -3,6 +3,7 @@ package store_test
 import (
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/model"
 )
 
@@ -229,5 +230,66 @@ func TestPlaylistTrackStatsEmptyInput(t *testing.T) {
 	}
 	if len(stats) != 0 {
 		t.Fatalf("expected an empty map, got %+v", stats)
+	}
+}
+
+func TestPlaylistUUID(t *testing.T) {
+	s := testStore(t)
+	pl1, err := s.CreatePlaylist("First", "admin", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl1.UUID == "" {
+		t.Error("playlist UUID is empty")
+	}
+
+	pl2, err := s.CreatePlaylist("Second", "admin", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl2.UUID == "" {
+		t.Error("playlist UUID is empty")
+	}
+
+	if pl1.UUID == pl2.UUID {
+		t.Errorf("two playlists have the same UUID: %q", pl1.UUID)
+	}
+
+	// Verify UUID survives reload
+	var reloaded model.Playlist
+	s.DB().First(&reloaded, pl1.ID)
+	if reloaded.UUID != pl1.UUID {
+		t.Errorf("reloaded UUID = %q, want %q", reloaded.UUID, pl1.UUID)
+	}
+}
+
+func TestPlaylistAssetKey(t *testing.T) {
+	s := testStore(t)
+	pl1, err := s.CreatePlaylist("A", "admin", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key1 := assetkey.PlaylistOf(pl1)
+	if key1 == "" {
+		t.Error("assetkey.PlaylistOf returned empty key")
+	}
+
+	// Reload and verify same key
+	var reloaded model.Playlist
+	s.DB().First(&reloaded, pl1.ID)
+	key2 := assetkey.PlaylistOf(&reloaded)
+	if key1 != key2 {
+		t.Errorf("reloaded playlist key = %q, want %q", key2, key1)
+	}
+
+	// Two different playlists have different keys
+	pl2, err := s.CreatePlaylist("B", "admin", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key3 := assetkey.PlaylistOf(pl2)
+	if key1 == key3 {
+		t.Error("two different playlists have the same asset key")
 	}
 }

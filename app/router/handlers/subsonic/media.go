@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -130,27 +130,34 @@ type coverMeta struct {
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
 // (auto-fetched or a manual upload made while the artist was matched) takes
-// precedence; then the DB-ID slot used for manual uploads on unmatched artists;
-// then an image found next to the artist's albums on disk (`ImagePath`, set by
-// the scanner for `<collection>/<artist>/<album>` layouts). Nothing found means
-// the name-seeded generated avatar.
+// precedence; then the name-hash slot used for unmatched artists or artists
+// that gained an MBID since their upload; then an image found next to the
+// artist's albums on disk (`ImagePath`, set by the scanner for
+// `<collection>/<artist>/<album>` layouts). Nothing found means the
+// name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 	id := artist.ID
 	meta := coverMeta{
 		seed:      artist.NameNorm,
 		cacheKind: assetstore.KindArtist,
-		cacheKey:  strconv.FormatUint(uint64(artist.ID), 10),
+		// The cache key is derived from identity (MusicBrainz ID when matched,
+		// otherwise name_norm hash) so it remains stable across DB rebuilds.
+		// Consequence: if an artist gains an MBID after derivatives are cached,
+		// ArtistOf changes and those derivatives are orphaned (a leak, not a
+		// misattribution — no other artist can inherit them). This is accepted
+		// rather than adding cache-eviction logic here.
+		cacheKey: assetkey.ArtistOf(artist),
 		styleFor: func() (string, error) {
 			return h.store.CoverStyleForArtist(id)
 		},
 	}
 	if artist.MBArtistID != "" {
-		if p, ok := h.assets.Get(assetstore.KindArtist, artist.MBArtistID); ok {
+		if p, ok := h.assets.Get(assetstore.KindArtist, assetkey.Artist(artist.MBArtistID, artist.NameNorm)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
 	if meta.coverPath == "" {
-		if p, ok := h.assets.Get(assetstore.KindArtist, strconv.FormatUint(uint64(artist.ID), 10)); ok {
+		if p, ok := h.assets.Get(assetstore.KindArtist, assetkey.Artist("", artist.NameNorm)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 	}
@@ -164,16 +171,15 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 // updateAlbum extension ("albumCoverArt") takes precedence over the folder file,
 // which in turn beats embedded art.
 func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
-	key := strconv.FormatUint(uint64(album.ID), 10)
 	meta := coverMeta{
 		coverPath: album.CoverPath,
 		albumID:   album.ID,
 		seed:      album.AlbumArtistNorm + "|" + album.NameNorm,
 		cacheKind: assetstore.KindAlbum,
-		cacheKey:  key,
+		cacheKey:  assetkey.AlbumOf(album),
 		styleFor:  h.albumStyleFor(album.ID),
 	}
-	if p, ok := h.assets.Get(assetstore.KindAlbum, key); ok {
+	if p, ok := h.assets.Get(assetstore.KindAlbum, assetkey.AlbumOf(album)); ok {
 		meta.coverPath, meta.coverManaged = p, true
 	}
 	return meta
@@ -219,9 +225,9 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		meta := coverMeta{
 			seed:      station.Name,
 			cacheKind: assetstore.KindRadio,
-			cacheKey:  strconv.FormatUint(uint64(station.ID), 10),
+			cacheKey:  assetkey.Radio(station.StreamURL),
 		}
-		if p, ok := h.assets.Get(assetstore.KindRadio, RadioKey(station.StreamURL)); ok {
+		if p, ok := h.assets.Get(assetstore.KindRadio, assetkey.Radio(station.StreamURL)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true
@@ -237,10 +243,13 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		meta := coverMeta{
 			seed:      pl.Name,
 			cacheKind: assetstore.KindPlaylist,
-			cacheKey:  strconv.FormatUint(uint64(pl.ID), 10),
+			cacheKey:  assetkey.PlaylistOf(pl),
 		}
-		if p, ok := h.assets.Get(assetstore.KindPlaylist, meta.cacheKey); ok {
-			meta.coverPath, meta.coverManaged = p, true
+		key := assetkey.PlaylistOf(pl)
+		if key != "" {
+			if p, ok := h.assets.Get(assetstore.KindPlaylist, key); ok {
+				meta.coverPath, meta.coverManaged = p, true
+			}
 		}
 		return meta, true
 	case "genre":
@@ -251,14 +260,13 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		}
 		// A manually uploaded cover (see updateGenre) takes precedence; otherwise
 		// fall through to the name-seeded generated cover (same mechanism as
-		// artists/radio/playlists). Keyed by DB ID — genre names may contain
-		// characters the assetstore key regexp rejects.
+		// artists/radio/playlists).
 		meta := coverMeta{
 			seed:      genre.Name,
 			cacheKind: assetstore.KindGenre,
-			cacheKey:  strconv.FormatUint(uint64(genre.ID), 10),
+			cacheKey:  assetkey.GenreOf(genre),
 		}
-		if p, ok := h.assets.Get(assetstore.KindGenre, meta.cacheKey); ok {
+		if p, ok := h.assets.Get(assetstore.KindGenre, assetkey.GenreOf(genre)); ok {
 			meta.coverPath, meta.coverManaged = p, true
 		}
 		return meta, true

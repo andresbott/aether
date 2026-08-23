@@ -145,13 +145,11 @@ function mountView() {
     return mount(MetadataEditorView, { global: { stubs, directives: { tooltip: () => {} } } })
 }
 
-// Drives the view the way the user does: open the folder dialog, pick the
-// library, pick a folder. Identify does nothing until a library is selected, so
-// every test needs this first.
+// Drives the view the way the user does: open the folder dialog and pick a
+// folder. The sole configured library auto-selects, so there is no list to pick
+// from. Identify does nothing until a folder is chosen, so every test needs this.
 async function openFolder(w: ReturnType<typeof mountView>) {
     await w.findAll('button')[0].trigger('click')
-    w.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', 1)
-    await flushPromises()
     w.findComponent({ name: 'FolderTree' }).vm.$emit('select', 'Artist/Album')
     await flushPromises()
 }

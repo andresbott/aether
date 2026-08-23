@@ -2,22 +2,10 @@ package subsonic
 
 import (
 	"net/http"
-	"strconv"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
-	"github.com/andresbott/aether/internal/model"
 )
-
-// artistCoverKey is the asset-store key for an artist's manually uploaded cover:
-// the MusicBrainz ID when the artist is matched (durable across DB drops, and
-// shared with the auto-fetcher), otherwise the DB ID so unmatched artists can
-// still hold a manual upload. getCoverArt looks up both slots.
-func artistCoverKey(a *model.Artist) string {
-	if a.MBArtistID != "" {
-		return a.MBArtistID
-	}
-	return strconv.FormatUint(uint64(a.ID), 10)
-}
 
 // updateArtist handles the OpenSubsonic "artistCoverArt" extension: a multipart
 // request that carries an optional cover image ("coverFile") or a "coverClear"
@@ -56,7 +44,7 @@ func (h *Handler) updateArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := artistCoverKey(artist)
+	key := assetkey.ArtistOf(artist)
 	switch {
 	case coverBytes != nil:
 		if err := h.assets.PutManual(assetstore.KindArtist, key, coverExt, coverBytes); err != nil {
@@ -65,10 +53,10 @@ func (h *Handler) updateArtist(w http.ResponseWriter, r *http.Request) {
 		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindArtist, key)
-		// Also clear the DB-ID slot in case a prior upload was made while the
-		// artist was unmatched.
-		if dbKey := strconv.FormatUint(uint64(artist.ID), 10); dbKey != key {
-			_ = h.assets.Delete(assetstore.KindArtist, dbKey)
+		// Also clear the name-hash slot in case a prior upload was made while the
+		// artist was unmatched (or gained an MBID since).
+		if nameHashKey := assetkey.Artist("", artist.NameNorm); nameHashKey != key {
+			_ = h.assets.Delete(assetstore.KindArtist, nameHashKey)
 		}
 	}
 

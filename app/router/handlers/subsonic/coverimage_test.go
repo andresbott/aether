@@ -11,9 +11,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
@@ -51,7 +51,7 @@ func albumWithStoredCover(t *testing.T, size int) (*store.Store, *assetstore.Sto
 	}
 	src := realPNG(t, size, size)
 	as := assetstore.New(t.TempDir())
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png", src); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png", src); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
 	return s, as, album, src
@@ -234,7 +234,7 @@ func TestGetCoverArtWritesDerivativeToCacheTree(t *testing.T) {
 
 	getCover(t, fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=200", srv.URL, album.ID), "image/webp")
 
-	entries, err := os.ReadDir(filepath.Join(cacheDir, assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10)))
+	entries, err := os.ReadDir(filepath.Join(cacheDir, assetstore.KindAlbum, assetkey.AlbumOf(&album)))
 	if err != nil {
 		t.Fatalf("read cache entry dir: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestGetCoverArtFallsBackToGeneratedWhenSourceIsUndecodable(t *testing.T) {
 	}
 	as := assetstore.New(t.TempDir())
 	// Right magic bytes, no decodable image behind them.
-	if err := as.PutManual(assetstore.KindAlbum, strconv.FormatUint(uint64(album.ID), 10), "png",
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png",
 		[]byte("\x89PNG\r\n\x1a\nTRUNCATED")); err != nil {
 		t.Fatalf("PutManual: %v", err)
 	}
@@ -398,8 +398,7 @@ func TestGetCoverArtRebuildsDerivativeAfterCoverChanges(t *testing.T) {
 	}
 
 	// A new upload replaces the stored cover with visibly different art.
-	key := strconv.FormatUint(uint64(album.ID), 10)
-	if err := as.PutManual(assetstore.KindAlbum, key, "png", realPNG(t, 400, 900)); err != nil {
+	if err := as.PutManual(assetstore.KindAlbum, assetkey.AlbumOf(&album), "png", realPNG(t, 400, 900)); err != nil {
 		t.Fatalf("replace cover: %v", err)
 	}
 

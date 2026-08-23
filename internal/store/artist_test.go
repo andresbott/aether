@@ -7,6 +7,7 @@ import (
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/unidecode"
 	"gorm.io/gorm"
 )
 
@@ -15,7 +16,7 @@ func TestFindOrCreateArtists(t *testing.T) {
 	var artists []*model.Artist
 	err := s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		artists, txErr = tx.FindOrCreateArtists([]string{"Björk", "Radiohead"}, nil)
+		artists, _, txErr = tx.FindOrCreateArtists([]string{"Björk", "Radiohead"}, nil)
 		return txErr
 	})
 	if err != nil {
@@ -28,7 +29,7 @@ func TestFindOrCreateArtists(t *testing.T) {
 	var again []*model.Artist
 	err = s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		again, txErr = tx.FindOrCreateArtists([]string{"Björk"}, nil)
+		again, _, txErr = tx.FindOrCreateArtists([]string{"Björk"}, nil)
 		return txErr
 	})
 	if err != nil {
@@ -44,7 +45,7 @@ func TestFindOrCreateArtistsSetsMBID(t *testing.T) {
 	var got []*model.Artist
 	err := s.Transaction(func(tx *store.Store) error {
 		var e error
-		got, e = tx.FindOrCreateArtists([]string{"Björk"}, []string{"mbid-bjork"})
+		got, _, e = tx.FindOrCreateArtists([]string{"Björk"}, []string{"mbid-bjork"})
 		return e
 	})
 	if err != nil {
@@ -57,7 +58,7 @@ func TestFindOrCreateArtistsSetsMBID(t *testing.T) {
 	// with empty must not clear it.
 	err = s.Transaction(func(tx *store.Store) error {
 		var e error
-		got, e = tx.FindOrCreateArtists([]string{"Björk"}, nil)
+		got, _, e = tx.FindOrCreateArtists([]string{"Björk"}, nil)
 		return e
 	})
 	if err != nil || got[0].MBArtistID != "mbid-bjork" {
@@ -71,7 +72,7 @@ func TestFindOrCreateArtistsBackfillsMBID(t *testing.T) {
 	var first []*model.Artist
 	err := s.Transaction(func(tx *store.Store) error {
 		var e error
-		first, e = tx.FindOrCreateArtists([]string{"Portishead"}, nil)
+		first, _, e = tx.FindOrCreateArtists([]string{"Portishead"}, nil)
 		return e
 	})
 	if err != nil {
@@ -81,10 +82,10 @@ func TestFindOrCreateArtistsBackfillsMBID(t *testing.T) {
 		t.Fatalf("expected empty MBID on first create, got %q", first[0].MBArtistID)
 	}
 	// Second call: same artist but now with a real MBID — must backfill.
-	var second []*model.Artist
+	var second, gained []*model.Artist
 	err = s.Transaction(func(tx *store.Store) error {
 		var e error
-		second, e = tx.FindOrCreateArtists([]string{"Portishead"}, []string{"mbid-portishead"})
+		second, gained, e = tx.FindOrCreateArtists([]string{"Portishead"}, []string{"mbid-portishead"})
 		return e
 	})
 	if err != nil {
@@ -95,6 +96,16 @@ func TestFindOrCreateArtistsBackfillsMBID(t *testing.T) {
 	}
 	if second[0].MBArtistID != "mbid-portishead" {
 		t.Fatalf("MBID not backfilled, got %q", second[0].MBArtistID)
+	}
+	// The artist gained an MBID, so it must be reported.
+	if len(gained) != 1 {
+		t.Fatalf("expected 1 artist in gained list, got %d", len(gained))
+	}
+	if gained[0].ID != first[0].ID {
+		t.Fatal("gained artist must be the same row")
+	}
+	if gained[0].MBArtistID != "mbid-portishead" {
+		t.Fatalf("gained artist must carry the new MBID, got %q", gained[0].MBArtistID)
 	}
 }
 
@@ -120,7 +131,7 @@ func TestFindOrCreateArtistsPropagatesQueryError(t *testing.T) {
 	s := testStore(t)
 	failQueries(t, s)
 
-	_, err := s.FindOrCreateArtists([]string{"Björk"}, nil)
+	_, _, err := s.FindOrCreateArtists([]string{"Björk"}, nil)
 	if err == nil {
 		t.Fatal("expected the DB error to propagate, got nil (a real failure was treated as not-found)")
 	}
@@ -259,7 +270,7 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 func TestArtistsWithMBIDAndStamp(t *testing.T) {
 	st := testStore(t)
 	_ = st.Transaction(func(tx *store.Store) error {
-		_, e := tx.FindOrCreateArtists([]string{"A", "B"}, []string{"mbid-a", ""})
+		_, _, e := tx.FindOrCreateArtists([]string{"A", "B"}, []string{"mbid-a", ""})
 		return e
 	})
 	withMBID, err := st.ArtistsWithMBID()
@@ -314,7 +325,7 @@ func TestSearchArtistsByLibrary(t *testing.T) {
 
 func TestSetArtistMBID(t *testing.T) {
 	s := testStore(t)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +354,7 @@ func TestSetArtistMBID(t *testing.T) {
 
 func TestSetArtistMBIDClear(t *testing.T) {
 	s := testStore(t)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +377,7 @@ func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
 	s := testStore(t)
 	// Create with an initial MBID and a set image-fetch timestamp.
 	err := s.Transaction(func(tx *store.Store) error {
-		_, e := tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-old"})
+		_, _, e := tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-old"})
 		return e
 	})
 	if err != nil {
@@ -377,10 +388,10 @@ func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Rescan finds the same artist with a corrected MBID.
-	var got []*model.Artist
+	var got, gained []*model.Artist
 	err = s.Transaction(func(tx *store.Store) error {
 		var e error
-		got, e = tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-new"})
+		got, gained, e = tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-new"})
 		return e
 	})
 	if err != nil {
@@ -391,6 +402,11 @@ func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
 	}
 	if got[0].LastImageFetchAt != nil {
 		t.Fatalf("expected LastImageFetchAt reset to nil, got %v", got[0].LastImageFetchAt)
+	}
+	// An MBID change (not a gain) must NOT be reported in the gained list, because
+	// it could be a mistaken match being corrected, not a rename.
+	if len(gained) != 0 {
+		t.Fatalf("expected empty gained list for an MBID change, got %d entries", len(gained))
 	}
 }
 
@@ -408,11 +424,13 @@ func mustArtistID(t *testing.T, s *store.Store, name string) uint {
 // (non-compilation) scan result.
 func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file string) *model.Artist {
 	t.Helper()
-	artists, err := s.FindOrCreateArtists([]string{artistName}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{artistName}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	album, err := s.FindOrCreateAlbum("Album of "+artistName, artistName, "")
+	albumName := "Album of " + artistName
+	ident := store.AlbumIdentity{Name: albumName, NameNorm: unidecode.Normalize(albumName), AlbumArtistNorm: artistName, MBReleaseID: ""}
+	album, err := s.FindOrCreateAlbum(ident)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,15 +450,16 @@ func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file 
 func seedGuestAppearance(t *testing.T, s *store.Store, libID uint, albumName, ownerName, guestName, file string) (owner, guest *model.Artist, album *model.Album) {
 	t.Helper()
 	db := s.DB()
-	owners, err := s.FindOrCreateArtists([]string{ownerName}, nil)
+	owners, _, err := s.FindOrCreateArtists([]string{ownerName}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	guests, err := s.FindOrCreateArtists([]string{guestName}, nil)
+	guests, _, err := s.FindOrCreateArtists([]string{guestName}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	album, err = s.FindOrCreateAlbum(albumName, ownerName, "")
+	ident := store.AlbumIdentity{Name: albumName, NameNorm: unidecode.Normalize(albumName), AlbumArtistNorm: ownerName, MBReleaseID: ""}
+	album, err = s.FindOrCreateAlbum(ident)
 	if err != nil {
 		t.Fatal(err)
 	}

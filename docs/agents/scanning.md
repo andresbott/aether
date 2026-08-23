@@ -7,9 +7,47 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 
 ## Pipeline (per library, `scanner.go`)
 
-1. **Walk** (`walk.go`) — collect audio files under `Library.Path`, honoring
-   JSON-encoded `Library.ExcludePatterns` (`excludes.go`) and
-   `FollowSymlinks`.
+1. **Preflight + walk** (`scanner.go`, `walk.go`) — `Scan` is **two-phase**:
+   `preflight` validates and walks *every* library before *any* library is
+   reconciled, and phase 2 (`scanLibrary`) then reconciles each one from the walk
+   preflight already produced — the tree is never walked twice. Phase 1 collects
+   audio files under `Library.Path`, honoring JSON-encoded
+   `Library.ExcludePatterns` (`excludes.go`) and `FollowSymlinks`, and applies two
+   guards: it refuses a root that does not stat as a directory, and refuses to
+   *continue* when the walk found no audio files while `CountTracksForLibrary` is
+   non-zero. `makeWalkFn` swallows every error including the root's, so an
+   unmounted share would otherwise scan "successfully" with zero results and let
+   step 5 delete the whole library. Both guards fail the scan task for **every**
+   library, and because they all run in phase 1 the run stops before the first
+   write: nothing is committed and `Cleanup` never runs, so the abort is atomic.
+   A user who really did empty a library deletes the library instead — which
+   cascades its tracks and with them the playlist entries, stars and play history
+   attached to them, and the guard's error message says so, because that is the
+   very deletion it just refused to perform.
+   **The phase split is load-bearing, not tidiness.**
+   `planTrackContinuity`'s candidate pool is deliberately *not* library-scoped (a
+   move between two collections has to keep its row), so a single-phase loop let a
+   library sorting earlier by name — `ListLibraries` orders `name ASC` — harvest
+   the rows of an unavailable library that had not reached its own guard yet:
+   every path of an unplugged drive stats ENOENT, and one byte-identical new file
+   was enough to re-link such a row, moving its stars, playlist entries, history
+   and `library_id` onto a file from another collection before the later guard
+   failed the scan too late to undo it.
+   `LastScanStartedAt` is stamped in **phase 2**, so a library the run never got
+   to reconcile does not claim it was scanned.
+   Still unguarded, and sharper than "swept silently": an unreadable or absent
+   *subtree* inside a root that is present — a per-directory mount that is gone
+   leaves an empty mountpoint directory behind. Its files stat ENOENT
+   indistinguishably from deleted ones, so those rows are swept **and can be
+   re-linked** onto a byte-identical new file elsewhere. Not fixable by requiring
+   a vanished row's parent directory to still exist: that would break the primary
+   use case, since reorganising a library moves whole directories.
+   `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
+   subtree fails with EACCES rather than merely looking empty.
+   Accepted for now on an explicit assumption — mounts are library *roots*, never
+   directories inside a library — which is what keeps this out of reach, since a
+   dropped root mount trips the guards above. Full analysis and the candidate fixes:
+   [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
 2. **Change filter** — incremental scans skip files whose size/modtime match
    the DB (`store.FilterChanged`); unchanged files only get their
    `last_seen_at` bumped in 500-row chunks (`store.BulkUpdateLastSeen`).
@@ -35,6 +73,16 @@ track look stale to the other run's `Cleanup` and delete it, taking its
 playlist memberships, play history and stars with it. Within a single scan
 every row is either already at `scanStart` or older, so the guards never skip
 a bump that was needed.
+
+**One deliberate exception.** `store.RelinkTrack` is a third writer that touches
+a track during a scan and does **not** advance `last_seen_at` — it rewrites
+`file_path`, `filename` and `library_id` only. That is safe because the row now
+carries the new path, so `reconcileTrack` finds it moments later in the same
+batch and sets the marker there; and if *that* transaction fails, `Cleanup`
+deletes the row exactly as it would have without the re-link. Writing the marker
+in `RelinkTrack` would instead invent a new way to keep a row alive that no
+reconcile ever confirmed. Anything else that starts touching tracks mid-scan
+still has to advance it.
 
 ## Targeted rescan (`rescan.go`)
 
@@ -102,14 +150,97 @@ tag and picture writes.
 
 ## Identity & normalization rules
 
-- **Track identity is `FilePath`** (unique index). Moved files are a
-  delete + insert.
+- **Track identity is `FilePath`** (unique index), but a path is *transferable*.
+  `scanner.planTrackContinuity` (`trackcontinuity.go`), the first thing
+  `reconcile` does, re-points a row at the path its file moved to instead of
+  letting the move become a delete plus an insert — which would hard-delete the
+  track's `playlist_tracks`, `play_histories`, `play_queue_entries` and
+  `starred_items` rows via `DeleteOrphanedAggregates`. Every pair must satisfy
+  three requirements — `duration` within ±1s, the old path **gone from disk**
+  (this is what tells a move from a copy), and exactly one vanished row and one
+  new file sharing the key (`file_mod_time` breaks a tie and is never required,
+  because plenty of copy tools do not preserve it) — and then one of **two
+  proofs**, tried in order:
+  1. **`file_size` + `title`.** Free, since the walk and the tag read already
+     produced both. Catches a plain move.
+  2. **`tracks.audio_hash`** — `libs/audiohash`, a metadata-invariant hash of the
+     audio payload (`scanner.audioHashOf`, stored by `reconcileTrack`, looked up
+     by `store.TracksByAudioHashes`). Catches a move that **also retagged**: a tag
+     edit rewrites the file, so proof 1 loses both anchors, while the hash reads
+     only the audio and comes out identical. This is the common real-world case,
+     because the tools that rename files from tags (Picard, beets) retag and
+     re-file in one operation. The hash is computed in the tag-read worker pool
+     for the files a pass actually reads, so an incremental scan hashes exactly
+     what changed and a steady state hashes nothing; `audiohash` reads at most
+     256 KiB of payload per file.
+  A file claimed by proof 1 is withdrawn before proof 2 runs. It all runs
+  **before** `planAlbumContinuity` so a moved album is not counted as a split.
+  Deliberate misses: a retagged move of a format `audiohash` does not cover (it
+  handles FLAC/MP3/MP4; `walk.go` admits sixteen extensions) or of a row that has
+  not been hashed yet — **one full scan arms it**, since incremental scans only
+  read changed files; two files swapping paths; a move straddling two scan runs;
+  and any ambiguous key — a false match would merge two tracks' listening
+  history, which is worse than losing one's. Note that byte-identical duplicates
+  of the same track share an audio hash as well as a size, so both proofs rely on
+  the same one-of-each rule to stay out of trouble.
+  Design: [`../superpowers/specs/2026-08-18-track-identity-across-moves-design.md`](../superpowers/specs/2026-08-18-track-identity-across-moves-design.md).
 - **Album identity is the composite unique index** `(name_norm,
   album_artist_norm, mb_release_id)` — created in `model.Migrate`, matched by
-  `store.FindOrCreateAlbum`. All three parts flow through
-  `unidecode.Normalize` (lowercase ASCII transliteration) where applicable.
-  Change album identity semantics in both places or scans will duplicate
-  albums.
+  `store.FindOrCreateAlbum`, and derived from tags by **one** function,
+  `scanner.AlbumIdentityOf` (`internal/scanner/albumidentity.go`), which
+  `reconcileTrack` and `planAlbumContinuity` both call. All three parts flow
+  through `unidecode.Normalize` (lowercase ASCII transliteration) where
+  applicable. Change album identity semantics in **all** of those places or
+  scans will duplicate albums.
+- **Album *row continuity* is decided by track-set overlap, not by the tuple.**
+  `scanner.planAlbumContinuity` (`albumcontinuity.go`), which runs once per
+  `reconcile` batch before the per-track loop, retags an album row **in place**
+  when every track the album currently holds is in this batch, they all resolve
+  to the same new identity, and no other row holds it. That keeps `albums.id`
+  and `created_at` across the retags the metadata editor performs — and with
+  them the manual cover in the asset store (via the re-key hook below), stars,
+  the `newest` ordering, the discovery feed's recency term, and client-cached
+  `/album/:id`. Everything unprovable falls through to `FindOrCreateAlbum` and
+  churns the id as before: partial edits, splits, merges into an existing
+  identity, identity swaps, albums spanning two libraries (`reconcile` runs per
+  library), and albums with a track deleted from disk but not yet swept by
+  `Cleanup`. Several albums collapsing into one identity in one batch keep the
+  row of the album with the most tracks (lowest id as tiebreak). The entire
+  pre-pass is deliberately independent of tag-reader ordering — the survivor
+  pick and the iteration order over claims are both deterministic.
+  Design: [`../superpowers/specs/2026-08-18-album-identity-continuity.md`](../superpowers/specs/2026-08-18-album-identity-continuity.md).
+- **Stored images follow the row when continuity moves it.** Three re-key hooks
+  (`assetstore.Rekey`, `internal/assetstore/assetstore.go:231-265`) carry an
+  entity's asset-store images to its new identity-derived key:
+  1. **The album planner** (`scanner.rekeyAlbumImages`, `albumcontinuity.go:198-209`)
+     re-keys an album's images **after** its transaction commits, so a rollback
+     cannot leave a directory moved while the row is not. Failure is tolerated —
+     the row moved and the image did not, which is recoverable — and logged.
+  2. **An artist gaining an MBID** (`store.FindOrCreateArtists`, `internal/store/artist.go:33-54`)
+     appends the artist to a `gained` slice; `reconcileTrack` drains it into
+     `pendingArtistRekeys` (`reconcile.go:71-73,91,101`), and `rekeyArtistImages`
+     (`reconcile.go:300-310`) runs **after** the transaction. An MBID **change**
+     (old MBID non-empty and different from new) is deliberately excluded
+     (`artist.go:52-54`): the MBID slot is content-addressed by the real-world
+     artist, so moving images when tags reassert a different MusicBrainz artist
+     would attach the old artist's portrait to the new one — a misattribution,
+     worse than the stranding it avoids. The store already resets
+     `LastImageFetchAt` on a change so the image is re-fetched.
+  3. **Radio stream-URL edit** (`PUT /rest/updateInternetRadioStation`,
+     `handlers/subsonic/radio.go:230-243`) re-keys unless the user also uploaded
+     a cover in the same request (which is a replace, not a move). Both an
+     occupied destination (`assetstore.ErrKeyOccupied`) and hard failures are
+     logged but never fail the request, since the station update already
+     succeeded and the images stay intact. Replaced the old read-and-re-put,
+     which silently dropped named entries and the auto variant; a directory
+     rename is lossless.
+  **An artist or genre rename still leaves its images behind.** The model says a
+  renamed artist is a different artist, and no continuity proof exists: an artist
+  spans many albums through two associations (`album_artists`, `track_artists`),
+  so "every track crediting this artist is in this batch" is essentially never
+  true on an incremental scan, and credits are multi-valued so "they agree on
+  one new identity" does not have the same shape as the album proof. The
+  continuity signal is weaker; needs its own spec.
 - Fallbacks when tags are empty: artist → "Unknown Artist"; album artist →
   "Various Artists" if `Compilation`, else the track artists; album →
   "Unknown Album".
@@ -208,7 +339,15 @@ user picks by name rather than the artist's stored `MBArtistID`:
 ## Known scanner debt (TODO.md, direction chosen)
 
 - Full scan should drop-and-reinsert a track's derived rows so renamed
-  artists/genres don't linger (currently updates in place).
+  artists/genres don't linger (currently updates in place). **Scope it to
+  associations and track-level rows only** — dropping and re-inserting *album*
+  rows would re-introduce the id churn `planAlbumContinuity` exists to prevent,
+  taking stars, manual covers and `created_at` with it.
+- Artists and genres still churn their ids on a rename: `artists.name_norm` and
+  `genres.name` are their identities, and artist covers key on **MBID or DB id**,
+  so the DB-id slot fails exactly as album covers did. The album planner
+  generalises, but the continuity signal is weaker for an artist; needs its own
+  spec.
 - `FindOrCreateArtists`/`FindOrCreateAlbum` should use
   `errors.Is(err, gorm.ErrRecordNotFound)` to distinguish not-found from
   real DB errors.

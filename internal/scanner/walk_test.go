@@ -142,3 +142,36 @@ func TestWalkMultipleLibraries(t *testing.T) {
 		t.Fatalf("LibraryID=2 should map to 02.flac, got %q", byLib[2])
 	}
 }
+
+// The walk must record the size of the audio file itself, including through a
+// symlink: planTrackContinuity proves a file moved by matching file_size, and a
+// symlink's own size (the length of its target path) would be a false
+// fingerprint. It is also what Subsonic reports to clients as `size`.
+func TestWalkRecordsFileSizeThroughSymlinks(t *testing.T) {
+	libDir := t.TempDir()
+	realDir := t.TempDir()
+	body := []byte("0123456789")
+	if err := os.WriteFile(filepath.Join(libDir, "plain.mp3"), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(realDir, "single.mp3")
+	if err := os.WriteFile(target, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(libDir, "single-link.mp3")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+
+	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 audio files, got %d: %+v", len(results), results)
+	}
+	for _, r := range results {
+		if r.FileSize != int64(len(body)) {
+			t.Errorf("%s: FileSize = %d, want %d", r.FilePath, r.FileSize, len(body))
+		}
+	}
+}

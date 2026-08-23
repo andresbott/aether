@@ -8,6 +8,7 @@
 package assetstore
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,8 +38,18 @@ var keyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // so unlike keys they must not contain dots.
 var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// KeySafe reports whether s is safe as an entity key: non-empty, matches
+// ^[A-Za-z0-9._-]+$, contains no "..", unchanged by filepath.Clean, and not
+// exactly ".". This is the single predicate assetkey delegates to; the
+// constraint is load-bearing because entityDir uses the key as a directory
+// component under the store root, so a traversal or path-equivalence escape
+// would break containment.
+func KeySafe(s string) bool {
+	return s != "" && keyRe.MatchString(s) && !strings.Contains(s, "..") && filepath.Clean(s) == s && s != "."
+}
+
 func (s *Store) entityDir(kind, key string) (string, error) {
-	if !keyRe.MatchString(kind) || !keyRe.MatchString(key) || strings.Contains(key, "..") {
+	if !KeySafe(kind) || !KeySafe(key) {
 		return "", fmt.Errorf("assetstore: unsafe kind/key %q/%q", kind, key)
 	}
 	return filepath.Join(s.root, kind, key), nil
@@ -208,6 +219,59 @@ func (s *Store) DeleteNamed(kind, key, name string) error {
 		}
 	}
 	return nil
+}
+
+// ErrKeyOccupied reports that a Rekey destination already holds images. The
+// move is refused rather than completed: an orphaned directory is recoverable,
+// a destroyed upload is not.
+var ErrKeyOccupied = errors.New("assetstore: destination key already holds images")
+
+// Rekey moves an entity's whole directory from oldKey to newKey, carrying every
+// named entry and both the manual and auto variants. It exists because an
+// entity's key changes whenever its natural identity does, and the image must
+// follow it wherever that continuity is provable (see the re-key hooks in
+// internal/scanner and the radio stream-URL edit).
+//
+// It is a directory rename, which is why it is both cheaper and less lossy than
+// reading the primary image and re-Putting it — that approach silently drops
+// named entries and the auto variant.
+//
+// Missing source, or oldKey == newKey: no-op, nil. Destination holding images:
+// ErrKeyOccupied, nothing moved.
+func (s *Store) Rekey(kind, oldKey, newKey string) error {
+	if oldKey == newKey {
+		return nil
+	}
+	oldDir, err := s.entityDir(kind, oldKey)
+	if err != nil {
+		return err
+	}
+	newDir, err := s.entityDir(kind, newKey)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing to move
+		}
+		return err
+	}
+	// An existing-but-empty destination is not an upload worth protecting;
+	// remove it so the rename can proceed.
+	if entries, rerr := os.ReadDir(newDir); rerr == nil {
+		if len(entries) > 0 {
+			return fmt.Errorf("%w: %s/%s", ErrKeyOccupied, kind, newKey)
+		}
+		if err := os.Remove(newDir); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(rerr) {
+		return rerr
+	}
+	if err := os.MkdirAll(filepath.Dir(newDir), 0o750); err != nil {
+		return err
+	}
+	return os.Rename(oldDir, newDir)
 }
 
 func normExt(ext string) string {

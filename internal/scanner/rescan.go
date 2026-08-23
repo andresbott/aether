@@ -60,7 +60,12 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 			stats.Errors = append(stats.Errors, fmt.Errorf("read tags %q: %w", abs, rerr))
 			continue
 		}
-		results = append(results, tagResult{walk: wr, meta: meta})
+		// The editor's own writes come through here, which is what keeps the
+		// stored hash current: a tag edit bumps the file's mod time, this pass
+		// re-reads it, and the hash comes back *unchanged* because a tag edit
+		// does not touch the audio. That is precisely what lets a later move of
+		// the same file still be proved.
+		results = append(results, tagResult{walk: wr, meta: meta, audioHash: audioHashOf(abs)})
 	}
 
 	rec, err := s.reconcile(ctx, lib.Path, results, time.Now())
@@ -106,6 +111,7 @@ func (s *Scanner) admitPath(libRoot string, libID uint, abs string, excludes []*
 	return WalkResult{
 		FilePath:  abs,
 		LibraryID: libID,
+		FileSize:  info.Size(),
 		ModTime:   info.ModTime(),
 		Dir:       filepath.Dir(abs),
 	}, true

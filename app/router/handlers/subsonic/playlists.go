@@ -1,21 +1,17 @@
 package subsonic
 
 import (
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 )
-
-// playlistCoverKey is the asset-store key for a playlist's manually uploaded
-// cover: the playlist's DB ID, matching how album covers are keyed.
-func playlistCoverKey(id uint) string {
-	return strconv.FormatUint(uint64(id), 10)
-}
 
 // visiblePlaylist loads a playlist the caller may READ: their own or a public
 // one. An existing-but-invisible playlist answers 70 (not found), not 50 —
@@ -314,6 +310,47 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, nil)
 }
 
+// updatePlaylistCover handles the cover image upload or clear for a playlist in
+// updatePlaylist's multipart path. It reads the cover file from the request,
+// derives the asset key from the playlist's UUID, and either stores the new
+// cover or deletes it based on the coverClear flag. Empty-UUID playlists (legacy
+// rows) are skipped with a warning log.
+func (h *Handler) updatePlaylistCover(w http.ResponseWriter, r *http.Request, id uint) {
+	coverBytes, coverExt, err := readCoverFile(r)
+	if err != nil {
+		writeError(w, 0, err.Error())
+		return
+	}
+
+	// Reload the playlist to get the UUID for the asset key.
+	pl, err := h.store.GetPlaylist(id)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	key := assetkey.PlaylistOf(pl)
+	if key == "" {
+		// Empty UUID means no cover (legacy row). Log and skip the asset-store call.
+		if coverBytes != nil || r.Form.Get("coverClear") == "true" {
+			slog.Warn("playlist cover write skipped: empty UUID", "playlist_id", id)
+		}
+		writeResponse(w, nil)
+		return
+	}
+
+	switch {
+	case coverBytes != nil:
+		if err := h.assets.PutManual(assetstore.KindPlaylist, key, coverExt, coverBytes); err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
+	case r.Form.Get("coverClear") == "true":
+		_ = h.assets.Delete(assetstore.KindPlaylist, key)
+	}
+
+	writeResponse(w, nil)
+}
+
 // updatePlaylistMultipart handles the OpenSubsonic "playlistCoverArt" extension:
 // a multipart updatePlaylist request that carries an optional cover image
 // ("coverFile") or a "coverClear" flag, alongside the usual name/comment/public
@@ -359,23 +396,7 @@ func (h *Handler) updatePlaylistMultipart(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	coverBytes, coverExt, err := readCoverFile(r)
-	if err != nil {
-		writeError(w, 0, err.Error())
-		return
-	}
-	key := playlistCoverKey(id)
-	switch {
-	case coverBytes != nil:
-		if err := h.assets.PutManual(assetstore.KindPlaylist, key, coverExt, coverBytes); err != nil {
-			writeError(w, 0, "internal error")
-			return
-		}
-	case r.Form.Get("coverClear") == "true":
-		_ = h.assets.Delete(assetstore.KindPlaylist, key)
-	}
-
-	writeResponse(w, nil)
+	h.updatePlaylistCover(w, r, id)
 }
 
 func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
@@ -389,13 +410,17 @@ func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 0, "invalid id")
 		return
 	}
-	if _, ok := h.ownedPlaylist(w, r, id); !ok {
+	pl, ok := h.ownedPlaylist(w, r, id)
+	if !ok {
 		return
 	}
+	key := assetkey.PlaylistOf(pl)
 	if err := h.store.DeletePlaylist(id); err != nil {
 		writeError(w, 0, "internal error")
 		return
 	}
-	_ = h.assets.Delete(assetstore.KindPlaylist, playlistCoverKey(id))
+	if key != "" {
+		_ = h.assets.Delete(assetstore.KindPlaylist, key)
+	}
 	writeResponse(w, nil)
 }

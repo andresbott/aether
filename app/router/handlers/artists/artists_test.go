@@ -16,6 +16,7 @@ import (
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -269,7 +270,7 @@ func TestSearchMusicBrainzReleases_UpstreamError(t *testing.T) {
 
 func TestSetMBID_SetsAndFetchesImage(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{data: []byte("IMG"), ext: "jpg"})
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +306,7 @@ func TestSetMBID_SetsAndFetchesImage(t *testing.T) {
 func TestSetMBID_ClearSkipsFetch(t *testing.T) {
 	fetcher := &fakeFetcher{data: []byte("IMG"), ext: "jpg"}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"old-mbid"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +327,7 @@ func TestSetMBID_ClearSkipsFetch(t *testing.T) {
 
 func TestSetMBID_InvalidUUID(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +356,7 @@ func TestSetMBID_UnknownArtist404(t *testing.T) {
 func TestSetMBID_FetchFailureStillSavesMbid(t *testing.T) {
 	fetcher := &fakeFetcher{err: errors.New("provider down")}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +386,7 @@ func TestSetMBID_FetchFailureStillSavesMbid(t *testing.T) {
 func TestSetMBID_NoImageFoundSetsFetchError(t *testing.T) {
 	fetcher := &fakeFetcher{}
 	s, r := newTestHandler(t, &fakeSearcher{}, fetcher)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +418,7 @@ func TestSetMBID_NoImageFoundSetsFetchError(t *testing.T) {
 
 func TestGetMBID_ReturnsCurrentValue(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"existing-mbid"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Nirvana"}, []string{"existing-mbid"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +447,7 @@ func TestGetArtistImageSource_FolderImage(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,7 +499,7 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +507,9 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	if err := s.SetArtistImagePath(id, imgPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := as.PutManual(assetstore.KindArtist, strconv.FormatUint(uint64(id), 10), "png", []byte("x")); err != nil {
+	// Store under the name-hash key (unmatched artist).
+	nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+	if err := as.PutManual(assetstore.KindArtist, nameHashKey, "png", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -533,7 +536,7 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 // avatar; the UI shows no note for that.
 func TestGetArtistImageSource_None(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,7 +561,7 @@ func TestGetArtistImageSource_None(t *testing.T) {
 // getCoverArt would fall through to the generated avatar.
 func TestGetArtistImageSource_MissingFolderImage(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, nil)
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,12 +634,14 @@ func TestGetArtistImageSource_DistinguishesUploadFromFetched(t *testing.T) {
 			r := mux.NewRouter()
 			h.Routes(r)
 
-			artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+			artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			id := strconv.FormatUint(uint64(artists[0].ID), 10)
-			if err := tt.put(as, id); err != nil {
+			// Store under the name-hash key (unmatched artist).
+			nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+			if err := tt.put(as, nameHashKey); err != nil {
 				t.Fatal(err)
 			}
 
@@ -673,7 +678,7 @@ func TestGetArtistImageSource_FolderReportsFilename(t *testing.T) {
 	if err := os.WriteFile(imgPath, []byte("fake"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -780,7 +785,7 @@ func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,8 +802,9 @@ func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
 		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
 	}
 
-	// Stored under the artist's own key, as a manual upload.
-	path, manual, ok := as.GetEntry(assetstore.KindArtist, idStr)
+	// Stored under the artist's name-hash key (unmatched artist), as a manual upload.
+	nameHashKey := assetkey.Artist("", artists[0].NameNorm)
+	path, manual, ok := as.GetEntry(assetstore.KindArtist, nameHashKey)
 	if !ok {
 		t.Fatal("no image stored for the artist")
 	}
@@ -823,7 +829,7 @@ func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, []string{"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,7 +865,7 @@ func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
 
 func TestSetArtistImageFromSearch_NoImageFound(t *testing.T) {
 	s, r := newTestHandler(t, &fakeSearcher{}, &fakeFetcher{})
-	artists, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
+	artists, _, err := s.FindOrCreateArtists([]string{"Pink Floyd"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

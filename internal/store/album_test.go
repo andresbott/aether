@@ -11,9 +11,10 @@ import (
 func TestFindOrCreateAlbum(t *testing.T) {
 	s := testStore(t)
 	var album *model.Album
+	ident := store.AlbumIdentity{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", MBReleaseID: ""}
 	err := s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		album, txErr = tx.FindOrCreateAlbum("Kid A", "radiohead", "")
+		album, txErr = tx.FindOrCreateAlbum(ident)
 		return txErr
 	})
 	if err != nil {
@@ -25,7 +26,7 @@ func TestFindOrCreateAlbum(t *testing.T) {
 	var same *model.Album
 	err = s.Transaction(func(tx *store.Store) error {
 		var txErr error
-		same, txErr = tx.FindOrCreateAlbum("Kid A", "radiohead", "")
+		same, txErr = tx.FindOrCreateAlbum(ident)
 		return txErr
 	})
 	if err != nil {
@@ -40,7 +41,8 @@ func TestFindOrCreateAlbumPropagatesQueryError(t *testing.T) {
 	s := testStore(t)
 	failQueries(t, s)
 
-	_, err := s.FindOrCreateAlbum("Kid A", "radiohead", "")
+	ident := store.AlbumIdentity{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead", MBReleaseID: ""}
+	_, err := s.FindOrCreateAlbum(ident)
 	if err == nil {
 		t.Fatal("expected the DB error to propagate, got nil (a real failure was treated as not-found)")
 	}

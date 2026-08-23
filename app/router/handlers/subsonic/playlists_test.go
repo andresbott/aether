@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -386,7 +387,7 @@ func TestUpdatePlaylistMultipartWithCover(t *testing.T) {
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
-	key := playlistCoverKey(pl.ID)
+	key := assetkey.PlaylistOf(pl)
 	if _, ok := as.Get(assetstore.KindPlaylist, key); ok {
 		t.Fatal("cover should not exist before upload")
 	}
@@ -420,7 +421,7 @@ func TestUpdatePlaylistMultipartCoverClear(t *testing.T) {
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
-	key := playlistCoverKey(pl.ID)
+	key := assetkey.PlaylistOf(pl)
 	if err := as.PutManual(assetstore.KindPlaylist, key, "png", pngBytes(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func TestDeletePlaylistRemovesCover(t *testing.T) {
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
 
-	key := playlistCoverKey(pl.ID)
+	key := assetkey.PlaylistOf(pl)
 	if err := as.PutManual(assetstore.KindPlaylist, key, "png", pngBytes(t)); err != nil {
 		t.Fatal(err)
 	}

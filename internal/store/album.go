@@ -9,10 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func (s *Store) FindOrCreateAlbum(name, albumArtistNorm, mbReleaseID string) (*model.Album, error) {
-	nameNorm := unidecode.Normalize(name)
+func (s *Store) FindOrCreateAlbum(ident AlbumIdentity) (*model.Album, error) {
 	var album model.Album
-	err := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", nameNorm, albumArtistNorm, mbReleaseID).First(&album).Error
+	err := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", ident.NameNorm, ident.AlbumArtistNorm, ident.MBReleaseID).First(&album).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		// A real DB failure must not be mistaken for "album does not exist":
 		// creating a duplicate on a transient error splits one album in two.
@@ -20,10 +19,10 @@ func (s *Store) FindOrCreateAlbum(name, albumArtistNorm, mbReleaseID string) (*m
 	}
 	if err != nil {
 		album = model.Album{
-			Name:            name,
-			NameNorm:        nameNorm,
-			AlbumArtistNorm: albumArtistNorm,
-			MBReleaseID:     mbReleaseID,
+			Name:            ident.Name,
+			NameNorm:        ident.NameNorm,
+			AlbumArtistNorm: ident.AlbumArtistNorm,
+			MBReleaseID:     ident.MBReleaseID,
 		}
 		if err := s.db.Create(&album).Error; err != nil {
 			return nil, err

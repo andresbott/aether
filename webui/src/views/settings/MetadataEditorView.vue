@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
-import Select from 'primevue/select'
+import Listbox from 'primevue/listbox'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
 import Splitter from 'primevue/splitter'
@@ -27,6 +27,10 @@ const selectedLibraryId = ref<number | null>(null)
 const selectedPath = ref<string | null>(null)
 const selection = ref<Track[]>([])
 const dialogVisible = ref(false)
+// The path FolderTree should expand to when the picker opens (a clicked
+// breadcrumb segment); null opens at the library root. Cleared when the picker
+// closes so re-picking the same segment re-triggers the expand.
+const pendingExpandPath = ref<string | null>(null)
 const confirm = useConfirm()
 
 const { tier } = useViewport()
@@ -36,17 +40,42 @@ const libraryOptions = computed(
     () => libraries.value?.map((l) => ({ label: l.name, value: l.id })) ?? []
 )
 
+// The library picker list only appears when there is a real choice to make.
+// With a single library it is redundant — that library is auto-selected below.
+const showLibraryList = computed(() => libraryOptions.value.length > 1)
+
+// A single configured library gets no picker list, so select it up front —
+// otherwise the folder tree has no library to browse and nothing to pick it
+// with. Only fires while nothing is selected yet, so it never fights a choice.
+watch(
+    libraryOptions,
+    (opts) => {
+        if (opts.length === 1 && selectedLibraryId.value === null) {
+            selectedLibraryId.value = opts[0].value
+        }
+    },
+    { immediate: true }
+)
+
 const currentLibraryLabel = computed(() => {
     if (selectedLibraryId.value === null) return null
     return libraries.value?.find((l) => l.id === selectedLibraryId.value)?.name ?? null
 })
 
-const currentFolderLabel = computed(() => {
-    if (selectedLibraryId.value === null) return 'No folder selected'
-    if (selectedPath.value === null || selectedPath.value === '')
-        return currentLibraryLabel.value ?? 'Library root'
-    const parts = selectedPath.value.split('/')
-    return `${currentLibraryLabel.value} / ${parts.join(' / ')}`
+// crumbs is the selected library + path as clickable breadcrumb segments: the
+// library (path '') then one per path part, each carrying the path accumulated
+// up to it, so a click can expand the picker straight there.
+const crumbs = computed<{ label: string; path: string }[]>(() => {
+    if (selectedLibraryId.value === null) return []
+    const out = [{ label: currentLibraryLabel.value ?? 'Library root', path: '' }]
+    if (selectedPath.value) {
+        let acc = ''
+        for (const part of selectedPath.value.split('/')) {
+            acc = acc ? `${acc}/${part}` : part
+            out.push({ label: part, path: acc })
+        }
+    }
+    return out
 })
 
 const tracksQuery = useTracks(
@@ -87,6 +116,8 @@ function guardUnsaved(action: () => void) {
 
 function onLibraryChange(val: number | null) {
     guardUnsaved(() => {
+        // A different library invalidates any pending expand target.
+        pendingExpandPath.value = null
         selectedLibraryId.value = val
         selectedPath.value = null
         selection.value = []
@@ -100,6 +131,20 @@ function onFolderSelect(path: string) {
         dialogVisible.value = false
     })
 }
+
+// openFolderPicker opens the folder dialog. expandTo tells FolderTree to expand
+// straight to a path (a clicked breadcrumb segment); null opens at the library
+// root. Opening is unguarded — only committing a new folder discards edits.
+function openFolderPicker(expandTo: string | null) {
+    pendingExpandPath.value = expandTo
+    dialogVisible.value = true
+}
+
+// Forget the target once the picker closes, so clicking the same segment again
+// is a real change FolderTree's watcher acts on.
+watch(dialogVisible, (open) => {
+    if (!open) pendingExpandPath.value = null
+})
 
 // Reload re-reads the folder AND forgets the cached identify answers: reloading
 // is the user saying "read this from disk again", and a cached fingerprint answer
@@ -209,9 +254,23 @@ function onAlbumReidentify() {
                 icon="pi pi-folder-open"
                 label="Select folder"
                 severity="secondary"
-                @click="dialogVisible = true"
+                @click="openFolderPicker(null)"
             />
-            <span class="folder-breadcrumb">{{ currentFolderLabel }}</span>
+            <nav v-if="crumbs.length" class="folder-breadcrumb" aria-label="Selected folder">
+                <template v-for="(c, i) in crumbs" :key="c.path || '__root__'">
+                    <span v-if="i > 0" class="crumb-sep" aria-hidden="true">/</span>
+                    <button
+                        type="button"
+                        class="crumb"
+                        :data-test="`crumb-${i}`"
+                        :title="`Browse from ${c.label}`"
+                        @click="openFolderPicker(c.path)"
+                    >
+                        {{ c.label }}
+                    </button>
+                </template>
+            </nav>
+            <span v-else class="folder-breadcrumb">No folder selected</span>
             <span class="count">({{ tracksQuery.data.value?.length ?? 0 }} files)</span>
             <Button
                 icon="pi pi-refresh"
@@ -284,22 +343,27 @@ function onAlbumReidentify() {
             v-model:visible="dialogVisible"
             header="Select folder"
             modal
-            :style="{ width: '40rem' }"
+            :style="{ width: 'min(92vw, 60rem)' }"
         >
             <div class="dialog-content">
-                <div class="dialog-library">
-                    <label>Library</label>
-                    <Select
+                <div v-if="showLibraryList" class="library-column" data-test="library-column">
+                    <label class="library-label">Library</label>
+                    <Listbox
                         :modelValue="selectedLibraryId"
                         @update:modelValue="onLibraryChange"
                         :options="libraryOptions"
                         optionLabel="label"
                         optionValue="value"
-                        placeholder="Select a library"
-                        class="w-full"
+                        class="library-listbox"
                     />
                 </div>
-                <FolderTree :libraryId="selectedLibraryId" @select="onFolderSelect" />
+                <div class="tree-column">
+                    <FolderTree
+                        :libraryId="selectedLibraryId"
+                        :expandTo="pendingExpandPath"
+                        @select="onFolderSelect"
+                    />
+                </div>
             </div>
         </Dialog>
 
@@ -346,12 +410,49 @@ function onAlbumReidentify() {
 }
 
 .folder-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
     min-width: 0;
     font-size: 0.9rem;
     color: var(--app-text-secondary);
     white-space: nowrap;
     overflow: hidden;
+}
+
+.crumb {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 16rem;
+    padding: 0.1rem 0.3rem;
+    margin: 0;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    font: inherit;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* The current folder is the last crumb; keep it readable but still clickable. */
+.crumb:last-child {
+    color: var(--app-text-primary);
+}
+
+.crumb:hover,
+.crumb:focus-visible {
+    color: var(--app-text-primary);
+    background: var(--app-surface-alt);
+    text-decoration: underline;
+    outline: none;
+}
+
+.crumb-sep {
+    flex: 0 0 auto;
+    opacity: 0.5;
 }
 
 .count {
@@ -399,25 +500,49 @@ function onAlbumReidentify() {
 
 .dialog-content {
     display: flex;
-    flex-direction: column;
     gap: 1rem;
+    height: min(70vh, 34rem);
 }
 
-.dialog-library {
+.library-column {
+    flex: 0 0 15rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    min-height: 0;
 }
 
-.dialog-library label {
+.library-label {
     font-size: 0.85rem;
     font-weight: 600;
+}
+
+.library-listbox {
+    flex: 1;
+    min-height: 0;
+}
+
+.tree-column {
+    flex: 1;
+    min-width: 0;
 }
 
 @media (max-width: 767.98px) {
     .editor-header {
         flex-wrap: wrap;
         row-gap: 0.75rem;
+    }
+
+    /* Stack the picker's two columns so neither is cramped on a phone. */
+    .dialog-content {
+        flex-direction: column;
+        height: auto;
+        max-height: 80vh;
+    }
+
+    .library-column {
+        flex: 0 0 auto;
+        max-height: 10rem;
     }
 }
 </style>

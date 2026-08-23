@@ -1,6 +1,7 @@
 package assetstore
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,6 +62,21 @@ func TestInvalidKeyRejected(t *testing.T) {
 	}
 	if _, ok := s.Get(KindArtist, "../escape"); ok {
 		t.Fatal("expected ok=false for unsafe key")
+	}
+}
+
+func TestSingleDotKeyRejected(t *testing.T) {
+	s := New(t.TempDir())
+	// A key of "." must be rejected — it cleans to the kind root, so a
+	// Delete would destroy every entity's images.
+	if err := s.PutManual(KindArtist, ".", "jpg", []byte("x")); err == nil {
+		t.Fatal("expected error for key=\".\"")
+	}
+	if _, ok := s.Get(KindArtist, "."); ok {
+		t.Fatal("expected ok=false for key=\".\"")
+	}
+	if err := s.Delete(KindArtist, "."); err == nil {
+		t.Fatal("expected error for Delete with key=\".\"")
 	}
 }
 
@@ -174,5 +190,145 @@ func TestGetEntryReportsManualVsAuto(t *testing.T) {
 	}
 	if filepath.Base(path) != "cover.png" {
 		t.Errorf("path = %q, want cover.png", filepath.Base(path))
+	}
+}
+
+func TestRekeyMovesEverything(t *testing.T) {
+	s := New(t.TempDir())
+	// Put a manual cover, an auto cover, and a manual named entry (back).
+	if err := s.PutManual(KindAlbum, "oldkey", "jpg", []byte("manual-cover")); err != nil {
+		t.Fatalf("PutManual cover: %v", err)
+	}
+	if err := s.PutAuto(KindAlbum, "oldkey", "png", []byte("auto-cover")); err != nil {
+		t.Fatalf("PutAuto cover: %v", err)
+	}
+	if err := s.PutManualNamed(KindAlbum, "oldkey", "back", "jpg", []byte("back-image")); err != nil {
+		t.Fatalf("PutManualNamed back: %v", err)
+	}
+
+	if err := s.Rekey(KindAlbum, "oldkey", "newkey"); err != nil {
+		t.Fatalf("Rekey: %v", err)
+	}
+
+	// All three entries must resolve under newkey with manual-vs-auto intact.
+	path, manual, ok := s.GetEntry(KindAlbum, "newkey")
+	if !ok || !manual {
+		t.Fatalf("newkey cover: manual=%v ok=%v", manual, ok)
+	}
+	if b, _ := os.ReadFile(path); string(b) != "manual-cover" {
+		t.Fatalf("newkey cover contents: got %q, want %q", b, "manual-cover")
+	}
+
+	// Manual wins in GetEntry, so we check the auto variant by reading the directory.
+	dir, _ := s.entityDir(KindAlbum, "newkey")
+	autoFile := filepath.Join(dir, "cover.auto.png")
+	if autoB, err := os.ReadFile(autoFile); err != nil || string(autoB) != "auto-cover" {
+		t.Fatalf("newkey auto cover: err=%v contents=%q", err, autoB)
+	}
+
+	backPath, ok := s.GetNamed(KindAlbum, "newkey", "back")
+	if !ok {
+		t.Fatal("newkey back entry must exist")
+	}
+	if b, _ := os.ReadFile(backPath); string(b) != "back-image" {
+		t.Fatalf("newkey back contents: got %q, want %q", b, "back-image")
+	}
+
+	// Nothing should remain under oldkey.
+	if _, ok := s.Get(KindAlbum, "oldkey"); ok {
+		t.Fatal("oldkey cover should be gone")
+	}
+	if _, ok := s.GetNamed(KindAlbum, "oldkey", "back"); ok {
+		t.Fatal("oldkey back should be gone")
+	}
+}
+
+func TestRekeyRefusesOccupiedDestination(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "src", "jpg", []byte("src-image"))
+	_ = s.PutManual(KindAlbum, "dst", "jpg", []byte("dst-image"))
+
+	err := s.Rekey(KindAlbum, "src", "dst")
+	if err == nil {
+		t.Fatal("expected error for occupied destination")
+	}
+	if !errors.Is(err, ErrKeyOccupied) {
+		t.Fatalf("expected ErrKeyOccupied, got: %v", err)
+	}
+
+	// Both sides must be intact.
+	srcPath, ok := s.Get(KindAlbum, "src")
+	if !ok {
+		t.Fatal("src must still exist")
+	}
+	if b, _ := os.ReadFile(srcPath); string(b) != "src-image" {
+		t.Fatalf("src contents changed: %q", b)
+	}
+
+	dstPath, ok := s.Get(KindAlbum, "dst")
+	if !ok {
+		t.Fatal("dst must still exist")
+	}
+	if b, _ := os.ReadFile(dstPath); string(b) != "dst-image" {
+		t.Fatalf("dst contents changed: %q", b)
+	}
+}
+
+func TestRekeyNoOp(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "k", "jpg", []byte("x"))
+
+	// oldKey == newKey should be a no-op returning nil.
+	if err := s.Rekey(KindAlbum, "k", "k"); err != nil {
+		t.Fatalf("Rekey same key: %v", err)
+	}
+	if _, ok := s.Get(KindAlbum, "k"); !ok {
+		t.Fatal("asset should still be readable after same-key Rekey")
+	}
+
+	// Missing source should return nil (nothing to move).
+	if err := s.Rekey(KindAlbum, "nonexistent", "newkey"); err != nil {
+		t.Fatalf("Rekey missing source: %v", err)
+	}
+}
+
+func TestRekeyEmptyDestinationAllowed(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "src", "jpg", []byte("data"))
+
+	// Create an empty directory at the destination.
+	dstDir, _ := s.entityDir(KindAlbum, "dst")
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Rekey should succeed since the empty directory holds no upload.
+	if err := s.Rekey(KindAlbum, "src", "dst"); err != nil {
+		t.Fatalf("Rekey with empty dest dir: %v", err)
+	}
+
+	if _, ok := s.Get(KindAlbum, "dst"); !ok {
+		t.Fatal("asset should be under dst after move")
+	}
+	if _, ok := s.Get(KindAlbum, "src"); ok {
+		t.Fatal("src should be gone")
+	}
+}
+
+func TestRekeyUnsafeKeys(t *testing.T) {
+	s := New(t.TempDir())
+	_ = s.PutManual(KindAlbum, "safe", "jpg", []byte("data"))
+
+	// Rekey with an unsafe key (containing ..) should be rejected.
+	if err := s.Rekey(KindAlbum, "safe", "../escape"); err == nil {
+		t.Fatal("expected error for unsafe newKey")
+	}
+	if err := s.Rekey(KindAlbum, "../escape", "safe"); err == nil {
+		t.Fatal("expected error for unsafe oldKey")
+	}
+
+	// The source should be untouched.
+	if _, ok := s.Get(KindAlbum, "safe"); !ok {
+		t.Fatal("safe key should still exist after rejected Rekey")
 	}
 }

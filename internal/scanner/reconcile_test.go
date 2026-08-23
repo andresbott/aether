@@ -188,3 +188,25 @@ func (r customAlbumTagReader) Read(_ context.Context, absPath string) (tags.Meta
 		Bitrate:     320,
 	}, nil
 }
+
+// The size a track row stores must be the size the walk recorded, because
+// planTrackContinuity matches a moved file against the stored value.
+func TestReconcileStoresTheWalkedFileSize(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"}) // createTestFiles writes "fake"
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var track model.Track
+	if err := st.DB().First(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+	if track.FileSize != 4 {
+		t.Fatalf("FileSize = %d, want 4", track.FileSize)
+	}
+}

@@ -151,8 +151,6 @@ function mountView() {
 
 async function openFolder(w: ReturnType<typeof mountView>) {
     await w.findAll('button')[0].trigger('click')
-    w.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', 1)
-    await flushPromises()
     w.findComponent({ name: 'FolderTree' }).vm.$emit('select', 'Artist/Album')
     await flushPromises()
 }
