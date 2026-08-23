@@ -39,6 +39,42 @@ func TestFanartTVFetch(t *testing.T) {
 	}
 }
 
+func TestFanartTVList(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v3/music/mbid-1", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"artistthumb":[
+			{"url":"https://assets.fanart.tv/fanart/music/mbid-1/artistthumb/a.jpg"},
+			{"url":"https://assets.fanart.tv/fanart/music/mbid-1/artistthumb/b.png"},
+			{"url":""}
+		]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	p := NewFanartTV("key")
+	p.BaseURL = srv.URL
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+
+	got, err := p.List(context.Background(), "mbid-1")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 candidates (empty URL skipped), got %d: %+v", len(got), got)
+	}
+	if got[0].FullURL != "https://assets.fanart.tv/fanart/music/mbid-1/artistthumb/a.jpg" {
+		t.Fatalf("FullURL[0]=%q", got[0].FullURL)
+	}
+	if got[0].ThumbURL != "https://assets.fanart.tv/preview/music/mbid-1/artistthumb/a.jpg" {
+		t.Fatalf("ThumbURL[0]=%q (preview derivation wrong)", got[0].ThumbURL)
+	}
+	if got[0].Provider != "fanart.tv" {
+		t.Fatalf("Provider[0]=%q", got[0].Provider)
+	}
+}
+
 func TestEmptyKeySkips(t *testing.T) {
 	p := NewFanartTV("")
 	data, _, err := p.Fetch(context.Background(), "x")
@@ -181,13 +217,46 @@ func TestChainErrorContinuation(t *testing.T) {
 	}
 }
 
-type stubProvider struct {
-	data []byte
-	ext  string
-	err  error
+func TestProviderDownload(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("PNGDATA"))
+	}))
+	defer srv.Close()
+
+	p := NewFanartTV("key")
+	p.Doer.Client = srv.Client()
+	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
+	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+
+	data, ext, err := p.Download(context.Background(), srv.URL+"/img.png")
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if string(data) != "PNGDATA" || ext != "png" {
+		t.Fatalf("got data=%q ext=%q", data, ext)
+	}
 }
 
-func (s stubProvider) Name() string { return "stub" }
+type stubProvider struct {
+	name  string
+	cands []ImageCandidate
+	data  []byte
+	ext   string
+	err   error
+}
+
+func (s stubProvider) Name() string {
+	if s.name != "" {
+		return s.name
+	}
+	return "stub"
+}
 func (s stubProvider) Fetch(_ context.Context, _ string) ([]byte, string, error) {
 	return s.data, s.ext, s.err
+}
+func (s stubProvider) List(_ context.Context, _ string) ([]ImageCandidate, error) {
+	return s.cands, s.err
+}
+func (s stubProvider) Download(_ context.Context, _ string) ([]byte, string, error) {
+	return s.data, s.ext, nil
 }

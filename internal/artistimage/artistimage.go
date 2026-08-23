@@ -15,10 +15,23 @@ import (
 // outbound API and image-download requests (burst 1).
 const requestsPerSecond rate.Limit = 1
 
+// ImageCandidate is one portrait a provider offers for an artist. FullURL is the
+// image stored on commit; ThumbURL is a lighter preview variant the grid loads.
+type ImageCandidate struct {
+	FullURL  string
+	ThumbURL string
+	Provider string // producing Provider.Name(); routes Chain.Download
+}
+
 type Provider interface {
 	// Fetch returns image bytes and a file extension ("jpg"/"png"), or
 	// (nil, "", nil) when the provider has no image for this MBID.
 	Fetch(ctx context.Context, mbid string) ([]byte, string, error)
+	// List returns the provider's portrait candidates for the MBID, in the
+	// order the provider returns them, or nil when it has none.
+	List(ctx context.Context, mbid string) ([]ImageCandidate, error)
+	// Download fetches the bytes of a URL this provider listed.
+	Download(ctx context.Context, url string) ([]byte, string, error)
 	Name() string
 }
 
