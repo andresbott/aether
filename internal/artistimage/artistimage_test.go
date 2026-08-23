@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -110,6 +111,23 @@ func TestChainDownloadRoutesByProvider(t *testing.T) {
 	data, ext, err := NewChain(a, b).Download(context.Background(), "B", "b1")
 	if err != nil || string(data) != "BBB" || ext != "png" {
 		t.Fatalf("routing: data=%q ext=%q err=%v", data, ext, err)
+	}
+}
+
+// A provider name that matches nothing in the chain (e.g. a stale/forged name
+// from a client) must error rather than silently return no bytes — the caller
+// (setImageFromSearch) needs to tell "download failed" from "nothing to do".
+func TestChainDownloadUnknownProviderErrors(t *testing.T) {
+	a := stubProvider{name: "A", data: []byte("AAA"), ext: "jpg"}
+	data, ext, err := NewChain(a).Download(context.Background(), "does-not-exist", "u")
+	if err == nil {
+		t.Fatal("expected an error when no provider matches the given name")
+	}
+	if !strings.Contains(err.Error(), "does-not-exist") {
+		t.Fatalf("expected the error to name the unmatched provider, got %q", err.Error())
+	}
+	if data != nil || ext != "" {
+		t.Fatalf("expected no data/ext alongside the error, got data=%q ext=%q", data, ext)
 	}
 }
 
