@@ -92,7 +92,8 @@ describe('ArtistImageSection', () => {
         expect(session.stageArtistImageSet).toHaveBeenCalledWith('Radiohead', {
             file: null,
             mbid: 'mb-1',
-            url: 'http://p/x.jpg'
+            url: 'http://p/x.jpg',
+            previewUrl: 'http://p/t.jpg'
         })
     })
 
@@ -116,7 +117,8 @@ describe('ArtistImageSection', () => {
         expect(session.stageArtistImageSet).toHaveBeenCalledWith('Radiohead', {
             file: null,
             mbid: 'mb',
-            url: 'http://p/x.jpg'
+            url: 'http://p/x.jpg',
+            previewUrl: 'http://p/t.jpg'
         })
     })
 
@@ -143,6 +145,43 @@ describe('ArtistImageSection', () => {
         await flushPromises()
         await wrapper.find('[data-test="artist-image-remove"]').trigger('click')
         expect(session.stageArtistImageRemoval).toHaveBeenCalledWith('Radiohead')
+    })
+
+    it('shows the current image metadata when present', async () => {
+        resolveArtistFolderSpy.mockResolvedValue({
+            eligible: true,
+            artist: 'Radiohead',
+            path: 'Radiohead',
+            current_image: 'artist.jpg',
+            current_image_meta: { width: 1000, height: 1000, format: 'jpeg', bytes: 250880 }
+        })
+        const { wrapper } = mountSection({})
+        await flushPromises()
+        expect(wrapper.find('[data-test="artist-image-meta"]').text()).toBe(
+            '1000 × 1000 · JPEG · 245 KB'
+        )
+    })
+
+    it('hides the stored metadata while a change is staged', async () => {
+        resolveArtistFolderSpy.mockResolvedValue({
+            eligible: true,
+            artist: 'Radiohead',
+            path: 'Radiohead',
+            current_image: 'artist.jpg',
+            current_image_meta: { width: 1000, height: 1000, format: 'jpeg', bytes: 250880 }
+        })
+        const session = mkSession({
+            getArtistImageOp: vi.fn(() => ({
+                kind: 'set',
+                file: null,
+                mbid: 'mb',
+                url: 'http://p/x.jpg',
+                preview: 'http://p/x.jpg'
+            }))
+        })
+        const { wrapper } = mountSection({}, session)
+        await flushPromises()
+        expect(wrapper.find('[data-test="artist-image-meta"]').exists()).toBe(false)
     })
 
     it('shows Undo for a staged op and discards it', async () => {

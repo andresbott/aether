@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/andresbott/aether/internal/artistimage"
+	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"gorm.io/gorm"
 )
@@ -21,6 +23,15 @@ const artistImageBase = "artist"
 
 var errArtistImageSource = errors.New("an image file or an online pick (mbid + url) is required")
 
+var (
+	errArtistImageNotConfigured = errors.New("artist image search is not configured")
+	// errURLNotCandidate is the SSRF guard's refusal, kept as a sentinel so
+	// downloadArtistPick can map it to 400 even when it surfaces from inside the
+	// download cache's load closure.
+	errURLNotCandidate = errors.New("url is not among the candidates for this artist")
+	errNoArtistImage   = errors.New("no image found for this artist")
+)
+
 // artistFolderDTO reports whether the SELECTED folder is an artist folder and, if
 // so, the artist name (its own basename) and the artist image it already holds.
 type artistFolderDTO struct {
@@ -28,6 +39,9 @@ type artistFolderDTO struct {
 	Artist       string `json:"artist,omitempty"`
 	Path         string `json:"path,omitempty"`
 	CurrentImage string `json:"current_image,omitempty"`
+	// CurrentImageMeta is the size/dimensions/format of CurrentImage, or nil
+	// when the folder holds no artist image.
+	CurrentImageMeta *imageMetaDTO `json:"current_image_meta,omitempty"`
 }
 
 // artistFolder reports whether the selected folder is an artist folder — one
@@ -55,14 +69,20 @@ func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := ""
+	var meta *imageMetaDTO
 	if img := artistimage.BestInDir(dir); img != "" {
 		current = filepath.Base(img)
+		if info, ierr := imageinfo.DescribeFile(img); ierr == nil {
+			m := toImageMeta(info)
+			meta = &m
+		}
 	}
 	writeJSON(w, http.StatusOK, artistFolderDTO{
-		Eligible:     true,
-		Artist:       filepath.Base(dir),
-		Path:         filepath.ToSlash(rel),
-		CurrentImage: current,
+		Eligible:         true,
+		Artist:           filepath.Base(dir),
+		Path:             filepath.ToSlash(rel),
+		CurrentImage:     current,
+		CurrentImageMeta: meta,
 	})
 }
 
@@ -217,34 +237,69 @@ func (h *Handler) artistImageSource(r *http.Request) (data []byte, ext string, s
 	if mbid == "" || imgURL == "" {
 		return nil, "", http.StatusBadRequest, errArtistImageSource
 	}
+	return h.downloadArtistPick(r.Context(), mbid, imgURL)
+}
+
+// downloadArtistPick downloads an online artist-image pick — an MBID plus a
+// candidate URL — through the provider chain. It re-lists the MBID's candidates
+// and refuses any URL not among them (SSRF guard), so only a provider-offered
+// image is ever fetched from an arbitrary host. Shared by the write and the
+// pre-save metadata probe. A zero status with a non-nil err marks an upstream
+// download failure for writeUpstreamErr.
+func (h *Handler) downloadArtistPick(ctx context.Context, mbid, imgURL string) (data []byte, ext string, status int, err error) {
 	if h.ArtistImages == nil {
-		return nil, "", http.StatusServiceUnavailable,
-			errors.New("artist image search is not configured")
+		return nil, "", http.StatusServiceUnavailable, errArtistImageNotConfigured
 	}
-	// SSRF guard: re-list and only download a URL the provider itself offered for
-	// this MBID — never an arbitrary URL from the client.
-	cands, lerr := h.ArtistImages.List(r.Context(), mbid)
-	if lerr != nil {
-		return nil, "", 0, lerr
-	}
-	var provider string
-	found := false
-	for _, c := range cands {
-		if c.FullURL == imgURL {
-			provider, found = c.Provider, true
-			break
+	// The list + SSRF validation + download run inside the cache's load closure,
+	// so a repeat pick (probe then save) served from cache skips the re-list too.
+	// A URL is only ever cached after it was validated as a candidate here.
+	b, dext, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
+		cands, lerr := h.ArtistImages.List(ctx, mbid)
+		if lerr != nil {
+			return nil, "", lerr
 		}
-	}
-	if !found {
-		return nil, "", http.StatusBadRequest,
-			errors.New("url is not among the candidates for this artist")
-	}
-	b, dext, derr := h.ArtistImages.Download(r.Context(), provider, imgURL)
+		for _, c := range cands {
+			if c.FullURL == imgURL {
+				return h.ArtistImages.Download(ctx, c.Provider, imgURL)
+			}
+		}
+		return nil, "", errURLNotCandidate
+	})
 	if derr != nil {
+		if errors.Is(derr, errURLNotCandidate) {
+			return nil, "", http.StatusBadRequest, derr
+		}
 		return nil, "", 0, derr
 	}
 	if len(b) == 0 {
-		return nil, "", http.StatusNotFound, errors.New("no image found for this artist")
+		return nil, "", http.StatusNotFound, errNoArtistImage
 	}
 	return b, dext, 0, nil
+}
+
+// artistImageCandidateInfo downloads a candidate artist portrait — an MBID plus
+// a provider-offered URL — and reports its size, dimensions and format, so the
+// editor can show what an online pick will write before the user saves. It uses
+// the same SSRF-guarded download as the write; nothing is persisted.
+func (h *Handler) artistImageCandidateInfo(w http.ResponseWriter, r *http.Request) {
+	mbid := strings.TrimSpace(r.URL.Query().Get("mbid"))
+	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if mbid == "" || imgURL == "" {
+		writeErr(w, http.StatusBadRequest, "validation_error", "mbid and url are required")
+		return
+	}
+	data, _, status, err := h.downloadArtistPick(r.Context(), mbid, imgURL)
+	if err != nil {
+		if status == 0 {
+			writeUpstreamErr(w, err, "The image could not be downloaded. Try again in a moment.")
+			return
+		}
+		code := codeFor(status)
+		if status == http.StatusServiceUnavailable {
+			code = "not_configured"
+		}
+		writeErr(w, status, code, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))
 }

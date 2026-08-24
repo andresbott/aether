@@ -65,6 +65,24 @@ describe('SettingsLayout', () => {
         expect(text).not.toContain('Logout')
     })
 
+    // The metadata editor sits under its own Tools header, in addition to being
+    // reachable from the sidebar UserMenu. Its side-nav entry points at the
+    // top-level /metadata-editor route.
+    it('renders a Tools group with the Metadata Editor entry', () => {
+        const text = mountLayout().text()
+        expect(text).toContain('Tools')
+        expect(text).toContain('Metadata Editor')
+    })
+
+    it('navigates to /metadata-editor from the Metadata Editor entry', async () => {
+        const w = mountLayout()
+        const item = w
+            .findAll('.sidebar-nav .nav-item')
+            .find((b) => b.text() === 'Metadata Editor')!
+        await item.trigger('click')
+        expect(push).toHaveBeenCalledWith('/metadata-editor')
+    })
+
     it('highlights the entry matching the current route', () => {
         route.path = '/settings/tasks'
         const w = mountLayout()

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import Button from 'primevue/button'
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
+import PictureCell from './PictureCell.vue'
 import { resolveArtistFolder, getArtistImageUrl } from '@/lib/api/Metadata'
+import { formatImageMeta } from '@/lib/imageMeta'
 import type { ArtistFolderInfo } from '@/types/metadata'
 import type { ArtistImagePick } from '@/types/artists'
 import type { EditSession } from '@/composables/useEditSession'
@@ -75,6 +76,15 @@ const cellNote = computed(() => {
     return 'No image'
 })
 
+// The stored image's size/dimensions/format, shown only when it is the image on
+// display: a pending change replaces it, and its preview showed its own metadata
+// in the picker.
+const currentMeta = computed<string | null>(() => {
+    if (op.value) return null
+    const m = serverInfo.value?.current_image_meta
+    return m ? formatImageMeta(m) : null
+})
+
 const dialogVisible = ref(false)
 function openPicker() {
     dialogVisible.value = true
@@ -84,7 +94,10 @@ function onPickerSelect(pick: ArtistImagePick) {
         props.session.stageArtistImageSet(folderKey.value, {
             file: null,
             mbid: pick.mbid,
-            url: pick.url
+            url: pick.url,
+            // Reuse the picker's thumbnail for the staged preview; the full url is
+            // downloaded server-side on save.
+            previewUrl: pick.previewUrl
         })
     }
 }
@@ -112,53 +125,27 @@ function undo() {
         "
         data-test="artist-image-block"
     >
-        <div
-            class="artist-cell"
-            :class="{ pending: op?.kind === 'set', removing: op?.kind === 'remove' }"
+        <PictureCell
             data-test="artist-image-cell"
-        >
-            <div class="thumb">
-                <img v-if="cellPreview" :src="cellPreview" class="thumb-img" alt="Artist image" />
-                <div v-else class="thumb-empty"><i class="pi pi-user"></i></div>
-            </div>
-            <div class="cell-body">
-                <div class="target" data-test="artist-image-target">{{ targetLabel }}</div>
-                <div class="sub">artist “{{ artist }}”</div>
-                <div class="cell-note">{{ cellNote }}</div>
-                <div class="actions">
-                    <Button
-                        v-if="op"
-                        icon="pi pi-undo"
-                        label="Undo"
-                        text
-                        size="small"
-                        data-test="artist-image-undo"
-                        @click="undo"
-                    />
-                    <template v-else>
-                        <Button
-                            icon="pi pi-images"
-                            :label="cellPreview ? 'Change' : 'Add image'"
-                            text
-                            size="small"
-                            data-test="artist-image-change"
-                            :disabled="libraryId === null"
-                            @click="openPicker"
-                        />
-                        <Button
-                            v-if="hasCurrent"
-                            icon="pi pi-trash"
-                            label="Remove"
-                            text
-                            size="small"
-                            severity="danger"
-                            data-test="artist-image-remove"
-                            @click="removeImage"
-                        />
-                    </template>
-                </div>
-            </div>
-        </div>
+            :image="cellPreview"
+            alt="Artist image"
+            :title="targetLabel"
+            :subtitle="`artist “${artist}”`"
+            :note="cellNote"
+            :meta="currentMeta"
+            :staged="!!op"
+            :pending="op?.kind === 'set'"
+            :removing="op?.kind === 'remove'"
+            :can-remove="hasCurrent"
+            :disabled="libraryId === null"
+            change-test-id="artist-image-change"
+            remove-test-id="artist-image-remove"
+            undo-test-id="artist-image-undo"
+            meta-test-id="artist-image-meta"
+            @change="openPicker"
+            @remove="removeImage"
+            @undo="undo"
+        />
 
         <ArtistImageSearchDialog
             v-model:visible="dialogVisible"
@@ -169,76 +156,3 @@ function undo() {
         />
     </CollapsibleSection>
 </template>
-
-<style scoped>
-.artist-cell {
-    display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
-    padding: 0.5rem;
-    border: 1px solid var(--app-border);
-    border-radius: 6px;
-    text-align: left;
-}
-.artist-cell.pending,
-.artist-cell.removing {
-    border-color: var(--app-staged);
-    background-color: var(--app-staged-soft);
-}
-.artist-cell.removing .cell-note {
-    text-decoration: line-through;
-}
-.artist-cell.pending .cell-note,
-.artist-cell.removing .cell-note {
-    color: var(--app-staged);
-}
-.thumb {
-    flex: 0 0 auto;
-    width: 5rem;
-    height: 5rem;
-}
-.thumb-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 6px;
-    border: 1px solid var(--app-border);
-    background: var(--app-bg-subtle, #f3f4f6);
-    display: block;
-}
-.thumb-empty {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px dashed var(--app-border);
-    border-radius: 6px;
-    color: var(--app-text-secondary);
-    font-size: 1.5rem;
-}
-.cell-body {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
-}
-.target {
-    font-size: 0.85rem;
-    font-weight: 600;
-    word-break: break-all;
-}
-.sub {
-    font-size: 0.75rem;
-    color: var(--app-text-secondary);
-}
-.cell-note {
-    font-size: 0.75rem;
-    color: var(--app-text-secondary);
-}
-.actions {
-    display: flex;
-    gap: 0.25rem;
-    margin-top: 0.25rem;
-}
-</style>

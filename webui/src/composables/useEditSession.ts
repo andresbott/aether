@@ -591,7 +591,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             kind: 'set',
             file: src.file,
             imageUrl: src.imageUrl,
-            preview: src.file ? URL.createObjectURL(src.file) : src.imageUrl,
+            // Prefer the picker's thumbnail for the preview; the full imageUrl is
+            // only downloaded server-side on save.
+            preview: src.file ? URL.createObjectURL(src.file) : (src.previewUrl ?? src.imageUrl),
             paths
         })
     }
@@ -632,7 +634,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             file: src.file,
             mbid: src.mbid,
             url: src.url,
-            preview: src.file ? URL.createObjectURL(src.file) : src.url
+            // Prefer the picker's thumbnail for the preview; the full url is only
+            // downloaded server-side on save.
+            preview: src.file ? URL.createObjectURL(src.file) : (src.previewUrl ?? src.url)
         })
     }
 

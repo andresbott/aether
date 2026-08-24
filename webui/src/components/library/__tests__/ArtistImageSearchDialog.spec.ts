@@ -49,6 +49,16 @@ vi.mock('@/lib/api/Artists', () => ({
     parseArtistNumericId: (id: string) => Number(id.split('-').pop())
 }))
 
+// Probing the picked image downloads the real file server-side; only the API
+// call is stubbed.
+const getArtistImageCandidateInfo = vi.fn((_mbid: string, _url: string) =>
+    Promise.resolve({ width: 1000, height: 1000, format: 'jpeg', bytes: 250880 })
+)
+vi.mock('@/lib/api/Metadata', () => ({
+    getArtistImageCandidateInfo: (...a: unknown[]) =>
+        getArtistImageCandidateInfo(...(a as [string, string]))
+}))
+
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
 
 const mountDialog = (props: Record<string, unknown> = {}) =>
@@ -65,6 +75,13 @@ beforeEach(() => {
     setArtistImageFromSearch.mockClear()
     getArtistImageCandidates.mockClear()
     getArtistImageCandidates.mockResolvedValue(IMAGE_CANDIDATES)
+    getArtistImageCandidateInfo.mockClear()
+    getArtistImageCandidateInfo.mockResolvedValue({
+        width: 1000,
+        height: 1000,
+        format: 'jpeg',
+        bytes: 250880
+    })
 })
 
 describe('ArtistImageSearchDialog', () => {
@@ -143,6 +160,19 @@ describe('ArtistImageSearchDialog', () => {
             }
         ])
         expect(w.emitted('update:visible')?.at(-1)).toEqual([false])
+    })
+
+    it('probes the picked image and shows its metadata', async () => {
+        results.value = CANDIDATES
+        const w = mountDialog()
+        await flushPromises()
+        await w.findAll('.result-row')[0].trigger('click')
+        await flushPromises()
+        await w.findAll('[data-test="candidate-thumb"]')[0].trigger('click')
+        await flushPromises()
+
+        expect(getArtistImageCandidateInfo).toHaveBeenCalledWith('mbid-a', 'https://cdn/full-a.jpg')
+        expect(w.find('[data-test="candidate-meta"]').text()).toBe('1000 × 1000 · JPEG · 245 KB')
     })
 
     it('emits nothing when no candidate is picked', async () => {

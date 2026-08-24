@@ -64,4 +64,4 @@ whole app whenever auth method `native` reports no session (see
 | `LibrariesView` | `/settings/libraries` | Manage collections/libraries |
 | `UsersView` | `/settings/users` | Manage native users (only with `Auth.Method: native`; nav entry hidden otherwise) |
 | `TasksView` | `/settings/tasks` | Scanning / scheduled tasks |
-| `MetadataEditorView` | `/settings/metadata` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components) |
+| `MetadataEditorView` | `/metadata-editor` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components). Top-level route rendered in the settings layout (admin-only); reached from the sidebar `UserMenu` and the settings side-nav (Tools group) |

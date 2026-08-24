@@ -31,11 +31,19 @@ func mkAlbumTrack(t *testing.T, root, artist, album string) {
 
 // ----- eligibility -----
 
+type imageMetaBody struct {
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Format string `json:"format"`
+	Bytes  int64  `json:"bytes"`
+}
+
 type artistFolderBody struct {
-	Eligible     bool   `json:"eligible"`
-	Artist       string `json:"artist"`
-	Path         string `json:"path"`
-	CurrentImage string `json:"current_image"`
+	Eligible         bool           `json:"eligible"`
+	Artist           string         `json:"artist"`
+	Path             string         `json:"path"`
+	CurrentImage     string         `json:"current_image"`
+	CurrentImageMeta *imageMetaBody `json:"current_image_meta"`
 }
 
 func fetchArtistFolder(t *testing.T, r http.Handler, libID, path string) (*httptest.ResponseRecorder, artistFolderBody) {
@@ -89,6 +97,45 @@ func TestArtistFolder_ReportsExistingImage(t *testing.T) {
 	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
 	if !body.Eligible || body.CurrentImage != "artist.jpg" {
 		t.Errorf("got %+v, want eligible with current_image artist.jpg", body)
+	}
+}
+
+// TestArtistFolder_ReportsCurrentImageMeta: the current artist image's size,
+// dimensions and format ride along with the eligibility response, so the editor
+// can show them without a second request.
+func TestArtistFolder_ReportsCurrentImageMeta(t *testing.T) {
+	root := t.TempDir()
+	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
+	if err := os.WriteFile(filepath.Join(root, "Radiohead", "artist.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+
+	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	if body.CurrentImage != "artist.png" {
+		t.Fatalf("current_image = %q, want artist.png", body.CurrentImage)
+	}
+	m := body.CurrentImageMeta
+	if m == nil {
+		t.Fatal("current_image_meta is nil, want it populated")
+	}
+	if m.Width != 1 || m.Height != 1 || m.Format != "png" || m.Bytes != int64(len(pngBytes)) {
+		t.Errorf("meta = %+v, want 1x1 png %d bytes", m, len(pngBytes))
+	}
+}
+
+// TestArtistFolder_NoImageMetaWhenAbsent: with no artist image on disk, the
+// response carries no image meta.
+func TestArtistFolder_NoImageMetaWhenAbsent(t *testing.T) {
+	root := t.TempDir()
+	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
+
+	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+
+	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	if body.CurrentImageMeta != nil {
+		t.Errorf("current_image_meta = %+v, want nil when no image", body.CurrentImageMeta)
 	}
 }
 
@@ -325,6 +372,80 @@ func TestSetArtistImage_RescansRepresentativeTrack(t *testing.T) {
 	want := filepath.Join(root, "Radiohead", "OK Computer", "a.flac")
 	if rs.calls[0][0] != want {
 		t.Errorf("rescan path = %q, want %q", rs.calls[0][0], want)
+	}
+}
+
+// ----- candidate info (probe before saving) -----
+
+func fetchArtistImageCandidateInfo(t *testing.T, r http.Handler, mbid, imgURL string) (*httptest.ResponseRecorder, *imageMetaBody) {
+	t.Helper()
+	reqURL := "/metadata/artist-image/candidate-info?mbid=" + url.QueryEscape(mbid) + "&url=" + url.QueryEscape(imgURL)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", reqURL, nil))
+	var m *imageMetaBody
+	if w.Code == http.StatusOK {
+		m = &imageMetaBody{}
+		if err := json.Unmarshal(w.Body.Bytes(), m); err != nil {
+			t.Fatalf("decode body: %v (%s)", err, w.Body.String())
+		}
+	}
+	return w, m
+}
+
+// TestArtistImageCandidateInfo_ReturnsMeta: probing a candidate downloads the
+// real image (via the same SSRF-guarded path as the write) and reports its
+// size, dimensions and format.
+func TestArtistImageCandidateInfo_ReturnsMeta(t *testing.T) {
+	const imgURL = "https://provider.example/full.jpg"
+	fetcher := stubArtistFetcher{
+		candidates: []artistimage.ImageCandidate{{FullURL: imgURL, Provider: "fanart"}},
+		data:       pngBytes,
+		ext:        "jpg",
+	}
+	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
+
+	w, m := fetchArtistImageCandidateInfo(t, r, testMBID, imgURL)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if m == nil || m.Width != 1 || m.Height != 1 || m.Format != "png" || m.Bytes != int64(len(pngBytes)) {
+		t.Errorf("meta = %+v, want 1x1 png %d bytes", m, len(pngBytes))
+	}
+}
+
+// TestArtistImageCandidateInfo_RejectsUrlNotInCandidates: the SSRF guard refuses
+// a URL the provider did not offer for this MBID.
+func TestArtistImageCandidateInfo_RejectsUrlNotInCandidates(t *testing.T) {
+	fetcher := stubArtistFetcher{
+		candidates: []artistimage.ImageCandidate{{FullURL: "https://provider.example/a.jpg", Provider: "fanart"}},
+		data:       pngBytes,
+	}
+	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
+
+	w, _ := fetchArtistImageCandidateInfo(t, r, testMBID, "https://evil.example/x.jpg")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestArtistImageCandidateInfo_RequiresFetcher: with no provider configured, a
+// probe is unavailable.
+func TestArtistImageCandidateInfo_RequiresFetcher(t *testing.T) {
+	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, nil, nil)
+
+	w, _ := fetchArtistImageCandidateInfo(t, r, testMBID, "https://provider.example/a.jpg")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestArtistImageCandidateInfo_RequiresParams: mbid and url are both required.
+func TestArtistImageCandidateInfo_RequiresParams(t *testing.T) {
+	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, stubArtistFetcher{}, nil)
+
+	w, _ := fetchArtistImageCandidateInfo(t, r, "", "")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
 	}
 }
 

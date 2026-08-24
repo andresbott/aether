@@ -6,6 +6,7 @@ import type {
     CoverCandidate,
     DeleteArtistImageResult,
     DeletePictureResult,
+    ImageMeta,
     IdentifyAlbumRequest,
     IdentifyAlbumResponse,
     IdentifyRequest,
@@ -131,6 +132,16 @@ export async function listReleaseCovers(mbid: string, releaseGroup?: string) {
     return data
 }
 
+// getPictureCandidateInfo probes a Cover Art Archive candidate: the server
+// downloads the real image and reports its size, dimensions and format, so the
+// picker can show what saving will write (the grid only shows a thumbnail).
+export async function getPictureCandidateInfo(url: string): Promise<ImageMeta> {
+    const { data } = await apiClient.get<ImageMeta>('/metadata/pictures/candidate-info', {
+        params: { url }
+    })
+    return data
+}
+
 // fetchPictureFile downloads an image the server already serves (a picture
 // cell's image URL) and wraps it in a File, so an image the album already has
 // can be staged as an upload for another type+slot cell.
@@ -173,6 +184,17 @@ export async function resolveArtistFolder(
 ): Promise<ArtistFolderInfo> {
     const { data } = await apiClient.get<ArtistFolderInfo>('/metadata/artist-folder', {
         params: { library_id: libraryId, path }
+    })
+    return data
+}
+
+// getArtistImageCandidateInfo probes a candidate artist portrait — an MBID plus
+// a provider-offered URL: the server re-lists (SSRF guard), downloads the real
+// image and reports its size, dimensions and format, so the picker can show what
+// saving will write (the grid only shows a downscaled preview).
+export async function getArtistImageCandidateInfo(mbid: string, url: string): Promise<ImageMeta> {
+    const { data } = await apiClient.get<ImageMeta>('/metadata/artist-image/candidate-info', {
+        params: { mbid, url }
     })
     return data
 }

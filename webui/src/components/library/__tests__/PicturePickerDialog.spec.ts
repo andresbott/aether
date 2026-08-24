@@ -7,9 +7,11 @@ import type { MusicBrainzReleaseCandidate } from '@/types/artists'
 
 const listReleaseCoversSpy = vi.hoisted(() => vi.fn())
 const fetchPictureFileSpy = vi.hoisted(() => vi.fn())
+const getPictureCandidateInfoSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', () => ({
     listReleaseCovers: (...args: unknown[]) => listReleaseCoversSpy(...args),
-    fetchPictureFile: (...args: unknown[]) => fetchPictureFileSpy(...args)
+    fetchPictureFile: (...args: unknown[]) => fetchPictureFileSpy(...args),
+    getPictureCandidateInfo: (...args: unknown[]) => getPictureCandidateInfoSpy(...args)
 }))
 
 const searchReleasesSpy = vi.hoisted(() => vi.fn())
@@ -109,6 +111,13 @@ describe('PicturePickerDialog', () => {
         searchReleasesSpy.mockReset()
         searchReleasesSpy.mockResolvedValue([])
         fetchPictureFileSpy.mockReset()
+        getPictureCandidateInfoSpy.mockReset()
+        getPictureCandidateInfoSpy.mockResolvedValue({
+            width: 1400,
+            height: 1400,
+            format: 'jpeg',
+            bytes: 512000
+        })
     })
 
     it('shows the type and slot in the header', () => {
@@ -385,8 +394,27 @@ describe('PicturePickerDialog', () => {
 
             const emitted = wrapper.emitted('select')
             expect(emitted).toHaveLength(1)
-            expect(emitted![0][0]).toEqual({ file: null, imageUrl: 'http://img/1.jpg' })
+            expect(emitted![0][0]).toEqual({
+                file: null,
+                imageUrl: 'http://img/1.jpg',
+                previewUrl: 'http://img/1-250.jpg'
+            })
             expect(wrapper.emitted('update:visible')![0]).toEqual([false])
+        })
+
+        it('probes a picked CAA candidate and shows its metadata', async () => {
+            listReleaseCoversSpy.mockResolvedValue([
+                mkCandidate({ id: 'b', imageUrl: 'http://img/b.jpg' })
+            ])
+            const wrapper = mountPicker()
+            await searchByMbid(wrapper)
+            await wrapper.find('.cover-tile').trigger('click')
+            await flushPromises()
+
+            expect(getPictureCandidateInfoSpy).toHaveBeenCalledWith('http://img/b.jpg')
+            expect(wrapper.find('[data-test="candidate-meta"]').text()).toBe(
+                '1400 × 1400 · JPEG · 500 KB'
+            )
         })
 
         it('resets to the query step with no results when reopened', async () => {
@@ -503,7 +531,8 @@ describe('PicturePickerDialog', () => {
             expect(fetchPictureFileSpy).not.toHaveBeenCalled()
             expect(wrapper.emitted('select')![0][0]).toEqual({
                 file: null,
-                imageUrl: 'http://img/1.jpg'
+                imageUrl: 'http://img/1.jpg',
+                previewUrl: 'http://img/1-250.jpg'
             })
         })
     })

@@ -11,6 +11,7 @@ import (
 
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanner"
@@ -58,6 +59,11 @@ type Handler struct {
 	// artist-folder image feature. Optional: nil leaves upload working and makes
 	// an online pick answer 503.
 	ArtistImages ArtistImageFetcher
+	// Downloads memoizes provider image bytes by URL, so the pre-save probe and
+	// the save reuse a single download instead of pulling the same rate-limited
+	// image twice. Optional: nil disables caching (every probe/save downloads
+	// fresh). A cache hit also skips the artist-image SSRF re-list.
+	Downloads *dlcache.Cache
 	// Images serves display-sized copies of the editor's picture cells, so a
 	// grid of thumbnails does not download full-resolution scans. Optional: nil
 	// makes every cell serve its original.
@@ -159,6 +165,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
 	r.Path("/metadata/artist-folder").Methods(http.MethodGet).HandlerFunc(h.artistFolder)
 	r.Path("/metadata/artist-image").Methods(http.MethodGet).HandlerFunc(h.artistImage)
+	r.Path("/metadata/artist-image/candidate-info").Methods(http.MethodGet).HandlerFunc(h.artistImageCandidateInfo)
 	r.Path("/metadata/artist-image").Methods(http.MethodPost).HandlerFunc(h.setArtistImage)
 	r.Path("/metadata/artist-image").Methods(http.MethodDelete).HandlerFunc(h.deleteArtistImage)
 	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
@@ -169,6 +176,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/pictures").Methods(http.MethodDelete).HandlerFunc(h.deletePicture)
 	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
 	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
+	r.Path("/metadata/pictures/candidate-info").Methods(http.MethodGet).HandlerFunc(h.pictureCandidateInfo)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

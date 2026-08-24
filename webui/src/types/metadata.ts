@@ -323,6 +323,16 @@ export interface CoverCandidate {
 // - 'folder': an art file in the album folder (e.g. cover.jpg, back.jpg)
 export type PictureSlot = 'embedded' | 'folder'
 
+// An image's displayable metadata: pixel dimensions, encoded format ('jpeg',
+// 'png', 'gif', or '' when it could not be decoded) and byte size. Reported for
+// stored images and probed candidates alike so the editor can show them.
+export interface ImageMeta {
+    width: number
+    height: number
+    format: string
+    bytes: number
+}
+
 // One occupied slot of a picture type, as reported by the pictures endpoint.
 export interface PictureSlotInfo {
     slot: PictureSlot
@@ -333,6 +343,9 @@ export interface PictureSlotInfo {
     // carries a different one. The editor shows the first folder's image and
     // warns; saving writes the picture into every folder.
     mixed?: boolean
+    // Size/dimensions/format of the slot's representative image (the folder
+    // file, or the embedded picture of the first track that has one).
+    meta?: ImageMeta
 }
 
 // One picture type present somewhere for the folder, with its occupied slots.
@@ -370,6 +383,8 @@ export interface ArtistFolderInfo {
     path: string
     // Filename of the current artist image, or '' when none.
     current_image: string
+    // Size/dimensions/format of the current artist image; absent when none.
+    current_image_meta?: ImageMeta
 }
 
 export interface ApplyArtistImageResult {
@@ -390,6 +405,11 @@ export interface DeleteArtistImageResult {
 export interface StagedPictureSource {
     file: File | null
     imageUrl: string | null
+    // The thumbnail the picker already loaded, used as the staged preview so the
+    // cell does not re-download the full imageUrl just to show a small tile. The
+    // full imageUrl is fetched server-side only on save. Absent for uploads
+    // (previewed from the file's object URL).
+    previewUrl?: string | null
 }
 
 // An artist image chosen in the picker but not yet written: an uploaded file, or
@@ -399,6 +419,10 @@ export interface StagedArtistImageSource {
     file: File | null
     mbid: string | null
     url: string | null
+    // The thumbnail the picker already loaded, used as the staged preview so the
+    // cell does not re-download the full url just to show a small tile. The full
+    // url is fetched server-side only on save. Absent for uploads.
+    previewUrl?: string | null
 }
 
 // An image this album already has in another type+slot cell, offered in the

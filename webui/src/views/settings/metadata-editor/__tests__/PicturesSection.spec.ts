@@ -188,6 +188,27 @@ describe('PicturesSection', () => {
         expect(wrapper.find('[data-test="picture-type-Media"]').exists()).toBe(false)
     })
 
+    it('shows a slot image metadata line for an occupied cell', async () => {
+        getPicturesSpy.mockResolvedValue([
+            {
+                type: 'Front Cover',
+                slots: [
+                    {
+                        slot: 'folder',
+                        detail: 'cover.jpg',
+                        meta: { width: 1400, height: 1400, format: 'jpeg', bytes: 512000 }
+                    }
+                ]
+            }
+        ])
+        const { wrapper } = mountSection([mkTrack()])
+        await flushPromises()
+        const cell = wrapper.find('[data-test="picture-cell-Front Cover-folder"]')
+        expect(cell.find('[data-test="picture-meta-Front Cover-folder"]').text()).toBe(
+            '1400 × 1400 · JPEG · 500 KB'
+        )
+    })
+
     it('offers only absent types in the Add picture menu and adds an empty block', async () => {
         getPicturesSpy.mockResolvedValue([
             { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }

@@ -14,8 +14,9 @@ const router = useRouter()
 // Identity from the /me bootstrap. With auth method "none" there is no
 // session: the chip falls back to "Guest" and the popup has nothing to log
 // out of, so the Log out entry is dropped (same gate as SettingsLayout).
-// The Admin entry only exists for admins — the /settings area it opens is
-// forbidden to everyone else (403 on the whole /api/v1 admin surface).
+// The Admin and Metadata editor entries only exist for admins — the routes
+// they open both use the admin-only settings layout, so a non-admin is
+// redirected away and the /api/v1 data behind them answers 403.
 const { authRequired, currentUser, isAdmin, logout } = useAuth()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)
@@ -33,6 +34,11 @@ const goUserSettings = () => {
 const goSettings = () => {
     popoverRef.value?.hide()
     router.push('/settings')
+}
+
+const goMetadataEditor = () => {
+    popoverRef.value?.hide()
+    router.push('/metadata-editor')
 }
 
 const goAbout = () => {
@@ -81,6 +87,16 @@ const onLogout = () => {
                 >
                     <i class="pi pi-cog"></i>
                     <span>Admin</span>
+                </button>
+                <button
+                    v-if="isAdmin"
+                    class="menu-item"
+                    role="menuitem"
+                    type="button"
+                    @click="goMetadataEditor"
+                >
+                    <i class="pi pi-pencil"></i>
+                    <span>Metadata editor</span>
                 </button>
                 <button class="menu-item" role="menuitem" type="button" @click="goAbout">
                     <i class="pi pi-info-circle"></i>

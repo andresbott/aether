@@ -6,6 +6,8 @@ import InputText from 'primevue/inputtext'
 import Message from 'primevue/message'
 import { useMusicBrainzSearch } from '@/composables/useMusicBrainzSearch'
 import { useArtistImageCandidates } from '@/composables/useArtistImageCandidates'
+import { getArtistImageCandidateInfo } from '@/lib/api/Metadata'
+import { formatImageMeta } from '@/lib/imageMeta'
 import type { ArtistImagePick, ArtistImageCandidate, MusicBrainzCandidate } from '@/types/artists'
 
 const props = defineProps<{
@@ -49,11 +51,25 @@ const query = ref('')
 const pickedArtist = ref<MusicBrainzCandidate | null>(null)
 const pickedImage = ref<ArtistImageCandidate | null>(null)
 
+// The picked image's real size/dimensions/format. The grid shows a downscaled
+// preview, so this is probed server-side (which downloads the full image) and
+// shown before the user commits. metaSeq discards a slow probe once the pick
+// changes.
+const pickedMeta = ref<string | null>(null)
+const metaLoading = ref(false)
+let metaSeq = 0
+function clearMeta() {
+    metaSeq++
+    pickedMeta.value = null
+    metaLoading.value = false
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 watch(query, () => {
     // Editing the query invalidates both picks — the grid below is stale.
     pickedArtist.value = null
     pickedImage.value = null
+    clearMeta()
     reset()
     if (debounceTimer) clearTimeout(debounceTimer)
     debounceTimer = setTimeout(() => search(query.value), 400)
@@ -66,6 +82,7 @@ watch(
         query.value = props.artistName
         pickedArtist.value = null
         pickedImage.value = null
+        clearMeta()
         reset()
         search(props.artistName)
     },
@@ -75,11 +92,27 @@ watch(
 function pickArtist(c: MusicBrainzCandidate): void {
     pickedArtist.value = c
     pickedImage.value = null
+    clearMeta()
     void load(c.mbid)
 }
 
-function pickImage(c: ArtistImageCandidate): void {
+async function pickImage(c: ArtistImageCandidate): Promise<void> {
     pickedImage.value = c
+    const a = pickedArtist.value
+    if (!a) return
+    const seq = ++metaSeq
+    pickedMeta.value = null
+    metaLoading.value = true
+    try {
+        const info = await getArtistImageCandidateInfo(a.mbid, c.url)
+        if (seq === metaSeq) pickedMeta.value = formatImageMeta(info)
+    } catch {
+        // A failed probe is non-fatal: the pick still works, just without its
+        // metadata line.
+        if (seq === metaSeq) pickedMeta.value = null
+    } finally {
+        if (seq === metaSeq) metaLoading.value = false
+    }
 }
 
 function confirm(): void {
@@ -160,6 +193,18 @@ function lifeSpan(c: MusicBrainzCandidate): string {
                 />
             </div>
             <p v-else class="no-results">No images available for this artist. Try another match.</p>
+
+            <div v-if="pickedImage" class="candidate-meta-row">
+                <span v-if="metaLoading" class="meta-loading">
+                    <i class="pi pi-spin pi-spinner"></i> Checking image…
+                </span>
+                <span
+                    v-else-if="pickedMeta"
+                    class="candidate-meta"
+                    data-test="candidate-meta"
+                    >{{ pickedMeta }}</span
+                >
+            </div>
         </div>
 
         <template #footer>
@@ -282,6 +327,18 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 }
 .candidate.selected {
     border-color: var(--app-accent);
+}
+.candidate-meta-row {
+    margin-top: 0.5rem;
+    min-height: 1.2rem;
+    font-size: 0.78rem;
+    color: var(--app-text-secondary);
+}
+.candidate-meta {
+    font-variant-numeric: tabular-nums;
+}
+.meta-loading i {
+    margin-right: 0.25rem;
 }
 .hidden-file {
     display: none;

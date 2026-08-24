@@ -5,7 +5,17 @@ describe('settings routes', () => {
     it('resolves each settings topic to its named route', () => {
         expect(router.resolve('/settings/libraries').name).toBe('settings-libraries')
         expect(router.resolve('/settings/tasks').name).toBe('settings-tasks')
-        expect(router.resolve('/settings/metadata').name).toBe('settings-metadata')
+    })
+
+    // The metadata editor moved out of the settings children to a top-level
+    // route, but keeps the admin-only settings layout. It is reached from the
+    // sidebar UserMenu, not the Settings side-nav.
+    it('serves the metadata editor as a top-level route in the settings layout', () => {
+        const meta = router.resolve('/metadata-editor')
+        expect(meta.name).toBe('metadata-editor')
+        expect(meta.meta.layout).toBe('settings')
+        // The old nested path no longer matches anything.
+        expect(router.resolve('/settings/metadata').matched.length).toBe(0)
     })
 
     // The profile page moved out of settings: it is the User settings main

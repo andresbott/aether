@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/andresbott/aether/app/metainfo"
 	"github.com/andresbott/aether/app/router/handlers"
@@ -18,6 +19,7 @@ import (
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/radiobrowser"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/gorilla/mux"
@@ -220,6 +222,10 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				Images:                    h.images,
 				IdentifyUnavailableReason: h.identifyOff,
 				Rescan:                    h.rescanner,
+				// Memoize provider image bytes so a repeated pre-save probe and the
+				// save reuse one download of the rate-limited image. Bounded and
+				// short-lived: an edit session touches a handful of images.
+				Downloads: dlcache.New(10*time.Minute, 64<<20),
 				// The editor's artist-folder image reuses the artist image provider
 				// chain to download online picks. h.artistFetcher is an interface
 				// (nil when unconfigured), so assigning it here keeps the field nil

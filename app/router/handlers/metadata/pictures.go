@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
@@ -210,6 +212,10 @@ type pictureSlotDTO struct {
 	// holds a different image. The editor shows the first one and warns that
 	// saving overwrites all of them.
 	Mixed bool `json:"mixed,omitempty"`
+	// Meta is the size/dimensions/format of the slot's representative image
+	// (the folder file, or the embedded picture of the first track that has
+	// one). nil when it could not be read.
+	Meta *imageMetaDTO `json:"meta,omitempty"`
 }
 
 type pictureDTO struct {
@@ -228,8 +234,11 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 	}
 	tracks := h.selectionPaths(r.Context(), lib, abs, r.URL.Query()["paths"])
 
-	// One taglib properties read per track, counting pictures per type.
+	// One taglib properties read per track, counting pictures per type and
+	// noting the first track holding each — the representative whose bytes back
+	// the embedded slot's image meta.
 	embeddedCount := map[string]int{}
+	firstEmbedded := map[string]string{}
 	for _, trackAbs := range tracks {
 		images, lerr := metadataedit.ListEmbeddedPictures(trackAbs)
 		if lerr != nil {
@@ -240,6 +249,9 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 			if !seen[img.Type] {
 				seen[img.Type] = true
 				embeddedCount[img.Type]++
+				if _, ok := firstEmbedded[img.Type]; !ok {
+					firstEmbedded[img.Type] = trackAbs
+				}
 			}
 		}
 	}
@@ -255,16 +267,41 @@ func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
 			slots = append(slots, pictureSlotDTO{
 				Slot:   "embedded",
 				Detail: fmt.Sprintf("%d of %d files", n, len(tracks)),
+				Meta:   embeddedPictureMeta(firstEmbedded[pt.ID], pt.ID),
 			})
 		}
-		if name, _, mixed, found := folderPictureAcross(dirs, pt); found {
-			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name, Mixed: mixed})
+		if name, path, mixed, found := folderPictureAcross(dirs, pt); found {
+			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name, Mixed: mixed, Meta: folderPictureMeta(path)})
 		}
 		if len(slots) > 0 {
 			out = append(out, pictureDTO{Type: pt.ID, Slots: slots})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pictures": out})
+}
+
+// embeddedPictureMeta reads a representative track's embedded picture of the
+// given type and returns its image meta, or nil when it cannot be read.
+func embeddedPictureMeta(trackAbs, typeID string) *imageMetaDTO {
+	if trackAbs == "" {
+		return nil
+	}
+	data, ok, err := metadataedit.ReadEmbeddedPicture(trackAbs, typeID)
+	if err != nil || !ok {
+		return nil
+	}
+	m := toImageMeta(imageinfo.Describe(data))
+	return &m
+}
+
+// folderPictureMeta describes a folder-art file, or nil when it cannot be read.
+func folderPictureMeta(path string) *imageMetaDTO {
+	info, err := imageinfo.DescribeFile(path)
+	if err != nil {
+		return nil
+	}
+	m := toImageMeta(info)
+	return &m
 }
 
 // pictureImage serves the image of one type+slot cell. 404 when the cell is
@@ -617,6 +654,34 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// pictureCandidateInfo downloads a Cover Art Archive candidate and reports its
+// size, dimensions and format, so the editor can show what an online pick will
+// write before the user saves. It mirrors the write's image_url download;
+// nothing is persisted.
+func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
+	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if imgURL == "" {
+		writeErr(w, http.StatusBadRequest, "validation_error", "url is required")
+		return
+	}
+	if h.CoverArt == nil {
+		writeErr(w, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
+		return
+	}
+	data, _, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
+		return h.CoverArt.DownloadImage(r.Context(), imgURL)
+	})
+	if derr != nil {
+		writeUpstreamErr(w, derr, "Cover art could not be loaded right now. Try again in a moment.")
+		return
+	}
+	if len(data) == 0 {
+		writeErr(w, http.StatusNotFound, "not_found", "no image found")
+		return
+	}
+	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))
+}
+
 // pictureImageSource returns the image bytes and normalized extension from
 // either an uploaded "image" file part or a downloaded "image_url".
 //
@@ -636,7 +701,9 @@ func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, 
 		if h.CoverArt == nil {
 			return nil, "", http.StatusBadRequest, errPictureSource
 		}
-		data, ext, derr := h.CoverArt.DownloadImage(r.Context(), url)
+		data, ext, derr := h.Downloads.GetOrLoad(url, func() ([]byte, string, error) {
+			return h.CoverArt.DownloadImage(r.Context(), url)
+		})
 		if derr != nil {
 			return nil, "", 0, derr
 		}

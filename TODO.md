@@ -139,8 +139,13 @@ Notes for editors:
   In the artist selection dialog, check if there might be more pictures for the same artist.
 - [ ] Improve track position when identifying albums
   Track position is sometimes wrong when identifying albums — can we improve it?
-- [ ] Show image metadata (size, dimensions, format)
+- [x] Show image metadata (size, dimensions, format)
   For both the stored image and the one found.
+  - [x] check that the image selection hits api limites
+    when selecting cover images, thea ctuall iamge seems to be api ratelimited as well. but AFAIK m if we are accessing CDN data the images dont need api rate limit? 
+
+    to be checked and aligned with artist image
+  - [x] check image calls should be cached
 - [ ] In raw metadata edit, after save return to the non-raw view
 - [ ] Identify album selections should print more details in the header
 - [x] 431 Request Header Fields Too Large

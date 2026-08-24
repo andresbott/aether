@@ -351,6 +351,21 @@ describe('picture staging', () => {
         expect(session.getPictureOp(ALBUM, 'Front Cover', 'folder')).toBeUndefined()
     })
 
+    it('previews an online pick with the thumbnail, keeping the full url for the save', () => {
+        const session = mkSession()
+        session.stagePictureSet(
+            ALBUM,
+            'Back Cover',
+            'folder',
+            { file: null, imageUrl: 'http://img/full.jpg', previewUrl: 'http://img/thumb.jpg' },
+            ['album/a.mp3']
+        )
+        const op = session.getPictureOp(ALBUM, 'Back Cover', 'folder')
+        // The staged preview reuses the thumbnail the picker already loaded; the
+        // full image is only downloaded (server-side) on save.
+        expect(op).toMatchObject({ preview: 'http://img/thumb.jpg', imageUrl: 'http://img/full.jpg' })
+    })
+
     it('a set op overwrites a staged removal on the same cell and vice versa', () => {
         const session = mkSession()
         session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
@@ -1008,6 +1023,21 @@ describe('useEditSession artist image', () => {
         session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
         expect(session.hasStagedChanges.value).toBe(true)
         expect(session.getArtistImageOp(FOLDER)?.kind).toBe('set')
+    })
+
+    it('previews an online pick with the thumbnail, keeping the full url for the save', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, {
+            file: null,
+            mbid: 'mb',
+            url: 'http://p/full.jpg',
+            previewUrl: 'http://p/thumb.jpg'
+        })
+        expect(session.getArtistImageOp(FOLDER)).toMatchObject({
+            kind: 'set',
+            preview: 'http://p/thumb.jpg',
+            url: 'http://p/full.jpg'
+        })
     })
 
     it('does not flag individual track rows (folder-level edit)', () => {

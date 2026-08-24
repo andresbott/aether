@@ -9,15 +9,18 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -78,7 +81,10 @@ func newPictureHandlerWithRescan(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs}
+	h := &metaHandler.Handler{
+		Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs,
+		Downloads: dlcache.New(10*time.Minute, 64<<20),
+	}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib
@@ -121,7 +127,10 @@ func newArtistImageHandler(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs}
+	h := &metaHandler.Handler{
+		Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs,
+		Downloads: dlcache.New(10*time.Minute, 64<<20),
+	}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib
@@ -145,9 +154,10 @@ type picturesBody struct {
 	Pictures []struct {
 		Type  string `json:"type"`
 		Slots []struct {
-			Slot   string `json:"slot"`
-			Detail string `json:"detail"`
-			Mixed  bool   `json:"mixed"`
+			Slot   string         `json:"slot"`
+			Detail string         `json:"detail"`
+			Mixed  bool           `json:"mixed"`
+			Meta   *imageMetaBody `json:"meta"`
 		} `json:"slots"`
 	} `json:"pictures"`
 }
@@ -212,6 +222,115 @@ func TestPictures_MatrixListsPresentSlots(t *testing.T) {
 	// Types with nothing anywhere are omitted.
 	if _, ok := got["Artist"]; ok {
 		t.Fatalf("absent type must not be listed: %+v", got)
+	}
+}
+
+// TestPictures_ReportsSlotImageMeta: each occupied slot carries the image's
+// size, dimensions and format — folder art read from the file, embedded art
+// decoded from a representative track — so the editor can show them.
+func TestPictures_ReportsSlotImageMeta(t *testing.T) {
+	src := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("no fixture at %s: %v", src, err)
+	}
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.Mkdir(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "cover.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trackAbs := filepath.Join(albumDir, "01.flac")
+	copyFixture(t, src, trackAbs)
+	if err := metadataedit.WriteEmbeddedPicture(trackAbs, "Media", pngBytes, ""); err != nil {
+		t.Fatal(err)
+	}
+	_, r, lib := newPictureHandler(t, root, nil)
+
+	body := fetchPictures(t, r, lib.ID, "&paths=album/01.flac")
+
+	folderMeta := findSlotMeta(body, "Front Cover", "folder")
+	if folderMeta == nil {
+		t.Fatalf("front cover folder slot has no meta: %+v", body.Pictures)
+	}
+	if folderMeta.Width != 1 || folderMeta.Height != 1 || folderMeta.Format != "png" ||
+		folderMeta.Bytes != int64(len(pngBytes)) {
+		t.Errorf("folder meta = %+v, want 1x1 png %d bytes", folderMeta, len(pngBytes))
+	}
+
+	embeddedMeta := findSlotMeta(body, "Media", "embedded")
+	if embeddedMeta == nil {
+		t.Fatalf("media embedded slot has no meta: %+v", body.Pictures)
+	}
+	if embeddedMeta.Width != 1 || embeddedMeta.Height != 1 || embeddedMeta.Format != "png" {
+		t.Errorf("embedded meta = %+v, want 1x1 png", embeddedMeta)
+	}
+}
+
+// findSlotMeta returns a type+slot cell's image meta from a matrix body, or nil.
+func findSlotMeta(body picturesBody, pictureType, slot string) *imageMetaBody {
+	for _, p := range body.Pictures {
+		if p.Type != pictureType {
+			continue
+		}
+		for _, sl := range p.Slots {
+			if sl.Slot == slot {
+				return sl.Meta
+			}
+		}
+	}
+	return nil
+}
+
+// ----- cover candidate info (probe before saving) -----
+
+func fetchPictureCandidateInfo(t *testing.T, r http.Handler, imgURL string) (*httptest.ResponseRecorder, *imageMetaBody) {
+	t.Helper()
+	reqURL := "/metadata/pictures/candidate-info?url=" + url.QueryEscape(imgURL)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", reqURL, nil))
+	var m *imageMetaBody
+	if w.Code == http.StatusOK {
+		m = &imageMetaBody{}
+		if err := json.Unmarshal(w.Body.Bytes(), m); err != nil {
+			t.Fatalf("decode body: %v (%s)", err, w.Body.String())
+		}
+	}
+	return w, m
+}
+
+// TestPictureCandidateInfo_ReturnsMeta: probing a Cover Art Archive candidate
+// downloads the real image and reports its size, dimensions and format.
+func TestPictureCandidateInfo_ReturnsMeta(t *testing.T) {
+	ca := stubCoverArt{downloadData: pngBytes, downloadExt: "png"}
+	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
+
+	w, m := fetchPictureCandidateInfo(t, r, "https://coverart.example/full.jpg")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	if m == nil || m.Width != 1 || m.Height != 1 || m.Format != "png" || m.Bytes != int64(len(pngBytes)) {
+		t.Errorf("meta = %+v, want 1x1 png %d bytes", m, len(pngBytes))
+	}
+}
+
+// TestPictureCandidateInfo_RequiresURL: the url param is required.
+func TestPictureCandidateInfo_RequiresURL(t *testing.T) {
+	_, r, _ := newPictureHandler(t, t.TempDir(), stubCoverArt{})
+	w, _ := fetchPictureCandidateInfo(t, r, "")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestPictureCandidateInfo_RequiresCoverArt: without a Cover Art Archive client
+// the probe is unavailable.
+func TestPictureCandidateInfo_RequiresCoverArt(t *testing.T) {
+	_, r, _ := newPictureHandler(t, t.TempDir(), nil)
+	w, _ := fetchPictureCandidateInfo(t, r, "https://coverart.example/full.jpg")
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503: %s", w.Code, w.Body.String())
 	}
 }
 
