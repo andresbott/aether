@@ -765,7 +765,18 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 releaseArtistOpPreview(op)
                 artistImages.value.delete(folderPath)
                 wrote = true
-            } catch {
+            } catch (err) {
+                // The artist-image APIs are called raw (unlike the picture
+                // mutations, which toast on their own onError), so surface the
+                // failure here — otherwise the save aborts silently with a
+                // green-looking UI, dropping the staged image and the pending
+                // track patches without a word.
+                toast.add({
+                    severity: 'error',
+                    summary: 'Failed to save artist image',
+                    detail: apiErrorMessage(err),
+                    life: 8000
+                })
                 if (wrote) {
                     picturesSavedAt.value = Date.now()
                     invalidateAfterMetadataWrite(qc)

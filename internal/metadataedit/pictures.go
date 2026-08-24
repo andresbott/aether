@@ -93,14 +93,22 @@ func DeleteEmbeddedPicture(path, typeID string) error {
 
 // ----- Folder pictures -----
 
+// coverSiblingExts are every image extension a folder picture can take. A
+// write or delete clears all of them for the base so a stale sibling in a
+// different format never lingers. It matters most for artist portraits:
+// internal/artistimage recognises all of these and ranks them equally, so a
+// leftover artist.gif would keep being served in place of a new artist.jpg.
+var coverSiblingExts = []string{"jpg", "jpeg", "png", "gif", "bmp", "webp"}
+
 // WriteFolderPicture writes data to dir as <base>.<ext> (jpg or png),
-// replacing any existing <base>.jpg/<base>.png, and returns the written
-// file's absolute path. The write is atomic (temp file + rename) so a served
-// picture is never partial.
+// replacing any existing <base> image in any recognised format, and returns
+// the written file's absolute path. The write is atomic (temp file + rename)
+// so a served picture is never partial.
 func WriteFolderPicture(dir, base, ext string, data []byte) (string, error) {
 	ext = normCoverExt(ext)
-	// Remove the sibling variant so we never leave both <base>.jpg and <base>.png.
-	for _, e := range []string{"jpg", "png"} {
+	// Remove every other-format sibling so we never leave a stale <base>.<other>
+	// that would shadow the file we are about to write.
+	for _, e := range coverSiblingExts {
 		if e != ext {
 			_ = os.Remove(filepath.Join(dir, base+"."+e))
 		}
@@ -142,10 +150,10 @@ func FolderPictureName(dir, base string) string {
 	return ""
 }
 
-// DeleteFolderPicture removes <base>.jpg and <base>.png from dir. Missing
-// files are a no-op.
+// DeleteFolderPicture removes the <base> folder picture in any recognised
+// image format from dir. Missing files are a no-op.
 func DeleteFolderPicture(dir, base string) error {
-	for _, ext := range []string{"jpg", "png"} {
+	for _, ext := range coverSiblingExts {
 		p := filepath.Join(dir, base+"."+ext)
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("delete folder picture: %w", err)

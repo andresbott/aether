@@ -346,3 +346,38 @@ func TestAlbumDeleteFolderPicture_RemovesAcrossDirs(t *testing.T) {
 		t.Error("cover.png must survive a back-cover delete")
 	}
 }
+
+// TestAlbumMatrix_FolderArtRepresentativeSkipsUnreadableFirstDir confirms that
+// when the first disc directory names a cover that cannot be read (present on
+// disk but its bytes fail to open), the album's representative folder art is
+// taken from a later disc that holds a readable image — never the unreadable
+// file, which the editor would then try to serve and 404 on.
+func TestAlbumMatrix_FolderArtRepresentativeSkipsUnreadableFirstDir(t *testing.T) {
+	root := t.TempDir()
+	cd1 := filepath.Join(root, "CD1")
+	cd2 := filepath.Join(root, "CD2")
+	mustMkdir(t, cd1)
+	mustMkdir(t, cd2)
+	mustWrite(t, filepath.Join(cd1, "01.flac"), "a")
+	mustWrite(t, filepath.Join(cd2, "01.flac"), "b")
+	// CD1's cover exists by name (so it is a candidate representative) but is
+	// unreadable: a dangling symlink lets the directory listing find it while
+	// the content hash (fileSum) fails to open it.
+	if err := os.Symlink(filepath.Join(root, "missing-target.png"), filepath.Join(cd1, "cover.png")); err != nil {
+		t.Skipf("symlinks unsupported here: %v", err)
+	}
+	mustWrite(t, filepath.Join(cd2, "cover.png"), "img")
+
+	al, err := metadataedit.ResolveAlbum(root, []string{"CD1/01.flac", "CD2/01.flac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := al.Matrix(context.Background(), nopReader{})
+	front := findSlot(got, "Front Cover", "folder")
+	if front == nil {
+		t.Fatalf("front/folder not present; matrix=%v", got)
+	}
+	if front.Source.RelPath != "CD2/cover.png" {
+		t.Errorf("representative = %q, want CD2/cover.png (the unreadable CD1 cover must not be chosen)", front.Source.RelPath)
+	}
+}

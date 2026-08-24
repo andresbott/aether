@@ -145,6 +145,41 @@ func TestFolderPicture_WriteNameDelete(t *testing.T) {
 	}
 }
 
+// TestWriteFolderPicture_ReplacesNonJpgPngSibling confirms a write clears a
+// pre-existing sibling in any recognised image format, not just jpg/png. An
+// artist portrait is served by internal/artistimage, which also recognises
+// gif/bmp/webp; leaving artist.gif behind would keep it being served (it ranks
+// equal to and sorts before artist.jpg), so the upload would appear to do
+// nothing.
+func TestWriteFolderPicture_ReplacesNonJpgPngSibling(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "artist.gif"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadataedit.WriteFolderPicture(dir, "artist", "jpg", jpgBytes); err != nil {
+		t.Fatalf("WriteFolderPicture: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "artist.gif")); !os.IsNotExist(err) {
+		t.Error("stale artist.gif must be removed so it does not shadow the new artist.jpg")
+	}
+}
+
+// TestDeleteFolderPicture_RemovesNonJpgPngSibling confirms a delete removes a
+// sibling in any recognised image format, not just jpg/png — otherwise
+// "remove artist image" would leave artist.gif, which keeps being served.
+func TestDeleteFolderPicture_RemovesNonJpgPngSibling(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "artist.gif"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := metadataedit.DeleteFolderPicture(dir, "artist"); err != nil {
+		t.Fatalf("DeleteFolderPicture: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "artist.gif")); !os.IsNotExist(err) {
+		t.Error("DeleteFolderPicture must remove artist.gif, not just jpg/png")
+	}
+}
+
 func TestPictureTypeByID(t *testing.T) {
 	pt, ok := metadataedit.PictureTypeByID("Back Cover")
 	if !ok || pt.FileBase != "back" {

@@ -329,11 +329,18 @@ func folderPictureAcross(dirs []string, pt PictureType) (name, path string, mixe
 		}
 		p := filepath.Join(dir, n)
 		sum, serr := fileSum(p)
+		if serr != nil {
+			// Present by name but unreadable: treat it like a folder that
+			// lacks the art instead of seeding the representative with it,
+			// so a later disc with a readable image becomes the representative.
+			mixed = true
+			continue
+		}
 		if !ok {
 			name, path, firstSum, ok = n, p, sum, true
 			continue
 		}
-		if serr != nil || sum != firstSum {
+		if sum != firstSum {
 			mixed = true
 		}
 	}

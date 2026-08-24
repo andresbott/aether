@@ -253,8 +253,10 @@ func (h *Handler) downloadArtistPick(ctx context.Context, mbid, imgURL string) (
 	}
 	// The list + SSRF validation + download run inside the cache's load closure,
 	// so a repeat pick (probe then save) served from cache skips the re-list too.
-	// A URL is only ever cached after it was validated as a candidate here.
-	b, dext, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
+	// The key includes the MBID, not just the URL: a URL is only ever cached
+	// after it was validated as a candidate for THIS artist, so a cache hit can
+	// never serve it for a different artist that never offered it.
+	b, dext, derr := h.Downloads.GetOrLoad(mbid+"\x00"+imgURL, func() ([]byte, string, error) {
 		cands, lerr := h.ArtistImages.List(ctx, mbid)
 		if lerr != nil {
 			return nil, "", lerr

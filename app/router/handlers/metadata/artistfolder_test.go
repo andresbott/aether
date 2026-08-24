@@ -2,6 +2,7 @@ package metadata_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -511,5 +512,63 @@ func TestArtistImageDelete_NotFoundWhenNoImage(t *testing.T) {
 	w := reqArtistImage(t, r, "DELETE", libIDStr(lib), "Radiohead")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404: %s", w.Code, w.Body.String())
+	}
+}
+
+// perMBIDArtistFetcher offers different candidate URLs per MBID, so a test can
+// prove a URL cached while writing one artist's portrait is not served for a
+// different artist that the provider never offered it for.
+type perMBIDArtistFetcher struct {
+	byMBID map[string][]artistimage.ImageCandidate
+	data   []byte
+	ext    string
+}
+
+func (f perMBIDArtistFetcher) List(_ context.Context, mbid string) ([]artistimage.ImageCandidate, error) {
+	return f.byMBID[mbid], nil
+}
+
+func (f perMBIDArtistFetcher) Download(context.Context, string, string) ([]byte, string, error) {
+	return f.data, f.ext, nil
+}
+
+// TestSetArtistImage_CachedUrlNotServedForDifferentMBID confirms the download
+// cache does not weaken the SSRF guard: a candidate URL validated and cached
+// while saving artist A's portrait must not be served for artist B, for whom
+// the provider never offered that URL. The cache key must include the MBID,
+// not just the URL.
+func TestSetArtistImage_CachedUrlNotServedForDifferentMBID(t *testing.T) {
+	root := t.TempDir()
+	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
+	mkAlbumTrack(t, root, "Muse", "Absolution")
+
+	const sharedURL = "https://provider.example/full.jpg"
+	const mbidA = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	const mbidB = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	fetcher := perMBIDArtistFetcher{
+		byMBID: map[string][]artistimage.ImageCandidate{
+			mbidA: {{FullURL: sharedURL, Provider: "fanart"}},
+			mbidB: nil, // the provider never offered sharedURL for artist B
+		},
+		data: pngBytes,
+		ext:  "jpg",
+	}
+	_, r, lib := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
+
+	// Artist A legitimately writes the portrait, caching its bytes.
+	bodyA, ctA := buildArtistImagePick(t, lib.ID, "Radiohead", mbidA, sharedURL)
+	if w := postArtistImage(t, r, bodyA, ctA); w.Code != http.StatusOK {
+		t.Fatalf("artist A write status %d: %s", w.Code, w.Body.String())
+	}
+
+	// Artist B, for whom that URL is not a candidate, must be rejected by the
+	// SSRF guard — the cache must not hand back A's image on a bare URL match.
+	bodyB, ctB := buildArtistImagePick(t, lib.ID, "Muse", mbidB, sharedURL)
+	w := postArtistImage(t, r, bodyB, ctB)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("artist B write status = %d, want 400 (URL not a candidate for B): %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Muse", "artist.jpg")); !os.IsNotExist(err) {
+		t.Error("artist.jpg was written into Muse's folder from a cached URL that was never its candidate")
 	}
 }

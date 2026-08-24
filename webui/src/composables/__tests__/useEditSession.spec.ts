@@ -1076,6 +1076,21 @@ describe('useEditSession artist image', () => {
         expect(session.hasStagedChanges.value).toBe(false)
     })
 
+    it('surfaces an error toast when an artist-image write fails', async () => {
+        const session = mkSession()
+        // Unlike the picture path (whose mutations toast on error), the artist
+        // APIs are called raw — a failed write must not vanish silently while
+        // the rest of the save is aborted.
+        applyArtistImageSpy.mockReset()
+        applyArtistImageSpy.mockRejectedValue(new Error('write failed'))
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        await session.save()
+        const errorToasts = toastAddSpy.mock.calls
+            .map((c) => c[0] as { severity?: string })
+            .filter((tst) => tst.severity === 'error')
+        expect(errorToasts.length).toBeGreaterThan(0)
+    })
+
     it('discardArtistImageOp clears it and revokes a file preview', () => {
         const session = mkSession()
         const file = new File(['x'], 'art.png', { type: 'image/png' })
