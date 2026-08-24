@@ -80,7 +80,7 @@ Notes for editors:
     Three fix shapes exist and the codebase already contains one of each: preserve the row (albums — `planAlbumContinuity`); migrate on re-key (radio — `subsonic/radio.go:230-243` computes old and new `RadioKey(streamURL)` and moves the cover so a URL edit does not orphan it); key on content (artist MBIDs). The remaining work is applying them, not inventing them.
   - [ ] Cheap partial win: stop keying covers on a positional id
     Cheap partial win, independent of rename detection: stop keying genre and unmatched-artist covers on a positional id. That merges with the backlog item on DB rebuilds misattributing images — both want a non-positional key and should be scoped together.
-- [ ] `PRAGMA busy_timeout` set on only 1 of 10 pooled connections
+- [x] `PRAGMA busy_timeout` set on only 1 of 10 pooled connections
   `app/cmd/server.go:102-104` sets `SetMaxOpenConns(10)` and then issues `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` as two `db.Exec` calls, which run on whichever single connection the pool hands out. WAL is recorded in the database file so it sticks; `busy_timeout` is per-connection state and does not, so the other nine connections keep the default of 0 and return `SQLITE_BUSY` immediately instead of waiting. Fix: set it in the DSN (a `_pragma=busy_timeout(5000)` parameter on the `sqlite.Open` path) so every connection acquires it on open. Pre-existing and unrelated to album continuity, but surfaced by that review — and scans already write concurrently with `/rest` reads, with one more write transaction now taken from this pool.
 - [ ] Small code-health follow-ups noted during the album-continuity review
   - [ ] Hoist duplicated chunk constant & unique-violation sniff
@@ -154,9 +154,9 @@ Notes for editors:
 - [x] Drop DB dependency in metadata editor
   The metadata editor should only deal with editing file data; album covers and other things stored in the DB should be handled outside the editor or via a separate API. Done: the editor's picture slots are now `embedded` + `folder` only — the `db` slot, both direct DB pokes (`SetAlbumCoverPath`, `SetTrackHasEmbeddedCover`) and the `Assets` dependency are gone from `handlers/metadata`, whose only remaining `Store` calls are `GetLibrary` reads. Manual album covers were rehomed to the `updateAlbum` / `albumCoverArt` OpenSubsonic extension (`handlers/subsonic/albums.go`), driven from the admin-gated hero cover editor on `AlbumView`. The editor's post-write rescan stays — that is index sync, not metadata-in-DB editing. Reconcile now owns `album.CoverPath` outright, which is what made the pokes unnecessary; see `docs/agents/scanning.md`.
 - [ ] Align v1 API with OpenAPI spec
-- [ ] Download artist images into the artist folder
+- [x] Download artist images into the artist folder
   Let the editor download an artist's image into the artist folder on disk, alongside the music — not only into Aether's asset store.
-- [ ] check resource use for if we have a lot of foldres
+- [x] check resource use for if we have a lot of foldres
 
 # Future releases
 

@@ -90,7 +90,13 @@ func runServer(configFile string) error {
 			LogLevel:                  gormlogger.Warn,
 		},
 	)
-	db, err := gorm.Open(sqlite.Open(filepath.Join(cfg.DataDir, dbFile)), &gorm.Config{
+	// busy_timeout is per-connection state, so it must be set in the DSN: a PRAGMA
+	// issued via db.Exec runs on a single pooled connection and leaves the other
+	// nine at the default of 0, which returns SQLITE_BUSY immediately under write
+	// contention instead of waiting. journal_mode=WAL is recorded in the database
+	// file, so the one-off Exec below suffices for it.
+	dsn := filepath.Join(cfg.DataDir, dbFile) + "?_pragma=busy_timeout(5000)"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: gormLog,
 	})
 	if err != nil {
@@ -102,7 +108,6 @@ func runServer(configFile string) error {
 	}
 	sqlDB.SetMaxOpenConns(10)
 	db.Exec("PRAGMA journal_mode=WAL")
-	db.Exec("PRAGMA busy_timeout=5000")
 
 	// Migrate domain models
 	if err := model.Migrate(db); err != nil {
