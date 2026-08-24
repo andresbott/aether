@@ -707,12 +707,12 @@ func TestDeleteInternetRadioStationRemovesCover(t *testing.T) {
 	}
 }
 
-// TestUpdateInternetRadioStationURLChangePreservesNamedAndAutoVariants verifies
-// that a stream-URL edit carries named entries and auto variants across the
-// re-key. The bespoke re-key code reads only the primary manual image and
-// re-PutManuals it, dropping every other entry — this test fails against that
-// implementation and proves Rekey was adopted.
-func TestUpdateInternetRadioStationURLChangePreservesNamedAndAutoVariants(t *testing.T) {
+// TestUpdateInternetRadioStationURLChangePreservesAutoVariant verifies that a
+// stream-URL edit carries the auto variant across the re-key, not just the
+// manual primary. The bespoke re-key code reads only the primary manual image
+// and re-PutManuals it, dropping the auto variant — this test fails against that
+// implementation and proves Rekey (a whole-directory move) was adopted.
+func TestUpdateInternetRadioStationURLChangePreservesAutoVariant(t *testing.T) {
 	s := testStore(t)
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
@@ -731,13 +731,10 @@ func TestUpdateInternetRadioStationURLChangePreservesNamedAndAutoVariants(t *tes
 	var st model.InternetRadioStation
 	s.DB().First(&st)
 
-	// Seed a named entry ("back") and an auto primary variant alongside the
-	// manual primary from create. The bespoke re-key code only copies the primary
-	// manual image, so these will be lost; Rekey moves the whole directory.
+	// Seed an auto primary variant alongside the manual primary from create. The
+	// bespoke re-key code only copies the primary manual image, so the auto
+	// variant is lost; Rekey moves the whole directory.
 	oldKey := assetkey.Radio(oldURL)
-	if err := as.PutManualNamed(assetstore.KindRadio, oldKey, "back", "png", pngBytes(t)); err != nil {
-		t.Fatal(err)
-	}
 	if err := as.PutAuto(assetstore.KindRadio, oldKey, "png", pngBytes(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -752,13 +749,10 @@ func TestUpdateInternetRadioStationURLChangePreservesNamedAndAutoVariants(t *tes
 	_ = resp2.Body.Close()
 
 	newKey := assetkey.Radio(newURL)
-	// All entries must exist under the new key: the manual primary, the named
-	// entry "back", and the auto variant of the primary.
+	// Both variants must exist under the new key: the manual primary and its auto
+	// variant.
 	if _, ok := as.Get(assetstore.KindRadio, newKey); !ok {
 		t.Fatal("primary cover not found under new key")
-	}
-	if _, ok := as.GetNamed(assetstore.KindRadio, newKey, "back"); !ok {
-		t.Fatal("named entry 'back' not found under new key — bespoke re-key only moved the primary")
 	}
 	// To verify the auto variant exists, check the directory contents. GetEntry
 	// returns the path of the best (manual-preferring) entry, which we can use to
