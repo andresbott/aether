@@ -146,7 +146,7 @@ Notes for editors:
 
     to be checked and aligned with artist image
   - [x] check image calls should be cached
-- [ ] In raw metadata edit, after save return to the non-raw view
+- [x] In raw metadata edit, after save return to the non-raw view
 - [ ] Identify album selections should print more details in the header
 - [x] 431 Request Header Fields Too Large
   Overflowing request, e.g. `/api/v1/metadata/pictures?library_id=1&path=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1&type=Front+Cover&slot=embedded&paths=...&paths=...` — one `paths=` query parameter per track blows past the header size limit on large multi-disc selections.

@@ -422,6 +422,17 @@ const albumIdentifyTooltip = computed(() => {
 // Raw mode swaps the form body for the raw tag editor; the panel header (count
 // + Identify + Raw buttons) stays so mode switching is always reachable.
 const rawMode = ref(false)
+
+// A save flushes staged edits (raw edits included), so once a save cycle
+// finishes drop back to the form view — the raw table would otherwise keep
+// showing the just-saved (now unstaged) values. isSaving goes true→false once
+// per save.
+watch(
+    () => props.session.isSaving.value,
+    (saving, wasSaving) => {
+        if (wasSaving && !saving) rawMode.value = false
+    }
+)
 </script>
 
 <template>
