@@ -3,12 +3,13 @@ package subsonic
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/andresbott/aether/app/metainfo"
 )
 
 const (
-	apiVersion    = "1.16.1"
-	serverType    = "Aether"
-	serverVersion = "0.1.0"
+	apiVersion = "1.16.1"
+	serverType = "Aether"
 )
 
 type errorBody struct {
@@ -21,7 +22,7 @@ func writeResponse(w http.ResponseWriter, data map[string]any) {
 		"status":        "ok",
 		"version":       apiVersion,
 		"type":          serverType,
-		"serverVersion": serverVersion,
+		"serverVersion": metainfo.Version,
 		"openSubsonic":  true,
 	}
 	for k, v := range data {
@@ -36,7 +37,7 @@ func writeError(w http.ResponseWriter, code int, message string) {
 		"status":        "failed",
 		"version":       apiVersion,
 		"type":          serverType,
-		"serverVersion": serverVersion,
+		"serverVersion": metainfo.Version,
 		"openSubsonic":  true,
 		"error":         errorBody{Code: code, Message: message},
 	}
