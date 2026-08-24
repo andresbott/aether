@@ -49,21 +49,19 @@ Notes for editors:
 
 ## Backend — Data Integrity & Scanning
 
-- [ ] Full scan: re-insert derived rows, not update in place
-  Full scan should drop each track's existing entries and re-insert from scratch rather than updating in place, so stale/renamed artists, albums, genres, and other derived rows don't linger when tags change. Partial, still accurate: the associations are rebuilt, not merged — `Association("Artists"/"Genres").Replace(...)` for the album at `internal/scanner/reconcile.go:116,121` and for the track at `internal/store/track.go:12,15`, with `Cleanup` sweeping the orphans afterwards. What remains is album-level scalar fields: `FindOrCreateAlbum` (`store/album.go:12`) matches on `(name_norm, album_artist_norm, mb_release_id)` and returns the existing row untouched, so scalars are only ever written at create time or updated in place elsewhere.
-- [ ] Library grid can show the wrong album cover after edit + rescan
+- [x] Library grid can show the wrong album cover after edit + rescan
   The library grid can show another album's image after metadata edits + rescan, though the album detail view stays correct. Updated: reconcile now always re-detects rather than only when the stored path is unusable, so a newly written `cover.jpg` supersedes an existing `folder.jpg`. It deliberately does not re-detect when the current track's directory holds no art and the album's stored cover lives in a sibling directory — otherwise an art-less disc folder of a multi-disc release blanks the whole album's cover. `IsUsableCoverPath` guards exactly that case (see `internal/scanner/reconcile.go` and the multi-disc regression test in `reconcile_test.go`).
   One contributing cause removed: the grid/list components now build their cover URLs through `versionedCoverUrl` like the artist ones do, so an own cover edited in-session no longer lingers from the browser's image cache — a separate mechanism from the wrong-album problem, which is still open. Remaining root causes:
-  - [ ] Orphan cleanup never revalidates album `CoverPath`
+  - [x] Orphan cleanup never revalidates album `CoverPath`
     `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
-  - [ ] Two albums in one directory can share one `cover.jpg`
+  - [x] Two albums in one directory can share one `cover.jpg`
     Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile re-detects the stored path every pass, but nothing arbitrates between albums competing for one file.
 - [x] Album ids are not stable across the very edits this editor performs
   Done: `scanner.planAlbumContinuity` retags an album row in place when a whole album moves in one pass, so `albums.id` and `created_at` — and with them the manual cover in the asset store, stars, the `newest` ordering, the discovery feed's recency term and client-cached `/album/:id` — survive the editor's retags, including `identify-album` writing an MBID to a whole selection. Partial edits, splits, merges into an existing identity and identity swaps still churn by design; a merge inside one batch keeps the largest album's row. See `docs/superpowers/specs/2026-08-18-album-identity-continuity.md` and the identity rules in `docs/agents/scanning.md`. Still open: the asset-store / image-cache sweep for albums that genuinely disappear — that is the resource-leaks item below, not this one.
 - [x] Track identity survives a file move or rename
   Moving or renaming a music file no longer drops it from playlists or discards its history, star and queue position. `scanner.planTrackContinuity` re-points the row at the new path when it can prove the move (equal `file_size` + `title`, `duration` ±1s, old path gone from disk, unambiguous 1:1), so `tracks.id` survives and nothing cascades. `Scan` is also two-phase now — `preflight` validates and walks every library before any is reconciled — so a library whose root is unavailable or unexpectedly empty fails the scan before the first write instead of having its rows harvested by an earlier-sorting library's re-link pass. Design: `docs/superpowers/specs/2026-08-18-track-identity-across-moves-design.md`.
-- [ ] Move + retag still loses playlists, history, stars
-  The bytes change, so `file_size` cannot anchor the match and the only remaining signals are `duration` + `title` + `track_number` + `MBRecordingID` — and `MBRecordingID` identifies a recording, not a file (the same recording on an album and a compilation shares it). Declined deliberately: the false-merge surface outweighs the coverage. Revisit only with a signal that survives a retag (an audio-stream hash).
+- [ ] Move + retag: fixed for FLAC/MP3/MP4, still lost for the other formats
+  Largely fixed since this was written. The retag-surviving signal it was waiting for — an audio-stream hash — now exists and is wired into `planTrackContinuity` as a second re-link pass (`internal/scanner/trackcontinuity.go`, `relinkPasses`). `libs/audiohash` fingerprints the audio payload only, so a move that *also* retags a file — the common Picard/beets rename-from-tags case, where `file_size` and `title` both change and the original `size+title` pass goes blind — keeps its `tracks.id`, and with it playlists, history, stars and queue position. The hash is computed on the scan worker (`scanner.go:228`, `audioHashOf`), stored on the indexed `tracks.audio_hash` column (`internal/model/track.go:31`), and looked up by `store.TracksByAudioHashes`. `MBRecordingID` was rejected as the signal — it identifies a recording, not a file, so the same recording on an album and a compilation shares it. Remaining gap, now a documented conservative miss rather than a deliberate decline: `libs/audiohash` covers only FLAC, MP3 and MP4 (`libs/audiohash/audiohash.go:66-73`), so the other walk.go extensions (ogg, opus, wma, wav, aiff, ape, wv, aac, mka, tta, dsf, webm) fall back to `size+title` and still lose everything on a retagged move; and a row indexed before the `audio_hash` column existed keeps `""` until a full scan re-reads it, because an incremental scan only hashes changed files (`scanner.go:225-227`). Both misses are noted in `planTrackContinuity`'s doc comment.
 - [ ] A move that straddles two scan runs is unrecoverable
   By the time the new path appears, `Cleanup` has deleted the row. Fixing it means tombstones — soft-delete plus re-link on reappearance — which makes every read path (`/rest` browsing, playlists, search, queue) decide whether to show missing tracks and makes a purge flow mandatory. A feature, not a fix.
 - [ ] Unreadable subtree swept silently — and can be re-linked
@@ -74,12 +72,12 @@ Notes for editors:
     Artists: identity is `name_norm` alone (`internal/store/artist.go:21`, unique index `internal/model/artist.go:8`), so correcting a spelling creates a new row and `DeleteOrphanedAggregates` deletes the old one (`scan_helpers.go:75`). Lost with it: the star (`scan_helpers.go:83`), the imagecache derivative (keyed on the DB id, `subsonic/media.go:141,153`), `LastImageFetchAt` — which resets to nil, so the artist-image task re-hits the rate-limited fanart.tv / TheAudioDB — and `/artist/:id` links. The manual cover survives only for artists with an MBID: `assetkey.Artist` prefers `MBArtistID` and falls back to hashing `name_norm` (`internal/assetkey/assetkey.go:74-79`; `subsonic/artists.go:47,58-59` clears both slots). So the covers that break are exactly the unmatched artists' — the ones most likely to hold a hand-uploaded image, since no MBID means no auto-fetch.
   - [ ] Genres: raw-`name` identity, DB-id cover with no fallback
     Genres: identity is `name`, not even normalised (`internal/store/genre.go:19`, unique index `internal/model/genre.go:9`), and the cover keys on the DB id with no fallback (`subsonic/genres.go:48`), so a genre rename always orphans it. Milder otherwise — there is no genre star type in the cleanup list, and `/genre/:name` routes by name, so links survive.
+  - [ ] Cheap partial win: stop keying covers on a positional id
+    Cheap partial win, independent of rename detection: stop keying genre and unmatched-artist covers on a positional id. That merges with the backlog item on DB rebuilds misattributing images — both want a non-positional key and should be scoped together.
   - [ ] Why the album fix doesn't port to artists
     Why the album fix does not port: `planAlbumContinuity` proves continuity from "every track this album holds is in this batch". An artist spans many albums and hundreds of tracks through two associations (`album_artists` and `track_artists`), so that test is essentially never true for an incremental scan — the guard would decline precisely when it is needed — and credits are multi-valued, so "the tracks agree on one new identity" does not even have the same shape. Artists need a different signal, most plausibly the MBID (already their durable asset key) plus explicit rename detection. Also recorded in `docs/agents/scanning.md`'s known-scanner-debt list.
   - [ ] Three fix shapes already exist in the codebase
     Three fix shapes exist and the codebase already contains one of each: preserve the row (albums — `planAlbumContinuity`); migrate on re-key (radio — `subsonic/radio.go:230-243` computes old and new `RadioKey(streamURL)` and moves the cover so a URL edit does not orphan it); key on content (artist MBIDs). The remaining work is applying them, not inventing them.
-  - [ ] Cheap partial win: stop keying covers on a positional id
-    Cheap partial win, independent of rename detection: stop keying genre and unmatched-artist covers on a positional id. That merges with the backlog item on DB rebuilds misattributing images — both want a non-positional key and should be scoped together.
 - [x] `PRAGMA busy_timeout` set on only 1 of 10 pooled connections
   `app/cmd/server.go:102-104` sets `SetMaxOpenConns(10)` and then issues `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` as two `db.Exec` calls, which run on whichever single connection the pool hands out. WAL is recorded in the database file so it sticks; `busy_timeout` is per-connection state and does not, so the other nine connections keep the default of 0 and return `SQLITE_BUSY` immediately instead of waiting. Fix: set it in the DSN (a `_pragma=busy_timeout(5000)` parameter on the `sqlite.Open` path) so every connection acquires it on open. Pre-existing and unrelated to album continuity, but surfaced by that review — and scans already write concurrently with `/rest` reads, with one more write transaction now taken from this pool.
 - [ ] Small code-health follow-ups noted during the album-continuity review
@@ -119,12 +117,6 @@ Notes for editors:
 - [x] Make it easier / faster to load a folder
 - [x] Check if we can add comments to metadata as part of the standard
   e.g. the unreleased Alesha Dixon "Fool 4 U I Love". Investigated 2026-08-23: COMMENT is a standard, ubiquitous tag (ID3 `COMM`, Vorbis `COMMENT`, MP4 `©cmt`), so it can be added — but it is not a trivial promotion like Lyrics/Release type, because our tag library flattens comments. Split out into the "Support track comments" backlog item, which captures the limitation.
-- [ ] Explore exposing Lyrics as an editable field
-  Already read and stored (`tags.Metadata.Lyrics` → `track.Lyrics`, `scanner/reconcile.go:200`) but the editor can't set it, so a mis-tagged lyric is unfixable in-app. Only the write side is missing: `metadataedit.Track`/`Patch`/`BuildTagMap` (`taglib.Lyrics`), `managedTagKeys`, and the frontend `Track`/`PatchFields`/`MANAGED_TAG_KEYS` + `EditPanel`.
-- [ ] Explore exposing Release type as an editable field
-  Same shape as lyrics: read and stored (`tags.Metadata.ReleaseType` → `album.ReleaseType`, `scanner/reconcile.go:128`) but not editable, so album/EP/single/compilation classification can't be corrected in the UI. `taglib.ReleaseType` (`RELEASETYPE`).
-- [ ] Explore sort keys as editable fields
-  MusicBrainz-style sort tags — ArtistSort/AlbumSort/TitleSort/AlbumArtistSort/ComposerSort (`TSOP`/`TSOA`/`TSOT`/`TSO2`/`TSOC`) — control browse ordering, which is aether's whole job. Bigger slice than the two above: not read today, so it needs scanner read + a store column *and* the editor field, not just the write side.
 - [x] Stage only a subset of identify changes
   When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only).
 - [x] Library selector shouldn't be a dropdown
@@ -137,8 +129,6 @@ Notes for editors:
 - [x] Generated cover files are not browsable by samba
 - [x] Artist selection: look for more pictures
   In the artist selection dialog, check if there might be more pictures for the same artist.
-- [ ] Improve track position when identifying albums
-  Track position is sometimes wrong when identifying albums — can we improve it?
 - [x] Show image metadata (size, dimensions, format)
   For both the stored image and the one found.
   - [x] check that the image selection hits api limites
@@ -147,10 +137,10 @@ Notes for editors:
     to be checked and aligned with artist image
   - [x] check image calls should be cached
 - [x] In raw metadata edit, after save return to the non-raw view
-- [ ] Identify album selections should print more details in the header
+- [x] Identify album selections should print more details in the header
 - [x] 431 Request Header Fields Too Large
   Overflowing request, e.g. `/api/v1/metadata/pictures?library_id=1&path=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1&type=Front+Cover&slot=embedded&paths=...&paths=...` — one `paths=` query parameter per track blows past the header size limit on large multi-disc selections.
-- [ ] Unscanned music has no address at all, has an impact on album art
+- [x] Unscanned music has no address at all, has an impact on album art
 - [x] Drop DB dependency in metadata editor
   The metadata editor should only deal with editing file data; album covers and other things stored in the DB should be handled outside the editor or via a separate API. Done: the editor's picture slots are now `embedded` + `folder` only — the `db` slot, both direct DB pokes (`SetAlbumCoverPath`, `SetTrackHasEmbeddedCover`) and the `Assets` dependency are gone from `handlers/metadata`, whose only remaining `Store` calls are `GetLibrary` reads. Manual album covers were rehomed to the `updateAlbum` / `albumCoverArt` OpenSubsonic extension (`handlers/subsonic/albums.go`), driven from the admin-gated hero cover editor on `AlbumView`. The editor's post-write rescan stays — that is index sync, not metadata-in-DB editing. Reconcile now owns `album.CoverPath` outright, which is what made the pokes unnecessary; see `docs/agents/scanning.md`.
 - [ ] Align v1 API with OpenAPI spec
@@ -159,6 +149,17 @@ Notes for editors:
 - [x] check resource use for if we have a lot of foldres
 
 # Future releases
+
+## Frontend - Metadata editor
+
+- [ ] Explore exposing Lyrics as an editable field
+  Already read and stored (`tags.Metadata.Lyrics` → `track.Lyrics`, `scanner/reconcile.go:200`) but the editor can't set it, so a mis-tagged lyric is unfixable in-app. Only the write side is missing: `metadataedit.Track`/`Patch`/`BuildTagMap` (`taglib.Lyrics`), `managedTagKeys`, and the frontend `Track`/`PatchFields`/`MANAGED_TAG_KEYS` + `EditPanel`.
+- [ ] Explore exposing Release type as an editable field
+  Same shape as lyrics: read and stored (`tags.Metadata.ReleaseType` → `album.ReleaseType`, `scanner/reconcile.go:128`) but not editable, so album/EP/single/compilation classification can't be corrected in the UI. `taglib.ReleaseType` (`RELEASETYPE`).
+- [ ] Explore sort keys as editable fields
+  MusicBrainz-style sort tags — ArtistSort/AlbumSort/TitleSort/AlbumArtistSort/ComposerSort (`TSOP`/`TSOA`/`TSOT`/`TSO2`/`TSOC`) — control browse ordering, which is aether's whole job. Bigger slice than the two above: not read today, so it needs scanner read + a store column *and* the editor field, not just the write side.
+- [ ] Improve track position when identifying albums
+  Track position is sometimes wrong when identifying albums — can we improve it?
 
 ## Backend — Multi-user
 
