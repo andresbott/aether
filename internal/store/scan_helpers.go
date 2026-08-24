@@ -20,7 +20,6 @@ import (
 // every row is either already at scanTime (no-op) or older (advances), so the
 // added predicate never skips a row that needs the bump.
 func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
-	const chunkSize = 500
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {
@@ -41,7 +40,6 @@ func (s *Store) FilterChanged(paths []string) (map[string]time.Time, error) {
 		FileModTime time.Time
 	}
 	modMap := make(map[string]time.Time, len(paths))
-	const chunkSize = 500
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {

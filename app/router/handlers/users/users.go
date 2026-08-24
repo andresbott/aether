@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
@@ -416,11 +417,8 @@ func mapStoreError(err error) (status int, code string) {
 	if errors.Is(err, userauth.ErrUserNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
-	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "duplicate") {
-			return http.StatusConflict, "conflict"
-		}
+	if store.IsUniqueViolation(err) {
+		return http.StatusConflict, "conflict"
 	}
 	return http.StatusInternalServerError, "internal"
 }

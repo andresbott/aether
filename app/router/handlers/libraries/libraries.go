@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
@@ -436,15 +435,8 @@ func mapStoreError(err error) (status int, code string) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
+	if store.IsUniqueViolation(err) {
 		return http.StatusConflict, "conflict"
-	}
-	// SQLite unique-constraint surfaces as a generic error string in some GORM versions.
-	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "duplicate") {
-			return http.StatusConflict, "conflict"
-		}
 	}
 	return http.StatusInternalServerError, "internal"
 }
