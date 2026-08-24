@@ -141,10 +141,6 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	// field — the metadata editor writes art files and lets the rescan pick them up.
 	dir := filepath.Dir(tr.walk.FilePath)
 	detected := detectCoverInDir(dir)
-	// Always re-detect for art in THIS directory (so cover.jpg supersedes
-	// folder.jpg and a deleted file clears), but never let a disc folder with no
-	// art blank out a cover found in a sibling folder of the same album: an album
-	// can span several directories (a multi-disc release laid out as CD 1/, CD 2/).
 	if detected != "" || !IsUsableCoverPath(album.CoverPath) || filepath.Dir(album.CoverPath) == dir {
 		album.CoverPath = detected
 	}
