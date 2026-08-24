@@ -323,16 +323,46 @@ export interface CoverCandidate {
 // - 'folder': an art file in the album folder (e.g. cover.jpg, back.jpg)
 export type PictureSlot = 'embedded' | 'folder'
 
-// One occupied slot of a picture type, as reported by the pictures endpoint.
+// An image's displayable metadata: pixel dimensions, encoded format ('jpeg',
+// 'png', 'gif', or '' when it could not be decoded) and byte size. Reported for
+// stored images and probed candidates alike so the editor can show them.
+export interface ImageMeta {
+    width: number
+    height: number
+    format: string
+    bytes: number
+}
+
+// PictureImageRef is a populated cell's ready-to-render URLs, as resolved by
+// the server (see the inventory endpoint doc below). Mount-relative — never a
+// full origin or a hard-coded /api/v1 prefix — so the caller must prepend
+// apiClient.defaults.baseURL before using it as an <img> src.
+export interface PictureImageRef {
+    url: string
+    thumb_url?: string
+}
+
+// One occupied slot of a picture type, as reported by the pictures inventory
+// endpoint.
 export interface PictureSlotInfo {
     slot: PictureSlot
-    // e.g. "back.jpg" for folder slots, "4 of 10 files" for embedded slots.
+    // Folder slots only: the art file's name, e.g. "back.jpg".
     detail?: string
     // Folder slots only: the album spans several directories (a multi-disc
     // release) and they do not all hold the same image — one is missing it or
     // carries a different one. The editor shows the first folder's image and
     // warns; saving writes the picture into every folder.
     mixed?: boolean
+    // Embedded slots only: how many of the selected paths carry this picture
+    // type, out of how many were selected (the editor renders "N of M files").
+    present_count?: number
+    total_count?: number
+    // The cell's ready-to-render image, present whenever the slot itself is
+    // (i.e. whenever this PictureSlotInfo appears at all).
+    image?: PictureImageRef
+    // Size/dimensions/format of the slot's representative image (the folder
+    // file, or the embedded picture of the first track that has one).
+    meta?: ImageMeta
 }
 
 // One picture type present somewhere for the folder, with its occupied slots.
@@ -347,12 +377,41 @@ export interface PicturesResponse {
 
 export interface ApplyPictureResult {
     ok: boolean
-    target: PictureSlot
+    slot: PictureSlot
     type: string
     rescan?: RescanStatus
 }
 
 export interface DeletePictureResult {
+    ok: boolean
+    rescan?: RescanStatus
+}
+
+// Whether the SELECTED folder is an artist folder, and the artist image it
+// holds. Purely a filesystem+tags view (no DB): eligible is true when the
+// folder's albums are tagged with an album artist matching the folder's own name
+// — the same rule the scanner uses — so an artist.jpg written here is actually
+// picked up. The image lands in the selected folder itself (artist.<ext>).
+export interface ArtistFolderInfo {
+    eligible: boolean
+    // The artist name (the folder's own basename); '' when not eligible.
+    artist: string
+    // Library-relative path of the folder; '' when not eligible.
+    path: string
+    // Filename of the current artist image, or '' when none.
+    current_image: string
+    // Size/dimensions/format of the current artist image; absent when none.
+    current_image_meta?: ImageMeta
+}
+
+export interface ApplyArtistImageResult {
+    ok: boolean
+    // Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+    path: string
+    rescan?: RescanStatus
+}
+
+export interface DeleteArtistImageResult {
     ok: boolean
     rescan?: RescanStatus
 }
@@ -363,6 +422,24 @@ export interface DeletePictureResult {
 export interface StagedPictureSource {
     file: File | null
     imageUrl: string | null
+    // The thumbnail the picker already loaded, used as the staged preview so the
+    // cell does not re-download the full imageUrl just to show a small tile. The
+    // full imageUrl is fetched server-side only on save. Absent for uploads
+    // (previewed from the file's object URL).
+    previewUrl?: string | null
+}
+
+// An artist image chosen in the picker but not yet written: an uploaded file, or
+// an online pick identified by its MusicBrainz id + candidate URL (the server
+// re-lists and downloads it). Exactly one source is set: file, or mbid+url.
+export interface StagedArtistImageSource {
+    file: File | null
+    mbid: string | null
+    url: string | null
+    // The thumbnail the picker already loaded, used as the staged preview so the
+    // cell does not re-download the full url just to show a small tile. The full
+    // url is fetched server-side only on save. Absent for uploads.
+    previewUrl?: string | null
 }
 
 // An image this album already has in another type+slot cell, offered in the

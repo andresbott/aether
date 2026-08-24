@@ -7,6 +7,7 @@ Music server written in Go with a Vue 3 frontend.
 Before implementation work, read [`docs/agents/architecture.md`](docs/agents/architecture.md)
 and the subsystem doc for the area you're changing:
 [`subsonic-api.md`](docs/agents/subsonic-api.md) (anything under `/rest`),
+[`api-conventions.md`](docs/agents/api-conventions.md) (anything under `/api/v1`),
 [`scanning.md`](docs/agents/scanning.md) (scanner/tags/store reconcile),
 [`frontend.md`](docs/agents/frontend.md) (webui). Check
 [`docs/agents/features.md`](docs/agents/features.md) before adding a
@@ -64,4 +65,4 @@ whole app whenever auth method `native` reports no session (see
 | `LibrariesView` | `/settings/libraries` | Manage collections/libraries |
 | `UsersView` | `/settings/users` | Manage native users (only with `Auth.Method: native`; nav entry hidden otherwise) |
 | `TasksView` | `/settings/tasks` | Scanning / scheduled tasks |
-| `MetadataEditorView` | `/settings/metadata` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components) |
+| `MetadataEditorView` | `/metadata-editor` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components). Top-level route rendered in the settings layout (admin-only); reached from the sidebar `UserMenu` and the settings side-nav (Tools group) |

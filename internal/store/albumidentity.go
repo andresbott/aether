@@ -8,9 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// identityChunkSize bounds the IN-clause of the bulk lookups, matching
-// FilterChanged and BulkUpdateLastSeen in scan_helpers.go.
-const identityChunkSize = 500
+// chunkSize bounds the IN-clause of the store's bulk lookups: FilterChanged
+// and BulkUpdateLastSeen (scan_helpers.go) and the album/track identity lookups
+// all page long path/id slices through it.
+const chunkSize = 500
 
 // AlbumIdentity is the tuple that decides which album row a track belongs to,
 // plus the display name written alongside it.
@@ -49,8 +50,8 @@ func (s *Store) TrackAlbumIDs(paths []string) (map[string]uint, error) {
 		AlbumID  uint   `gorm:"column:album_id"`
 	}
 	out := make(map[string]uint, len(paths))
-	for i := 0; i < len(paths); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(paths); i += chunkSize {
+		end := i + chunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
@@ -78,8 +79,8 @@ func (s *Store) AlbumTrackCounts(ids []uint) (map[uint]int, error) {
 		N       int  `gorm:"column:n"`
 	}
 	out := make(map[uint]int, len(ids))
-	for i := 0; i < len(ids); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(ids); i += chunkSize {
+		end := i + chunkSize
 		if end > len(ids) {
 			end = len(ids)
 		}
@@ -108,8 +109,8 @@ func (s *Store) AlbumIdentities(ids []uint) (map[uint]AlbumIdentity, error) {
 		MBReleaseID     string `gorm:"column:mb_release_id"`
 	}
 	out := make(map[uint]AlbumIdentity, len(ids))
-	for i := 0; i < len(ids); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(ids); i += chunkSize {
+		end := i + chunkSize
 		if end > len(ids) {
 			end = len(ids)
 		}

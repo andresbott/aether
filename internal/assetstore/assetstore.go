@@ -1,9 +1,8 @@
 // Package assetstore stores entity image files durably under a metadata
-// directory, keyed by a stable (kind, key) identity plus an entry name (the
-// default is "cover"; album entities also hold e.g. "back" or "booklet").
-// The manual-vs-auto distinction is encoded in the filename: <name>.<ext> is
-// a manual upload (locked — never overwritten by the fetcher);
-// <name>.auto.<ext> is auto-fetched. This store holds image files only; no
+// directory, keyed by a stable (kind, key) identity. Each entity holds a single
+// image, "cover". The manual-vs-auto distinction is encoded in the filename:
+// cover.<ext> is a manual upload (locked — never overwritten by the fetcher);
+// cover.auto.<ext> is auto-fetched. This store holds image files only; no
 // metadata sidecars.
 package assetstore
 
@@ -33,10 +32,6 @@ func New(root string) *Store {
 }
 
 var keyRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-
-// Entry names are embedded in filenames as <name>.<ext> / <name>.auto.<ext>,
-// so unlike keys they must not contain dots.
-var nameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // KeySafe reports whether s is safe as an entity key: non-empty, matches
 // ^[A-Za-z0-9._-]+$, contains no "..", unchanged by filepath.Clean, and not
@@ -75,16 +70,10 @@ func splitEntry(filename string) (name string, auto bool, ok bool) {
 	return base, false, true
 }
 
-// Get returns the best primary ("cover") image path for the entity,
-// preferring a manual upload over an auto-fetched image.
+// Get returns the best image path for the entity, preferring a manual upload
+// over an auto-fetched image.
 func (s *Store) Get(kind, key string) (string, bool) {
-	return s.GetNamed(kind, key, DefaultName)
-}
-
-// GetNamed returns the best image path for one named entry of the entity,
-// preferring a manual upload over an auto-fetched image.
-func (s *Store) GetNamed(kind, key, name string) (string, bool) {
-	path, _, ok := s.GetEntryNamed(kind, key, name)
+	path, _, ok := s.GetEntry(kind, key)
 	return path, ok
 }
 
@@ -92,13 +81,8 @@ func (s *Store) GetNamed(kind, key, name string) (string, bool) {
 // an auto-fetched one. Callers that show the image to a user need the
 // distinction; the path alone does not carry it without re-parsing the filename.
 func (s *Store) GetEntry(kind, key string) (path string, manual bool, ok bool) {
-	return s.GetEntryNamed(kind, key, DefaultName)
-}
-
-// GetEntryNamed is GetNamed plus the manual-vs-auto flag.
-func (s *Store) GetEntryNamed(kind, key, name string) (path string, manual bool, ok bool) {
 	dir, err := s.entityDir(kind, key)
-	if err != nil || !nameRe.MatchString(name) {
+	if err != nil {
 		return "", false, false
 	}
 	entries, err := os.ReadDir(dir)
@@ -108,7 +92,7 @@ func (s *Store) GetEntryNamed(kind, key, name string) (path string, manual bool,
 	var manualPath, autoPath string
 	for _, e := range entries {
 		base, isAuto, ok := splitEntry(e.Name())
-		if !ok || base != name {
+		if !ok || base != DefaultName {
 			continue
 		}
 		if isAuto {
@@ -127,41 +111,33 @@ func (s *Store) GetEntryNamed(kind, key, name string) (path string, manual bool,
 }
 
 func (s *Store) PutAuto(kind, key, ext string, data []byte) error {
-	return s.put(kind, key, DefaultName, true, ext, data)
+	return s.put(kind, key, true, ext, data)
 }
 
 func (s *Store) PutManual(kind, key, ext string, data []byte) error {
-	return s.put(kind, key, DefaultName, false, ext, data)
+	return s.put(kind, key, false, ext, data)
 }
 
-// PutManualNamed stores a manual upload under a named entry of the entity.
-func (s *Store) PutManualNamed(kind, key, name, ext string, data []byte) error {
-	return s.put(kind, key, name, false, ext, data)
-}
-
-// put writes data to the entry's file atomically, clearing only the same
-// entry's variants of the same kind first (auto clears auto, manual clears
-// manual) so a manual upload never destroys the auto fallback and vice versa.
-func (s *Store) put(kind, key, name string, auto bool, ext string, data []byte) error {
+// put writes data to the cover file atomically, clearing only the same variant
+// first (auto clears auto, manual clears manual) so a manual upload never
+// destroys the auto fallback and vice versa.
+func (s *Store) put(kind, key string, auto bool, ext string, data []byte) error {
 	dir, err := s.entityDir(kind, key)
 	if err != nil {
 		return err
-	}
-	if !nameRe.MatchString(name) {
-		return fmt.Errorf("assetstore: unsafe entry name %q", name)
 	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("assetstore: mkdir: %w", err)
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if base, isAuto, ok := splitEntry(e.Name()); ok && base == name && isAuto == auto {
+		if base, isAuto, ok := splitEntry(e.Name()); ok && base == DefaultName && isAuto == auto {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
-	filename := name + "." + normExt(ext)
+	filename := DefaultName + "." + normExt(ext)
 	if auto {
-		filename = name + ".auto." + normExt(ext)
+		filename = DefaultName + ".auto." + normExt(ext)
 	}
 	final := filepath.Join(dir, filename)
 	tmp, err := os.CreateTemp(dir, "asset-*.tmp")
@@ -192,33 +168,6 @@ func (s *Store) Delete(kind, key string) error {
 		return err
 	}
 	return os.RemoveAll(dir)
-}
-
-// DeleteNamed removes one named entry (both manual and auto variants),
-// leaving the entity's other entries in place.
-func (s *Store) DeleteNamed(kind, key, name string) error {
-	dir, err := s.entityDir(kind, key)
-	if err != nil {
-		return err
-	}
-	if !nameRe.MatchString(name) {
-		return fmt.Errorf("assetstore: unsafe entry name %q", name)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("assetstore: read dir: %w", err)
-	}
-	for _, e := range entries {
-		if base, _, ok := splitEntry(e.Name()); ok && base == name {
-			if rerr := os.Remove(filepath.Join(dir, e.Name())); rerr != nil {
-				return fmt.Errorf("assetstore: remove: %w", rerr)
-			}
-		}
-	}
-	return nil
 }
 
 // ErrKeyOccupied reports that a Rekey destination already holds images. The

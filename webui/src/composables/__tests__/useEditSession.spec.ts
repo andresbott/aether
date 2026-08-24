@@ -25,8 +25,12 @@ import type {
 const updateTracksSpy = vi.hoisted(() => vi.fn())
 const applyPictureSpy = vi.hoisted(() => vi.fn())
 const deletePictureSpy = vi.hoisted(() => vi.fn())
+const applyArtistImageSpy = vi.hoisted(() => vi.fn())
+const deleteArtistImageSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', () => ({
-    updateTracks: (...args: unknown[]) => updateTracksSpy(...args)
+    updateTracks: (...args: unknown[]) => updateTracksSpy(...args),
+    applyArtistImage: (...args: unknown[]) => applyArtistImageSpy(...args),
+    deleteArtistImage: (...args: unknown[]) => deleteArtistImageSpy(...args)
 }))
 vi.mock('@/composables/useMetadataEditor', async (importActual) => {
     const actual = await importActual<typeof import('@/composables/useMetadataEditor')>()
@@ -311,7 +315,7 @@ describe('picture staging', () => {
         updateTracksSpy.mockReset()
         updateTracksSpy.mockResolvedValue({ results: [{ path: 'album/a.mp3', ok: true }] })
         applyPictureSpy.mockReset()
-        applyPictureSpy.mockResolvedValue({ ok: true, target: 'folder', type: 'Back Cover' })
+        applyPictureSpy.mockResolvedValue({ ok: true, slot: 'folder', type: 'Back Cover' })
         deletePictureSpy.mockReset()
         deletePictureSpy.mockResolvedValue({ ok: true })
         invalidateSpy.mockReset()
@@ -345,6 +349,21 @@ describe('picture staging', () => {
         // Other cells stay empty.
         expect(session.getPictureOp(ALBUM, 'Back Cover', 'embedded')).toBeUndefined()
         expect(session.getPictureOp(ALBUM, 'Front Cover', 'folder')).toBeUndefined()
+    })
+
+    it('previews an online pick with the thumbnail, keeping the full url for the save', () => {
+        const session = mkSession()
+        session.stagePictureSet(
+            ALBUM,
+            'Back Cover',
+            'folder',
+            { file: null, imageUrl: 'http://img/full.jpg', previewUrl: 'http://img/thumb.jpg' },
+            ['album/a.mp3']
+        )
+        const op = session.getPictureOp(ALBUM, 'Back Cover', 'folder')
+        // The staged preview reuses the thumbnail the picker already loaded; the
+        // full image is only downloaded (server-side) on save.
+        expect(op).toMatchObject({ preview: 'http://img/thumb.jpg', imageUrl: 'http://img/full.jpg' })
     })
 
     it('a set op overwrites a staged removal on the same cell and vice versa', () => {
@@ -387,7 +406,7 @@ describe('picture staging', () => {
         expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
     })
 
-    it('save posts one form per set op including type and target', async () => {
+    it('save posts one form per set op including type and slot', async () => {
         const session = mkSession()
         session.stagePictureSet(
             ALBUM,
@@ -399,7 +418,7 @@ describe('picture staging', () => {
         await session.save()
         expect(applyPictureSpy).toHaveBeenCalledTimes(1)
         const form = applyPictureSpy.mock.calls[0][0] as FormData
-        expect(form.get('target')).toBe('folder')
+        expect(form.get('slot')).toBe('folder')
         expect(form.get('type')).toBe('Back Cover')
         expect(form.get('image_url')).toBe('http://img/x.jpg')
         expect(form.getAll('paths')).toEqual(['album/a.mp3'])
@@ -414,14 +433,12 @@ describe('picture staging', () => {
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'album',
             type: 'Front Cover',
             slot: 'embedded',
             paths: ['album/a.mp3']
         })
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'album',
             type: 'Media',
             slot: 'folder',
             paths: ['album/a.mp3']
@@ -440,7 +457,7 @@ describe('picture staging', () => {
         const session = mkSession()
         applyPictureSpy.mockResolvedValue({
             ok: true,
-            target: 'folder',
+            slot: 'folder',
             type: 'Back Cover',
             rescan: { ok: false, error: 'db is locked' }
         })
@@ -616,7 +633,6 @@ describe('picture staging', () => {
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
             libraryId: 3,
-            path: 'Release/CD 1',
             type: 'Front Cover',
             slot: 'folder',
             paths: discPaths
@@ -972,5 +988,124 @@ describe('albumPickToOverlay', () => {
         expect(overlay.compilation).toBeUndefined()
         expect(overlay.disc_subtitle).toBeUndefined()
         expect(overlay.genres).toEqual(['Grunge'])
+    })
+})
+
+describe('useEditSession artist image', () => {
+    const FOLDER = 'Radiohead'
+    const mkSession = (lib = 3) =>
+        useEditSession(
+            () => [mkTrack({ path: 'Radiohead/OK Computer/a.mp3' })],
+            () => lib
+        )
+
+    beforeEach(() => {
+        applyArtistImageSpy.mockReset()
+        applyArtistImageSpy.mockResolvedValue({ ok: true, path: 'Radiohead/artist.jpg' })
+        deleteArtistImageSpy.mockReset()
+        deleteArtistImageSpy.mockResolvedValue({ ok: true })
+        updateTracksSpy.mockReset()
+        updateTracksSpy.mockResolvedValue({ results: [] })
+        toastAddSpy.mockReset()
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: vi.fn(() => 'blob:preview'),
+            revokeObjectURL: vi.fn()
+        })
+    })
+
+    it('stages a set op keyed by folder and flags unsaved changes', () => {
+        const session = mkSession()
+        expect(session.hasStagedChanges.value).toBe(false)
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        expect(session.hasStagedChanges.value).toBe(true)
+        expect(session.getArtistImageOp(FOLDER)?.kind).toBe('set')
+    })
+
+    it('previews an online pick with the thumbnail, keeping the full url for the save', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, {
+            file: null,
+            mbid: 'mb',
+            url: 'http://p/full.jpg',
+            previewUrl: 'http://p/thumb.jpg'
+        })
+        expect(session.getArtistImageOp(FOLDER)).toMatchObject({
+            kind: 'set',
+            preview: 'http://p/thumb.jpg',
+            url: 'http://p/full.jpg'
+        })
+    })
+
+    it('does not flag individual track rows (folder-level edit)', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        expect(session.stagedPaths.value.size).toBe(0)
+    })
+
+    it('save posts the set op with the folder path and the online pick', async () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb-1', url: 'http://p/x.jpg' })
+        await session.save()
+        expect(applyArtistImageSpy).toHaveBeenCalledTimes(1)
+        const form = applyArtistImageSpy.mock.calls[0][0] as FormData
+        expect(form.get('path')).toBe(FOLDER)
+        expect(form.get('mbid')).toBe('mb-1')
+        expect(form.get('url')).toBe('http://p/x.jpg')
+        expect(form.get('artist')).toBeNull()
+        expect(form.getAll('paths')).toEqual([])
+        expect(session.hasStagedChanges.value).toBe(false)
+        expect(session.picturesSavedAt.value).toBeGreaterThan(0)
+    })
+
+    it('save sends an uploaded file as the image part', async () => {
+        const session = mkSession()
+        const file = new File(['x'], 'art.png', { type: 'image/png' })
+        session.stageArtistImageSet(FOLDER, { file, mbid: null, url: null })
+        await session.save()
+        const form = applyArtistImageSpy.mock.calls[0][0] as FormData
+        expect(form.get('image')).toBeInstanceOf(File)
+        expect(form.get('mbid')).toBeNull()
+    })
+
+    it('save deletes a removal op by folder', async () => {
+        const session = mkSession()
+        session.stageArtistImageRemoval(FOLDER)
+        await session.save()
+        expect(deleteArtistImageSpy).toHaveBeenCalledWith(3, FOLDER)
+        expect(session.hasStagedChanges.value).toBe(false)
+    })
+
+    it('surfaces an error toast when an artist-image write fails', async () => {
+        const session = mkSession()
+        // Unlike the picture path (whose mutations toast on error), the artist
+        // APIs are called raw — a failed write must not vanish silently while
+        // the rest of the save is aborted.
+        applyArtistImageSpy.mockReset()
+        applyArtistImageSpy.mockRejectedValue(new Error('write failed'))
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        await session.save()
+        const errorToasts = toastAddSpy.mock.calls
+            .map((c) => c[0] as { severity?: string })
+            .filter((tst) => tst.severity === 'error')
+        expect(errorToasts.length).toBeGreaterThan(0)
+    })
+
+    it('discardArtistImageOp clears it and revokes a file preview', () => {
+        const session = mkSession()
+        const file = new File(['x'], 'art.png', { type: 'image/png' })
+        session.stageArtistImageSet(FOLDER, { file, mbid: null, url: null })
+        session.discardArtistImageOp(FOLDER)
+        expect(session.getArtistImageOp(FOLDER)).toBeUndefined()
+        expect(session.hasStagedChanges.value).toBe(false)
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
+    })
+
+    it('discardAll clears a staged artist image', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        session.discardAll()
+        expect(session.getArtistImageOp(FOLDER)).toBeUndefined()
+        expect(session.hasStagedChanges.value).toBe(false)
     })
 })

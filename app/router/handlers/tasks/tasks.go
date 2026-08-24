@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	apptasks "github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/google/uuid"
@@ -90,9 +91,7 @@ func (h *Handler) TriggerTask() http.Handler {
 		id, err := h.Runner.AddRun(name)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusTooManyRequests)
-				_ = json.NewEncoder(w).Encode(map[string]string{"message": "Task queue is full. Try again later."})
+				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", httperr.TitleFor("queue_full"), "Task queue is full. Try again later.")
 				return
 			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)

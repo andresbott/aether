@@ -44,6 +44,15 @@ const stubs = {
         inheritAttrs: false,
         template:
             '<button :disabled="disabled" :data-test="$attrs[\'data-test\']" @click="$emit(\'click\')">{{ label }}</button>'
+    },
+    // The candidate comparison dialog is exercised in its own spec; here it is a
+    // seam we drive by emitting its `select`, standing in for the user picking a
+    // row and confirming.
+    AlbumCandidatePicker: {
+        name: 'AlbumCandidatePicker',
+        props: ['visible', 'options', 'selectedMbid', 'tracks'],
+        emits: ['update:visible', 'select'],
+        template: '<div v-if="visible" data-test="album-picker-open"></div>'
     }
 }
 
@@ -205,6 +214,18 @@ function mountDialog(
     })
 }
 
+// Switch the chosen release the way the UI now does: open the comparison dialog
+// from the Compare button, then confirm a row. The picker is stubbed, so the
+// confirm is a `select` emit carrying the release MBID.
+async function pickAlbum(w: ReturnType<typeof mount>, mbid: string) {
+    const compare = w.find('[data-test="album-compare"]')
+    if (compare.exists()) await compare.trigger('click')
+    const picker = w.findComponent({ name: 'AlbumCandidatePicker' })
+    picker.vm.$emit('select', mbid)
+    picker.vm.$emit('update:visible', false)
+    await flushPromises()
+}
+
 describe('IdentifyAlbumDialog track table', () => {
     it('names the staged columns after the fields they write, with no current-value pair', () => {
         const w = mountDialog([albumA])
@@ -309,9 +330,7 @@ describe('IdentifyAlbumDialog track table', () => {
         const w = mountDialog([albumA, albumB])
         expect(w.find('[data-test="album-album-01.mp3"]').text()).toBe('Album A')
 
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
+        await pickAlbum(w, 'rel-B')
 
         expect(w.find('[data-test="album-album-01.mp3"]').text()).toBe('Best Of')
         expect(w.find('[data-test="album-year-01.mp3"]').text()).toBe('2005')
@@ -477,9 +496,9 @@ describe('IdentifyAlbumDialog loading state', () => {
         const w = mountDialog([], tracks, [], true)
         expect(w.find('[data-test="album-loading"]').exists()).toBe(true)
         expect(w.text()).toContain('Identifying 2 songs')
-        // Nothing to review yet: no album picker, no rows, no staging button,
+        // Nothing to review yet: no compare control, no rows, no staging button,
         // and crucially not the "nothing matched" copy, which would be a lie.
-        expect(w.find('[data-test="album-select"]').exists()).toBe(false)
+        expect(w.find('[data-test="album-compare"]').exists()).toBe(false)
         expect(w.find('[data-test="album-apply"]').exists()).toBe(false)
         expect(w.find('[data-test="album-empty"]').exists()).toBe(false)
     })
@@ -490,7 +509,7 @@ describe('IdentifyAlbumDialog loading state', () => {
 
         await w.setProps({ loading: false, options: [albumA] })
         expect(w.find('[data-test="album-loading"]').exists()).toBe(false)
-        expect(w.find('[data-test="album-select"]').exists()).toBe(true)
+        expect(w.find('[data-test="album-current"]').exists()).toBe(true)
         expect(w.find('[data-test="album-apply"]').exists()).toBe(true)
     })
 
@@ -547,9 +566,7 @@ describe('IdentifyAlbumDialog', () => {
 
     it('re-derives the rows when another album is chosen', async () => {
         const w = mountDialog([albumA, albumB])
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
+        await pickAlbum(w, 'rel-B')
 
         expect(w.text()).toContain('One (remaster)')
         expect(w.find('[data-test="album-badge-02.mp3"]').text()).toContain('none')
@@ -613,7 +630,7 @@ describe('IdentifyAlbumDialog', () => {
     it('renders an option whose artist list arrived as null', () => {
         const noArtists = { ...albumA, artists: null } as unknown as AlbumOption
         const w = mountDialog([noArtists])
-        expect(w.find('[data-test="album-select"]').exists()).toBe(true)
+        expect(w.find('[data-test="album-current"]').exists()).toBe(true)
         expect(w.text()).toContain('Album A')
         expect(w.find('[data-test="album-apply"]').exists()).toBe(true)
     })
@@ -802,9 +819,7 @@ describe('IdentifyAlbumDialog field selection', () => {
         await w.find('[data-test="album-fields-none"]').trigger('click')
         await w.find('[data-test="album-field-album"]').setValue(true)
 
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
+        await pickAlbum(w, 'rel-B')
 
         await w.find('[data-test="album-apply"]').trigger('click')
         expect(w.emitted('apply')![0][1]).toEqual(['album'])
@@ -843,10 +858,7 @@ describe('IdentifyAlbumDialog genres', () => {
         const w = mountDialog([albumA, albumB])
         await flushPromises()
 
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
-        await flushPromises()
+        await pickAlbum(w, 'rel-B')
 
         expect(genresMock).toHaveBeenCalledWith('rg-B')
         await w.find('[data-test="album-apply"]').trigger('click')
@@ -860,13 +872,8 @@ describe('IdentifyAlbumDialog genres', () => {
         genresMock.mockResolvedValue(['Grunge'])
         const w = mountDialog([albumA, albumB])
         await flushPromises()
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
-        await flushPromises()
-        ;(select.element as HTMLSelectElement).selectedIndex = 0
-        await select.trigger('change')
-        await flushPromises()
+        await pickAlbum(w, 'rel-B')
+        await pickAlbum(w, 'rel-A')
 
         expect(genresMock).toHaveBeenCalledTimes(2)
         expect(genresMock).toHaveBeenNthCalledWith(1, 'rg-A')
@@ -908,10 +915,7 @@ describe('IdentifyAlbumDialog genres', () => {
         genresMock.mockResolvedValueOnce(['Compilation Rock'])
 
         const w = mountDialog([albumA, albumB])
-        const select = w.find('[data-test="album-select"]')
-        ;(select.element as HTMLSelectElement).selectedIndex = 1
-        await select.trigger('change')
-        await flushPromises()
+        await pickAlbum(w, 'rel-B')
 
         resolveA(['Grunge'])
         await flushPromises()
@@ -946,5 +950,28 @@ describe('IdentifyAlbumDialog re-identify', () => {
         await w.find('[data-test="album-reidentify"]').trigger('click')
         expect(w.emitted('update:visible')).toBeUndefined()
         expect(w.emitted('cancel')).toBeUndefined()
+    })
+})
+
+describe('IdentifyAlbumDialog album picker', () => {
+    it('shows the current pick and a compare button when several releases match', () => {
+        const w = mountDialog([albumA, albumB])
+        expect(w.find('[data-test="album-current"]').text()).toContain('Album A')
+        const compare = w.find('[data-test="album-compare"]')
+        expect(compare.exists()).toBe(true)
+        expect(compare.text()).toContain('2')
+    })
+
+    it('offers no compare button when only one release matched', () => {
+        const w = mountDialog([albumA])
+        expect(w.find('[data-test="album-current"]').exists()).toBe(true)
+        expect(w.find('[data-test="album-compare"]').exists()).toBe(false)
+    })
+
+    it('opens the candidate picker from the compare button', async () => {
+        const w = mountDialog([albumA, albumB])
+        expect(w.find('[data-test="album-picker-open"]').exists()).toBe(false)
+        await w.find('[data-test="album-compare"]').trigger('click')
+        expect(w.find('[data-test="album-picker-open"]').exists()).toBe(true)
     })
 })

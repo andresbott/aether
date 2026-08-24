@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"gorm.io/gorm"
@@ -46,30 +47,30 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		if reason == "" {
 			reason = defaultIdentifyUnavailableReason
 		}
-		writeErr(w, http.StatusServiceUnavailable, "identify_unavailable", reason)
+		writeErr(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
 	var body identifyAlbumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if body.LibraryID == 0 || len(body.Paths) < minAlbumIdentifyPaths {
-		writeErr(w, http.StatusBadRequest, "validation_error",
+		writeErr(w, r, http.StatusBadRequest, "validation_error",
 			"library_id and at least two paths are required")
 		return
 	}
-	if len(body.Paths) > maxIdentifyPaths {
-		writeErr(w, http.StatusBadRequest, "validation_error", "too many paths in one request")
+	if len(body.Paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", err.Error())
+			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -107,7 +108,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The resolver only fails when the outbound lookups do; that is an
 		// upstream problem, not a bad request.
-		writeUpstreamErr(w, err, "album identification is temporarily unavailable")
+		httperr.WriteUpstream(w, r, err, "album identification is temporarily unavailable")
 		return
 	}
 	if options == nil {

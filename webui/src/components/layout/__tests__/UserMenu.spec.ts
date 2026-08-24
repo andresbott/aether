@@ -82,23 +82,33 @@ describe('UserMenu account popup', () => {
         expect(push).toHaveBeenCalledWith('/settings')
     })
 
-    // The /settings area answers 403 to non-admins; the entry would be a
-    // dead door for them.
-    it('hides the Admin entry from non-admins', async () => {
+    // The admin areas answer 403 to non-admins; the entries would be dead doors
+    // for them.
+    it('hides the Admin and Metadata editor entries from non-admins', async () => {
         isAdmin.value = false
         const menu = await openMenu(mountMenu())
         expect(menuItem(menu, 'Admin')).toBeUndefined()
+        expect(menuItem(menu, 'Metadata editor')).toBeUndefined()
         expect(menuItem(menu, 'User settings')).toBeDefined()
         expect(menuItem(menu, 'About')).toBeDefined()
     })
 
-    it('navigates to /about from the About entry, below Admin', async () => {
+    // The admin entries are grouped in order: Admin, then Metadata editor,
+    // then About.
+    it('navigates to /metadata-editor from the Metadata editor entry, below Admin', async () => {
         const menu = await openMenu(mountMenu())
         const labels = Array.from(menu.querySelectorAll('.menu-item')).map(
             (b) => b.textContent!.trim()
         )
-        expect(labels.indexOf('About')).toBe(labels.indexOf('Admin') + 1)
+        expect(labels.indexOf('Metadata editor')).toBe(labels.indexOf('Admin') + 1)
+        expect(labels.indexOf('About')).toBe(labels.indexOf('Metadata editor') + 1)
 
+        menuItem(menu, 'Metadata editor')!.click()
+        expect(push).toHaveBeenCalledWith('/metadata-editor')
+    })
+
+    it('navigates to /about from the About entry', async () => {
+        const menu = await openMenu(mountMenu())
         menuItem(menu, 'About')!.click()
         expect(push).toHaveBeenCalledWith('/about')
     })

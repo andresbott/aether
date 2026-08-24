@@ -55,11 +55,22 @@ export interface ArtistImageSource {
     filename: string
 }
 
+// One portrait a provider offers for an artist. `url` is stored on commit;
+// `thumbUrl` is the lighter preview the grid loads directly from the CDN.
+export interface ArtistImageCandidate {
+    url: string
+    thumbUrl: string
+    provider: string
+}
+
 // A staged pick from the online image search: which MusicBrainz artist's provider
 // image to use, plus the preview URL so the editor can show it before saving.
 export interface ArtistImagePick {
     mbid: string
     name: string
+    // The chosen full-resolution image URL, validated server-side on save.
+    url: string
+    // The chosen thumbnail, shown as the staged cover preview before saving.
     previewUrl: string
 }
 

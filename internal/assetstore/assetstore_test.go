@@ -80,70 +80,6 @@ func TestSingleDotKeyRejected(t *testing.T) {
 	}
 }
 
-func TestNamedEntriesCoexist(t *testing.T) {
-	s := New(t.TempDir())
-	_ = s.PutManual(KindAlbum, "1", "jpg", []byte("front"))
-	if err := s.PutManualNamed(KindAlbum, "1", "back", "png", []byte("back")); err != nil {
-		t.Fatalf("PutManualNamed: %v", err)
-	}
-	if p, ok := s.Get(KindAlbum, "1"); !ok || filepath.Base(p) != "cover.jpg" {
-		t.Fatalf("front cover: ok=%v path=%q", ok, p)
-	}
-	p, ok := s.GetNamed(KindAlbum, "1", "back")
-	if !ok || filepath.Base(p) != "back.png" {
-		t.Fatalf("back: ok=%v path=%q", ok, p)
-	}
-	if b, _ := os.ReadFile(p); string(b) != "back" {
-		t.Fatalf("bad contents %q", b)
-	}
-}
-
-func TestNamedGetNoPrefixConfusion(t *testing.T) {
-	s := New(t.TempDir())
-	_ = s.PutManualNamed(KindAlbum, "1", "back", "jpg", []byte("x"))
-	if _, ok := s.GetNamed(KindAlbum, "1", "b"); ok {
-		t.Fatal("entry name must match exactly, not by prefix")
-	}
-	if _, ok := s.GetNamed(KindAlbum, "1", "backdrop"); ok {
-		t.Fatal("entry name must match exactly")
-	}
-}
-
-func TestDeleteNamedLeavesOtherEntries(t *testing.T) {
-	s := New(t.TempDir())
-	_ = s.PutManual(KindAlbum, "1", "jpg", []byte("front"))
-	_ = s.PutAuto(KindAlbum, "1", "jpg", []byte("front-auto"))
-	_ = s.PutManualNamed(KindAlbum, "1", "back", "jpg", []byte("back"))
-	if err := s.DeleteNamed(KindAlbum, "1", "cover"); err != nil {
-		t.Fatalf("DeleteNamed: %v", err)
-	}
-	if _, ok := s.Get(KindAlbum, "1"); ok {
-		t.Fatal("cover (manual and auto) should be gone")
-	}
-	if _, ok := s.GetNamed(KindAlbum, "1", "back"); !ok {
-		t.Fatal("back entry must survive deleting the cover entry")
-	}
-	// idempotent, also on a missing entity dir
-	if err := s.DeleteNamed(KindAlbum, "1", "cover"); err != nil {
-		t.Fatalf("second DeleteNamed: %v", err)
-	}
-	if err := s.DeleteNamed(KindAlbum, "nope", "cover"); err != nil {
-		t.Fatalf("DeleteNamed on missing entity: %v", err)
-	}
-}
-
-func TestNamedRejectsUnsafeNames(t *testing.T) {
-	s := New(t.TempDir())
-	for _, name := range []string{"a.b", "cover.auto", "", "../x"} {
-		if err := s.PutManualNamed(KindAlbum, "1", name, "jpg", []byte("x")); err == nil {
-			t.Fatalf("expected error for name %q", name)
-		}
-		if _, ok := s.GetNamed(KindAlbum, "1", name); ok {
-			t.Fatalf("expected ok=false for name %q", name)
-		}
-	}
-}
-
 func TestDelete(t *testing.T) {
 	s := New(t.TempDir())
 	_ = s.PutManual(KindRadio, "h", "png", []byte("x"))
@@ -195,22 +131,20 @@ func TestGetEntryReportsManualVsAuto(t *testing.T) {
 
 func TestRekeyMovesEverything(t *testing.T) {
 	s := New(t.TempDir())
-	// Put a manual cover, an auto cover, and a manual named entry (back).
+	// Put a manual cover and an auto cover. Rekey must carry both variants, not
+	// just the manual primary a naive read-and-re-Put would copy.
 	if err := s.PutManual(KindAlbum, "oldkey", "jpg", []byte("manual-cover")); err != nil {
 		t.Fatalf("PutManual cover: %v", err)
 	}
 	if err := s.PutAuto(KindAlbum, "oldkey", "png", []byte("auto-cover")); err != nil {
 		t.Fatalf("PutAuto cover: %v", err)
 	}
-	if err := s.PutManualNamed(KindAlbum, "oldkey", "back", "jpg", []byte("back-image")); err != nil {
-		t.Fatalf("PutManualNamed back: %v", err)
-	}
 
 	if err := s.Rekey(KindAlbum, "oldkey", "newkey"); err != nil {
 		t.Fatalf("Rekey: %v", err)
 	}
 
-	// All three entries must resolve under newkey with manual-vs-auto intact.
+	// Both variants must resolve under newkey with manual-vs-auto intact.
 	path, manual, ok := s.GetEntry(KindAlbum, "newkey")
 	if !ok || !manual {
 		t.Fatalf("newkey cover: manual=%v ok=%v", manual, ok)
@@ -226,20 +160,9 @@ func TestRekeyMovesEverything(t *testing.T) {
 		t.Fatalf("newkey auto cover: err=%v contents=%q", err, autoB)
 	}
 
-	backPath, ok := s.GetNamed(KindAlbum, "newkey", "back")
-	if !ok {
-		t.Fatal("newkey back entry must exist")
-	}
-	if b, _ := os.ReadFile(backPath); string(b) != "back-image" {
-		t.Fatalf("newkey back contents: got %q, want %q", b, "back-image")
-	}
-
 	// Nothing should remain under oldkey.
 	if _, ok := s.Get(KindAlbum, "oldkey"); ok {
 		t.Fatal("oldkey cover should be gone")
-	}
-	if _, ok := s.GetNamed(KindAlbum, "oldkey", "back"); ok {
-		t.Fatal("oldkey back should be gone")
 	}
 }
 

@@ -107,6 +107,15 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
+        // A top-level route, but rendered in the admin-only settings layout so
+        // the App.vue redirect (meta.layout === 'settings') still guards it. It
+        // is reached from the sidebar UserMenu, not the Settings side-nav.
+        path: '/metadata-editor',
+        name: 'metadata-editor',
+        component: () => import('@/views/settings/MetadataEditorView.vue'),
+        meta: { layout: 'settings' }
+    },
+    {
         path: '/settings',
         component: () => import('@/views/settings/SettingsView.vue'),
         meta: { layout: 'settings' },
@@ -130,11 +139,6 @@ const routes: RouteRecordRaw[] = [
                 path: 'tasks',
                 name: 'settings-tasks',
                 component: () => import('@/views/settings/TasksView.vue')
-            },
-            {
-                path: 'metadata',
-                name: 'settings-metadata',
-                component: () => import('@/views/settings/MetadataEditorView.vue')
             }
         ]
     }

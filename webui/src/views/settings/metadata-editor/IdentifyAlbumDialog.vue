@@ -11,6 +11,7 @@ import type {
     Track
 } from '@/types/metadata'
 import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
+import AlbumCandidatePicker from './AlbumCandidatePicker.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
 
@@ -57,6 +58,10 @@ interface RowState {
 
 const selectedMbid = ref('')
 const rows = ref(new Map<string, RowState>())
+
+// The candidate comparison dialog. Opened from the Compare button; picking a row
+// repoints `selectedMbid`, which re-derives the whole review below.
+const pickerVisible = ref(false)
 
 // Which of the release's fields get staged. All selected by default — the common
 // case is "take the release"; narrowing it is the deliberate act (e.g. stage the
@@ -339,14 +344,6 @@ const hasMultipleDiscs = computed(
     () => discGroups.value.filter((g) => g.discNumber > 0).length > 1
 )
 
-const albumChoices = computed(() =>
-    props.options.map((o) => ({
-        value: o.release_mbid,
-        label: albumLabel(o),
-        detail: albumDetail(o)
-    }))
-)
-
 function albumLabel(o: AlbumOption): string {
     // `?? []` despite the type promising an array: this label is the first thing
     // rendered for every option, so a single missing credit list would take the
@@ -551,18 +548,25 @@ function cancel() {
 
         <template v-else-if="!loading">
             <div class="album-pick">
-                <label for="album-select">Album</label>
-                <Select
-                    inputId="album-select"
-                    data-test="album-select"
-                    class="album-select"
-                    :modelValue="selectedMbid"
-                    @update:modelValue="(v: string) => (selectedMbid = v)"
-                    :options="albumChoices"
-                    optionLabel="label"
-                    optionValue="value"
+                <span class="album-pick-label">Album</span>
+                <div class="album-current" data-test="album-current">
+                    <span class="album-current-name">{{
+                        selectedOption ? albumLabel(selectedOption) : ''
+                    }}</span>
+                    <small class="album-detail">{{ selectedDetail }}</small>
+                </div>
+                <!-- The dropdown became a table: when several releases matched,
+                     this opens a comparison the user can actually judge (coverage,
+                     confidence and what each would change) rather than a bare list
+                     of names. Absent for a lone match — nothing to compare. -->
+                <Button
+                    v-if="options.length > 1"
+                    :label="`Compare ${options.length} candidates`"
+                    icon="pi pi-list"
+                    text
+                    data-test="album-compare"
+                    @click="pickerVisible = true"
                 />
-                <small class="album-detail">{{ selectedDetail }}</small>
             </div>
 
             <!-- What the Genres checkbox would write, shown because it is the one
@@ -763,6 +767,14 @@ function cancel() {
                     </template>
                 </template>
             </div>
+
+            <AlbumCandidatePicker
+                v-model:visible="pickerVisible"
+                :options="options"
+                :selectedMbid="selectedMbid"
+                :tracks="tracks"
+                @select="(mbid: string) => (selectedMbid = mbid)"
+            />
         </template>
 
         <template #footer>
@@ -856,12 +868,28 @@ function cancel() {
     gap: 0.6rem;
     padding-bottom: 0.8rem;
 }
-.album-select {
-    min-width: 28rem;
-    max-width: 100%;
+.album-pick-label {
+    font-weight: 600;
+    color: var(--app-text-secondary);
+}
+/* The chosen release, read-only: switching is the Compare button's job now, not
+   an inline control. Truncates so a long "Album — Artist (year)" cannot push the
+   Compare button off the row. */
+.album-current {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    min-width: 0;
+}
+.album-current-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .album-detail {
     color: var(--app-text-secondary);
+    white-space: nowrap;
 }
 .album-conflict {
     margin: 0 0 0.6rem;

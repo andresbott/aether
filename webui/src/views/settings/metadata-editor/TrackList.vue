@@ -10,6 +10,12 @@ const props = defineProps<{
     selection: Track[]
     // Paths of tracks with staged (unsaved) session edits; shown as a marker.
     stagedPaths?: ReadonlySet<string>
+    // Library-relative path of the folder selected above the list. Track paths
+    // are library-relative too, so we show each one relative to this folder —
+    // just the file name for a flat album, or a subfolder-qualified name
+    // (e.g. "CD2/02 - Song.mp3") for multi-disc ones. Null/empty means the
+    // library root is selected, so the full library-relative path is shown.
+    folderPath?: string | null
 }>()
 const emit = defineEmits<{
     (e: 'update:selection', sel: Track[]): void
@@ -18,7 +24,8 @@ const emit = defineEmits<{
 const rows = computed(() => props.tracks)
 
 // Selection mirrors the Now Playing queue (see useQueueEdit): a plain click
-// selects just that row, Ctrl/Cmd click toggles a row, and Shift click extends a
+// selects just that row — clicking the row that is already the sole selection
+// again clears it, so a re-click toggles off — Ctrl/Cmd click toggles a row, and Shift click extends a
 // range from the anchor, unioned onto the committed base selection. The checkbox
 // column behaves the same way — a bare toggle is additive, a Shift toggle extends
 // the range — and its header select-all toggles every row. We drive all of this
@@ -44,6 +51,15 @@ function isRowSelected(t: Track): boolean {
 function rowClass(t: Track): string {
     if (t.error) return 'row-error'
     return isRowSelected(t) ? 'row-selected' : ''
+}
+
+// The path shown in the list, made relative to the selected folder by dropping
+// its prefix. Falls back to the full library-relative path at the library root
+// (no folder prefix) or if the path somehow lies outside the folder.
+function displayPath(t: Track): string {
+    const base = props.folderPath
+    if (base && t.path.startsWith(base + '/')) return t.path.slice(base.length + 1)
+    return t.path
 }
 
 function dedupe(tracks: Track[]): Track[] {
@@ -102,6 +118,13 @@ function onRowClick(event: RowClickEvent): void {
         commit(next, event.index)
         return
     }
+    // Clicking the row that is already the sole selection clears it, so a plain
+    // re-click toggles off. Clicking any other row — or a selected row while
+    // several are selected — still collapses down to just that row.
+    if (isRowSelected(track) && props.selection.length === 1) {
+        commit([], null)
+        return
+    }
     commit([track], event.index)
 }
 
@@ -146,10 +169,17 @@ function onModifierProbe(event: MouseEvent | KeyboardEvent): void {
     shiftHeld = event.shiftKey
 }
 
-// Arrow keys move a single-row selection up/down (skipping error rows). Only
-// active with exactly one selected track — with a multi-selection the "move"
-// intent is ambiguous, so keys are left alone.
+// Escape clears the whole selection. Arrow keys move a single-row selection
+// up/down (skipping error rows), and are only active with exactly one selected
+// track — with a multi-selection the "move" intent is ambiguous, so those keys
+// are left alone.
 function onKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+        if (props.selection.length === 0) return
+        event.preventDefault()
+        commit([], null)
+        return
+    }
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
     if (props.selection.length !== 1) return
     const current = rows.value.findIndex((t) => t.path === props.selection[0].path)
@@ -212,7 +242,9 @@ const wrapperEl = ref<HTMLElement | null>(null)
                     ></i>
                 </template>
             </Column>
-            <Column field="path" header="Path" />
+            <Column field="path" header="Path">
+                <template #body="{ data }">{{ displayPath(data as Track) }}</template>
+            </Column>
             <Column header="" style="width: 10rem">
                 <template #body="{ data }">
                     <span v-if="(data as Track).error" class="err" :title="(data as Track).error">

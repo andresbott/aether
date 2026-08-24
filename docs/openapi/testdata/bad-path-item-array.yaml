@@ -1,0 +1,45 @@
+openapi: 3.1.0
+info:
+  title: Bad path-item-level array fixture
+  version: 0.1.0
+  description: >
+    Negative fixture for the `no-array-in-get-delete-url` Spectral rule's
+    path-item-level coverage (see ../../../.spectral.yaml). OpenAPI's Path
+    Item Object allows a shared `parameters` array — a sibling of `get`/
+    `delete`, not nested under an operation — that applies to every operation
+    defined on that path. This document declares an array-typed `in: query`
+    parameter at that path-item level, on a path that also defines `get`:
+    the exact 431-causing shape, encoded in a spec-legal way that an
+    operation-level-only `given` misses entirely. `no-array-in-get-delete-url`
+    MUST reject this. Kept under `testdata/` so `make spec-lint` (which only
+    lints `docs/openapi/aether-v1.yaml`) never touches it.
+paths:
+  /widgets:
+    parameters:
+      - name: ids
+        in: query
+        required: false
+        description: >
+          Repeated widget ids declared at the path-item level (a sibling of
+          `get` below), not nested inside the operation — the shape an
+          operation-level-only `given` cannot see.
+        schema:
+          type: array
+          items:
+            type: string
+    get:
+      operationId: listWidgets
+      summary: Lists widgets, inheriting the path-item-level array query parameter above.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  widgets:
+                    type: array
+                    items:
+                      type: string
+                required: [widgets]

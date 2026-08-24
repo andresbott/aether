@@ -276,26 +276,32 @@ Still open in TODO.md: `store.GetCoverTrackPath` picks the *first* track with
 unstable across rescans, and `getCoverArt` sends `Cache-Control: no-cache`
 but no ETag. If you touch cover resolution, read that entry first.
 
-## Artist images at scan time (`artistimage.go`)
+## Artist images at scan time (`internal/artistimage`)
 
 `reconcile.go` also records `artist.ImagePath` — an image found in the
-artist's **own** folder, for the common `<collection>/<artist>/<album>`
-layout. `DetectArtistImage(libRoot, trackPath, artistName)` walks from the
-track's parent-of-parent up to (excluding) the library root and accepts a
-directory only when it is **both** above the album directory **and** named
-after the artist (`unidecode.Normalize` on both sides). That double condition
-is deliberate: file location alone does not identify an artist, so a library
-laid out differently yields `""` rather than a wrong portrait. Accepted
-filenames are exact-match only (`artist` > `artistthumb` > `folder`, plus
-`coverExts`) — an album's own `cover.jpg`/`front.png` never qualifies, and a
-`folder.jpg` inside the album directory stays an album cover.
+artist's **own** folder, for the `<collection>/<artist>/<album>` layout at any
+depth (intermediate and disc folders such as
+`<collection>/<label>/<artist>/<album>/CD1` are handled). Detection lives in the
+reusable `internal/artistimage` package so callers outside the scanner (the
+metadata editor, to create an artist image file) can share it.
+`artistimage.Detect(libRoot, startDir, artistName)` walks from `startDir`'s
+parent up to (excluding) the library root and accepts a directory only when it is
+**both** above the album directory **and** named after the artist
+(`unidecode.Normalize` on both sides). That double condition is deliberate: file
+location alone does not identify an artist, so a library laid out differently
+yields `""` rather than a wrong portrait. `artistimage.FindDir` returns that
+folder even when it holds no image yet — what a caller writing a new artist image
+needs. Accepted filenames are exact-match only (`artist` > `artistthumb` >
+`folder`, plus the package's image extensions) — an album's own
+`cover.jpg`/`front.png` never qualifies, and a `folder.jpg` inside the album
+directory stays an album cover.
 
 Unlike `album.CoverPath`, the path is re-validated every pass
-(`IsUsableArtistImagePath`) and cleared when the file is gone; it is only
-kept across a pass when detection finds nothing but the recorded file still
-exists (another library may have supplied it). Detection results are cached
-per (track dir, artist) for the pass so a large library lists each folder
-once.
+(`artistimage.IsUsablePath`) and cleared when the file is gone; it is only kept
+across a pass when detection finds nothing but the recorded file still exists
+(another library may have supplied it). Images are reconciled **once per artist**
+in a single pass after every track is in (`reconcileArtistImages`), not per
+track, so a large library lists each artist folder at most once per run.
 
 `ImagePath` is the **last** fallback in `artistCoverMeta`
 (`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →
@@ -316,25 +322,29 @@ together or the note will describe an image the user isn't looking at.
 
 `ArtistView`'s "Search online" button (`ArtistImageSearchDialog`) drives the same
 provider chain as the `fetch-artist-images` job, but from a MusicBrainz artist the
-user picks by name rather than the artist's stored `MBArtistID`:
+user picks by name rather than the artist's stored `MBArtistID`, and shows every
+candidate portrait as a selectable grid rather than auto-picking one:
 
-- `GET /api/v1/artists/image-preview?mbid=…` runs the chain and streams the image
-  back without storing it. Third-party bytes, so the response type is
-  `http.DetectContentType`-sniffed (not the provider's claimed extension),
-  non-image payloads are refused with 502, and it carries `nosniff` +
-  `Cache-Control: no-store`.
-- `PUT /api/v1/artists/{id}/image-from-search` — called by the **editor's Save**,
-  not the dialog: a pick is staged in `ArtistView` like a file upload (previewed
-  in the cover, marks the editor dirty, discarded by Cancel/Remove). The three
-  staged edits (file, clear, searched pick) are mutually exclusive; the last one
-  wins, and `saveEdit` routes a pick here instead of `updateArtist`. It stores
-  the pick as a **manual**
-  upload, so it outranks anything the job later writes to the auto slot. It files
-  under `artistCoverKey` (MBID slot when matched, else DB ID) — the same slot a
-  normal upload uses, because cover resolution reads the MBID slot first and a
-  pick filed under the DB ID would lose to an auto-fetched image. The *chosen*
-  MBID is not written to `artist.MBArtistID`: picking a portrait is not asserting
-  a metadata match.
+- `GET /api/v1/artists/image-candidates?mbid=…` runs `Chain.List` and returns
+  every provider's portraits as `{url, thumbUrl, provider}` JSON — no bytes
+  downloaded server-side, since the browser loads each `thumbUrl` straight from
+  the provider's own CDN for the grid.
+- `PUT /api/v1/artists/{id}/image-from-search` (body `{mbid, url}`) — called by
+  the **editor's Save**, not the dialog: a pick is staged in `ArtistView` like a
+  file upload (previewed in the cover, marks the editor dirty, discarded by
+  Cancel/Remove). The three staged edits (file, clear, searched pick) are
+  mutually exclusive; the last one wins, and `saveEdit` routes a pick here
+  instead of `updateArtist`. The handler re-runs `Chain.List` for `mbid` itself
+  and only accepts `url` if it matches a `FullURL` that call just returned — an
+  SSRF guard against downloading an arbitrary client-supplied URL — then
+  downloads through the matched provider (`Chain.Download(provider, url)`) and
+  stores it as a **manual** upload, so it outranks anything the job later writes
+  to the auto slot. It files under the artist's asset key (MBID slot when
+  matched, else DB ID) — the same slot a normal upload uses, because cover
+  resolution reads the MBID slot first and a pick filed under the DB ID would
+  lose to an auto-fetched image. The *chosen* MBID is only used for the `List`/
+  `Download` calls — it is never written to `artist.MBArtistID`: picking a
+  portrait is not asserting a metadata match.
 
 ## Known scanner debt (TODO.md, direction chosen)
 

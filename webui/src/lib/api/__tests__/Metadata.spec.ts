@@ -36,3 +36,25 @@ describe('Metadata API — searchFolders', () => {
         expect(res.truncated).toBe(false)
     })
 })
+
+describe('Metadata API — candidate image info', () => {
+    it('getArtistImageCandidateInfo GETs the artist probe with mbid + url', async () => {
+        const meta = { width: 1000, height: 1000, format: 'jpeg', bytes: 250880 }
+        get.mockResolvedValue({ data: meta })
+        const res = await Metadata.getArtistImageCandidateInfo('mbid-1', 'https://p.example/a.jpg')
+        expect(get).toHaveBeenCalledWith('/metadata/artist-image/candidate-info', {
+            params: { mbid: 'mbid-1', url: 'https://p.example/a.jpg' }
+        })
+        expect(res).toEqual(meta)
+    })
+
+    it('getPictureCandidateInfo GETs the cover probe with the url', async () => {
+        const meta = { width: 500, height: 500, format: 'png', bytes: 1536 }
+        get.mockResolvedValue({ data: meta })
+        const res = await Metadata.getPictureCandidateInfo('https://caa.example/f.jpg')
+        expect(get).toHaveBeenCalledWith('/metadata/pictures/candidate-info', {
+            params: { url: 'https://caa.example/f.jpg' }
+        })
+        expect(res).toEqual(meta)
+    })
+})

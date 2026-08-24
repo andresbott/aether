@@ -38,9 +38,15 @@ const groups = computed<SettingsNavGroup[]>(() => [
             ...(userManagement.value
                 ? [{ label: 'Users', icon: 'pi pi-users', route: '/settings/users' }]
                 : []),
-            { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' },
-            { label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/settings/metadata' }
+            { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' }
         ]
+    },
+    {
+        // The metadata editor is a top-level route (/metadata-editor) rendered
+        // in this layout, so it also gets a side-nav entry here, under its own
+        // Tools header (it is reachable from the sidebar UserMenu as well).
+        label: 'Tools',
+        items: [{ label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/metadata-editor' }]
     }
 ])
 

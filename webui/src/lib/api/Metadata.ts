@@ -1,8 +1,12 @@
 import { apiClient } from '@/lib/api/client'
 import type {
+    ApplyArtistImageResult,
     ApplyPictureResult,
+    ArtistFolderInfo,
     CoverCandidate,
+    DeleteArtistImageResult,
     DeletePictureResult,
+    ImageMeta,
     IdentifyAlbumRequest,
     IdentifyAlbumResponse,
     IdentifyRequest,
@@ -56,10 +60,15 @@ export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTra
 
 // getRawTags reads the complete tag map of the given files, including keys
 // the structured editor does not manage.
+//
+// The selection travels in the POST body rather than the URL: a large
+// multi-disc selection as a repeated ?paths= query param overflowed a
+// production reverse proxy's header buffer (HTTP 431) — the same fix as
+// getPictures below.
 export async function getRawTags(libraryId: number, paths: string[]) {
-    const { data } = await apiClient.get<RawTagsResponse>('/metadata/tracks/raw', {
-        params: { library_id: libraryId, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+    const { data } = await apiClient.post<RawTagsResponse>('/metadata/tracks/raw-tags', {
+        library_id: libraryId,
+        paths
     })
     return data.results
 }
@@ -95,35 +104,19 @@ export async function identifyAlbum(body: IdentifyAlbumRequest, signal?: AbortSi
     return data
 }
 
-// getPictureUrl builds the URL of one picture type+slot cell for use as an
-// <img> src. The optional bust value forces a reload after a change (the
-// endpoint sets Cache-Control: no-cache but the URL is otherwise unchanged).
-// For the embedded slot, paths narrow the probe to the selected tracks.
-//
-// size requests an optimized, display-sized copy instead of the original — pass
-// it for grid thumbnails. Omit it when the bytes themselves matter (copying a
-// picture into another slot, see fetchPictureFile), since a derivative is a
-// downscaled re-encode of the source.
-export function getPictureUrl(
-    libraryId: number,
-    path: string,
-    type: string,
-    slot: PictureSlot,
-    bust?: number,
-    paths?: string[],
-    size?: number
-): string {
-    const base = apiClient.defaults.baseURL ?? ''
-    const params = new URLSearchParams({ library_id: String(libraryId), path, type, slot })
-    if (bust !== undefined) params.set('t', String(bust))
-    for (const p of paths ?? []) params.append('paths', p)
-    if (size) params.set('size', String(size))
-    return `${base}/metadata/pictures/image?${params.toString()}`
-}
-
 export async function listReleaseCovers(mbid: string, releaseGroup?: string) {
     const { data } = await apiClient.get<CoverCandidate[]>('/metadata/pictures/candidates', {
         params: { mbid, release_group: releaseGroup }
+    })
+    return data
+}
+
+// getPictureCandidateInfo probes a Cover Art Archive candidate: the server
+// downloads the real image and reports its size, dimensions and format, so the
+// picker can show what saving will write (the grid only shows a thumbnail).
+export async function getPictureCandidateInfo(url: string): Promise<ImageMeta> {
+    const { data } = await apiClient.get<ImageMeta>('/metadata/pictures/candidate-info', {
+        params: { url }
     })
     return data
 }
@@ -146,34 +139,98 @@ export async function applyPicture(form: FormData) {
     return data
 }
 
-// getPictures reports every picture type present for the folder and which
-// slots hold it. Embedded presence is counted over the given paths (or every
-// folder track when omitted).
-export async function getPictures(
-    libraryId: number,
-    path: string,
-    paths?: string[]
-): Promise<PictureInfo[]> {
-    const { data } = await apiClient.get<PicturesResponse>('/metadata/pictures', {
-        params: { library_id: libraryId, path, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+// getPictures reports every picture type present for the selection and which
+// slots hold it, each populated slot carrying its ready-to-render image URL
+// (server-resolved — see PictureImageRef). Embedded presence is counted over
+// paths; folder art spans the distinct directories paths resolves to.
+//
+// The selection travels in the POST body rather than the URL: a large
+// multi-disc selection as a repeated ?paths= query param overflowed a
+// production reverse proxy's header buffer (HTTP 431). The image endpoint it
+// returns stays a GET, keyed on one resolved file instead of the selection.
+export async function getPictures(libraryId: number, paths: string[]): Promise<PictureInfo[]> {
+    const { data } = await apiClient.post<PicturesResponse>('/metadata/pictures/inventory', {
+        library_id: libraryId,
+        paths
     })
     return data.pictures ?? []
 }
 
-// deletePicture removes one picture type+slot cell. For 'embedded', paths are
-// the selected tracks the removal applies to. Returns the whole response, not
-// just ok: the server also reports whether its post-write re-index succeeded.
+// resolveArtistFolder reports whether the selected folder is an artist folder
+// (its albums are tagged with an album artist matching the folder name) and the
+// image it already holds. The editor shows the control only when eligible.
+export async function resolveArtistFolder(
+    libraryId: number,
+    path: string
+): Promise<ArtistFolderInfo> {
+    const { data } = await apiClient.get<ArtistFolderInfo>('/metadata/artist-folder', {
+        params: { library_id: libraryId, path }
+    })
+    return data
+}
+
+// getArtistImageCandidateInfo probes a candidate artist portrait — an MBID plus
+// a provider-offered URL: the server re-lists (SSRF guard), downloads the real
+// image and reports its size, dimensions and format, so the picker can show what
+// saving will write (the grid only shows a downscaled preview).
+export async function getArtistImageCandidateInfo(mbid: string, url: string): Promise<ImageMeta> {
+    const { data } = await apiClient.get<ImageMeta>('/metadata/artist-image/candidate-info', {
+        params: { mbid, url }
+    })
+    return data
+}
+
+// getArtistImageUrl builds the <img> src for the selected folder's current image.
+// bust forces a reload after a change (the endpoint sends Cache-Control:
+// no-cache but the URL is otherwise unchanged).
+export function getArtistImageUrl(libraryId: number, path: string, bust?: number): string {
+    const base = apiClient.defaults.baseURL ?? ''
+    const params = new URLSearchParams({ library_id: String(libraryId), path })
+    if (bust !== undefined) params.set('t', String(bust))
+    return `${base}/metadata/artist-image?${params.toString()}`
+}
+
+// applyArtistImage writes an artist portrait as artist.<ext> into the selected
+// folder. The form carries library_id, path, and either an uploaded image file
+// ("image") or an online pick ("mbid" + "url").
+export async function applyArtistImage(form: FormData): Promise<ApplyArtistImageResult> {
+    const { data } = await apiClient.post<ApplyArtistImageResult>('/metadata/artist-image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    return data
+}
+
+// deleteArtistImage removes the selected folder's current artist image.
+export async function deleteArtistImage(
+    libraryId: number,
+    path: string
+): Promise<DeleteArtistImageResult> {
+    const { data } = await apiClient.delete<DeleteArtistImageResult>('/metadata/artist-image', {
+        params: { library_id: libraryId, path }
+    })
+    return data
+}
+
+// deletePicture removes one picture type+slot cell across paths: for
+// 'embedded' it applies directly to those tracks; for 'folder' it reaches
+// every directory the selection spans. Returns the whole response, not just
+// ok: the server also reports whether its post-write re-index succeeded.
+//
+// POST, not DELETE-with-body: the selection (paths, mandatory and non-empty)
+// travels in the body rather than the URL, the same header-safety fix as
+// getPictures/getRawTags above — a POST action rather than a DELETE-with-body
+// avoids attaching a payload to a DELETE verb.
 export async function deletePicture(
     libraryId: number,
-    path: string,
+    paths: string[],
     type: string,
-    slot: PictureSlot,
-    paths?: string[]
+    slot: PictureSlot
 ): Promise<DeletePictureResult> {
-    const { data } = await apiClient.delete<DeletePictureResult>('/metadata/pictures', {
-        params: { library_id: libraryId, path, type, slot, paths },
-        paramsSerializer: { indexes: null } // repeat paths= for arrays
+    const { data } = await apiClient.post<DeletePictureResult>('/metadata/pictures/removals', {
+        library_id: libraryId,
+        paths,
+        type,
+        slot
     })
     return data
 }

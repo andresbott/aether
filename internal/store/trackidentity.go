@@ -29,8 +29,8 @@ type TrackRow struct {
 // have produced, and the only set the re-link pre-pass considers.
 func (s *Store) KnownTrackPaths(paths []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(paths))
-	for i := 0; i < len(paths); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(paths); i += chunkSize {
+		end := i + chunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
@@ -53,8 +53,8 @@ func (s *Store) KnownTrackPaths(paths []string) (map[string]bool, error) {
 // runs at most once per reconcile batch, next to reading every file's tags.
 func (s *Store) TracksByFileSizes(sizes []int64) ([]TrackRow, error) {
 	var out []TrackRow
-	for i := 0; i < len(sizes); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(sizes); i += chunkSize {
+		end := i + chunkSize
 		if end > len(sizes) {
 			end = len(sizes)
 		}
@@ -96,8 +96,8 @@ func (s *Store) TracksByAudioHashes(hashes []string) ([]TrackRow, error) {
 	}
 
 	var out []TrackRow
-	for i := 0; i < len(keys); i += identityChunkSize {
-		end := i + identityChunkSize
+	for i := 0; i < len(keys); i += chunkSize {
+		end := i + chunkSize
 		if end > len(keys) {
 			end = len(keys)
 		}

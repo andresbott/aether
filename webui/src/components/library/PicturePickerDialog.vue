@@ -11,8 +11,9 @@ import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import { useCoverArtSearch } from '@/composables/useCoverArtSearch'
 import { useMusicBrainzReleaseSearch } from '@/composables/useMusicBrainzReleaseSearch'
-import { fetchPictureFile } from '@/lib/api/Metadata'
+import { fetchPictureFile, getPictureCandidateInfo } from '@/lib/api/Metadata'
 import { apiErrorMessage } from '@/lib/apiError'
+import { formatImageMeta } from '@/lib/imageMeta'
 import {
     PICTURE_SLOT_LABELS,
     candidateMatchesType,
@@ -74,6 +75,13 @@ const selectedCandidate = ref<CoverCandidate | null>(null)
 const selectedSource = ref<PictureCopySource | null>(null)
 const uploadFile = ref<File | null>(null)
 const uploadPreview = ref<string | null>(null)
+// The picked online candidate's real size/dimensions/format. The grid shows a
+// downscaled thumbnail, so this is probed server-side (downloading the full
+// image) and shown before Save. metaSeq discards a slow probe once the pick
+// changes.
+const candidateMeta = ref<string | null>(null)
+const candidateMetaLoading = ref(false)
+let metaSeq = 0
 // A copy source served by the server is downloaded on confirm; this reports
 // that step.
 const copying = ref(false)
@@ -138,10 +146,17 @@ const chosen = computed<{ label: string; thumbUrl: string } | null>(() => {
     return null
 })
 
+function clearMeta() {
+    metaSeq++
+    candidateMeta.value = null
+    candidateMetaLoading.value = false
+}
+
 function clearSelection() {
     selectedCandidate.value = null
     selectedSource.value = null
     clearUpload()
+    clearMeta()
     copyError.value = null
 }
 
@@ -228,9 +243,21 @@ function releaseMeta(r: MusicBrainzReleaseCandidate): string {
     return parts.join(' · ')
 }
 
-function pickCandidate(c: CoverCandidate) {
+async function pickCandidate(c: CoverCandidate) {
     clearSelection()
     selectedCandidate.value = c
+    const seq = ++metaSeq
+    candidateMetaLoading.value = true
+    try {
+        const info = await getPictureCandidateInfo(c.imageUrl)
+        if (seq === metaSeq) candidateMeta.value = formatImageMeta(info)
+    } catch {
+        // A failed probe is non-fatal: the pick still works, just without its
+        // metadata line.
+        if (seq === metaSeq) candidateMeta.value = null
+    } finally {
+        if (seq === metaSeq) candidateMetaLoading.value = false
+    }
 }
 
 // coverDescription summarises what an image depicts, from its Cover Art Archive
@@ -256,6 +283,7 @@ function acceptUpload(file: File | null) {
     if (!file) return
     selectedCandidate.value = null
     selectedSource.value = null
+    clearMeta()
     copyError.value = null
     uploadFile.value = file
     if (uploadPreview.value) URL.revokeObjectURL(uploadPreview.value)
@@ -307,7 +335,10 @@ async function confirmSelection() {
     }
     emit('select', {
         file: uploadFile.value,
-        imageUrl: uploadFile.value ? null : (selectedCandidate.value?.imageUrl ?? null)
+        imageUrl: uploadFile.value ? null : (selectedCandidate.value?.imageUrl ?? null),
+        // Reuse the archive thumbnail for the staged preview; the full imageUrl is
+        // downloaded server-side on save.
+        previewUrl: uploadFile.value ? null : (selectedCandidate.value?.thumbUrl ?? null)
     })
     emit('update:visible', false)
 }
@@ -606,7 +637,18 @@ function cancel() {
             <div class="footer-chosen" data-test="picture-chosen">
                 <template v-if="chosen">
                     <img class="chosen-thumb" :src="chosen.thumbUrl" alt="" />
-                    <span class="chosen-label">{{ chosen.label }}</span>
+                    <div class="chosen-text">
+                        <span class="chosen-label">{{ chosen.label }}</span>
+                        <span v-if="selectedCandidate && candidateMetaLoading" class="chosen-meta"
+                            >Checking image…</span
+                        >
+                        <span
+                            v-else-if="selectedCandidate && candidateMeta"
+                            class="chosen-meta"
+                            data-test="candidate-meta"
+                            >{{ candidateMeta }}</span
+                        >
+                    </div>
                 </template>
                 <span v-else class="chosen-empty">No image chosen yet</span>
             </div>
@@ -881,12 +923,22 @@ function cancel() {
     border-radius: 4px;
     border: 1px solid var(--app-border);
 }
+.chosen-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
 .chosen-label {
     font-size: 0.8rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 18rem;
+}
+.chosen-meta {
+    font-size: 0.72rem;
+    color: var(--app-text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 .chosen-empty {
     font-size: 0.8rem;

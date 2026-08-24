@@ -58,7 +58,7 @@ vi.mock('@/lib/api/subsonic', () => ({
 // The image-search dialog is mounted for real (its own spec covers behaviour),
 // so stub the network layer it imports.
 vi.mock('@/lib/api/Artists', () => ({
-    artistImagePreviewUrl: (mbid: string) => `/api/v1/artists/image-preview?mbid=${mbid}`,
+    getArtistImageCandidates: vi.fn().mockResolvedValue([]),
     setArtistImageFromSearch: () => Promise.resolve(),
     parseArtistNumericId: (id: string) => Number(id.split('-').pop())
 }))
@@ -68,6 +68,17 @@ vi.mock('@/composables/useMusicBrainzSearch', () => ({
         loading: ref(false),
         error: ref(null),
         search: vi.fn()
+    })
+}))
+// Keeps the dialog's own image grid inert here — its own spec covers loading,
+// selecting, and emitting a candidate.
+vi.mock('@/composables/useArtistImageCandidates', () => ({
+    useArtistImageCandidates: () => ({
+        candidates: ref([]),
+        loading: ref(false),
+        error: ref(null),
+        load: vi.fn(),
+        reset: vi.fn()
     })
 }))
 
@@ -675,7 +686,8 @@ describe('ArtistView staged online image pick', () => {
     const PICK = {
         mbid: 'mbid-a',
         name: 'Pink Floyd',
-        previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+        url: 'https://cdn/full-a.jpg',
+        previewUrl: 'https://cdn/thumb-a.jpg'
     }
 
     const openWithPick = async () => {
@@ -769,7 +781,8 @@ describe('ArtistView remove with a staged online pick', () => {
         w.findComponent(ArtistImageSearchDialog).vm.$emit('select', {
             mbid: 'mbid-a',
             name: 'Pink Floyd',
-            previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+            url: 'https://cdn/full-a.jpg',
+            previewUrl: 'https://cdn/thumb-a.jpg'
         })
         await flushPromises()
         expect(w.find('.cover-remove').exists()).toBe(true)
@@ -792,7 +805,8 @@ describe('ArtistView removing a staged online pick', () => {
         w.findComponent(ArtistImageSearchDialog).vm.$emit('select', {
             mbid: 'mbid-a',
             name: 'Pink Floyd',
-            previewUrl: '/api/v1/artists/image-preview?mbid=mbid-a'
+            url: 'https://cdn/full-a.jpg',
+            previewUrl: 'https://cdn/thumb-a.jpg'
         })
         await flushPromises()
 

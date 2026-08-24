@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/model"
@@ -110,18 +111,31 @@ func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 		t.Fatalf("expected 400 for a missing library_id, got %d", w.Code)
 	}
 
+	// Over-cap paths[] is well-formed but invalid (422), unlike the missing-
+	// input cases above, which stay 400 — see decodeSelection's identical cap.
 	tooMany := make([]string, 51)
 	for i := range tooMany {
 		tooMany[i] = "a.mp3"
 	}
-	if w := postIdentifyAlbum(t, r, map[string]any{
+	w := postIdentifyAlbum(t, r, map[string]any{
 		"library_id": lib.ID, "paths": tooMany,
-	}); w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for too many paths, got %d", w.Code)
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for too many paths, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var validation httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
+		t.Fatal(err)
+	}
+	if len(validation.Errors) == 0 || validation.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", validation.Errors)
 	}
 
 	req := httptest.NewRequest("POST", "/metadata/identify-album", bytes.NewReader([]byte("{not json")))
-	w := httptest.NewRecorder()
+	w = httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid JSON, got %d", w.Code)
@@ -360,23 +374,23 @@ func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
 			if w.Code != tc.wantStatus {
 				t.Fatalf("expected %d, got %d: %s", tc.wantStatus, w.Code, w.Body.String())
 			}
-			var body struct {
-				Error string `json:"error"`
-				Code  string `json:"code"`
+			if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+				t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 			}
+			var body httperr.Problem
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			if body.Code != tc.wantCode {
-				t.Fatalf("expected code %q, got %q", tc.wantCode, body.Code)
+			if got := httperr.Slug(body.Type); got != tc.wantCode {
+				t.Fatalf("expected code %q, got %q", tc.wantCode, got)
 			}
-			if !strings.Contains(body.Error, "AcoustID") {
-				t.Fatalf("expected the service named in the message, got %q", body.Error)
+			if !strings.Contains(body.Detail, "AcoustID") {
+				t.Fatalf("expected the service named in the message, got %q", body.Detail)
 			}
 			// The body must not leak the Go error or the transport detail.
 			for _, leak := range []string{"connection refused", "acoustid:", "dial tcp"} {
-				if strings.Contains(body.Error, leak) {
-					t.Fatalf("raw error detail %q leaked into the body: %q", leak, body.Error)
+				if strings.Contains(body.Detail, leak) {
+					t.Fatalf("raw error detail %q leaked into the body: %q", leak, body.Detail)
 				}
 			}
 		})

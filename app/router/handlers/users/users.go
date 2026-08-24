@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
@@ -77,19 +79,14 @@ type updateInput struct {
 	Role     string `json:"role"` // "admin" or "user"; empty leaves the role untouched
 }
 
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 func (h *Handler) Routes(r *mux.Router) {
@@ -99,19 +96,19 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/users/{id}").Methods(http.MethodDelete).HandlerFunc(h.delete)
 }
 
-func (h *Handler) list(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	// The store caps pages at 200; a self-hosted music server does not have
 	// more users than that, so the UI gets everything in one response.
 	res, err := h.Users.List(userdb.ListOpts{Limit: 200})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]userDTO, 0, len(res.Users))
 	for _, u := range res.Users {
 		role, err := h.roleOf(u.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out = append(out, userDTO{ID: u.ID, Login: u.LoginID, Enabled: u.Enabled, Role: role})
@@ -191,14 +188,14 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 // guardLastAdmin writes the 409 and reports whether the caller must stop. An
 // infrastructure failure is reported as 500 and also stops the caller: it must
 // never be read as "the change is safe".
-func (h *Handler) guardLastAdmin(w http.ResponseWriter, userID string) (blocked bool) {
+func (h *Handler) guardLastAdmin(w http.ResponseWriter, r *http.Request, userID string) (blocked bool) {
 	last, err := h.isLastEnabledAdmin(userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return true
 	}
 	if last {
-		writeError(w, http.StatusConflict, "last_admin", errLastAdmin.Error())
+		writeError(w, r, http.StatusConflict, "last_admin", errLastAdmin.Error())
 		return true
 	}
 	return false
@@ -219,41 +216,57 @@ func validRole(role string) error {
 	return nil
 }
 
+// errPasswordTooLong flags a password that is present but would silently
+// truncate at bcrypt's 72-byte input limit — a well-formed-but-invalid value,
+// unlike an outright missing password.
+var errPasswordTooLong = errors.New("password must be at most 72 characters")
+
 func validPassword(pw string) error {
 	if pw == "" {
 		return errors.New("password is required")
 	}
 	if len(pw) > maxPasswordLen {
-		return errors.New("password must be at most 72 characters")
+		return errPasswordTooLong
 	}
 	return nil
+}
+
+// writePasswordErr answers a validPassword failure with the right status: an
+// empty password is a missing required field (400); an over-length one is
+// well-formed but invalid (422).
+func writePasswordErr(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errPasswordTooLong) {
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/password", Detail: err.Error()})
+		return
+	}
+	writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var in createInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	in.Login = strings.TrimSpace(in.Login)
 	if in.Login == "" {
-		writeError(w, http.StatusBadRequest, "validation_error", "login is required")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "login is required")
 		return
 	}
 	if tokenShapedLogin.MatchString(in.Login) {
-		writeError(w, http.StatusBadRequest, "validation_error",
-			"login must not look like a token id (10 lowercase letters/digits)")
+		msg := "login must not look like a token id (10 lowercase letters/digits)"
+		httperr.WriteValidation(w, r, msg, httperr.FieldError{Pointer: "/login", Detail: msg})
 		return
 	}
 	if err := validPassword(in.Password); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writePasswordErr(w, r, err)
 		return
 	}
 	if in.Role == "" {
 		in.Role = RoleUser
 	}
 	if err := validRole(in.Role); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/role", Detail: err.Error()})
 		return
 	}
 	enabled := in.Enabled == nil || *in.Enabled
@@ -265,14 +278,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Users.CreateUser(usr); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	// CreateUser does not return the generated UUID; read the row back so the
 	// client gets the id it must use for updates and deletes.
 	created, err := h.Users.GetUserByLogin(in.Login)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, userDTO{ID: created.ID, Login: created.LoginID, Enabled: created.Enabled, Role: in.Role})
@@ -280,20 +293,20 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 
 // validateUpdate rejects an update before any of it is applied, writing the
 // error response itself. It reports whether the caller must stop.
-func (h *Handler) validateUpdate(w http.ResponseWriter, id string, existing userauth.User, in updateInput) (blocked bool) {
+func (h *Handler) validateUpdate(w http.ResponseWriter, r *http.Request, id string, existing userauth.User, in updateInput) (blocked bool) {
 	if newLogin := strings.TrimSpace(in.Login); newLogin != "" && newLogin != existing.LoginID {
-		writeError(w, http.StatusBadRequest, "validation_error", errRenameUnsupported.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", errRenameUnsupported.Error())
 		return true
 	}
 	if in.Password != "" {
 		if err := validPassword(in.Password); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			writePasswordErr(w, r, err)
 			return true
 		}
 	}
 	if in.Role != "" {
 		if err := validRole(in.Role); err != nil {
-			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/role", Detail: err.Error()})
 			return true
 		}
 	}
@@ -303,7 +316,7 @@ func (h *Handler) validateUpdate(w http.ResponseWriter, id string, existing user
 	demoting := in.Role == RoleUser
 	disabling := in.Enabled != nil && !*in.Enabled && existing.Enabled
 	if demoting || disabling {
-		return h.guardLastAdmin(w, id)
+		return h.guardLastAdmin(w, r, id)
 	}
 	return false
 }
@@ -313,19 +326,19 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.Users.GetUser(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 
 	var in updateInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	// Everything is validated before the store is touched: the mutations below
 	// are separate store calls, not one transaction, so a late rejection would
 	// otherwise leave the update half-applied.
-	if blocked := h.validateUpdate(w, id, existing, in); blocked {
+	if blocked := h.validateUpdate(w, r, id, existing, in); blocked {
 		return
 	}
 
@@ -333,12 +346,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if in.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), BcryptDifficulty)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal", err.Error())
+			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		if err := h.Users.SetPasswordHash(id, string(hash)); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, status, code, err.Error())
+			writeError(w, r, status, code, err.Error())
 			return
 		}
 	}
@@ -346,20 +359,20 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if in.Enabled != nil && *in.Enabled != existing.Enabled {
 		if err := h.Users.SetEnabled(id, *in.Enabled); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, status, code, err.Error())
+			writeError(w, r, status, code, err.Error())
 			return
 		}
 		enabled = *in.Enabled
 	}
 	role, err := h.roleOf(id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	if in.Role != "" && in.Role != role {
 		if err := h.setRole(id, in.Role); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, status, code, err.Error())
+			writeError(w, r, status, code, err.Error())
 			return
 		}
 		role = in.Role
@@ -398,15 +411,15 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	// the lockout 409 (roleOf reports a groupless "user" for an unknown id).
 	if _, err := h.Users.GetUser(id); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
-	if h.guardLastAdmin(w, id) {
+	if h.guardLastAdmin(w, r, id) {
 		return
 	}
 	if err := h.Users.Delete(id); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -416,11 +429,8 @@ func mapStoreError(err error) (status int, code string) {
 	if errors.Is(err, userauth.ErrUserNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
-	if err != nil {
-		msg := err.Error()
-		if strings.Contains(msg, "UNIQUE constraint failed") || strings.Contains(msg, "duplicate") {
-			return http.StatusConflict, "conflict"
-		}
+	if store.IsUniqueViolation(err) {
+		return http.StatusConflict, "conflict"
 	}
 	return http.StatusInternalServerError, "internal"
 }

@@ -194,7 +194,7 @@ const saveEdit = (): void => {
     // these runs.
     if (imagePick.value) {
         setImageFromSearch.mutate(
-            { artistId: props.id, mbid: imagePick.value.mbid },
+            { artistId: props.id, mbid: imagePick.value.mbid, url: imagePick.value.url },
             { onSuccess: afterCoverSaved }
         )
         return

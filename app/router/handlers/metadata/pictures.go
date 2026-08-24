@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -11,11 +10,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
 	"gorm.io/gorm"
 )
@@ -38,7 +39,6 @@ var pictureSlots = []string{"embedded", "folder"}
 // resolvedPicture is one type+slot cell's current image. Exactly one of
 // filePath / data is set when found.
 type resolvedPicture struct {
-	detail   string // e.g. the folder filename or "4 of 10 files"
 	filePath string // serve this file (folder slot)
 	data     []byte // serve these bytes (embedded slot)
 }
@@ -46,160 +46,29 @@ type resolvedPicture struct {
 // requestedType validates the request's picture type against the registry,
 // defaulting to Front Cover when absent.
 func requestedType(r *http.Request) (metadataedit.PictureType, error) {
-	id := r.FormValue("type")
+	return pictureTypeByIDOrDefault(r.FormValue("type"))
+}
+
+// pictureTypeByIDOrDefault validates a picture type ID against the registry,
+// defaulting to Front Cover when id is empty. Shared by requestedType
+// (the query/form-based endpoints) and removals (a JSON body, which has no
+// r.FormValue to read from).
+func pictureTypeByIDOrDefault(id string) (metadataedit.PictureType, error) {
 	if id == "" {
 		id = frontCoverType
 	}
 	pt, ok := metadataedit.PictureTypeByID(id)
 	if !ok {
-		return metadataedit.PictureType{}, fmt.Errorf("unknown picture type %q", id)
+		return metadataedit.PictureType{}, fmt.Errorf("%w %q", errUnknownType, id)
 	}
 	return pt, nil
 }
 
-// selectionPaths resolves the request's repeated paths params (the selected
-// tracks) to absolute paths, falling back to every track in the folder.
-func (h *Handler) selectionPaths(ctx context.Context, lib *librarySummary, abs string, paths []string) []string {
-	if len(paths) == 0 {
-		return folderTrackPaths(ctx, lib, abs, h.Reader)
-	}
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if trackAbs, err := metadataedit.ResolveInLibrary(lib.Path, p); err == nil {
-			out = append(out, trackAbs)
-		}
-	}
-	return out
-}
-
-// selectionDirs returns the distinct directories the selected tracks live in,
-// in first-seen order. An album is not necessarily one folder — a multi-disc
-// release is usually laid out as CD 1/, CD 2/ subfolders — so folder art is
-// resolved over every directory the selection spans, with the first one acting
-// as the album's primary (representative) folder. Falls back to the requested
-// folder when the selection is empty.
-func (h *Handler) selectionDirs(ctx context.Context, lib *librarySummary, abs string, paths []string) []string {
-	dirs := distinctDirs(h.selectionPaths(ctx, lib, abs, paths))
-	if len(dirs) == 0 {
-		return []string{abs}
-	}
-	return dirs
-}
-
-// distinctDirs returns the parent directories of the given track paths, in
-// first-seen order without duplicates.
-func distinctDirs(trackPaths []string) []string {
-	seen := map[string]bool{}
-	out := make([]string, 0, 2)
-	for _, p := range trackPaths {
-		dir := filepath.Dir(p)
-		if !seen[dir] {
-			seen[dir] = true
-			out = append(out, dir)
-		}
-	}
-	return out
-}
-
-// folderTrackPaths returns the absolute paths of the audio tracks in abs.
-func folderTrackPaths(ctx context.Context, lib *librarySummary, abs string, reader tags.Reader) []string {
-	rows, _ := metadataedit.ListTracks(ctx, lib.Path, abs, reader)
-	out := make([]string, 0, len(rows))
-	for _, t := range rows {
-		if trackAbs, err := metadataedit.ResolveInLibrary(lib.Path, t.Path); err == nil {
-			out = append(out, trackAbs)
-		}
-	}
-	return out
-}
-
-// folderPictureName returns the folder-art filename for a picture type: front
-// covers keep the scanner's loose matching (folder.jpg, front.png, ... all
-// count), every other type matches its exact <base>.jpg/png convention.
-func folderPictureName(dir string, pt metadataedit.PictureType) string {
-	if pt.ID == frontCoverType {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return ""
-		}
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			if !e.IsDir() {
-				names = append(names, e.Name())
-			}
-		}
-		return scanner.BestCover(names)
-	}
-	return metadataedit.FolderPictureName(dir, pt.FileBase)
-}
-
-// folderPictureAcross reports the album's folder art for a type across every
-// directory the selection spans. detail/path come from the first directory that
-// holds the picture (the album's representative image); mixed is true when the
-// directories do not all hold the same bytes — i.e. one disc folder is missing
-// the art or carries a different image — so the editor can flag it.
-func folderPictureAcross(dirs []string, pt metadataedit.PictureType) (name, path string, mixed, ok bool) {
-	var firstSum [sha256.Size]byte
-	for _, dir := range dirs {
-		n := folderPictureName(dir, pt)
-		if n == "" {
-			mixed = true // this folder lacks the album's art
-			continue
-		}
-		p := filepath.Join(dir, n)
-		sum, serr := fileSum(p)
-		if !ok {
-			name, path, firstSum, ok = n, p, sum, true
-			continue
-		}
-		if serr != nil || sum != firstSum {
-			mixed = true
-		}
-	}
-	// A picture nowhere at all is simply absent, not mixed.
-	if !ok {
-		return "", "", false, false
-	}
-	return name, path, mixed, true
-}
-
-// fileSum returns the SHA-256 of a file's contents, used to tell whether the
-// disc folders of one album hold the same image.
-func fileSum(path string) ([sha256.Size]byte, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: path is built from a validated album directory plus a filename read from that directory
-	if err != nil {
-		return [sha256.Size]byte{}, err
-	}
-	defer func() { _ = f.Close() }()
-	hasher := sha256.New()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return [sha256.Size]byte{}, err
-	}
-	var sum [sha256.Size]byte
-	copy(sum[:], hasher.Sum(nil))
-	return sum, nil
-}
-
-// pictureForSlot resolves one type+slot cell, or ok=false when empty. paths
-// are the selected tracks; they also determine the directories a folder
-// picture is looked up in (empty = the requested folder).
-func (h *Handler) pictureForSlot(ctx context.Context, lib *librarySummary, abs string, pt metadataedit.PictureType, slot string, paths []string) (resolvedPicture, bool) {
-	switch slot {
-	case "folder":
-		if name, path, _, found := folderPictureAcross(h.selectionDirs(ctx, lib, abs, paths), pt); found {
-			return resolvedPicture{detail: name, filePath: path}, true
-		}
-	case "embedded":
-		// Probed in selection order. There is deliberately no "prefer the
-		// scanned album's cover track" step: that was a DB lookup, and the
-		// editor no longer reads the library index.
-		for _, trackAbs := range h.selectionPaths(ctx, lib, abs, paths) {
-			if data, ok, err := metadataedit.ReadEmbeddedPicture(trackAbs, pt.ID); err == nil && ok {
-				return resolvedPicture{data: data}, true
-			}
-		}
-	}
-	return resolvedPicture{}, false
+type pictureImageDTO struct {
+	URL string `json:"url"`
+	// ThumbURL requests the same source at inventoryThumbSize — the picture
+	// grid's cell size — instead of full fidelity.
+	ThumbURL string `json:"thumb_url,omitempty"`
 }
 
 type pictureSlotDTO struct {
@@ -210,6 +79,19 @@ type pictureSlotDTO struct {
 	// holds a different image. The editor shows the first one and warns that
 	// saving overwrites all of them.
 	Mixed bool `json:"mixed,omitempty"`
+	// PresentCount/TotalCount describe an embedded slot: how many of the
+	// selected paths carry this picture type, out of how many were selected.
+	// Both are omitted (the zero value) for a folder slot.
+	PresentCount int `json:"present_count,omitempty"`
+	TotalCount   int `json:"total_count,omitempty"`
+	// Image is this cell's ready-to-render URLs. Always populated: inventory
+	// only ever lists populated slots, and every populated slot has a
+	// representative Source.
+	Image pictureImageDTO `json:"image"`
+	// Meta is the size/dimensions/format of the slot's representative image
+	// (the folder file, or the embedded picture of the first track that has
+	// one). nil when it could not be read.
+	Meta *imageMetaDTO `json:"meta,omitempty"`
 }
 
 type pictureDTO struct {
@@ -217,94 +99,166 @@ type pictureDTO struct {
 	Slots []pictureSlotDTO `json:"slots"`
 }
 
-// pictures reports, for every registry type present somewhere, which slots
-// hold it. Embedded presence is counted over the selected paths (or the whole
-// folder when none are given).
-func (h *Handler) pictures(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+// pictureImagePath is the picture image endpoint's route, relative to
+// wherever Routes is mounted (see the Routes doc comment in metadata.go).
+// Both Routes (mounting it) and pictureImageRef (building the inventory's
+// URLs) reuse this constant so the registered route and the generated URLs
+// can never drift apart.
+const pictureImagePath = "/metadata/pictures/image"
+
+// inventoryThumbSize is the thumbnail size the picture grid's cells request
+// (mirrors PICTURE_CELL_SIZE in PicturesSection.vue): the cells render at
+// roughly 160 CSS pixels; 320 keeps them sharp on 2x displays while staying a
+// fraction of a full-resolution scan.
+const inventoryThumbSize = 320
+
+// pictureImageRef builds one present slot's ready-to-render image URLs from
+// its representative Source. The URLs are mount-relative — no scheme/host,
+// and never a hard-coded /api/v1 prefix — so the handler stays agnostic to
+// whatever prefix it is mounted under (the planned /admin reorg); the SPA
+// prepends apiClient.defaults.baseURL when rendering (see serverPictureUrl in
+// PicturesSection.vue).
+func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
+	q := src.Values()
+	q.Set("library_id", strconv.FormatUint(uint64(libID), 10))
+	imgURL := pictureImagePath + "?" + q.Encode()
+	q.Set("size", strconv.Itoa(inventoryThumbSize))
+	thumbURL := pictureImagePath + "?" + q.Encode()
+	return pictureImageDTO{URL: imgURL, ThumbURL: thumbURL}
+}
+
+// inventory reports, for every registry type present somewhere in the
+// selection, which slots hold it and the ready-to-render URL of each
+// populated cell. The selection is exactly paths[] — the user's selected
+// tracks — carried in the request body rather than the URL: this is the
+// endpoint the production 431 was reported against (a large multi-disc
+// selection, as a repeated ?paths= query param, overflowed the forward_auth
+// proxy's header buffer). Embedded presence is counted over paths[]; folder
+// art is resolved across the distinct directories paths[] spans.
+func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
+	lib, sel, status, err := h.decodeSelection(w, r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
-	tracks := h.selectionPaths(r.Context(), lib, abs, r.URL.Query()["paths"])
+	// decodeSelection already guarantees sel.Paths is non-empty (or it would
+	// have failed above with errNoSelection), and ResolveAlbum only ever
+	// errors on an empty selection, so this cannot fail here.
+	al, _ := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
 
-	// One taglib properties read per track, counting pictures per type.
-	embeddedCount := map[string]int{}
-	for _, trackAbs := range tracks {
-		images, lerr := metadataedit.ListEmbeddedPictures(trackAbs)
-		if lerr != nil {
-			continue
-		}
-		seen := map[string]bool{}
-		for _, img := range images {
-			if !seen[img.Type] {
-				seen[img.Type] = true
-				embeddedCount[img.Type]++
-			}
-		}
-	}
-
-	// Folder art is looked up in every directory the selection spans, so a
-	// multi-disc album reports the art of its disc folders as one cell.
-	dirs := h.selectionDirs(r.Context(), lib, abs, r.URL.Query()["paths"])
-
-	out := make([]pictureDTO, 0, len(metadataedit.PictureTypes))
-	for _, pt := range metadataedit.PictureTypes {
-		slots := make([]pictureSlotDTO, 0, len(pictureSlots))
-		if n := embeddedCount[pt.ID]; n > 0 {
+	matrix := al.Matrix(r.Context(), h.Reader)
+	out := make([]pictureDTO, 0, len(matrix))
+	for _, ts := range matrix {
+		slots := make([]pictureSlotDTO, 0, len(ts.Slots))
+		for _, sl := range ts.Slots {
 			slots = append(slots, pictureSlotDTO{
-				Slot:   "embedded",
-				Detail: fmt.Sprintf("%d of %d files", n, len(tracks)),
+				Slot:         sl.Slot,
+				Detail:       sl.Detail, // "" for embedded, the filename for folder
+				Mixed:        sl.Mixed,
+				PresentCount: sl.PresentCount,
+				TotalCount:   sl.TotalCount,
+				Image:        pictureImageRef(lib.ID, sl.Source),
+				Meta:         slotMeta(al, sl.Source),
 			})
 		}
-		if name, _, mixed, found := folderPictureAcross(dirs, pt); found {
-			slots = append(slots, pictureSlotDTO{Slot: "folder", Detail: name, Mixed: mixed})
-		}
-		if len(slots) > 0 {
-			out = append(out, pictureDTO{Type: pt.ID, Slots: slots})
-		}
+		out = append(out, pictureDTO{Type: ts.Type.ID, Slots: slots})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"pictures": out})
 }
 
-// pictureImage serves the image of one type+slot cell. 404 when the cell is
-// empty.
-func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+// slotMeta describes a slot's representative image — the embedded picture's
+// bytes, or the folder art file — via the same Source the inventory hands the
+// image endpoint. nil when the source cannot be opened or read.
+func slotMeta(al metadataedit.Album, s metadataedit.Source) *imageMetaDTO {
+	data, filePath, _, err := al.Open(s)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		return nil
+	}
+	if filePath != "" {
+		info, derr := imageinfo.DescribeFile(filePath)
+		if derr != nil {
+			return nil
+		}
+		m := toImageMeta(info)
+		return &m
+	}
+	m := toImageMeta(imageinfo.Describe(data))
+	return &m
+}
+
+// pictureImage serves the bytes of one resolved Source: the single
+// representative file an inventory cell already picked (pictureImageRef). It
+// never re-resolves an album selection — a Source addresses exactly one
+// file, so this stays a bounded, header-safe GET even for a deep multi-disc
+// path. 404 when the source cannot be opened (a stale link: the embedded
+// picture was removed, or the folder file no longer exists); 422 on a type
+// or slot value that fails validation (well-formed but invalid); 400 on a
+// missing slot or a bad file reference.
+func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
+	// path is absent from this endpoint's query (see the Routes doc comment);
+	// resolveLibraryRel tolerates that (an empty path resolves to the library
+	// root itself), so it is reused here purely for the library_id lookup.
+	lib, _, status, err := h.resolveLibraryRel(r)
+	if err != nil {
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	slot := r.URL.Query().Get("slot")
+	if slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		return
+	}
 	if !validSlot(slot) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 
-	rp, ok := h.pictureForSlot(r.Context(), lib, abs, pt, slot, r.URL.Query()["paths"])
-	if !ok {
+	_, src, derr := metadataedit.DecodeSource(lib.Path, r.URL.Query())
+	if derr != nil {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", derr.Error())
+		return
+	}
+	// type/slot go through the registry validation above (which, unlike
+	// DecodeSource's raw query read, defaults an omitted type to Front
+	// Cover); this keeps that default working for the one field that has one.
+	src.TypeID = pt.ID
+	src.Slot = slot
+
+	data, filePath, fingerprint, operr := metadataedit.OpenSource(lib.Path, src)
+	if operr != nil {
 		http.NotFound(w, r)
 		return
 	}
+
+	// A strong ETag off the resolved content lets a client that already has
+	// this exact image skip the download entirely, and retires the old ?t=
+	// cache-bust hack's reason for existing (a bust value still works — it is
+	// just another query param the server ignores).
+	w.Header().Set("ETag", `"`+fingerprint+`"`)
+	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, fingerprint) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	rp := resolvedPicture{filePath: filePath, data: data}
 
 	// A size means "this is a grid thumbnail" — serve an optimized derivative.
 	// Without one the original is served verbatim, because the editor also
 	// fetches this URL to copy an image into another slot, and a copy must carry
 	// the full-fidelity bytes rather than a downscaled re-encode.
 	if size := requestedPictureSize(r); size > 0 && h.Images != nil {
-		if h.servePictureThumb(w, r, pt, slot, rp, size) {
+		if h.servePictureThumb(w, r, pt, slot, rp, fingerprint, size) {
 			return
 		}
 	}
 
 	if rp.filePath != "" {
-		http.ServeFile(w, r, rp.filePath)
+		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInLibrary — confined lexically to the library root (rejects absolute paths and ".." escapes via filepath.Rel; does not resolve symlinks)
 		return
 	}
 	writeImage(w, rp.data)
@@ -332,12 +286,12 @@ func requestedPictureSize(r *http.Request) int {
 // It reports false when no derivative could be produced (an undecodable or
 // unreadable source), leaving the caller to serve the original.
 func (h *Handler) servePictureThumb(
-	w http.ResponseWriter, r *http.Request, pt metadataedit.PictureType, slot string, rp resolvedPicture, size int,
+	w http.ResponseWriter, r *http.Request, pt metadataedit.PictureType, slot string, rp resolvedPicture, fingerprint string, size int,
 ) bool {
 	// Keyed by the picture's identity — type and slot — under a kind of its own,
 	// so editor thumbnails never collide with the covers served by /rest.
 	name := pt.FileBase + "_" + slot
-	fingerprint, load := pictureCacheSource(rp)
+	load := loadFuncFor(rp)
 	if load == nil {
 		return false
 	}
@@ -383,24 +337,18 @@ func pictureThumbKey(rp resolvedPicture) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// pictureCacheSource returns the fingerprint and lazy loader for a resolved
-// picture, or a nil loader when it holds neither a readable file nor bytes.
-func pictureCacheSource(rp resolvedPicture) (string, func() ([]byte, error)) {
+// loadFuncFor returns rp's lazy byte loader for the image cache, or nil when
+// it holds neither a readable file nor bytes.
+func loadFuncFor(rp resolvedPicture) func() ([]byte, error) {
 	if rp.filePath != "" {
-		info, err := os.Stat(rp.filePath)
-		if err != nil {
-			return "", nil
-		}
 		path := rp.filePath
-		return fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-			func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (album directory), never from the request
+		return func() ([]byte, error) { return os.ReadFile(path) } //nolint:gosec // G304: path comes from the picture resolver (album directory), never from the request
 	}
 	if len(rp.data) > 0 {
 		data := rp.data
-		sum := sha256.Sum256(data)
-		return "bytes|" + hex.EncodeToString(sum[:12]), func() ([]byte, error) { return data, nil }
+		return func() ([]byte, error) { return data, nil }
 	}
-	return "", nil
+	return nil
 }
 
 func validSlot(slot string) bool {
@@ -414,7 +362,7 @@ func validSlot(slot string) bool {
 
 type applyPictureResult struct {
 	OK     bool          `json:"ok"`
-	Target string        `json:"target"`
+	Slot   string        `json:"slot"`
 	Type   string        `json:"type"`
 	Rescan *rescanStatus `json:"rescan,omitempty"`
 }
@@ -426,36 +374,48 @@ type applyPictureResult struct {
 func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
-		writeErr(w, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
 	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
 	if perr != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "library_id required")
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "library_id required")
 		return
 	}
-	target := r.FormValue("target")
-	if !validSlot(target) {
-		writeErr(w, http.StatusBadRequest, "validation_error", "target must be one of embedded, folder")
+	slot := r.FormValue("slot")
+	if slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		return
+	}
+	if !validSlot(slot) {
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	paths := r.Form["paths"]
 	if len(paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "validation_error", "at least one path is required")
+		httperr.WriteValidation(w, r, errNoSelection.Error(), httperr.FieldError{Pointer: "/paths", Detail: errNoSelection.Error()})
+		return
+	}
+	// Mirrors decodeSelection's cap for the JSON-body picture-selection
+	// endpoints (inventory, raw-tags, removals): applyPicture reads its
+	// paths[] from a multipart form instead, so it needs its own count guard
+	// to keep the bound from drifting between the two decoding paths.
+	if len(paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", err.Error())
+			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -464,52 +424,58 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		// status 0 marks an upstream download failure: let the upstream mapping
 		// pick the status and the human message.
 		if status == 0 {
-			writeUpstreamErr(w, err, "The image could not be downloaded. Try again in a moment.")
+			httperr.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
 			return
 		}
-		writeErr(w, status, codeFor(status), err.Error())
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 
-	resolved := make([]string, 0, len(paths))
+	// applyPicture's own per-path validation predates ResolveAlbum and stays
+	// strict, unlike the read/delete endpoints above: a save must not
+	// silently write fewer files than the caller asked for. ResolveAlbum
+	// itself is lenient — it skips an unresolvable entry rather than failing
+	// the whole call — so that leniency is not relied on here.
 	for _, p := range paths {
-		abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, p)
-		if rerr != nil {
-			writeErr(w, http.StatusBadRequest, "validation_error", rerr.Error())
+		if _, rerr := metadataedit.ResolveInLibrary(libModel.Path, p); rerr != nil {
+			writeErr(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 			return
 		}
-		resolved = append(resolved, abs)
 	}
+	// Every paths[] entry already resolved individually above, and paths is
+	// non-empty (checked earlier), so ResolveAlbum — which only ever errors
+	// on an empty selection — cannot fail here.
+	al, _ := metadataedit.ResolveAlbum(libModel.Path, paths)
 
-	if status, serr := h.savePictureToSlot(target, pt, resolved, ext, data); serr != nil {
-		writeErr(w, status, codeFor(status), serr.Error())
+	if status, serr := h.savePictureToSlot(slot, pt, al, ext, data); serr != nil {
+		writeErr(w, r, status, codeFor(status), serr.Error())
 		return
 	}
 
 	// Re-index the folder's tracks: the embedded slot changed their tags, and
 	// folder writes change which image the album should serve (reconcile
 	// redetects album.CoverPath).
-	rs := h.rescanSaved(r.Context(), libModel.ID, resolved)
-	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Target: target, Type: pt.ID, Rescan: rs})
+	rs := h.rescanSaved(r.Context(), libModel.ID, al.Tracks())
+	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Rescan: rs})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
 // an HTTP status + error on failure (0, nil on success). Both slots are on
 // disk; the DB catches up through the caller's rescan, which re-reads the tags
 // and re-detects the album's cover file.
-func (h *Handler) savePictureToSlot(target string, pt metadataedit.PictureType, resolved []string, ext string, data []byte) (int, error) {
-	switch target {
+func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al metadataedit.Album, ext string, data []byte) (int, error) {
+	switch slot {
 	case "folder":
 		// An album can span several directories (a multi-disc release laid out
 		// as CD 1/, CD 2/): write the same art file into each of them, so every
 		// disc folder carries the album's picture.
-		for _, dir := range distinctDirs(resolved) {
+		for _, dir := range al.Dirs() {
 			if _, err := metadataedit.WriteFolderPicture(dir, pt.FileBase, ext, data); err != nil {
 				return http.StatusInternalServerError, err
 			}
 		}
 	case "embedded":
-		for _, abs := range resolved {
+		for _, abs := range al.Tracks() {
 			if err := metadataedit.WriteEmbeddedPicture(abs, pt.ID, data, ""); err != nil {
 				return http.StatusInternalServerError, err
 			}
@@ -518,53 +484,57 @@ func (h *Handler) savePictureToSlot(target string, pt metadataedit.PictureType, 
 	return 0, nil
 }
 
-// deletePicture removes one type+slot cell. Embedded removal targets the
-// tracks named by repeated paths params (the selected files), falling back to
-// every track in the folder when none are given.
-func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+// removals clears one type+slot cell across the selection: POST, not
+// DELETE-with-body, so the client never has to attach a body to a DELETE verb
+// (see docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md).
+// Folder removal fans out across every directory the selection spans
+// (mirroring the save fan-out for a multi-disc album); embedded removal
+// targets exactly the selected tracks. Clearing an already-empty cell still
+// answers {ok:true} — removing a file that is not there, or a picture a
+// track never had, is a no-op, not an error.
+func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
+	lib, sel, status, err := h.decodeSelection(w, r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
-	pt, terr := requestedType(r)
+	pt, terr := pictureTypeByIDOrDefault(sel.Type)
 	if terr != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", terr.Error())
+		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
-	paths := r.URL.Query()["paths"]
-	// Resolved once, before the switch: this is both the selection the delete
-	// acts on and the set handed to the post-delete re-index, so the two can
-	// never disagree. Re-deriving it inside a case would mean a second
-	// directory listing when the client sends no explicit paths.
-	rescanPaths := h.selectionPaths(r.Context(), lib, abs, paths)
-	switch r.URL.Query().Get("slot") {
+	if sel.Slot == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		return
+	}
+	if !validSlot(sel.Slot) {
+		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
+		return
+	}
+	// Resolved once: this is both the selection the removal acts on and the
+	// set handed to the post-removal re-index, so the two can never disagree.
+	// decodeSelection already guarantees sel.Paths is non-empty (or it would
+	// have failed above with errNoSelection), and ResolveAlbum only ever
+	// errors on an empty selection, so this cannot fail here.
+	al, _ := metadataedit.ResolveAlbum(lib.Path, sel.Paths)
+	switch sel.Slot {
 	case "folder":
 		// Mirrors the save fan-out: the art was written into every directory the
 		// album spans, so remove it from each of them.
-		for _, dir := range h.selectionDirs(r.Context(), lib, abs, paths) {
-			name := folderPictureName(dir, pt)
-			if name == "" {
-				continue
-			}
-			if rerr := os.Remove(filepath.Join(dir, name)); rerr != nil { //nolint:gosec // G703: dir derives from paths validated by ResolveInLibrary (rejects traversal); name is a bare filename from the folder listing
-				writeErr(w, http.StatusInternalServerError, "internal", rerr.Error())
-				return
-			}
+		if derr := al.DeleteFolderPicture(pt); derr != nil {
+			writeErr(w, r, http.StatusInternalServerError, "internal", derr.Error())
+			return
 		}
 	case "embedded":
-		for _, trackAbs := range rescanPaths {
+		for _, trackAbs := range al.Tracks() {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
-				writeErr(w, http.StatusInternalServerError, "internal", werr.Error())
+				writeErr(w, r, http.StatusInternalServerError, "internal", werr.Error())
 				return
 			}
 		}
-	default:
-		writeErr(w, http.StatusBadRequest, "validation_error", "slot must be one of embedded, folder")
-		return
 	}
 	out := map[string]any{"ok": true}
-	if rs := h.rescanSaved(r.Context(), lib.ID, rescanPaths); rs != nil {
+	if rs := h.rescanSaved(r.Context(), lib.ID, al.Tracks()); rs != nil {
 		out["rescan"] = rs
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -573,7 +543,7 @@ func (h *Handler) deletePicture(w http.ResponseWriter, r *http.Request) {
 // writeImage writes raw image bytes with a sniffed image content-type.
 func writeImage(w http.ResponseWriter, data []byte) {
 	w.Header().Set("Content-Type", http.DetectContentType(data))
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) //nolint:gosec // G705: writes raw image bytes with a sniffed image/* (or application/octet-stream) Content-Type set immediately above, never text/html, so this is not an HTML/XSS sink
 }
 
 type pictureCandidateDTO struct {
@@ -591,7 +561,7 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	mbid := r.URL.Query().Get("mbid")
 	releaseGroup := r.URL.Query().Get("release_group")
 	if mbid == "" && releaseGroup == "" {
-		writeErr(w, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
 		return
 	}
 	if h.CoverArt == nil {
@@ -600,7 +570,7 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	imgs, err := h.CoverArt.List(r.Context(), mbid, releaseGroup)
 	if err != nil {
-		writeUpstreamErr(w, err, "Cover art could not be loaded right now. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "Cover art could not be loaded right now. Try again in a moment.")
 		return
 	}
 	out := make([]pictureCandidateDTO, 0, len(imgs))
@@ -617,12 +587,40 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// pictureCandidateInfo downloads a Cover Art Archive candidate and reports its
+// size, dimensions and format, so the editor can show what an online pick will
+// write before the user saves. It mirrors the write's image_url download;
+// nothing is persisted.
+func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
+	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if imgURL == "" {
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "url is required")
+		return
+	}
+	if h.CoverArt == nil {
+		writeErr(w, r, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
+		return
+	}
+	data, _, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
+		return h.CoverArt.DownloadImage(r.Context(), imgURL)
+	})
+	if derr != nil {
+		httperr.WriteUpstream(w, r, derr, "Cover art could not be loaded right now. Try again in a moment.")
+		return
+	}
+	if len(data) == 0 {
+		writeErr(w, r, http.StatusNotFound, "not_found", "no image found")
+		return
+	}
+	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))
+}
+
 // pictureImageSource returns the image bytes and normalized extension from
 // either an uploaded "image" file part or a downloaded "image_url".
 //
 // status is the HTTP status to answer with on failure; a zero status alongside
 // a non-nil err means the failure came from the external image host, which the
-// caller maps through writeUpstreamErr.
+// caller maps through httperr.WriteUpstream.
 func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
 	if file, header, ferr := r.FormFile("image"); ferr == nil {
 		defer func() { _ = file.Close() }()
@@ -636,7 +634,9 @@ func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, 
 		if h.CoverArt == nil {
 			return nil, "", http.StatusBadRequest, errPictureSource
 		}
-		data, ext, derr := h.CoverArt.DownloadImage(r.Context(), url)
+		data, ext, derr := h.Downloads.GetOrLoad(url, func() ([]byte, string, error) {
+			return h.CoverArt.DownloadImage(r.Context(), url)
+		})
 		if derr != nil {
 			return nil, "", 0, derr
 		}

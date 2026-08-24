@@ -295,11 +295,10 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
     return useMutation({
         mutationFn: (v: {
             libraryId: number
-            path: string
             type: string
             slot: PictureSlot
-            paths?: string[]
-        }) => MetadataApi.deletePicture(v.libraryId, v.path, v.type, v.slot, v.paths),
+            paths: string[]
+        }) => MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot),
         onSuccess: (out) => {
             invalidateAfterMetadataWrite(qc)
             const warning = opts.quietRescanWarning ? null : rescanWarning(out?.rescan)

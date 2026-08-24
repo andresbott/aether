@@ -10,8 +10,8 @@ import { queryKeys } from '@/composables/useSubsonicQueries'
 export function useSetArtistImageFromSearch() {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: (params: { artistId: string; mbid: string }) =>
-            setArtistImageFromSearch(parseArtistNumericId(params.artistId), params.mbid),
+        mutationFn: (params: { artistId: string; mbid: string; url: string }) =>
+            setArtistImageFromSearch(parseArtistNumericId(params.artistId), params.mbid, params.url),
         onSuccess: (_data, params) => {
             queryClient.invalidateQueries({ queryKey: queryKeys.artist(params.artistId) })
             queryClient.invalidateQueries({ queryKey: ['subsonic', 'artistIndex'] })

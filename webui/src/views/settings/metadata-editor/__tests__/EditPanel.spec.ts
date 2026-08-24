@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import EditPanel from '@/views/settings/metadata-editor/EditPanel.vue'
 import { useEditSession, buildTrackPatch, type EditSession } from '@/composables/useEditSession'
 import type { PatchFields, Track } from '@/types/metadata'
@@ -189,6 +190,32 @@ function stagedPatch(session: EditSession, track: Track): PatchFields {
     const overlay = session.overlays.value.get(track.path)
     return overlay ? buildTrackPatch(track, overlay) : {}
 }
+
+describe('EditPanel raw mode', () => {
+    it('returns to the normal form view after a save', async () => {
+        const { wrapper, session } = mountPanel([mkTrack()])
+
+        await wrapper.get('[data-test="raw-toggle"]').trigger('click')
+        expect(wrapper.find('.raw-edit-panel-stub').exists()).toBe(true)
+
+        // A save cycle flips isSaving true then false; the panel should leave raw
+        // mode once it settles.
+        session.isSaving.value = true
+        await nextTick()
+        session.isSaving.value = false
+        await nextTick()
+
+        expect(wrapper.find('.raw-edit-panel-stub').exists()).toBe(false)
+    })
+
+    it('stays in raw mode until a save actually runs', async () => {
+        const { wrapper } = mountPanel([mkTrack()])
+        await wrapper.get('[data-test="raw-toggle"]').trigger('click')
+        await nextTick()
+        // No save has run, so raw mode persists.
+        expect(wrapper.find('.raw-edit-panel-stub').exists()).toBe(true)
+    })
+})
 
 describe('EditPanel pictures section', () => {
     it('mounts PicturesSection with the selection, session and release IDs', async () => {

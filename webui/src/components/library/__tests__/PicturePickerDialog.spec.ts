@@ -7,9 +7,11 @@ import type { MusicBrainzReleaseCandidate } from '@/types/artists'
 
 const listReleaseCoversSpy = vi.hoisted(() => vi.fn())
 const fetchPictureFileSpy = vi.hoisted(() => vi.fn())
+const getPictureCandidateInfoSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', () => ({
     listReleaseCovers: (...args: unknown[]) => listReleaseCoversSpy(...args),
-    fetchPictureFile: (...args: unknown[]) => fetchPictureFileSpy(...args)
+    fetchPictureFile: (...args: unknown[]) => fetchPictureFileSpy(...args),
+    getPictureCandidateInfo: (...args: unknown[]) => getPictureCandidateInfoSpy(...args)
 }))
 
 const searchReleasesSpy = vi.hoisted(() => vi.fn())
@@ -109,6 +111,13 @@ describe('PicturePickerDialog', () => {
         searchReleasesSpy.mockReset()
         searchReleasesSpy.mockResolvedValue([])
         fetchPictureFileSpy.mockReset()
+        getPictureCandidateInfoSpy.mockReset()
+        getPictureCandidateInfoSpy.mockResolvedValue({
+            width: 1400,
+            height: 1400,
+            format: 'jpeg',
+            bytes: 512000
+        })
     })
 
     it('shows the type and slot in the header', () => {
@@ -225,8 +234,10 @@ describe('PicturePickerDialog', () => {
                 response: {
                     status: 502,
                     data: {
-                        error: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
-                        code: 'upstream_error'
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.'
                     }
                 }
             })
@@ -250,7 +261,15 @@ describe('PicturePickerDialog', () => {
         it('retries the picked release, not the album MBID, after a failure', async () => {
             searchReleasesSpy.mockResolvedValue([mkRelease()])
             listReleaseCoversSpy.mockRejectedValue({
-                response: { status: 502, data: { error: 'upstream is down', code: 'upstream_error' } }
+                response: {
+                    status: 502,
+                    data: {
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'upstream is down'
+                    }
+                }
             })
             const wrapper = mountPicker({ albumName: 'Manual Album' })
             await openTab(wrapper, 'search')
@@ -272,8 +291,11 @@ describe('PicturePickerDialog', () => {
                 response: {
                     status: 429,
                     data: {
-                        error: 'MusicBrainz is receiving too many requests right now. Wait a moment and try again.',
-                        code: 'upstream_rate_limited'
+                        type: 'https://aether.local/probs/upstream_rate_limited',
+                        title: 'Too Many Requests',
+                        status: 429,
+                        detail:
+                            'MusicBrainz is receiving too many requests right now. Wait a moment and try again.'
                     }
                 }
             })
@@ -293,7 +315,12 @@ describe('PicturePickerDialog', () => {
             fetchPictureFileSpy.mockRejectedValue({
                 response: {
                     status: 502,
-                    data: { error: 'The image could not be downloaded.', code: 'upstream_error' }
+                    data: {
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'The image could not be downloaded.'
+                    }
                 }
             })
             const wrapper = mountPicker({ sources: [mkSource()] })
@@ -385,8 +412,27 @@ describe('PicturePickerDialog', () => {
 
             const emitted = wrapper.emitted('select')
             expect(emitted).toHaveLength(1)
-            expect(emitted![0][0]).toEqual({ file: null, imageUrl: 'http://img/1.jpg' })
+            expect(emitted![0][0]).toEqual({
+                file: null,
+                imageUrl: 'http://img/1.jpg',
+                previewUrl: 'http://img/1-250.jpg'
+            })
             expect(wrapper.emitted('update:visible')![0]).toEqual([false])
+        })
+
+        it('probes a picked CAA candidate and shows its metadata', async () => {
+            listReleaseCoversSpy.mockResolvedValue([
+                mkCandidate({ id: 'b', imageUrl: 'http://img/b.jpg' })
+            ])
+            const wrapper = mountPicker()
+            await searchByMbid(wrapper)
+            await wrapper.find('.cover-tile').trigger('click')
+            await flushPromises()
+
+            expect(getPictureCandidateInfoSpy).toHaveBeenCalledWith('http://img/b.jpg')
+            expect(wrapper.find('[data-test="candidate-meta"]').text()).toBe(
+                '1400 × 1400 · JPEG · 500 KB'
+            )
         })
 
         it('resets to the query step with no results when reopened', async () => {
@@ -503,7 +549,8 @@ describe('PicturePickerDialog', () => {
             expect(fetchPictureFileSpy).not.toHaveBeenCalled()
             expect(wrapper.emitted('select')![0][0]).toEqual({
                 file: null,
-                imageUrl: 'http://img/1.jpg'
+                imageUrl: 'http://img/1.jpg',
+                previewUrl: 'http://img/1-250.jpg'
             })
         })
     })

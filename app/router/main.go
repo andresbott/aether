@@ -13,11 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/app/spa"
-	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -48,7 +48,7 @@ type Cfg struct {
 	Store         *store.Store
 	DataDir       string
 	TagReader     tags.Reader
-	ArtistFetcher tasks.Fetcher
+	ArtistFetcher artistsHandler.Fetcher
 	// Identifier is optional: nil disables audio identification in the
 	// metadata editor.
 	Identifier *identify.Identifier
@@ -92,7 +92,7 @@ type MainAppHandler struct {
 	store         *store.Store
 	dataDir       string
 	tagReader     tags.Reader
-	artistFetcher tasks.Fetcher
+	artistFetcher artistsHandler.Fetcher
 	assets        *assetstore.Store
 	images        *imagecache.Cache
 	identifier    *identify.Identifier
@@ -311,7 +311,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	r.Use(prodMid.Middleware)
 	r.Use(jsonErrorEnvelope)
 
-	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
+	app.attachApiV1(app.router.PathPrefix(apiV1MountPrefix).Subrouter())
 
 	if app.store != nil {
 		identity := app.patIdentityResolver()

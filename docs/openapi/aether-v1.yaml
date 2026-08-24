@@ -1,0 +1,760 @@
+openapi: 3.1.0
+info:
+  title: Aether /api/v1 API
+  version: 0.1.0
+  contact:
+    name: Andres Bott
+    url: https://github.com/andresbott/aether
+  description: >
+    Internal, admin-only server-management API — collections/libraries,
+    scanning, tasks/scheduling, and other administration concerns. This is
+    NOT the music-client API: browsing, playback, playlists, album/artist
+    navigation and search live exclusively under `/rest`, which must stay
+    OpenSubsonic-compliant and has no OpenAPI document of its own (a Subsonic
+    client does not consume one).
+
+
+    **Seed scope.** This document currently specs only the metadata editor's
+    picture and raw-tag surface (`/metadata/pictures/*`, `/metadata/tracks/raw-tags`,
+    `/metadata/folders`, `/metadata/tracks`) as it exists after the
+    header-safe redesign — see
+    `docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md`.
+    The rest of `/api/v1` — artists, users, tasks, tokens, radiobrowser, auth,
+    libraries, health/version/me, and the remaining `/metadata/*` endpoints
+    (`capabilities`, `identify`, `identify-album`, the `PUT /metadata/tracks`
+    structured editor write) — is real and mounted (see
+    `app/router/api_v1.go`) but not yet described here. Extending this
+    document to cover it is the standing "align v1 with OpenAPI" initiative
+    (see `TODO.md`), not part of this seed.
+servers:
+  - url: /api/v1
+    description: >
+      Every path below is mount-relative. A planned reorg moves this surface
+      to /api/admin (TODO.md) — modelling the base exclusively through this
+      `servers` entry makes that a one-line change, with no path or
+      operationId edits.
+tags:
+  - name: metadata-pictures
+    description: Album/track picture (cover art) inventory, read, write and removal.
+  - name: metadata-tags
+    description: Raw, unfiltered tag access for the metadata editor.
+  - name: metadata-browse
+    description: Folder/track browsing that backs the metadata editor's file picker.
+security:
+  - sessionCookie: []
+
+paths:
+  /metadata/pictures/inventory:
+    post:
+      operationId: listPictureInventory
+      summary: Picture inventory for a track selection (bounded, header-safe).
+      description: >
+        Reports, for every registry picture type present somewhere in the
+        selection, which slots (embedded/folder) hold it and the
+        ready-to-render URL of each populated cell. The selection travels in
+        the request body rather than the URL — this is one of the endpoints
+        the production 431 (Caddy `forward_auth` + Authelia) was reported
+        against: a large multi-disc selection, encoded as a repeated
+        `?paths=` query param, overflowed the proxy's header buffer. Embedded
+        presence is counted over `paths[]`; folder art is resolved across the
+        distinct directories `paths[]` spans.
+      tags: [metadata-pictures]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PictureSelection' }
+      responses:
+        '200':
+          description: Populated cells and the URL to render each.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PictureInventory' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /metadata/pictures/image:
+    get:
+      operationId: getPictureImage
+      summary: Bytes of one resolved picture cell (the `<img src>` target).
+      description: >
+        Serves the bytes of one resolved Source: the single representative
+        file an inventory cell already picked. It never re-resolves an album
+        selection, so this stays a bounded, header-safe GET even for a deep
+        multi-disc path — the one endpoint on this surface that stays a GET
+        with a query, because a browser can only GET an image. Clients SHOULD
+        render the `url`/`thumb_url` an inventory response already returned
+        rather than constructing this URL by hand.
+      tags: [metadata-pictures]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - name: file
+          in: query
+          required: true
+          description: >
+            The picture cell's resolved Source (its library-relative file),
+            exactly as encoded inside an inventory cell's `image.url` /
+            `image.thumb_url`. A single scalar, **never** a repeated/array
+            parameter: that is the deliberate, load-bearing property that
+            keeps this the one GET on the surface that cannot regress into
+            the O(selection) 431 this redesign fixes.
+          schema: { type: string }
+        - name: type
+          in: query
+          required: false
+          description: A picture-type registry id. Omitted or empty defaults to Front Cover.
+          schema: { $ref: '#/components/schemas/PictureType' }
+        - name: slot
+          in: query
+          required: true
+          description: >
+            Storage slot. Missing/empty answers 400 (a plain, non-itemised
+            Problem); present but outside the registry answers 422
+            (ValidationProblem itemising `/slot`).
+          schema: { $ref: '#/components/schemas/PictureSlot' }
+        - name: size
+          in: query
+          required: false
+          description: >
+            Thumbnail edge length in px. The server never rejects this value:
+            non-numeric, zero or negative is treated as "no thumbnail" (same
+            as omitting it), and anything above 1024 is silently clamped down
+            to 1024 rather than erroring. Omit for the original, full-fidelity
+            bytes — the editor's copy-to-another-slot flow depends on getting
+            back the untouched source rather than a downscaled re-encode.
+          schema: { type: integer }
+        - name: sv
+          in: query
+          required: false
+          description: >
+            Opaque Source-encoding version tag. URLs the server hands back
+            from listPictureInventory always set it to "1"; an empty value is
+            tolerated (pre-existing/hand-built links), a non-empty value
+            other than the current version is rejected with 400.
+          schema: { type: string, example: "1" }
+        - name: t
+          in: query
+          required: false
+          deprecated: true
+          description: >
+            Legacy cache-busting nonce. Accepted and ignored by the server —
+            superseded by the strong `ETag`/`If-None-Match` pair below; kept
+            only so old captured URLs keep working.
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Image bytes: the original file, or — when `size` is set — an
+            Accept-negotiated thumbnail derivative. image/webp is only
+            possible for a thumbnail (`size` set) whose Accept header names
+            image/webp; the original is always served as image/jpeg or
+            image/png.
+          headers:
+            ETag:
+              schema: { type: string }
+              description: Strong tag over the resolved content; compare with If-None-Match.
+            Cache-Control:
+              schema: { type: string, example: "no-cache" }
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '304':
+          description: Not Modified — the request's If-None-Match matched the resolved content's ETag. No body.
+          headers:
+            ETag:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: >
+            The resolved cell could not be opened (a stale link: the embedded
+            picture was removed, or the folder file no longer exists). The
+            handler itself answers with Go's plain `http.NotFound`, but the
+            router-level error envelope (see `app/router/errors.go`) wraps
+            every bare `/api/v1` error — this one included — into the same
+            `application/problem+json` Problem shape every other response on
+            this surface uses, so it is not documented via the shared
+            NotFound response only because its Detail text differs
+            ("404 page not found" rather than a handler-authored message).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /metadata/pictures:
+    post:
+      operationId: applyPicture
+      summary: Save one (type, slot) picture cell from an uploaded file or a Cover Art Archive URL.
+      description: >
+        Saves an image to one slot: an art file in the album folder
+        ("folder") or embedded in the tags of the given tracks ("embedded").
+        Already multipart, already 431-safe before this redesign — only the
+        field names changed. Effectively idempotent: re-applying the same
+        bytes overwrites with identical content, so a retry is safe.
+      tags: [metadata-pictures]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/ApplyPictureForm' }
+            encoding:
+              paths:
+                style: form
+                explode: true
+      responses:
+        '200':
+          description: Applied.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MutationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /metadata/pictures/removals:
+    post:
+      operationId: clearPictureSelection
+      summary: Clear one (type, slot) picture cell across a track selection.
+      description: >
+        POST, not DELETE-with-body, so the client never has to attach a body
+        to a DELETE verb. Folder removal fans out across every directory the
+        selection spans (mirroring the save fan-out for a multi-disc album);
+        embedded removal targets exactly the selected tracks. Clearing an
+        already-empty cell still answers 200 `{ok:true}` — removing a file
+        that is not there, or a picture a track never had, is a no-op, not an
+        error.
+      tags: [metadata-pictures]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PictureRemovalRequest' }
+      responses:
+        '200':
+          description: Cleared (or already empty — idempotent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MutationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /metadata/tracks/raw-tags:
+    post:
+      operationId: batchReadRawTags
+      summary: Read the complete, unfiltered tag map of a set of files (safe/read-only despite POST).
+      description: >
+        Serves the complete tag map of the requested files, unfiltered —
+        including keys the structured editor does not manage (legacy frames,
+        ReplayGain, encoder tags, custom fields). The selection travels in
+        the POST body, decoded the same way as the picture-selection
+        endpoints: this was one of the endpoints the production 431 was
+        reported against (a repeated `?paths=` query param overflowing a
+        reverse proxy's header buffer even at the pre-existing 50-path cap).
+        A read that needs a list is a POST to a read sub-resource — not
+        GET-with-body, not the (unsupported-by-tooling) IETF `QUERY` method.
+        Always 200 once the selection itself is valid: a per-file read
+        failure lands as that row's `error`, not a failed batch.
+      tags: [metadata-tags]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RawTagsRequest' }
+      responses:
+        '200':
+          description: Per-file tag maps; row-level `error` for an unreadable file.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RawTagsResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /metadata/pictures/candidates:
+    get:
+      operationId: listPictureCandidates
+      summary: Cover Art Archive listing for a release (and/or release-group) MBID.
+      description: >
+        Proxies the Cover Art Archive image listing. Pre-existing endpoint,
+        not reshaped by the header-safe redesign: unlike every other picture
+        endpoint here it takes no `library_id` and is not selection-scoped —
+        it is a stateless lookup by MusicBrainz id. Answers an empty array,
+        never an error, when no Cover Art Archive client is configured.
+      tags: [metadata-pictures]
+      parameters:
+        - name: mbid
+          in: query
+          required: false
+          description: A release MBID. At least one of `mbid`/`release_group` is required.
+          schema: { type: string }
+        - name: release_group
+          in: query
+          required: false
+          description: A release-group MBID. At least one of `mbid`/`release_group` is required.
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Candidate images. A bare JSON array — unlike every other list
+            response on this surface, the result is not wrapped in an
+            envelope object.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PictureCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /metadata/folders:
+    get:
+      operationId: listMetadataFolders
+      summary: Immediate subfolders of a library directory (the editor's folder-tree picker).
+      description: >
+        Confined lexically to the library root (no symlink traversal), unlike
+        the library path picker elsewhere in the app.
+      tags: [metadata-browse]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: Immediate subdirectories, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FolderList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /metadata/tracks:
+    get:
+      operationId: listMetadataTracks
+      summary: Tracks in a library directory, with their current tags.
+      description: >
+        The structured editor's read side (the write side, `PUT
+        /metadata/tracks`, is out of this seed's scope — see the top-level
+        description).
+      tags: [metadata-browse]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: The directory's tracks and their current tags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrackList' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: _aether_login
+      description: >
+        Native-mode session cookie (see docs/agents/authentication.md).
+        `/api/v1` defaults every route to admin-only, so a valid, enabled
+        admin session is required for the whole metadata surface. This is the
+        only credential `/api/v1` actually validates: no route on this
+        surface reads an `Authorization` header, and Aether's PATs
+        (bearer-shaped credentials) are verified exclusively on `/rest` (via
+        `apiKey`, or `u`+`t`+`s` / `u`+`p`), never here.
+
+
+        In **proxy-header mode**, this cookie plays no role either — identity
+        instead comes from reverse-proxy-injected headers (`Remote-User` /
+        `Remote-Groups`), validated by `headerGuard`. That trust is
+        established between the proxy and Aether, not chosen by the API
+        caller, so it has no client-facing credential to model as an OpenAPI
+        security scheme; it is intentionally left undeclared here rather than
+        represented by a scheme nothing in the protocol actually sends.
+
+  parameters:
+    LibraryId:
+      name: library_id
+      in: query
+      required: true
+      description: The collection/library id to resolve paths against.
+      schema: { type: integer, format: int64, minimum: 0 }
+    LibraryPath:
+      name: path
+      in: query
+      required: false
+      description: >
+        A directory, library-relative; empty/omitted defaults to the library
+        root. Resolved lexically against the library root — an absolute path,
+        or one that escapes the root, answers 400.
+      schema: { type: string }
+
+  schemas:
+    Problem:
+      type: object
+      description: >
+        RFC 9457 Problem Details. `type` is a stable, never-fetched URI whose
+        last path segment mirrors the old ad-hoc "code" string.
+      properties:
+        type:
+          type: string
+          format: uri
+          description: Never dereferenced; only the last path segment is meant to be read.
+          example: "https://aether.local/probs/validation_error"
+        title:
+          type: string
+          example: "Validation error"
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          description: The request path.
+      required: [type, title, status]
+
+    FieldError:
+      type: object
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer (RFC 6901) to the failing field, e.g. "/paths".
+        detail:
+          type: string
+      required: [pointer, detail]
+
+    ValidationProblem:
+      description: >
+        A Problem for a well-formed but invalid (422) request, itemising
+        which fields failed and why. Every 422 on this surface is produced by
+        the same code path and carries exactly one field error today, but
+        `errors` is not capped at one.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            errors:
+              type: array
+              items: { $ref: '#/components/schemas/FieldError' }
+
+    PictureSlot:
+      type: string
+      enum: [embedded, folder]
+      description: >
+        Storage slot: an art file in the album folder ("folder") or embedded
+        in a track's tags ("embedded").
+
+    PictureType:
+      type: string
+      description: >
+        A picture-type id from the editor's registry
+        (internal/metadataedit.PictureTypes): "Front Cover", "Back Cover",
+        "Media", "Leaflet Page", "Artist", "Band", "Illustration", "Other".
+        Not a closed OpenAPI enum here — the registry is Go-side data, kept in
+        sync by hand with webui/src/lib/pictureTypes.ts, not part of this
+        contract. An unrecognised id answers 422. Omitted on a request, it
+        defaults to "Front Cover".
+      example: "Front Cover"
+
+    PictureImageRef:
+      type: object
+      description: URLs the client renders verbatim; addressing is the server's to own and evolve.
+      properties:
+        url:
+          type: string
+          format: uri-reference
+          description: Original, full-fidelity bytes.
+        thumb_url:
+          type: string
+          format: uri-reference
+          description: A 320px grid-thumbnail copy of the same source.
+      required: [url]
+
+    PictureSlotState:
+      type: object
+      properties:
+        slot: { $ref: '#/components/schemas/PictureSlot' }
+        detail:
+          type: string
+          description: Empty for "embedded"; the filename for "folder".
+        mixed:
+          type: boolean
+          description: >
+            "folder" slot only: true when the album's disc directories
+            disagree (one is missing the art, or holds a different image).
+        present_count:
+          type: integer
+          minimum: 0
+          description: "\"embedded\" slot only: selected tracks carrying this picture type."
+        total_count:
+          type: integer
+          minimum: 0
+          description: "\"embedded\" slot only: tracks selected."
+        image: { $ref: '#/components/schemas/PictureImageRef' }
+      required: [slot, image]
+
+    PictureCell:
+      type: object
+      properties:
+        type: { $ref: '#/components/schemas/PictureType' }
+        slots:
+          type: array
+          items: { $ref: '#/components/schemas/PictureSlotState' }
+      required: [type, slots]
+
+    PictureInventory:
+      type: object
+      properties:
+        pictures:
+          type: array
+          items: { $ref: '#/components/schemas/PictureCell' }
+      required: [pictures]
+
+    PictureSelection:
+      type: object
+      description: >
+        The library and the selected track paths (library-relative), carried
+        in the body rather than the URL so a large multi-disc selection can
+        never overflow a header buffer — the production 431 this redesign
+        fixes.
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        paths:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 50
+          description: Selected track paths, library-relative.
+      required: [library_id, paths]
+
+    RawTagsRequest:
+      description: The same `{library_id, paths[]}` shape as the other selection endpoints.
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+
+    RawTagsResult:
+      type: object
+      properties:
+        path: { type: string }
+        tags:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: >
+            The file's complete tag map, unfiltered — including keys the
+            structured editor does not manage.
+        unsupported:
+          type: array
+          items: { type: string }
+          description: >
+            Descriptors of hidden frames the tag map cannot represent as text
+            (ID3v2 PRIV/GEOB/POPM, unknown binary frames). Sendable back
+            verbatim in an update's `remove_unsupported` list. Embedded
+            cover-art descriptors are filtered out of this list — manage
+            those through the picture endpoints instead.
+        error:
+          type: string
+          description: Set when this file could not be read; tags/unsupported are then empty.
+      required: [path, tags, unsupported]
+
+    RawTagsResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/RawTagsResult' }
+      required: [results]
+
+    PictureRemovalRequest:
+      description: >
+        A PictureSelection plus the (type, slot) cell to clear. `type`
+        omitted defaults to Front Cover; `slot` is required — missing answers
+        400 (unitemised), present-but-unrecognised answers 422 (itemising
+        `/slot`).
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+        - type: object
+          properties:
+            type: { $ref: '#/components/schemas/PictureType' }
+            slot: { $ref: '#/components/schemas/PictureSlot' }
+          required: [slot]
+
+    ApplyPictureForm:
+      type: object
+      description: >
+        multipart/form-data. Exactly one of `image`/`image_url` must be
+        supplied; if both are present the uploaded file wins and `image_url`
+        is never consulted. Unlike the JSON-bodied selection endpoints,
+        `paths` here carries no server-side `maxItems` cap — it is bounded
+        only by the request's overall 12 MiB size cap.
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        paths:
+          type: array
+          items: { type: string }
+          minItems: 1
+          description: Selected track paths, library-relative; one repeated form field per path.
+        slot: { $ref: '#/components/schemas/PictureSlot' }
+        type: { $ref: '#/components/schemas/PictureType' }
+        image:
+          type: string
+          format: binary
+          description: >
+            An uploaded image file part. The server accepts whatever bytes
+            are uploaded (no content-type enforcement); it only sniffs the
+            filename/bytes to pick a jpg/png extension for the stored file.
+        image_url:
+          type: string
+          format: uri
+          description: A Cover Art Archive image URL to download instead of an upload.
+      required: [library_id, paths, slot]
+
+    RescanStatus:
+      type: object
+      description: >
+        Post-write re-index outcome. Never fatal — the tags/art are already
+        on disk; a failure only means the library index lags until the next
+        scan.
+      properties:
+        ok: { type: boolean }
+        error: { type: string }
+      required: [ok]
+
+    MutationResult:
+      type: object
+      description: >
+        Shared response shape: applyPicture always sets `ok`/`slot`/`type`
+        (plus `rescan` when re-indexing ran); clearPictureSelection sets only
+        `ok` (plus `rescan`) — `slot`/`type` are absent from that response
+        entirely, not merely empty.
+      properties:
+        ok: { type: boolean }
+        slot: { $ref: '#/components/schemas/PictureSlot' }
+        type: { $ref: '#/components/schemas/PictureType' }
+        rescan: { $ref: '#/components/schemas/RescanStatus' }
+      required: [ok]
+
+    PictureCandidate:
+      type: object
+      description: >
+        One Cover Art Archive listing entry. Uses the archive/frontend's
+        camelCase field names, unlike the snake_case convention used
+        elsewhere on this surface.
+      properties:
+        id: { type: string }
+        thumbUrl: { type: string, format: uri }
+        imageUrl: { type: string, format: uri }
+        isFront: { type: boolean }
+        types:
+          type: array
+          items: { type: string }
+        comment: { type: string }
+      required: [id, thumbUrl, imageUrl, isFront, types, comment]
+
+    Folder:
+      type: object
+      properties:
+        name: { type: string }
+        path:
+          type: string
+          description: Relative to the requested directory, forward-slash form.
+        has_subfolders: { type: boolean }
+      required: [name, path, has_subfolders]
+
+    FolderList:
+      type: object
+      properties:
+        folders:
+          type: array
+          items: { $ref: '#/components/schemas/Folder' }
+      required: [folders]
+
+    Track:
+      type: object
+      properties:
+        path: { type: string }
+        name: { type: string }
+        title: { type: string }
+        artists: { type: array, items: { type: string } }
+        album_artists: { type: array, items: { type: string } }
+        album: { type: string }
+        genres: { type: array, items: { type: string } }
+        year: { type: integer }
+        track_number: { type: integer }
+        disc_number: { type: integer }
+        disc_subtitle: { type: string }
+        compilation: { type: boolean }
+        mb_artist_ids: { type: array, items: { type: string } }
+        mb_album_artist_ids: { type: array, items: { type: string } }
+        mb_recording_id: { type: string }
+        mb_release_id: { type: string }
+        mb_release_group_id: { type: string }
+        error:
+          type: string
+          description: Set when this file's tags could not be read.
+      required:
+        - path
+        - name
+        - title
+        - artists
+        - album_artists
+        - album
+        - genres
+        - year
+        - track_number
+        - disc_number
+        - disc_subtitle
+        - compilation
+        - mb_artist_ids
+        - mb_album_artist_ids
+        - mb_recording_id
+        - mb_release_id
+        - mb_release_group_id
+
+    TrackList:
+      type: object
+      properties:
+        tracks:
+          type: array
+          items: { $ref: '#/components/schemas/Track' }
+      required: [tracks]
+
+  responses:
+    BadRequest:
+      description: Malformed request (bad JSON/multipart, missing/invalid scalar).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Unknown library_id.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnprocessableEntity:
+      description: >
+        Well-formed but invalid (over a size cap, an unknown type/slot, an
+        empty selection).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    TooManyRequests:
+      description: The Cover Art Archive is rate-limiting Aether's upstream calls.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UpstreamError:
+      description: >
+        The Cover Art Archive call failed. The same upstream classification
+        can also surface as 504 on a timeout (still this Problem shape) —
+        this seed only names the 502 case, matching the current handlers'
+        most common failure.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
