@@ -357,12 +357,48 @@ export interface DeletePictureResult {
     rescan?: RescanStatus
 }
 
+// Whether the SELECTED folder is an artist folder, and the artist image it
+// holds. Purely a filesystem+tags view (no DB): eligible is true when the
+// folder's albums are tagged with an album artist matching the folder's own name
+// — the same rule the scanner uses — so an artist.jpg written here is actually
+// picked up. The image lands in the selected folder itself (artist.<ext>).
+export interface ArtistFolderInfo {
+    eligible: boolean
+    // The artist name (the folder's own basename); '' when not eligible.
+    artist: string
+    // Library-relative path of the folder; '' when not eligible.
+    path: string
+    // Filename of the current artist image, or '' when none.
+    current_image: string
+}
+
+export interface ApplyArtistImageResult {
+    ok: boolean
+    // Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+    path: string
+    rescan?: RescanStatus
+}
+
+export interface DeleteArtistImageResult {
+    ok: boolean
+    rescan?: RescanStatus
+}
+
 // An image chosen in the picker but not yet persisted: it previews in the
 // editor and is only written when the user clicks Save. Exactly one of
 // file / imageUrl is set (a local upload vs. a Cover Art Archive URL).
 export interface StagedPictureSource {
     file: File | null
     imageUrl: string | null
+}
+
+// An artist image chosen in the picker but not yet written: an uploaded file, or
+// an online pick identified by its MusicBrainz id + candidate URL (the server
+// re-lists and downloads it). Exactly one source is set: file, or mbid+url.
+export interface StagedArtistImageSource {
+    file: File | null
+    mbid: string | null
+    url: string | null
 }
 
 // An image this album already has in another type+slot cell, offered in the

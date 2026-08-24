@@ -220,6 +220,12 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				Images:                    h.images,
 				IdentifyUnavailableReason: h.identifyOff,
 				Rescan:                    h.rescanner,
+				// The editor's artist-folder image reuses the artist image provider
+				// chain to download online picks. h.artistFetcher is an interface
+				// (nil when unconfigured), so assigning it here keeps the field nil
+				// rather than wrapping a nil pointer — upload still works, online
+				// picks answer 503.
+				ArtistImages: h.artistFetcher,
 			}
 			if h.identifier != nil {
 				// Guard both assignments: a nil *identify.Identifier assigned

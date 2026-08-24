@@ -11,13 +11,32 @@ import type { ArtistImagePick, ArtistImageCandidate, MusicBrainzCandidate } from
 const props = defineProps<{
     visible: boolean
     artistName: string
+    // When true, also offer a local file upload alongside the online search
+    // (used by the metadata editor's artist-folder image). Off for the artist
+    // page, which only stores online picks.
+    allowUpload?: boolean
 }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
     // The user's confirmed pick. Nothing is written here — the parent stages it
     // and commits on its own Save, so Cancel discards it like any other edit.
     (e: 'select', pick: ArtistImagePick): void
+    // A locally uploaded file (only when allowUpload); staged like a pick.
+    (e: 'upload', file: File): void
 }>()
+
+const fileInput = ref<HTMLInputElement | null>(null)
+function triggerUpload(): void {
+    fileInput.value?.click()
+}
+function onFileChange(e: Event): void {
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = '' // let the same file be re-picked after a cancel
+    if (!file) return
+    emit('upload', file)
+    emit('update:visible', false)
+}
 
 // Same MusicBrainz artist search the MBID picker and the auto-fetch job use — the
 // image comes from the same provider chain, driven by the user's pick instead of
@@ -144,6 +163,24 @@ function lifeSpan(c: MusicBrainzCandidate): string {
         </div>
 
         <template #footer>
+            <input
+                v-if="allowUpload"
+                ref="fileInput"
+                type="file"
+                accept="image/*"
+                class="hidden-file"
+                data-test="image-upload-input"
+                @change="onFileChange"
+            />
+            <Button
+                v-if="allowUpload"
+                label="Upload file…"
+                icon="pi pi-upload"
+                text
+                data-test="image-upload"
+                @click="triggerUpload"
+            />
+            <span class="footer-spacer"></span>
             <Button label="Cancel" text data-test="image-search-cancel" @click="cancel" />
             <!-- "Use this image", not "Save": the write happens on the editor's
                  own Save, so this only stages the pick. -->
@@ -245,5 +282,12 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 }
 .candidate.selected {
     border-color: var(--app-accent);
+}
+.hidden-file {
+    display: none;
+}
+/* Push Cancel/Use to the right, leaving the upload button on the left. */
+.footer-spacer {
+    flex: 1;
 }
 </style>

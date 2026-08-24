@@ -349,6 +349,7 @@ function onAlbumReidentify() {
                     :isLoading="tracksQuery.isLoading.value"
                     :selection="selection"
                     :stagedPaths="session.stagedPaths.value"
+                    :folderPath="selectedPath"
                     @update:selection="(s) => (selection = s)"
                 />
             </SplitterPanel>
@@ -357,6 +358,7 @@ function onAlbumReidentify() {
                     :selection="selection"
                     :libraryId="selectedLibraryId"
                     :session="session"
+                    :folderPath="selectedPath"
                     :canIdentify="canIdentify"
                     :identifyUnavailableReason="identifyUnavailableReason"
                     :isIdentifying="runs.isIdentifying.value"

@@ -18,12 +18,16 @@ import MusicBrainzArtistPicker from '@/components/library/MusicBrainzArtistPicke
 import MusicBrainzAlbumPicker from '@/components/library/MusicBrainzAlbumPicker.vue'
 import RawEditPanel from './RawEditPanel.vue'
 import PicturesSection from './PicturesSection.vue'
+import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 
 const props = defineProps<{
     selection: Track[]
     libraryId: number | null
     session: EditSession
+    // The selected folder (library-relative), for the folder-scoped artist image
+    // shown when no track is selected. Optional: absent behaves as no folder.
+    folderPath?: string | null
     canIdentify: boolean
     // Explanation shown on the disabled Identify button when canIdentify is
     // false (e.g. fpcalc missing on the server). Empty when identify works.
@@ -421,7 +425,17 @@ const rawMode = ref(false)
 </script>
 
 <template>
-    <div v-if="selection.length === 0" class="empty">Select one or more tracks to edit.</div>
+    <div v-if="selection.length === 0" class="empty-state">
+        <!-- Folder-scoped artist image, shown only when no track is selected and
+             the folder resolves to an artist folder (the component self-hides
+             otherwise). -->
+        <ArtistImageSection
+            :libraryId="libraryId"
+            :session="session"
+            :folderPath="folderPath ?? null"
+        />
+        <div class="empty">Select one or more tracks to edit.</div>
+    </div>
     <div v-else class="edit-panel">
         <div class="panel-header">
             <h3>
@@ -986,6 +1000,15 @@ const rawMode = ref(false)
    this wrapper instead — it must not alter the flex layout. */
 .identify-wrap {
     display: inline-flex;
+}
+.empty-state {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 .empty {
     padding: 2rem;

@@ -1,7 +1,10 @@
 import { apiClient } from '@/lib/api/client'
 import type {
+    ApplyArtistImageResult,
     ApplyPictureResult,
+    ArtistFolderInfo,
     CoverCandidate,
+    DeleteArtistImageResult,
     DeletePictureResult,
     IdentifyAlbumRequest,
     IdentifyAlbumResponse,
@@ -159,6 +162,50 @@ export async function getPictures(
         paramsSerializer: { indexes: null } // repeat paths= for arrays
     })
     return data.pictures ?? []
+}
+
+// resolveArtistFolder reports whether the selected folder is an artist folder
+// (its albums are tagged with an album artist matching the folder name) and the
+// image it already holds. The editor shows the control only when eligible.
+export async function resolveArtistFolder(
+    libraryId: number,
+    path: string
+): Promise<ArtistFolderInfo> {
+    const { data } = await apiClient.get<ArtistFolderInfo>('/metadata/artist-folder', {
+        params: { library_id: libraryId, path }
+    })
+    return data
+}
+
+// getArtistImageUrl builds the <img> src for the selected folder's current image.
+// bust forces a reload after a change (the endpoint sends Cache-Control:
+// no-cache but the URL is otherwise unchanged).
+export function getArtistImageUrl(libraryId: number, path: string, bust?: number): string {
+    const base = apiClient.defaults.baseURL ?? ''
+    const params = new URLSearchParams({ library_id: String(libraryId), path })
+    if (bust !== undefined) params.set('t', String(bust))
+    return `${base}/metadata/artist-image?${params.toString()}`
+}
+
+// applyArtistImage writes an artist portrait as artist.<ext> into the selected
+// folder. The form carries library_id, path, and either an uploaded image file
+// ("image") or an online pick ("mbid" + "url").
+export async function applyArtistImage(form: FormData): Promise<ApplyArtistImageResult> {
+    const { data } = await apiClient.post<ApplyArtistImageResult>('/metadata/artist-image', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    return data
+}
+
+// deleteArtistImage removes the selected folder's current artist image.
+export async function deleteArtistImage(
+    libraryId: number,
+    path: string
+): Promise<DeleteArtistImageResult> {
+    const { data } = await apiClient.delete<DeleteArtistImageResult>('/metadata/artist-image', {
+        params: { library_id: libraryId, path }
+    })
+    return data
 }
 
 // deletePicture removes one picture type+slot cell. For 'embedded', paths are

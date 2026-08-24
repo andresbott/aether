@@ -134,8 +134,8 @@ Notes for editors:
   Once you've selected one artist's album, navigating to another album folder should be easy (use the nav bar on top).
 - [x] Front cover always selectable in attached pictures
   Front cover should always be an option even if no picture is detected at all.
-- [ ] Generated cover files are not browsable by samba
-- [ ] Artist selection: look for more pictures
+- [x] Generated cover files are not browsable by samba
+- [x] Artist selection: look for more pictures
   In the artist selection dialog, check if there might be more pictures for the same artist.
 - [ ] Improve track position when identifying albums
   Track position is sometimes wrong when identifying albums — can we improve it?

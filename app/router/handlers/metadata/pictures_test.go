@@ -16,11 +16,13 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
@@ -77,6 +79,49 @@ func newPictureHandlerWithRescan(
 		t.Fatal(err)
 	}
 	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return s, r, lib
+}
+
+// stubArtistFetcher is a test double for the online artist-image providers
+// (satisfies metaHandler.ArtistImageFetcher). Download ignores its arguments and
+// returns the canned bytes; List returns the canned candidates.
+type stubArtistFetcher struct {
+	candidates []artistimage.ImageCandidate
+	data       []byte
+	ext        string
+	listErr    error
+}
+
+func (s stubArtistFetcher) List(context.Context, string) ([]artistimage.ImageCandidate, error) {
+	return s.candidates, s.listErr
+}
+func (s stubArtistFetcher) Download(context.Context, string, string) ([]byte, string, error) {
+	return s.data, s.ext, nil
+}
+
+// newArtistImageHandler builds a metadata handler wired with an online
+// artist-image fetcher (and optional rescanner), for the artist-folder image
+// tests.
+func newArtistImageHandler(
+	t *testing.T, libRoot string, reader tags.Reader,
+	fetcher metaHandler.ArtistImageFetcher, rs metaHandler.TrackRescanner,
+) (*store.Store, *mux.Router, *model.Library) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	h := &metaHandler.Handler{Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib

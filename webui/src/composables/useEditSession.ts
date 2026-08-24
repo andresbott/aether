@@ -7,6 +7,7 @@ import {
     useApplyPicture,
     useDeletePicture
 } from '@/composables/useMetadataEditor'
+import { applyArtistImage, deleteArtistImage } from '@/lib/api/Metadata'
 import { albumKey, dirOf } from '@/lib/albumIdentity'
 import { apiErrorMessage } from '@/lib/apiError'
 import type {
@@ -16,6 +17,7 @@ import type {
     PatchFields,
     PictureSlot,
     RescanStatus,
+    StagedArtistImageSource,
     StagedPictureSource,
     Track,
     TrackOverlay,
@@ -306,6 +308,21 @@ export interface PictureSessionEntry {
     ops: Map<string, Map<PictureSlot, PictureOp>>
 }
 
+// ArtistImageOp is one staged change to an artist folder's image: set a new
+// portrait (an uploaded file or an online pick's mbid+url, with a preview) or
+// remove the current one. Keyed in the session by the SELECTED folder path (the
+// folder the image is written into), so it is a folder-level edit independent of
+// which tracks, if any, are selected.
+export type ArtistImageOp =
+    | {
+          kind: 'set'
+          file: File | null
+          mbid: string | null
+          url: string | null
+          preview: string | null
+      }
+    | { kind: 'remove' }
+
 export type EditSession = ReturnType<typeof useEditSession>
 
 /**
@@ -324,6 +341,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
 
     const overlays = ref(new Map<string, TrackOverlay>())
     const pictures = ref(new Map<string, PictureSessionEntry>())
+    // Artist-folder images, keyed by the resolved artist folder path. One op per
+    // folder; independent of album identity (an artist folder holds many albums).
+    const artistImages = ref(new Map<string, ArtistImageOp>())
     const isSaving = ref(false)
     // Bumped when a save wrote picture changes, so thumbnails cache-bust.
     const picturesSavedAt = ref(0)
@@ -376,9 +396,13 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 }
             }
         }
+        // Artist-image ops are folder-level, not track edits, so they do not flag
+        // individual track rows — only the global unsaved indicator.
         return out
     })
-    const hasStagedChanges = computed(() => overlays.value.size > 0 || pictures.value.size > 0)
+    const hasStagedChanges = computed(
+        () => overlays.value.size > 0 || pictures.value.size > 0 || artistImages.value.size > 0
+    )
 
     function effective(track: Track): Track {
         return applyOverlay(track, overlays.value.get(track.path))
@@ -593,6 +617,39 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         return pictures.value.get(album)?.ops.get(type)?.get(slot)
     }
 
+    // ----- Artist image -----
+
+    function releaseArtistOpPreview(op: ArtistImageOp | undefined) {
+        if (op?.kind === 'set' && op.preview?.startsWith('blob:')) {
+            URL.revokeObjectURL(op.preview)
+        }
+    }
+
+    function stageArtistImageSet(folderKey: string, src: StagedArtistImageSource) {
+        releaseArtistOpPreview(artistImages.value.get(folderKey))
+        artistImages.value.set(folderKey, {
+            kind: 'set',
+            file: src.file,
+            mbid: src.mbid,
+            url: src.url,
+            preview: src.file ? URL.createObjectURL(src.file) : src.url
+        })
+    }
+
+    function stageArtistImageRemoval(folderKey: string) {
+        releaseArtistOpPreview(artistImages.value.get(folderKey))
+        artistImages.value.set(folderKey, { kind: 'remove' })
+    }
+
+    function discardArtistImageOp(folderKey: string) {
+        releaseArtistOpPreview(artistImages.value.get(folderKey))
+        artistImages.value.delete(folderKey)
+    }
+
+    function getArtistImageOp(folderKey: string): ArtistImageOp | undefined {
+        return artistImages.value.get(folderKey)
+    }
+
     function discardAll() {
         overlays.value.clear()
         for (const entry of pictures.value.values()) {
@@ -601,6 +658,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             }
         }
         pictures.value.clear()
+        for (const op of artistImages.value.values()) releaseArtistOpPreview(op)
+        artistImages.value.clear()
     }
 
     // ----- Save -----
@@ -672,6 +731,54 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         return { ok: true, rescanFailure }
     }
 
+    // saveArtistImages persists staged artist-folder image ops (writes and
+    // removals). Mirrors savePictures: a failed write aborts (ok=false), a failed
+    // re-index is reported but not fatal (the file is on disk). Invalidates the
+    // music caches on success, since the artist's served cover may now differ.
+    async function saveArtistImages(): Promise<SavePicturesOutcome> {
+        const lib = libraryId()
+        if (lib === null) {
+            return { ok: artistImages.value.size === 0, rescanFailure: null }
+        }
+        let wrote = false
+        let rescanFailure: string | null = null
+        for (const [folderPath, op] of [...artistImages.value]) {
+            try {
+                let out: { rescan?: RescanStatus } | undefined
+                if (op.kind === 'set') {
+                    const form = new FormData()
+                    form.append('library_id', String(lib))
+                    form.append('path', folderPath)
+                    if (op.file) form.append('image', op.file)
+                    else if (op.mbid && op.url) {
+                        form.append('mbid', op.mbid)
+                        form.append('url', op.url)
+                    }
+                    out = await applyArtistImage(form)
+                } else {
+                    out = await deleteArtistImage(lib, folderPath)
+                }
+                if (out?.rescan && !out.rescan.ok) {
+                    rescanFailure = out.rescan.error ?? 'unknown error'
+                }
+                releaseArtistOpPreview(op)
+                artistImages.value.delete(folderPath)
+                wrote = true
+            } catch {
+                if (wrote) {
+                    picturesSavedAt.value = Date.now()
+                    invalidateAfterMetadataWrite(qc)
+                }
+                return { ok: false, rescanFailure }
+            }
+        }
+        if (wrote) {
+            picturesSavedAt.value = Date.now()
+            invalidateAfterMetadataWrite(qc)
+        }
+        return { ok: true, rescanFailure }
+    }
+
     // reportRescanFailure warns that the write landed on disk but the library
     // index did not catch up. Deliberately reports the LAST failure of the save
     // and never clears it because a later batch succeeded: a stale index for
@@ -697,6 +804,13 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             // below: the images are on disk regardless, only the index lags.
             let rescanFailure: string | null = pics.rescanFailure
             if (!pics.ok) {
+                reportRescanFailure(rescanFailure)
+                return
+            }
+
+            const arts = await saveArtistImages()
+            if (arts.rescanFailure) rescanFailure = arts.rescanFailure
+            if (!arts.ok) {
                 reportRescanFailure(rescanFailure)
                 return
             }
@@ -794,6 +908,10 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         discardPictureOp,
         getPictureOps,
         getPictureOp,
+        stageArtistImageSet,
+        stageArtistImageRemoval,
+        discardArtistImageOp,
+        getArtistImageOp,
         discardAll,
         save
     }

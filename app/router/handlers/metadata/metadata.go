@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/metadataedit"
@@ -25,6 +26,15 @@ import (
 type CoverArtClient interface {
 	List(ctx context.Context, releaseMBID, releaseGroupMBID string) ([]coverart.CoverImage, error)
 	DownloadImage(ctx context.Context, imageURL string) ([]byte, string, error)
+}
+
+// ArtistImageFetcher lists and downloads artist portraits from the online image
+// providers (fanart.tv / TheAudioDB), keyed by a MusicBrainz artist id. Satisfied
+// by *artistimage.Chain. Optional on the handler: nil disables the online source
+// for the artist-folder image, leaving upload working.
+type ArtistImageFetcher interface {
+	List(ctx context.Context, mbid string) ([]artistimage.ImageCandidate, error)
+	Download(ctx context.Context, providerName, url string) ([]byte, string, error)
 }
 
 // TrackRescanner re-reads the tags of specific files and updates the library
@@ -44,6 +54,10 @@ type Handler struct {
 	Store    *store.Store
 	Reader   tags.Reader
 	CoverArt CoverArtClient
+	// ArtistImages downloads the online-picked artist portrait for the
+	// artist-folder image feature. Optional: nil leaves upload working and makes
+	// an online pick answer 503.
+	ArtistImages ArtistImageFetcher
 	// Images serves display-sized copies of the editor's picture cells, so a
 	// grid of thumbnails does not download full-resolution scans. Optional: nil
 	// makes every cell serve its original.
@@ -143,6 +157,10 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/identify").Methods(http.MethodPost).HandlerFunc(h.identify)
 	r.Path("/metadata/identify-album").Methods(http.MethodPost).HandlerFunc(h.identifyAlbum)
 	r.Path("/metadata/folders").Methods(http.MethodGet).HandlerFunc(h.folders)
+	r.Path("/metadata/artist-folder").Methods(http.MethodGet).HandlerFunc(h.artistFolder)
+	r.Path("/metadata/artist-image").Methods(http.MethodGet).HandlerFunc(h.artistImage)
+	r.Path("/metadata/artist-image").Methods(http.MethodPost).HandlerFunc(h.setArtistImage)
+	r.Path("/metadata/artist-image").Methods(http.MethodDelete).HandlerFunc(h.deleteArtistImage)
 	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)

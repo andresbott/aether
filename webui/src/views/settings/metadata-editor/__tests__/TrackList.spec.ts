@@ -78,6 +78,23 @@ describe('TrackList selection', () => {
         expect(paths(w)).toEqual(['p4.mp3'])
     })
 
+    it('plain re-click on the sole selected row clears it', async () => {
+        const w = mountList()
+        await click(w, 2)
+        expect(paths(w)).toEqual(['p2.mp3'])
+        await click(w, 2) // click the same row again
+        expect(paths(w)).toEqual([])
+    })
+
+    it('plain click on a selected row within a multi-selection collapses to it', async () => {
+        const w = mountList()
+        await click(w, 2, { ctrlKey: true })
+        await click(w, 4, { ctrlKey: true })
+        expect(paths(w)).toEqual(['p2.mp3', 'p4.mp3'])
+        await click(w, 2) // plain click a selected row while several are selected
+        expect(paths(w)).toEqual(['p2.mp3']) // collapses, does not toggle off
+    })
+
     it('Ctrl click toggles rows additively', async () => {
         const w = mountList()
         await click(w, 2, { ctrlKey: true })
@@ -151,6 +168,22 @@ describe('TrackList selection', () => {
         w.findComponent(DataTableStub).vm.$emit('update:selection', [good, bad])
         await w.vm.$nextTick()
         expect(w.emitted('update:selection')?.[0]?.[0]).toEqual([good])
+    })
+
+    it('Escape clears the selection', async () => {
+        const w = mountList()
+        await click(w, 1, { ctrlKey: true })
+        await click(w, 3, { ctrlKey: true })
+        expect(paths(w)).toEqual(['p1.mp3', 'p3.mp3'])
+        await w.find('.table-wrapper').trigger('keydown', { key: 'Escape' })
+        await sync(w)
+        expect(paths(w)).toEqual([])
+    })
+
+    it('Escape with an empty selection emits nothing', async () => {
+        const w = mountList()
+        await w.find('.table-wrapper').trigger('keydown', { key: 'Escape' })
+        expect(w.emitted('update:selection')).toBeUndefined()
     })
 })
 
@@ -228,5 +261,36 @@ describe('TrackList staged marker', () => {
     it('renders no marker without staged paths', () => {
         const w = mountReal([mkTrack({ path: 'clean.mp3' })], new Set<string>())
         expect(w.find('[data-test="staged-marker"]').exists()).toBe(false)
+    })
+})
+
+describe('TrackList path display', () => {
+    // Mount the real DataTable so the Path column's body slot renders per row.
+    function mountReal(list: Track[], folderPath: string | null) {
+        return mount(TrackList, {
+            props: { tracks: list, isLoading: false, selection: [], folderPath },
+            global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+        })
+    }
+
+    it('shows each track path relative to the selected folder', () => {
+        const w = mountReal(
+            [
+                mkTrack({ path: 'Artist/Album/01 - Song.mp3' }),
+                mkTrack({ path: 'Artist/Album/CD2/02 - Song.mp3' })
+            ],
+            'Artist/Album'
+        )
+        const rows = w.findAll('tbody tr')
+        expect(rows[0].text()).toContain('01 - Song.mp3')
+        expect(rows[0].text()).not.toContain('Artist/Album')
+        // A subfolder below the selected folder stays qualified so multi-disc
+        // tracks don't collide on a bare file name.
+        expect(rows[1].text()).toContain('CD2/02 - Song.mp3')
+    })
+
+    it('shows the full library-relative path at the library root', () => {
+        const w = mountReal([mkTrack({ path: 'Artist/Album/01.mp3' })], null)
+        expect(w.findAll('tbody tr')[0].text()).toContain('Artist/Album/01.mp3')
     })
 })

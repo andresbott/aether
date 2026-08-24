@@ -25,8 +25,12 @@ import type {
 const updateTracksSpy = vi.hoisted(() => vi.fn())
 const applyPictureSpy = vi.hoisted(() => vi.fn())
 const deletePictureSpy = vi.hoisted(() => vi.fn())
+const applyArtistImageSpy = vi.hoisted(() => vi.fn())
+const deleteArtistImageSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', () => ({
-    updateTracks: (...args: unknown[]) => updateTracksSpy(...args)
+    updateTracks: (...args: unknown[]) => updateTracksSpy(...args),
+    applyArtistImage: (...args: unknown[]) => applyArtistImageSpy(...args),
+    deleteArtistImage: (...args: unknown[]) => deleteArtistImageSpy(...args)
 }))
 vi.mock('@/composables/useMetadataEditor', async (importActual) => {
     const actual = await importActual<typeof import('@/composables/useMetadataEditor')>()
@@ -972,5 +976,94 @@ describe('albumPickToOverlay', () => {
         expect(overlay.compilation).toBeUndefined()
         expect(overlay.disc_subtitle).toBeUndefined()
         expect(overlay.genres).toEqual(['Grunge'])
+    })
+})
+
+describe('useEditSession artist image', () => {
+    const FOLDER = 'Radiohead'
+    const mkSession = (lib = 3) =>
+        useEditSession(
+            () => [mkTrack({ path: 'Radiohead/OK Computer/a.mp3' })],
+            () => lib
+        )
+
+    beforeEach(() => {
+        applyArtistImageSpy.mockReset()
+        applyArtistImageSpy.mockResolvedValue({ ok: true, path: 'Radiohead/artist.jpg' })
+        deleteArtistImageSpy.mockReset()
+        deleteArtistImageSpy.mockResolvedValue({ ok: true })
+        updateTracksSpy.mockReset()
+        updateTracksSpy.mockResolvedValue({ results: [] })
+        toastAddSpy.mockReset()
+        vi.stubGlobal('URL', {
+            ...URL,
+            createObjectURL: vi.fn(() => 'blob:preview'),
+            revokeObjectURL: vi.fn()
+        })
+    })
+
+    it('stages a set op keyed by folder and flags unsaved changes', () => {
+        const session = mkSession()
+        expect(session.hasStagedChanges.value).toBe(false)
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        expect(session.hasStagedChanges.value).toBe(true)
+        expect(session.getArtistImageOp(FOLDER)?.kind).toBe('set')
+    })
+
+    it('does not flag individual track rows (folder-level edit)', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        expect(session.stagedPaths.value.size).toBe(0)
+    })
+
+    it('save posts the set op with the folder path and the online pick', async () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb-1', url: 'http://p/x.jpg' })
+        await session.save()
+        expect(applyArtistImageSpy).toHaveBeenCalledTimes(1)
+        const form = applyArtistImageSpy.mock.calls[0][0] as FormData
+        expect(form.get('path')).toBe(FOLDER)
+        expect(form.get('mbid')).toBe('mb-1')
+        expect(form.get('url')).toBe('http://p/x.jpg')
+        expect(form.get('artist')).toBeNull()
+        expect(form.getAll('paths')).toEqual([])
+        expect(session.hasStagedChanges.value).toBe(false)
+        expect(session.picturesSavedAt.value).toBeGreaterThan(0)
+    })
+
+    it('save sends an uploaded file as the image part', async () => {
+        const session = mkSession()
+        const file = new File(['x'], 'art.png', { type: 'image/png' })
+        session.stageArtistImageSet(FOLDER, { file, mbid: null, url: null })
+        await session.save()
+        const form = applyArtistImageSpy.mock.calls[0][0] as FormData
+        expect(form.get('image')).toBeInstanceOf(File)
+        expect(form.get('mbid')).toBeNull()
+    })
+
+    it('save deletes a removal op by folder', async () => {
+        const session = mkSession()
+        session.stageArtistImageRemoval(FOLDER)
+        await session.save()
+        expect(deleteArtistImageSpy).toHaveBeenCalledWith(3, FOLDER)
+        expect(session.hasStagedChanges.value).toBe(false)
+    })
+
+    it('discardArtistImageOp clears it and revokes a file preview', () => {
+        const session = mkSession()
+        const file = new File(['x'], 'art.png', { type: 'image/png' })
+        session.stageArtistImageSet(FOLDER, { file, mbid: null, url: null })
+        session.discardArtistImageOp(FOLDER)
+        expect(session.getArtistImageOp(FOLDER)).toBeUndefined()
+        expect(session.hasStagedChanges.value).toBe(false)
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview')
+    })
+
+    it('discardAll clears a staged artist image', () => {
+        const session = mkSession()
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb', url: 'http://p/x.jpg' })
+        session.discardAll()
+        expect(session.getArtistImageOp(FOLDER)).toBeUndefined()
+        expect(session.hasStagedChanges.value).toBe(false)
     })
 })

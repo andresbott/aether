@@ -31,6 +31,19 @@ func (nullReader) Read(context.Context, string) (tags.Metadata, error) {
 	return tags.Metadata{}, nil
 }
 
+// taggedReader reads audio by extension and returns a fixed album artist for
+// every file — enough to drive the artist-folder eligibility check and the
+// representative-track rescan in the artist-image tests.
+type taggedReader struct{ albumArtist string }
+
+func (taggedReader) CanRead(p string) bool {
+	e := strings.ToLower(filepath.Ext(p))
+	return e == ".flac" || e == ".mp3"
+}
+func (r taggedReader) Read(context.Context, string) (tags.Metadata, error) {
+	return tags.Metadata{AlbumArtist: []string{r.albumArtist}}, nil
+}
+
 func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
