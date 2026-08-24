@@ -333,16 +333,33 @@ export interface ImageMeta {
     bytes: number
 }
 
-// One occupied slot of a picture type, as reported by the pictures endpoint.
+// PictureImageRef is a populated cell's ready-to-render URLs, as resolved by
+// the server (see the inventory endpoint doc below). Mount-relative — never a
+// full origin or a hard-coded /api/v1 prefix — so the caller must prepend
+// apiClient.defaults.baseURL before using it as an <img> src.
+export interface PictureImageRef {
+    url: string
+    thumb_url?: string
+}
+
+// One occupied slot of a picture type, as reported by the pictures inventory
+// endpoint.
 export interface PictureSlotInfo {
     slot: PictureSlot
-    // e.g. "back.jpg" for folder slots, "4 of 10 files" for embedded slots.
+    // Folder slots only: the art file's name, e.g. "back.jpg".
     detail?: string
     // Folder slots only: the album spans several directories (a multi-disc
     // release) and they do not all hold the same image — one is missing it or
     // carries a different one. The editor shows the first folder's image and
     // warns; saving writes the picture into every folder.
     mixed?: boolean
+    // Embedded slots only: how many of the selected paths carry this picture
+    // type, out of how many were selected (the editor renders "N of M files").
+    present_count?: number
+    total_count?: number
+    // The cell's ready-to-render image, present whenever the slot itself is
+    // (i.e. whenever this PictureSlotInfo appears at all).
+    image?: PictureImageRef
     // Size/dimensions/format of the slot's representative image (the folder
     // file, or the embedded picture of the first track that has one).
     meta?: ImageMeta
@@ -360,7 +377,7 @@ export interface PicturesResponse {
 
 export interface ApplyPictureResult {
     ok: boolean
-    target: PictureSlot
+    slot: PictureSlot
     type: string
     rescan?: RescanStatus
 }

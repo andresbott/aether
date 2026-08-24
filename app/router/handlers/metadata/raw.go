@@ -1,17 +1,11 @@
 package metadata
 
 import (
-	"errors"
 	"net/http"
-	"strconv"
 
 	"github.com/andresbott/aether/internal/metadataedit"
 	"go.senan.xyz/taglib"
-	"gorm.io/gorm"
 )
-
-// maxRawPaths caps a single raw-tags request; mirrors the identify cap.
-const maxRawPaths = 50
 
 type rawTagsResultDTO struct {
 	Path string              `json:"path"`
@@ -26,30 +20,16 @@ type rawTagsResultDTO struct {
 
 // rawTags serves the complete tag map of the requested files, unfiltered —
 // including keys the structured editor does not manage (legacy frames,
-// ReplayGain, encoder tags, custom fields).
+// ReplayGain, encoder tags, custom fields). The selection travels in the POST
+// body (library_id + paths[]), decoded the same way as the picture-selection
+// endpoints: this was one of the endpoints the production 431 was reported
+// against (a large multi-disc selection as a repeated ?paths= query param
+// overflowed a reverse proxy's header buffer). See
+// docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
 func (h *Handler) rawTags(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("library_id")
-	id, perr := strconv.ParseUint(idStr, 10, 64)
-	if perr != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "library_id required")
-		return
-	}
-	paths := r.URL.Query()["paths"]
-	if len(paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "validation_error", "paths are required")
-		return
-	}
-	if len(paths) > maxRawPaths {
-		writeErr(w, http.StatusBadRequest, "validation_error", "too many paths in one request")
-		return
-	}
-	libModel, err := h.Store.GetLibrary(uint(id))
+	lib, sel, status, err := h.decodeSelection(w, r)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeSelectionErr(w, r, status, err)
 		return
 	}
 
@@ -61,9 +41,9 @@ func (h *Handler) rawTags(w http.ResponseWriter, r *http.Request) {
 	if readUnsupported == nil {
 		readUnsupported = taglib.ReadUnsupported
 	}
-	results := make([]rawTagsResultDTO, 0, len(paths))
-	for _, p := range paths {
-		abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, p)
+	results := make([]rawTagsResultDTO, 0, len(sel.Paths))
+	for _, p := range sel.Paths {
+		abs, rerr := metadataedit.ResolveInLibrary(lib.Path, p)
 		if rerr != nil {
 			results = append(results, rawTagsResultDTO{Path: p, Tags: map[string][]string{}, Unsupported: []string{}, Error: rerr.Error()})
 			continue

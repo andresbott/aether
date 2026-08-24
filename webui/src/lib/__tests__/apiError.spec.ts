@@ -1,17 +1,21 @@
 import { describe, it, expect } from 'vitest'
 import { apiErrorMessage, isCanceledError, isRateLimitError } from '@/lib/apiError'
 
-// The server answers /api/v1 failures as {"error": "<sentence>", "code": "<slug>"}.
-// apiErrorMessage is the single place the UI turns any thrown value into text a
-// person can read — no raw JSON, no "[object Object]", never empty.
+// The server answers /api/v1 failures as an RFC 9457 problem+json body:
+// {"type","title","status","detail","instance","errors"?}. apiErrorMessage is
+// the single place the UI turns any thrown value into text a person can
+// read — no raw JSON, no "[object Object]", never empty.
 describe('apiErrorMessage', () => {
-    it('uses the server sentence from an axios-style error', () => {
+    it('uses the server sentence from a Problem body', () => {
         const err = {
             response: {
                 status: 502,
                 data: {
-                    error: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
-                    code: 'upstream_error'
+                    type: 'https://aether.local/probs/upstream_error',
+                    title: 'Upstream error',
+                    status: 502,
+                    detail: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
+                    instance: '/api/v1/metadata/pictures/candidates'
                 }
             }
         }
@@ -20,15 +24,33 @@ describe('apiErrorMessage', () => {
         )
     })
 
+    it('falls back to the title when detail is absent', () => {
+        const err = {
+            response: {
+                status: 404,
+                data: {
+                    type: 'https://aether.local/probs/not_found',
+                    title: 'Not found',
+                    status: 404,
+                    instance: '/api/v1/libraries/9'
+                }
+            }
+        }
+        expect(apiErrorMessage(err)).toBe('Not found')
+    })
+
     // Regression: a double-wrapped body used to put a raw JSON document on
     // screen. Even if one ever reaches the client, show the inner sentence.
-    it('unwraps a JSON document that arrived in the error field', () => {
+    it('unwraps a JSON document that arrived in the detail field', () => {
         const err = {
             response: {
                 status: 502,
                 data: {
-                    error: '{"error":"cover art archive lookup failed: status 500","code":"upstream_error"}',
-                    code: 502
+                    type: 'https://aether.local/probs/upstream_error',
+                    title: 'Upstream error',
+                    status: 502,
+                    detail:
+                        '{"type":"https://aether.local/probs/upstream_error","title":"Upstream error","status":500,"detail":"cover art archive lookup failed: status 500"}'
                 }
             }
         }
@@ -36,7 +58,9 @@ describe('apiErrorMessage', () => {
     })
 
     it('never returns a string that looks like JSON', () => {
-        const err = { response: { status: 500, data: { error: '{"nested":{"deep":true}}' } } }
+        const err = {
+            response: { status: 500, data: { detail: '{"nested":{"deep":true}}' } }
+        }
         const msg = apiErrorMessage(err)
         expect(msg.startsWith('{')).toBe(false)
     })
@@ -72,16 +96,23 @@ describe('isRateLimitError', () => {
         expect(isRateLimitError({ response: { status: 429, data: {} } })).toBe(true)
     })
 
-    it('detects the upstream_rate_limited code', () => {
+    it('detects the upstream_rate_limited type slug', () => {
         expect(
-            isRateLimitError({ response: { status: 502, data: { code: 'upstream_rate_limited' } } })
+            isRateLimitError({
+                response: {
+                    status: 502,
+                    data: { type: 'https://aether.local/probs/upstream_rate_limited' }
+                }
+            })
         ).toBe(true)
     })
 
     it('is false for other failures', () => {
-        expect(isRateLimitError({ response: { status: 502, data: { code: 'upstream_error' } } })).toBe(
-            false
-        )
+        expect(
+            isRateLimitError({
+                response: { status: 502, data: { type: 'https://aether.local/probs/upstream_error' } }
+            })
+        ).toBe(false)
         expect(isRateLimitError(new Error('boom'))).toBe(false)
     })
 })

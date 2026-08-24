@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/app/router/handlers/libraries"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -95,6 +96,8 @@ func TestCreateLibraryOK(t *testing.T) {
 	}
 }
 
+// A path that does not exist is a well-formed but invalid value (422), unlike
+// an outright missing path, which stays 400.
 func TestCreateLibraryBadPath(t *testing.T) {
 	_, _, r := newTestHandler(t)
 	body := `{"name":"X","path":"/nonexistent-aether-test-xyz"}`
@@ -102,8 +105,18 @@ func TestCreateLibraryBadPath(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+	var problem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/path" {
+		t.Fatalf("expected a /path field error, got %+v", problem.Errors)
 	}
 }
 
@@ -115,8 +128,8 @@ func TestCreateLibraryBadRegex(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
 	}
 }
 
@@ -180,8 +193,15 @@ func TestCreateLibraryBadIcon(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", w.Code)
+	}
+	var problem httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/icon" {
+		t.Fatalf("expected an /icon field error, got %+v", problem.Errors)
 	}
 }
 
@@ -341,8 +361,8 @@ func TestCreateLibraryRejectsBadDefaultView(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -473,8 +493,8 @@ func TestCreateLibraryRejectsBadCoverStyle(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
 	}
 }
 

@@ -1,6 +1,7 @@
 package libraries
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,22 @@ import (
 // created through this API — a config typo should fail as loudly as a bad
 // request, and a second copy of these rules would drift.
 
+// valueError marks a validator failure as well-formed-but-invalid: the field
+// is present but its value fails a business rule (too long, not a usable
+// directory, ...) — as opposed to an outright missing required field. The
+// /api/v1 handlers (libraries.go's validateDTO) use this distinction to
+// answer 422 instead of 400; app/cmd's config-load path only ever checks
+// err != nil, so it is unaffected.
+type valueError struct{ msg string }
+
+func (e *valueError) Error() string { return e.msg }
+
+// isValueError reports whether err was constructed as a valueError.
+func isValueError(err error) bool {
+	var e *valueError
+	return errors.As(err, &e)
+}
+
 // ValidatePath resolves path to an absolute one and verifies it is an existing,
 // readable directory.
 func ValidatePath(path string) (string, error) {
@@ -23,21 +40,21 @@ func ValidatePath(path string) (string, error) {
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("invalid path: %w", err)
+		return "", &valueError{fmt.Sprintf("invalid path: %v", err)}
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("path does not exist: %s", abs)
+			return "", &valueError{fmt.Sprintf("path does not exist: %s", abs)}
 		}
-		return "", fmt.Errorf("cannot stat path: %w", err)
+		return "", &valueError{fmt.Sprintf("cannot stat path: %v", err)}
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory: %s", abs)
+		return "", &valueError{fmt.Sprintf("path is not a directory: %s", abs)}
 	}
 	f, err := os.Open(abs) //nolint:gosec // G304: abs is an admin-configured library root being validated, not an attacker-controlled path
 	if err != nil {
-		return "", fmt.Errorf("path is not readable: %w", err)
+		return "", &valueError{fmt.Sprintf("path is not readable: %v", err)}
 	}
 	_ = f.Close()
 	return abs, nil
@@ -60,7 +77,7 @@ func ValidateName(name string) error {
 		return fmt.Errorf("name is required")
 	}
 	if len(name) > 200 {
-		return fmt.Errorf("name too long (max 200 chars)")
+		return &valueError{"name too long (max 200 chars)"}
 	}
 	return nil
 }

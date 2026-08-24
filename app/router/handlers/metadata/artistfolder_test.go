@@ -330,11 +330,11 @@ func TestSetArtistImage_RejectsUrlNotInCandidates(t *testing.T) {
 	body, ct := buildArtistImagePick(t, lib.ID, "Radiohead", testMBID, "https://evil.example/x.jpg")
 	w := postArtistImage(t, r, body, ct)
 	var eb struct {
-		Error string `json:"error"`
+		Detail string `json:"detail"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &eb)
-	if w.Code != http.StatusBadRequest || !strings.Contains(eb.Error, "candidate") {
-		t.Errorf("want 400 with a candidate error, got %d %q", w.Code, eb.Error)
+	if w.Code != http.StatusBadRequest || !strings.Contains(eb.Detail, "candidate") {
+		t.Errorf("want 400 with a candidate error, got %d %q", w.Code, eb.Detail)
 	}
 }
 

@@ -187,7 +187,7 @@ describe('TrackActionSheet', () => {
 
     it('toasts the api message on a failed add', async () => {
         await pickPlaylist()
-        mutateCallbacks().onError({ response: { data: { error: 'playlist is read-only' } } })
+        mutateCallbacks().onError({ response: { data: { detail: 'playlist is read-only' } } })
         expect(toastAdd).toHaveBeenCalledWith(
             expect.objectContaining({
                 severity: 'error',

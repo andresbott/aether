@@ -8,9 +8,10 @@ backwards-compatibility obligations** (see CLAUDE.md: no migration code, no
 compat shims — change schemas freely; the user drops the DB).
 
 Read next, per area: [subsonic-api.md](subsonic-api.md) ·
-[scanning.md](scanning.md) · [frontend.md](frontend.md) ·
-[features.md](features.md) · [authentication.md](authentication.md) ·
-[testing.md](testing.md) · [releasing.md](releasing.md)
+[api-conventions.md](api-conventions.md) · [scanning.md](scanning.md) ·
+[frontend.md](frontend.md) · [features.md](features.md) ·
+[authentication.md](authentication.md) · [testing.md](testing.md) ·
+[releasing.md](releasing.md)
 
 ## Layering
 
@@ -261,17 +262,52 @@ album.
 
 ## The `/api/v1` error envelope
 
-Every `/api/v1` failure answers `{"error": "<sentence>", "code": "<slug>"}`.
-`app/router/errors.go` (`jsonErrorEnvelope`) guarantees it: a handler body that
-is already a JSON object passes through untouched, and plain-text errors
-(`http.Error`, `http.NotFound`) get an envelope built for them.
+Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
+`Problem{type, title, status, detail, instance}` body (see
+[api-conventions.md](api-conventions.md)) — except the metadata package's
+batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
+`{results: [...]}` envelope instead, forwarded as plain `application/json`
+even on `updateTracks`' failing `500` (`rawTags` always answers `200` once the selection is valid); see
+api-conventions.md's error-shape section for the detail. Most handler
+packages (metadata, tokens, libraries, artists, radiobrowser, users) build a
+Problem directly via
+`app/router/handlers/httperr`; `tasks` calls it directly for its one JSON
+error body (`queue_full`) and otherwise still answers bare `http.Error`.
+Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v1` —
+`tasks`' remaining plain-text errors, the `sessionGuard`/`headerGuard` auth
+gate's `401`/`403`, the `/api/v1` catch-all's `400`, or a stray
+`http.NotFound` inside an otherwise-migrated handler (`pictureImage`'s "cell
+not found") — is still guaranteed the same shape by
+`app/router/errors.go`'s `jsonErrorEnvelope` middleware: a handler body that
+is already a JSON object (an `httperr` Problem, or an ad hoc handler JSON
+body) passes through untouched, and a plain-text body gets a Problem built
+for it from the response status alone (`errorCodeFor` maps status → slug,
+`httperr.TitleFor` maps slug → title, the plain-text body becomes `detail`
+verbatim).
 
 **`middleware.Cfg.JsonErrors` must stay `false`.** It wraps *every* error body
-blindly, escaping our JSON into the `error` string — the client then receives a
+blindly, escaping our JSON into a string field — the client then receives a
 document where it expects a sentence. The go-bumbu middleware is still wired for
 logging and Prometheus. Successful responses are never buffered, so streaming
-(audio, task logs) is unaffected; `/rest` reports its own errors inside a 200
-Subsonic envelope and is untouched.
+(audio, task logs) is unaffected.
+
+**The `application/problem+json` rewrite is scoped to the admin API mount
+only.** `jsonErrorEnvelope` is mounted on the root router (`main.go`), so it
+technically also wraps `/rest` — but the middleware checks `r.URL.Path`
+against `apiV1MountPrefix` ("/api/v1") before choosing a shape: only a path
+under that prefix gets a `Problem`. Every other path — `/rest` foremost —
+keeps the original, non-RFC-9457 `apiError{error, code}` envelope this
+middleware has always answered with, byte-identical to before problem+json
+existed here. In practice `/rest` almost never reaches either fallback branch
+at all: Subsonic's own error path (`writeError`) always answers HTTP 200 with
+its own `subsonic-response` JSON envelope, never reaching the buffering
+branch (status < 400). The exceptions are a handful of `/rest` media-serving
+edge cases (a cover/stream file vanishing mid-request, no cover source at
+all; see `media.go`'s `http.Error`/`http.NotFound` calls) — these fall to the
+legacy `apiError` shape, unchanged from before this middleware ever spoke
+RFC 9457. `/rest` must never answer `application/problem+json`.
+
+See [api-conventions.md](api-conventions.md) for the full house rules.
 
 ## Decision records and historical docs
 

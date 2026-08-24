@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	rbHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	"github.com/andresbott/aether/internal/radiobrowser"
 	"github.com/andresbott/aether/internal/upstream"
@@ -120,19 +121,19 @@ func TestSearch_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", w.Code)
 	}
-	var body struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
+	var body httperr.Problem
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Code != "upstream_error" {
-		t.Errorf("code = %q, want upstream_error", body.Code)
+	if got := httperr.Slug(body.Type); got != "upstream_error" {
+		t.Errorf("code = %q, want upstream_error", got)
 	}
-	if !strings.Contains(body.Error, "radio-browser.info") {
-		t.Errorf("error does not name the service: %q", body.Error)
+	if !strings.Contains(body.Detail, "radio-browser.info") {
+		t.Errorf("error does not name the service: %q", body.Detail)
 	}
-	if strings.Contains(body.Error, "search failed") {
-		t.Errorf("error leaks internal wording: %q", body.Error)
+	if strings.Contains(body.Detail, "search failed") {
+		t.Errorf("error leaks internal wording: %q", body.Detail)
 	}
 }
 

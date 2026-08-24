@@ -10,13 +10,13 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -61,33 +61,14 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/artists/{id:[0-9]+}/image-from-search").Methods(http.MethodPut).HandlerFunc(h.setImageFromSearch)
 }
 
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
-}
-
-// writeUpstreamErr reports a failed call to an external service. The body
-// carries the upstream package's human-readable sentence (or fallback for an
-// error that isn't upstream-typed) — never a raw Go error — and the status
-// mirrors the upstream condition so the UI can tell "retry later" (429/504)
-// from "it's broken" (502).
-func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
-	status := upstream.HTTPStatus(err)
-	code := "upstream_error"
-	if status == http.StatusTooManyRequests {
-		code = "upstream_rate_limited"
-	}
-	writeError(w, status, code, upstream.UserMessage(err, fallback))
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 func parseID(r *http.Request) (uint, error) {
@@ -112,14 +93,14 @@ func mapStoreError(err error) (status int, code string) {
 func parseSearchParams(w http.ResponseWriter, r *http.Request) (q string, limit int, ok bool) {
 	q = strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeError(w, http.StatusBadRequest, "validation_error", "q is required")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "q is required")
 		return "", 0, false
 	}
 	limit = 10
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
-			writeError(w, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
+			writeError(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
 			return "", 0, false
 		}
 		if n > 25 {
@@ -137,7 +118,7 @@ func (h *Handler) searchMusicBrainz(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.Search.Search(r.Context(), q, limit)
 	if err != nil {
-		writeUpstreamErr(w, err, "The artist search could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The artist search could not be completed. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -150,7 +131,7 @@ func (h *Handler) searchMusicBrainzReleases(w http.ResponseWriter, r *http.Reque
 	}
 	results, err := h.Search.SearchRelease(r.Context(), q, limit)
 	if err != nil {
-		writeUpstreamErr(w, err, "The release search could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The release search could not be completed. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -159,12 +140,12 @@ func (h *Handler) searchMusicBrainzReleases(w http.ResponseWriter, r *http.Reque
 func (h *Handler) releaseGroupGenres(w http.ResponseWriter, r *http.Request) {
 	mbid := mux.Vars(r)["mbid"]
 	if !mbidRe.MatchString(mbid) {
-		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
 		return
 	}
 	genres, err := h.Search.ReleaseGroupGenres(r.Context(), mbid)
 	if err != nil {
-		writeUpstreamErr(w, err, "The genre lookup could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The genre lookup could not be completed. Try again in a moment.")
 		return
 	}
 	if genres == nil {
@@ -180,13 +161,13 @@ type mbidResponse struct {
 func (h *Handler) getMBID(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	artist, _, err := h.Store.GetArtist(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, mbidResponse{MBArtistID: artist.MBArtistID})
@@ -228,13 +209,13 @@ func storedImageSource(path string, manual bool) imageSourceResponse {
 func (h *Handler) getImageSource(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	artist, _, err := h.Store.GetArtist(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 
@@ -275,17 +256,17 @@ type imageCandidate struct {
 func (h *Handler) imageCandidates(w http.ResponseWriter, r *http.Request) {
 	mbid := r.URL.Query().Get("mbid")
 	if !mbidRe.MatchString(mbid) {
-		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
 		return
 	}
 	if h.Fetcher == nil {
-		writeError(w, http.StatusServiceUnavailable, "not_configured",
+		writeError(w, r, http.StatusServiceUnavailable, "not_configured",
 			"Artist image fetching is not configured. Add an image-provider API key to use it.")
 		return
 	}
 	cands, err := h.Fetcher.List(r.Context(), mbid)
 	if err != nil {
-		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The image lookup could not be completed. Try again in a moment.")
 		return
 	}
 	out := make([]imageCandidate, 0, len(cands))
@@ -313,34 +294,34 @@ type imageFromSearchRequest struct {
 func (h *Handler) setImageFromSearch(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	var in imageFromSearchRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if !mbidRe.MatchString(in.MBID) {
-		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
 		return
 	}
 	if h.Fetcher == nil {
-		writeError(w, http.StatusServiceUnavailable, "not_configured",
+		writeError(w, r, http.StatusServiceUnavailable, "not_configured",
 			"Artist image fetching is not configured. Add an image-provider API key to use it.")
 		return
 	}
 	artist, _, err := h.Store.GetArtist(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	// SSRF guard: re-list and only download a URL the provider itself just
 	// offered for this MBID — never an arbitrary URL from the client.
 	cands, err := h.Fetcher.List(r.Context(), in.MBID)
 	if err != nil {
-		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The image lookup could not be completed. Try again in a moment.")
 		return
 	}
 	var chosen *artistimage.ImageCandidate
@@ -351,20 +332,20 @@ func (h *Handler) setImageFromSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if chosen == nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "url is not among the candidates for this artist")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "url is not among the candidates for this artist")
 		return
 	}
 	data, ext, err := h.Fetcher.Download(r.Context(), chosen.Provider, chosen.FullURL)
 	if err != nil {
-		writeUpstreamErr(w, err, "The image lookup could not be completed. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The image lookup could not be completed. Try again in a moment.")
 		return
 	}
 	if len(data) == 0 {
-		writeError(w, http.StatusNotFound, "not_found", "No image found for this artist.")
+		writeError(w, r, http.StatusNotFound, "not_found", "No image found for this artist.")
 		return
 	}
 	if err := h.Assets.PutManual(assetstore.KindArtist, assetkey.ArtistOf(artist), ext, data); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"stored": true})
@@ -383,26 +364,26 @@ type setMBIDResponse struct {
 func (h *Handler) setMBID(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	var in setMBIDRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if in.MBID != "" && !mbidRe.MatchString(in.MBID) {
-		writeError(w, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
 		return
 	}
 	artist, _, err := h.Store.GetArtist(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, status, code, err.Error())
+		writeError(w, r, status, code, err.Error())
 		return
 	}
 	if err := h.Store.SetArtistMBID(id, in.MBID); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal", err.Error())
+		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	artist.MBArtistID = in.MBID

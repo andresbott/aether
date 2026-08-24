@@ -70,7 +70,7 @@ describe('metadata write invalidation', () => {
     })
 
     it('useApplyPicture drops the same keys', async () => {
-        applyPictureMock.mockResolvedValue({ ok: true, target: 'folder', type: 'Front Cover' })
+        applyPictureMock.mockResolvedValue({ ok: true, slot: 'folder', type: 'Front Cover' })
         const { mutation, invalidateSpy } = mountMutation(useApplyPicture)
         await mutation.mutateAsync(new FormData())
         const keys = invalidatedKeys(invalidateSpy)
@@ -84,7 +84,7 @@ describe('metadata write invalidation', () => {
         const { mutation, invalidateSpy } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
             libraryId: 1,
-            path: 'Artist/Album',
+            paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
         })
@@ -102,7 +102,7 @@ describe('picture write rescan reporting', () => {
     it('useApplyPicture warns on a failed re-index', async () => {
         applyPictureMock.mockResolvedValue({
             ok: true,
-            target: 'folder',
+            slot: 'folder',
             type: 'Front Cover',
             rescan: { ok: false, error: 'db is locked' }
         })
@@ -116,7 +116,7 @@ describe('picture write rescan reporting', () => {
     it('useApplyPicture stays silent when the re-index succeeded', async () => {
         applyPictureMock.mockResolvedValue({
             ok: true,
-            target: 'folder',
+            slot: 'folder',
             type: 'Front Cover',
             rescan: { ok: true }
         })
@@ -130,7 +130,7 @@ describe('picture write rescan reporting', () => {
         const { mutation } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
             libraryId: 1,
-            path: 'Artist/Album',
+            paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
         })
@@ -144,7 +144,7 @@ describe('picture write rescan reporting', () => {
     it('quietRescanWarning suppresses the per-call warning', async () => {
         applyPictureMock.mockResolvedValue({
             ok: true,
-            target: 'folder',
+            slot: 'folder',
             type: 'Front Cover',
             rescan: { ok: false, error: 'db is locked' }
         })

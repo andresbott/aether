@@ -60,7 +60,7 @@ func buildPictureImageURLForm(
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(libID), 10))
-	_ = mw.WriteField("target", target)
+	_ = mw.WriteField("slot", target)
 	if pictureType != "" {
 		_ = mw.WriteField("type", pictureType)
 	}

@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/radiobrowser"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 )
 
@@ -33,33 +33,14 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/radiobrowser/favicon").Methods(http.MethodGet).HandlerFunc(h.getFavicon)
 }
 
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
-}
-
-// writeUpstreamErr reports a failed call to an external service. The body
-// carries the upstream package's human-readable sentence (or fallback for an
-// error that isn't upstream-typed) — never a raw Go error — and the status
-// mirrors the upstream condition so the UI can tell "retry later" (429/504)
-// from "it's broken" (502).
-func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
-	status := upstream.HTTPStatus(err)
-	code := "upstream_error"
-	if status == http.StatusTooManyRequests {
-		code = "upstream_rate_limited"
-	}
-	writeError(w, status, code, upstream.UserMessage(err, fallback))
+func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 // searchStations proxies GET /radiobrowser/search?q=&limit= to the upstream
@@ -67,14 +48,14 @@ func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
 func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeError(w, http.StatusBadRequest, "validation_error", "q is required")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "q is required")
 		return
 	}
 	limit := 10
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
-			writeError(w, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
+			writeError(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
 			return
 		}
 		if n > 25 {
@@ -84,7 +65,7 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.Client.Search(r.Context(), q, limit)
 	if err != nil {
-		writeUpstreamErr(w, err, "The station directory could not be reached. Try again in a moment.")
+		httperr.WriteUpstream(w, r, err, "The station directory could not be reached. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -97,12 +78,12 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getFavicon(w http.ResponseWriter, r *http.Request) {
 	u := strings.TrimSpace(r.URL.Query().Get("url"))
 	if u == "" {
-		writeError(w, http.StatusBadRequest, "validation_error", "url is required")
+		writeError(w, r, http.StatusBadRequest, "validation_error", "url is required")
 		return
 	}
 	data, contentType, err := h.Client.FetchFavicon(r.Context(), u)
 	if err != nil {
-		writeUpstreamErr(w, err, "The station logo could not be downloaded.")
+		httperr.WriteUpstream(w, r, err, "The station logo could not be downloaded.")
 		return
 	}
 	// data is validated PNG/JPEG bytes (FetchFavicon sniffs them); serve it with

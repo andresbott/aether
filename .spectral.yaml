@@ -1,0 +1,21 @@
+extends: ["spectral:oas"]
+rules:
+  no-array-in-get-delete-url:
+    description: "GET/DELETE must not carry a variable-length list in the URL (header-safe / 431 guard)."
+    severity: error
+    given:
+      - "$.paths[*][get,delete].parameters[?(@.in=='query' || @.in=='path')].schema"
+      - "$.paths[?(@.get || @.delete)].parameters[?(@.in=='query' || @.in=='path')].schema"
+    then: { field: "type", function: pattern, functionOptions: { notMatch: "^array$" } }
+  array-query-needs-maxitems:
+    description: "Any array-typed query parameter must bound its size with maxItems."
+    severity: error
+    given:
+      - "$.paths[*][*].parameters[?(@.in=='query' && @.schema.type=='array')].schema"
+      - "$.paths[*].parameters[?(@.in=='query' && @.schema.type=='array')].schema"
+    then: { field: "maxItems", function: truthy }
+  no-hardcoded-api-base:
+    description: "A paths key must not hard-code the /api base — that belongs in servers:, so a handler can be remounted under a different prefix without rewriting its paths keys."
+    severity: error
+    given: "$.paths"
+    then: { field: "@key", function: pattern, functionOptions: { notMatch: "^/api" } }

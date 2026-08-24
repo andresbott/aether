@@ -311,7 +311,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	r.Use(prodMid.Middleware)
 	r.Use(jsonErrorEnvelope)
 
-	app.attachApiV1(app.router.PathPrefix("/api/v1").Subrouter())
+	app.attachApiV1(app.router.PathPrefix(apiV1MountPrefix).Subrouter())
 
 	if app.store != nil {
 		identity := app.patIdentityResolver()

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/userstore/userdb"
@@ -177,15 +178,21 @@ func TestCreateUser(t *testing.T) {
 
 	t.Run("rejects missing fields", func(t *testing.T) {
 		_, r := newTestHandler(t)
-		for name, body := range map[string]string{
-			"empty login":       `{"login":"  ","password":"pw"}`,
-			"empty password":    `{"login":"x","password":""}`,
-			"invalid json":      `{`,
-			"too long password": `{"login":"x","password":"` + strings.Repeat("a", 73) + `"}`,
+		// A missing/empty required field or an undecodable body stays 400;
+		// a password that is present but over bcrypt's 72-byte input cap is
+		// well-formed-but-invalid input, so it answers 422 instead.
+		for name, tc := range map[string]struct {
+			body string
+			want int
+		}{
+			"empty login":       {`{"login":"  ","password":"pw"}`, http.StatusBadRequest},
+			"empty password":    {`{"login":"x","password":""}`, http.StatusBadRequest},
+			"invalid json":      {`{`, http.StatusBadRequest},
+			"too long password": {`{"login":"x","password":"` + strings.Repeat("a", 73) + `"}`, http.StatusUnprocessableEntity},
 		} {
-			w := doJSON(t, r, http.MethodPost, "/users", body)
-			if w.Code != http.StatusBadRequest {
-				t.Errorf("%s: expected 400, got %d", name, w.Code)
+			w := doJSON(t, r, http.MethodPost, "/users", tc.body)
+			if w.Code != tc.want {
+				t.Errorf("%s: expected %d, got %d", name, tc.want, w.Code)
 			}
 		}
 	})
@@ -200,18 +207,20 @@ func TestCreateUser(t *testing.T) {
 	})
 }
 
+// A token-shaped login is well-formed input that conflicts with a naming
+// rule (the /rest token-auth namespace), so it is rejected as 422, not 400.
 func TestCreateRejectsTokenShapedLogin(t *testing.T) {
 	_, r := newTestHandler(t)
 	for _, login := range []string{"abc123defg", "0123456789", "zzzzzzzzzz"} {
 		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"`+login+`","password":"longenough1"}`)
-		if w.Code != http.StatusBadRequest {
-			t.Errorf("login %q: status %d, want 400", login, w.Code)
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Errorf("login %q: status %d, want 422", login, w.Code)
 		}
 	}
 	// Nearby shapes stay allowed: wrong length, uppercase, symbols.
 	for _, login := range []string{"abc123defgh", "abc123def", "Abc123defg", "abc-123defg"} {
 		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"`+login+`","password":"longenough1"}`)
-		if w.Code == http.StatusBadRequest {
+		if w.Code == http.StatusUnprocessableEntity {
 			t.Errorf("login %q: unexpectedly rejected", login)
 		}
 	}
@@ -242,8 +251,18 @@ func TestCreateUserRole(t *testing.T) {
 	t.Run("rejects an unknown role", func(t *testing.T) {
 		_, r := newTestHandler(t)
 		w := doJSON(t, r, http.MethodPost, "/users", `{"login":"x","password":"pw","role":"superuser"}`)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+			t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+		}
+		var problem httperr.ValidationProblem
+		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+			t.Fatal(err)
+		}
+		if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/role" {
+			t.Fatalf("expected a /role field error, got %+v", problem.Errors)
 		}
 	})
 }
@@ -370,8 +389,8 @@ func TestUpdateUserRole(t *testing.T) {
 		store, r := newTestHandler(t)
 		id := mustCreate(t, store, "alice", "pw")
 		w := doJSON(t, r, http.MethodPut, "/users/"+id, `{"role":"superuser"}`)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
 		}
 	})
 }

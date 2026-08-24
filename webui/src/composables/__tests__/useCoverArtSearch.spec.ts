@@ -60,8 +60,10 @@ describe('useCoverArtSearch', () => {
             response: {
                 status: 502,
                 data: {
-                    error: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
-                    code: 'upstream_error'
+                    type: 'https://aether.local/probs/upstream_error',
+                    title: 'Upstream error',
+                    status: 502,
+                    detail: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.'
                 }
             }
         })
@@ -80,8 +82,11 @@ describe('useCoverArtSearch', () => {
             response: {
                 status: 502,
                 data: {
-                    error: '{"error":"cover art archive lookup failed: status 500","code":"upstream_error"}',
-                    code: 502
+                    type: 'https://aether.local/probs/upstream_error',
+                    title: 'Upstream error',
+                    status: 502,
+                    detail:
+                        '{"type":"https://aether.local/probs/upstream_error","title":"Upstream error","status":500,"detail":"cover art archive lookup failed: status 500"}'
                 }
             }
         })
@@ -96,8 +101,11 @@ describe('useCoverArtSearch', () => {
             response: {
                 status: 429,
                 data: {
-                    error: 'Cover Art Archive is receiving too many requests right now. Wait a moment and try again.',
-                    code: 'upstream_rate_limited'
+                    type: 'https://aether.local/probs/upstream_rate_limited',
+                    title: 'Too Many Requests',
+                    status: 429,
+                    detail:
+                        'Cover Art Archive is receiving too many requests right now. Wait a moment and try again.'
                 }
             }
         })
@@ -109,7 +117,15 @@ describe('useCoverArtSearch', () => {
 
     it('clears a previous error when a later search succeeds', async () => {
         listMock.mockRejectedValueOnce({
-            response: { status: 429, data: { code: 'upstream_rate_limited', error: 'slow down' } }
+            response: {
+                status: 429,
+                data: {
+                    type: 'https://aether.local/probs/upstream_rate_limited',
+                    title: 'Too Many Requests',
+                    status: 429,
+                    detail: 'slow down'
+                }
+            }
         })
         const { search, error, rateLimited } = useCoverArtSearch()
         await search('rel-1')

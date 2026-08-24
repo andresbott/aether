@@ -46,8 +46,11 @@ describe('useMusicBrainzSearch', () => {
             response: {
                 status: 502,
                 data: {
-                    error: '{"error":"MusicBrainz is temporarily unavailable. Try again in a few minutes.","code":"upstream_error"}',
-                    code: 502
+                    type: 'https://aether.local/probs/upstream_error',
+                    title: 'Upstream error',
+                    status: 502,
+                    detail:
+                        '{"type":"https://aether.local/probs/upstream_error","title":"Upstream error","status":500,"detail":"MusicBrainz is temporarily unavailable. Try again in a few minutes."}'
                 }
             }
         })
@@ -61,7 +64,12 @@ describe('useMusicBrainzSearch', () => {
         searchMock.mockRejectedValue({
             response: {
                 status: 429,
-                data: { error: 'MusicBrainz is receiving too many requests right now.', code: 'upstream_rate_limited' }
+                data: {
+                    type: 'https://aether.local/probs/upstream_rate_limited',
+                    title: 'Too Many Requests',
+                    status: 429,
+                    detail: 'MusicBrainz is receiving too many requests right now.'
+                }
             }
         })
         const { search, rateLimited } = useMusicBrainzSearch()

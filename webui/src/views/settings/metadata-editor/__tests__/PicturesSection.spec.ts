@@ -28,7 +28,6 @@ vi.mock('primevue/usetoast', () => ({
     useToast: () => ({ add: vi.fn() })
 }))
 
-// Keep getPictureUrl real (pure), stub the network call.
 const getPicturesSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Metadata', async (importActual) => {
     const actual = await importActual<typeof import('@/lib/api/Metadata')>()
@@ -115,6 +114,22 @@ function mountSection(selection: Track[], libraryId: number | null = 3) {
 // carry no album tag, so identity falls back to their directory.
 const ALBUM = albumKey(mkTrack())
 
+// mkImage builds a plausible PictureImageRef for a mocked inventory slot: a
+// realistic, mount-relative image-endpoint URL carrying the slot (matching
+// what the real server returns — see PicturesSection.vue's serverPictureUrl,
+// which now reads this off the response instead of building a URL itself).
+// Every slot object in these fixtures needs one: the component only reaches
+// its occupied-cell (flip-card) rendering — and therefore the Remove/Change
+// buttons and copy-source offers the tests below click through — when
+// cellThumbUrl resolves to something, which for a server-held (non-staged)
+// cell means slot.image must be present.
+function mkImage(slot: string): { url: string; thumb_url: string } {
+    return {
+        url: `/metadata/pictures/image?library_id=3&file=a.mp3&slot=${slot}&type=Front+Cover`,
+        thumb_url: `/metadata/pictures/image?library_id=3&file=a.mp3&slot=${slot}&type=Front+Cover&size=320`
+    }
+}
+
 describe('PicturesSection', () => {
     beforeEach(() => {
         getPicturesSpy.mockReset()
@@ -123,15 +138,20 @@ describe('PicturesSection', () => {
         deletePictureSpy.mockReset()
     })
 
-    it("requests the matrix for the selected track's own directory with the selection paths", async () => {
+    it('requests the inventory for the selection paths, in a POST body', async () => {
         mountSection([mkTrack({ path: 'Artist/Album/01.flac' })])
         await flushPromises()
-        expect(getPicturesSpy).toHaveBeenCalledWith(3, 'Artist/Album', ['Artist/Album/01.flac'])
+        expect(getPicturesSpy).toHaveBeenCalledWith(3, ['Artist/Album/01.flac'])
     })
 
     it('renders only the embedded and folder slots', async () => {
         getPicturesSpy.mockResolvedValue([
-            { type: 'Front Cover', slots: [{ slot: 'embedded', detail: '2 of 2 files' }] }
+            {
+                type: 'Front Cover',
+                slots: [
+                    { slot: 'embedded', present_count: 2, total_count: 2, image: mkImage('embedded') }
+                ]
+            }
         ])
         const { wrapper } = mountSection([mkTrack()])
         await flushPromises()
@@ -145,11 +165,16 @@ describe('PicturesSection', () => {
             {
                 type: 'Front Cover',
                 slots: [
-                    { slot: 'embedded', detail: '1 of 2 files' },
-                    { slot: 'folder', detail: 'cover.jpg' }
+                    {
+                        slot: 'embedded',
+                        present_count: 1,
+                        total_count: 2,
+                        image: mkImage('embedded')
+                    },
+                    { slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }
                 ]
             },
-            { type: 'Back Cover', slots: [{ slot: 'folder' }] }
+            { type: 'Back Cover', slots: [{ slot: 'folder', image: mkImage('folder') }] }
         ]
         getPicturesSpy.mockResolvedValue(pictures)
         const { wrapper } = mountSection([mkTrack()])
@@ -211,7 +236,7 @@ describe('PicturesSection', () => {
 
     it('offers only absent types in the Add picture menu and adds an empty block', async () => {
         getPicturesSpy.mockResolvedValue([
-            { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+            { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }] }
         ])
         const { wrapper } = mountSection([mkTrack()])
         await flushPromises()
@@ -232,7 +257,7 @@ describe('PicturesSection', () => {
 
     it('stages a removal for an occupied cell and undoes it', async () => {
         getPicturesSpy.mockResolvedValue([
-            { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg' }] }
+            { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg', image: mkImage('folder') }] }
         ])
         const { wrapper, session } = mountSection([mkTrack()])
         await flushPromises()
@@ -253,7 +278,7 @@ describe('PicturesSection', () => {
 
     it('opens the picker scoped to the clicked cell and stages its selection', async () => {
         getPicturesSpy.mockResolvedValue([
-            { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg' }] }
+            { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg', image: mkImage('folder') }] }
         ])
         const { wrapper, session } = mountSection([mkTrack()])
         await flushPromises()
@@ -281,11 +306,16 @@ describe('PicturesSection', () => {
                 {
                     type: 'Front Cover',
                     slots: [
-                        { slot: 'embedded', detail: '1 of 1 files' },
-                        { slot: 'folder', detail: 'cover.jpg' }
+                        {
+                            slot: 'embedded',
+                            present_count: 1,
+                            total_count: 1,
+                            image: mkImage('embedded')
+                        },
+                        { slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }
                     ]
                 },
-                { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg' }] }
+                { type: 'Back Cover', slots: [{ slot: 'folder', detail: 'back.jpg', image: mkImage('folder') }] }
             ])
             const { wrapper } = mountSection([mkTrack()])
             await flushPromises()
@@ -311,7 +341,7 @@ describe('PicturesSection', () => {
 
         it('excludes the edited cell itself and empty cells', async () => {
             getPicturesSpy.mockResolvedValue([
-                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }] }
             ])
             const { wrapper } = mountSection([mkTrack()])
             await flushPromises()
@@ -352,7 +382,7 @@ describe('PicturesSection', () => {
 
         it('does not offer a cell staged for removal', async () => {
             getPicturesSpy.mockResolvedValue([
-                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }] }
             ])
             const { wrapper } = mountSection([mkTrack()])
             await flushPromises()
@@ -426,7 +456,10 @@ describe('PicturesSection', () => {
     it('refetches when the selection moves to another track in the same folder', async () => {
         // Track 1 carries an embedded back cover; track 2 has nothing.
         getPicturesSpy.mockResolvedValue([
-            { type: 'Back Cover', slots: [{ slot: 'embedded', detail: '1 of 1 files' }] }
+            {
+                type: 'Back Cover',
+                slots: [{ slot: 'embedded', present_count: 1, total_count: 1, image: mkImage('embedded') }]
+            }
         ])
         const { wrapper } = mountSection([mkTrack({ path: 'album/01.flac' })])
         await flushPromises()
@@ -437,7 +470,7 @@ describe('PicturesSection', () => {
         await flushPromises()
         // Same directory, different track: the matrix must be refetched with
         // the new paths and the stale type block must disappear.
-        expect(getPicturesSpy).toHaveBeenLastCalledWith(3, 'album', ['album/02.flac'])
+        expect(getPicturesSpy).toHaveBeenLastCalledWith(3, ['album/02.flac'])
         expect(wrapper.find('[data-test="picture-type-Back Cover"]').exists()).toBe(false)
     })
 
@@ -460,7 +493,7 @@ describe('PicturesSection', () => {
 
         it('manages the pictures of one album spread over several disc folders', async () => {
             getPicturesSpy.mockResolvedValue([
-                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg' }] }
+                { type: 'Front Cover', slots: [{ slot: 'folder', detail: 'cover.jpg', image: mkImage('folder') }] }
             ])
             const { wrapper } = mountSection(discSelection)
             await flushPromises()
@@ -468,9 +501,9 @@ describe('PicturesSection', () => {
             // Same album, two folders: the matrix is shown, not the note.
             expect(wrapper.find('[data-test="pictures-multi-album"]').exists()).toBe(false)
             expect(wrapper.find('[data-test="picture-type-Front Cover"]').exists()).toBe(true)
-            // The request is anchored on the first (primary) folder and carries
-            // every selected path so the server can span both folders.
-            expect(getPicturesSpy).toHaveBeenCalledWith(3, 'Release/CD 1', [
+            // The request carries every selected path so the server can derive
+            // and span both folders — there is no separate "primary folder" param.
+            expect(getPicturesSpy).toHaveBeenCalledWith(3, [
                 'Release/CD 1/01.flac',
                 'Release/CD 2/01.flac'
             ])
@@ -478,7 +511,10 @@ describe('PicturesSection', () => {
 
         it('stages one album-wide op that carries every selected path', async () => {
             getPicturesSpy.mockResolvedValue([
-                { type: 'Front Cover', slots: [{ slot: 'embedded', detail: '2 of 2 files' }] }
+                {
+                    type: 'Front Cover',
+                    slots: [{ slot: 'embedded', present_count: 2, total_count: 2, image: mkImage('embedded') }]
+                }
             ])
             const { wrapper, session } = mountSection(discSelection)
             await flushPromises()
@@ -495,14 +531,21 @@ describe('PicturesSection', () => {
             expect(op?.paths).toEqual(['Release/CD 1/01.flac', 'Release/CD 2/01.flac'])
         })
 
-        it('asks the image endpoint for the folder slot with every selected path', async () => {
-            // The art may live in a later disc folder than the primary one, so
-            // the paths must travel with the image request too — otherwise the
-            // server only looks in the primary folder and 404s.
+        it('renders the folder slot thumbnail from the server-resolved image URL, never the selection', async () => {
+            // The art may live in a later disc folder than the primary one, but
+            // that discovery now happens server-side (the inventory response):
+            // the server hands back the one resolved file's URL directly, so
+            // the <img> src carries no paths[] at all — a large selection on
+            // this src is exactly the production 431 this redesign fixes.
+            const image = {
+                url: '/metadata/pictures/image?library_id=3&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover',
+                thumb_url:
+                    '/metadata/pictures/image?library_id=3&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover&size=320'
+            }
             getPicturesSpy.mockResolvedValue([
                 {
                     type: 'Front Cover',
-                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true }]
+                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true, image }]
                 }
             ])
             const { wrapper } = mountSection(discSelection)
@@ -511,15 +554,15 @@ describe('PicturesSection', () => {
             const src = wrapper
                 .find('[data-test="picture-cell-Front Cover-folder"] img.cell-thumb')
                 .attributes('src')!
-            const params = new URLSearchParams(src.slice(src.indexOf('?') + 1))
-            expect(params.getAll('paths')).toEqual(['Release/CD 1/01.flac', 'Release/CD 2/01.flac'])
+            expect(src).not.toContain('paths=')
+            expect(src).toContain(image.thumb_url)
         })
 
         it("warns when the folder art differs across the album's folders", async () => {
             getPicturesSpy.mockResolvedValue([
                 {
                     type: 'Front Cover',
-                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true }]
+                    slots: [{ slot: 'folder', detail: 'cover.jpg', mixed: true, image: mkImage('folder') }]
                 }
             ])
             const { wrapper } = mountSection(discSelection)

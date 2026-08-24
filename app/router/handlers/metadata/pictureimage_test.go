@@ -81,11 +81,13 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	return srv, lib, key
 }
 
-// pictureImageURL builds a request for the album's folder-slot front cover.
+// pictureImageURL builds a request for the album's folder-slot front cover,
+// addressed by its resolved file (library-relative) rather than a browsed
+// folder + selection.
 func pictureImageURL(srv *httptest.Server, lib *model.Library, size string) string {
 	q := url.Values{
 		"library_id": {libIDStr(lib)},
-		"path":       {"."},
+		"file":       {"cover.png"},
 		"type":       {"Front Cover"},
 		"slot":       {"folder"},
 	}

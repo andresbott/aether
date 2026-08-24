@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/dlcache"
@@ -17,7 +18,6 @@ import (
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -93,11 +93,6 @@ type Handler struct {
 	Rescan TrackRescanner
 }
 
-type apiError struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
 // rescanStatus reports the outcome of the post-write re-index. A failure is
 // never fatal: the tags are already on disk, so the only consequence is that
 // the library index lags until the next scan.
@@ -168,13 +163,13 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/metadata/artist-image/candidate-info").Methods(http.MethodGet).HandlerFunc(h.artistImageCandidateInfo)
 	r.Path("/metadata/artist-image").Methods(http.MethodPost).HandlerFunc(h.setArtistImage)
 	r.Path("/metadata/artist-image").Methods(http.MethodDelete).HandlerFunc(h.deleteArtistImage)
-	r.Path("/metadata/tracks/raw").Methods(http.MethodGet).HandlerFunc(h.rawTags)
+	r.Path("/metadata/tracks/raw-tags").Methods(http.MethodPost).HandlerFunc(h.rawTags)
 	r.Path("/metadata/tracks").Methods(http.MethodGet).HandlerFunc(h.tracks)
 	r.Path("/metadata/tracks").Methods(http.MethodPut).HandlerFunc(h.updateTracks)
-	r.Path("/metadata/pictures").Methods(http.MethodGet).HandlerFunc(h.pictures)
+	r.Path("/metadata/pictures/inventory").Methods(http.MethodPost).HandlerFunc(h.inventory)
 	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
-	r.Path("/metadata/pictures").Methods(http.MethodDelete).HandlerFunc(h.deletePicture)
-	r.Path("/metadata/pictures/image").Methods(http.MethodGet).HandlerFunc(h.pictureImage)
+	r.Path("/metadata/pictures/removals").Methods(http.MethodPost).HandlerFunc(h.removals)
+	r.Path(pictureImagePath).Methods(http.MethodGet).HandlerFunc(h.pictureImage)
 	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
 	r.Path("/metadata/pictures/candidate-info").Methods(http.MethodGet).HandlerFunc(h.pictureCandidateInfo)
 }
@@ -185,22 +180,8 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, apiError{Error: msg, Code: code})
-}
-
-// writeUpstreamErr reports a failed call to an external service. The body
-// carries the upstream package's human-readable sentence (or fallback for an
-// error that isn't upstream-typed) — never a raw Go error — and the status
-// mirrors the upstream condition so the UI can tell "retry later" (429/504)
-// from "it's broken" (502).
-func writeUpstreamErr(w http.ResponseWriter, err error, fallback string) {
-	status := upstream.HTTPStatus(err)
-	code := "upstream_error"
-	if status == http.StatusTooManyRequests {
-		code = "upstream_rate_limited"
-	}
-	writeErr(w, status, code, upstream.UserMessage(err, fallback))
+func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
+	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {
@@ -232,6 +213,67 @@ type librarySummary struct {
 	Path string
 }
 
+// pictureSelection is the request body of a picture-selection POST endpoint:
+// the library and the selected track paths (library-relative), carried in
+// the body rather than the URL so a large multi-disc selection can never
+// overflow a header buffer (the production 431 this redesign fixes). See
+// docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
+//
+// Type/Slot address one picture cell within the selection; only removals
+// sets them, defaulting Type to Front Cover like the other picture endpoints
+// when empty — inventory and raw-tags leave both at their zero value.
+type pictureSelection struct {
+	LibraryID uint     `json:"library_id"`
+	Paths     []string `json:"paths"`
+	Type      string   `json:"type,omitempty"`
+	Slot      string   `json:"slot,omitempty"`
+}
+
+// decodeSelection decodes and validates a picture-selection POST body,
+// resolving library_id to its root path. The body is wrapped in
+// http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes) before decoding —
+// defense in depth against a pathologically large body, now that a
+// multi-disc selection travels in the body instead of the URL — so an
+// over-cap body fails json.Decode and is reported through the same
+// malformed-JSON 400 branch as any other unparseable body. status/err are
+// zero/nil on success; callers on failure answer writeSelectionErr(w, r,
+// status, err), which itemises an empty/over-cap paths[] as a 422 validation
+// problem and falls back to writeErr(w, r, status, codeFor(status),
+// err.Error()) for everything else (malformed JSON, an unknown or
+// unreachable library).
+func (h *Handler) decodeSelection(w http.ResponseWriter, r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
+	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
+		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
+	}
+	if len(sel.Paths) == 0 {
+		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errNoSelection
+	}
+	if len(sel.Paths) > maxSelectionPaths {
+		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errTooManyPaths
+	}
+	libModel, gerr := h.Store.GetLibrary(sel.LibraryID)
+	if gerr != nil {
+		if errors.Is(gerr, gorm.ErrRecordNotFound) {
+			return nil, pictureSelection{}, http.StatusNotFound, gerr
+		}
+		return nil, pictureSelection{}, http.StatusInternalServerError, gerr
+	}
+	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, sel, 0, nil
+}
+
+// writeSelectionErr answers a decodeSelection failure. An empty or over-cap
+// paths[] is well-formed-but-invalid input (422, itemising the paths field);
+// a malformed body or a library lookup failure is unrelated to the
+// selection's shape and keeps decodeSelection's original status.
+func writeSelectionErr(w http.ResponseWriter, r *http.Request, status int, err error) {
+	if errors.Is(err, errNoSelection) || errors.Is(err, errTooManyPaths) {
+		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/paths", Detail: err.Error()})
+		return
+	}
+	writeErr(w, r, status, codeFor(status), err.Error())
+}
+
 type folderDTO struct {
 	Name          string `json:"name"`
 	Path          string `json:"path"`
@@ -246,7 +288,7 @@ const maxFolderSearchResults = 500
 func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// A `q` turns the endpoint into a filter: instead of one directory level it
@@ -257,7 +299,7 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 		matches, truncated, err := metadataedit.SearchFolders(
 			abs, q, metadataedit.ListFoldersOptions{}, maxFolderSearchResults)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+			writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out := make([]folderDTO, 0, len(matches))
@@ -272,7 +314,7 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	// followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]folderDTO, 0, len(folders))
@@ -306,12 +348,12 @@ type trackDTO struct {
 func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, status, codeFor(status), err.Error())
+		writeErr(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]trackDTO, 0, len(rows))
@@ -418,20 +460,20 @@ func validateUpdateRequest(body updateRequest) string {
 func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if msg := validateUpdateRequest(body); msg != "" {
-		writeErr(w, http.StatusBadRequest, "validation_error", msg)
+		writeErr(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, http.StatusNotFound, "not_found", err.Error())
+			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal", err.Error())
+		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	patch := metadataedit.Patch{
@@ -461,7 +503,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	for _, p := range body.Paths {
 		abs, err := metadataedit.ResolveInLibrary(libModel.Path, p)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "validation_error", err.Error())
+			writeErr(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
 		resolved = append(resolved, abs)

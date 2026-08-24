@@ -234,8 +234,10 @@ describe('PicturePickerDialog', () => {
                 response: {
                     status: 502,
                     data: {
-                        error: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
-                        code: 'upstream_error'
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.'
                     }
                 }
             })
@@ -259,7 +261,15 @@ describe('PicturePickerDialog', () => {
         it('retries the picked release, not the album MBID, after a failure', async () => {
             searchReleasesSpy.mockResolvedValue([mkRelease()])
             listReleaseCoversSpy.mockRejectedValue({
-                response: { status: 502, data: { error: 'upstream is down', code: 'upstream_error' } }
+                response: {
+                    status: 502,
+                    data: {
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'upstream is down'
+                    }
+                }
             })
             const wrapper = mountPicker({ albumName: 'Manual Album' })
             await openTab(wrapper, 'search')
@@ -281,8 +291,11 @@ describe('PicturePickerDialog', () => {
                 response: {
                     status: 429,
                     data: {
-                        error: 'MusicBrainz is receiving too many requests right now. Wait a moment and try again.',
-                        code: 'upstream_rate_limited'
+                        type: 'https://aether.local/probs/upstream_rate_limited',
+                        title: 'Too Many Requests',
+                        status: 429,
+                        detail:
+                            'MusicBrainz is receiving too many requests right now. Wait a moment and try again.'
                     }
                 }
             })
@@ -302,7 +315,12 @@ describe('PicturePickerDialog', () => {
             fetchPictureFileSpy.mockRejectedValue({
                 response: {
                     status: 502,
-                    data: { error: 'The image could not be downloaded.', code: 'upstream_error' }
+                    data: {
+                        type: 'https://aether.local/probs/upstream_error',
+                        title: 'Upstream error',
+                        status: 502,
+                        detail: 'The image could not be downloaded.'
+                    }
                 }
             })
             const wrapper = mountPicker({ sources: [mkSource()] })

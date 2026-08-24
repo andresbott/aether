@@ -5,7 +5,8 @@ import Menu from 'primevue/menu'
 import PicturePickerDialog from '@/components/library/PicturePickerDialog.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 import PictureCell from './PictureCell.vue'
-import { getPictures, getPictureUrl } from '@/lib/api/Metadata'
+import { getPictures } from '@/lib/api/Metadata'
+import { apiClient } from '@/lib/api/client'
 import { formatImageMeta } from '@/lib/imageMeta'
 import { selectionAlbumKey, selectionDirs } from '@/lib/albumIdentity'
 import {
@@ -45,8 +46,9 @@ const selectionPaths = computed(() => props.selection.map((t) => t.path))
 // albumId keys the album's staged picture ops in the session.
 const albumId = computed<string | null>(() => selectionAlbumKey(props.selection))
 const singleAlbum = computed(() => albumId.value !== null)
-// Picture requests are anchored on the album's primary (first) directory; the
-// selection paths tell the server every folder the album spans.
+// pictureDir no longer travels with the request (the server derives every
+// folder the album spans from selectionPaths itself) — it survives only as
+// the "is this a single album" gate, mirroring singleAlbum.
 const pictureDir = computed<string | null>(() =>
     singleAlbum.value ? (selectionDirs(props.selection)[0] ?? null) : null
 )
@@ -72,7 +74,7 @@ async function refreshPictures() {
         return
     }
     try {
-        const pictures = await getPictures(props.libraryId, pictureDir.value, selectionPaths.value)
+        const pictures = await getPictures(props.libraryId, selectionPaths.value)
         if (seq === refreshSeq) serverPictures.value = pictures
     } catch {
         if (seq === refreshSeq) serverPictures.value = []
@@ -157,9 +159,15 @@ function stagedOp(type: string, slot: PictureSlot) {
     return op
 }
 
+// serverDetail returns a present cell's display text: the folder art's
+// filename, or "N of M files" for an embedded slot, built here from
+// present_count/total_count (the server sends the raw counts, not prose).
+// undefined means the cell has no image at all.
 function serverDetail(type: string, slot: PictureSlot): string | undefined {
     const info = serverSlotDetail.value.get(type)?.get(slot)
-    return info === undefined ? undefined : (info.detail ?? '')
+    if (info === undefined) return undefined
+    if (slot === 'embedded') return `${info.present_count ?? 0} of ${info.total_count ?? 0} files`
+    return info.detail ?? ''
 }
 
 // serverMixed marks a folder cell whose art is not the same in every directory
@@ -185,23 +193,20 @@ function cellThumbUrl(type: string, slot: PictureSlot): string | null {
     return serverPictureUrl(type, slot, PICTURE_CELL_SIZE)
 }
 
-// serverPictureUrl builds the endpoint URL for a server-held cell. size omitted
-// means the original bytes — required when the image is copied into another
-// slot rather than displayed.
+// serverPictureUrl reads a server-held cell's ready-to-render URL off the
+// inventory response (slot.image, resolved server-side — see
+// PictureImageRef) rather than building one: the server picks which single
+// file addresses the cell. size omitted means the original bytes — required
+// when the image is copied into another slot rather than displayed. The
+// bust value forces a reload after a change (the endpoint sets
+// Cache-Control: no-cache but the URL is otherwise unchanged).
 function serverPictureUrl(type: string, slot: PictureSlot, size?: number): string | null {
-    if (!serverHas(type, slot) || props.libraryId === null || pictureDir.value === null) return null
-    return getPictureUrl(
-        props.libraryId,
-        pictureDir.value,
-        type,
-        slot,
-        pictureBust.value,
-        // Embedded: narrow the probe to the selected tracks. Folder: name the
-        // directories the album spans, since the art may sit in a later disc
-        // folder than the primary one this URL is anchored on.
-        selectionPaths.value,
-        size
-    )
+    const ref = serverSlotDetail.value.get(type)?.get(slot)?.image
+    if (!ref) return null
+    const path = (size ? ref.thumb_url : undefined) ?? ref.url
+    const base = apiClient.defaults.baseURL ?? ''
+    const sep = path.includes('?') ? '&' : '?'
+    return `${base}${path}${sep}t=${pictureBust.value}`
 }
 
 function cellNote(type: string, slot: PictureSlot): string {

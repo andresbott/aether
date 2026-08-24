@@ -7,6 +7,7 @@ Music server written in Go with a Vue 3 frontend.
 Before implementation work, read [`docs/agents/architecture.md`](docs/agents/architecture.md)
 and the subsystem doc for the area you're changing:
 [`subsonic-api.md`](docs/agents/subsonic-api.md) (anything under `/rest`),
+[`api-conventions.md`](docs/agents/api-conventions.md) (anything under `/api/v1`),
 [`scanning.md`](docs/agents/scanning.md) (scanner/tags/store reconcile),
 [`frontend.md`](docs/agents/frontend.md) (webui). Check
 [`docs/agents/features.md`](docs/agents/features.md) before adding a
