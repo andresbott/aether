@@ -158,11 +158,16 @@ paths:
       responses:
         '200':
           description: >
-            Image bytes: the original file, or — when `size` is set — an
-            Accept-negotiated thumbnail derivative. image/webp is only
-            possible for a thumbnail (`size` set) whose Accept header names
-            image/webp; the original is always served as image/jpeg or
-            image/png.
+            Image bytes. The Content-Type is a passthrough of what is served,
+            so it varies by path. With `size` set the server returns an
+            Accept-negotiated thumbnail: `image/jpeg`, or `image/webp` when the
+            request's Accept header names it. Without `size` (or when no
+            thumbnail could be produced) the original is served verbatim with
+            its stored type: folder art keeps the Content-Type derived from its
+            file extension (`image/jpeg`, `image/png`, `image/gif`,
+            `image/webp` or `image/bmp`), and embedded art is sniffed from its
+            bytes — falling back to `application/octet-stream` for bytes the
+            server cannot classify as a known image type.
           headers:
             ETag:
               schema: { type: string }
@@ -170,9 +175,8 @@ paths:
             Cache-Control:
               schema: { type: string, example: "no-cache" }
           content:
-            image/jpeg: { schema: { type: string, format: binary } }
-            image/png: { schema: { type: string, format: binary } }
-            image/webp: { schema: { type: string, format: binary } }
+            image/*: { schema: { type: string, format: binary } }
+            application/octet-stream: { schema: { type: string, format: binary } }
         '304':
           description: Not Modified — the request's If-None-Match matched the resolved content's ETag. No body.
           headers:
