@@ -2076,6 +2076,13 @@ components:
           minimum: 0
           description: "\"embedded\" slot only: tracks selected."
         image: { $ref: '#/components/schemas/PictureImageRef' }
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ImageMeta'
+          description: >
+            Size/dimensions/format of the slot's representative image (the
+            folder file, or the first embedded track that carries one).
+            Omitted when the image could not be read.
       required: [slot, image]
 
     PictureCell:
