@@ -38,12 +38,7 @@ Notes for editors:
 
 - [ ] Review the non-OpenSubsonic API surface
   Audit custom (non-Subsonic) endpoints, then move Libraries and Tasks management under an `/admin` path (e.g. `/api/admin/libraries`, `/api/admin/tasks`) so admin concerns are clearly separated from the Subsonic-compatible surface; update the frontend accordingly. Pre-1.0 because it is a breaking URL reorg — free now under the no-backwards-compat rule, expensive once anything depends on the paths. Not started: everything is still on one `/api/v1` subrouter (`app/router/main.go:201`), no `/admin` prefix anywhere. Note the authorization half already landed — `/api/v1` defaults to admin-only in both modes via the three-tier guards (`api_v1.go:56`, `proxy_auth.go`), so this is now purely about URL shape, not access control.
-- [x] Cap the metadata POST body inputs (DoS defense-in-depth) — `inventory`/`raw-tags`/`removals` decode the JSON body before the `maxSelectionPaths` (50) check; add `http.MaxBytesReader` (`applyPicture` already caps its multipart body). Also `applyPicture`'s multipart `paths[]` has no `maxItems` cap — a body field the query-scoped Spectral rule can't see. Not a header/431 risk, purely defensive. Follow-up from the header-safe reshape (`docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md`).
-      (done: `decodeSelection` wraps the body in `http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)` — 1 MiB, `limits.go` — before decoding, so an over-cap body fails `json.Decode` and 400s through the existing malformed-JSON branch; `applyPicture` now also 422s a multipart `paths[]` over `maxSelectionPaths`, closing this item's second half.)
 - [ ] Make `updateTracks`' all-failed response consistent with `rawTags` — `PUT /metadata/tracks` returns its `{results:[{path,ok,error}]}` envelope on a `500` when every row fails (plain `application/json` — the one documented batch exception to the `/api/v1` `problem+json` invariant, see `docs/agents/api-conventions.md`). Optionally align it to `rawTags`' "always 200, per-row error" shape (the SPA must then detect all-rows-failed inside a 200).
-- [x] Spectral rule: forbid a literal `/api/v1` in any `paths:` key — enforce mount-relative-only (base lives in `servers:`) so the planned `/admin` reorg stays a one-line change. Noted in `docs/agents/api-conventions.md`; extends the existing `.spectral.yaml` bounded-URL ruleset.
-      (done: `no-hardcoded-api-base` added to `.spectral.yaml` — `given: $.paths`, `field: "@key"`, `pattern` with `notMatch: "^/api"` — verified against the installed `@stoplight/spectral-cli@6.16.3`; RED on the new negative fixture `docs/openapi/testdata/bad-hardcoded-base.yaml`, GREEN on `aether-v1.yaml` via `make spec-lint`, pre-existing fixtures unaffected.)
-- [ ] Bump `@stoplight/spectral-cli`'s vulnerable transitive deps — `npm audit` flags high/critical in its tree; dev-tooling only (webui `devDependencies`, never bundled into the SPA), so non-urgent.
 
 ## Backend — OpenSubsonic Compliance
 
@@ -51,21 +46,9 @@ Notes for editors:
   Absent from the register list in `subsonic/subsonic.go:207-269`. Clients call `getUser` to discover what the authenticated user may do — `streamRole`, `playlistRole`, `downloadRole`, `adminRole`, `coverArtRole`, … — and some disable UI or refuse to start without it. Aether already has everything the response needs: `requestOwner(r)` gives the login, `users.RoleOf` gives the vertical (the same lookup `restAdminChecker` uses), so the roles are a fixed mapping with `adminRole` the only variable one. Two decisions: the `username` a PAT-authenticated caller sees (the real login, not the tokenID virtual username), and whether `getUsers` (admin-only, lists everyone) is worth mounting at all given the users CRUD already lives on `/api/v1` — `getUser` for the caller's own record is the part clients actually need.
 - [ ] XML response format for third-party clients
   Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
-- [x] expose server version correctly
 
 ## Backend — Data Integrity & Scanning
 
-- [x] Library grid can show the wrong album cover after edit + rescan
-  The library grid can show another album's image after metadata edits + rescan, though the album detail view stays correct. Updated: reconcile now always re-detects rather than only when the stored path is unusable, so a newly written `cover.jpg` supersedes an existing `folder.jpg`. It deliberately does not re-detect when the current track's directory holds no art and the album's stored cover lives in a sibling directory — otherwise an art-less disc folder of a multi-disc release blanks the whole album's cover. `IsUsableCoverPath` guards exactly that case (see `internal/scanner/reconcile.go` and the multi-disc regression test in `reconcile_test.go`).
-  One contributing cause removed: the grid/list components now build their cover URLs through `versionedCoverUrl` like the artist ones do, so an own cover edited in-session no longer lingers from the browser's image cache — a separate mechanism from the wrong-album problem, which is still open. Remaining root causes:
-  - [x] Orphan cleanup never revalidates album `CoverPath`
-    `DeleteOrphanedAggregates` doesn't revalidate `CoverPath` for surviving albums (`internal/store/scan_helpers.go:68` — 15 `DELETE` statements, no album `UPDATE`).
-  - [x] Two albums in one directory can share one `cover.jpg`
-    Two albums sharing a directory can still both point at the same `cover.jpg` — reconcile re-detects the stored path every pass, but nothing arbitrates between albums competing for one file.
-- [x] Album ids are not stable across the very edits this editor performs
-  Done: `scanner.planAlbumContinuity` retags an album row in place when a whole album moves in one pass, so `albums.id` and `created_at` — and with them the manual cover in the asset store, stars, the `newest` ordering, the discovery feed's recency term and client-cached `/album/:id` — survive the editor's retags, including `identify-album` writing an MBID to a whole selection. Partial edits, splits, merges into an existing identity and identity swaps still churn by design; a merge inside one batch keeps the largest album's row. See `docs/superpowers/specs/2026-08-18-album-identity-continuity.md` and the identity rules in `docs/agents/scanning.md`. Still open: the asset-store / image-cache sweep for albums that genuinely disappear — that is the resource-leaks item below, not this one.
-- [x] Track identity survives a file move or rename
-  Moving or renaming a music file no longer drops it from playlists or discards its history, star and queue position. `scanner.planTrackContinuity` re-points the row at the new path when it can prove the move (equal `file_size` + `title`, `duration` ±1s, old path gone from disk, unambiguous 1:1), so `tracks.id` survives and nothing cascades. `Scan` is also two-phase now — `preflight` validates and walks every library before any is reconciled — so a library whose root is unavailable or unexpectedly empty fails the scan before the first write instead of having its rows harvested by an earlier-sorting library's re-link pass. Design: `docs/superpowers/specs/2026-08-18-track-identity-across-moves-design.md`.
 - [ ] Move + retag: fixed for FLAC/MP3/MP4, still lost for the other formats
   Largely fixed since this was written. The retag-surviving signal it was waiting for — an audio-stream hash — now exists and is wired into `planTrackContinuity` as a second re-link pass (`internal/scanner/trackcontinuity.go`, `relinkPasses`). `libs/audiohash` fingerprints the audio payload only, so a move that *also* retags a file — the common Picard/beets rename-from-tags case, where `file_size` and `title` both change and the original `size+title` pass goes blind — keeps its `tracks.id`, and with it playlists, history, stars and queue position. The hash is computed on the scan worker (`scanner.go:228`, `audioHashOf`), stored on the indexed `tracks.audio_hash` column (`internal/model/track.go:31`), and looked up by `store.TracksByAudioHashes`. `MBRecordingID` was rejected as the signal — it identifies a recording, not a file, so the same recording on an album and a compilation shares it. Remaining gap, now a documented conservative miss rather than a deliberate decline: `libs/audiohash` covers only FLAC, MP3 and MP4 (`libs/audiohash/audiohash.go:66-73`), so the other walk.go extensions (ogg, opus, wma, wav, aiff, ape, wv, aac, mka, tta, dsf, webm) fall back to `size+title` and still lose everything on a retagged move; and a row indexed before the `audio_hash` column existed keeps `""` until a full scan re-reads it, because an incremental scan only hashes changed files (`scanner.go:225-227`). Both misses are noted in `planTrackContinuity`'s doc comment.
 - [ ] A move that straddles two scan runs is unrecoverable
@@ -84,11 +67,7 @@ Notes for editors:
     Why the album fix does not port: `planAlbumContinuity` proves continuity from "every track this album holds is in this batch". An artist spans many albums and hundreds of tracks through two associations (`album_artists` and `track_artists`), so that test is essentially never true for an incremental scan — the guard would decline precisely when it is needed — and credits are multi-valued, so "the tracks agree on one new identity" does not even have the same shape. Artists need a different signal, most plausibly the MBID (already their durable asset key) plus explicit rename detection. Also recorded in `docs/agents/scanning.md`'s known-scanner-debt list.
   - [ ] Three fix shapes already exist in the codebase
     Three fix shapes exist and the codebase already contains one of each: preserve the row (albums — `planAlbumContinuity`); migrate on re-key (radio — `subsonic/radio.go:230-243` computes old and new `RadioKey(streamURL)` and moves the cover so a URL edit does not orphan it); key on content (artist MBIDs). The remaining work is applying them, not inventing them.
-- [x] `PRAGMA busy_timeout` set on only 1 of 10 pooled connections
-  `app/cmd/server.go:102-104` sets `SetMaxOpenConns(10)` and then issues `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` as two `db.Exec` calls, which run on whichever single connection the pool hands out. WAL is recorded in the database file so it sticks; `busy_timeout` is per-connection state and does not, so the other nine connections keep the default of 0 and return `SQLITE_BUSY` immediately instead of waiting. Fix: set it in the DSN (a `_pragma=busy_timeout(5000)` parameter on the `sqlite.Open` path) so every connection acquires it on open. Pre-existing and unrelated to album continuity, but surfaced by that review — and scans already write concurrently with `/rest` reads, with one more write transaction now taken from this pool.
 - [ ] Small code-health follow-ups noted during the album-continuity review
-  - [x] Hoist duplicated chunk constant & unique-violation sniff
-    `internal/store/albumidentity.go` defines a third copy of the 500-row chunk constant (`FilterChanged` and `BulkUpdateLastSeen` in `scan_helpers.go` each have their own), and `store.IsUniqueViolation` is the third copy of the `UNIQUE constraint failed`/`duplicate` string sniff (`handlers/libraries/libraries.go:439-445`, `handlers/users/users.go:421`). The store version is the best of the three — handles `nil`, tries `gorm.ErrDuplicatedKey` first, lowercases before matching — so hoist the constant and have both handlers call it.
   - [ ] `planAlbumContinuity` batch transaction vs per-album proof
     `planAlbumContinuity` runs a whole batch in one transaction while its proof is per album, so one album's DB error rolls back every other album's retag in that batch (`internal/scanner/albumcontinuity.go`). Not a correctness bug — the caller logs and degrades to the old behaviour — but the granularity does not match the proof.
 - [ ] Big review of the whole import task
@@ -104,8 +83,6 @@ Notes for editors:
 
 ## Frontend
 
-- [x] Create an app icon / logo
-  Browser/PWA side: `zarf/icon/web/` holds the cleaned web sources (rounded, square, maskable) derived from the `icon2.svg` master, `make icons` (`zarf/icon/render.sh`) renders them into `webui/public/` (`icon.svg`, `favicon.ico`, `apple-touch-icon.png`, `icon-{192,512}.png`, `icon-maskable-{192,512}.png`), and `index.html` + the manifest link them all. In-app side: the diamond rendition (`assets/aether-mark.svg` via `components/common/BrandMark.vue`) replaced the `◈` placeholder in the sidebar and the mobile drawer and now sits beside the wordmark on the login card. The wordmark itself stays styled text — only the mark is artwork.
 - [ ] library also shows songs additionally to albums and artists
 - [ ] Implement radio mode queue => keep playing based on same type/taste
   - [ ] If I just listened to an album, put the next album of the same artist
@@ -118,45 +95,14 @@ Notes for editors:
 
 ## Frontend — Metadata editor
 
-- [x] Fast library switch from the top path bar
-  Make the path shown at the top (beside 'choose folder') a fast way to load libraries.
-- [x] Make it easier / faster to load a folder
-- [x] Check if we can add comments to metadata as part of the standard
-  e.g. the unreleased Alesha Dixon "Fool 4 U I Love". Investigated 2026-08-23: COMMENT is a standard, ubiquitous tag (ID3 `COMM`, Vorbis `COMMENT`, MP4 `©cmt`), so it can be added — but it is not a trivial promotion like Lyrics/Release type, because our tag library flattens comments. Split out into the "Support track comments" backlog item, which captures the limitation.
-- [x] Stage only a subset of identify changes
-  When identifying multiple songs, allow staging only a subset of the changes (e.g. genre only).
-- [x] Library selector shouldn't be a dropdown
-  A dropdown takes too many clicks.
-- [x] The folder selector dialog should be bigger and have a filter option
-- [x] Easy navigation between album folders
-  Once you've selected one artist's album, navigating to another album folder should be easy (use the nav bar on top).
-- [x] Front cover always selectable in attached pictures
-  Front cover should always be an option even if no picture is detected at all.
-- [x] Generated cover files are not browsable by samba
-- [x] Artist selection: look for more pictures
-  In the artist selection dialog, check if there might be more pictures for the same artist.
-- [x] Show image metadata (size, dimensions, format)
-  For both the stored image and the one found.
-  - [x] check that the image selection hits api limites
-    when selecting cover images, thea ctuall iamge seems to be api ratelimited as well. but AFAIK m if we are accessing CDN data the images dont need api rate limit? 
-
-    to be checked and aligned with artist image
-  - [x] check image calls should be cached
-- [x] In raw metadata edit, after save return to the non-raw view
-- [x] Identify album selections should print more details in the header
-- [x] 431 Request Header Fields Too Large
-  Overflowing request, e.g. `/api/v1/metadata/pictures?library_id=1&path=Apocaliptica%2F2001_Cult++-+Special+edition%2FCD1&type=Front+Cover&slot=embedded&paths=...&paths=...` — one `paths=` query parameter per track blows past the header size limit on large multi-disc selections.
-- [x] Unscanned music has no address at all, has an impact on album art
-- [x] Drop DB dependency in metadata editor
-  The metadata editor should only deal with editing file data; album covers and other things stored in the DB should be handled outside the editor or via a separate API. Done: the editor's picture slots are now `embedded` + `folder` only — the `db` slot, both direct DB pokes (`SetAlbumCoverPath`, `SetTrackHasEmbeddedCover`) and the `Assets` dependency are gone from `handlers/metadata`, whose only remaining `Store` calls are `GetLibrary` reads. Manual album covers were rehomed to the `updateAlbum` / `albumCoverArt` OpenSubsonic extension (`handlers/subsonic/albums.go`), driven from the admin-gated hero cover editor on `AlbumView`. The editor's post-write rescan stays — that is index sync, not metadata-in-DB editing. Reconcile now owns `album.CoverPath` outright, which is what made the pokes unnecessary; see `docs/agents/scanning.md`.
-- [ ] Align v1 API with OpenAPI spec — SEEDED: `docs/openapi/aether-v1.yaml` (OpenAPI 3.1) now describes the `/api/v1/metadata` surface plus the shared RFC 9457 `Problem` components, and `.spectral.yaml` lints it in `make verify`/CI. Remaining: extend the spec to the other `/api/v1` groups (artists, users, tasks, tokens, radiobrowser, auth, libraries, admin, me, health, version).
+- [x] Align v1 API with OpenAPI spec — DONE (branch `feat/openapi-v1-spec-coverage`, unmerged): `docs/openapi/aether-v1.yaml` now describes the full `/api/v1` surface (bootstrap health/version/me, auth, tokens, users, libraries, radiobrowser, artists, tasks, and the whole metadata surface incl. identify/identify-album/artist-image), plus shared RFC 9457 components, a three-tier security model, and Spectral governance rules; `app/router/openapi_coverage_test.go` asserts the spec and mounted routes match two-way (56==56) in `make verify`/CI. `admin`/`/metrics` was excluded on purpose — it's a separate ops server, not `/api/v1`. Optional follow-ups: migrate `tasks` + the auth-gate plain-text errors to `httperr` directly, and add a `kin-openapi` response-contract test.
 - [ ] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
 - [ ] When identifying albums sometimes the track position is wrong — can we improve that?
-- [x] Test: round-trip multi-dir folder art → inventory image URL → served bytes
-      (done: `TestInventory_FolderArtInLaterDiscDirServesCorrectBytes` seeds a CD 1/CD 2 album where only CD 2 carries the cover, POSTs inventory across both dirs, and GETs the returned folder cell's image URL to confirm it serves CD 2's bytes.)
-- [x] Download artist images into the artist folder
-  Let the editor download an artist's image into the artist folder on disk, alongside the music — not only into Aether's asset store.
-- [x] check resource use for if we have a lot of foldres
+- [ ] when i open the folder selection scroll to current folder
+  if i have many folders, with artist / album 
+  now in the nomral view in the top if i click on the album the dialog opens with the artists name expanded, but if i have to many items i need to scroll anyway
+
+  the goal of this issue is that we automatically scroll to that positon
 
 # Future releases
 
@@ -199,10 +145,6 @@ Notes for editors:
 
 - [ ] Extract a shared helper for the three cover-art extension handlers
   `updateArtist` (`handlers/subsonic/artists.go`), `updateGenre` (`genres.go`) and `updateAlbum` (`albums.go`) differ in five places — the endpoint name in one error string, the `decodeID` kind, the store lookup, the `assetstore.Kind`, and the key derivation (`artistCoverKey`'s MBID-or-DB-id logic vs `strconv.FormatUint`) — while everything around them is character-identical: multipart guard, byte cap, `id` presence, kind check, 404, `readCoverFile`, the put/clear switch, `writeResponse`. Roughly 40 duplicated lines. Shape: a helper taking `(endpointName, idKind string, kind assetstore.Kind, resolve func(uint) (writeKey string, clearKeys []string, err error))`, where the artist's extra DB-id slot clear fits `clearKeys` naturally. `dupl` flagged the albums/genres pair when `albums.go` was added and stopped firing once `requireAdmin` diverged them, so nothing is currently suppressed — this is a real DRY item, not a lint workaround. While there: `maxRadioRequestBytes` / `radioMultipartMemory` / `radioCoverMaxBytes` are now imported by four non-radio handlers and deserve cover-neutral names.
-- [x] `assetstore`'s named-entry API is dead code
-  `GetNamed`, `GetEntryNamed`, `PutManualNamed` and `DeleteNamed` (`internal/assetstore/assetstore.go`) have no production callers — only the package's own tests. The feature existed solely for the metadata editor's removed `db` picture slot, which stored per-type entries (`back`, `disc`, `booklet`, …) that nothing ever read. Note `Get`/`PutManual` are thin wrappers over the named variants with `DefaultName`, so the collapse is mechanical rather than a rewrite. Deleting them and their tests keeps the store API honest, the same rationale that retired `SetAlbumCoverPath` / `SetTrackHasEmbeddedCover` / `GetAlbumByTrackPath` / `GetAlbumByTrackDir`; check `internal/assetstore` stays above the 70% coverage gate afterwards.
-- [x] `internal/scanner/reconcile.go` states the cover-detection rule twice
-  The full comment above `dir := filepath.Dir(...)` and a near-verbatim repeat of its middle immediately above the `if`. Deleting the second block is the whole fix.
 
 ## Backend — Library
 
@@ -260,8 +202,6 @@ Notes for editors:
     Options: (A) follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. (B) author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later.
   - [ ] Trap for (B): `stream` ignores the id kind (`rs-3` serves track 3)
     Trap for (B): `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves track 3's file. A latent bug a radio-in-queue design walks straight into — worth fixing on its own regardless.
-- [x] DB rebuild attached stored images to the wrong entities
-  Rebuilding the DB without also wiping the asset store attaches stored images to the wrong entities. Shipped: asset keys are derived from natural identity (`internal/assetkey`) — the same tuple the database uses as its unique index — rather than autoincrement ids. Albums hash `idx_album_identity`; matched artists keep literal MBID keys (shared with the auto-fetcher); unmatched artists hash `name_norm`; genres hash the raw name (no normalisation, because genre names are stored and matched exactly); playlists key on a new `uuid` column (user-owned rather than tag-derived); radio hashes the stream URL. The imagecache uses the same key as its source asset. A rebuild re-attaches every image to the entity that means the same thing — no misattribution, no manifest, no reconciliation pass. Three re-key hooks carry images when continuity moves the row: the album planner when it retags, an artist gaining an MBID, and a radio stream-URL edit. All tolerate failure without failing the scan or request. See `docs/agents/subsonic-api.md` (key scheme) and `docs/agents/scanning.md` (re-key hooks). Operational note: changing the keys strands existing files under `data/metadata/` at their old keys — under the no-backwards-compatibility rule, delete that directory and re-upload. Still open: artist and genre rename continuity (a renamed artist is a different artist to the data model, and no continuity proof transfers); star loss on aggregate churn (row churn, not a key problem); imagecache eviction (the resource-leaks item above).
 
 # Won't implement
 
