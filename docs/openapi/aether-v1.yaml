@@ -599,6 +599,113 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /users:
+    get:
+      operationId: listUsers
+      summary: List native user accounts.
+      description: >
+        Admin. Native-mode only: the whole users group is unmounted unless
+        the server's auth method is "native" — in proxy mode users are
+        provisioned from the reverse-proxy identity provider on first sight
+        instead (see `GET /me`'s `features.userManagement`, which reports
+        this group's availability). Unpaginated: the store is asked for at
+        most 200 rows, comfortably covering a self-hosted deployment, so
+        `total` and the returned array's length agree in practice.
+      tags: [users]
+      responses:
+        '200':
+          description: Every native user account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createUser
+      summary: Create a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). `enabled` omitted
+        defaults to true; `role` omitted defaults to "user". `login` is
+        rejected with 422 when it is shaped like a token id (10 lowercase
+        letters/digits) — that namespace is reserved for `/rest` token
+        authentication (`u`+`t`+`s`/`u`+`p`), where the virtual username IS a
+        token id, so a colliding login would be unreachable by its own name.
+      tags: [users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: >
+            Created. The response includes the store-generated id, read back
+            after the insert (CreateUser does not return it directly) — the
+            same id updateUser/deleteUser address.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /users/{id}:
+    put:
+      operationId: updateUser
+      summary: Partially update a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). Every field is optional;
+        omitting one (or, for `login`, sending it blank or unchanged) leaves
+        that attribute untouched. Validation runs to completion before
+        anything is written, so a rejected request never applies part of
+        itself. `login` accepts only the account's current value — the edit
+        form round-trips the field it displays — and refuses any other value
+        with 400: per-user data (play queue, stars, playlists, history) is
+        keyed on the login string, not this id, so a rename would silently
+        orphan it. Demoting the last remaining enabled admin (`role:
+        "user"`), or disabling or deleting it, is refused with 409 — this
+        CRUD is the only way to grant the admin role, so losing the last one
+        would be an unrecoverable lockout; a no-op write (already the target
+        state) is let through.
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      operationId: deleteUser
+      summary: Delete a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). Refused with 409 when
+        `id` is the last remaining enabled admin (see `updateUser`).
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Deleted. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -651,6 +758,16 @@ components:
       required: true
       description: A MusicBrainz identifier.
       schema: { type: string }
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: >
+        The user's stable id: a UUID minted by the user store at creation,
+        never reused and never equal to the login name. Deliberately not the
+        shared `ResourceId` parameter — this group's `id` is a string, never
+        an integer (see `listUsers`' schema for the source-of-truth field).
+      schema: { type: string, format: uuid }
 
   schemas:
     Problem:
@@ -1189,6 +1306,98 @@ components:
           description: Present only when `type` is "usertoken".
       required: [token, tokenId, name, kind, type, createdAt, expiresAt]
 
+    User:
+      type: object
+      description: >
+        A native user account. Never carries a password or its hash — write
+        one via `password` on CreateUserRequest/UpdateUserRequest, never
+        read it back.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable id, minted once at creation; addresses updateUser/deleteUser.
+        login:
+          type: string
+        enabled:
+          type: boolean
+        role:
+          type: string
+          enum: [admin, user]
+          description: >
+            The derived vertical, not the raw group list: "admin" means
+            membership in the store's admin group, "user" means none.
+      required: [id, login, enabled, role]
+
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        total:
+          type: integer
+          description: >
+            Total native user count, ignoring the server's internal 200-row
+            page cap — in every deployment under that cap (every
+            self-hosted server today) it equals `users`' length.
+      required: [users, total]
+
+    CreateUserRequest:
+      type: object
+      properties:
+        login:
+          type: string
+          description: >
+            Required (400 if blank). Rejected with 422 when it is shaped
+            like a token id (10 lowercase letters/digits) — see
+            `createUser`.
+        password:
+          type: string
+          description: >
+            Required (400 if blank). Longer than 72 bytes is rejected with
+            422: bcrypt only hashes a password's first 72 bytes, so a longer
+            input would otherwise silently truncate instead of being
+            honoured in full.
+        enabled:
+          type: boolean
+          default: true
+        role:
+          type: string
+          enum: [admin, user]
+          default: user
+      required: [login, password]
+
+    UpdateUserRequest:
+      type: object
+      description: >
+        Partial update — see `updateUser`. Every field is optional; omitting
+        one (or, for `login`, sending it blank or unchanged) leaves that
+        attribute untouched.
+      properties:
+        login:
+          type: string
+          description: >
+            Accepted only when equal to the account's current login
+            (whitespace-trimmed); a genuine change is refused with 400. See
+            `updateUser`.
+        password:
+          type: string
+          description: >
+            Omitted or blank leaves the password unchanged. Longer than 72
+            bytes is rejected with 422 — see CreateUserRequest.
+        enabled:
+          type: boolean
+          description: >
+            Omitted (or null) leaves it unchanged. Disabling the last
+            remaining enabled admin is refused with 409 — see `updateUser`.
+        role:
+          type: string
+          enum: [admin, user]
+          description: >
+            Omitted or blank leaves the role unchanged. Demoting the last
+            remaining enabled admin is refused with 409 — see `updateUser`.
+
   responses:
     BadRequest:
       description: Malformed request (bad JSON/multipart, missing/invalid scalar).
@@ -1196,7 +1405,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Unknown library_id.
+      description: The addressed resource does not exist.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
