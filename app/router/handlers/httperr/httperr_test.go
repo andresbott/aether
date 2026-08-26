@@ -14,7 +14,7 @@ func TestWrite(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
 	w := httptest.NewRecorder()
 
-	Write(w, req, http.StatusNotFound, "not_found", "Not found", "the widget does not exist")
+	Write(w, req, http.StatusNotFound, "not_found", "the widget does not exist")
 
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)

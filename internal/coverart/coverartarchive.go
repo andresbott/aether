@@ -27,10 +27,10 @@ const serviceName = "Cover Art Archive"
 
 // CoverImage is a single cover candidate from the Cover Art Archive.
 type CoverImage struct {
-	ID       string   `json:"id"`
-	ImageURL string   `json:"imageUrl"`
-	ThumbURL string   `json:"thumbUrl"`
-	IsFront  bool     `json:"isFront"`
+	ID       string `json:"id"`
+	ImageURL string `json:"imageUrl"`
+	ThumbURL string `json:"thumbUrl"`
+	IsFront  bool   `json:"isFront"`
 	// Types is what the image depicts, e.g. ["Front"], ["Back"], ["Booklet"],
 	// ["Medium"]. Comment is the uploader's free-text note, if any.
 	Types   []string `json:"types"`
@@ -115,12 +115,19 @@ func (c *Client) list(ctx context.Context, kind, mbid string) ([]CoverImage, err
 		if img.Image == "" {
 			continue
 		}
+		// The archive omits "types" for some images; keep the slice non-nil so
+		// downstream JSON serializes it as [] rather than null, honoring the
+		// required, non-nullable PictureCandidate.types API contract.
+		types := img.Types
+		if types == nil {
+			types = []string{}
+		}
 		out = append(out, CoverImage{
 			ID:       img.ID.String(),
 			ImageURL: img.Image,
 			ThumbURL: pickThumb(img.Thumbnails, img.Image),
 			IsFront:  img.Front,
-			Types:    img.Types,
+			Types:    types,
 			Comment:  img.Comment,
 		})
 	}

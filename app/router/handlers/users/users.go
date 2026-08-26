@@ -85,10 +85,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
-}
-
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/users").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/users").Methods(http.MethodPost).HandlerFunc(h.create)
@@ -101,14 +97,14 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	// more users than that, so the UI gets everything in one response.
 	res, err := h.Users.List(userdb.ListOpts{Limit: 200})
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]userDTO, 0, len(res.Users))
 	for _, u := range res.Users {
 		role, err := h.roleOf(u.ID)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out = append(out, userDTO{ID: u.ID, Login: u.LoginID, Enabled: u.Enabled, Role: role})
@@ -191,11 +187,11 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 func (h *Handler) guardLastAdmin(w http.ResponseWriter, r *http.Request, userID string) (blocked bool) {
 	last, err := h.isLastEnabledAdmin(userID)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return true
 	}
 	if last {
-		writeError(w, r, http.StatusConflict, "last_admin", errLastAdmin.Error())
+		httperr.Write(w, r, http.StatusConflict, "last_admin", errLastAdmin.Error())
 		return true
 	}
 	return false
@@ -239,18 +235,18 @@ func writePasswordErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/password", Detail: err.Error()})
 		return
 	}
-	writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+	httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var in createInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	in.Login = strings.TrimSpace(in.Login)
 	if in.Login == "" {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "login is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "login is required")
 		return
 	}
 	if tokenShapedLogin.MatchString(in.Login) {
@@ -278,14 +274,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Users.CreateUser(usr); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	// CreateUser does not return the generated UUID; read the row back so the
 	// client gets the id it must use for updates and deletes.
 	created, err := h.Users.GetUserByLogin(in.Login)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, userDTO{ID: created.ID, Login: created.LoginID, Enabled: created.Enabled, Role: in.Role})
@@ -295,7 +291,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 // error response itself. It reports whether the caller must stop.
 func (h *Handler) validateUpdate(w http.ResponseWriter, r *http.Request, id string, existing userauth.User, in updateInput) (blocked bool) {
 	if newLogin := strings.TrimSpace(in.Login); newLogin != "" && newLogin != existing.LoginID {
-		writeError(w, r, http.StatusBadRequest, "validation_error", errRenameUnsupported.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", errRenameUnsupported.Error())
 		return true
 	}
 	if in.Password != "" {
@@ -326,13 +322,13 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	existing, err := h.Users.GetUser(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 
 	var in updateInput
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	// Everything is validated before the store is touched: the mutations below
@@ -346,12 +342,12 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if in.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), BcryptDifficulty)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		if err := h.Users.SetPasswordHash(id, string(hash)); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, r, status, code, err.Error())
+			httperr.Write(w, r, status, code, err.Error())
 			return
 		}
 	}
@@ -359,20 +355,20 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if in.Enabled != nil && *in.Enabled != existing.Enabled {
 		if err := h.Users.SetEnabled(id, *in.Enabled); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, r, status, code, err.Error())
+			httperr.Write(w, r, status, code, err.Error())
 			return
 		}
 		enabled = *in.Enabled
 	}
 	role, err := h.roleOf(id)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	if in.Role != "" && in.Role != role {
 		if err := h.setRole(id, in.Role); err != nil {
 			status, code := mapStoreError(err)
-			writeError(w, r, status, code, err.Error())
+			httperr.Write(w, r, status, code, err.Error())
 			return
 		}
 		role = in.Role
@@ -411,7 +407,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	// the lockout 409 (roleOf reports a groupless "user" for an unknown id).
 	if _, err := h.Users.GetUser(id); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	if h.guardLastAdmin(w, r, id) {
@@ -419,7 +415,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Users.Delete(id); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

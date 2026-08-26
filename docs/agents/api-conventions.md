@@ -31,13 +31,20 @@ incident + design reasoning:
 Anything that needs to carry a list — a track selection, a batch of ids —
 travels in a request body, never the URL.
 
-**The one exception:** `GET /metadata/pictures/image` stays a GET with a
-query, because a browser can only `GET` an image for an `<img src>`. It is
-still O(1) and header-safe: it carries a single already-resolved `file` (a
-library-relative path, picked out of an inventory response), never the
-selection that produced it. This is the only precedent for a query param on
-a `GET`/`DELETE`, and it doesn't generalize — don't cite it to justify a
-second one.
+**The sanctioned exception shape:** a single, already-resolved scalar a
+client got from a prior response — never a variable-length list — may ride
+along as a `GET`/`DELETE` query param. `GET /metadata/pictures/image` is the
+worked example: it stays a GET with a query because a browser can only `GET`
+an image for an `<img src>`. It is still O(1) and header-safe: it carries a
+single already-resolved `file` (a library-relative path, picked out of an
+inventory response), never the selection that produced it. `GET
+/radiobrowser/favicon?url=` and the two `candidate-info?url=` endpoints
+(`/metadata/pictures/candidate-info`, `/metadata/artist-image/candidate-info`)
+follow the same pattern — each takes one already-resolved URL a prior
+response handed back, not a list. None of this loosens the array
+prohibition above: a scalar picked from a prior response is still a scalar,
+not a list, and a repeated/array parameter remains barred on every
+`GET`/`DELETE` here.
 
 **Enforcement:** `.spectral.yaml`'s `no-array-in-get-delete-url` and
 `array-query-needs-maxitems` rules, run by `make spec-lint` (part of `make
@@ -115,8 +122,7 @@ codes inside a 200 `subsonic-response`; see
 `httperr.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
 always a `ValidationProblem`, for a request that is **well-formed but
 invalid** (an unknown enum value, a selection over the size cap, an empty
-list). Everything else goes through `httperr.Write` (usually via each
-package's own local `writeError`/`writeErr` shim) and is a plain,
+list). Everything else goes through `httperr.Write` and is a plain,
 non-itemized `Problem` — including
 `400` for a **malformed** request (a missing required field, invalid
 JSON/multipart). Concretely, on `GET /metadata/pictures/image`: a missing
@@ -131,24 +137,27 @@ when the provider is rate-limiting Aether, otherwise `502`/`504` — `detail`
 is always `upstream`'s human sentence or a fallback, **never a raw Go
 error**.
 
-**Status — uniform across all of `/api/v1`.** Six handler packages call
-`httperr` directly for every error today: `metadata`, `tokens`, `libraries`,
-`artists`, `radiobrowser`, `users` (`httperr.go`'s own package doc names
-them). `tasks` calls it directly for one error (`TriggerTask`'s `queue_full`
-`429`, previously an ad hoc `{"message":...}` body `isJSONObject` would have
-forwarded untouched, invisible to the SPA's `detail`/`title` reader) but
-otherwise, like the front-door session/role gate
-(`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
-`app/router/proxy_auth.go`, which answer `401`/`403`), still answers plain
-`http.Error`/`http.NotFound`. Neither is a gap in the *shape* the client
-sees, though: the router-level `jsonErrorEnvelope` middleware
-(`app/router/errors.go`, wired in `app/router/main.go`) guarantees the exact
-same `Problem` for any bare plain-text error that reaches it **on a path
-under the admin API mount** (`apiV1MountPrefix`, `"/api/v1"`) — `errorCodeFor`
-maps the response status to a slug (`401` → `unauthorized`, `403` →
-`forbidden`, …), `httperr.TitleFor` maps that slug to its human title, and
-the plain-text body becomes `detail` verbatim. A body that is already a JSON
-object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
+**Status — uniform across all of `/api/v1`.** All seven handler packages call
+`httperr.Write` directly for every error today: `metadata`, `tokens`,
+`libraries`, `artists`, `radiobrowser`, `users`, `tasks` (enumerated in the
+`titles` var's own comment, `app/router/handlers/httperr/httperr.go` — not the
+package doc above it, which only names a few as examples). The per-package
+`writeError`/`writeErr` shims that once wrapped it were removed; every call
+site now names `httperr.Write`. The front-door session/role
+gate (`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
+`app/router/proxy_auth.go`, which answer `401`/`403`/`500`) calls
+`httperr.Write` directly too, rather than relying on the router fallback.
+The router-level `jsonErrorEnvelope` middleware (`app/router/errors.go`,
+wired in `app/router/main.go`) still guarantees the same `Problem` for any
+bare plain-text error that reaches it **on a path under the admin API
+mount** (`apiV1MountPrefix`, `"/api/v1"`) — `errorCodeFor` maps the response
+status to a slug (`401` → `unauthorized`, `403` → `forbidden`, …),
+`httperr.TitleFor` maps that slug to its human title, and the plain-text
+body becomes `detail` verbatim. That fallback still matters for what's left
+on that path: the `/api/v1` catch-all (`api_v1.go`'s `PathPrefix("")`, a
+bare `400`) and a stray `http.NotFound` inside an otherwise-migrated handler
+(`pictureImage`'s "cell not found" `404`, below). A body that is already a
+JSON object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
 through untouched, so the two mechanisms never double-wrap each other.
 `jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
 together with the handler packages calling `httperr` directly, it is *how*
@@ -161,10 +170,7 @@ mount — chiefly
 [architecture.md](architecture.md)'s error-envelope section — `/rest` must
 never speak problem+json.) `middleware.Cfg.JsonErrors` stays `false`
 regardless — that flag is go-bumbu's own blind wrapper, unrelated to
-`jsonErrorEnvelope`. When you touch `tasks`' remaining plain-text errors or
-the auth gate, migrating that error path to call `httperr` directly (rather
-than relying on the router fallback) is in scope and welcome, not a separate,
-later project — the two are equivalent to a client either way.
+`jsonErrorEnvelope`.
 
 `pictureImage`'s "cell not found" `404` (inside the already-migrated
 `metadata` package) takes the router-fallback path rather than calling

@@ -54,26 +54,39 @@ func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 // enforced a separately-defined maxSelectionPaths behind a
 // differently-worded combined empty-or-too-many message ("paths must
 // contain between 1 and 50 entries") — same limit, different text. A
-// request over the cap must now read identically everywhere.
+// request over the cap must now read identically everywhere. updateTracks
+// (PUT /metadata/tracks) reached parity later — it used to enforce no cap at
+// all — via its own inline check in metadata.go rather than decodeSelection,
+// since it decodes a distinct updateRequest shape carrying fields alongside
+// paths.
 func TestCapAppliesUniformly(t *testing.T) {
 	r, lib := newCapHandler(t)
 	paths := make([]string, 51)
 	for i := range paths {
 		paths[i] = "album/" + strconv.Itoa(i) + ".flac"
 	}
-	body, err := json.Marshal(map[string]any{"library_id": lib.ID, "paths": paths})
+	// updateTracks additionally requires a non-empty fields (a request that
+	// writes nothing is a 400, ahead of the cap check); the other four endpoints
+	// ignore the extra key, so one shared body still reaches every endpoint's
+	// paths[] cap.
+	body, err := json.Marshal(map[string]any{
+		"library_id": lib.ID,
+		"paths":      paths,
+		"fields":     map[string]any{"title": "x"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, route := range []string{
-		"/metadata/identify",
-		"/metadata/identify-album",
-		"/metadata/tracks/raw-tags",
-		"/metadata/pictures/inventory",
+	for _, tc := range []struct{ method, route string }{
+		{http.MethodPost, "/metadata/identify"},
+		{http.MethodPost, "/metadata/identify-album"},
+		{http.MethodPost, "/metadata/tracks/raw-tags"},
+		{http.MethodPost, "/metadata/pictures/inventory"},
+		{http.MethodPut, "/metadata/tracks"},
 	} {
-		t.Run(route, func(t *testing.T) {
-			req := httptest.NewRequest("POST", route, bytes.NewReader(body))
+		t.Run(tc.route, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.route, bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)

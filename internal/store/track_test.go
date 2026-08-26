@@ -90,7 +90,7 @@ func TestGetRandomSongs(t *testing.T) {
 		db.Create(&model.Track{
 			AlbumID: album.ID, Filename: fmt.Sprintf("%02d.mp3", i),
 			FilePath: fmt.Sprintf("/music/%02d.mp3", i),
-			Title: fmt.Sprintf("Track %d", i), Year: 2000,
+			Title:    fmt.Sprintf("Track %d", i), Year: 2000,
 		})
 	}
 	songs, err := s.GetRandomSongs(3, nil)

@@ -20,17 +20,17 @@ type Handler struct {
 }
 
 type libraryDTO struct {
-	ID                uint       `json:"id"`
-	Name              string     `json:"name"`
-	Path              string     `json:"path"`
+	ID              uint     `json:"id"`
+	Name            string   `json:"name"`
+	Path            string   `json:"path"`
 	ExcludePatterns []string `json:"exclude_patterns"`
 	// FollowSymlinks and ShowArtists are pointers so an omitted key keeps its
 	// default (both true on create) instead of reading as false.
-	FollowSymlinks    *bool      `json:"follow_symlinks"`
-	ShowArtists       *bool      `json:"show_artists"`
-	DefaultView       string     `json:"default_view"`
-	Icon              string     `json:"icon"`
-	CoverStyle string `json:"cover_style"`
+	FollowSymlinks *bool  `json:"follow_symlinks"`
+	ShowArtists    *bool  `json:"show_artists"`
+	DefaultView    string `json:"default_view"`
+	Icon           string `json:"icon"`
+	CoverStyle     string `json:"cover_style"`
 	// Source is "db" for a library managed here or "config" for one declared in
 	// the server config file. Config libraries are read-only over this API and
 	// the UI renders them without edit/delete actions.
@@ -46,10 +46,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
-}
-
-func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
 }
 
 func parseID(r *http.Request) (uint, error) {
@@ -149,14 +145,14 @@ func (h *Handler) Routes(r *mux.Router) {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	libs, err := h.Store.ListLibraries()
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]libraryDTO, 0, len(libs))
 	for _, lib := range libs {
 		dto, err := h.modelToDTO(lib)
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out = append(out, dto)
@@ -167,18 +163,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	lib, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	dto, err := h.modelToDTO(lib)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, dto)
@@ -227,13 +223,13 @@ func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer str
 		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: pointer, Detail: err.Error()})
 		return
 	}
-	writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+	httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var in libraryDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	abs, ok := validateDTO(w, r, in)
@@ -245,7 +241,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -279,12 +275,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	dto, err := h.modelToDTO(*lib)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto)
@@ -293,13 +289,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	existing, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	if refuseIfConfigManaged(w, r, existing) {
@@ -308,7 +304,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 
 	var in libraryDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	abs, ok := validateDTO(w, r, in)
@@ -317,7 +313,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -363,13 +359,13 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 
 	dto, err := h.modelToDTO(existing)
 	if err != nil {
-		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	dto.PathChanged = pathChanged
@@ -379,13 +375,13 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		writeError(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	existing, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	if refuseIfConfigManaged(w, r, existing) {
@@ -393,7 +389,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.DeleteLibrary(id); err != nil {
 		status, code := mapStoreError(err)
-		writeError(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -411,7 +407,7 @@ func refuseIfConfigManaged(w http.ResponseWriter, r *http.Request, lib model.Lib
 	if !lib.IsConfigManaged() {
 		return false
 	}
-	writeError(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(configManagedMsg, lib.Name))
+	httperr.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(configManagedMsg, lib.Name))
 	return true
 }
 
@@ -433,11 +429,11 @@ func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Stor
 			continue
 		}
 		if err != nil {
-			writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return true
 		}
 		if lib.IsConfigManaged() {
-			writeError(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(
+			httperr.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(
 				"a library provisioned from the server config file already uses this %s (%q)",
 				lookup.field, lib.Name))
 			return true

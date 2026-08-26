@@ -3,7 +3,7 @@ package model
 import "time"
 
 type Playlist struct {
-	ID        uint   `gorm:"primaryKey"`
+	ID        uint `gorm:"primaryKey"`
 	UUID      string
 	Name      string `gorm:"not null"`
 	Comment   string

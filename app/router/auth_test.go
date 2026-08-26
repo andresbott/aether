@@ -13,6 +13,7 @@ import (
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/service/pat"
@@ -21,11 +22,38 @@ import (
 	"gorm.io/gorm"
 )
 
+// routerOpt configures an optional piece of newNativeAuthRouter's Cfg that
+// most callers don't need — today, only the task-runner group does (see
+// withTaskRunner).
+type routerOpt func(t *testing.T, cfg *Cfg, db *gorm.DB)
+
+// withTaskRunner wires a task runner and schedule store into Cfg — the one
+// piece newNativeAuthRouter otherwise leaves unset, and attachApiV1
+// (api_v1.go) gates the entire /tasks group on a non-nil task runner. Runner
+// tasks are never actually started (no Runner.Start()/RegisterTask call):
+// AddRun only enqueues by name (internal/taskrunner, github.com/go-bumbu/
+// tempo's TaskQueue.Add), so a triggered task's immediate HTTP response
+// needs no registered task function.
+func withTaskRunner(t *testing.T, cfg *Cfg, db *gorm.DB) {
+	t.Helper()
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{DB: db})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scheduleStore, err := taskrunner.NewScheduleStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.TaskRunner = runner
+	cfg.ScheduleStore = scheduleStore
+}
+
 // newNativeAuthRouter builds a router in the shape native mode always has in
 // production: a user store AND a cookie session manager, so the /api/v1
 // session guard is installed. Admin alice/secret and regular user bob/secret
-// exist. When withStore is true, also registers /rest endpoints.
-func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
+// exist. opts wires additional optional Cfg pieces some callers need (see
+// withTaskRunner); most callers pass none.
+func newNativeAuthRouter(t *testing.T, opts ...routerOpt) (*MainAppHandler, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -66,14 +94,18 @@ func newNativeAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := New(Cfg{
+	cfg := Cfg{
 		AuthMethod: "native",
 		Users:      users,
 		Sessions:   sessions,
 		Tokens:     tokens,
 		Store:      store.New(db),
 		DataDir:    t.TempDir(),
-	})
+	}
+	for _, opt := range opts {
+		opt(t, &cfg, db)
+	}
+	h, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +165,7 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	// Without a session, a protected route answers 401 as a problem+json
-	// envelope — sessionGuard itself only calls bare http.Error, so this is
-	// the router-level jsonErrorEnvelope fallback building the Problem.
+	// envelope — sessionGuard builds it directly via httperr.Write.
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
 	if w.Code != http.StatusUnauthorized {

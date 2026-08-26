@@ -270,8 +270,8 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 	}
 	svc := &fakeAlbumIdentifier{options: []albumidentify.AlbumOption{{
 		ReleaseMBID: "rel-A", ReleaseGroupMBID: "rg-A", Album: "Album A", Year: 1991,
-		Artists:      []albumidentify.Artist{{Name: "Artist", MBID: "art-1"}},
-		TrackCount:   2, DiscCount: 1, Enriched: true, MatchedCount: 2, MeanScore: 0.9,
+		Artists:    []albumidentify.Artist{{Name: "Artist", MBID: "art-1"}},
+		TrackCount: 2, DiscCount: 1, Enriched: true, MatchedCount: 2, MeanScore: 0.9,
 		Tracks: []albumidentify.Slot{
 			{DiscNumber: 1, TrackNumber: 1, Title: "One", RecordingMBID: "rec-1", DurationSeconds: 180},
 			{DiscNumber: 1, TrackNumber: 2, Title: "Two", RecordingMBID: "rec-2", DurationSeconds: 200},

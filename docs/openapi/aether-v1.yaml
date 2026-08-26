@@ -14,18 +14,11 @@ info:
     client does not consume one).
 
 
-    **Seed scope.** This document currently specs only the metadata editor's
-    picture and raw-tag surface (`/metadata/pictures/*`, `/metadata/tracks/raw-tags`,
-    `/metadata/folders`, `/metadata/tracks`) as it exists after the
-    header-safe redesign — see
-    `docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md`.
-    The rest of `/api/v1` — artists, users, tasks, tokens, radiobrowser, auth,
-    libraries, health/version/me, and the remaining `/metadata/*` endpoints
-    (`capabilities`, `identify`, `identify-album`, the `PUT /metadata/tracks`
-    structured editor write) — is real and mounted (see
-    `app/router/api_v1.go`) but not yet described here. Extending this
-    document to cover it is the standing "align v1 with OpenAPI" initiative
-    (see `TODO.md`), not part of this seed.
+    **Scope.** This document describes the full `/api/v1` surface as mounted
+    in `app/router/api_v1.go`: the metadata editor (pictures, raw tags,
+    folder/track browsing, identify and identify-album, artist images),
+    artists, users, tasks, tokens, radiobrowser, auth, libraries, and
+    health/version/me.
 servers:
   - url: /api/v1
     description: >
@@ -40,6 +33,26 @@ tags:
     description: Raw, unfiltered tag access for the metadata editor.
   - name: metadata-browse
     description: Folder/track browsing that backs the metadata editor's file picker.
+  - name: metadata-identify
+    description: Audio-fingerprint identification of tracks and whole-album releases.
+  - name: metadata-artist-image
+    description: Artist-folder detection and portrait image read/write/delete.
+  - name: bootstrap
+    description: Unauthenticated bootstrap — health, build info, and the SPA's identity/feature probe.
+  - name: auth
+    description: Session login and logout (public).
+  - name: tokens
+    description: API token minting and management for `/rest` clients (any authenticated user).
+  - name: users
+    description: Native user account management (admin).
+  - name: tasks
+    description: Scheduled task management, triggering and execution history (admin).
+  - name: libraries
+    description: Collection/library CRUD and filesystem browse (admin).
+  - name: artists
+    description: Artist MusicBrainz lookup and image management (admin).
+  - name: radiobrowser
+    description: Radio station search and favicon proxy via the Radio Browser API (admin).
 security:
   - sessionCookie: []
 
@@ -73,6 +86,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/pictures/image:
     get:
@@ -145,11 +159,16 @@ paths:
       responses:
         '200':
           description: >
-            Image bytes: the original file, or — when `size` is set — an
-            Accept-negotiated thumbnail derivative. image/webp is only
-            possible for a thumbnail (`size` set) whose Accept header names
-            image/webp; the original is always served as image/jpeg or
-            image/png.
+            Image bytes. The Content-Type is a passthrough of what is served,
+            so it varies by path. With `size` set the server returns an
+            Accept-negotiated thumbnail: `image/jpeg`, or `image/webp` when the
+            request's Accept header names it. Without `size` (or when no
+            thumbnail could be produced) the original is served verbatim with
+            its stored type: folder art keeps the Content-Type derived from its
+            file extension (`image/jpeg`, `image/png`, `image/gif`,
+            `image/webp` or `image/bmp`), and embedded art is sniffed from its
+            bytes — falling back to `application/octet-stream` for bytes the
+            server cannot classify as a known image type.
           headers:
             ETag:
               schema: { type: string }
@@ -157,9 +176,8 @@ paths:
             Cache-Control:
               schema: { type: string, example: "no-cache" }
           content:
-            image/jpeg: { schema: { type: string, format: binary } }
-            image/png: { schema: { type: string, format: binary } }
-            image/webp: { schema: { type: string, format: binary } }
+            image/*: { schema: { type: string, format: binary } }
+            application/octet-stream: { schema: { type: string, format: binary } }
         '304':
           description: Not Modified — the request's If-None-Match matched the resolved content's ETag. No body.
           headers:
@@ -181,6 +199,7 @@ paths:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/pictures:
     post:
@@ -212,7 +231,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/pictures/removals:
     post:
@@ -241,6 +262,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/tracks/raw-tags:
     post:
@@ -273,6 +295,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/pictures/candidates:
     get:
@@ -310,6 +333,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/folders:
     get:
@@ -317,28 +341,43 @@ paths:
       summary: Immediate subfolders of a library directory (the editor's folder-tree picker).
       description: >
         Confined lexically to the library root (no symlink traversal), unlike
-        the library path picker elsewhere in the app.
+        the library path picker elsewhere in the app. A non-blank `q`
+        switches the endpoint from a one-level listing to a recursive
+        name search of the whole subtree under `path`, capped at 500
+        matches; `q` and the response's `truncated` field are both
+        meaningful only in that search branch — a plain listing (no `q`)
+        carries neither.
       tags: [metadata-browse]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
         - $ref: '#/components/parameters/LibraryPath'
+        - name: q
+          in: query
+          required: false
+          description: >
+            Folder-name search filter. Blank/omitted (the default) lists
+            only the immediate subfolders of `path`; non-blank recursively
+            searches the whole subtree under `path` for folders whose name
+            matches (see `FolderList.truncated`).
+          schema: { type: string }
       responses:
         '200':
-          description: Immediate subdirectories, sorted by name.
+          description: >
+            Immediate subdirectories, sorted by name — or, when `q` is set,
+            every matching folder in the subtree (see `FolderList.truncated`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FolderList' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/tracks:
     get:
       operationId: listMetadataTracks
       summary: Tracks in a library directory, with their current tags.
       description: >
-        The structured editor's read side (the write side, `PUT
-        /metadata/tracks`, is out of this seed's scope — see the top-level
-        description).
+        The structured editor's read side.
       tags: [metadata-browse]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
@@ -351,6 +390,1554 @@ paths:
               schema: { $ref: '#/components/schemas/TrackList' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      operationId: updateTracks
+      summary: Apply a structured metadata patch to a track selection.
+      description: >
+        **Deliberate exception to this surface's error shape.** Every other
+        `/api/v1` error is `application/problem+json`; `updateTracks` (like
+        its read-only sibling `batchReadRawTags`) answers a per-row envelope
+        instead, because a client needs to know which files in the batch
+        failed and why, not just that "the batch failed": `200` once at
+        least one file was written, `500` only when every row failed — and
+        even that `500` stays plain `application/json`, carrying the same
+        `UpdateTracksResponse` shape as the `200`, because the handler
+        builds it with the package's own `writeJSON` (which sets
+        `Content-Type: application/json` directly) rather than `httperr`,
+        and the router's `jsonErrorEnvelope` forwards an already-JSON-object
+        body untouched. See `docs/agents/api-conventions.md`, "One error
+        shape: RFC 9457 `application/problem+json`" §"the batch endpoints
+        are the one deliberate exception." A malformed request (bad JSON, an
+        invalid field combination, an unknown library, a path outside the
+        library root) still fails before any row is attempted and answers
+        the normal `application/problem+json` 400/404 below; so does a
+        `paths` selection over the shared `maxSelectionPaths` cap (50, the
+        same bound the picture-selection endpoints enforce), which answers
+        422 `ValidationProblem`, itemising `/paths`.
+      tags: [metadata-browse]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTracksRequest' }
+      responses:
+        '200':
+          description: >
+            At least one file was written. `application/json` (see the
+            deliberate-exception note above), never `problem+json`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500':
+          description: >
+            Every file in the batch failed to write; no rescan is attempted.
+            Still `UpdateTracksResponse`, still plain `application/json` —
+            **not** `application/problem+json` — per the
+            deliberate-exception note above; each row's own `error` carries
+            the per-file reason. This is the only `500` this operation
+            documents: a pre-row internal error (e.g. the `GetLibrary` DB
+            lookup failing for a reason other than "not found") also answers
+            `500`, but through the normal `httperr` path, so that response
+            is `application/problem+json` like every other `/api/v1`
+            internal error, not the `UpdateTracksResponse` shape below.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
+
+  /metadata/capabilities:
+    get:
+      operationId: getMetadataCapabilities
+      summary: Whether audio-fingerprint identification is available on this server.
+      description: >
+        Backs the editor's Identify button: when `identify` is `false` the
+        UI disables it and shows `identify_unavailable_reason` instead of
+        silently hiding the feature. Never fails — no parameters, no library
+        lookup.
+      tags: [metadata-identify]
+      responses:
+        '200':
+          description: >
+            Capability flags. `identify_unavailable_reason` is present only
+            when `identify` is `false`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetadataCapabilities' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /metadata/identify:
+    post:
+      operationId: identifyTracks
+      summary: Resolve a track selection to MusicBrainz recording candidates by acoustic fingerprint.
+      description: >
+        Fingerprints each file (fpcalc) and looks it up against AcoustID,
+        sequentially — fingerprinting is CPU-bound and the AcoustID client
+        is rate-limited, so concurrency buys nothing. A per-file failure (an
+        unreadable file, a path outside the library, an upstream lookup
+        failure) is reported on that file's own result row, verbatim, and
+        never fails the whole request; the request itself only fails
+        validation (a bad selection) or answers 503 when no identification
+        service is configured — see `getMetadataCapabilities`.
+      tags: [metadata-identify]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifyRequest' }
+      responses:
+        '200':
+          description: One result per requested path, in request order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentifyResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /metadata/identify-album:
+    post:
+      operationId: identifyAlbum
+      summary: Map a multi-file selection onto a single best-matching MusicBrainz release.
+      description: >
+        Fingerprints every file, unions every release any candidate
+        mentions into ranked options, enriches the best few (capped at 8,
+        since MusicBrainz is rate-limited) with their full tracklist, and
+        places files the fingerprint missed onto the enriched tracklist by
+        duration/title/track-number hints. A partial failure (one bad file
+        among many) is never a request failure — it is reported in `errors`
+        and the option list is still built from the rest. The request
+        itself fails (429/502) only when EVERY file failed and at least one
+        failure came from the AcoustID service itself (an outage), rather
+        than from the files; it answers 503 when no album-identification
+        service is configured — see `getMetadataCapabilities`.
+      tags: [metadata-identify]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifyAlbumRequest' }
+      responses:
+        '200':
+          description: >
+            Candidate releases, best first, each carrying one assignment
+            per input file, plus the files this identification did not
+            cover.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentifyAlbumResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /metadata/artist-folder:
+    get:
+      operationId: getArtistFolder
+      summary: Whether the selected folder is an artist folder, and its current portrait image.
+      description: >
+        A pure filesystem+tags question, independent of the library index
+        and any track selection: eligible when the folder — or the nearest
+        ancestor of the selected path — has sub-folders whose tracks are
+        tagged with an album artist matching the folder's own name
+        (`metadataedit.IsArtistFolder`, the same rule the scanner uses for
+        artist-image detection).
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: >
+            `{eligible:false}` alone when the selected path is not (and has
+            no ancestor that is) an artist folder. See `ArtistFolder` for
+            the eligible shape.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistFolder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /metadata/artist-image:
+    get:
+      operationId: getArtistImage
+      summary: Bytes of the selected artist folder's current portrait image.
+      description: >
+        Serves the on-disk file `artistimage.BestInDir` picks (highest
+        priority: `artist.*`, then `artistthumb.*`, then `folder.*`)
+        directly, rather than any DB-resolved cover — the editor previews
+        exactly what it manages. `Cache-Control: no-cache`, so the editor's
+        cache-busted `<img>` reload after a change always fetches fresh
+        bytes.
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: >
+            The image's bytes, exactly as stored on disk (no re-encoding).
+            Content-Type is derived from the file's extension: normally
+            image/jpeg or image/png (the only formats this API's own writes
+            ever produce), but any pre-existing artist/artistthumb/folder
+            file the editor did not write itself may also be image/gif,
+            image/bmp or image/webp — the full set `artistimage`'s folder
+            detection recognises.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "no-cache" }
+          content:
+            image/*: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >
+            The library does not exist, or the selected folder holds no
+            artist image. The latter case answers with Go's plain
+            `http.NotFound`; like `getPictureImage`'s stale-link 404, the
+            router-level error envelope (`app/router/errors.go`) still
+            wraps it into the same `application/problem+json` Problem shape
+            every other response on this surface uses — only its `detail`
+            text differs ("404 page not found" rather than a
+            handler-authored message).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      operationId: setArtistImage
+      summary: Write an artist portrait into the selected folder, from an upload or an online pick.
+      description: >
+        Writes `artist.<ext>` (jpg or png) into the SELECTED folder —
+        removing any other-format `artist.*` sibling — from either an
+        uploaded file or an online pick downloaded through the
+        SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
+        Nothing is written to the library index directly: one
+        representative track under the folder is rescanned synchronously so
+        the scanner's reconcile re-detects the artist's image (`rescan`
+        reports the outcome; a rescan failure is never a write failure —
+        the file is already on disk).
+      tags: [metadata-artist-image]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/SetArtistImageForm' }
+      responses:
+        '200':
+          description: Written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplyArtistImageResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+    delete:
+      operationId: deleteArtistImage
+      summary: Remove the selected artist folder's current portrait image.
+      description: >
+        Removes the same file `getArtistImage` serves, then re-indexes one
+        representative track so the scanner's reconcile clears (or
+        re-detects a fallback) artist image. `MutationResult` here only
+        ever sets `ok`/`rescan` — `slot`/`type` are absent entirely,
+        meaningless for an artist-folder image.
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MutationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >
+            The library does not exist, or the selected folder holds no
+            artist image to remove (Go's plain `http.NotFound`, wrapped the
+            same way as `getArtistImage`'s 404 — see its description).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /metadata/artist-image/candidate-info:
+    get:
+      operationId: getArtistImageCandidateInfo
+      summary: Probe an online artist-portrait candidate's size, dimensions and format before saving.
+      description: >
+        Downloads the candidate through the same SSRF-guarded path as
+        `setArtistImage`'s online pick — re-listing `mbid`'s candidates and
+        refusing any `url` not among them — then reports the bytes'
+        dimensions/format/size without persisting anything. Shares the
+        server-side download cache with the save, so a probe immediately
+        followed by a save does not re-download.
+      tags: [metadata-artist-image]
+      parameters:
+        - name: mbid
+          in: query
+          required: true
+          description: >
+            The MusicBrainz artist id the candidate was listed for. A query
+            parameter, not the shared `MbId` path parameter.
+          schema: { type: string }
+        - name: url
+          in: query
+          required: true
+          description: >
+            The provider-offered candidate URL to download, exactly as
+            listed by the artist-image providers for `mbid`. A single,
+            already-resolved scalar, never a repeated/array parameter — the
+            same bounded-URL-safe pattern as `getPictureImage`'s `file` and
+            `getRadioFavicon`'s `url`. Rejected with 400 when it is not
+            among `mbid`'s current candidates (the SSRF guard).
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: The candidate image's dimensions, format and size.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /metadata/pictures/candidate-info:
+    get:
+      operationId: getPictureCandidateInfo
+      summary: Probe a Cover Art Archive candidate's size, dimensions and format before saving.
+      description: >
+        Downloads the candidate through the same cache as `applyPicture`'s
+        `image_url` save, then reports the bytes' dimensions/format/size
+        without persisting anything — mirrors `getArtistImageCandidateInfo`
+        for the album-cover picker.
+      tags: [metadata-pictures]
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: >
+            The Cover Art Archive image URL to download, exactly as listed
+            by `listPictureCandidates`. A single, already-resolved scalar,
+            never a repeated/array parameter — the same bounded-URL-safe
+            pattern as `getPictureImage`'s `file` and `getRadioFavicon`'s
+            `url`.
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: The candidate image's dimensions, format and size.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe.
+      description: Unauthenticated. Always 200 while the process serves requests.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+
+  /version:
+    get:
+      operationId: getVersion
+      summary: Build information baked in at release.
+      description: Unauthenticated. Values come from ldflags; empty in a dev build.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Build info.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionInfo' }
+
+  /me:
+    get:
+      operationId: getMe
+      summary: The SPA's bootstrap probe — auth method, caller identity, feature flags.
+      description: >
+        Deliberately public: the SPA calls it before any login. `user` is null
+        when there is no valid session (or auth method "none"). Field names are
+        camelCase here (SPA bootstrap contract), unlike the snake_case rest of
+        this surface.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Auth method, optional identity, and server feature flags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Password login — verifies credentials and starts a session.
+      description: >
+        Public. The entire request/response contract here is owned by the
+        external go-bumbu login library (github.com/go-bumbu/userauth,
+        flow/login/handlers.JSON.LoginHandler) wired in
+        `handlers/auth/auth.go` over a single-factor password policy — not an
+        aether-authored shape. Every credential-shaped failure (unknown user,
+        disabled user, wrong password) answers the identical 401, by design,
+        so the response can never be used to enumerate accounts. Success sets
+        the `sessionCookie` session cookie via `Set-Cookie`; the body itself
+        carries no identity.
+
+
+        Unlike the rest of `/api/v1`, go-bumbu's own error body —
+        `{"error": "<message>"}` under plain `application/json` — passes
+        through the router's error-envelope middleware untouched, because it
+        is already a well-formed JSON object: the middleware only reshapes
+        bare plain-text errors into RFC 9457 `application/problem+json`, and
+        forwards a body that is already valid JSON as-is (see
+        `app/router/errors.go`). So login's errors are documented here with
+        their own `AuthError` schema, not the shared `BadRequest`/
+        `Unauthorized` responses used elsewhere, which really are
+        `problem+json`.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: >
+            Login accepted. `done: true` in every case reachable today —
+            aether wires only a single password factor; `next` exists for
+            multi-factor policies the library supports but aether does not
+            yet use.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResult' }
+        '400':
+          description: Malformed JSON body, or a missing username/password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthError' }
+        '401':
+          description: >
+            Uniform credential failure: unknown user, disabled user and wrong
+            password are all indistinguishable from one another.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthError' }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Clear the session cookie.
+      description: >
+        Public and idempotent: answers 200 whether or not the caller actually
+        held a session. Owned by go-bumbu's `cookieauth.LogoutHandler`
+        (`handlers/auth/auth.go`), wrapped by one aether-side addition: an
+        optional `{tokenId}` body names the caller's own mintToken session
+        token so the server can best-effort revoke it too. A missing or
+        malformed body is tolerated silently and never fails the logout; the
+        revoke itself is also best-effort and never surfaces a failure.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogoutRequest' }
+      responses:
+        '200':
+          description: Session cleared (or already absent). No body.
+
+  /auth/token:
+    post:
+      operationId: mintToken
+      summary: Mint the SPA's short-lived, per-device session token.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). Mints a spa-scoped, 48h-lived token — the
+        device-bound counterpart to the session cookie that `/rest` clients
+        use to act as the logged-in SPA. Before minting, it sweeps the
+        caller's own spa-scoped tokens: every expired one, and the live one
+        already bound to this same `deviceId` (so repeated boots of one app
+        instance supersede rather than pile up); it also evicts the
+        least-recently-used session past a 10-per-user ceiling. Other
+        devices' live sessions are left alone, which is what lets the same
+        user stay signed in from several first-party apps at once.
+      tags: [tokens]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MintTokenRequest' }
+      responses:
+        '201':
+          description: Minted. The plaintext `token` appears here and nowhere else.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintTokenResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /auth/tokens:
+    get:
+      operationId: listTokens
+      summary: The caller's tokens — user-created PATs and live first-party sessions.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). Reports user-created PATs (`kind: "client"`)
+        together with the caller's live mintToken sessions (`kind:
+        "session"`) so the settings UI can list and tell them apart; an
+        expired session token is dropped rather than listed, since it is
+        already-superseded plumbing the user should not see.
+      tags: [tokens]
+      responses:
+        '200':
+          description: The caller's tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createToken
+      summary: Create a user-managed PAT (kind "client") for a third-party client.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). `type` picks the credential shape a
+        third-party Subsonic client presents: "apikey" (default) is
+        hash-only and presented whole via `apiKey=`; "usertoken" is a
+        recoverable secret presented as a virtual username + password pair
+        for `u`+`t`+`s`/`u`+`p` clients. The plaintext `token` — and for
+        "usertoken", also `username`/`password` — appear in this response
+        and nowhere else.
+      tags: [tokens]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTokenRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateTokenResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '501':
+          description: >
+            `type: "usertoken"` was requested but the server has no cipher
+            configured to store a recoverable secret (`pat.ErrNoCipher`);
+            "apikey" tokens are unaffected.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/tokens/{tokenId}:
+    delete:
+      operationId: deleteToken
+      summary: Revoke one of the caller's tokens.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). A foreign token id (owned by another user) and
+        an absent one both answer 404 identically — the store cannot tell
+        them apart, deliberately.
+      tags: [tokens]
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          description: The token's opaque id, as returned by mintToken, createToken or listTokens.
+          schema: { type: string }
+      responses:
+        '204':
+          description: Revoked. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /users:
+    get:
+      operationId: listUsers
+      summary: List native user accounts.
+      description: >
+        Admin. Native-mode only: the whole users group is unmounted unless
+        the server's auth method is "native" — in proxy mode users are
+        provisioned from the reverse-proxy identity provider on first sight
+        instead (see `GET /me`'s `features.userManagement`, which reports
+        this group's availability). Unpaginated: the store is asked for at
+        most 200 rows, comfortably covering a self-hosted deployment, so
+        `total` and the returned array's length agree in practice.
+      tags: [users]
+      responses:
+        '200':
+          description: Every native user account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createUser
+      summary: Create a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). `enabled` omitted
+        defaults to true; `role` omitted defaults to "user". `login` is
+        rejected with 422 when it is shaped like a token id (10 lowercase
+        letters/digits) — that namespace is reserved for `/rest` token
+        authentication (`u`+`t`+`s`/`u`+`p`), where the virtual username IS a
+        token id, so a colliding login would be unreachable by its own name.
+      tags: [users]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
+      responses:
+        '201':
+          description: >
+            Created. The response includes the store-generated id, read back
+            after the insert (CreateUser does not return it directly) — the
+            same id updateUser/deleteUser address.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /users/{id}:
+    put:
+      operationId: updateUser
+      summary: Partially update a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). Every field is optional;
+        omitting one (or, for `login`, sending it blank or unchanged) leaves
+        that attribute untouched. Validation runs to completion before
+        anything is written, so a rejected request never applies part of
+        itself. `login` accepts only the account's current value — the edit
+        form round-trips the field it displays — and refuses any other value
+        with 400: per-user data (play queue, stars, playlists, history) is
+        keyed on the login string, not this id, so a rename would silently
+        orphan it. Demoting the last remaining enabled admin (`role:
+        "user"`), or disabling or deleting it, is refused with 409 — this
+        CRUD is the only way to grant the admin role, so losing the last one
+        would be an unrecoverable lockout; a no-op write (already the target
+        state) is let through.
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateUserRequest' }
+      responses:
+        '200':
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      operationId: deleteUser
+      summary: Delete a native user account.
+      description: >
+        Admin. Native-mode only (see `listUsers`). Refused with 409 when
+        `id` is the last remaining enabled admin (see `updateUser`).
+      tags: [users]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '204':
+          description: Deleted. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries:
+    get:
+      operationId: listLibraries
+      summary: List every configured collection/library.
+      description: >
+        Admin. Includes both API-managed ("db") and config-file-provisioned
+        ("config") libraries — the two sources are additive, not exclusive,
+        so the UI can render config-provisioned rows locked (no edit/delete)
+        alongside editable ones. Unpaginated, like listUsers.
+      tags: [libraries]
+      responses:
+        '200':
+          description: Every configured library.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      operationId: createLibrary
+      summary: Create a library owned by this API (source "db").
+      description: >
+        Admin. `name` and `path` are required: a missing value answers 400
+        (validation_error); a present-but-invalid one (name too long, or a
+        path that isn't an existing, readable directory) answers 422,
+        itemising `/name` or `/path`. `path` is resolved to an absolute
+        path server-side before being stored. `exclude_patterns`,
+        `default_view`, `icon` and `cover_style` are always optional, so
+        any failure on them (a regex that fails to compile, an unknown
+        view/style, an unusable icon name) is unconditionally 422 — never
+        400 — itemising the failing pointer.
+
+        Refused with 409 `config_managed` when the submitted `name` or
+        `path` is already owned by a config-provisioned library, distinct
+        from the plain 409 a duplicate against a db-owned library also
+        answers with (both share the `Conflict` response's generic Problem
+        shape).
+      tags: [libraries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryCreateRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Library' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/{id}:
+    get:
+      operationId: getLibrary
+      summary: Fetch one library.
+      description: >
+        Admin. `track_count` is computed fresh on every read (a live query
+        against the tracks table), not a cached column.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The library.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Library' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      operationId: updateLibrary
+      summary: Replace a library's editable fields.
+      description: >
+        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon`/
+        `cover_style` are always fully replaced by the submitted value
+        (empty/omitted `default_view`, `icon` and `cover_style` fall back
+        the same way createLibrary's do) — this is a full replace, not a
+        partial update. `follow_symlinks`/`show_artists` are the only true
+        tri-state fields here: omitted (or explicit null) keeps the
+        library's current stored value instead of resetting it — see
+        LibraryUpdateRequest.
+
+        Changing `path` wipes and re-scans the library's tracks; the
+        response's `path_changed` reports whether that happened, and is
+        present only then (omitempty on the handler's side) — never
+        present-and-false.
+
+        Refused with 409 `config_managed` for a config-provisioned library
+        — edit the Libraries section of config.yaml and restart instead.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryUpdateRequest' }
+      responses:
+        '200':
+          description: >
+            Updated. The Library shape plus `path_changed` — see the
+            operation description.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Library'
+                  - type: object
+                    properties:
+                      path_changed:
+                        type: boolean
+                        description: >
+                          True when this update changed `path`. Omitted
+                          entirely — not present-and-false — when the path
+                          was unchanged.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      operationId: deleteLibrary
+      summary: Delete a library and its tracks.
+      description: >
+        Admin. Refused with 409 `config_managed` for a config-provisioned
+        library, for the same reason as updateLibrary.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/browse:
+    get:
+      operationId: browseLibraryPath
+      summary: List the immediate subdirectories of an absolute server path (the library path picker).
+      description: >
+        Admin. Backs the filesystem picker shown when creating or editing a
+        library. Unlike `listMetadataFolders`, this is not confined to any
+        library root — it has to work before a library exists — so `path`
+        here is an arbitrary absolute path on the server filesystem,
+        distinct from the metadata-browsing surface's library-relative
+        `path` (the shared `LibraryPath` parameter, confined to a library
+        root). Symlinked directories are listed and navigable
+        (`is_symlink`); the reported path is the one typed/followed, not
+        resolved, so pointing a library at a symlink keeps that symlink as
+        its stored path. Dot-directories are omitted unless `show_hidden`
+        is set.
+      tags: [libraries]
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: >
+            An absolute server filesystem path to list; defaults to "/".
+            See the operation description for how this differs from the
+            shared `LibraryPath` parameter.
+          schema: { type: string }
+        - name: show_hidden
+          in: query
+          required: false
+          description: Include dot-directories in the listing. Defaults to false.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: The requested directory's immediate subdirectories, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryBrowseResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /radiobrowser/search:
+    get:
+      operationId: searchRadioStations
+      summary: Search the radio-browser.info directory by station name.
+      description: >
+        Admin. Proxies a station-name search to the community-run
+        radio-browser.info directory server-side, so the admin import UI
+        never hits the upstream API — or its CORS restrictions — directly
+        from the browser. Results are ordered by radio-browser's vote count
+        (most popular first) with broken streams hidden. This only searches
+        for stations to import; creating one is done afterwards via the
+        OpenSubsonic `/rest/` API, never here.
+      tags: [radiobrowser]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Station name to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - $ref: '#/components/parameters/SearchLimit'
+      responses:
+        '200':
+          description: >
+            Matching stations, most popular first. A bare JSON array, like
+            `listPictureCandidates` — not wrapped in an envelope object.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RadioStation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /radiobrowser/favicon:
+    get:
+      operationId: getRadioFavicon
+      summary: Download a station favicon server-side and proxy its bytes.
+      description: >
+        Admin. Fetches the image at `url` (a search result's `favicon`
+        field) and streams the bytes back, again to keep the upstream host
+        and its CORS policy off the browser's path. Only PNG and JPEG
+        succeed: the downloaded body is sniffed rather than trusting the
+        upstream's own Content-Type, and any other outcome — a different
+        format (.ico, .svg, .gif and the rest), an oversized body, a non-http(s) URL,
+        or the upstream host itself failing — is reported through the
+        upstream-error responses below, never as a distinct content type or
+        a 404, so the caller can skip the cover import.
+      tags: [radiobrowser]
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: >
+            The favicon URL to download, exactly as returned by a search
+            result's `favicon` field. A single, already-resolved scalar,
+            **never** a repeated/array parameter — the same bounded-URL-safe
+            pattern as `getPictureImage`'s `file` parameter, so this GET
+            cannot grow into an oversized query string. Missing or blank
+            answers 400 (validation_error).
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: >
+            The favicon's image bytes, in whichever of the two accepted
+            formats was sniffed server-side.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "public, max-age=86400" }
+            X-Content-Type-Options:
+              schema: { type: string, example: "nosniff" }
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /musicbrainz/search:
+    get:
+      operationId: searchMusicBrainzArtists
+      summary: Search MusicBrainz for artists by name.
+      description: >
+        Admin. Proxies an artist-name search to the MusicBrainz web service
+        server-side (`internal/artistimage.MusicBrainzSearch`), feeding the
+        artist editor's manual "set MBID" flow. MusicBrainz needs no API
+        key, so — unlike `listArtistImageCandidates`/
+        `setArtistImageFromSearch` below — this has no `not_configured`
+        response.
+      tags: [artists]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Artist name to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - $ref: '#/components/parameters/SearchLimit'
+      responses:
+        '200':
+          description: >
+            Matching artists, MusicBrainz's own relevance order first.
+            Deliberate bare array (mirrors upstream), like
+            `listPictureCandidates` — not wrapped in an envelope object;
+            camelCase field names mirror the MusicBrainz-oriented
+            `internal/artistimage.Candidate` DTO.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MusicBrainzArtistCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /musicbrainz/search/releases:
+    get:
+      operationId: searchMusicBrainzReleases
+      summary: Search MusicBrainz for releases by name.
+      description: >
+        Admin. Feeds the album-identify picker's manual release search.
+        Each candidate carries both the release MBID and its parent
+        release-group MBID, so a single pick can set both tags at once. No
+        `not_configured` response — MusicBrainz needs no API key, see
+        `searchMusicBrainzArtists`.
+      tags: [artists]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Release title to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - $ref: '#/components/parameters/SearchLimit'
+      responses:
+        '200':
+          description: >
+            Matching releases, MusicBrainz's own relevance order first.
+            Deliberate bare array (mirrors upstream) — camelCase, nesting
+            one `ReleaseArtistCredit` per credited artist.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MusicBrainzReleaseCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /musicbrainz/release-groups/{mbid}/genres:
+    get:
+      operationId: getReleaseGroupGenres
+      summary: Genres MusicBrainz has tagged on a release group.
+      description: >
+        Admin. Ordered by MusicBrainz's own vote count, descending, and
+        capped at 10 entries — MusicBrainz tag lists can carry dozens of
+        low-vote entries. A `mbid` not matching the MusicBrainz identifier
+        format (a UUID) answers 400, before any upstream call.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/MbId'
+      responses:
+        '200':
+          description: >
+            Genre names, most-voted first. Deliberate bare array (mirrors
+            upstream), like `listPictureCandidates`. Never null — the
+            handler substitutes `[]` for a nil result before encoding.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /artists/{id}/mbid:
+    get:
+      operationId: getArtistMBID
+      summary: An artist's current MusicBrainz association.
+      description: >
+        Admin. Reads the artist's stored MusicBrainz association; see
+        `setArtistMBID` to change it. `mbArtistId` is empty, not omitted,
+        when the artist has no association.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The artist's MusicBrainz id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistMbid' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      operationId: setArtistMBID
+      summary: Set (or clear) an artist's MusicBrainz association.
+      description: >
+        Admin. `mbid` empty clears the association and skips the image
+        fetch entirely; a non-empty value must match the MusicBrainz
+        identifier format (a UUID), or this answers 400. Setting a
+        non-empty `mbid` also triggers a one-shot auto-fetch of the
+        artist's image — its outcome is reported in the response's
+        `imageFetched`/`fetchError`, never as a request failure: the mbid
+        association is saved either way, including when artist-image
+        fetching has no provider configured. See `SetArtistMbidResult`.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetArtistMbidRequest' }
+      responses:
+        '200':
+          description: Saved. See `SetArtistMbidResult` for the auto-fetch outcome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetArtistMbidResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /artists/{id}/image-source:
+    get:
+      operationId: getArtistImageSource
+      summary: Where the image currently served for this artist comes from.
+      description: >
+        Admin. Mirrors `/rest`'s `getCoverArt` precedence: the asset store
+        (an upload or an auto-fetch) first, then a scanner-detected
+        artist.jpg/folder.jpg. A flat response shape, not `oneOf` —
+        `source` alone discriminates, and `path`/`filename` are always
+        present regardless of `source` (see `ArtistImageSource`).
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The image source.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistImageSource' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /artists/image-candidates:
+    get:
+      operationId: listArtistImageCandidates
+      summary: Portrait images an image provider offers for a MusicBrainz artist.
+      description: >
+        Admin. Feeds the manual online image search: list every candidate
+        for a chosen MusicBrainz artist id, independent of any aether
+        artist record, then `setArtistImageFromSearch` stores one of these
+        for a specific artist. URLs only — the browser loads thumbnails
+        straight from the provider CDN, so this spends no server-side
+        image bandwidth. Registered ahead of `/artists/{id}/...` in the
+        router, but the order is not load-bearing: `{id}` is constrained
+        to digits, which "image-candidates" never matches. Answers 503
+        (`not_configured`) when no image-provider API key is configured —
+        unlike the MusicBrainz endpoints above, which need no key.
+      tags: [artists]
+      parameters:
+        - name: mbid
+          in: query
+          required: true
+          description: >
+            The MusicBrainz artist id to list candidate portraits for. A
+            query parameter, not the shared `MbId` path parameter. Missing
+            or not matching the MusicBrainz identifier format (a UUID)
+            answers 400 (validation_error).
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Candidate portraits. Deliberate bare array (mirrors upstream),
+            like `listPictureCandidates`; camelCase, like the MusicBrainz
+            search endpoints above. Never null — the handler always
+            builds a fresh slice before encoding.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ArtistImageCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /artists/{id}/image-from-search:
+    put:
+      operationId: setArtistImageFromSearch
+      summary: Store a chosen MusicBrainz artist's provider image for this artist.
+      description: >
+        Admin. Stores the pick as a **manual** upload, so it outranks
+        whatever the auto-fetch job puts in the auto slot for the same
+        artist and survives that job running again — it lands in the same
+        slot a normal upload would (the artist's own MBID when matched,
+        else its DB id), never under the *chosen* MBID, which is used
+        only to fetch: picking a portrait does not assert a metadata
+        match, so this never writes the artist's stored MusicBrainz
+        association. `url` must exactly equal one of the `url` values
+        `listArtistImageCandidates` just returned for `mbid` — the server
+        re-lists candidates and only downloads a URL it just offered
+        itself (SSRF guard); any other value answers 400, never fetched.
+        Answers 503 (`not_configured`) when no image-provider API key is
+        configured, and 404 both when the artist id does not exist and
+        when the provider's download yields no bytes.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetArtistImageFromSearchRequest' }
+      responses:
+        '200':
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetImageFromSearchResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
+  /tasks:
+    get:
+      operationId: listTasks
+      summary: List every registered task, with its schedule if one is configured.
+      description: >
+        Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
+        fixed set of tasks aether ships today (scan, scan-full,
+        fetch-artist-images) — not a user-extensible registry, so there is
+        no create/delete for the task definitions themselves, only for their
+        schedules.
+      tags: [tasks]
+      responses:
+        '200':
+          description: Every task definition, joined with its schedule where one exists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /tasks/{name}:
+    get:
+      operationId: getTask
+      summary: Fetch one task definition and its schedule, if any.
+      description: >
+        Admin. Bare `Task` — unlike `listTasks`, the response is not wrapped
+        in an envelope object. See the `Task` schema for the anonymous-embed
+        flattening (`TaskWithSchedule` embeds `apptasks.TaskDef`) this
+        response relies on.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: >
+            The task's stable id (e.g. "scan"), not its display name.
+            Deliberately not the shared `ResourceId` parameter — task ids
+            are opaque strings, never numeric.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The task and its schedule, if one is configured.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: upsertTaskSchedule
+      summary: Create or fully replace a task's schedule.
+      description: >
+        Admin. Bare `Task`, like `getTask` — not wrapped. Creates the
+        schedule when the task has none yet, otherwise replaces it outright.
+        `cron_expression` is required (blank answers 400); a 5-field value
+        is normalized by prepending a "0" seconds field. `enabled` omitted
+        defaults to true — a plain default, not "leave unchanged" (contrast
+        `patchTaskSchedule`, which is genuinely tri-state). Answers 404 for
+        an unknown task id, and 503 when the schedule store is unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertTaskScheduleRequest' }
+      responses:
+        '200':
+          description: The task with its newly-saved schedule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    patch:
+      operationId: patchTaskSchedule
+      summary: Partially update an existing task's schedule.
+      description: >
+        Admin. Bare `Task`, like `getTask`. Genuinely tri-state: both
+        `cron_expression` and `enabled` are optional, and omitting either
+        (or sending it explicit null) leaves that attribute unchanged — see
+        `PatchTaskScheduleRequest`. Requires a schedule to already exist:
+        answers 404 both for an unknown task id and for a known task with no
+        schedule yet (create one first with `upsertTaskSchedule`); the two
+        causes are not distinguished. Answers 503 when the schedule store is
+        unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchTaskScheduleRequest' }
+      responses:
+        '200':
+          description: The task with its updated schedule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      operationId: deleteTaskSchedule
+      summary: Remove a task's schedule (the task definition itself is never deletable).
+      description: >
+        Admin. Answers 404 both for an unknown task id and for a known task
+        with no schedule to delete — the two causes are not distinguished,
+        like `patchTaskSchedule`. Answers 503 when the schedule store is
+        unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      responses:
+        '204':
+          description: Schedule deleted. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /tasks/{name}/trigger:
+    post:
+      operationId: triggerTask
+      summary: Enqueue an ad hoc run of a task, independent of its schedule.
+      description: >
+        Admin. Works whether or not the task has a schedule configured — a
+        manual "run now", unrelated to `upsertTaskSchedule`. Answers 404 for
+        an unknown task id. Answers 429 when the run queue is full
+        (`taskrunner.ErrQueueFull`): this is the one operation on this
+        surface where the handler calls `httperr.Write` directly instead of
+        a bare `http.Error`, and it uses its own `queue_full` Problem type
+        slug rather than the router-level error envelope's generic
+        `rate_limited` slug a plain 429 would otherwise be given — see the
+        429 response below.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      responses:
+        '202':
+          description: Enqueued; the run has not necessarily started yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TriggerTaskResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: >
+            The run queue is full. Unlike every other Problem on this
+            surface, `type` here is
+            "https://aether.local/probs/queue_full" — a handler-authored
+            slug, not the generic `rate_limited` a bare `http.Error(w, ...,
+            429)` would receive from the router's error envelope.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /tasks/executions:
+    get:
+      operationId: listTaskExecutions
+      summary: Task run history — queued, running, and finished executions.
+      description: >
+        Admin. Bounded by the runner's history size
+        (`taskrunner.Cfg.HistorySize`, default 20) — not a paginated,
+        unbounded log. Ordered newest-queued first.
+      tags: [tasks]
+      responses:
+        '200':
+          description: The run history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskExecutionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/executions/{id}/cancel:
+    post:
+      operationId: cancelTaskExecution
+      summary: Cancel a queued or running task execution.
+      description: >
+        Admin. A waiting execution is canceled outright; a running one is
+        asked to stop via context cancellation. Answers 409 — not 404 — for
+        an execution id that does not exist at all: the handler maps every
+        failure from the underlying cancel call (unknown id, or an
+        already-terminal execution that cannot be canceled) to the same
+        Conflict response, without distinguishing them.
+      tags: [tasks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: >
+            The execution id, as returned by `triggerTask`'s
+            `execution_id` or `listTaskExecutions`' `id`.
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Canceled (or cancellation requested). No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/executions/{id}/logs:
+    get:
+      operationId: getTaskExecutionLog
+      summary: The captured log output of one task execution.
+      description: >
+        Admin. `text/plain`, not JSON — the one response on this surface
+        that isn't `application/json`/`application/problem+json`. Answers
+        503 when no log sink is configured for this deployment
+        (`TaskLogGetter` unset). A read failure for an id that does not
+        exist, or whose log file is no longer on disk, answers 500 rather
+        than 404 — the handler does not distinguish the two — and, like
+        every other 500 on this surface, is not itemized as a documented
+        response here.
+      tags: [tasks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: >
+            The execution id, as returned by `triggerTask`'s
+            `execution_id` or `listTaskExecutions`' `id`.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The execution's captured log output.
+          content:
+            text/plain:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
 components:
   securitySchemes:
@@ -392,6 +1979,38 @@ components:
         root. Resolved lexically against the library root — an absolute path,
         or one that escapes the root, answers 400.
       schema: { type: string }
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      description: Numeric resource id.
+      schema: { type: integer, format: int64, minimum: 0 }
+    MbId:
+      name: mbid
+      in: path
+      required: true
+      description: A MusicBrainz identifier.
+      schema: { type: string }
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: >
+        The user's stable id: a UUID minted by the user store at creation,
+        never reused and never equal to the login name. Deliberately not the
+        shared `ResourceId` parameter — this group's `id` is a string, never
+        an integer (see `listUsers`' schema for the source-of-truth field).
+      schema: { type: string, format: uuid }
+    SearchLimit:
+      name: limit
+      in: query
+      required: false
+      description: >
+        Maximum number of results, default 10 when omitted. A
+        non-numeric or non-positive value answers 400
+        (validation_error); a value above 25 is not rejected — it is
+        silently capped to 25.
+      schema: { type: integer }
 
   schemas:
     Problem:
@@ -497,6 +2116,13 @@ components:
           minimum: 0
           description: "\"embedded\" slot only: tracks selected."
         image: { $ref: '#/components/schemas/PictureImageRef' }
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/ImageMeta'
+          description: >
+            Size/dimensions/format of the slot's representative image (the
+            folder file, or the first embedded track that carries one).
+            Omitted when the image could not be read.
       required: [slot, image]
 
     PictureCell:
@@ -674,6 +2300,13 @@ components:
         folders:
           type: array
           items: { $ref: '#/components/schemas/Folder' }
+        truncated:
+          type: boolean
+          description: >
+            Present only when the request carried a non-blank `q`: `true`
+            when the search hit the server's 500-match cap and more folders
+            would have matched. Absent (not merely `false`) from a plain,
+            non-search listing.
       required: [folders]
 
     Track:
@@ -726,6 +2359,1393 @@ components:
           items: { $ref: '#/components/schemas/Track' }
       required: [tracks]
 
+    UpdateTracksFields:
+      type: object
+      description: >
+        Per-field patch: a field present (non-null) is set to that value; an
+        omitted field is left untouched. `artists`/`artist_mbids` (and,
+        symmetrically, `album_artists`/`album_artist_mbids`) cannot both be
+        set in the same request — the MB-id maps are keyed by the CURRENT
+        artist names, so a simultaneous rename would misalign them; the
+        handler answers 400 for that combination. A `raw_tags` key the
+        structured editor manages (`internal/metadataedit.IsManagedTag`), or
+        a `remove_unsupported` descriptor that names embedded cover art,
+        also answers 400.
+      properties:
+        title: { type: string }
+        album: { type: string }
+        artists: { type: array, items: { type: string } }
+        album_artists: { type: array, items: { type: string } }
+        genres: { type: array, items: { type: string } }
+        year: { type: integer }
+        track_number: { type: integer }
+        disc_number: { type: integer }
+        disc_subtitle: { type: string }
+        compilation: { type: boolean }
+        artist_mbids:
+          type: object
+          additionalProperties: { type: string }
+          description: Artist name -> MusicBrainz artist id.
+        album_artist_mbids:
+          type: object
+          additionalProperties: { type: string }
+          description: Album-artist name -> MusicBrainz artist id.
+        mb_recording_id: { type: string }
+        mb_release_id: { type: string }
+        mb_release_group_id: { type: string }
+        raw_tags:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: >
+            Free-form key -> values edits from the raw tag editor; an empty
+            value list deletes the key.
+        remove_unsupported:
+          type: array
+          items: { type: string }
+          description: >
+            Hidden-frame descriptors to delete, as returned by
+            `batchReadRawTags`' `unsupported` field. A descriptor the file
+            does not carry is ignored.
+
+    UpdateTracksRequest:
+      type: object
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        paths:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 50
+          description: >
+            Selected track paths, library-relative. Capped at the same
+            `maxSelectionPaths` (50) as the picture-selection endpoints — an
+            oversized selection answers 422, itemising `/paths`.
+        fields: { $ref: '#/components/schemas/UpdateTracksFields' }
+      required: [library_id, paths, fields]
+
+    UpdateTracksResult:
+      type: object
+      description: One selected path's write outcome.
+      properties:
+        path: { type: string }
+        ok: { type: boolean }
+        error:
+          type: string
+          description: Set instead of a successful write.
+      required: [path, ok]
+
+    UpdateTracksResponse:
+      type: object
+      description: >
+        `application/json`, not `problem+json` — see `updateTracks`'s
+        description. Returned unchanged, shape and content-type alike, on
+        both the `200` (at least one row written) and the `500` (every row
+        failed) response.
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/UpdateTracksResult' }
+        rescan: { $ref: '#/components/schemas/RescanStatus' }
+      required: [results]
+
+    MetadataCapabilities:
+      type: object
+      description: >
+        Whether audio-fingerprint identification (`/metadata/identify`,
+        `/metadata/identify-album`) is available on this server.
+      properties:
+        identify: { type: boolean }
+        identify_unavailable_reason:
+          type: string
+          description: >
+            Why identification is off (a missing fpcalc binary, a missing
+            AcoustID key, ...) — a fixed, human-readable sentence, never a
+            raw error. Present only when `identify` is `false`.
+      required: [identify]
+
+    ArtistCredit:
+      type: object
+      description: >
+        One credited artist: the credited-as name and its MusicBrainz id.
+        Shared wire shape of `identify.go`'s `identifyArtistDTO` (a
+        fingerprinted recording's artists) and `albumidentify.Artist` (an
+        album option's, or a track assignment's, artists) — two distinct Go
+        types with an identical `{name, mbid}` shape.
+      properties:
+        name: { type: string }
+        mbid: { type: string }
+      required: [name, mbid]
+
+    IdentifyRelease:
+      type: object
+      description: >
+        One release (album) a fingerprinted recording appears on.
+        `track_number`/`disc_number` locate it on that release; `0` means
+        unknown.
+      properties:
+        release_mbid: { type: string }
+        release_group_mbid: { type: string }
+        album: { type: string }
+        year: { type: integer }
+        track_number: { type: integer }
+        disc_number: { type: integer }
+      required:
+        - release_mbid
+        - release_group_mbid
+        - album
+        - year
+        - track_number
+        - disc_number
+
+    IdentifyCandidate:
+      type: object
+      description: One MusicBrainz recording matched by acoustic fingerprint, best first.
+      properties:
+        score: { type: number }
+        recording_mbid: { type: string }
+        title: { type: string }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+        releases:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyRelease' }
+      required: [score, recording_mbid, title, artists, releases]
+
+    IdentifyResult:
+      type: object
+      description: One requested path's identification outcome.
+      properties:
+        path: { type: string }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyCandidate' }
+        error:
+          type: string
+          description: >
+            Set instead of (an empty) `candidates` when this file could not
+            be resolved (outside the library, unreadable, or the AcoustID
+            lookup failed) — the raw error text, since this endpoint has no
+            `albumidentify`-style fixed-sentence policy.
+      required: [path, candidates]
+
+    IdentifyRequest:
+      description: >
+        The same `{library_id, paths[]}` shape as the picture-selection
+        endpoints; at least one path is required.
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+
+    IdentifyResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyResult' }
+      required: [results]
+
+    AlbumTrackSlot:
+      type: object
+      description: One position on a release's tracklist, from MusicBrainz enrichment.
+      properties:
+        disc_number: { type: integer }
+        track_number: { type: integer }
+        title: { type: string }
+        recording_mbid: { type: string }
+        duration_seconds: { type: number }
+      required: [disc_number, track_number, title, recording_mbid, duration_seconds]
+
+    AlbumAssignment:
+      type: object
+      description: >
+        One selected file's placement on one `AlbumOption`. `source`
+        distinguishes how strong the placement is: `fingerprint` (AcoustID
+        matched this file to a recording the release carries at this
+        position), `inferred` (placed by duration/title/track-number
+        against the release's tracklist instead) or `none` (no placement
+        could be justified; only the option's album-level fields apply to
+        this file).
+      properties:
+        path: { type: string }
+        source:
+          type: string
+          enum: [fingerprint, inferred, none]
+        title: { type: string }
+        recording_mbid: { type: string }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+          description: >
+            Always an array, never `null`, even for a `none`/`inferred`
+            placement with nothing to report — see `AlbumOption` for why
+            this matters on the wire.
+        disc_number: { type: integer }
+        track_number: { type: integer }
+        score: { type: number }
+        error:
+          type: string
+          description: >
+            Set, instead of a placement, when this file could not be
+            fingerprinted/looked up at all — one of `albumidentify`'s three
+            fixed reasons, never a raw error (unlike `IdentifyResult.error`).
+      required:
+        - path
+        - source
+        - title
+        - recording_mbid
+        - artists
+        - disc_number
+        - track_number
+        - score
+
+    AlbumOption:
+      type: object
+      description: >
+        One candidate release for the whole selection, best first, with one
+        `AlbumAssignment` per input file. **Every slice field
+        (`artists`/`tracks`/`assignments`) is always an array, never
+        `null`** — enforced by `internal/albumidentify`'s
+        `TestResolveNeverEmitsNullSlicesInJSON`: `artists`/`tracks` start as
+        `[]` at construction and are only ever replaced (never nulled) by
+        `enrich`, and `assignments` gains one entry per input file whether
+        or not `enrich` ran. `enriched` false means the MusicBrainz
+        tracklist lookup did not happen (past `MaxEnrichedOptions`, 8) or
+        failed: `track_count`/`disc_count`/`tracks` are then unknown
+        (zero/empty) and no gap-fill against a tracklist was possible, so
+        every assignment is either `fingerprint` or `none`.
+      properties:
+        release_mbid: { type: string }
+        release_group_mbid: { type: string }
+        album: { type: string }
+        year: { type: integer }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+        track_count: { type: integer }
+        disc_count: { type: integer }
+        enriched: { type: boolean }
+        matched_count:
+          type: integer
+          description: How many files a fingerprint (not inference) placed on this release.
+        mean_score:
+          type: number
+          description: >
+            Mean fingerprint score over `matched_count` files; unaffected
+            by inferred placements.
+        assignments:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumAssignment' }
+        tracks:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumTrackSlot' }
+      required:
+        - release_mbid
+        - release_group_mbid
+        - album
+        - year
+        - artists
+        - track_count
+        - disc_count
+        - enriched
+        - matched_count
+        - mean_score
+        - assignments
+        - tracks
+
+    IdentifyPathError:
+      type: object
+      description: >
+        One requested file `/metadata/identify-album` did not cover: either
+        refused before identification (outside the library) or a file that
+        reached the resolver but could not be fingerprinted/looked up.
+        `error` is always one of `albumidentify`'s fixed, short sentences —
+        never a raw error, since this is rendered verbatim in the dialog.
+      properties:
+        path: { type: string }
+        error: { type: string }
+      required: [path, error]
+
+    IdentifyAlbumRequest:
+      description: >
+        The same `{library_id, paths[]}` shape as the picture-selection
+        endpoints. Identifying "the album" needs more than one file to
+        place: the handler requires **at least two** paths — a single path
+        is better served by `/metadata/identify` — and answers 400
+        (validation_error) for a shorter selection. This schema enforces
+        that floor with the `minItems: 2` override below, which narrows the
+        `minItems: 1` inherited from `PictureSelection`.
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+        - type: object
+          properties:
+            paths:
+              type: array
+              items: { type: string }
+              minItems: 2
+
+    IdentifyAlbumResult:
+      type: object
+      properties:
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumOption' }
+          description: >
+            Candidate releases, best first. Always an array, never `null`
+            — including the empty-selection case (every path was outside
+            the library) and the no-release-matched-anything case.
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyPathError' }
+      required: [options, errors]
+
+    ArtistFolder:
+      type: object
+      description: >
+        Whether the SELECTED folder is an artist folder, and the portrait
+        image it currently holds. `artist`/`path`/`current_image`/
+        `current_image_meta` are omitted — not merely empty — when
+        `eligible` is `false`. `current_image` (and, with it,
+        `current_image_meta`) is independently omitted whenever the folder
+        holds no artist image, even when `eligible` is `true`.
+      properties:
+        eligible: { type: boolean }
+        artist:
+          type: string
+          description: >
+            The artist name (the resolved folder's own basename). Present
+            only when eligible.
+        path:
+          type: string
+          description: >
+            Library-relative path of the resolved artist folder — the
+            selected folder itself, or the nearest ancestor that
+            qualifies. Present only when eligible.
+        current_image:
+          type: string
+          description: >
+            Filename of the current artist image, e.g. "artist.jpg".
+            Present only when one exists.
+        current_image_meta:
+          allOf:
+            - $ref: '#/components/schemas/ImageMeta'
+          description: Present only alongside `current_image`.
+      required: [eligible]
+
+    ImageMeta:
+      type: object
+      description: >
+        An image's displayable metadata, reported for both stored images
+        (the artist image) and downloaded-but-not-yet-saved candidates.
+      properties:
+        width: { type: integer }
+        height: { type: integer }
+        format:
+          type: string
+          description: e.g. "jpeg", "png"; empty when the bytes could not be decoded.
+        bytes: { type: integer, format: int64 }
+      required: [width, height, format, bytes]
+
+    SetArtistImageForm:
+      type: object
+      description: >
+        multipart/form-data. Exactly one source is required: an uploaded
+        `image` file, or an online pick (`mbid` + `url`, downloaded through
+        the same SSRF-guarded provider chain as
+        `getArtistImageCandidateInfo`) — if both are present the uploaded
+        file wins and `mbid`/`url` are never consulted. Writes
+        `artist.<ext>` (jpg or png) into the folder named by `path`.
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        path:
+          type: string
+          description: The artist folder, library-relative.
+        image:
+          type: string
+          format: binary
+          description: An uploaded image file part.
+        mbid:
+          type: string
+          description: MusicBrainz artist id of the online pick. Required together with `url`.
+        url:
+          type: string
+          format: uri
+          description: >
+            The provider-offered candidate URL to download. Must be one of
+            the URLs currently offered for `mbid` — the SSRF guard rejects
+            any other with 400.
+      required: [library_id, path]
+
+    ApplyArtistImageResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        path:
+          type: string
+          description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+        rescan: { $ref: '#/components/schemas/RescanStatus' }
+      required: [ok, path]
+
+    HealthStatus:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+      required: [status]
+
+    VersionInfo:
+      type: object
+      description: Snake_case; each value is empty in an unstamped dev build.
+      properties:
+        version: { type: string }
+        build_time: { type: string }
+        commit: { type: string }
+      required: [version, build_time, commit]
+
+    MeUser:
+      type: object
+      properties:
+        login: { type: string }
+        role: { type: string, enum: [admin, user] }
+      required: [login, role]
+
+    MeResponse:
+      type: object
+      description: camelCase (SPA bootstrap contract).
+      properties:
+        authMethod: { type: string, enum: [native, proxy-header, none] }
+        user:
+          oneOf:
+            - { $ref: '#/components/schemas/MeUser' }
+            - { type: 'null' }
+        features:
+          type: object
+          properties:
+            userManagement: { type: boolean }
+          required: [userManagement]
+      required: [authMethod, user, features]
+
+    LoginRequest:
+      type: object
+      description: >
+        Owned by the external go-bumbu login library
+        (flow/login/handlers.JSON.LoginPayload), not an aether type — see
+        `login`'s description.
+      properties:
+        username: { type: string }
+        password: { type: string }
+        sessionRenew:
+          type: boolean
+          default: false
+          description: >
+            "Remember me": opts the session into rolling expiry renewal
+            (activity keeps it alive) instead of a fixed window.
+      required: [username, password]
+
+    LoginResult:
+      type: object
+      description: go-bumbu's login.handlers.Response.
+      properties:
+        done:
+          type: boolean
+          description: True once the login is complete and the session cookie is set.
+        next:
+          type: array
+          items: { type: string }
+          description: >
+            Method IDs still required. Present only when the submitted
+            factor was accepted but the policy needs another; aether's
+            single-factor password policy never sets it today.
+      required: [done]
+
+    AuthError:
+      type: object
+      description: >
+        go-bumbu's own uniform error body for `login` — plain
+        `application/json`, not the RFC 9457 `Problem` the rest of
+        `/api/v1` answers with (see `login`'s description).
+      properties:
+        error: { type: string }
+      required: [error]
+
+    LogoutRequest:
+      type: object
+      description: >
+        Aether-owned (not go-bumbu): names the caller's own mintToken
+        session token so logout can best-effort revoke it too. Entirely
+        optional — a missing or malformed body never fails the logout.
+      properties:
+        tokenId: { type: string }
+
+    MintTokenRequest:
+      type: object
+      description: >
+        Identifies the first-party app instance minting its own session
+        token. camelCase (SPA session/device bootstrap contract) —
+        `deviceId`/`deviceName` are the SPA's own field names, unlike the
+        snake_case convention used elsewhere on this surface.
+      properties:
+        deviceId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+          description: >
+            Scopes the mint to one app instance: a repeat mint with the same
+            deviceId supersedes its own previous token rather than piling up
+            or signing other devices out.
+        deviceName:
+          type: string
+          description: >
+            Cosmetic label shown in the token-management UI (e.g. "Firefox
+            on Linux"). Optional; an unnamed device falls back to a fixed
+            name. Longer than 100 runes is silently truncated, never
+            rejected.
+      required: [deviceId]
+
+    MintTokenResult:
+      type: object
+      description: >
+        The plaintext `token` appears here and nowhere else. camelCase (SPA
+        session/device bootstrap contract), unlike the snake_case convention
+        used elsewhere on this surface.
+      properties:
+        token: { type: string }
+        tokenId: { type: string }
+        expiresAt: { type: string, format: date-time }
+      required: [token, tokenId, expiresAt]
+
+    TokenInfo:
+      type: object
+      description: >
+        A token as the management endpoints report it — metadata only,
+        never the hash/secret. camelCase (SPA session/device bootstrap
+        contract), unlike the snake_case convention used elsewhere on this
+        surface.
+      properties:
+        tokenId: { type: string }
+        name: { type: string }
+        kind:
+          type: string
+          enum: [session, client]
+          description: '"session": minted by mintToken. "client": a user-created PAT.'
+        type:
+          type: string
+          enum: [apikey, usertoken]
+          description: >
+            "apikey": hash-only, presented whole. "usertoken": recoverable,
+            presented as a virtual username + password pair.
+        createdAt: { type: string, format: date-time }
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null until the token is first used.
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null for a token that never expires.
+      required: [tokenId, name, kind, type, createdAt, lastUsedAt, expiresAt]
+
+    TokenList:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items: { $ref: '#/components/schemas/TokenInfo' }
+      required: [tokens]
+
+    CreateTokenRequest:
+      type: object
+      description: >
+        camelCase (SPA session/device bootstrap contract), unlike the
+        snake_case convention used elsewhere on this surface.
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          enum: [apikey, usertoken]
+          default: apikey
+        expiresAt:
+          type: string
+          format: date-time
+          description: Omitted means the token never expires.
+      required: [name]
+
+    CreateTokenResult:
+      description: >
+        The one-time plaintext appears only here. `username`/`password` are
+        present iff the request's `type` was "usertoken" — the credential
+        pair a Subsonic `u`+`t`+`s`/`u`+`p` client consumes; `username`
+        always equals `tokenId`; both are entirely absent (not null) for the
+        default "apikey" type. Modelled as `allOf` of the fields common to
+        both types plus a `oneOf` split on `type`: the "usertoken" variant
+        requires both `username` and `password`; the "apikey" variant
+        forbids them outright (`not`/`anyOf` over `required`), so a response
+        carrying the wrong credential shape for its own `type` — missing
+        them for "usertoken", or carrying them for "apikey" — fails
+        validation either way under kin-openapi's `VisitJSON` +
+        `EnableJSONSchema2020()` (the validator
+        `openapi_response_contract_test.go` checks every captured response
+        body against; see `TestCreateTokenResultRejectsCredentialTypeMismatch`
+        there for a negative-case proof of both directions). Unlike
+        `TokenInfo`, this shape has no `lastUsedAt`: createToken builds its
+        response directly rather than from the DTO listTokens uses.
+        camelCase (SPA session/device bootstrap contract), unlike the
+        snake_case convention used elsewhere on this surface.
+      allOf:
+        - type: object
+          description: Fields present on every createToken response, regardless of `type`.
+          properties:
+            token: { type: string }
+            tokenId: { type: string }
+            name: { type: string }
+            kind:
+              type: string
+              enum: [client]
+              description: Always "client" — createToken only ever mints user-created PATs.
+            type:
+              type: string
+              enum: [apikey, usertoken]
+            createdAt: { type: string, format: date-time }
+            expiresAt:
+              type: [string, 'null']
+              format: date-time
+              description: Present but null when the request omitted expiresAt.
+          required: [token, tokenId, name, kind, type, createdAt, expiresAt]
+        - oneOf:
+            - type: object
+              description: >
+                The default "apikey" type — `username`/`password` must be
+                absent entirely, enforced (not just undocumented) via
+                `not`/`anyOf` over `required`.
+              properties:
+                type: { type: string, enum: [apikey] }
+              required: [type]
+              not:
+                anyOf:
+                  - required: [username]
+                  - required: [password]
+            - type: object
+              description: >
+                The "usertoken" type. `username`/`password` are the
+                credential pair a Subsonic `u`+`t`+`s`/`u`+`p` client
+                consumes; `username` always equals `tokenId`.
+              properties:
+                type: { type: string, enum: [usertoken] }
+                username: { type: string }
+                password: { type: string }
+              required: [type, username, password]
+
+    User:
+      type: object
+      description: >
+        A native user account. Never carries a password or its hash — write
+        one via `password` on CreateUserRequest/UpdateUserRequest, never
+        read it back.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Stable id, minted once at creation; addresses updateUser/deleteUser.
+        login:
+          type: string
+        enabled:
+          type: boolean
+        role:
+          type: string
+          enum: [admin, user]
+          description: >
+            The derived vertical, not the raw group list: "admin" means
+            membership in the store's admin group, "user" means none.
+      required: [id, login, enabled, role]
+
+    UserList:
+      type: object
+      properties:
+        users:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        total:
+          type: integer
+          description: >
+            Total native user count, ignoring the server's internal 200-row
+            page cap — in every deployment under that cap (every
+            self-hosted server today) it equals `users`' length.
+      required: [users, total]
+
+    CreateUserRequest:
+      type: object
+      properties:
+        login:
+          type: string
+          description: >
+            Required (400 if blank). Rejected with 422 when it is shaped
+            like a token id (10 lowercase letters/digits) — see
+            `createUser`.
+        password:
+          type: string
+          description: >
+            Required (400 if blank). Longer than 72 bytes is rejected with
+            422: bcrypt only hashes a password's first 72 bytes, so a longer
+            input would otherwise silently truncate instead of being
+            honoured in full.
+        enabled:
+          type: boolean
+          default: true
+        role:
+          type: string
+          enum: [admin, user]
+          default: user
+      required: [login, password]
+
+    UpdateUserRequest:
+      type: object
+      description: >
+        Partial update — see `updateUser`. Every field is optional; omitting
+        one (or, for `login`, sending it blank or unchanged) leaves that
+        attribute untouched.
+      properties:
+        login:
+          type: string
+          description: >
+            Accepted only when equal to the account's current login
+            (whitespace-trimmed); a genuine change is refused with 400. See
+            `updateUser`.
+        password:
+          type: string
+          description: >
+            Omitted or blank leaves the password unchanged. Longer than 72
+            bytes is rejected with 422 — see CreateUserRequest.
+        enabled:
+          type: boolean
+          description: >
+            Omitted (or null) leaves it unchanged. Disabling the last
+            remaining enabled admin is refused with 409 — see `updateUser`.
+        role:
+          type: string
+          enum: [admin, user]
+          description: >
+            Omitted or blank leaves the role unchanged. Demoting the last
+            remaining enabled admin is refused with 409 — see `updateUser`.
+
+    Library:
+      type: object
+      description: >
+        A collection/library row, as returned by listLibraries, getLibrary
+        and createLibrary; updateLibrary's response is this shape plus
+        `path_changed` (modeled inline on that operation, not here).
+      properties:
+        id: { type: integer, format: int64, minimum: 0 }
+        name: { type: string }
+        path: { type: string }
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: Regex patterns matched against each entry name during a scan.
+        follow_symlinks:
+          type: boolean
+          description: >
+            Always present here (unlike LibraryCreateRequest/
+            LibraryUpdateRequest, where the same field is an optional
+            tri-state pointer).
+        show_artists:
+          type: boolean
+          description: >
+            Positive-sense wire form of the store's inverted HideArtists
+            column. Always present here — see `follow_symlinks`.
+        default_view:
+          type: string
+          enum: [albums, artists]
+        icon:
+          type: string
+          description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          description: >
+            "auto" picks a covergen style deterministically per seed; the
+            other values pin one specific style.
+        source:
+          type: string
+          enum: [db, config]
+          description: >
+            "db": created and owned through this API. "config": declared in
+            the server config file and materialized here at startup —
+            read-only over this API (updateLibrary/deleteLibrary answer 409
+            `config_managed`).
+        last_scan_started_at:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null until a scan of this library has started.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+        - id
+        - name
+        - path
+        - exclude_patterns
+        - follow_symlinks
+        - show_artists
+        - default_view
+        - icon
+        - cover_style
+        - source
+        - last_scan_started_at
+        - created_at
+        - updated_at
+        - track_count
+
+    LibraryList:
+      type: object
+      properties:
+        libraries:
+          type: array
+          items: { $ref: '#/components/schemas/Library' }
+      required: [libraries]
+
+    LibraryCreateRequest:
+      type: object
+      description: >
+        `follow_symlinks`/`show_artists` are optional pointers: omitting
+        either here takes the create-time default (both true) — unlike
+        LibraryUpdateRequest, where omitting them means "keep current"
+        instead. The response always echoes the resolved value back as a
+        plain, always-present boolean (see `Library`).
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Required (400 if blank); over 200 characters is 422.
+        path:
+          type: string
+          description: >
+            Required (400 if blank). Resolved to an absolute path
+            server-side; must already exist and be a readable directory, or
+            this is 422.
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: >
+            Regex patterns matched against each entry name during a scan.
+            Omitted defaults to none. Each must compile as a Go regexp (422
+            itemising `/exclude_patterns` otherwise).
+        follow_symlinks:
+          type: boolean
+          description: Omitted defaults to true.
+        show_artists:
+          type: boolean
+          description: Omitted defaults to true.
+        default_view:
+          type: string
+          enum: [albums, artists]
+          default: albums
+          description: Omitted or empty defaults to "albums".
+        icon:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 100
+          default: folder
+          description: >
+            A PrimeIcons name without the "pi pi-" prefix, e.g.
+            "folder-open". Omitted or empty defaults to "folder".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          default: auto
+          description: Omitted or empty defaults to "auto".
+      required: [name, path]
+
+    LibraryUpdateRequest:
+      type: object
+      description: >
+        A full replace, not a partial update: `name`/`path`/
+        `exclude_patterns`/`default_view`/`icon`/`cover_style` are always
+        overwritten by the submitted value (empty/omitted `default_view`,
+        `icon` and `cover_style` fall back the same way
+        LibraryCreateRequest's do). `follow_symlinks`/`show_artists` are
+        the only true tri-state fields: omitted (or explicit null) keeps
+        the library's current stored value instead of resetting it.
+        Refused with 409 `config_managed` for a config-provisioned library.
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Required (400 if blank); over 200 characters is 422.
+        path:
+          type: string
+          description: >
+            Required (400 if blank). Resolved to an absolute path
+            server-side; must already exist and be a readable directory, or
+            this is 422. Changing it wipes and re-scans the library's
+            tracks — see updateLibrary's `path_changed` response field.
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: >
+            Replaces the stored patterns entirely; omitted clears them to
+            none (this field is not tri-state). Each must compile as a Go
+            regexp (422 itemising `/exclude_patterns` otherwise).
+        follow_symlinks:
+          type: boolean
+          description: Omitted (or explicit null) keeps the library's current value.
+        show_artists:
+          type: boolean
+          description: Omitted (or explicit null) keeps the library's current value.
+        default_view:
+          type: string
+          enum: [albums, artists]
+          default: albums
+          description: Omitted or empty falls back to "albums".
+        icon:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 100
+          default: folder
+          description: Omitted or empty falls back to "folder".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          default: auto
+          description: Omitted or empty falls back to "auto".
+      required: [name, path]
+
+    LibraryBrowseResult:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The requested directory, echoed back cleaned but not symlink-resolved.
+        folders:
+          type: array
+          items: { $ref: '#/components/schemas/BrowseFolder' }
+      required: [path, folders]
+
+    BrowseFolder:
+      type: object
+      description: >
+        One subdirectory found by browseLibraryPath. Distinct from the
+        metadata-browsing surface's `Folder` schema: that one is
+        library-relative and has no `is_symlink`, since it never crosses
+        one; this one browses arbitrary absolute server paths and does.
+      properties:
+        name: { type: string }
+        path:
+          type: string
+          description: Absolute server path (the parent directory joined with name).
+        has_subfolders: { type: boolean }
+        is_symlink: { type: boolean }
+      required: [name, path, has_subfolders, is_symlink]
+
+    RadioStation:
+      type: object
+      description: >
+        One search result from `searchRadioStations`
+        (`internal/radiobrowser.Station`). Uses camelCase field names
+        (`streamUrl`, `countryCode`) like `PictureCandidate`, unlike the
+        snake_case convention used elsewhere on this surface — but, unlike
+        `PictureCandidate`, this is aether's own casing choice for this DTO,
+        not a mirror of the upstream radio-browser.info API's raw JSON:
+        aether renames and merges fields server-side (`streamUrl` is the
+        upstream's `url_resolved`, falling back to `url`; `uuid` renames the
+        upstream's `stationuuid`; `countryCode` re-cases the upstream's
+        all-lowercase `countrycode`). Every field is always present — the Go
+        struct has no `omitempty` — so an unmatched value comes back as an
+        empty string/zero rather than being omitted.
+      properties:
+        name: { type: string }
+        streamUrl:
+          type: string
+          format: uri
+          description: >
+            The stream's resolved URL, falling back to the unresolved URL
+            when radio-browser has no resolved variant.
+        homepage: { type: string, format: uri }
+        favicon: { type: string, format: uri }
+        tags:
+          type: string
+          description: Comma-separated, exactly as radio-browser.info returns it — not split into an array.
+        country: { type: string }
+        countryCode: { type: string }
+        language: { type: string }
+        codec: { type: string }
+        bitrate: { type: integer }
+        votes: { type: integer }
+        uuid:
+          type: string
+          format: uuid
+          description: radio-browser.info's station id ("stationuuid" upstream) — the value to persist when importing this station.
+      required: [name, streamUrl, homepage, favicon, tags, country, countryCode, language, codec, bitrate, votes, uuid]
+
+    MusicBrainzArtistCandidate:
+      type: object
+      description: >
+        One MusicBrainz artist search result
+        (`internal/artistimage.Candidate`). camelCase, like
+        `PictureCandidate`/`RadioStation` — a documented exception to this
+        surface's snake_case default, since the DTO mirrors a
+        MusicBrainz-shaped upstream. Every field is always present (no
+        `omitempty` in the Go struct); `disambiguation`, `lifeSpanBegin`
+        and `lifeSpanEnd` come back empty, not omitted, when MusicBrainz
+        has no value.
+      properties:
+        mbid: { type: string }
+        name: { type: string }
+        type:
+          type: string
+          description: >
+            MusicBrainz's own artist type (e.g. "Person", "Group"); empty
+            when MusicBrainz has none. Not a closed enum — this is
+            upstream, open-ended data.
+        disambiguation: { type: string }
+        lifeSpanBegin: { type: string }
+        lifeSpanEnd: { type: string }
+        score:
+          type: integer
+          description: MusicBrainz's own relevance score for this result.
+      required: [mbid, name, type, disambiguation, lifeSpanBegin, lifeSpanEnd, score]
+
+    ReleaseArtistCredit:
+      type: object
+      description: >
+        One credited artist on a release
+        (`internal/artistimage.ReleaseArtistCredit`): the credited-as name
+        (what gets written to the tag) and the artist's own MBID.
+        camelCase, like the enclosing `MusicBrainzReleaseCandidate`.
+      properties:
+        name: { type: string }
+        mbid: { type: string }
+      required: [name, mbid]
+
+    MusicBrainzReleaseCandidate:
+      type: object
+      description: >
+        One MusicBrainz release search result
+        (`internal/artistimage.ReleaseCandidate`). camelCase, like
+        `MusicBrainzArtistCandidate`. Carries both the release MBID and
+        its parent release-group MBID, so a single pick can set both a
+        MUSICBRAINZ_ALBUMID and a MUSICBRAINZ_RELEASEGROUPID tag. Every
+        field is always present (no `omitempty`).
+      properties:
+        releaseMbid: { type: string }
+        releaseGroupMbid: { type: string }
+        title: { type: string }
+        artist:
+          type: string
+          description: >
+            Every credited artist's name joined with MusicBrainz's own
+            join phrases, as one display string.
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ReleaseArtistCredit' }
+          description: The same artist credit, itemised — one entry per credited artist.
+        date: { type: string }
+        country: { type: string }
+        trackCount: { type: integer }
+        disambiguation: { type: string }
+        score:
+          type: integer
+          description: MusicBrainz's own relevance score for this result.
+      required:
+        - releaseMbid
+        - releaseGroupMbid
+        - title
+        - artist
+        - artists
+        - date
+        - country
+        - trackCount
+        - disambiguation
+        - score
+
+    ArtistMbid:
+      type: object
+      description: >
+        An artist's current MusicBrainz association, as returned by
+        `getArtistMBID`. camelCase (`mbArtistId`) — unlike
+        `MusicBrainzArtistCandidate` above, this is not a third-party
+        mirror; it is simply how `artists.go`'s `mbidResponse` was
+        authored, together with `SetArtistMbidResult` below. Documented
+        faithfully rather than "corrected", since the spec describes the
+        handler's actual wire shape.
+      properties:
+        mbArtistId:
+          type: string
+          description: Empty when the artist has no MusicBrainz association.
+      required: [mbArtistId]
+
+    SetArtistMbidRequest:
+      type: object
+      properties:
+        mbid:
+          type: string
+          description: >
+            A MusicBrainz artist identifier, or empty to clear the
+            artist's current association. A non-empty value that does not
+            match the MusicBrainz identifier format (a UUID) answers 400.
+      required: [mbid]
+
+    SetArtistMbidResult:
+      type: object
+      description: >
+        camelCase — see `ArtistMbid`. `imageFetched`/`fetchError` report
+        the one-shot auto-fetch that runs only when `mbid` was set to a
+        non-empty value; clearing the association (`mbid: ""`) skips the
+        fetch, leaving `imageFetched: false` and `fetchError: null`. A
+        fetch failure — including artist-image fetching having no
+        provider configured — is reported only here; it never fails the
+        request, since the mbid association is saved regardless. This
+        endpoint has no 503, unlike `listArtistImageCandidates`/
+        `setArtistImageFromSearch`.
+      properties:
+        mbArtistId: { type: string }
+        imageFetched:
+          type: boolean
+          description: True only when the auto-fetch found and stored an image.
+        fetchError:
+          type: [string, 'null']
+          description: >
+            Always present — the Go field has no `omitempty`. Null when
+            `mbid` was cleared or the fetch succeeded; a human-readable
+            message otherwise.
+      required: [mbArtistId, imageFetched, fetchError]
+
+    ArtistImageSource:
+      type: object
+      description: >
+        Where the image `/rest`'s `getCoverArt` currently serves for this
+        artist comes from (`artists.go`'s `imageSourceResponse`).
+        Deliberately flat, not `oneOf` — the handler emits this exact
+        shape regardless of `source`, and `path`/`filename` are always
+        present, never omitted; their meaning depends on `source`: for
+        "upload" (a user upload in aether's asset store) and "fetched"
+        (an image aether auto-fetched from a provider, also in the asset
+        store), `filename` names the stored file and `path` is empty; for
+        "folder" (an artist.jpg/folder.jpg found next to the artist's
+        albums), `path` is its absolute filesystem path and `filename` is
+        that path's basename; for "none" (nothing on file — the generated
+        avatar is served instead), both `path` and `filename` are empty.
+      properties:
+        source:
+          type: string
+          enum: [upload, fetched, folder, none]
+        path:
+          type: string
+          description: Absolute filesystem path for "folder"; empty otherwise.
+        filename:
+          type: string
+          description: >
+            Stored/on-disk filename for "upload"/"fetched"/"folder"; empty
+            for "none".
+      required: [source, path, filename]
+
+    ArtistImageCandidate:
+      type: object
+      description: >
+        One portrait image an image provider offers for a MusicBrainz
+        artist id (`internal/artistimage.ImageCandidate`, remapped by
+        `artists.go`'s `imageCandidate`). camelCase, like the MusicBrainz
+        schemas above. URLs only — the browser loads thumbnails straight
+        from the provider CDN, so listing candidates spends no
+        server-side image bandwidth. Every field is always present (no
+        `omitempty`).
+      properties:
+        url:
+          type: string
+          format: uri
+          description: >
+            The full-size image URL — the exact value
+            `setArtistImageFromSearch` must be given back to pick this
+            candidate (SSRF guard).
+        thumbUrl:
+          type: string
+          format: uri
+          description: A provider-hosted thumbnail URL.
+        provider:
+          type: string
+          description: The image provider's name, e.g. "fanart.tv".
+      required: [url, thumbUrl, provider]
+
+    SetArtistImageFromSearchRequest:
+      type: object
+      description: >
+        Picks one candidate from a prior `listArtistImageCandidates` call
+        for `mbid`. `url` must exactly equal one of that call's `url`
+        values — the server re-lists candidates for `mbid` and only
+        downloads a URL it just offered itself (SSRF guard); an
+        unrecognised `url` answers 400, never fetched.
+      properties:
+        mbid:
+          type: string
+          description: The MusicBrainz artist id the candidates were listed for.
+        url:
+          type: string
+          format: uri
+      required: [mbid, url]
+
+    SetImageFromSearchResult:
+      type: object
+      properties:
+        stored:
+          type: boolean
+          description: >
+            Always true in a 200 response — a failed store answers an
+            error response instead.
+      required: [stored]
+
+    TaskSchedule:
+      type: object
+      description: >
+        A task's stored schedule — `taskrunner.Schedule`
+        (internal/taskrunner/schedule.go:11-18), an external type embedded
+        by reference (not flattened) as `Task.schedule`.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The schedule row's own id — distinct from the owning task's `id` (a string).
+        task_name:
+          type: string
+          description: The owning task's stable id (matches `Task.id`).
+        cron_expression:
+          type: string
+          description: >
+            A 5 or 6-field cron expression. A submitted 5-field value is
+            normalized by prepending a "0" seconds field before storage, so
+            a read-back value is always 6-field.
+          example: "0 0 0 * * *"
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, task_name, cron_expression, enabled, created_at, updated_at]
+
+    Task:
+      type: object
+      description: >
+        A task definition combined with its schedule, if configured
+        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:24-27).
+        `id`/`name`/`description` are not nested fields on the handler
+        struct — they come from `apptasks.TaskDef` (app/tasks/tasks.go:4-8),
+        anonymously embedded, so Go's `encoding/json` flattens them directly
+        onto this object. Returned bare by `getTask`/`upsertTaskSchedule`/
+        `patchTaskSchedule`; wrapped in `TaskList` by `listTasks`.
+      properties:
+        id:
+          type: string
+          description: Stable task identifier.
+          example: scan
+        name:
+          type: string
+          description: Human-readable display name.
+          example: Library Scan
+        description:
+          type: string
+          example: "Incremental scan -- only re-reads tracks modified since last scan"
+        schedule:
+          description: >
+            Present only when a schedule has been configured for this task
+            (via `upsertTaskSchedule`); entirely absent — not null — for a
+            task with none, since the Go field is `*taskrunner.Schedule`
+            with `omitempty`.
+          allOf:
+            - $ref: '#/components/schemas/TaskSchedule'
+      required: [id, name, description]
+
+    TaskList:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+      required: [tasks]
+
+    UpsertTaskScheduleRequest:
+      type: object
+      description: >
+        Full create-or-replace body for `upsertTaskSchedule`. `enabled`
+        omitted defaults to true — a plain default, not "leave unchanged";
+        contrast `PatchTaskScheduleRequest`.
+      properties:
+        cron_expression:
+          type: string
+          description: >
+            Required: blank answers 400. A 5 or 6-field cron expression —
+            see `TaskSchedule.cron_expression`.
+          example: "0 0 0 * * *"
+        enabled:
+          type: boolean
+          default: true
+          description: Omitted defaults to true.
+      required: [cron_expression]
+
+    PatchTaskScheduleRequest:
+      type: object
+      description: >
+        Tri-state partial update for `patchTaskSchedule`: both properties
+        are optional, backing pointer fields
+        (`PatchTaskRequest.CronExpression *string`, `.Enabled *bool` —
+        app/router/handlers/tasks/tasks.go:200-203). Omitting a field, or
+        sending it explicit null, leaves that attribute unchanged — unlike
+        `UpsertTaskScheduleRequest.enabled`, which defaults rather than
+        preserves. Requires an existing schedule; see `patchTaskSchedule`.
+      properties:
+        cron_expression:
+          type: string
+          description: Omitted (or explicit null) leaves the current cron expression unchanged.
+          example: "0 0 0 * * *"
+        enabled:
+          type: boolean
+          description: Omitted (or explicit null) leaves the current enabled state unchanged.
+
+    TriggerTaskResult:
+      type: object
+      properties:
+        execution_id:
+          type: string
+          format: uuid
+          description: The newly-queued execution's id — pass to `cancelTaskExecution`/`getTaskExecutionLog`.
+      required: [execution_id]
+
+    TaskExecution:
+      type: object
+      description: >
+        One task run — `taskrunner.ExecutionInfo`
+        (internal/taskrunner/runner.go:136-143), an external type.
+      properties:
+        id: { type: string, format: uuid }
+        task_name:
+          type: string
+          description: The owning task's stable id (matches `Task.id`).
+        status:
+          type: string
+          enum: [waiting, running, complete, failed, panicked, canceled, cancel_error]
+          description: Stringized status enum (`tempo.TaskStatus.Str()`).
+        queued_at: { type: string, format: date-time }
+        started_at:
+          type: string
+          format: date-time
+          description: >
+            Absent — not null — until the run starts: the Go field is
+            `*time.Time` with `omitempty`.
+        ended_at:
+          type: string
+          format: date-time
+          description: >
+            Always present, even before the run has ended — the Go field
+            has no `omitempty`; it holds the zero time
+            ("0001-01-01T00:00:00Z") until the run finishes.
+      required: [id, task_name, status, queued_at, ended_at]
+
+    TaskExecutionList:
+      type: object
+      properties:
+        executions:
+          type: array
+          items: { $ref: '#/components/schemas/TaskExecution' }
+      required: [executions]
+
   responses:
     BadRequest:
       description: Malformed request (bad JSON/multipart, missing/invalid scalar).
@@ -733,28 +3753,67 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     NotFound:
-      description: Unknown library_id.
+      description: The addressed resource does not exist.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     UnprocessableEntity:
       description: >
-        Well-formed but invalid (over a size cap, an unknown type/slot, an
-        empty selection).
+        The request is well-formed but semantically invalid (over a size
+        cap, an unknown type/slot, an empty selection); `errors` itemises
+        the failing fields.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ValidationProblem' }
     TooManyRequests:
-      description: The Cover Art Archive is rate-limiting Aether's upstream calls.
+      description: A third-party upstream service is rate-limiting Aether's requests.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     UpstreamError:
       description: >
-        The Cover Art Archive call failed. The same upstream classification
-        can also surface as 504 on a timeout (still this Problem shape) —
-        this seed only names the 502 case, matching the current handlers'
-        most common failure.
+        A third-party upstream service call failed. The same upstream
+        classification can also surface as 504 on a timeout (still this
+        Problem shape) — see `GatewayTimeout`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    GatewayTimeout:
+      description: A third-party upstream service timed out.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: No valid session (native mode) — the caller must authenticate.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated but not permitted (admin required, or the user is disabled).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: The request conflicts with current server state.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: >
+        The requested capability is not configured server-side (e.g.
+        `not_configured` — no image-provider API key set). The generic
+        Problem shape; see `type`/`detail` for the specific reason.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InternalServerError:
+      description: >
+        An unexpected server-side failure — a store or internal error that is
+        not a not-found (e.g. a failed database read/write, a filesystem write
+        that did not complete). The generic Problem shape; see `type`/`detail`.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

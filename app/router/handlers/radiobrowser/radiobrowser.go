@@ -39,23 +39,19 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
-}
-
 // searchStations proxies GET /radiobrowser/search?q=&limit= to the upstream
 // station search. q is required; limit defaults to 10 and is capped at 25.
 func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "q is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "q is required")
 		return
 	}
 	limit := 10
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
-			writeError(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
+			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
 			return
 		}
 		if n > 25 {
@@ -78,7 +74,7 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getFavicon(w http.ResponseWriter, r *http.Request) {
 	u := strings.TrimSpace(r.URL.Query().Get("url"))
 	if u == "" {
-		writeError(w, r, http.StatusBadRequest, "validation_error", "url is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
 		return
 	}
 	data, contentType, err := h.Client.FetchFavicon(r.Context(), u)

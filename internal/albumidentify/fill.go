@@ -179,4 +179,3 @@ func titleSimilarity(a, b string) float64 {
 	}
 	return float64(hits) / float64(len(wa))
 }
-

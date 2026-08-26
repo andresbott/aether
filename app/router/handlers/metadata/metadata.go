@@ -180,10 +180,6 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
-}
-
 func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {
 	idStr := r.URL.Query().Get("library_id")
 	id, perr := strconv.ParseUint(idStr, 10, 64)
@@ -238,7 +234,7 @@ type pictureSelection struct {
 // malformed-JSON 400 branch as any other unparseable body. status/err are
 // zero/nil on success; callers on failure answer writeSelectionErr(w, r,
 // status, err), which itemises an empty/over-cap paths[] as a 422 validation
-// problem and falls back to writeErr(w, r, status, codeFor(status),
+// problem and falls back to httperr.Write(w, r, status, codeFor(status),
 // err.Error()) for everything else (malformed JSON, an unknown or
 // unreachable library).
 func (h *Handler) decodeSelection(w http.ResponseWriter, r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
@@ -271,7 +267,7 @@ func writeSelectionErr(w http.ResponseWriter, r *http.Request, status int, err e
 		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/paths", Detail: err.Error()})
 		return
 	}
-	writeErr(w, r, status, codeFor(status), err.Error())
+	httperr.Write(w, r, status, codeFor(status), err.Error())
 }
 
 type folderDTO struct {
@@ -288,7 +284,7 @@ const maxFolderSearchResults = 500
 func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// A `q` turns the endpoint into a filter: instead of one directory level it
@@ -299,7 +295,7 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 		matches, truncated, err := metadataedit.SearchFolders(
 			abs, q, metadataedit.ListFoldersOptions{}, maxFolderSearchResults)
 		if err != nil {
-			writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out := make([]folderDTO, 0, len(matches))
@@ -314,7 +310,7 @@ func (h *Handler) folders(w http.ResponseWriter, r *http.Request) {
 	// followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]folderDTO, 0, len(folders))
@@ -348,12 +344,12 @@ type trackDTO struct {
 func (h *Handler) tracks(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
 	if err != nil {
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]trackDTO, 0, len(rows))
@@ -424,6 +420,13 @@ func validateUpdateRequest(body updateRequest) string {
 	if body.LibraryID == 0 || len(body.Paths) == 0 {
 		return "library_id and paths are required"
 	}
+	// Every field in `fields` is an optional pointer, so an omitted `fields`
+	// key and a present-but-empty `fields: {}` both decode to the zero value:
+	// a request that writes nothing yet reports every row ok. The spec marks
+	// fields required; reject the no-op so contract and behavior agree.
+	if body.Fields == (fields{}) {
+		return "fields must set at least one value to write"
+	}
 	// MB-ID maps are keyed by the current artist names; changing the name field
 	// in the same request would write a positionally-misaligned MB-ID tag.
 	// Reject so a corrupt tag is never written — the two edits must be saved
@@ -460,20 +463,27 @@ func validateUpdateRequest(body updateRequest) string {
 func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if msg := validateUpdateRequest(body); msg != "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", msg)
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", msg)
+		return
+	}
+	// Same defense-in-depth bound as every other paths[]-accepting endpoint
+	// (decodeSelection, identify, identify-album): well-formed but over the
+	// shared cap is a 422, not a 400.
+	if len(body.Paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return
 	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
+			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	patch := metadataedit.Patch{
@@ -503,7 +513,7 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	for _, p := range body.Paths {
 		abs, err := metadataedit.ResolveInLibrary(libModel.Path, p)
 		if err != nil {
-			writeErr(w, r, http.StatusBadRequest, "validation_error", err.Error())
+			httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
 		resolved = append(resolved, abs)

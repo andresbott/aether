@@ -119,7 +119,6 @@ func TestBuildTagMap_CompilationFalseWritesZero(t *testing.T) {
 	}
 }
 
-
 func TestBuildTagMap_ArtistMBID_AlignsByCurrentNames(t *testing.T) {
 	m := map[string]string{"Daft Punk": "id-dp", "Pharrell": "id-ph"}
 	patch := metadataedit.Patch{ArtistMBID: &m}
@@ -254,12 +253,12 @@ func TestWriteMetadata_RoundTripFLAC(t *testing.T) {
 	copyFileForWriter(t, src, dst)
 
 	patch := metadataedit.Patch{
-		Title:        strPtr("Round Trip"),
-		Album:        strPtr("Test Album"),
-		Artists:      &[]string{"First", "Second"},
-		AlbumArtists: &[]string{"Various"},
-		Year:         intPtr(1999),
-		DiscNumber:   intPtr(2),
+		Title:            strPtr("Round Trip"),
+		Album:            strPtr("Test Album"),
+		Artists:          &[]string{"First", "Second"},
+		AlbumArtists:     &[]string{"Various"},
+		Year:             intPtr(1999),
+		DiscNumber:       intPtr(2),
 		DiscSubtitle:     strPtr("Disc Two"),
 		Compilation:      boolPtr(true),
 		MBRecordingID:    strPtr("rec-uuid"),

@@ -12,12 +12,12 @@ import (
 // single-disc release can outrank a broader match by ~7 points (sizeFit 6 +
 // singleDisc 1) plus score differences.
 const (
-	weightCoverage    = 100.0
-	weightMeanScore   = 10.0
-	weightContiguity  = 8.0
-	weightSizeFit     = 6.0
-	weightAlbumTag    = 5.0
-	weightSingleDisc  = 1.0
+	weightCoverage   = 100.0
+	weightMeanScore  = 10.0
+	weightContiguity = 8.0
+	weightSizeFit    = 6.0
+	weightAlbumTag   = 5.0
+	weightSingleDisc = 1.0
 )
 
 // rankOptions sorts opts best-first, in place. It runs both before and after
