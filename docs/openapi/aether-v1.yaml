@@ -226,6 +226,7 @@ paths:
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/pictures/removals:
     post:
@@ -323,6 +324,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/folders:
     get:
@@ -425,7 +427,12 @@ paths:
             Still `UpdateTracksResponse`, still plain `application/json` —
             **not** `application/problem+json` — per the
             deliberate-exception note above; each row's own `error` carries
-            the per-file reason.
+            the per-file reason. This is the only `500` this operation
+            documents: a pre-row internal error (e.g. the `GetLibrary` DB
+            lookup failing for a reason other than "not found") also answers
+            `500`, but through the normal `httperr` path, so that response
+            is `application/problem+json` like every other `/api/v1`
+            internal error, not the `UpdateTracksResponse` shape below.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
@@ -522,6 +529,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/artist-folder:
     get:
@@ -630,6 +638,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
     delete:
       operationId: deleteArtistImage
       summary: Remove the selected artist folder's current portrait image.
@@ -705,6 +714,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /metadata/pictures/candidate-info:
     get:
@@ -740,6 +750,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /health:
     get:
@@ -754,6 +765,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/HealthStatus' }
+
   /version:
     get:
       operationId: getVersion
@@ -767,6 +779,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
+
   /me:
     get:
       operationId: getMe
@@ -1286,15 +1299,7 @@ paths:
             Station name to search for. Required: missing, absent, or
             whitespace-only answers 400 (validation_error).
           schema: { type: string }
-        - name: limit
-          in: query
-          required: false
-          description: >
-            Maximum number of results, default 10 when omitted. A
-            non-numeric or non-positive value answers 400
-            (validation_error); a value above 25 is not rejected — it is
-            silently capped to 25.
-          schema: { type: integer }
+        - $ref: '#/components/parameters/SearchLimit'
       responses:
         '200':
           description: >
@@ -1310,6 +1315,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /radiobrowser/favicon:
     get:
@@ -1356,6 +1362,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /musicbrainz/search:
     get:
@@ -1377,15 +1384,7 @@ paths:
             Artist name to search for. Required: missing, absent, or
             whitespace-only answers 400 (validation_error).
           schema: { type: string }
-        - name: limit
-          in: query
-          required: false
-          description: >
-            Maximum number of results, default 10 when omitted. A
-            non-numeric or non-positive value answers 400
-            (validation_error); a value above 25 is not rejected — it is
-            silently capped to 25.
-          schema: { type: integer }
+        - $ref: '#/components/parameters/SearchLimit'
       responses:
         '200':
           description: >
@@ -1404,6 +1403,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /musicbrainz/search/releases:
     get:
@@ -1424,15 +1424,7 @@ paths:
             Release title to search for. Required: missing, absent, or
             whitespace-only answers 400 (validation_error).
           schema: { type: string }
-        - name: limit
-          in: query
-          required: false
-          description: >
-            Maximum number of results, default 10 when omitted. A
-            non-numeric or non-positive value answers 400
-            (validation_error); a value above 25 is not rejected — it is
-            silently capped to 25.
-          schema: { type: integer }
+        - $ref: '#/components/parameters/SearchLimit'
       responses:
         '200':
           description: >
@@ -1449,6 +1441,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /musicbrainz/release-groups/{mbid}/genres:
     get:
@@ -1478,6 +1471,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /artists/{id}/mbid:
     get:
@@ -1599,6 +1593,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /artists/{id}/image-from-search:
     put:
@@ -1640,6 +1635,7 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
 
   /tasks:
     get:
@@ -1963,6 +1959,16 @@ components:
         shared `ResourceId` parameter — this group's `id` is a string, never
         an integer (see `listUsers`' schema for the source-of-truth field).
       schema: { type: string, format: uuid }
+    SearchLimit:
+      name: limit
+      in: query
+      required: false
+      description: >
+        Maximum number of results, default 10 when omitted. A
+        non-numeric or non-positive value answers 400
+        (validation_error); a value above 25 is not rejected — it is
+        silently capped to 25.
+      schema: { type: integer }
 
   schemas:
     Problem:
@@ -3289,6 +3295,7 @@ components:
         votes: { type: integer }
         uuid:
           type: string
+          format: uuid
           description: radio-browser.info's station id ("stationuuid" upstream) — the value to persist when importing this station.
       required: [name, streamUrl, homepage, favicon, tags, country, countryCode, language, codec, bitrate, votes, uuid]
 
@@ -3688,7 +3695,12 @@ components:
       description: >
         A third-party upstream service call failed. The same upstream
         classification can also surface as 504 on a timeout (still this
-        Problem shape).
+        Problem shape) — see `GatewayTimeout`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    GatewayTimeout:
+      description: A third-party upstream service timed out.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
