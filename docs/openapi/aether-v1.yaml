@@ -706,6 +706,192 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /libraries:
+    get:
+      operationId: listLibraries
+      summary: List every configured collection/library.
+      description: >
+        Admin. Includes both API-managed ("db") and config-file-provisioned
+        ("config") libraries — the two sources are additive, not exclusive,
+        so the UI can render config-provisioned rows locked (no edit/delete)
+        alongside editable ones. Unpaginated, like listUsers.
+      tags: [libraries]
+      responses:
+        '200':
+          description: Every configured library.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createLibrary
+      summary: Create a library owned by this API (source "db").
+      description: >
+        Admin. `name` and `path` are required: a missing value answers 400
+        (validation_error); a present-but-invalid one (name too long, or a
+        path that isn't an existing, readable directory) answers 422,
+        itemising `/name` or `/path`. `path` is resolved to an absolute
+        path server-side before being stored. `exclude_patterns`,
+        `default_view`, `icon` and `cover_style` are always optional, so
+        any failure on them (a regex that fails to compile, an unknown
+        view/style, an unusable icon name) is unconditionally 422 — never
+        400 — itemising the failing pointer.
+
+        Refused with 409 `config_managed` when the submitted `name` or
+        `path` is already owned by a config-provisioned library, distinct
+        from the plain 409 a duplicate against a db-owned library also
+        answers with (both share the `Conflict` response's generic Problem
+        shape).
+      tags: [libraries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryCreateRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Library' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /libraries/{id}:
+    get:
+      operationId: getLibrary
+      summary: Fetch one library.
+      description: >
+        Admin. `track_count` is computed fresh on every read (a live query
+        against the tracks table), not a cached column.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The library.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Library' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateLibrary
+      summary: Replace a library's editable fields.
+      description: >
+        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon`/
+        `cover_style` are always fully replaced by the submitted value
+        (empty/omitted `default_view`, `icon` and `cover_style` fall back
+        the same way createLibrary's do) — this is a full replace, not a
+        partial update. `follow_symlinks`/`show_artists` are the only true
+        tri-state fields here: omitted (or explicit null) keeps the
+        library's current stored value instead of resetting it — see
+        LibraryUpdateRequest.
+
+        Changing `path` wipes and re-scans the library's tracks; the
+        response's `path_changed` reports whether that happened, and is
+        present only then (omitempty on the handler's side) — never
+        present-and-false.
+
+        Refused with 409 `config_managed` for a config-provisioned library
+        — edit the Libraries section of config.yaml and restart instead.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryUpdateRequest' }
+      responses:
+        '200':
+          description: >
+            Updated. The Library shape plus `path_changed` — see the
+            operation description.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Library'
+                  - type: object
+                    properties:
+                      path_changed:
+                        type: boolean
+                        description: >
+                          True when this update changed `path`. Omitted
+                          entirely — not present-and-false — when the path
+                          was unchanged.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+    delete:
+      operationId: deleteLibrary
+      summary: Delete a library and its tracks.
+      description: >
+        Admin. Refused with 409 `config_managed` for a config-provisioned
+        library, for the same reason as updateLibrary.
+      tags: [libraries]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '204':
+          description: Deleted. No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /libraries/browse:
+    get:
+      operationId: browseLibraryPath
+      summary: List the immediate subdirectories of an absolute server path (the library path picker).
+      description: >
+        Admin. Backs the filesystem picker shown when creating or editing a
+        library. Unlike `listMetadataFolders`, this is not confined to any
+        library root — it has to work before a library exists — so `path`
+        here is an arbitrary absolute path on the server filesystem,
+        distinct from the metadata-browsing surface's library-relative
+        `path` (the shared `LibraryPath` parameter, confined to a library
+        root). Symlinked directories are listed and navigable
+        (`is_symlink`); the reported path is the one typed/followed, not
+        resolved, so pointing a library at a symlink keeps that symlink as
+        its stored path. Dot-directories are omitted unless `show_hidden`
+        is set.
+      tags: [libraries]
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: >
+            An absolute server filesystem path to list; defaults to "/".
+            See the operation description for how this differs from the
+            shared `LibraryPath` parameter.
+          schema: { type: string }
+        - name: show_hidden
+          in: query
+          required: false
+          description: Include dot-directories in the listing. Defaults to false.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: The requested directory's immediate subdirectories, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryBrowseResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1397,6 +1583,218 @@ components:
           description: >
             Omitted or blank leaves the role unchanged. Demoting the last
             remaining enabled admin is refused with 409 — see `updateUser`.
+
+    Library:
+      type: object
+      description: >
+        A collection/library row, as returned by listLibraries, getLibrary
+        and createLibrary; updateLibrary's response is this shape plus
+        `path_changed` (modeled inline on that operation, not here).
+      properties:
+        id: { type: integer, format: int64, minimum: 0 }
+        name: { type: string }
+        path: { type: string }
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: Regex patterns matched against each entry name during a scan.
+        follow_symlinks:
+          type: boolean
+          description: >
+            Always present here (unlike LibraryCreateRequest/
+            LibraryUpdateRequest, where the same field is an optional
+            tri-state pointer).
+        show_artists:
+          type: boolean
+          description: >
+            Positive-sense wire form of the store's inverted HideArtists
+            column. Always present here — see `follow_symlinks`.
+        default_view:
+          type: string
+          enum: [albums, artists]
+        icon:
+          type: string
+          description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          description: >
+            "auto" picks a covergen style deterministically per seed; the
+            other values pin one specific style.
+        source:
+          type: string
+          enum: [db, config]
+          description: >
+            "db": created and owned through this API. "config": declared in
+            the server config file and materialized here at startup —
+            read-only over this API (updateLibrary/deleteLibrary answer 409
+            `config_managed`).
+        last_scan_started_at:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null until a scan of this library has started.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+        - id
+        - name
+        - path
+        - exclude_patterns
+        - follow_symlinks
+        - show_artists
+        - default_view
+        - icon
+        - cover_style
+        - source
+        - last_scan_started_at
+        - created_at
+        - updated_at
+        - track_count
+
+    LibraryList:
+      type: object
+      properties:
+        libraries:
+          type: array
+          items: { $ref: '#/components/schemas/Library' }
+      required: [libraries]
+
+    LibraryCreateRequest:
+      type: object
+      description: >
+        `follow_symlinks`/`show_artists` are optional pointers: omitting
+        either here takes the create-time default (both true) — unlike
+        LibraryUpdateRequest, where omitting them means "keep current"
+        instead. The response always echoes the resolved value back as a
+        plain, always-present boolean (see `Library`).
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Required (400 if blank); over 200 characters is 422.
+        path:
+          type: string
+          description: >
+            Required (400 if blank). Resolved to an absolute path
+            server-side; must already exist and be a readable directory, or
+            this is 422.
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: >
+            Regex patterns matched against each entry name during a scan.
+            Omitted defaults to none. Each must compile as a Go regexp (422
+            itemising `/exclude_patterns` otherwise).
+        follow_symlinks:
+          type: boolean
+          description: Omitted defaults to true.
+        show_artists:
+          type: boolean
+          description: Omitted defaults to true.
+        default_view:
+          type: string
+          enum: [albums, artists]
+          default: albums
+          description: Omitted or empty defaults to "albums".
+        icon:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 100
+          default: folder
+          description: >
+            A PrimeIcons name without the "pi pi-" prefix, e.g.
+            "folder-open". Omitted or empty defaults to "folder".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          default: auto
+          description: Omitted or empty defaults to "auto".
+      required: [name, path]
+
+    LibraryUpdateRequest:
+      type: object
+      description: >
+        A full replace, not a partial update: `name`/`path`/
+        `exclude_patterns`/`default_view`/`icon`/`cover_style` are always
+        overwritten by the submitted value (empty/omitted `default_view`,
+        `icon` and `cover_style` fall back the same way
+        LibraryCreateRequest's do). `follow_symlinks`/`show_artists` are
+        the only true tri-state fields: omitted (or explicit null) keeps
+        the library's current stored value instead of resetting it.
+        Refused with 409 `config_managed` for a config-provisioned library.
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          description: Required (400 if blank); over 200 characters is 422.
+        path:
+          type: string
+          description: >
+            Required (400 if blank). Resolved to an absolute path
+            server-side; must already exist and be a readable directory, or
+            this is 422. Changing it wipes and re-scans the library's
+            tracks — see updateLibrary's `path_changed` response field.
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: >
+            Replaces the stored patterns entirely; omitted clears them to
+            none (this field is not tri-state). Each must compile as a Go
+            regexp (422 itemising `/exclude_patterns` otherwise).
+        follow_symlinks:
+          type: boolean
+          description: Omitted (or explicit null) keeps the library's current value.
+        show_artists:
+          type: boolean
+          description: Omitted (or explicit null) keeps the library's current value.
+        default_view:
+          type: string
+          enum: [albums, artists]
+          default: albums
+          description: Omitted or empty falls back to "albums".
+        icon:
+          type: string
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          maxLength: 100
+          default: folder
+          description: Omitted or empty falls back to "folder".
+        cover_style:
+          type: string
+          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
+          default: auto
+          description: Omitted or empty falls back to "auto".
+      required: [name, path]
+
+    LibraryBrowseResult:
+      type: object
+      properties:
+        path:
+          type: string
+          description: The requested directory, echoed back cleaned but not symlink-resolved.
+        folders:
+          type: array
+          items: { $ref: '#/components/schemas/BrowseFolder' }
+      required: [path, folders]
+
+    BrowseFolder:
+      type: object
+      description: >
+        One subdirectory found by browseLibraryPath. Distinct from the
+        metadata-browsing surface's `Folder` schema: that one is
+        library-relative and has no `is_symlink`, since it never crosses
+        one; this one browses arbitrary absolute server paths and does.
+      properties:
+        name: { type: string }
+        path:
+          type: string
+          description: Absolute server path (the parent directory joined with name).
+        has_subfolders: { type: boolean }
+        is_symlink: { type: boolean }
+      required: [name, path, has_subfolders, is_symlink]
 
   responses:
     BadRequest:
