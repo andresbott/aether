@@ -400,9 +400,10 @@ paths:
         are the one deliberate exception." A malformed request (bad JSON, an
         invalid field combination, an unknown library, a path outside the
         library root) still fails before any row is attempted and answers
-        the normal `application/problem+json` 400/404 below. Unlike the
-        other selection endpoints on this surface, `paths` here carries no
-        server-side `maxItems` cap.
+        the normal `application/problem+json` 400/404 below; so does a
+        `paths` selection over the shared `maxSelectionPaths` cap (50, the
+        same bound the picture-selection endpoints enforce), which answers
+        422 `ValidationProblem`, itemising `/paths`.
       tags: [metadata-browse]
       requestBody:
         required: true
@@ -421,6 +422,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '500':
           description: >
             Every file in the batch failed to write; no rescan is attempted.
@@ -2368,10 +2370,11 @@ components:
           type: array
           items: { type: string }
           minItems: 1
+          maxItems: 50
           description: >
-            Selected track paths, library-relative. Unlike the
-            picture-selection endpoints, not capped at `maxItems: 50` — the
-            handler enforces no upper bound here.
+            Selected track paths, library-relative. Capped at the same
+            `maxSelectionPaths` (50) as the picture-selection endpoints — an
+            oversized selection answers 422, itemising `/paths`.
         fields: { $ref: '#/components/schemas/UpdateTracksFields' }
       required: [library_id, paths, fields]
 

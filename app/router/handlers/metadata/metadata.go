@@ -467,6 +467,13 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
+	// Same defense-in-depth bound as every other paths[]-accepting endpoint
+	// (decodeSelection, identify, identify-album): well-formed but over the
+	// shared cap is a 422, not a 400.
+	if len(body.Paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
+		return
+	}
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
