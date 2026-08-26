@@ -13,19 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
-	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/glebarez/sqlite"
-	"github.com/go-bumbu/userauth/auth/cookieauth"
-	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // This file is the response-contract test: it drives real /api/v1 requests
@@ -165,72 +154,18 @@ func mustJSON(t *testing.T, v any) []byte {
 }
 
 // newContractTaskRouter builds a native-auth MainAppHandler with the task
-// runner and schedule store both wired — the one piece newNativeAuthRouter
-// (auth_test.go) leaves unset, and attachApiV1 (api_v1.go) gates the entire
-// /tasks group on a non-nil task runner — logged in as the sole admin user
-// so every call site here can attach the session immediately. Runner tasks
-// are never actually started (no Runner.Start()/RegisterTask call): AddRun
-// only enqueues by name (internal/taskrunner, github.com/go-bumbu/tempo's
-// TaskQueue.Add), so triggerTask's immediate HTTP response — the only thing
-// this file asserts about it — needs no registered task function.
+// runner and schedule store both wired, via withTaskRunner (auth_test.go) —
+// the one piece newNativeAuthRouter otherwise leaves unset, and attachApiV1
+// (api_v1.go) gates the entire /tasks group on a non-nil task runner —
+// logged in as the sole admin user so every call site here can attach the
+// session immediately. Runner tasks are never actually started (no
+// Runner.Start()/RegisterTask call): AddRun only enqueues by name
+// (internal/taskrunner, github.com/go-bumbu/tempo's TaskQueue.Add), so
+// triggerTask's immediate HTTP response — the only thing this file asserts
+// about it — needs no registered task function.
 func newContractTaskRouter(t *testing.T) (*MainAppHandler, func(*http.Request)) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := users.CreateUser(userdb.User{LoginID: "alice", Pw: "secret", Enabled: true, Groups: []string{usersHandler.AdminGroup}}); err != nil {
-		t.Fatal(err)
-	}
-	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cookieStore.Options.Secure = false
-	sessions, err := cookieauth.New(cookieauth.Cfg{
-		Store:         cookieStore,
-		SessionDur:    time.Hour,
-		MaxSessionDur: 24 * time.Hour,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cipher, err := pat.NewAESGCMCipher(bytes.Repeat([]byte{0x42}, 32), "k1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner, err := taskrunner.NewRunner(taskrunner.Cfg{DB: db})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scheduleStore, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(Cfg{
-		AuthMethod:    "native",
-		Users:         users,
-		Sessions:      sessions,
-		Tokens:        tokens,
-		Store:         store.New(db),
-		TaskRunner:    runner,
-		ScheduleStore: scheduleStore,
-		DataDir:       t.TempDir(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	h, _ := newNativeAuthRouter(t, withTaskRunner)
 	_, attach := doLogin(t, h, "alice", "secret")
 	return h, attach
 }

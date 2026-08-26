@@ -137,9 +137,6 @@ func walkMaximalAPIV1Routes(t *testing.T, root *mux.Router) map[apiV1Route]bool 
 		if err != nil {
 			return nil
 		}
-		if tmpl != apiV1MountPrefix && !strings.HasPrefix(tmpl, apiV1MountPrefix+"/") {
-			return nil // defensive: nothing walked here should be outside /api/v1
-		}
 		methods, err := route.GetMethods()
 		if err != nil {
 			return nil // no bound method: the catch-all or the mount point itself
