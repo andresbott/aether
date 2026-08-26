@@ -14,18 +14,11 @@ info:
     client does not consume one).
 
 
-    **Seed scope.** This document currently specs only the metadata editor's
-    picture and raw-tag surface (`/metadata/pictures/*`, `/metadata/tracks/raw-tags`,
-    `/metadata/folders`, `/metadata/tracks`) as it exists after the
-    header-safe redesign — see
-    `docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md`.
-    The rest of `/api/v1` — artists, users, tasks, tokens, radiobrowser, auth,
-    libraries, health/version/me, and the remaining `/metadata/*` endpoints
-    (`capabilities`, `identify`, `identify-album`, the `PUT /metadata/tracks`
-    structured editor write) — is real and mounted (see
-    `app/router/api_v1.go`) but not yet described here. Extending this
-    document to cover it is the standing "align v1 with OpenAPI" initiative
-    (see `TODO.md`), not part of this seed.
+    **Scope.** This document describes the full `/api/v1` surface as mounted
+    in `app/router/api_v1.go`: the metadata editor (pictures, raw tags,
+    folder/track browsing, identify and identify-album, artist images),
+    artists, users, tasks, tokens, radiobrowser, auth, libraries, and
+    health/version/me.
 servers:
   - url: /api/v1
     description: >
@@ -372,9 +365,7 @@ paths:
       operationId: listMetadataTracks
       summary: Tracks in a library directory, with their current tags.
       description: >
-        The structured editor's read side (the write side, `PUT
-        /metadata/tracks`, is out of this seed's scope — see the top-level
-        description).
+        The structured editor's read side.
       tags: [metadata-browse]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
@@ -2629,6 +2620,12 @@ components:
         (validation_error) below this schema's own inherited `minItems: 1`.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
+        - type: object
+          properties:
+            paths:
+              type: array
+              items: { type: string }
+              minItems: 2
 
     IdentifyAlbumResult:
       type: object
@@ -2824,7 +2821,11 @@ components:
 
     MintTokenRequest:
       type: object
-      description: Identifies the first-party app instance minting its own session token.
+      description: >
+        Identifies the first-party app instance minting its own session
+        token. camelCase (SPA session/device bootstrap contract) —
+        `deviceId`/`deviceName` are the SPA's own field names, unlike the
+        snake_case convention used elsewhere on this surface.
       properties:
         deviceId:
           type: string
@@ -2844,7 +2845,10 @@ components:
 
     MintTokenResult:
       type: object
-      description: The plaintext `token` appears here and nowhere else.
+      description: >
+        The plaintext `token` appears here and nowhere else. camelCase (SPA
+        session/device bootstrap contract), unlike the snake_case convention
+        used elsewhere on this surface.
       properties:
         token: { type: string }
         tokenId: { type: string }
@@ -2855,7 +2859,9 @@ components:
       type: object
       description: >
         A token as the management endpoints report it — metadata only,
-        never the hash/secret.
+        never the hash/secret. camelCase (SPA session/device bootstrap
+        contract), unlike the snake_case convention used elsewhere on this
+        surface.
       properties:
         tokenId: { type: string }
         name: { type: string }
@@ -2890,6 +2896,9 @@ components:
 
     CreateTokenRequest:
       type: object
+      description: >
+        camelCase (SPA session/device bootstrap contract), unlike the
+        snake_case convention used elsewhere on this surface.
       properties:
         name: { type: string }
         type:
@@ -2911,7 +2920,9 @@ components:
         `username` always equals `tokenId`. Both are entirely absent (not
         null) for the default "apikey" type. Unlike `TokenInfo`, this shape
         has no `lastUsedAt`: createToken builds its response directly rather
-        than from the DTO listTokens uses.
+        than from the DTO listTokens uses. camelCase (SPA session/device
+        bootstrap contract), unlike the snake_case convention used elsewhere
+        on this surface.
       properties:
         token: { type: string }
         tokenId: { type: string }
@@ -3660,22 +3671,22 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     UnprocessableEntity:
       description: >
-        Well-formed but invalid (over a size cap, an unknown type/slot, an
-        empty selection).
+        The request is well-formed but semantically invalid (over a size
+        cap, an unknown type/slot, an empty selection); `errors` itemises
+        the failing fields.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ValidationProblem' }
     TooManyRequests:
-      description: The Cover Art Archive is rate-limiting Aether's upstream calls.
+      description: A third-party upstream service is rate-limiting Aether's requests.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     UpstreamError:
       description: >
-        The Cover Art Archive call failed. The same upstream classification
-        can also surface as 504 on a timeout (still this Problem shape) —
-        this seed only names the 502 case, matching the current handlers'
-        most common failure.
+        A third-party upstream service call failed. The same upstream
+        classification can also surface as 504 on a timeout (still this
+        Problem shape).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -3693,7 +3704,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: The request conflicts with server state (e.g. a config-managed library cannot be modified).
+      description: The request conflicts with current server state.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
