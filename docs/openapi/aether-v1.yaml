@@ -1268,6 +1268,266 @@ paths:
         '502': { $ref: '#/components/responses/UpstreamError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /tasks:
+    get:
+      operationId: listTasks
+      summary: List every registered task, with its schedule if one is configured.
+      description: >
+        Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
+        fixed set of tasks aether ships today (scan, scan-full,
+        fetch-artist-images) — not a user-extensible registry, so there is
+        no create/delete for the task definitions themselves, only for their
+        schedules.
+      tags: [tasks]
+      responses:
+        '200':
+          description: Every task definition, joined with its schedule where one exists.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{name}:
+    get:
+      operationId: getTask
+      summary: Fetch one task definition and its schedule, if any.
+      description: >
+        Admin. Bare `Task` — unlike `listTasks`, the response is not wrapped
+        in an envelope object. See the `Task` schema for the anonymous-embed
+        flattening (`TaskWithSchedule` embeds `apptasks.TaskDef`) this
+        response relies on.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: >
+            The task's stable id (e.g. "scan"), not its display name.
+            Deliberately not the shared `ResourceId` parameter — task ids
+            are opaque strings, never numeric.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The task and its schedule, if one is configured.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: upsertTaskSchedule
+      summary: Create or fully replace a task's schedule.
+      description: >
+        Admin. Bare `Task`, like `getTask` — not wrapped. Creates the
+        schedule when the task has none yet, otherwise replaces it outright.
+        `cron_expression` is required (blank answers 400); a 5-field value
+        is normalized by prepending a "0" seconds field. `enabled` omitted
+        defaults to true — a plain default, not "leave unchanged" (contrast
+        `patchTaskSchedule`, which is genuinely tri-state). Answers 404 for
+        an unknown task id, and 503 when the schedule store is unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertTaskScheduleRequest' }
+      responses:
+        '200':
+          description: The task with its newly-saved schedule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    patch:
+      operationId: patchTaskSchedule
+      summary: Partially update an existing task's schedule.
+      description: >
+        Admin. Bare `Task`, like `getTask`. Genuinely tri-state: both
+        `cron_expression` and `enabled` are optional, and omitting either
+        (or sending it explicit null) leaves that attribute unchanged — see
+        `PatchTaskScheduleRequest`. Requires a schedule to already exist:
+        answers 404 both for an unknown task id and for a known task with no
+        schedule yet (create one first with `upsertTaskSchedule`); the two
+        causes are not distinguished. Answers 503 when the schedule store is
+        unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchTaskScheduleRequest' }
+      responses:
+        '200':
+          description: The task with its updated schedule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      operationId: deleteTaskSchedule
+      summary: Remove a task's schedule (the task definition itself is never deletable).
+      description: >
+        Admin. Answers 404 both for an unknown task id and for a known task
+        with no schedule to delete — the two causes are not distinguished,
+        like `patchTaskSchedule`. Answers 503 when the schedule store is
+        unavailable.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      responses:
+        '204':
+          description: Schedule deleted. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /tasks/{name}/trigger:
+    post:
+      operationId: triggerTask
+      summary: Enqueue an ad hoc run of a task, independent of its schedule.
+      description: >
+        Admin. Works whether or not the task has a schedule configured — a
+        manual "run now", unrelated to `upsertTaskSchedule`. Answers 404 for
+        an unknown task id. Answers 429 when the run queue is full
+        (`taskrunner.ErrQueueFull`): this is the one operation on this
+        surface where the handler calls `httperr.Write` directly instead of
+        a bare `http.Error`, and it uses its own `queue_full` Problem type
+        slug rather than the router-level error envelope's generic
+        `rate_limited` slug a plain 429 would otherwise be given — see the
+        429 response below.
+      tags: [tasks]
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The task's stable id. See `getTask`.
+          schema: { type: string }
+      responses:
+        '202':
+          description: Enqueued; the run has not necessarily started yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TriggerTaskResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: >
+            The run queue is full. Unlike every other Problem on this
+            surface, `type` here is
+            "https://aether.local/probs/queue_full" — a handler-authored
+            slug, not the generic `rate_limited` a bare `http.Error(w, ...,
+            429)` would receive from the router's error envelope.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /tasks/executions:
+    get:
+      operationId: listTaskExecutions
+      summary: Task run history — queued, running, and finished executions.
+      description: >
+        Admin. Bounded by the runner's history size
+        (`taskrunner.Cfg.HistorySize`, default 20) — not a paginated,
+        unbounded log. Ordered newest-queued first.
+      tags: [tasks]
+      responses:
+        '200':
+          description: The run history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskExecutionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/executions/{id}/cancel:
+    post:
+      operationId: cancelTaskExecution
+      summary: Cancel a queued or running task execution.
+      description: >
+        Admin. A waiting execution is canceled outright; a running one is
+        asked to stop via context cancellation. Answers 409 — not 404 — for
+        an execution id that does not exist at all: the handler maps every
+        failure from the underlying cancel call (unknown id, or an
+        already-terminal execution that cannot be canceled) to the same
+        Conflict response, without distinguishing them.
+      tags: [tasks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: >
+            The execution id, as returned by `triggerTask`'s
+            `execution_id` or `listTaskExecutions`' `id`.
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Canceled (or cancellation requested). No body.
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /tasks/executions/{id}/logs:
+    get:
+      operationId: getTaskExecutionLog
+      summary: The captured log output of one task execution.
+      description: >
+        Admin. `text/plain`, not JSON — the one response on this surface
+        that isn't `application/json`/`application/problem+json`. Answers
+        503 when no log sink is configured for this deployment
+        (`TaskLogGetter` unset). A read failure for an id that does not
+        exist, or whose log file is no longer on disk, answers 500 rather
+        than 404 — the handler does not distinguish the two — and, like
+        every other 500 on this surface, is not itemized as a documented
+        response here.
+      tags: [tasks]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: >
+            The execution id, as returned by `triggerTask`'s
+            `execution_id` or `listTaskExecutions`' `id`.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The execution's captured log output.
+          content:
+            text/plain:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -2426,6 +2686,158 @@ components:
             Always true in a 200 response — a failed store answers an
             error response instead.
       required: [stored]
+
+    TaskSchedule:
+      type: object
+      description: >
+        A task's stored schedule — `taskrunner.Schedule`
+        (internal/taskrunner/schedule.go:11-18), an external type embedded
+        by reference (not flattened) as `Task.schedule`.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The schedule row's own id — distinct from the owning task's `id` (a string).
+        task_name:
+          type: string
+          description: The owning task's stable id (matches `Task.id`).
+        cron_expression:
+          type: string
+          description: >
+            A 5 or 6-field cron expression. A submitted 5-field value is
+            normalized by prepending a "0" seconds field before storage, so
+            a read-back value is always 6-field.
+          example: "0 0 0 * * *"
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      required: [id, task_name, cron_expression, enabled, created_at, updated_at]
+
+    Task:
+      type: object
+      description: >
+        A task definition combined with its schedule, if configured
+        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:24-27).
+        `id`/`name`/`description` are not nested fields on the handler
+        struct — they come from `apptasks.TaskDef` (app/tasks/tasks.go:4-8),
+        anonymously embedded, so Go's `encoding/json` flattens them directly
+        onto this object. Returned bare by `getTask`/`upsertTaskSchedule`/
+        `patchTaskSchedule`; wrapped in `TaskList` by `listTasks`.
+      properties:
+        id:
+          type: string
+          description: Stable task identifier.
+          example: scan
+        name:
+          type: string
+          description: Human-readable display name.
+          example: Library Scan
+        description:
+          type: string
+          example: "Incremental scan -- only re-reads tracks modified since last scan"
+        schedule:
+          description: >
+            Present only when a schedule has been configured for this task
+            (via `upsertTaskSchedule`); entirely absent — not null — for a
+            task with none, since the Go field is `*taskrunner.Schedule`
+            with `omitempty`.
+          allOf:
+            - $ref: '#/components/schemas/TaskSchedule'
+      required: [id, name, description]
+
+    TaskList:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+      required: [tasks]
+
+    UpsertTaskScheduleRequest:
+      type: object
+      description: >
+        Full create-or-replace body for `upsertTaskSchedule`. `enabled`
+        omitted defaults to true — a plain default, not "leave unchanged";
+        contrast `PatchTaskScheduleRequest`.
+      properties:
+        cron_expression:
+          type: string
+          description: >
+            Required: blank answers 400. A 5 or 6-field cron expression —
+            see `TaskSchedule.cron_expression`.
+          example: "0 0 0 * * *"
+        enabled:
+          type: boolean
+          default: true
+          description: Omitted defaults to true.
+      required: [cron_expression]
+
+    PatchTaskScheduleRequest:
+      type: object
+      description: >
+        Tri-state partial update for `patchTaskSchedule`: both properties
+        are optional, backing pointer fields
+        (`PatchTaskRequest.CronExpression *string`, `.Enabled *bool` —
+        app/router/handlers/tasks/tasks.go:200-203). Omitting a field, or
+        sending it explicit null, leaves that attribute unchanged — unlike
+        `UpsertTaskScheduleRequest.enabled`, which defaults rather than
+        preserves. Requires an existing schedule; see `patchTaskSchedule`.
+      properties:
+        cron_expression:
+          type: string
+          description: Omitted (or explicit null) leaves the current cron expression unchanged.
+          example: "0 0 0 * * *"
+        enabled:
+          type: boolean
+          description: Omitted (or explicit null) leaves the current enabled state unchanged.
+
+    TriggerTaskResult:
+      type: object
+      properties:
+        execution_id:
+          type: string
+          format: uuid
+          description: The newly-queued execution's id — pass to `cancelTaskExecution`/`getTaskExecutionLog`.
+      required: [execution_id]
+
+    TaskExecution:
+      type: object
+      description: >
+        One task run — `taskrunner.ExecutionInfo`
+        (internal/taskrunner/runner.go:136-143), an external type.
+      properties:
+        id: { type: string, format: uuid }
+        task_name:
+          type: string
+          description: The owning task's stable id (matches `Task.id`).
+        status:
+          type: string
+          enum: [waiting, running, complete, failed, panicked, canceled, cancel_error]
+          description: Stringized status enum (`tempo.TaskStatus.Str()`).
+        queued_at: { type: string, format: date-time }
+        started_at:
+          type: string
+          format: date-time
+          description: >
+            Absent — not null — until the run starts: the Go field is
+            `*time.Time` with `omitempty`.
+        ended_at:
+          type: string
+          format: date-time
+          description: >
+            Always present, even before the run has ended — the Go field
+            has no `omitempty`; it holds the zero time
+            ("0001-01-01T00:00:00Z") until the run finishes.
+      required: [id, task_name, status, queued_at, ended_at]
+
+    TaskExecutionList:
+      type: object
+      properties:
+        executions:
+          type: array
+          items: { $ref: '#/components/schemas/TaskExecution' }
+      required: [executions]
 
   responses:
     BadRequest:
