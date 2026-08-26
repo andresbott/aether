@@ -424,6 +424,13 @@ func validateUpdateRequest(body updateRequest) string {
 	if body.LibraryID == 0 || len(body.Paths) == 0 {
 		return "library_id and paths are required"
 	}
+	// Every field in `fields` is an optional pointer, so an omitted `fields`
+	// key and a present-but-empty `fields: {}` both decode to the zero value:
+	// a request that writes nothing yet reports every row ok. The spec marks
+	// fields required; reject the no-op so contract and behavior agree.
+	if body.Fields == (fields{}) {
+		return "fields must set at least one value to write"
+	}
 	// MB-ID maps are keyed by the current artist names; changing the name field
 	// in the same request would write a positionally-misaligned MB-ID tag.
 	// Reject so a corrupt tag is never written — the two edits must be saved

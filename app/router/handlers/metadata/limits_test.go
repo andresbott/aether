@@ -65,7 +65,15 @@ func TestCapAppliesUniformly(t *testing.T) {
 	for i := range paths {
 		paths[i] = "album/" + strconv.Itoa(i) + ".flac"
 	}
-	body, err := json.Marshal(map[string]any{"library_id": lib.ID, "paths": paths})
+	// updateTracks additionally requires a non-empty fields (a request that
+	// writes nothing is a 400, ahead of the cap check); the other four endpoints
+	// ignore the extra key, so one shared body still reaches every endpoint's
+	// paths[] cap.
+	body, err := json.Marshal(map[string]any{
+		"library_id": lib.ID,
+		"paths":      paths,
+		"fields":     map[string]any{"title": "x"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
