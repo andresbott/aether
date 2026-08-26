@@ -40,6 +40,22 @@ tags:
     description: Raw, unfiltered tag access for the metadata editor.
   - name: metadata-browse
     description: Folder/track browsing that backs the metadata editor's file picker.
+  - name: bootstrap
+    description: Unauthenticated bootstrap — health, build info, and the SPA's identity/feature probe.
+  - name: auth
+    description: Session login and logout (public).
+  - name: tokens
+    description: API token minting and management for `/rest` clients (any authenticated user).
+  - name: users
+    description: Native user account management (admin).
+  - name: tasks
+    description: Scheduled task management, triggering and execution history (admin).
+  - name: libraries
+    description: Collection/library CRUD and filesystem browse (admin).
+  - name: artists
+    description: Artist MusicBrainz lookup and image management (admin).
+  - name: radiobrowser
+    description: Radio station search and favicon proxy via the Radio Browser API (admin).
 security:
   - sessionCookie: []
 
@@ -391,6 +407,18 @@ components:
         A directory, library-relative; empty/omitted defaults to the library
         root. Resolved lexically against the library root — an absolute path,
         or one that escapes the root, answers 400.
+      schema: { type: string }
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      description: Numeric resource id.
+      schema: { type: integer, format: int64, minimum: 0 }
+    MbId:
+      name: mbid
+      in: path
+      required: true
+      description: A MusicBrainz identifier.
       schema: { type: string }
 
   schemas:
@@ -755,6 +783,24 @@ components:
         can also surface as 504 on a timeout (still this Problem shape) —
         this seed only names the 502 case, matching the current handlers'
         most common failure.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: No valid session (native mode) — the caller must authenticate.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Authenticated but not permitted (admin required, or the user is disabled).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: The request conflicts with server state (e.g. a config-managed library cannot be modified).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

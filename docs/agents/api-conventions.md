@@ -31,13 +31,20 @@ incident + design reasoning:
 Anything that needs to carry a list — a track selection, a batch of ids —
 travels in a request body, never the URL.
 
-**The one exception:** `GET /metadata/pictures/image` stays a GET with a
-query, because a browser can only `GET` an image for an `<img src>`. It is
-still O(1) and header-safe: it carries a single already-resolved `file` (a
-library-relative path, picked out of an inventory response), never the
-selection that produced it. This is the only precedent for a query param on
-a `GET`/`DELETE`, and it doesn't generalize — don't cite it to justify a
-second one.
+**The sanctioned exception shape:** a single, already-resolved scalar a
+client got from a prior response — never a variable-length list — may ride
+along as a `GET`/`DELETE` query param. `GET /metadata/pictures/image` is the
+worked example: it stays a GET with a query because a browser can only `GET`
+an image for an `<img src>`. It is still O(1) and header-safe: it carries a
+single already-resolved `file` (a library-relative path, picked out of an
+inventory response), never the selection that produced it. `GET
+/radiobrowser/favicon?url=` and the two `candidate-info?url=` endpoints
+(`/metadata/pictures/candidate-info`, `/metadata/artist-image/candidate-info`)
+follow the same pattern — each takes one already-resolved URL a prior
+response handed back, not a list. None of this loosens the array
+prohibition above: a scalar picked from a prior response is still a scalar,
+not a list, and a repeated/array parameter remains barred on every
+`GET`/`DELETE` here.
 
 **Enforcement:** `.spectral.yaml`'s `no-array-in-get-delete-url` and
 `array-query-needs-maxitems` rules, run by `make spec-lint` (part of `make
