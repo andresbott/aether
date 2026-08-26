@@ -2929,17 +2929,20 @@ components:
         pair a Subsonic `u`+`t`+`s`/`u`+`p` client consumes; `username`
         always equals `tokenId`; both are entirely absent (not null) for the
         default "apikey" type. Modelled as `allOf` of the fields common to
-        both types plus a `oneOf` split on `type`, not `if`/`then` on that
-        field: kin-openapi's `VisitJSON` — the validator
+        both types plus a `oneOf` split on `type`: the "usertoken" variant
+        requires both `username` and `password`; the "apikey" variant
+        forbids them outright (`not`/`anyOf` over `required`), so a response
+        carrying the wrong credential shape for its own `type` — missing
+        them for "usertoken", or carrying them for "apikey" — fails
+        validation either way under kin-openapi's `VisitJSON` +
+        `EnableJSONSchema2020()` (the validator
         `openapi_response_contract_test.go` checks every captured response
-        body against — parses `if`/`then`/`else` but never evaluates them
-        against an instance, so that form would lint clean yet enforce
-        nothing; `oneOf` is actually applied by `visitXOFOperations` and so
-        is the only shape here a wrong/missing `username`/`password` fails
-        under. Unlike `TokenInfo`, this shape has no `lastUsedAt`:
-        createToken builds its response directly rather than from the DTO
-        listTokens uses. camelCase (SPA session/device bootstrap contract),
-        unlike the snake_case convention used elsewhere on this surface.
+        body against; see `TestCreateTokenResultRejectsCredentialTypeMismatch`
+        there for a negative-case proof of both directions). Unlike
+        `TokenInfo`, this shape has no `lastUsedAt`: createToken builds its
+        response directly rather than from the DTO listTokens uses.
+        camelCase (SPA session/device bootstrap contract), unlike the
+        snake_case convention used elsewhere on this surface.
       allOf:
         - type: object
           description: Fields present on every createToken response, regardless of `type`.
@@ -2962,10 +2965,17 @@ components:
           required: [token, tokenId, name, kind, type, createdAt, expiresAt]
         - oneOf:
             - type: object
-              description: The default "apikey" type — `username`/`password` are absent entirely.
+              description: >
+                The default "apikey" type — `username`/`password` must be
+                absent entirely, enforced (not just undocumented) via
+                `not`/`anyOf` over `required`.
               properties:
                 type: { type: string, enum: [apikey] }
               required: [type]
+              not:
+                anyOf:
+                  - required: [username]
+                  - required: [password]
             - type: object
               description: >
                 The "usertoken" type. `username`/`password` are the

@@ -384,6 +384,64 @@ func TestContractTokensCreateAndList(t *testing.T) {
 	assertJSONResponse(t, doc, "listTokens", http.StatusOK, w)
 }
 
+// TestCreateTokenResultRejectsCredentialTypeMismatch proves the
+// CreateTokenResult oneOf split (aether-v1.yaml) is an enforced "iff", not
+// merely documented prose: a synthetic "apikey" body wrongly carrying
+// username/password is REJECTED (the gap #5 closed — the apikey oneOf
+// variant now forbids them via not/anyOf over required, not just omits them
+// from its own properties), a synthetic "usertoken" body missing them is
+// REJECTED, and a clean body of either shape PASSES. Validates directly
+// against the schema with the exact same call assertJSONResponse makes
+// (schema.VisitJSON + EnableJSONSchema2020()), so this exercises the actual
+// validator/dialect real responses are checked against — kin-openapi's
+// EnableJSONSchema2020 path compiles the schema with
+// github.com/santhosh-tekuri/jsonschema/v6 (a JSON Schema 2020-12 engine
+// that does evaluate if/then/else and every XOF keyword), not the legacy
+// pre-3.1 visitJSON/visitXOFOperations code path, which is only a fallback
+// used when that compilation itself fails.
+func TestCreateTokenResultRejectsCredentialTypeMismatch(t *testing.T) {
+	doc := specDoc(t)
+	schema := responseSchema(t, doc, "createToken", http.StatusCreated, "application/json")
+
+	valid := func(name string, body map[string]any) {
+		t.Run(name, func(t *testing.T) {
+			if err := schema.VisitJSON(body, openapi3.EnableJSONSchema2020()); err != nil {
+				t.Fatalf("expected a valid CreateTokenResult, got: %v\nbody: %+v", err, body)
+			}
+		})
+	}
+	invalid := func(name string, body map[string]any) {
+		t.Run(name, func(t *testing.T) {
+			if err := schema.VisitJSON(body, openapi3.EnableJSONSchema2020()); err == nil {
+				t.Fatalf("expected CreateTokenResult validation to reject this body, but it passed: %+v", body)
+			}
+		})
+	}
+
+	valid("apikey without credentials passes", map[string]any{
+		"token": "aether-abc123", "tokenId": "abc123", "name": "contract-test",
+		"kind": "client", "type": "apikey",
+		"createdAt": "2026-01-01T00:00:00Z", "expiresAt": nil,
+	})
+	invalid("apikey wrongly carrying username/password is rejected", map[string]any{
+		"token": "aether-abc123", "tokenId": "abc123", "name": "contract-test",
+		"kind": "client", "type": "apikey",
+		"createdAt": "2026-01-01T00:00:00Z", "expiresAt": nil,
+		"username": "abc123", "password": "secret",
+	})
+	valid("usertoken with both credentials passes", map[string]any{
+		"token": "aether-abc123", "tokenId": "abc123", "name": "contract-test",
+		"kind": "client", "type": "usertoken",
+		"createdAt": "2026-01-01T00:00:00Z", "expiresAt": nil,
+		"username": "abc123", "password": "secret",
+	})
+	invalid("usertoken missing username/password is rejected", map[string]any{
+		"token": "aether-abc123", "tokenId": "abc123", "name": "contract-test",
+		"kind": "client", "type": "usertoken",
+		"createdAt": "2026-01-01T00:00:00Z", "expiresAt": nil,
+	})
+}
+
 // --- Tasks: the flattened-embed + wrapped-vs-bare Task shapes, an empty
 // envelope before any run, and the populated one after ---
 
