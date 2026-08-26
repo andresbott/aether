@@ -984,6 +984,290 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '502': { $ref: '#/components/responses/UpstreamError' }
 
+  /musicbrainz/search:
+    get:
+      operationId: searchMusicBrainzArtists
+      summary: Search MusicBrainz for artists by name.
+      description: >
+        Admin. Proxies an artist-name search to the MusicBrainz web service
+        server-side (`internal/artistimage.MusicBrainzSearch`), feeding the
+        artist editor's manual "set MBID" flow. MusicBrainz needs no API
+        key, so — unlike `listArtistImageCandidates`/
+        `setArtistImageFromSearch` below — this has no `not_configured`
+        response.
+      tags: [artists]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Artist name to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          description: >
+            Maximum number of results, default 10 when omitted. A
+            non-numeric or non-positive value answers 400
+            (validation_error); a value above 25 is not rejected — it is
+            silently capped to 25.
+          schema: { type: integer }
+      responses:
+        '200':
+          description: >
+            Matching artists, MusicBrainz's own relevance order first.
+            Deliberate bare array (mirrors upstream), like
+            `listPictureCandidates` — not wrapped in an envelope object;
+            camelCase field names mirror the MusicBrainz-oriented
+            `internal/artistimage.Candidate` DTO.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MusicBrainzArtistCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /musicbrainz/search/releases:
+    get:
+      operationId: searchMusicBrainzReleases
+      summary: Search MusicBrainz for releases by name.
+      description: >
+        Admin. Feeds the album-identify picker's manual release search.
+        Each candidate carries both the release MBID and its parent
+        release-group MBID, so a single pick can set both tags at once. No
+        `not_configured` response — MusicBrainz needs no API key, see
+        `searchMusicBrainzArtists`.
+      tags: [artists]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Release title to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          description: >
+            Maximum number of results, default 10 when omitted. A
+            non-numeric or non-positive value answers 400
+            (validation_error); a value above 25 is not rejected — it is
+            silently capped to 25.
+          schema: { type: integer }
+      responses:
+        '200':
+          description: >
+            Matching releases, MusicBrainz's own relevance order first.
+            Deliberate bare array (mirrors upstream) — camelCase, nesting
+            one `ReleaseArtistCredit` per credited artist.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MusicBrainzReleaseCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /musicbrainz/release-groups/{mbid}/genres:
+    get:
+      operationId: getReleaseGroupGenres
+      summary: Genres MusicBrainz has tagged on a release group.
+      description: >
+        Admin. Ordered by MusicBrainz's own vote count, descending, and
+        capped at 10 entries — MusicBrainz tag lists can carry dozens of
+        low-vote entries. A `mbid` not matching the MusicBrainz identifier
+        format (a UUID) answers 400, before any upstream call.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/MbId'
+      responses:
+        '200':
+          description: >
+            Genre names, most-voted first. Deliberate bare array (mirrors
+            upstream), like `listPictureCandidates`. Never null — the
+            handler substitutes `[]` for a nil result before encoding.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /artists/{id}/mbid:
+    get:
+      operationId: getArtistMBID
+      summary: An artist's current MusicBrainz association.
+      description: >
+        Admin. Reads the artist's stored MusicBrainz association; see
+        `setArtistMBID` to change it. `mbArtistId` is empty, not omitted,
+        when the artist has no association.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The artist's MusicBrainz id.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistMbid' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: setArtistMBID
+      summary: Set (or clear) an artist's MusicBrainz association.
+      description: >
+        Admin. `mbid` empty clears the association and skips the image
+        fetch entirely; a non-empty value must match the MusicBrainz
+        identifier format (a UUID), or this answers 400. Setting a
+        non-empty `mbid` also triggers a one-shot auto-fetch of the
+        artist's image — its outcome is reported in the response's
+        `imageFetched`/`fetchError`, never as a request failure: the mbid
+        association is saved either way, including when artist-image
+        fetching has no provider configured. See `SetArtistMbidResult`.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetArtistMbidRequest' }
+      responses:
+        '200':
+          description: Saved. See `SetArtistMbidResult` for the auto-fetch outcome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetArtistMbidResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /artists/{id}/image-source:
+    get:
+      operationId: getArtistImageSource
+      summary: Where the image currently served for this artist comes from.
+      description: >
+        Admin. Mirrors `/rest`'s `getCoverArt` precedence: the asset store
+        (an upload or an auto-fetch) first, then a scanner-detected
+        artist.jpg/folder.jpg. A flat response shape, not `oneOf` —
+        `source` alone discriminates, and `path`/`filename` are always
+        present regardless of `source` (see `ArtistImageSource`).
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: The image source.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistImageSource' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /artists/image-candidates:
+    get:
+      operationId: listArtistImageCandidates
+      summary: Portrait images an image provider offers for a MusicBrainz artist.
+      description: >
+        Admin. Feeds the manual online image search: list every candidate
+        for a chosen MusicBrainz artist id, independent of any aether
+        artist record, then `setArtistImageFromSearch` stores one of these
+        for a specific artist. URLs only — the browser loads thumbnails
+        straight from the provider CDN, so this spends no server-side
+        image bandwidth. Registered ahead of `/artists/{id}/...` in the
+        router, but the order is not load-bearing: `{id}` is constrained
+        to digits, which "image-candidates" never matches. Answers 503
+        (`not_configured`) when no image-provider API key is configured —
+        unlike the MusicBrainz endpoints above, which need no key.
+      tags: [artists]
+      parameters:
+        - name: mbid
+          in: query
+          required: true
+          description: >
+            The MusicBrainz artist id to list candidate portraits for. A
+            query parameter, not the shared `MbId` path parameter. Missing
+            or not matching the MusicBrainz identifier format (a UUID)
+            answers 400 (validation_error).
+          schema: { type: string }
+      responses:
+        '200':
+          description: >
+            Candidate portraits. Deliberate bare array (mirrors upstream),
+            like `listPictureCandidates`; camelCase, like the MusicBrainz
+            search endpoints above. Never null — the handler always
+            builds a fresh slice before encoding.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ArtistImageCandidate' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /artists/{id}/image-from-search:
+    put:
+      operationId: setArtistImageFromSearch
+      summary: Store a chosen MusicBrainz artist's provider image for this artist.
+      description: >
+        Admin. Stores the pick as a **manual** upload, so it outranks
+        whatever the auto-fetch job puts in the auto slot for the same
+        artist and survives that job running again — it lands in the same
+        slot a normal upload would (the artist's own MBID when matched,
+        else its DB id), never under the *chosen* MBID, which is used
+        only to fetch: picking a portrait does not assert a metadata
+        match, so this never writes the artist's stored MusicBrainz
+        association. `url` must exactly equal one of the `url` values
+        `listArtistImageCandidates` just returned for `mbid` — the server
+        re-lists candidates and only downloads a URL it just offered
+        itself (SSRF guard); any other value answers 400, never fetched.
+        Answers 503 (`not_configured`) when no image-provider API key is
+        configured, and 404 both when the artist id does not exist and
+        when the provider's download yields no bytes.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/ResourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetArtistImageFromSearchRequest' }
+      responses:
+        '200':
+          description: Stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetImageFromSearchResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1927,6 +2211,222 @@ components:
           description: radio-browser.info's station id ("stationuuid" upstream) — the value to persist when importing this station.
       required: [name, streamUrl, homepage, favicon, tags, country, countryCode, language, codec, bitrate, votes, uuid]
 
+    MusicBrainzArtistCandidate:
+      type: object
+      description: >
+        One MusicBrainz artist search result
+        (`internal/artistimage.Candidate`). camelCase, like
+        `PictureCandidate`/`RadioStation` — a documented exception to this
+        surface's snake_case default, since the DTO mirrors a
+        MusicBrainz-shaped upstream. Every field is always present (no
+        `omitempty` in the Go struct); `disambiguation`, `lifeSpanBegin`
+        and `lifeSpanEnd` come back empty, not omitted, when MusicBrainz
+        has no value.
+      properties:
+        mbid: { type: string }
+        name: { type: string }
+        type:
+          type: string
+          description: >
+            MusicBrainz's own artist type (e.g. "Person", "Group"); empty
+            when MusicBrainz has none. Not a closed enum — this is
+            upstream, open-ended data.
+        disambiguation: { type: string }
+        lifeSpanBegin: { type: string }
+        lifeSpanEnd: { type: string }
+        score:
+          type: integer
+          description: MusicBrainz's own relevance score for this result.
+      required: [mbid, name, type, disambiguation, lifeSpanBegin, lifeSpanEnd, score]
+
+    ReleaseArtistCredit:
+      type: object
+      description: >
+        One credited artist on a release
+        (`internal/artistimage.ReleaseArtistCredit`): the credited-as name
+        (what gets written to the tag) and the artist's own MBID.
+        camelCase, like the enclosing `MusicBrainzReleaseCandidate`.
+      properties:
+        name: { type: string }
+        mbid: { type: string }
+      required: [name, mbid]
+
+    MusicBrainzReleaseCandidate:
+      type: object
+      description: >
+        One MusicBrainz release search result
+        (`internal/artistimage.ReleaseCandidate`). camelCase, like
+        `MusicBrainzArtistCandidate`. Carries both the release MBID and
+        its parent release-group MBID, so a single pick can set both a
+        MUSICBRAINZ_ALBUMID and a MUSICBRAINZ_RELEASEGROUPID tag. Every
+        field is always present (no `omitempty`).
+      properties:
+        releaseMbid: { type: string }
+        releaseGroupMbid: { type: string }
+        title: { type: string }
+        artist:
+          type: string
+          description: >
+            Every credited artist's name joined with MusicBrainz's own
+            join phrases, as one display string.
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ReleaseArtistCredit' }
+          description: The same artist credit, itemised — one entry per credited artist.
+        date: { type: string }
+        country: { type: string }
+        trackCount: { type: integer }
+        disambiguation: { type: string }
+        score:
+          type: integer
+          description: MusicBrainz's own relevance score for this result.
+      required:
+        - releaseMbid
+        - releaseGroupMbid
+        - title
+        - artist
+        - artists
+        - date
+        - country
+        - trackCount
+        - disambiguation
+        - score
+
+    ArtistMbid:
+      type: object
+      description: >
+        An artist's current MusicBrainz association, as returned by
+        `getArtistMBID`. camelCase (`mbArtistId`) — unlike
+        `MusicBrainzArtistCandidate` above, this is not a third-party
+        mirror; it is simply how `artists.go`'s `mbidResponse` was
+        authored, together with `SetArtistMbidResult` below. Documented
+        faithfully rather than "corrected", since the spec describes the
+        handler's actual wire shape.
+      properties:
+        mbArtistId:
+          type: string
+          description: Empty when the artist has no MusicBrainz association.
+      required: [mbArtistId]
+
+    SetArtistMbidRequest:
+      type: object
+      properties:
+        mbid:
+          type: string
+          description: >
+            A MusicBrainz artist identifier, or empty to clear the
+            artist's current association. A non-empty value that does not
+            match the MusicBrainz identifier format (a UUID) answers 400.
+      required: [mbid]
+
+    SetArtistMbidResult:
+      type: object
+      description: >
+        camelCase — see `ArtistMbid`. `imageFetched`/`fetchError` report
+        the one-shot auto-fetch that runs only when `mbid` was set to a
+        non-empty value; clearing the association (`mbid: ""`) skips the
+        fetch, leaving `imageFetched: false` and `fetchError: null`. A
+        fetch failure — including artist-image fetching having no
+        provider configured — is reported only here; it never fails the
+        request, since the mbid association is saved regardless. This
+        endpoint has no 503, unlike `listArtistImageCandidates`/
+        `setArtistImageFromSearch`.
+      properties:
+        mbArtistId: { type: string }
+        imageFetched:
+          type: boolean
+          description: True only when the auto-fetch found and stored an image.
+        fetchError:
+          type: [string, 'null']
+          description: >
+            Always present — the Go field has no `omitempty`. Null when
+            `mbid` was cleared or the fetch succeeded; a human-readable
+            message otherwise.
+      required: [mbArtistId, imageFetched, fetchError]
+
+    ArtistImageSource:
+      type: object
+      description: >
+        Where the image `/rest`'s `getCoverArt` currently serves for this
+        artist comes from (`artists.go`'s `imageSourceResponse`).
+        Deliberately flat, not `oneOf` — the handler emits this exact
+        shape regardless of `source`, and `path`/`filename` are always
+        present, never omitted; their meaning depends on `source`: for
+        "upload" (a user upload in aether's asset store) and "fetched"
+        (an image aether auto-fetched from a provider, also in the asset
+        store), `filename` names the stored file and `path` is empty; for
+        "folder" (an artist.jpg/folder.jpg found next to the artist's
+        albums), `path` is its absolute filesystem path and `filename` is
+        that path's basename; for "none" (nothing on file — the generated
+        avatar is served instead), both `path` and `filename` are empty.
+      properties:
+        source:
+          type: string
+          enum: [upload, fetched, folder, none]
+        path:
+          type: string
+          description: Absolute filesystem path for "folder"; empty otherwise.
+        filename:
+          type: string
+          description: >
+            Stored/on-disk filename for "upload"/"fetched"/"folder"; empty
+            for "none".
+      required: [source, path, filename]
+
+    ArtistImageCandidate:
+      type: object
+      description: >
+        One portrait image an image provider offers for a MusicBrainz
+        artist id (`internal/artistimage.ImageCandidate`, remapped by
+        `artists.go`'s `imageCandidate`). camelCase, like the MusicBrainz
+        schemas above. URLs only — the browser loads thumbnails straight
+        from the provider CDN, so listing candidates spends no
+        server-side image bandwidth. Every field is always present (no
+        `omitempty`).
+      properties:
+        url:
+          type: string
+          format: uri
+          description: >
+            The full-size image URL — the exact value
+            `setArtistImageFromSearch` must be given back to pick this
+            candidate (SSRF guard).
+        thumbUrl:
+          type: string
+          format: uri
+          description: A provider-hosted thumbnail URL.
+        provider:
+          type: string
+          description: The image provider's name, e.g. "fanart.tv".
+      required: [url, thumbUrl, provider]
+
+    SetArtistImageFromSearchRequest:
+      type: object
+      description: >
+        Picks one candidate from a prior `listArtistImageCandidates` call
+        for `mbid`. `url` must exactly equal one of that call's `url`
+        values — the server re-lists candidates for `mbid` and only
+        downloads a URL it just offered itself (SSRF guard); an
+        unrecognised `url` answers 400, never fetched.
+      properties:
+        mbid:
+          type: string
+          description: The MusicBrainz artist id the candidates were listed for.
+        url:
+          type: string
+          format: uri
+      required: [mbid, url]
+
+    SetImageFromSearchResult:
+      type: object
+      properties:
+        stored:
+          type: boolean
+          description: >
+            Always true in a 200 response — a failed store answers an
+            error response instead.
+      required: [stored]
+
   responses:
     BadRequest:
       description: Malformed request (bad JSON/multipart, missing/invalid scalar).
@@ -1974,6 +2474,14 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: The request conflicts with server state (e.g. a config-managed library cannot be modified).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ServiceUnavailable:
+      description: >
+        The requested capability is not configured server-side (e.g.
+        `not_configured` — no image-provider API key set). The generic
+        Problem shape; see `type`/`detail` for the specific reason.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
