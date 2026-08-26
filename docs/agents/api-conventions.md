@@ -122,8 +122,7 @@ codes inside a 200 `subsonic-response`; see
 `httperr.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
 always a `ValidationProblem`, for a request that is **well-formed but
 invalid** (an unknown enum value, a selection over the size cap, an empty
-list). Everything else goes through `httperr.Write` (usually via each
-package's own local `writeError`/`writeErr` shim) and is a plain,
+list). Everything else goes through `httperr.Write` and is a plain,
 non-itemized `Problem` — including
 `400` for a **malformed** request (a missing required field, invalid
 JSON/multipart). Concretely, on `GET /metadata/pictures/image`: a missing
@@ -138,14 +137,13 @@ when the provider is rate-limiting Aether, otherwise `502`/`504` — `detail`
 is always `upstream`'s human sentence or a fallback, **never a raw Go
 error**.
 
-**Status — uniform across all of `/api/v1`.** Seven handler packages call
-`httperr` directly for every error today: `metadata`, `tokens`, `libraries`,
-`artists`, `radiobrowser`, `users`, `tasks` (enumerated in the `titles` var's
-own comment, `app/router/handlers/httperr/httperr.go` — not the package doc
-above it, which only names a few as examples — `tasks` reached parity via its
-own `writeErr` shim, the same idiom `metadata` uses;
-`libraries`/`artists`/`radiobrowser`/`tokens`/`users` each define an
-equivalent local `writeError`). The front-door session/role
+**Status — uniform across all of `/api/v1`.** All seven handler packages call
+`httperr.Write` directly for every error today: `metadata`, `tokens`,
+`libraries`, `artists`, `radiobrowser`, `users`, `tasks` (enumerated in the
+`titles` var's own comment, `app/router/handlers/httperr/httperr.go` — not the
+package doc above it, which only names a few as examples). The per-package
+`writeError`/`writeErr` shims that once wrapped it were removed; every call
+site now names `httperr.Write`. The front-door session/role
 gate (`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
 `app/router/proxy_auth.go`, which answer `401`/`403`/`500`) calls
 `httperr.Write` directly too, rather than relying on the router fallback.

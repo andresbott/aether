@@ -117,14 +117,13 @@ func TypeURI(slug string) string {
 
 // titles maps a known slug to the human title its Problem should carry. It
 // covers every slug the /api/v1 handler packages (metadata, tokens,
-// libraries, artists, radiobrowser, users, tasks) pass to their local
-// writeError/writeErr shims (or, for tasks' one directly-called site, to
-// Write itself), plus the status-derived slugs the router-level
+// libraries, artists, radiobrowser, users, tasks) pass to httperr.Write
+// directly, plus the status-derived slugs the router-level
 // error-envelope fallback builds for a bare http.Error/http.NotFound that
 // never reaches this package directly (errorCodeFor in app/router/errors.go
 // — "rate_limited" and "upstream_timeout" are only ever produced there;
 // "forbidden" is also built directly by sessionGuard/headerGuard, and
-// "unavailable" directly by tasks' writeErr).
+// "unavailable" directly by tasks).
 var titles = map[string]string{ //nolint:gosec // G101: human-readable slug titles, not credentials
 	"validation_error":      "Validation error",
 	"not_found":             "Not found",

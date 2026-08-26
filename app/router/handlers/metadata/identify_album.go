@@ -47,16 +47,16 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		if reason == "" {
 			reason = defaultIdentifyUnavailableReason
 		}
-		writeErr(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
+		httperr.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
 	var body identifyAlbumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if body.LibraryID == 0 || len(body.Paths) < minAlbumIdentifyPaths {
-		writeErr(w, r, http.StatusBadRequest, "validation_error",
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error",
 			"library_id and at least two paths are required")
 		return
 	}
@@ -67,10 +67,10 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	libModel, err := h.Store.GetLibrary(body.LibraryID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
+			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 

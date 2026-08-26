@@ -200,7 +200,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	// root itself), so it is reused here purely for the library_id lookup.
 	lib, _, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	pt, terr := requestedType(r)
@@ -210,7 +210,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 	slot := r.URL.Query().Get("slot")
 	if slot == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(slot) {
@@ -221,7 +221,7 @@ func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
 
 	_, src, derr := metadataedit.DecodeSource(lib.Path, r.URL.Query())
 	if derr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", derr.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", derr.Error())
 		return
 	}
 	// type/slot go through the registry validation above (which, unlike
@@ -374,17 +374,17 @@ type applyPictureResult struct {
 func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
 	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
 	if perr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "library_id required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
 		return
 	}
 	slot := r.FormValue("slot")
 	if slot == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(slot) {
@@ -412,10 +412,10 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
+			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -427,7 +427,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 			httperr.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
 			return
 		}
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 
@@ -438,7 +438,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	// the whole call — so that leniency is not relied on here.
 	for _, p := range paths {
 		if _, rerr := metadataedit.ResolveInLibrary(libModel.Path, p); rerr != nil {
-			writeErr(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
+			httperr.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 			return
 		}
 	}
@@ -448,7 +448,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	al, _ := metadataedit.ResolveAlbum(libModel.Path, paths)
 
 	if status, serr := h.savePictureToSlot(slot, pt, al, ext, data); serr != nil {
-		writeErr(w, r, status, codeFor(status), serr.Error())
+		httperr.Write(w, r, status, codeFor(status), serr.Error())
 		return
 	}
 
@@ -504,7 +504,7 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sel.Slot == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(sel.Slot) {
@@ -522,13 +522,13 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 		// Mirrors the save fan-out: the art was written into every directory the
 		// album spans, so remove it from each of them.
 		if derr := al.DeleteFolderPicture(pt); derr != nil {
-			writeErr(w, r, http.StatusInternalServerError, "internal", derr.Error())
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", derr.Error())
 			return
 		}
 	case "embedded":
 		for _, trackAbs := range al.Tracks() {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
-				writeErr(w, r, http.StatusInternalServerError, "internal", werr.Error())
+				httperr.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
 				return
 			}
 		}
@@ -561,7 +561,7 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	mbid := r.URL.Query().Get("mbid")
 	releaseGroup := r.URL.Query().Get("release_group")
 	if mbid == "" && releaseGroup == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
 		return
 	}
 	if h.CoverArt == nil {
@@ -594,11 +594,11 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if imgURL == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "url is required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
 		return
 	}
 	if h.CoverArt == nil {
-		writeErr(w, r, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
+		httperr.Write(w, r, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
 		return
 	}
 	data, _, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
@@ -609,7 +609,7 @@ func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(data) == 0 {
-		writeErr(w, r, http.StatusNotFound, "not_found", "no image found")
+		httperr.Write(w, r, http.StatusNotFound, "not_found", "no image found")
 		return
 	}
 	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))

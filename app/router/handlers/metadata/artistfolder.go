@@ -53,7 +53,7 @@ type artistFolderDTO struct {
 func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// Resolve the artist folder from the selected folder — the folder itself, or
@@ -66,7 +66,7 @@ func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	rel, rerr := filepath.Rel(lib.Path, dir)
 	if rerr != nil {
-		writeErr(w, r, http.StatusInternalServerError, "internal", rerr.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}
 	current := ""
@@ -94,7 +94,7 @@ func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) artistImage(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	img := artistimage.BestInDir(abs)
@@ -125,30 +125,30 @@ type artistImageResult struct {
 func (h *Handler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
 	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
 	if perr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "library_id required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
 		return
 	}
 	if strings.Trim(strings.TrimSpace(r.FormValue("path")), "/") == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "path required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "path required")
 		return
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			writeErr(w, r, http.StatusNotFound, "not_found", err.Error())
+			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		writeErr(w, r, http.StatusInternalServerError, "internal", err.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, r.FormValue("path"))
 	if rerr != nil {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 		return
 	}
 
@@ -164,13 +164,13 @@ func (h *Handler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 		if status == http.StatusServiceUnavailable {
 			code = "not_configured"
 		}
-		writeErr(w, r, status, code, serr.Error())
+		httperr.Write(w, r, status, code, serr.Error())
 		return
 	}
 
 	written, werr := metadataedit.WriteFolderPicture(abs, artistImageBase, ext, data)
 	if werr != nil {
-		writeErr(w, r, http.StatusInternalServerError, "internal", werr.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
 		return
 	}
 	rel, _ := filepath.Rel(libModel.Path, written)
@@ -188,7 +188,7 @@ func (h *Handler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := h.resolveLibraryRel(r)
 	if err != nil {
-		writeErr(w, r, status, codeFor(status), err.Error())
+		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	img := artistimage.BestInDir(abs)
@@ -197,7 +197,7 @@ func (h *Handler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the library root by ResolveInLibrary
-		writeErr(w, r, http.StatusInternalServerError, "internal", rerr.Error())
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}
 	out := map[string]any{"ok": true}
@@ -288,7 +288,7 @@ func (h *Handler) artistImageCandidateInfo(w http.ResponseWriter, r *http.Reques
 	mbid := strings.TrimSpace(r.URL.Query().Get("mbid"))
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if mbid == "" || imgURL == "" {
-		writeErr(w, r, http.StatusBadRequest, "validation_error", "mbid and url are required")
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "mbid and url are required")
 		return
 	}
 	data, _, status, err := h.downloadArtistPick(r.Context(), mbid, imgURL)
@@ -301,7 +301,7 @@ func (h *Handler) artistImageCandidateInfo(w http.ResponseWriter, r *http.Reques
 		if status == http.StatusServiceUnavailable {
 			code = "not_configured"
 		}
-		writeErr(w, r, status, code, err.Error())
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))
