@@ -2617,7 +2617,9 @@ components:
         endpoints. Identifying "the album" needs more than one file to
         place: the handler requires **at least two** paths — a single path
         is better served by `/metadata/identify` — and answers 400
-        (validation_error) below this schema's own inherited `minItems: 1`.
+        (validation_error) for a shorter selection. This schema enforces
+        that floor with the `minItems: 2` override below, which narrows the
+        `minItems: 1` inherited from `PictureSelection`.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
         - type: object
