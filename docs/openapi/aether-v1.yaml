@@ -892,6 +892,98 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /radiobrowser/search:
+    get:
+      operationId: searchRadioStations
+      summary: Search the radio-browser.info directory by station name.
+      description: >
+        Admin. Proxies a station-name search to the community-run
+        radio-browser.info directory server-side, so the admin import UI
+        never hits the upstream API — or its CORS restrictions — directly
+        from the browser. Results are ordered by radio-browser's vote count
+        (most popular first) with broken streams hidden. This only searches
+        for stations to import; creating one is done afterwards via the
+        OpenSubsonic `/rest/` API, never here.
+      tags: [radiobrowser]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: >
+            Station name to search for. Required: missing, absent, or
+            whitespace-only answers 400 (validation_error).
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          description: >
+            Maximum number of results, default 10 when omitted. A
+            non-numeric or non-positive value answers 400
+            (validation_error); a value above 25 is not rejected — it is
+            silently capped to 25.
+          schema: { type: integer }
+      responses:
+        '200':
+          description: >
+            Matching stations, most popular first. A bare JSON array, like
+            `listPictureCandidates` — not wrapped in an envelope object.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RadioStation' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
+  /radiobrowser/favicon:
+    get:
+      operationId: getRadioFavicon
+      summary: Download a station favicon server-side and proxy its bytes.
+      description: >
+        Admin. Fetches the image at `url` (a search result's `favicon`
+        field) and streams the bytes back, again to keep the upstream host
+        and its CORS policy off the browser's path. Only PNG and JPEG
+        succeed: the downloaded body is sniffed rather than trusting the
+        upstream's own Content-Type, and any other outcome — a different
+        format (.ico, .svg, .gif and the rest), an oversized body, a non-http(s) URL,
+        or the upstream host itself failing — is reported through the
+        upstream-error responses below, never as a distinct content type or
+        a 404, so the caller can skip the cover import.
+      tags: [radiobrowser]
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: >
+            The favicon URL to download, exactly as returned by a search
+            result's `favicon` field. A single, already-resolved scalar,
+            **never** a repeated/array parameter — the same bounded-URL-safe
+            pattern as `getPictureImage`'s `file` parameter, so this GET
+            cannot grow into an oversized query string. Missing or blank
+            answers 400 (validation_error).
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: >
+            The favicon's image bytes, in whichever of the two accepted
+            formats was sniffed server-side.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "public, max-age=86400" }
+            X-Content-Type-Options:
+              schema: { type: string, example: "nosniff" }
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -1795,6 +1887,45 @@ components:
         has_subfolders: { type: boolean }
         is_symlink: { type: boolean }
       required: [name, path, has_subfolders, is_symlink]
+
+    RadioStation:
+      type: object
+      description: >
+        One search result from `searchRadioStations`
+        (`internal/radiobrowser.Station`). Uses camelCase field names
+        (`streamUrl`, `countryCode`) like `PictureCandidate`, unlike the
+        snake_case convention used elsewhere on this surface — but, unlike
+        `PictureCandidate`, this is aether's own casing choice for this DTO,
+        not a mirror of the upstream radio-browser.info API's raw JSON:
+        aether renames and merges fields server-side (`streamUrl` is the
+        upstream's `url_resolved`, falling back to `url`; `uuid` renames the
+        upstream's `stationuuid`; `countryCode` re-cases the upstream's
+        all-lowercase `countrycode`). Every field is always present — the Go
+        struct has no `omitempty` — so an unmatched value comes back as an
+        empty string/zero rather than being omitted.
+      properties:
+        name: { type: string }
+        streamUrl:
+          type: string
+          format: uri
+          description: >
+            The stream's resolved URL, falling back to the unresolved URL
+            when radio-browser has no resolved variant.
+        homepage: { type: string, format: uri }
+        favicon: { type: string, format: uri }
+        tags:
+          type: string
+          description: Comma-separated, exactly as radio-browser.info returns it — not split into an array.
+        country: { type: string }
+        countryCode: { type: string }
+        language: { type: string }
+        codec: { type: string }
+        bitrate: { type: integer }
+        votes: { type: integer }
+        uuid:
+          type: string
+          description: radio-browser.info's station id ("stationuuid" upstream) — the value to persist when importing this station.
+      required: [name, streamUrl, homepage, favicon, tags, country, countryCode, language, codec, bitrate, votes, uuid]
 
   responses:
     BadRequest:
