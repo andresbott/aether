@@ -2923,40 +2923,59 @@ components:
       required: [name]
 
     CreateTokenResult:
-      type: object
       description: >
         The one-time plaintext appears only here. `username`/`password` are
-        present only when the request's `type` was "usertoken" — the
-        credential pair a Subsonic `u`+`t`+`s`/`u`+`p` client consumes;
-        `username` always equals `tokenId`. Both are entirely absent (not
-        null) for the default "apikey" type. Unlike `TokenInfo`, this shape
-        has no `lastUsedAt`: createToken builds its response directly rather
-        than from the DTO listTokens uses. camelCase (SPA session/device
-        bootstrap contract), unlike the snake_case convention used elsewhere
-        on this surface.
-      properties:
-        token: { type: string }
-        tokenId: { type: string }
-        name: { type: string }
-        kind:
-          type: string
-          enum: [client]
-          description: Always "client" — createToken only ever mints user-created PATs.
-        type:
-          type: string
-          enum: [apikey, usertoken]
-        createdAt: { type: string, format: date-time }
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
-          description: Present but null when the request omitted expiresAt.
-        username:
-          type: string
-          description: Present only when `type` is "usertoken" (equals `tokenId`).
-        password:
-          type: string
-          description: Present only when `type` is "usertoken".
-      required: [token, tokenId, name, kind, type, createdAt, expiresAt]
+        present iff the request's `type` was "usertoken" — the credential
+        pair a Subsonic `u`+`t`+`s`/`u`+`p` client consumes; `username`
+        always equals `tokenId`; both are entirely absent (not null) for the
+        default "apikey" type. Modelled as `allOf` of the fields common to
+        both types plus a `oneOf` split on `type`, not `if`/`then` on that
+        field: kin-openapi's `VisitJSON` — the validator
+        `openapi_response_contract_test.go` checks every captured response
+        body against — parses `if`/`then`/`else` but never evaluates them
+        against an instance, so that form would lint clean yet enforce
+        nothing; `oneOf` is actually applied by `visitXOFOperations` and so
+        is the only shape here a wrong/missing `username`/`password` fails
+        under. Unlike `TokenInfo`, this shape has no `lastUsedAt`:
+        createToken builds its response directly rather than from the DTO
+        listTokens uses. camelCase (SPA session/device bootstrap contract),
+        unlike the snake_case convention used elsewhere on this surface.
+      allOf:
+        - type: object
+          description: Fields present on every createToken response, regardless of `type`.
+          properties:
+            token: { type: string }
+            tokenId: { type: string }
+            name: { type: string }
+            kind:
+              type: string
+              enum: [client]
+              description: Always "client" — createToken only ever mints user-created PATs.
+            type:
+              type: string
+              enum: [apikey, usertoken]
+            createdAt: { type: string, format: date-time }
+            expiresAt:
+              type: [string, 'null']
+              format: date-time
+              description: Present but null when the request omitted expiresAt.
+          required: [token, tokenId, name, kind, type, createdAt, expiresAt]
+        - oneOf:
+            - type: object
+              description: The default "apikey" type — `username`/`password` are absent entirely.
+              properties:
+                type: { type: string, enum: [apikey] }
+              required: [type]
+            - type: object
+              description: >
+                The "usertoken" type. `username`/`password` are the
+                credential pair a Subsonic `u`+`t`+`s`/`u`+`p` client
+                consumes; `username` always equals `tokenId`.
+              properties:
+                type: { type: string, enum: [usertoken] }
+                username: { type: string }
+                password: { type: string }
+              required: [type, username, password]
 
     User:
       type: object
