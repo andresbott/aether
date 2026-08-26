@@ -40,6 +40,10 @@ tags:
     description: Raw, unfiltered tag access for the metadata editor.
   - name: metadata-browse
     description: Folder/track browsing that backs the metadata editor's file picker.
+  - name: metadata-identify
+    description: Audio-fingerprint identification of tracks and whole-album releases.
+  - name: metadata-artist-image
+    description: Artist-folder detection and portrait image read/write/delete.
   - name: bootstrap
     description: Unauthenticated bootstrap — health, build info, and the SPA's identity/feature probe.
   - name: auth
@@ -333,14 +337,30 @@ paths:
       summary: Immediate subfolders of a library directory (the editor's folder-tree picker).
       description: >
         Confined lexically to the library root (no symlink traversal), unlike
-        the library path picker elsewhere in the app.
+        the library path picker elsewhere in the app. A non-blank `q`
+        switches the endpoint from a one-level listing to a recursive
+        name search of the whole subtree under `path`, capped at 500
+        matches; `q` and the response's `truncated` field are both
+        meaningful only in that search branch — a plain listing (no `q`)
+        carries neither.
       tags: [metadata-browse]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
         - $ref: '#/components/parameters/LibraryPath'
+        - name: q
+          in: query
+          required: false
+          description: >
+            Folder-name search filter. Blank/omitted (the default) lists
+            only the immediate subfolders of `path`; non-blank recursively
+            searches the whole subtree under `path` for folders whose name
+            matches (see `FolderList.truncated`).
+          schema: { type: string }
       responses:
         '200':
-          description: Immediate subdirectories, sorted by name.
+          description: >
+            Immediate subdirectories, sorted by name — or, when `q` is set,
+            every matching folder in the subtree (see `FolderList.truncated`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/FolderList' }
@@ -367,6 +387,368 @@ paths:
               schema: { $ref: '#/components/schemas/TrackList' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateTracks
+      summary: Apply a structured metadata patch to a track selection.
+      description: >
+        **Deliberate exception to this surface's error shape.** Every other
+        `/api/v1` error is `application/problem+json`; `updateTracks` (like
+        its read-only sibling `batchReadRawTags`) answers a per-row envelope
+        instead, because a client needs to know which files in the batch
+        failed and why, not just that "the batch failed": `200` once at
+        least one file was written, `500` only when every row failed — and
+        even that `500` stays plain `application/json`, carrying the same
+        `UpdateTracksResponse` shape as the `200`, because the handler
+        builds it with the package's own `writeJSON` (which sets
+        `Content-Type: application/json` directly) rather than `httperr`,
+        and the router's `jsonErrorEnvelope` forwards an already-JSON-object
+        body untouched. See `docs/agents/api-conventions.md`, "One error
+        shape: RFC 9457 `application/problem+json`" §"the batch endpoints
+        are the one deliberate exception." A malformed request (bad JSON, an
+        invalid field combination, an unknown library, a path outside the
+        library root) still fails before any row is attempted and answers
+        the normal `application/problem+json` 400/404 below. Unlike the
+        other selection endpoints on this surface, `paths` here carries no
+        server-side `maxItems` cap.
+      tags: [metadata-browse]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTracksRequest' }
+      responses:
+        '200':
+          description: >
+            At least one file was written. `application/json` (see the
+            deliberate-exception note above), never `problem+json`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500':
+          description: >
+            Every file in the batch failed to write; no rescan is attempted.
+            Still `UpdateTracksResponse`, still plain `application/json` —
+            **not** `application/problem+json` — per the
+            deliberate-exception note above; each row's own `error` carries
+            the per-file reason.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
+
+  /metadata/capabilities:
+    get:
+      operationId: getMetadataCapabilities
+      summary: Whether audio-fingerprint identification is available on this server.
+      description: >
+        Backs the editor's Identify button: when `identify` is `false` the
+        UI disables it and shows `identify_unavailable_reason` instead of
+        silently hiding the feature. Never fails — no parameters, no library
+        lookup.
+      tags: [metadata-identify]
+      responses:
+        '200':
+          description: >
+            Capability flags. `identify_unavailable_reason` is present only
+            when `identify` is `false`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetadataCapabilities' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /metadata/identify:
+    post:
+      operationId: identifyTracks
+      summary: Resolve a track selection to MusicBrainz recording candidates by acoustic fingerprint.
+      description: >
+        Fingerprints each file (fpcalc) and looks it up against AcoustID,
+        sequentially — fingerprinting is CPU-bound and the AcoustID client
+        is rate-limited, so concurrency buys nothing. A per-file failure (an
+        unreadable file, a path outside the library, an upstream lookup
+        failure) is reported on that file's own result row, verbatim, and
+        never fails the whole request; the request itself only fails
+        validation (a bad selection) or answers 503 when no identification
+        service is configured — see `getMetadataCapabilities`.
+      tags: [metadata-identify]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifyRequest' }
+      responses:
+        '200':
+          description: One result per requested path, in request order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentifyResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /metadata/identify-album:
+    post:
+      operationId: identifyAlbum
+      summary: Map a multi-file selection onto a single best-matching MusicBrainz release.
+      description: >
+        Fingerprints every file, unions every release any candidate
+        mentions into ranked options, enriches the best few (capped at 8,
+        since MusicBrainz is rate-limited) with their full tracklist, and
+        places files the fingerprint missed onto the enriched tracklist by
+        duration/title/track-number hints. A partial failure (one bad file
+        among many) is never a request failure — it is reported in `errors`
+        and the option list is still built from the rest. The request
+        itself fails (429/502) only when EVERY file failed and at least one
+        failure came from the AcoustID service itself (an outage), rather
+        than from the files; it answers 503 when no album-identification
+        service is configured — see `getMetadataCapabilities`.
+      tags: [metadata-identify]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifyAlbumRequest' }
+      responses:
+        '200':
+          description: >
+            Candidate releases, best first, each carrying one assignment
+            per input file, plus the files this identification did not
+            cover.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentifyAlbumResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /metadata/artist-folder:
+    get:
+      operationId: getArtistFolder
+      summary: Whether the selected folder is an artist folder, and its current portrait image.
+      description: >
+        A pure filesystem+tags question, independent of the library index
+        and any track selection: eligible when the folder — or the nearest
+        ancestor of the selected path — has sub-folders whose tracks are
+        tagged with an album artist matching the folder's own name
+        (`metadataedit.IsArtistFolder`, the same rule the scanner uses for
+        artist-image detection).
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: >
+            `{eligible:false}` alone when the selected path is not (and has
+            no ancestor that is) an artist folder. See `ArtistFolder` for
+            the eligible shape.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ArtistFolder' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /metadata/artist-image:
+    get:
+      operationId: getArtistImage
+      summary: Bytes of the selected artist folder's current portrait image.
+      description: >
+        Serves the on-disk file `artistimage.BestInDir` picks (highest
+        priority: `artist.*`, then `artistthumb.*`, then `folder.*`)
+        directly, rather than any DB-resolved cover — the editor previews
+        exactly what it manages. `Cache-Control: no-cache`, so the editor's
+        cache-busted `<img>` reload after a change always fetches fresh
+        bytes.
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: >
+            The image's bytes, exactly as stored on disk (no re-encoding).
+            Content-Type is derived from the file's extension: normally
+            image/jpeg or image/png (the only formats this API's own writes
+            ever produce), but any pre-existing artist/artistthumb/folder
+            file the editor did not write itself may also be image/gif,
+            image/bmp or image/webp — the full set `artistimage`'s folder
+            detection recognises.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "no-cache" }
+          content:
+            image/*: { schema: { type: string, format: binary } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >
+            The library does not exist, or the selected folder holds no
+            artist image. The latter case answers with Go's plain
+            `http.NotFound`; like `getPictureImage`'s stale-link 404, the
+            router-level error envelope (`app/router/errors.go`) still
+            wraps it into the same `application/problem+json` Problem shape
+            every other response on this surface uses — only its `detail`
+            text differs ("404 page not found" rather than a
+            handler-authored message).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      operationId: setArtistImage
+      summary: Write an artist portrait into the selected folder, from an upload or an online pick.
+      description: >
+        Writes `artist.<ext>` (jpg or png) into the SELECTED folder —
+        removing any other-format `artist.*` sibling — from either an
+        uploaded file or an online pick downloaded through the
+        SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
+        Nothing is written to the library index directly: one
+        representative track under the folder is rescanned synchronously so
+        the scanner's reconcile re-detects the artist's image (`rescan`
+        reports the outcome; a rescan failure is never a write failure —
+        the file is already on disk).
+      tags: [metadata-artist-image]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/SetArtistImageForm' }
+      responses:
+        '200':
+          description: Written.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApplyArtistImageResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    delete:
+      operationId: deleteArtistImage
+      summary: Remove the selected artist folder's current portrait image.
+      description: >
+        Removes the same file `getArtistImage` serves, then re-indexes one
+        representative track so the scanner's reconcile clears (or
+        re-detects a fallback) artist image. `MutationResult` here only
+        ever sets `ok`/`rescan` — `slot`/`type` are absent entirely,
+        meaningless for an artist-folder image.
+      tags: [metadata-artist-image]
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/LibraryPath'
+      responses:
+        '200':
+          description: Removed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MutationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >
+            The library does not exist, or the selected folder holds no
+            artist image to remove (Go's plain `http.NotFound`, wrapped the
+            same way as `getArtistImage`'s 404 — see its description).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /metadata/artist-image/candidate-info:
+    get:
+      operationId: getArtistImageCandidateInfo
+      summary: Probe an online artist-portrait candidate's size, dimensions and format before saving.
+      description: >
+        Downloads the candidate through the same SSRF-guarded path as
+        `setArtistImage`'s online pick — re-listing `mbid`'s candidates and
+        refusing any `url` not among them — then reports the bytes'
+        dimensions/format/size without persisting anything. Shares the
+        server-side download cache with the save, so a probe immediately
+        followed by a save does not re-download.
+      tags: [metadata-artist-image]
+      parameters:
+        - name: mbid
+          in: query
+          required: true
+          description: >
+            The MusicBrainz artist id the candidate was listed for. A query
+            parameter, not the shared `MbId` path parameter.
+          schema: { type: string }
+        - name: url
+          in: query
+          required: true
+          description: >
+            The provider-offered candidate URL to download, exactly as
+            listed by the artist-image providers for `mbid`. A single,
+            already-resolved scalar, never a repeated/array parameter — the
+            same bounded-URL-safe pattern as `getPictureImage`'s `file` and
+            `getRadioFavicon`'s `url`. Rejected with 400 when it is not
+            among `mbid`'s current candidates (the SSRF guard).
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: The candidate image's dimensions, format and size.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /metadata/pictures/candidate-info:
+    get:
+      operationId: getPictureCandidateInfo
+      summary: Probe a Cover Art Archive candidate's size, dimensions and format before saving.
+      description: >
+        Downloads the candidate through the same cache as `applyPicture`'s
+        `image_url` save, then reports the bytes' dimensions/format/size
+        without persisting anything — mirrors `getArtistImageCandidateInfo`
+        for the album-cover picker.
+      tags: [metadata-pictures]
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: >
+            The Cover Art Archive image URL to download, exactly as listed
+            by `listPictureCandidates`. A single, already-resolved scalar,
+            never a repeated/array parameter — the same bounded-URL-safe
+            pattern as `getPictureImage`'s `file` and `getRadioFavicon`'s
+            `url`.
+          schema: { type: string, format: uri }
+      responses:
+        '200':
+          description: The candidate image's dimensions, format and size.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImageMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /health:
     get:
@@ -1872,6 +2254,13 @@ components:
         folders:
           type: array
           items: { $ref: '#/components/schemas/Folder' }
+        truncated:
+          type: boolean
+          description: >
+            Present only when the request carried a non-blank `q`: `true`
+            when the search hit the server's 500-match cap and more folders
+            would have matched. Absent (not merely `false`) from a plain,
+            non-search listing.
       required: [folders]
 
     Track:
@@ -1923,6 +2312,425 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Track' }
       required: [tracks]
+
+    UpdateTracksFields:
+      type: object
+      description: >
+        Per-field patch: a field present (non-null) is set to that value; an
+        omitted field is left untouched. `artists`/`artist_mbids` (and,
+        symmetrically, `album_artists`/`album_artist_mbids`) cannot both be
+        set in the same request — the MB-id maps are keyed by the CURRENT
+        artist names, so a simultaneous rename would misalign them; the
+        handler answers 400 for that combination. A `raw_tags` key the
+        structured editor manages (`internal/metadataedit.IsManagedTag`), or
+        a `remove_unsupported` descriptor that names embedded cover art,
+        also answers 400.
+      properties:
+        title: { type: string }
+        album: { type: string }
+        artists: { type: array, items: { type: string } }
+        album_artists: { type: array, items: { type: string } }
+        genres: { type: array, items: { type: string } }
+        year: { type: integer }
+        track_number: { type: integer }
+        disc_number: { type: integer }
+        disc_subtitle: { type: string }
+        compilation: { type: boolean }
+        artist_mbids:
+          type: object
+          additionalProperties: { type: string }
+          description: Artist name -> MusicBrainz artist id.
+        album_artist_mbids:
+          type: object
+          additionalProperties: { type: string }
+          description: Album-artist name -> MusicBrainz artist id.
+        mb_recording_id: { type: string }
+        mb_release_id: { type: string }
+        mb_release_group_id: { type: string }
+        raw_tags:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: >
+            Free-form key -> values edits from the raw tag editor; an empty
+            value list deletes the key.
+        remove_unsupported:
+          type: array
+          items: { type: string }
+          description: >
+            Hidden-frame descriptors to delete, as returned by
+            `batchReadRawTags`' `unsupported` field. A descriptor the file
+            does not carry is ignored.
+
+    UpdateTracksRequest:
+      type: object
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        paths:
+          type: array
+          items: { type: string }
+          minItems: 1
+          description: >
+            Selected track paths, library-relative. Unlike the
+            picture-selection endpoints, not capped at `maxItems: 50` — the
+            handler enforces no upper bound here.
+        fields: { $ref: '#/components/schemas/UpdateTracksFields' }
+      required: [library_id, paths, fields]
+
+    UpdateTracksResult:
+      type: object
+      description: One selected path's write outcome.
+      properties:
+        path: { type: string }
+        ok: { type: boolean }
+        error:
+          type: string
+          description: Set instead of a successful write.
+      required: [path, ok]
+
+    UpdateTracksResponse:
+      type: object
+      description: >
+        `application/json`, not `problem+json` — see `updateTracks`'s
+        description. Returned unchanged, shape and content-type alike, on
+        both the `200` (at least one row written) and the `500` (every row
+        failed) response.
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/UpdateTracksResult' }
+        rescan: { $ref: '#/components/schemas/RescanStatus' }
+      required: [results]
+
+    MetadataCapabilities:
+      type: object
+      description: >
+        Whether audio-fingerprint identification (`/metadata/identify`,
+        `/metadata/identify-album`) is available on this server.
+      properties:
+        identify: { type: boolean }
+        identify_unavailable_reason:
+          type: string
+          description: >
+            Why identification is off (a missing fpcalc binary, a missing
+            AcoustID key, ...) — a fixed, human-readable sentence, never a
+            raw error. Present only when `identify` is `false`.
+      required: [identify]
+
+    ArtistCredit:
+      type: object
+      description: >
+        One credited artist: the credited-as name and its MusicBrainz id.
+        Shared wire shape of `identify.go`'s `identifyArtistDTO` (a
+        fingerprinted recording's artists) and `albumidentify.Artist` (an
+        album option's, or a track assignment's, artists) — two distinct Go
+        types with an identical `{name, mbid}` shape.
+      properties:
+        name: { type: string }
+        mbid: { type: string }
+      required: [name, mbid]
+
+    IdentifyRelease:
+      type: object
+      description: >
+        One release (album) a fingerprinted recording appears on.
+        `track_number`/`disc_number` locate it on that release; `0` means
+        unknown.
+      properties:
+        release_mbid: { type: string }
+        release_group_mbid: { type: string }
+        album: { type: string }
+        year: { type: integer }
+        track_number: { type: integer }
+        disc_number: { type: integer }
+      required:
+        - release_mbid
+        - release_group_mbid
+        - album
+        - year
+        - track_number
+        - disc_number
+
+    IdentifyCandidate:
+      type: object
+      description: One MusicBrainz recording matched by acoustic fingerprint, best first.
+      properties:
+        score: { type: number }
+        recording_mbid: { type: string }
+        title: { type: string }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+        releases:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyRelease' }
+      required: [score, recording_mbid, title, artists, releases]
+
+    IdentifyResult:
+      type: object
+      description: One requested path's identification outcome.
+      properties:
+        path: { type: string }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyCandidate' }
+        error:
+          type: string
+          description: >
+            Set instead of (an empty) `candidates` when this file could not
+            be resolved (outside the library, unreadable, or the AcoustID
+            lookup failed) — the raw error text, since this endpoint has no
+            `albumidentify`-style fixed-sentence policy.
+      required: [path, candidates]
+
+    IdentifyRequest:
+      description: >
+        The same `{library_id, paths[]}` shape as the picture-selection
+        endpoints; at least one path is required.
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+
+    IdentifyResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyResult' }
+      required: [results]
+
+    AlbumTrackSlot:
+      type: object
+      description: One position on a release's tracklist, from MusicBrainz enrichment.
+      properties:
+        disc_number: { type: integer }
+        track_number: { type: integer }
+        title: { type: string }
+        recording_mbid: { type: string }
+        duration_seconds: { type: number }
+      required: [disc_number, track_number, title, recording_mbid, duration_seconds]
+
+    AlbumAssignment:
+      type: object
+      description: >
+        One selected file's placement on one `AlbumOption`. `source`
+        distinguishes how strong the placement is: `fingerprint` (AcoustID
+        matched this file to a recording the release carries at this
+        position), `inferred` (placed by duration/title/track-number
+        against the release's tracklist instead) or `none` (no placement
+        could be justified; only the option's album-level fields apply to
+        this file).
+      properties:
+        path: { type: string }
+        source:
+          type: string
+          enum: [fingerprint, inferred, none]
+        title: { type: string }
+        recording_mbid: { type: string }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+          description: >
+            Always an array, never `null`, even for a `none`/`inferred`
+            placement with nothing to report — see `AlbumOption` for why
+            this matters on the wire.
+        disc_number: { type: integer }
+        track_number: { type: integer }
+        score: { type: number }
+        error:
+          type: string
+          description: >
+            Set, instead of a placement, when this file could not be
+            fingerprinted/looked up at all — one of `albumidentify`'s three
+            fixed reasons, never a raw error (unlike `IdentifyResult.error`).
+      required:
+        - path
+        - source
+        - title
+        - recording_mbid
+        - artists
+        - disc_number
+        - track_number
+        - score
+
+    AlbumOption:
+      type: object
+      description: >
+        One candidate release for the whole selection, best first, with one
+        `AlbumAssignment` per input file. **Every slice field
+        (`artists`/`tracks`/`assignments`) is always an array, never
+        `null`** — enforced by `internal/albumidentify`'s
+        `TestResolveNeverEmitsNullSlicesInJSON`: `artists`/`tracks` start as
+        `[]` at construction and are only ever replaced (never nulled) by
+        `enrich`, and `assignments` gains one entry per input file whether
+        or not `enrich` ran. `enriched` false means the MusicBrainz
+        tracklist lookup did not happen (past `MaxEnrichedOptions`, 8) or
+        failed: `track_count`/`disc_count`/`tracks` are then unknown
+        (zero/empty) and no gap-fill against a tracklist was possible, so
+        every assignment is either `fingerprint` or `none`.
+      properties:
+        release_mbid: { type: string }
+        release_group_mbid: { type: string }
+        album: { type: string }
+        year: { type: integer }
+        artists:
+          type: array
+          items: { $ref: '#/components/schemas/ArtistCredit' }
+        track_count: { type: integer }
+        disc_count: { type: integer }
+        enriched: { type: boolean }
+        matched_count:
+          type: integer
+          description: How many files a fingerprint (not inference) placed on this release.
+        mean_score:
+          type: number
+          description: >
+            Mean fingerprint score over `matched_count` files; unaffected
+            by inferred placements.
+        assignments:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumAssignment' }
+        tracks:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumTrackSlot' }
+      required:
+        - release_mbid
+        - release_group_mbid
+        - album
+        - year
+        - artists
+        - track_count
+        - disc_count
+        - enriched
+        - matched_count
+        - mean_score
+        - assignments
+        - tracks
+
+    IdentifyPathError:
+      type: object
+      description: >
+        One requested file `/metadata/identify-album` did not cover: either
+        refused before identification (outside the library) or a file that
+        reached the resolver but could not be fingerprinted/looked up.
+        `error` is always one of `albumidentify`'s fixed, short sentences —
+        never a raw error, since this is rendered verbatim in the dialog.
+      properties:
+        path: { type: string }
+        error: { type: string }
+      required: [path, error]
+
+    IdentifyAlbumRequest:
+      description: >
+        The same `{library_id, paths[]}` shape as the picture-selection
+        endpoints. Identifying "the album" needs more than one file to
+        place: the handler requires **at least two** paths — a single path
+        is better served by `/metadata/identify` — and answers 400
+        (validation_error) below this schema's own inherited `minItems: 1`.
+      allOf:
+        - $ref: '#/components/schemas/PictureSelection'
+
+    IdentifyAlbumResult:
+      type: object
+      properties:
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/AlbumOption' }
+          description: >
+            Candidate releases, best first. Always an array, never `null`
+            — including the empty-selection case (every path was outside
+            the library) and the no-release-matched-anything case.
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/IdentifyPathError' }
+      required: [options, errors]
+
+    ArtistFolder:
+      type: object
+      description: >
+        Whether the SELECTED folder is an artist folder, and the portrait
+        image it currently holds. `artist`/`path`/`current_image`/
+        `current_image_meta` are omitted — not merely empty — when
+        `eligible` is `false`. `current_image` (and, with it,
+        `current_image_meta`) is independently omitted whenever the folder
+        holds no artist image, even when `eligible` is `true`.
+      properties:
+        eligible: { type: boolean }
+        artist:
+          type: string
+          description: >
+            The artist name (the resolved folder's own basename). Present
+            only when eligible.
+        path:
+          type: string
+          description: >
+            Library-relative path of the resolved artist folder — the
+            selected folder itself, or the nearest ancestor that
+            qualifies. Present only when eligible.
+        current_image:
+          type: string
+          description: >
+            Filename of the current artist image, e.g. "artist.jpg".
+            Present only when one exists.
+        current_image_meta:
+          allOf:
+            - $ref: '#/components/schemas/ImageMeta'
+          description: Present only alongside `current_image`.
+      required: [eligible]
+
+    ImageMeta:
+      type: object
+      description: >
+        An image's displayable metadata, reported for both stored images
+        (the artist image) and downloaded-but-not-yet-saved candidates.
+      properties:
+        width: { type: integer }
+        height: { type: integer }
+        format:
+          type: string
+          description: e.g. "jpeg", "png"; empty when the bytes could not be decoded.
+        bytes: { type: integer, format: int64 }
+      required: [width, height, format, bytes]
+
+    SetArtistImageForm:
+      type: object
+      description: >
+        multipart/form-data. Exactly one source is required: an uploaded
+        `image` file, or an online pick (`mbid` + `url`, downloaded through
+        the same SSRF-guarded provider chain as
+        `getArtistImageCandidateInfo`) — if both are present the uploaded
+        file wins and `mbid`/`url` are never consulted. Writes
+        `artist.<ext>` (jpg or png) into the folder named by `path`.
+      properties:
+        library_id: { type: integer, format: int64, minimum: 0 }
+        path:
+          type: string
+          description: The artist folder, library-relative.
+        image:
+          type: string
+          format: binary
+          description: An uploaded image file part.
+        mbid:
+          type: string
+          description: MusicBrainz artist id of the online pick. Required together with `url`.
+        url:
+          type: string
+          format: uri
+          description: >
+            The provider-offered candidate URL to download. Must be one of
+            the URLs currently offered for `mbid` — the SSRF guard rejects
+            any other with 400.
+      required: [library_id, path]
+
+    ApplyArtistImageResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        path:
+          type: string
+          description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+        rescan: { $ref: '#/components/schemas/RescanStatus' }
+      required: [ok, path]
 
     HealthStatus:
       type: object
