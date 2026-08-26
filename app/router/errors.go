@@ -30,10 +30,11 @@ const apiV1MountPrefix = "/api/v1"
 // error response (>= 400) leaves the server as an RFC 9457 "Problem Details
 // for HTTP APIs" application/problem+json object — the same httperr.Problem
 // shape the migrated handler packages (metadata, tokens, libraries, artists,
-// radiobrowser, users) write directly — so that surface is uniform even for
-// a bare http.Error/http.NotFound (the tasks package, the sessionGuard/
-// headerGuard auth gate's 401/403, the /api/v1 catch-all's 400, a stray
-// http.NotFound inside an otherwise-migrated handler).
+// radiobrowser, users, tasks) write directly — so that surface is uniform
+// even for a bare http.Error/http.NotFound (the /api/v1 catch-all's 400, a
+// stray http.NotFound inside an otherwise-migrated handler; the tasks
+// package and the sessionGuard/headerGuard auth gate now build their
+// Problem directly via httperr too and no longer reach this fallback).
 //
 // Every OTHER path — chiefly /rest, which must stay byte-identical to
 // Subsonic's own error shapes, and never RFC 9457 — keeps the original,
@@ -176,12 +177,12 @@ func (w *errorEnvelopeWriter) finish() {
 }
 
 // writeProblemFallback answers a bare plain-text admin-API error (a route
-// that never called httperr directly: the sessionGuard/headerGuard auth
-// gate, the tasks package's remaining http.Error calls, the /api/v1
-// catch-all, a stray http.NotFound inside an otherwise-migrated handler) with
-// the same httperr.Problem shape every migrated handler package builds
-// directly, so the client sees one uniform shape regardless of which path
-// produced it.
+// that never called httperr directly: the /api/v1 catch-all, a stray
+// http.NotFound inside an otherwise-migrated handler — the tasks package and
+// the sessionGuard/headerGuard auth gate build their Problem directly via
+// httperr now and no longer reach this path) with the same httperr.Problem
+// shape every migrated handler package builds directly, so the client sees
+// one uniform shape regardless of which path produced it.
 func (w *errorEnvelopeWriter) writeProblemFallback(msg, path string) {
 	slug := errorCodeFor(w.status)
 	payload, err := json.Marshal(httperr.Problem{

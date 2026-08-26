@@ -121,8 +121,9 @@ func TypeURI(slug string) string {
 // Write itself), plus the status-derived slugs the router-level
 // error-envelope fallback builds for a bare http.Error/http.NotFound that
 // never reaches this package directly (errorCodeFor in app/router/errors.go
-// — "forbidden", "rate_limited", "unavailable" and "upstream_timeout" are
-// only ever produced there).
+// — "rate_limited" and "upstream_timeout" are only ever produced there;
+// "forbidden" is also built directly by sessionGuard/headerGuard, and
+// "unavailable" directly by tasks' writeErr).
 var titles = map[string]string{ //nolint:gosec // G101: human-readable slug titles, not credentials
 	"validation_error":      "Validation error",
 	"not_found":             "Not found",

@@ -133,8 +133,7 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	// Without a session, a protected route answers 401 as a problem+json
-	// envelope — sessionGuard itself only calls bare http.Error, so this is
-	// the router-level jsonErrorEnvelope fallback building the Problem.
+	// envelope — sessionGuard builds it directly via httperr.Write.
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
 	if w.Code != http.StatusUnauthorized {
