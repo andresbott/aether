@@ -19,6 +19,7 @@ type Handler struct {
 	TaskLogGetter taskrunner.TaskLogGetter
 	ScheduleStore *taskrunner.ScheduleStore
 	Scheduler     *taskrunner.Scheduler
+	Logger        *slog.Logger
 }
 
 // TaskWithSchedule is a task definition combined with its schedule (if any).
@@ -51,7 +52,7 @@ func (h *Handler) ListTasks() http.Handler {
 		if h.ScheduleStore != nil {
 			list, err := h.ScheduleStore.List(r.Context())
 			if err != nil {
-				slog.Error("list tasks: schedule list failed", "err", err)
+				h.Logger.Error("list tasks: schedule list failed", "err", err)
 				writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to list tasks.")
 				return
 			}
@@ -104,7 +105,7 @@ func (h *Handler) TriggerTask() http.Handler {
 				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", httperr.TitleFor("queue_full"), "Task queue is full. Try again later.")
 				return
 			}
-			slog.Error("trigger task: add run failed", "task", name, "err", err)
+			h.Logger.Error("trigger task: add run failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to trigger the task.")
 			return
 		}
@@ -134,7 +135,7 @@ func (h *Handler) CancelExecution() http.Handler {
 			// failure into the same conflict — a documented quirk this refactor
 			// preserves as-is (see cancelTaskExecution's description in
 			// docs/openapi/aether-v1.yaml).
-			slog.Error("cancel execution failed", "id", id.String(), "err", err)
+			h.Logger.Error("cancel execution failed", "id", id.String(), "err", err)
 			writeErr(w, r, http.StatusConflict, "conflict", "Failed to cancel the execution.")
 			return
 		}
@@ -155,7 +156,7 @@ func (h *Handler) GetExecutionLog() http.Handler {
 		}
 		text, err := h.TaskLogGetter.GetTaskLog(r.Context(), id)
 		if err != nil {
-			slog.Error("get execution log failed", "id", id.String(), "err", err)
+			h.Logger.Error("get execution log failed", "id", id.String(), "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to retrieve the task log.")
 			return
 		}
@@ -202,7 +203,7 @@ func (h *Handler) UpsertTask() http.Handler {
 		}
 		sch, err := h.ScheduleStore.UpsertByTaskName(r.Context(), name, cronExpr, enabled)
 		if err != nil {
-			slog.Error("upsert task schedule failed", "task", name, "err", err)
+			h.Logger.Error("upsert task schedule failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to save the task schedule.")
 			return
 		}
@@ -238,7 +239,7 @@ func (h *Handler) PatchTask() http.Handler {
 				writeErr(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
 				return
 			}
-			slog.Error("patch task: load schedule failed", "task", name, "err", err)
+			h.Logger.Error("patch task: load schedule failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to load the task schedule.")
 			return
 		}
@@ -259,13 +260,13 @@ func (h *Handler) PatchTask() http.Handler {
 			sch.Enabled = *body.Enabled
 		}
 		if err := h.ScheduleStore.Update(r.Context(), sch); err != nil {
-			slog.Error("patch task: update schedule failed", "task", name, "err", err)
+			h.Logger.Error("patch task: update schedule failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to update the task schedule.")
 			return
 		}
 		sch, err = h.ScheduleStore.GetByTaskName(r.Context(), name)
 		if err != nil {
-			slog.Error("patch task: reload schedule failed", "task", name, "err", err)
+			h.Logger.Error("patch task: reload schedule failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to reload the task schedule.")
 			return
 		}
@@ -294,7 +295,7 @@ func (h *Handler) DeleteTaskSchedule() http.Handler {
 				writeErr(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
 				return
 			}
-			slog.Error("delete task schedule failed", "task", name, "err", err)
+			h.Logger.Error("delete task schedule failed", "task", name, "err", err)
 			writeErr(w, r, http.StatusInternalServerError, "internal", "Failed to delete the task schedule.")
 			return
 		}

@@ -196,6 +196,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 			TaskLogGetter: h.taskLogGetter,
 			ScheduleStore: h.scheduleStore,
 			Scheduler:     h.scheduler,
+			Logger:        h.logger,
 		}
 		// Executions are global. Register these before /tasks/{name} so the
 		// {name} var does not capture the literal "executions".
