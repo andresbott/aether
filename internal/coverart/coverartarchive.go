@@ -27,10 +27,10 @@ const serviceName = "Cover Art Archive"
 
 // CoverImage is a single cover candidate from the Cover Art Archive.
 type CoverImage struct {
-	ID       string   `json:"id"`
-	ImageURL string   `json:"imageUrl"`
-	ThumbURL string   `json:"thumbUrl"`
-	IsFront  bool     `json:"isFront"`
+	ID       string `json:"id"`
+	ImageURL string `json:"imageUrl"`
+	ThumbURL string `json:"thumbUrl"`
+	IsFront  bool   `json:"isFront"`
 	// Types is what the image depicts, e.g. ["Front"], ["Back"], ["Booklet"],
 	// ["Medium"]. Comment is the uploader's free-text note, if any.
 	Types   []string `json:"types"`

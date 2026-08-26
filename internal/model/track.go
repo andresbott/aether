@@ -3,23 +3,23 @@ package model
 import "time"
 
 type Track struct {
-	ID                  uint   `gorm:"primaryKey"`
-	AlbumID             uint   `gorm:"index;not null"`
-	LibraryID           uint   `gorm:"index;not null;constraint:OnDelete:CASCADE"`
-	Filename            string `gorm:"not null"`
-	FilePath            string `gorm:"uniqueIndex;not null"`
-	FileSize            int64
-	FileModTime         time.Time
-	LastSeenAt          time.Time `gorm:"index"`
-	Title               string
-	TitleNorm           string
-	TrackNumber         int
-	DiscNumber          int
-	DiscSubtitle        string
-	Year                int
-	Duration            int
-	Bitrate             int
-	MBRecordingID       string
+	ID            uint   `gorm:"primaryKey"`
+	AlbumID       uint   `gorm:"index;not null"`
+	LibraryID     uint   `gorm:"index;not null;constraint:OnDelete:CASCADE"`
+	Filename      string `gorm:"not null"`
+	FilePath      string `gorm:"uniqueIndex;not null"`
+	FileSize      int64
+	FileModTime   time.Time
+	LastSeenAt    time.Time `gorm:"index"`
+	Title         string
+	TitleNorm     string
+	TrackNumber   int
+	DiscNumber    int
+	DiscSubtitle  string
+	Year          int
+	Duration      int
+	Bitrate       int
+	MBRecordingID string
 	// AudioHash is a metadata-invariant hash of the file's audio payload
 	// (libs/audiohash). It survives a tag rewrite and changes only when the
 	// audio does, which is what lets the scanner recognise a file that was
@@ -39,7 +39,7 @@ type Track struct {
 	UpdatedAt           time.Time
 
 	Album   *Album    `gorm:"foreignKey:AlbumID"`
-	Library *Library `gorm:"foreignKey:LibraryID"`
+	Library *Library  `gorm:"foreignKey:LibraryID"`
 	Artists []*Artist `gorm:"many2many:track_artists"`
 	Genres  []*Genre  `gorm:"many2many:track_genres"`
 }

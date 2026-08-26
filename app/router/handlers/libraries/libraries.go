@@ -20,17 +20,17 @@ type Handler struct {
 }
 
 type libraryDTO struct {
-	ID                uint       `json:"id"`
-	Name              string     `json:"name"`
-	Path              string     `json:"path"`
+	ID              uint     `json:"id"`
+	Name            string   `json:"name"`
+	Path            string   `json:"path"`
 	ExcludePatterns []string `json:"exclude_patterns"`
 	// FollowSymlinks and ShowArtists are pointers so an omitted key keeps its
 	// default (both true on create) instead of reading as false.
-	FollowSymlinks    *bool      `json:"follow_symlinks"`
-	ShowArtists       *bool      `json:"show_artists"`
-	DefaultView       string     `json:"default_view"`
-	Icon              string     `json:"icon"`
-	CoverStyle string `json:"cover_style"`
+	FollowSymlinks *bool  `json:"follow_symlinks"`
+	ShowArtists    *bool  `json:"show_artists"`
+	DefaultView    string `json:"default_view"`
+	Icon           string `json:"icon"`
+	CoverStyle     string `json:"cover_style"`
 	// Source is "db" for a library managed here or "config" for one declared in
 	// the server config file. Config libraries are read-only over this API and
 	// the UI renders them without edit/delete actions.

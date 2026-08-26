@@ -734,7 +734,7 @@ func TestFillGapsPlacesTheRightParentheticalVariant(t *testing.T) {
 func TestFillGapsMarksHopelessFilesAsNone(t *testing.T) {
 	o := &AlbumOption{
 		ReleaseMBID: "rel-A", Enriched: true, TrackCount: 1, DiscCount: 1,
-		Tracks:      []Slot{slot(1, 1, "One", 180, "rec-1")},
+		Tracks: []Slot{slot(1, 1, "One", 180, "rec-1")},
 		Assignments: []Assignment{{
 			Path: "01.flac", Source: SourceFingerprint, DiscNumber: 1, TrackNumber: 1,
 		}},
