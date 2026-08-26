@@ -412,6 +412,193 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/MeResponse' }
 
+  /auth/login:
+    post:
+      operationId: login
+      summary: Password login — verifies credentials and starts a session.
+      description: >
+        Public. The entire request/response contract here is owned by the
+        external go-bumbu login library (github.com/go-bumbu/userauth,
+        flow/login/handlers.JSON.LoginHandler) wired in
+        `handlers/auth/auth.go` over a single-factor password policy — not an
+        aether-authored shape. Every credential-shaped failure (unknown user,
+        disabled user, wrong password) answers the identical 401, by design,
+        so the response can never be used to enumerate accounts. Success sets
+        the `sessionCookie` session cookie via `Set-Cookie`; the body itself
+        carries no identity.
+
+
+        Unlike the rest of `/api/v1`, go-bumbu's own error body —
+        `{"error": "<message>"}` under plain `application/json` — passes
+        through the router's error-envelope middleware untouched, because it
+        is already a well-formed JSON object: the middleware only reshapes
+        bare plain-text errors into RFC 9457 `application/problem+json`, and
+        forwards a body that is already valid JSON as-is (see
+        `app/router/errors.go`). So login's errors are documented here with
+        their own `AuthError` schema, not the shared `BadRequest`/
+        `Unauthorized` responses used elsewhere, which really are
+        `problem+json`.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: >
+            Login accepted. `done: true` in every case reachable today —
+            aether wires only a single password factor; `next` exists for
+            multi-factor policies the library supports but aether does not
+            yet use.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResult' }
+        '400':
+          description: Malformed JSON body, or a missing username/password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthError' }
+        '401':
+          description: >
+            Uniform credential failure: unknown user, disabled user and wrong
+            password are all indistinguishable from one another.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthError' }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Clear the session cookie.
+      description: >
+        Public and idempotent: answers 200 whether or not the caller actually
+        held a session. Owned by go-bumbu's `cookieauth.LogoutHandler`
+        (`handlers/auth/auth.go`), wrapped by one aether-side addition: an
+        optional `{tokenId}` body names the caller's own mintToken session
+        token so the server can best-effort revoke it too. A missing or
+        malformed body is tolerated silently and never fails the logout; the
+        revoke itself is also best-effort and never surfaces a failure.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogoutRequest' }
+      responses:
+        '200':
+          description: Session cleared (or already absent). No body.
+
+  /auth/token:
+    post:
+      operationId: mintToken
+      summary: Mint the SPA's short-lived, per-device session token.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). Mints a spa-scoped, 48h-lived token — the
+        device-bound counterpart to the session cookie that `/rest` clients
+        use to act as the logged-in SPA. Before minting, it sweeps the
+        caller's own spa-scoped tokens: every expired one, and the live one
+        already bound to this same `deviceId` (so repeated boots of one app
+        instance supersede rather than pile up); it also evicts the
+        least-recently-used session past a 10-per-user ceiling. Other
+        devices' live sessions are left alone, which is what lets the same
+        user stay signed in from several first-party apps at once.
+      tags: [tokens]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MintTokenRequest' }
+      responses:
+        '201':
+          description: Minted. The plaintext `token` appears here and nowhere else.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MintTokenResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /auth/tokens:
+    get:
+      operationId: listTokens
+      summary: The caller's tokens — user-created PATs and live first-party sessions.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). Reports user-created PATs (`kind: "client"`)
+        together with the caller's live mintToken sessions (`kind:
+        "session"`) so the settings UI can list and tell them apart; an
+        expired session token is dropped rather than listed, since it is
+        already-superseded plumbing the user should not see.
+      tags: [tokens]
+      responses:
+        '200':
+          description: The caller's tokens.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createToken
+      summary: Create a user-managed PAT (kind "client") for a third-party client.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). `type` picks the credential shape a
+        third-party Subsonic client presents: "apikey" (default) is
+        hash-only and presented whole via `apiKey=`; "usertoken" is a
+        recoverable secret presented as a virtual username + password pair
+        for `u`+`t`+`s`/`u`+`p` clients. The plaintext `token` — and for
+        "usertoken", also `username`/`password` — appear in this response
+        and nowhere else.
+      tags: [tokens]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTokenRequest' }
+      responses:
+        '201':
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateTokenResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '501':
+          description: >
+            `type: "usertoken"` was requested but the server has no cipher
+            configured to store a recoverable secret (`pat.ErrNoCipher`);
+            "apikey" tokens are unaffected.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/tokens/{tokenId}:
+    delete:
+      operationId: deleteToken
+      summary: Revoke one of the caller's tokens.
+      description: >
+        Any authenticated user; not admin-gated (operates only on the
+        caller's own tokens). A foreign token id (owned by another user) and
+        an absent one both answer 404 identically — the store cannot tell
+        them apart, deliberately.
+      tags: [tokens]
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          description: The token's opaque id, as returned by mintToken, createToken or listTokens.
+          schema: { type: string }
+      responses:
+        '204':
+          description: Revoked. No body.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -835,6 +1022,172 @@ components:
             userManagement: { type: boolean }
           required: [userManagement]
       required: [authMethod, user, features]
+
+    LoginRequest:
+      type: object
+      description: >
+        Owned by the external go-bumbu login library
+        (flow/login/handlers.JSON.LoginPayload), not an aether type — see
+        `login`'s description.
+      properties:
+        username: { type: string }
+        password: { type: string }
+        sessionRenew:
+          type: boolean
+          default: false
+          description: >
+            "Remember me": opts the session into rolling expiry renewal
+            (activity keeps it alive) instead of a fixed window.
+      required: [username, password]
+
+    LoginResult:
+      type: object
+      description: go-bumbu's login.handlers.Response.
+      properties:
+        done:
+          type: boolean
+          description: True once the login is complete and the session cookie is set.
+        next:
+          type: array
+          items: { type: string }
+          description: >
+            Method IDs still required. Present only when the submitted
+            factor was accepted but the policy needs another; aether's
+            single-factor password policy never sets it today.
+      required: [done]
+
+    AuthError:
+      type: object
+      description: >
+        go-bumbu's own uniform error body for `login` — plain
+        `application/json`, not the RFC 9457 `Problem` the rest of
+        `/api/v1` answers with (see `login`'s description).
+      properties:
+        error: { type: string }
+      required: [error]
+
+    LogoutRequest:
+      type: object
+      description: >
+        Aether-owned (not go-bumbu): names the caller's own mintToken
+        session token so logout can best-effort revoke it too. Entirely
+        optional — a missing or malformed body never fails the logout.
+      properties:
+        tokenId: { type: string }
+
+    MintTokenRequest:
+      type: object
+      description: Identifies the first-party app instance minting its own session token.
+      properties:
+        deviceId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,64}$'
+          description: >
+            Scopes the mint to one app instance: a repeat mint with the same
+            deviceId supersedes its own previous token rather than piling up
+            or signing other devices out.
+        deviceName:
+          type: string
+          description: >
+            Cosmetic label shown in the token-management UI (e.g. "Firefox
+            on Linux"). Optional; an unnamed device falls back to a fixed
+            name. Longer than 100 runes is silently truncated, never
+            rejected.
+      required: [deviceId]
+
+    MintTokenResult:
+      type: object
+      description: The plaintext `token` appears here and nowhere else.
+      properties:
+        token: { type: string }
+        tokenId: { type: string }
+        expiresAt: { type: string, format: date-time }
+      required: [token, tokenId, expiresAt]
+
+    TokenInfo:
+      type: object
+      description: >
+        A token as the management endpoints report it — metadata only,
+        never the hash/secret.
+      properties:
+        tokenId: { type: string }
+        name: { type: string }
+        kind:
+          type: string
+          enum: [session, client]
+          description: '"session": minted by mintToken. "client": a user-created PAT.'
+        type:
+          type: string
+          enum: [apikey, usertoken]
+          description: >
+            "apikey": hash-only, presented whole. "usertoken": recoverable,
+            presented as a virtual username + password pair.
+        createdAt: { type: string, format: date-time }
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null until the token is first used.
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null for a token that never expires.
+      required: [tokenId, name, kind, type, createdAt, lastUsedAt, expiresAt]
+
+    TokenList:
+      type: object
+      properties:
+        tokens:
+          type: array
+          items: { $ref: '#/components/schemas/TokenInfo' }
+      required: [tokens]
+
+    CreateTokenRequest:
+      type: object
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          enum: [apikey, usertoken]
+          default: apikey
+        expiresAt:
+          type: string
+          format: date-time
+          description: Omitted means the token never expires.
+      required: [name]
+
+    CreateTokenResult:
+      type: object
+      description: >
+        The one-time plaintext appears only here. `username`/`password` are
+        present only when the request's `type` was "usertoken" — the
+        credential pair a Subsonic `u`+`t`+`s`/`u`+`p` client consumes;
+        `username` always equals `tokenId`. Both are entirely absent (not
+        null) for the default "apikey" type. Unlike `TokenInfo`, this shape
+        has no `lastUsedAt`: createToken builds its response directly rather
+        than from the DTO listTokens uses.
+      properties:
+        token: { type: string }
+        tokenId: { type: string }
+        name: { type: string }
+        kind:
+          type: string
+          enum: [client]
+          description: Always "client" — createToken only ever mints user-created PATs.
+        type:
+          type: string
+          enum: [apikey, usertoken]
+        createdAt: { type: string, format: date-time }
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Present but null when the request omitted expiresAt.
+        username:
+          type: string
+          description: Present only when `type` is "usertoken" (equals `tokenId`).
+        password:
+          type: string
+          description: Present only when `type` is "usertoken".
+      required: [token, tokenId, name, kind, type, createdAt, expiresAt]
 
   responses:
     BadRequest:
