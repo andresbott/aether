@@ -181,7 +181,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
+	httperr.Write(w, r, status, code, msg)
 }
 
 func (h *Handler) resolveLibraryRel(r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {

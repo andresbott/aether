@@ -49,7 +49,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 func writeError(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
+	httperr.Write(w, r, status, code, msg)
 }
 
 func parseID(r *http.Request) (uint, error) {

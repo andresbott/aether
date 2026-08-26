@@ -66,12 +66,12 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		// context and renews the rolling expiry ("remember me" sessions).
 		ok, _ := h.sessions.HandleAuth(w, r)
 		if !ok {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", httperr.TitleFor("unauthorized"), "authentication required")
+			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		data, err := cookieauth.CtxGetUserData(r)
 		if err != nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", httperr.TitleFor("unauthorized"), "authentication required")
+			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		// The DB Enabled flag is aether's kill-switch and it must close sessions
@@ -82,11 +82,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		usr, err := h.users.GetUser(data.UserId)
 		if err != nil {
 			// A session pointing at a deleted user authenticates nothing.
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", httperr.TitleFor("unauthorized"), "authentication required")
+			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		if !usr.Enabled {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", httperr.TitleFor("forbidden"), "user is disabled")
+			httperr.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
 			return
 		}
 		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
@@ -97,11 +97,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		}
 		role, err := usersHandler.RoleOf(h.users, data.UserId)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", httperr.TitleFor("internal"), "internal error")
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}
 		if role != usersHandler.RoleAdmin {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", httperr.TitleFor("forbidden"), "admin privileges required")
+			httperr.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
 			return
 		}
 		next.ServeHTTP(w, r)

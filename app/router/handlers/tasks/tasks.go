@@ -42,7 +42,7 @@ func taskDefByName(name string) (apptasks.TaskDef, bool) {
 // each other migrated handler package (libraries, artists, radiobrowser,
 // tokens, users) defines locally.
 func writeErr(w http.ResponseWriter, r *http.Request, status int, code, msg string) {
-	httperr.Write(w, r, status, code, httperr.TitleFor(code), msg)
+	httperr.Write(w, r, status, code, msg)
 }
 
 func (h *Handler) ListTasks() http.Handler {
@@ -102,7 +102,7 @@ func (h *Handler) TriggerTask() http.Handler {
 		id, err := h.Runner.AddRun(name)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
-				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", httperr.TitleFor("queue_full"), "Task queue is full. Try again later.")
+				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")
 				return
 			}
 			h.Logger.Error("trigger task: add run failed", "task", name, "err", err)

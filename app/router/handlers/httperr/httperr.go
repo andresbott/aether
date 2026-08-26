@@ -52,12 +52,13 @@ type ValidationProblem struct {
 }
 
 // Write emits an application/problem+json response. Type is built from slug
-// (problemBaseURI + "/" + slug); Instance is always the request path, so a
-// client can tell which call failed without re-reading its own request.
-func Write(w http.ResponseWriter, r *http.Request, status int, slug, title, detail string) {
+// (problemBaseURI + "/" + slug) and Title is derived from slug via TitleFor;
+// Instance is always the request path, so a client can tell which call failed
+// without re-reading its own request.
+func Write(w http.ResponseWriter, r *http.Request, status int, slug, detail string) {
 	writeProblem(w, status, Problem{
 		Type:     problemBaseURI + "/" + slug,
-		Title:    title,
+		Title:    TitleFor(slug),
 		Status:   status,
 		Detail:   detail,
 		Instance: r.URL.Path,
@@ -92,7 +93,7 @@ func WriteUpstream(w http.ResponseWriter, r *http.Request, err error, fallback s
 	if status == http.StatusTooManyRequests {
 		slug = "upstream_rate_limited"
 	}
-	Write(w, r, status, slug, TitleFor(slug), upstream.UserMessage(err, fallback))
+	Write(w, r, status, slug, upstream.UserMessage(err, fallback))
 }
 
 // Slug returns the last path segment of a problem's Type URI — the old "code"

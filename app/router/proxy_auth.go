@@ -122,17 +122,17 @@ func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 		id, usr, err := h.resolveProxyIdentity(w, r)
 		if err != nil {
 			h.logger.Error("proxy auth: identity resolution failed", "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", httperr.TitleFor("internal"), "internal error")
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}
 		if id == nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", httperr.TitleFor("unauthorized"), "authentication required")
+			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		// The DB Enabled flag is aether's kill-switch: it blocks a user the
 		// proxy still authenticates (pat.Verify enforces the same on /rest).
 		if !usr.Enabled {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", httperr.TitleFor("forbidden"), "user is disabled")
+			httperr.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), proxyIdentityCtxKey{}, *id))
@@ -141,7 +141,7 @@ func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 			return
 		}
 		if id.Role != usersHandler.RoleAdmin {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", httperr.TitleFor("forbidden"), "admin privileges required")
+			httperr.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
 			return
 		}
 		next.ServeHTTP(w, r)
