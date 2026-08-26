@@ -368,6 +368,50 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness probe.
+      description: Unauthenticated. Always 200 while the process serves requests.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthStatus' }
+  /version:
+    get:
+      operationId: getVersion
+      summary: Build information baked in at release.
+      description: Unauthenticated. Values come from ldflags; empty in a dev build.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Build info.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionInfo' }
+  /me:
+    get:
+      operationId: getMe
+      summary: The SPA's bootstrap probe — auth method, caller identity, feature flags.
+      description: >
+        Deliberately public: the SPA calls it before any login. `user` is null
+        when there is no valid session (or auth method "none"). Field names are
+        camelCase here (SPA bootstrap contract), unlike the snake_case rest of
+        this surface.
+      tags: [bootstrap]
+      security: []
+      responses:
+        '200':
+          description: Auth method, optional identity, and server feature flags.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+
 components:
   securitySchemes:
     sessionCookie:
@@ -753,6 +797,44 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Track' }
       required: [tracks]
+
+    HealthStatus:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+      required: [status]
+
+    VersionInfo:
+      type: object
+      description: Snake_case; each value is empty in an unstamped dev build.
+      properties:
+        version: { type: string }
+        build_time: { type: string }
+        commit: { type: string }
+      required: [version, build_time, commit]
+
+    MeUser:
+      type: object
+      properties:
+        login: { type: string }
+        role: { type: string, enum: [admin, user] }
+      required: [login, role]
+
+    MeResponse:
+      type: object
+      description: camelCase (SPA bootstrap contract).
+      properties:
+        authMethod: { type: string, enum: [native, proxy-header, none] }
+        user:
+          oneOf:
+            - { $ref: '#/components/schemas/MeUser' }
+            - { type: 'null' }
+        features:
+          type: object
+          properties:
+            userManagement: { type: boolean }
+          required: [userManagement]
+      required: [authMethod, user, features]
 
   responses:
     BadRequest:
