@@ -9,6 +9,7 @@ so todo can parse what you write:
   # Heading           Headings ("#" to "######") are categories; they nest by
                       heading level.
   - [ ] Open task     A "- [ ]" line is an open task; "- [x]" marks it done.
+  - [/] In progress   "- [/]" flags a task in progress, "- [>]" defers it.
   - [x] Done task     Tasks must live under a category heading.
     - [ ] Subtask     Indent by two spaces to nest a subtask under a task.
     Description text  An indented, non-checkbox line is the task's description.
@@ -85,13 +86,33 @@ Notes for editors:
 
 ## Frontend
 
-- [ ] library also shows songs additionally to albums and artists
+- [x] library also shows songs additionally to albums and artists
+  In the library view we get to see discover | Albums | artists
+  Additinoally we should have a list of all songs.
+
+  NOTE: the discover sections does not need to be changed, simply add a new view with songs. 
 - [ ] Implement radio mode queue => keep playing based on same type/taste
   - [ ] If I just listened to an album, put the next album of the same artist
     - [ ] If the artist has no more albums, jump to the next artist with similar tags
-- [ ] Now Playing: navigate to related artists
-  Now Playing should let you navigate to artists, the way you can to the album.
-- [ ] Player should propagate error if server not accessible
+- [x] Now Playing: navigate to related artists
+  In the now playing view we list artists and album, if you click on the album you get the album view, the artist should also be clikable to navigate to the artists
+- [x] Player should propagate error if server not accessible
+  If i have the SPA loaded and the backend is not available, currently the SPA silenty fails; instead it should propagete that error to the users
+
+  e.g. it might be that i'm on another network, or i lost internet completely
+- [x] Remember view mode per library type
+  if we are in library: on the discover page we can swith the view between grid and list, if we change to list and then navigate to albums, the albums are alsos shown as list.
+
+  instead each view type should have it's default view mode, that is grid for all, except for songs where it is list; but if a user decided to change the view mode, that is only for that particular item, meaning that if he navites to the next, then the view would be again the defaut if he hadn't changed it.
+
+  keep the selection for the session, if we reload, it's ok have to change the setting again.
+- [x] add Artist play button
+  in the artist view: e.g. http://localhost:5173/library/1#artists
+  same as the album view, the artist card should have a play button.
+
+  If clicked select one random album and play it
+
+  also the card should be drag/droppable, in that case we want the whole colecton of that artist to be drag and drop. that means it allows to add all albums sorted from new to old into the playlist
 
 ## Frontend - mobile
 
@@ -100,7 +121,7 @@ Notes for editors:
 - [x] Align v1 API with OpenAPI spec — DONE (branch `feat/openapi-v1-spec-coverage`, unmerged): `docs/openapi/aether-v1.yaml` now describes the full `/api/v1` surface (bootstrap health/version/me, auth, tokens, users, libraries, radiobrowser, artists, tasks, and the whole metadata surface incl. identify/identify-album/artist-image), plus shared RFC 9457 components, a three-tier security model, and Spectral governance rules; `app/router/openapi_coverage_test.go` asserts the spec and mounted routes match two-way (56==56) in `make verify`/CI. `admin`/`/metrics` was excluded on purpose — it's a separate ops server, not `/api/v1`. Optional follow-ups: migrate `tasks` + the auth-gate plain-text errors to `httperr` directly, and add a `kin-openapi` response-contract test.
 - [ ] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
 - [ ] When identifying albums sometimes the track position is wrong — can we improve that?
-- [ ] when i open the folder selection scroll to current folder
+- [x] when i open the folder selection scroll to current folder
   if i have many folders, with artist / album 
   now in the nomral view in the top if i click on the album the dialog opens with the artists name expanded, but if i have to many items i need to scroll anyway
 
@@ -167,10 +188,10 @@ Notes for editors:
 - [ ] Album cover Remove can't tell if there's anything to remove
   `AlbumView`'s hero Remove clears aether's managed cover via `updateAlbum`'s `coverClear`, but most albums are served from folder art or embedded tags instead — so Remove → Save deletes a non-existent asset entry and the old cover reappears. Currently mitigated only by helper text spelling out the semantics; `HeroHeader` already has a `coverRemovable` prop for suppressing the affordance, and `ArtistView` drives it from an image-source query (`/api/v1/artists/{id}/image-source`, surfaced as `canRemoveImage`). The album equivalent needs `/rest` to report whether the served cover is aether-managed — an OpenSubsonic extension field or small endpoint, not an `/api/v1` route, since album covers are music functionality. Same gap exists for genres.
 - [ ] Better genre handling — needs scoping before it can be planned
-- [ ] Search should also return genres
+- [x] Search should also return genres
 - [ ] Playlist edit is not a nice experience for now — needs scoping
   Name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated.
-- [ ] Add filter to artist / album etc
+- [>] Add filter to artist / album etc
 
 ## Frontend — Player & Controls
 
@@ -179,7 +200,7 @@ Notes for editors:
 
 ## Frontend — Layout
 
-- [ ] Improve icon theme
+- [x] Improve icon theme
 
 ## Metadata & External Integrations
 
