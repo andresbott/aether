@@ -3,16 +3,19 @@ import { useToast } from 'primevue/usetoast'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDragData, ALBUM_DRAG_MIME } from '@/composables/albumDragData'
 import { useSongsDragData, SONGS_DRAG_MIME } from '@/composables/songsDragData'
+import { useArtistDragData, ARTIST_DRAG_MIME } from '@/composables/artistDragData'
 import { computeInsertIndex, type QueueRowRect } from '@/utils/queueInsert'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { sortAlbumsNewestFirst } from '@/utils/artistPlayback'
 
 /**
  * Drop-target side of dragging content into the play queue. Bound to the
  * QueueView body in both view and edit mode. Native HTML5 DnD, gated only on the
- * album or songs MIME markers: an internal SortableJS reorder drag carries no such
- * marker, so it is ignored here and left to SortableJS. The drop index is computed
- * from the pointer Y against the rows' on-screen rects (edit rows carry the same
- * `data-queue-index`). An album drag resolves its songs by id on drop; a songs drag
+ * album, artist, or songs MIME markers: an internal SortableJS reorder drag carries
+ * no such marker, so it is ignored here and left to SortableJS. The drop index is
+ * computed from the pointer Y against the rows' on-screen rects (edit rows carry the
+ * same `data-queue-index`). An album drag resolves its songs by id on drop; an
+ * artist drag resolves its albums' songs, sorting albums newest-first; a songs drag
  * carries them in its payload. `onInsert` fires only when tracks are actually added
  * (the caller uses it to clear the edit-mode row selection, whose indices the insert
  * would otherwise invalidate).
@@ -23,22 +26,31 @@ export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInse
     const toast = useToast()
     const { albumDragPayload, clearAlbumDrag } = useAlbumDragData()
     const { songsDragPayload, clearSongsDrag } = useSongsDragData()
+    const { artistDragPayload, clearArtistDrag } = useArtistDragData()
 
     const indicatorTop = ref<number | null>(null)
     const indicatorCount = computed(
-        () => songsDragPayload.value?.count ?? albumDragPayload.value?.count ?? 0
+        () =>
+            songsDragPayload.value?.count ??
+            albumDragPayload.value?.count ??
+            artistDragPayload.value?.albumCount ??
+            0
     )
     // True for the whole duration of a queue drag (payload set at dragstart,
     // cleared at dragend/drop) — independent of whether the cursor is over the
     // queue, so a drop target can advertise itself the moment a drag begins.
     const dragActive = computed(
-        () => albumDragPayload.value !== null || songsDragPayload.value !== null
+        () =>
+            albumDragPayload.value !== null ||
+            songsDragPayload.value !== null ||
+            artistDragPayload.value !== null
     )
 
     const isQueueDrag = (e: DragEvent): boolean =>
         !!e.dataTransfer &&
         (e.dataTransfer.types.includes(ALBUM_DRAG_MIME) ||
-            e.dataTransfer.types.includes(SONGS_DRAG_MIME))
+            e.dataTransfer.types.includes(SONGS_DRAG_MIME) ||
+            e.dataTransfer.types.includes(ARTIST_DRAG_MIME))
 
     const collectRows = (body: HTMLElement): QueueRowRect[] =>
         Array.from(body.querySelectorAll<HTMLElement>('[data-queue-index]'))
@@ -84,8 +96,10 @@ export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInse
         indicatorTop.value = null
         const songs = songsDragPayload.value
         const album = albumDragPayload.value
+        const artist = artistDragPayload.value
         clearSongsDrag()
         clearAlbumDrag()
+        clearArtistDrag()
         const rows = collectRows(body)
         const target = computeInsertIndex(rows, e.clientY, player.queue.value.length)
 
@@ -94,6 +108,52 @@ export function useQueueDrop(options: { bodyRef: Ref<HTMLElement | null>; onInse
             if (songs.songs.length) {
                 player.insertIntoQueue(songs.songs, target)
                 onInsert?.()
+            }
+            return
+        }
+
+        // An artist drag: fetch the artist, sort albums newest-first, fetch each
+        // album's songs, and insert all.
+        if (artist) {
+            try {
+                const fetched = await subsonicClient.getArtist(artist.artistId)
+                if (!fetched?.album?.length) {
+                    toast.add({
+                        severity: 'warn',
+                        summary: 'Nothing to add',
+                        detail: 'This artist has no albums.',
+                        life: 3000
+                    })
+                    return
+                }
+
+                const sorted = sortAlbumsNewestFirst(fetched.album)
+                const allSongs = []
+                for (const albumSummary of sorted) {
+                    const fullAlbum = await subsonicClient.getAlbum(albumSummary.id)
+                    if (fullAlbum?.song?.length) {
+                        allSongs.push(...fullAlbum.song)
+                    }
+                }
+
+                if (allSongs.length) {
+                    player.insertIntoQueue(allSongs, target)
+                    onInsert?.()
+                } else {
+                    toast.add({
+                        severity: 'warn',
+                        summary: 'Nothing to add',
+                        detail: 'This artist has no tracks.',
+                        life: 3000
+                    })
+                }
+            } catch (err) {
+                toast.add({
+                    severity: 'error',
+                    summary: 'Could not load artist',
+                    detail: (err as Error).message,
+                    life: 5000
+                })
             }
             return
         }
