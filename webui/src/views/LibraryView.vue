@@ -9,13 +9,15 @@ import AlbumGrid from '@/components/library/AlbumGrid.vue'
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import ArtistGrid from '@/components/library/ArtistGrid.vue'
 import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
+import SongListView from '@/components/library/SongListView.vue'
 import { useMusicFolders } from '@/composables/useSubsonicQueries'
 import { useAlbumIndex } from '@/composables/useAlbumIndex'
 import { useArtistTable } from '@/composables/useArtistTable'
 import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
+import { useSongList } from '@/composables/useSongList'
 
-type ViewMode = 'discover' | 'albums' | 'artists'
+type ViewMode = 'discover' | 'albums' | 'artists' | 'songs'
 type Layout = 'grid' | 'list'
 
 const route = useRoute()
@@ -54,7 +56,8 @@ const artistsTabVisible = computed(() => {
 const viewOptions = computed(() => [
     ...(discoverTabVisible.value ? [{ label: 'Discover', value: 'discover' }] : []),
     { label: 'Albums', value: 'albums' },
-    ...(artistsTabVisible.value ? [{ label: 'Artists', value: 'artists' }] : [])
+    ...(artistsTabVisible.value ? [{ label: 'Artists', value: 'artists' }] : []),
+    { label: 'Songs', value: 'songs' }
 ])
 
 // On the root route, Discover is the default; a folder keeps its configured
@@ -66,7 +69,7 @@ const serverDefault = computed<ViewMode>(() => {
 
 const hashView = computed<ViewMode | null>(() => {
     const h = route.hash.replace('#', '')
-    return h === 'discover' || h === 'albums' || h === 'artists' ? h : null
+    return h === 'discover' || h === 'albums' || h === 'artists' || h === 'songs' ? h : null
 })
 
 const viewMode = computed<ViewMode>({
@@ -97,8 +100,9 @@ const layout = computed<Layout>({
 // Favorites filter, in the URL like the layout so it survives a reload and is
 // linkable. It applies to the Albums and Artists tabs only: Discover is a ranked
 // feed in which favorites are already a scoring term, not a filterable list.
+// Songs tab does not support the favorites filter (search3 has no starred param).
 const favoritesOnly = computed<boolean>({
-    get: () => route.query.favorites === '1' && viewMode.value !== 'discover',
+    get: () => route.query.favorites === '1' && viewMode.value !== 'discover' && viewMode.value !== 'songs',
     set: (v) => {
         const query = { ...route.query }
         if (v) query.favorites = '1'
@@ -125,6 +129,16 @@ const { total: starredArtistTotal } = useStarredArtists(folderId, {
 // Shares its query cache entry with the DiscoveryFeed in the body, so reading the
 // count here costs no extra request.
 const { items: discoveryItems } = useDiscoveryFeed()
+// Shares its query cache entry with the SongListView in the body. Enabled only
+// when the Songs tab is active. Unlike albums/artists, there is no "total" from
+// the backend (search3 doesn't report it), so we count the flattened items from
+// the loaded pages.
+const { items: songItems } = useSongList(
+    folderId,
+    computed(() => false),
+    computed(() => viewMode.value === 'songs')
+)
+const songCount = computed(() => songItems.value.length)
 
 const summary = computed(() => {
     if (viewMode.value === 'discover') {
@@ -144,6 +158,11 @@ const summary = computed(() => {
             ? `${albumTotal.value} ${albumTotal.value === 1 ? 'album' : 'albums'}`
             : ''
     }
+    if (viewMode.value === 'songs') {
+        return songCount.value > 0
+            ? `${songCount.value} ${songCount.value === 1 ? 'song' : 'songs'}`
+            : ''
+    }
     return artistTotal.value > 0
         ? `${artistTotal.value} ${artistTotal.value === 1 ? 'artist' : 'artists'}`
         : ''
@@ -155,10 +174,10 @@ const summary = computed(() => {
         <template #actions>
             <!-- Favorites filter, first in the bar because it changes WHAT is
                  listed while the two SelectButtons only change how. Hidden on
-                 Discover, which has no filterable list. Same heart pair and
-                 wording as every other favorite affordance. -->
+                 Discover (ranked feed) and Songs (search3 has no starred param).
+                 Same heart pair and wording as every other favorite affordance. -->
             <ToggleButton
-                v-if="viewMode !== 'discover'"
+                v-if="viewMode !== 'discover' && viewMode !== 'songs'"
                 v-model="favoritesOnly"
                 class="library-favorites-filter"
                 onIcon="pi pi-heart-fill"
@@ -180,7 +199,9 @@ const summary = computed(() => {
         </template>
 
         <template #secondary-actions>
+            <!-- Layout toggle hidden on Songs tab (list-only per spec). -->
             <SelectButton
+                v-if="viewMode !== 'songs'"
                 v-model="layout"
                 :options="layoutOptions"
                 optionLabel="label"
@@ -203,6 +224,11 @@ const summary = computed(() => {
         />
         <AlbumGrid
             v-else-if="viewMode === 'albums'"
+            :folderId="folderId"
+            :favoritesOnly="favoritesOnly"
+        />
+        <SongListView
+            v-else-if="viewMode === 'songs'"
             :folderId="folderId"
             :favoritesOnly="favoritesOnly"
         />

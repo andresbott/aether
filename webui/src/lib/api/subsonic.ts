@@ -334,6 +334,28 @@ class SubsonicClient {
         return response.searchResult3
     }
 
+    async search3(
+        query: string,
+        songCount: number,
+        songOffset: number,
+        folderId?: number
+    ): Promise<SearchResult3> {
+        if (!this.isConfigured()) return {}
+        const params: Record<string, string | number | undefined> = {
+            query,
+            songCount,
+            songOffset
+        }
+        if (folderId !== undefined) {
+            params.musicFolderId = folderId
+        }
+        const response = await this.request<{ searchResult3: SearchResult3 }>(
+            'search3.view',
+            params
+        )
+        return response.searchResult3
+    }
+
     async getPlaylists(): Promise<Playlist[]> {
         if (!this.isConfigured()) return []
         const response = await this.request<{ playlists: { playlist: Playlist[] } }>(

@@ -32,6 +32,17 @@ vi.mock('@/composables/useDiscovery', () => ({
         fetchNextPage: vi.fn()
     })
 }))
+const songItems = ref<any[]>([])
+vi.mock('@/composables/useSongList', () => ({
+    useSongList: () => ({
+        items: computed(() => songItems.value),
+        isLoading: ref(false),
+        isError: ref(false),
+        hasNextPage: ref(false),
+        isFetchingNextPage: ref(false),
+        fetchNextPage: vi.fn()
+    })
+}))
 vi.mock('@/composables/useAlbumIndex', () => ({
     useAlbumIndex: () => ({
         total: ref(1240),
@@ -93,6 +104,11 @@ const DiscoveryFeedStub = {
     props: ['layout'],
     template: '<div class="discovery-feed-stub" :data-layout="layout" />'
 }
+const SongListStub = {
+    name: 'SongListView',
+    props: ['folderId', 'favoritesOnly'],
+    template: '<div class="song-list-stub" />'
+}
 
 import LibraryView from '@/views/LibraryView.vue'
 import SelectButton from 'primevue/selectbutton'
@@ -107,7 +123,8 @@ const mountView = () =>
                 AlbumGrid: AlbumGridStub,
                 ArtistListView: ArtistListStub,
                 ArtistGrid: ArtistGridStub,
-                DiscoveryFeed: DiscoveryFeedStub
+                DiscoveryFeed: DiscoveryFeedStub,
+                SongListView: SongListStub
             }
         }
     })
@@ -202,8 +219,8 @@ describe('LibraryView', () => {
         const w = mountView()
         expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
         expect(w.findComponent(ArtistGridStub).exists()).toBe(false)
-        // Only the layout toggle remains.
-        expect(w.findAllComponents(SelectButton).length).toBe(1)
+        // Albums and Songs tabs + layout toggle.
+        expect(w.findAllComponents(SelectButton).length).toBe(2)
     })
 
     it('keeps the Artists tab when showArtists is true or unset', () => {
@@ -357,7 +374,8 @@ describe('LibraryView Discover tab', () => {
         expect(tabs.props('options')).toEqual([
             { label: 'Discover', value: 'discover' },
             { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' }
+            { label: 'Artists', value: 'artists' },
+            { label: 'Songs', value: 'songs' }
         ])
     })
 
@@ -392,7 +410,8 @@ describe('LibraryView Discover tab', () => {
         const tabs = mountView().findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
             { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' }
+            { label: 'Artists', value: 'artists' },
+            { label: 'Songs', value: 'songs' }
         ])
     })
 

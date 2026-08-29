@@ -62,7 +62,9 @@ export const queryKeys = {
     discovery: (seed: number, musicFolderId?: number) =>
         ['subsonic', 'discovery', seed, musicFolderId] as const,
     // Prefix of every seeded/scoped discovery feed, for invalidating them all.
-    discoveryAll: ['subsonic', 'discovery'] as const
+    discoveryAll: ['subsonic', 'discovery'] as const,
+    songs: (musicFolderId?: number, favoritesOnly?: boolean) =>
+        ['subsonic', 'songs', musicFolderId, favoritesOnly] as const
 }
 
 export function usePing() {
