@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PlayerLayout from '@/layouts/PlayerLayout.vue'
 import SettingsLayout from '@/layouts/SettingsLayout.vue'
 import LoginView from '@/views/LoginView.vue'
+import ConnectivityBanner from '@/components/layout/ConnectivityBanner.vue'
 import { useAuth } from '@/composables/useAuth'
 import { subsonicReady } from '@/lib/subsonicSession'
 
@@ -50,6 +51,7 @@ watchEffect(() => {
 </script>
 
 <template>
+    <ConnectivityBanner />
     <LoginView v-if="needsLogin" />
     <component :is="layout" v-else-if="!isLoading && subsonicReady" />
 </template>

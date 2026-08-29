@@ -1,6 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
+import { VueQueryPlugin, QueryClient, QueryCache, MutationCache } from '@tanstack/vue-query'
 import PrimeVue from 'primevue/config'
 import ToastService from 'primevue/toastservice'
 import ConfirmationService from 'primevue/confirmationservice'
@@ -11,6 +11,8 @@ import Ripple from 'primevue/ripple'
 
 import CustomTheme from './theme'
 import { useTheme } from './composables/useTheme'
+import { apiErrorMessage, NETWORK_MESSAGE } from './lib/apiError'
+import { reportNetworkError, dismissBanner } from './composables/useConnectivity'
 import 'primeflex/primeflex.css'
 import 'primeicons/primeicons.css'
 import '@fontsource-variable/inter'
@@ -70,7 +72,27 @@ const queryClient = new QueryClient({
         mutations: {
             retry: false
         }
-    }
+    },
+    queryCache: new QueryCache({
+        onError: (error) => {
+            // Queries retry 3 times, so this fires only after retries are exhausted.
+            if (apiErrorMessage(error) === NETWORK_MESSAGE) {
+                reportNetworkError()
+            }
+        },
+        onSuccess: () => {
+            // Any successful response means the backend is reachable.
+            dismissBanner()
+        }
+    }),
+    mutationCache: new MutationCache({
+        onError: (error) => {
+            // Mutations retry: false — show immediately on first network error.
+            if (apiErrorMessage(error) === NETWORK_MESSAGE) {
+                reportNetworkError()
+            }
+        }
+    })
 })
 
 app.use(VueQueryPlugin, { queryClient })

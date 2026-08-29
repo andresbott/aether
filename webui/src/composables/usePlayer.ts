@@ -76,11 +76,21 @@ const maybeScrobble = (el: HTMLAudioElement): void => {
 
 const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
     const track = currentTrack.value
-    if (!track || streamRetriedTrackId === track.id) return
+    if (!track || streamRetriedTrackId === track.id) {
+        // Already tried this track once — give up and report connectivity failure.
+        const { reportNetworkError } = await import('@/composables/useConnectivity')
+        reportNetworkError()
+        return
+    }
     streamRetriedTrackId = track.id
     const { remintApiKey } = await import('@/lib/subsonicSession')
     const result = await remintApiKey()
-    if (result !== 'ok') return // dead session or failed: the login gate handles it
+    if (result !== 'ok') {
+        // Dead session or failed re-mint — report connectivity failure.
+        const { reportNetworkError } = await import('@/composables/useConnectivity')
+        reportNetworkError()
+        return
+    }
     const wasPlaying = isPlaying.value
     const position = el.currentTime || 0
     el.src = subsonicClient.getStreamUrl(track.id)

@@ -10,7 +10,7 @@
 // is exactly what used to leak a raw problem document onto the screen.
 
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
-const NETWORK_MESSAGE = 'The server could not be reached. Check your connection and try again.'
+export const NETWORK_MESSAGE = 'The server could not be reached. Check your connection and try again.'
 
 /** The RFC 9457 problem+json body every /api/v1 handler answers with. */
 export interface ApiErrorBody {
