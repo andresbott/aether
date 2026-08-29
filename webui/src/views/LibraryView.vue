@@ -16,12 +16,14 @@ import { useArtistTable } from '@/composables/useArtistTable'
 import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
 import { useDiscoveryFeed } from '@/composables/useDiscovery'
 import { useSongList } from '@/composables/useSongList'
+import { useUiStore } from '@/store/uiStore'
 
 type ViewMode = 'discover' | 'albums' | 'artists' | 'songs'
 type Layout = 'grid' | 'list'
 
 const route = useRoute()
 const router = useRouter()
+const uiStore = useUiStore()
 
 const layoutOptions = [
     { label: 'List', value: 'list', icon: 'pi pi-list' },
@@ -87,20 +89,17 @@ const viewMode = computed<ViewMode>({
     }
 })
 
+// Per-type layout: each view mode has its own default and can be overridden
+// independently. Session-scoped via uiStore (survives navigation but not reload).
 const layout = computed<Layout>({
-    get: () => (route.query.view === 'list' ? 'list' : 'grid'),
-    set: (v) => {
-        const query = { ...route.query }
-        if (v === 'list') query.view = 'list'
-        else delete query.view
-        router.replace({ hash: route.hash, query })
-    }
+    get: () => uiStore.getLibraryViewMode(viewMode.value),
+    set: (v) => uiStore.setLibraryViewMode(viewMode.value, v)
 })
 
-// Favorites filter, in the URL like the layout so it survives a reload and is
-// linkable. It applies to the Albums and Artists tabs only: Discover is a ranked
-// feed in which favorites are already a scoring term, not a filterable list.
-// Songs tab does not support the favorites filter (search3 has no starred param).
+// Favorites filter, in the URL so it survives a reload and is linkable. It applies
+// to the Albums and Artists tabs only: Discover is a ranked feed in which favorites
+// are already a scoring term, not a filterable list. Songs tab does not support the
+// favorites filter (search3 has no starred param).
 const favoritesOnly = computed<boolean>({
     get: () => route.query.favorites === '1' && viewMode.value !== 'discover' && viewMode.value !== 'songs',
     set: (v) => {
