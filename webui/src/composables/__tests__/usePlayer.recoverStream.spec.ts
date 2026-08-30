@@ -5,6 +5,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const remintApiKey = vi.fn(() => Promise.resolve('ok' as 'ok' | 'failed' | 'session-gone'))
 vi.mock('@/lib/subsonicSession', () => ({ remintApiKey }))
 
+// Spy the connectivity signal so tests can assert whether a media error was
+// reported to the user as a server-unreachable failure.
+const { reportNetworkError } = vi.hoisted(() => ({ reportNetworkError: vi.fn() }))
+vi.mock('@/composables/useConnectivity', () => ({
+    reportNetworkError,
+    dismissBanner: vi.fn(),
+    markOnline: vi.fn(),
+    useConnectivity: () => ({ isOffline: { value: false } })
+}))
+
 let streamKey = 'old'
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
@@ -104,6 +114,7 @@ beforeEach(async () => {
     streamKey = 'old'
     remintApiKey.mockClear()
     remintApiKey.mockResolvedValue('ok')
+    reportNetworkError.mockClear()
     vi.resetModules()
     usePlayer = (await import('@/composables/usePlayer')).usePlayer
 })
@@ -217,5 +228,41 @@ describe('usePlayer stream recovery', () => {
         next.seedPosition(0)
         next.fire('error')
         await vi.waitFor(() => expect(remintApiKey).toHaveBeenCalledTimes(2))
+    })
+
+    // Regression: clearQueue empties the active element's src, and the browser
+    // fires an 'error' for the now-sourceless element. That is a deliberate stop,
+    // not a connectivity failure — it must not raise the server-unreachable banner.
+    it('does not report a network error when the queue is cleared', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1', 200)])
+        const el = activeAudio()
+        el.seedPosition(5)
+        reportNetworkError.mockClear()
+
+        player.clearQueue() // sets currentTrack = null and activeEl.src = ''
+        el.fire('error') // the empty-src error a real <audio> element fires here
+
+        // Flush a full macrotask so the internal dynamic import()/report path,
+        // if reached, has definitely run before we assert it did not.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(reportNetworkError).not.toHaveBeenCalled()
+    })
+
+    // The genuine failure path is preserved: a second error on the same loaded
+    // track (after its one retry) is a real stream failure and IS reported.
+    it('reports a network error when a track fails again after its one retry', async () => {
+        const player = usePlayer()
+        player.playAlbum([song('tr-1', 200)])
+        const el = activeAudio()
+        el.seedPosition(5)
+
+        el.fire('error') // first error → retry with a re-mint
+        await vi.waitFor(() => expect(remintApiKey).toHaveBeenCalledTimes(1))
+        el.arriveMetadata()
+        reportNetworkError.mockClear()
+
+        el.fire('error') // second error on the same track → real failure
+        await vi.waitFor(() => expect(reportNetworkError).toHaveBeenCalledTimes(1))
     })
 })

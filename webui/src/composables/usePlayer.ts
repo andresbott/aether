@@ -76,8 +76,14 @@ const maybeScrobble = (el: HTMLAudioElement): void => {
 
 const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
     const track = currentTrack.value
-    if (!track || streamRetriedTrackId === track.id) {
-        // Already tried this track once — give up and report connectivity failure.
+    if (!track) {
+        // Nothing is playing (e.g. the queue was cleared): a media error here is
+        // a deliberate stop, not a connectivity failure. Stay silent.
+        return
+    }
+    if (streamRetriedTrackId === track.id) {
+        // Already retried this track once and it failed again — a real stream
+        // failure. Report it so the connectivity banner surfaces.
         const { reportNetworkError } = await import('@/composables/useConnectivity')
         reportNetworkError()
         return
@@ -137,6 +143,9 @@ const attachListeners = (el: HTMLAudioElement): void => {
     })
     el.addEventListener('error', () => {
         if (el !== activeEl) return
+        // An error on a sourceless element is a deliberate stop (clearQueue
+        // empties the src), not a stream failure — never alarm the user for it.
+        if (!el.src) return
         void recoverStream(el)
     })
 }
