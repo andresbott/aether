@@ -224,26 +224,31 @@ func validRole(role string) error {
 	return nil
 }
 
-// errPasswordTooLong flags a password that is present but would silently
+// ErrPasswordTooLong flags a password that is present but would silently
 // truncate at bcrypt's 72-byte input limit — a well-formed-but-invalid value,
-// unlike an outright missing password.
-var errPasswordTooLong = errors.New("password must be at most 72 characters")
+// unlike an outright missing password. Exported so the change-own-password
+// endpoint (handlers/auth) maps it to the same 422 this handler does.
+var ErrPasswordTooLong = errors.New("password must be at most 72 characters")
 
-func validPassword(pw string) error {
+// ValidPassword is the single rule every aether password write applies: it
+// must be present and within bcrypt's 72-byte input limit. Exported so the
+// change-own-password endpoint (handlers/auth) validates identically to the
+// admin CRUD, rather than growing a second, divergent rule.
+func ValidPassword(pw string) error {
 	if pw == "" {
 		return errors.New("password is required")
 	}
 	if len(pw) > maxPasswordLen {
-		return errPasswordTooLong
+		return ErrPasswordTooLong
 	}
 	return nil
 }
 
-// writePasswordErr answers a validPassword failure with the right status: an
+// writePasswordErr answers a ValidPassword failure with the right status: an
 // empty password is a missing required field (400); an over-length one is
 // well-formed but invalid (422).
 func writePasswordErr(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errPasswordTooLong) {
+	if errors.Is(err, ErrPasswordTooLong) {
 		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/password", Detail: err.Error()})
 		return
 	}
@@ -266,7 +271,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httperr.WriteValidation(w, r, msg, httperr.FieldError{Pointer: "/login", Detail: msg})
 		return
 	}
-	if err := validPassword(in.Password); err != nil {
+	if err := ValidPassword(in.Password); err != nil {
 		writePasswordErr(w, r, err)
 		return
 	}
@@ -307,7 +312,7 @@ func (h *Handler) validateUpdate(w http.ResponseWriter, r *http.Request, id stri
 		return true
 	}
 	if in.Password != "" {
-		if err := validPassword(in.Password); err != nil {
+		if err := ValidPassword(in.Password); err != nil {
 			writePasswordErr(w, r, err)
 			return true
 		}

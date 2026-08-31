@@ -269,13 +269,30 @@ Validation in `update` happens entirely before the first store write: the
 mutations are separate store calls rather than one transaction, so a late
 rejection would leave the update half-applied.
 
-Still missing from this mode: **change own password, endpoint and UI both.**
-`SetPasswordHash` is reachable only from the CLI (`aether user reset-password`)
-and the admin-tier `PUT /api/v1/users/{id}`, so a non-admin has no way to change
-their own password and an admin must go through the admin panel. The fix is a
-session-tier route (verify current password, then set the new one) plus a form in
-UserSettingsView → General; unmounted in proxy mode, where the IdP owns
-credentials. TODO.md, 1.0.
+**Change own password — implemented.** `PUT /api/v1/auth/password` is a
+session-tier route (any role; `apiV1SessionPath` in `app/router/api_v1.go`) in
+the auth handler (`handlers/auth/auth.go`): it re-verifies the caller's current
+password — a live session is not by itself authority to change the credential
+that mints it — with per-user brute-force backoff (a `service/throttle.Backoff`
+keyed on the `"reauth"` method, its own bucket separate from login, persisted on
+the aether DB), then hashes and stores the new one via `SetPasswordHash` and the
+shared `usersHandler.ValidPassword` rule. On success it **clears the caller's own
+session cookie** (`Sessions.LogoutUser`), so a password change signs this device
+out and the SPA drops to the login view (its success handler runs the normal
+`logout` flow); the user signs back in with the new password. Note this only
+signs out the **device that made the change**: aether's sessions are stateless
+encrypted cookies (no server-side registry — `app/cmd/session.go`), so
+`SetPasswordHash`'s revocation is a no-op and other devices' cookies stay valid
+until they expire on their own. A wrong current password is **403, not 401** — the session is still
+valid, only the re-auth check failed, and the SPA treats any `/api/v1` 401 as
+an expired session and signs the user out (`webui/src/lib/api/client.ts`); 401
+stays reserved for the guard's genuine no-session case. A throttled attempt is
+429 (`Retry-After`), an over-length new one 422. Wired only in native mode (the auth handler is not
+mounted under proxy-header, where the IdP owns credentials), and the
+UserSettingsView → Account tab (its own section, shown only in native mode when
+signed in) hosts the form, gated on `authRequired && currentUser` to
+match. `SetPasswordHash` is also reachable from the CLI
+(`aether user reset-password`) and the admin-tier `PUT /api/v1/users/{id}`.
 
 **Brute-force backoff — implemented.** `POST /api/v1/auth/login` is guarded by
 `userauth`'s login `Guard` (`flow/login.ThrottleGuard` over

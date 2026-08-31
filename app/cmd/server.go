@@ -230,6 +230,7 @@ func runServer(configFile string) error {
 		Users:         auth.Users,
 		Passwords:     auth.Passwords,
 		LoginGuard:    auth.LoginGuard,
+		Reauth:        auth.Reauth,
 		Sessions:      auth.Sessions,
 		Tokens:        auth.Tokens,
 		HeaderAuth:    auth.HeaderAuth,

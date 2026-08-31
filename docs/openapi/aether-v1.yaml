@@ -895,6 +895,50 @@ paths:
         '200':
           description: Session cleared (or already absent). No body.
 
+  /auth/password:
+    put:
+      operationId: changePassword
+      summary: Change your own password.
+      description: >
+        Any authenticated native user (not admin-gated: it acts only on the
+        caller's own credential). The current password is re-verified before
+        the change — a live session is not by itself authority to change the
+        credential that mints it — with per-user brute-force backoff, so a
+        stolen session cannot turn this into a password oracle; repeated wrong
+        guesses answer 429 with `Retry-After`. On success the caller's own
+        session cookie is cleared, so this device is signed out and the user
+        re-authenticates with the new password. Native mode only — under
+        proxy-header the IdP owns credentials and this route is unmounted.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204':
+          description: >
+            Password changed. The `sessionCookie` is cleared via `Set-Cookie`
+            (the caller is signed out); no body.
+        '400':
+          description: Malformed JSON, a missing current password, or an empty new password.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: >
+            The current password is incorrect. Deliberately 403, not 401: the
+            session is still valid — only the re-auth check failed — so a
+            client must show a form error, not sign the user out. A genuine
+            lost session is the 401 above.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
   /auth/token:
     post:
       operationId: mintToken
@@ -2876,6 +2920,21 @@ components:
         optional — a missing or malformed body never fails the logout.
       properties:
         tokenId: { type: string }
+
+    ChangePasswordRequest:
+      type: object
+      description: >
+        Aether-owned. The confirm-new-password check is a client concern; the
+        server needs only the current and new values. The new password is
+        capped at bcrypt's 72-byte input limit (a longer one answers 422).
+      properties:
+        currentPassword:
+          type: string
+          description: The caller's current password, re-verified before the change.
+        newPassword:
+          type: string
+          maxLength: 72
+      required: [currentPassword, newPassword]
 
     MintTokenRequest:
       type: object

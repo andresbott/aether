@@ -27,3 +27,17 @@ export async function login(
 export async function logout(spaTokenId?: string): Promise<void> {
     await apiClient.post('/auth/logout', spaTokenId ? { tokenId: spaTokenId } : undefined)
 }
+
+/**
+ * PUT /api/v1/auth/password — changes the signed-in user's own password after
+ * re-verifying the current one (native mode only). The server revokes every
+ * session and re-issues this caller's cookie, so this device stays signed in
+ * while other devices are signed out. Answers 204; a wrong current password is
+ * 401, throttled attempts 429.
+ */
+export async function changePassword(
+    currentPassword: string,
+    newPassword: string
+): Promise<void> {
+    await apiClient.put('/auth/password', { currentPassword, newPassword })
+}

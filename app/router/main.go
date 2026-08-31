@@ -31,6 +31,7 @@ import (
 	loginflow "github.com/go-bumbu/userauth/flow/login"
 	"github.com/go-bumbu/userauth/service/password"
 	"github.com/go-bumbu/userauth/service/pat"
+	"github.com/go-bumbu/userauth/service/throttle"
 	"github.com/go-bumbu/userauth/service/user"
 	"github.com/gorilla/mux"
 )
@@ -74,6 +75,10 @@ type Cfg struct {
 	// (brute-force backoff). Nil leaves login unguarded; only meaningful with
 	// AuthMethod "native". See docs/agents/authentication.md.
 	LoginGuard loginflow.Guard
+	// Reauth throttles the change-own-password re-verification per user, so a
+	// stolen session cannot brute-force the current password. Nil leaves that
+	// check unthrottled; only meaningful with AuthMethod "native".
+	Reauth *throttle.Backoff
 	// Sessions is the cookie session manager; nil unless AuthMethod is
 	// "native". When set, the login/logout endpoints are mounted and every
 	// /api/v1 route except the public bootstrap set requires a session.
@@ -111,6 +116,7 @@ type MainAppHandler struct {
 	users         *user.Service
 	passwords     *password.Service
 	loginGuard    loginflow.Guard
+	reauth        *throttle.Backoff
 	sessions      *cookieauth.Manager
 	tokens        *pat.Service
 	headerAuth    *headerauth.HeaderHandler
@@ -264,6 +270,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		users:         cfg.Users,
 		passwords:     cfg.Passwords,
 		loginGuard:    cfg.LoginGuard,
+		reauth:        cfg.Reauth,
 		sessions:      cfg.Sessions,
 		tokens:        cfg.Tokens,
 		headerAuth:    cfg.HeaderAuth,

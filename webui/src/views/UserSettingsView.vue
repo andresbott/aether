@@ -7,19 +7,66 @@ import InputText from 'primevue/inputtext'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
+import { useToast } from 'primevue/usetoast'
 import Tag from 'primevue/tag'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import { useTheme } from '@/composables/useTheme'
 import { useAuth } from '@/composables/useAuth'
 import { useTokens, useCreateToken, useRevokeToken } from '@/composables/useTokens'
+import { changePassword as apiChangePassword } from '@/lib/api/Auth'
+import { apiErrorMessage } from '@/lib/apiError'
 import { spaTokenId } from '@/lib/subsonicSession'
 import type { ApiToken, ApiTokenType, CreateTokenResponse } from '@/types/tokens'
 
 const { mode, options, hiddenUnlocked } = useTheme()
 
 // Identity from the /me bootstrap; null with auth method "none", where these
-// are device-level settings only.
-const { currentUser } = useAuth()
+// are device-level settings only. authRequired is true only in native mode:
+// under proxy-header the identity provider owns the credential, so there is no
+// local password to change.
+const { currentUser, authRequired, logout } = useAuth()
+const toast = useToast()
+
+// The change-password form belongs only to a signed-in native user: proxy-header
+// delegates credentials to the IdP (nothing to change here) and auth method
+// "none" has no user at all.
+const canChangePassword = computed(() => authRequired.value && currentUser.value !== null)
+
+const pwCurrent = ref('')
+const pwNew = ref('')
+const pwConfirm = ref('')
+const pwSubmitting = ref(false)
+const pwError = ref('')
+
+async function onChangePassword(): Promise<void> {
+    pwError.value = ''
+    if (!pwCurrent.value || !pwNew.value) {
+        pwError.value = 'Enter your current and new password.'
+        return
+    }
+    if (pwNew.value !== pwConfirm.value) {
+        pwError.value = 'The new passwords do not match.'
+        return
+    }
+    pwSubmitting.value = true
+    try {
+        await apiChangePassword(pwCurrent.value, pwNew.value)
+        // A successful change signs this device out: the server clears the
+        // session cookie, so end the local session and drop to the login view.
+        // The toast rides on the app root and outlives this view's unmount.
+        toast.add({
+            severity: 'success',
+            summary: 'Password changed',
+            detail: 'Sign in again with your new password.',
+            life: 6000
+        })
+        logout.mutate()
+    } catch (err) {
+        pwError.value = apiErrorMessage(err)
+    } finally {
+        pwSubmitting.value = false
+    }
+}
 
 const { data: tokens } = useTokens(computed(() => currentUser.value !== null))
 // First-party tokens an Aether app minted for itself (this web player today;
@@ -32,15 +79,19 @@ const revokeToken = useRevokeToken()
 const confirm = useConfirm()
 
 interface SettingsTab {
-    id: 'general' | 'access'
+    id: 'general' | 'account' | 'access'
     label: string
     icon: string
 }
 
 // The access tab needs a user to own the tokens; with auth method "none" only
-// the device-level General settings exist.
+// the device-level General settings exist. Account holds the change-password
+// form, so it appears only where a password can be changed (native + signed in).
 const tabs = computed<SettingsTab[]>(() => [
     { id: 'general', label: 'General', icon: 'pi pi-user' },
+    ...(canChangePassword.value
+        ? ([{ id: 'account', label: 'Account', icon: 'pi pi-lock' }] as SettingsTab[])
+        : []),
     ...(currentUser.value
         ? ([{ id: 'access', label: 'Connected apps', icon: 'pi pi-mobile' }] as SettingsTab[])
         : [])
@@ -267,6 +318,57 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                 aria-label="Theme"
                             />
                         </div>
+                    </section>
+
+                    <section
+                        v-if="canChangePassword"
+                        v-show="activeTab === 'account'"
+                        id="panel-account"
+                        class="settings-panel"
+                        role="tabpanel"
+                        aria-labelledby="tab-account"
+                    >
+                        <h2>Account</h2>
+                        <form class="change-password-form" @submit.prevent="onChangePassword">
+                            <h3>Change password</h3>
+                            <p class="setting-hint">
+                                You'll be signed out and need to sign in again with your new
+                                password.
+                            </p>
+                            <div class="pw-field">
+                                <label for="current-password">Current password</label>
+                                <InputText
+                                    id="current-password"
+                                    v-model="pwCurrent"
+                                    type="password"
+                                    autocomplete="current-password"
+                                />
+                            </div>
+                            <div class="pw-field">
+                                <label for="new-password">New password</label>
+                                <InputText
+                                    id="new-password"
+                                    v-model="pwNew"
+                                    type="password"
+                                    autocomplete="new-password"
+                                />
+                            </div>
+                            <div class="pw-field">
+                                <label for="confirm-password">Confirm new password</label>
+                                <InputText
+                                    id="confirm-password"
+                                    v-model="pwConfirm"
+                                    type="password"
+                                    autocomplete="new-password"
+                                />
+                            </div>
+                            <p v-if="pwError" class="pw-error" role="alert">{{ pwError }}</p>
+                            <Button
+                                type="submit"
+                                label="Change password"
+                                :loading="pwSubmitting"
+                            />
+                        </form>
                     </section>
 
                     <section
@@ -681,6 +783,50 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
 
 .setting-hint {
     color: var(--app-text-secondary);
+    font-size: 0.85rem;
+}
+
+/* --- Change password ------------------------------------------------------- */
+.change-password-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 2rem;
+    max-width: 22rem;
+}
+
+.change-password-form h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.change-password-form .setting-hint {
+    margin: 0;
+}
+
+.pw-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pw-field label {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.pw-field :deep(.p-inputtext) {
+    width: 100%;
+}
+
+.change-password-form .p-button {
+    align-self: flex-start;
+}
+
+.pw-error {
+    margin: 0;
+    color: var(--app-danger, #d32f2f);
     font-size: 0.85rem;
 }
 

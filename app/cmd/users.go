@@ -11,6 +11,7 @@ import (
 	"github.com/go-bumbu/userauth/service/password"
 	"github.com/go-bumbu/userauth/service/pat"
 	patdb "github.com/go-bumbu/userauth/service/pat/store/db"
+	"github.com/go-bumbu/userauth/service/throttle"
 	throttledb "github.com/go-bumbu/userauth/service/throttle/store/db"
 	"github.com/go-bumbu/userauth/service/user"
 	userdb "github.com/go-bumbu/userauth/service/user/store/db"
@@ -123,6 +124,7 @@ type authDeps struct {
 	Tokens     *pat.Service
 	HeaderAuth *headerauth.HeaderHandler
 	LoginGuard loginflow.Guard
+	Reauth     *throttle.Backoff
 }
 
 // setupAuth builds the auth dependencies for whichever method is configured.
@@ -141,14 +143,24 @@ func setupAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (authDe
 		users, tokens = proxyUsers, proxyTokens
 	}
 	deps := authDeps{Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens, HeaderAuth: headerAuth}
-	// Brute-force backoff applies to the native login endpoint only: proxy-header
-	// delegates login to the IdP and "none" has no login to guard.
-	if cfg.Method == AuthMethodNative && cfg.LoginThrottle.enabled() {
-		guard, err := newLoginThrottle(db)
+	// Brute-force backoff applies to native only: proxy-header delegates
+	// credentials to the IdP and "none" has none. The login guard is opt-in
+	// (LoginThrottle config); the change-password re-auth is always throttled
+	// — it is exactly the "unthrottled re-auth prompt" a password oracle needs,
+	// so it is not left to configuration.
+	if cfg.Method == AuthMethodNative {
+		if cfg.LoginThrottle.enabled() {
+			guard, err := newLoginThrottle(db)
+			if err != nil {
+				return authDeps{}, err
+			}
+			deps.LoginGuard = guard
+		}
+		reauth, err := newReauthThrottle(db)
 		if err != nil {
 			return authDeps{}, err
 		}
-		deps.LoginGuard = guard
+		deps.Reauth = reauth
 	}
 	return deps, nil
 }
@@ -162,6 +174,18 @@ func newLoginThrottle(db *gorm.DB) (loginflow.Guard, error) {
 		return nil, fmt.Errorf("login throttle store: %w", err)
 	}
 	return loginflow.ThrottleGuard{Throttle: &loginflow.Throttle{Store: store}}, nil
+}
+
+// newReauthThrottle builds the per-user backoff for change-password
+// re-verification on the shared aether DB (persistent, like the login
+// throttle). Its own throttle bucket ("reauth", set by the auth handler) keeps
+// it independent of the login backoff. Library escalating-delay defaults.
+func newReauthThrottle(db *gorm.DB) (*throttle.Backoff, error) {
+	store, err := throttledb.New(db)
+	if err != nil {
+		return nil, fmt.Errorf("reauth throttle store: %w", err)
+	}
+	return &throttle.Backoff{Store: store}, nil
 }
 
 // newTokenService builds the PAT service on the shared token store — the same

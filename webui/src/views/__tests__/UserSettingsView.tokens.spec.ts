@@ -26,7 +26,7 @@ vi.mock('vue-router', () => ({
 
 const currentUser: Ref<MeUser | null> = ref(null)
 vi.mock('@/composables/useAuth', () => ({
-    useAuth: () => ({ currentUser })
+    useAuth: () => ({ currentUser, authRequired: ref(false) })
 }))
 
 // Auto-accept the revoke confirmation, recording each request.

@@ -46,6 +46,7 @@ var apiV1PublicPaths = map[string]bool{
 func apiV1SessionPath(path string) bool {
 	return path == "/api/v1/auth/token" ||
 		path == "/api/v1/auth/tokens" ||
+		path == "/api/v1/auth/password" ||
 		strings.HasPrefix(path, "/api/v1/auth/tokens/")
 }
 
@@ -171,7 +172,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 
 	// Native auth only: login/logout and the users CRUD.
 	if h.users != nil && h.sessions != nil {
-		ah := &authHandler.Handler{Users: h.users, Passwords: h.passwords, Sessions: h.sessions, Tokens: h.tokens, Guard: h.loginGuard, Logger: h.logger}
+		ah := &authHandler.Handler{Users: h.users, Passwords: h.passwords, Sessions: h.sessions, Tokens: h.tokens, Guard: h.loginGuard, Reauth: h.reauth, Logger: h.logger}
 		ah.Routes(r)
 	}
 	if userManagement {
