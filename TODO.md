@@ -45,8 +45,8 @@ Notes for editors:
 
 ## Backend — OpenSubsonic Compliance
 
-- [ ] `getUser` / `getUsers` — spec endpoints, not routed at all
-  Absent from the register list in `subsonic/subsonic.go:207-269`. Clients call `getUser` to discover what the authenticated user may do — `streamRole`, `playlistRole`, `downloadRole`, `adminRole`, `coverArtRole`, … — and some disable UI or refuse to start without it. Aether already has everything the response needs: `requestOwner(r)` gives the login, `users.RoleOf` gives the vertical (the same lookup `restAdminChecker` uses), so the roles are a fixed mapping with `adminRole` the only variable one. Two decisions: the `username` a PAT-authenticated caller sees (the real login, not the tokenID virtual username), and whether `getUsers` (admin-only, lists everyone) is worth mounting at all given the users CRUD already lives on `/api/v1` — `getUser` for the caller's own record is the part clients actually need.
+- [x] `getUser` — spec endpoint (was not routed at all)
+  Done: `handlers/subsonic/getuser.go`, registered under a "User" group in `subsonic.go`. Clients call `getUser` at login to discover their permissions (`streamRole`, `playlistRole`, `downloadRole`, `adminRole`, `coverArtRole`, …) and some refuse to start without it. Aether is single-tier, so the roles are a fixed table with `adminRole`/`settingsRole` the only variable ones — resolved via the existing `h.admin` `AdminChecker` (the same lookup `restAdminChecker`/`requireAdmin` use; `true` under auth `none`, where the fixed owner is the admin). The reported `username` is always the resolved request owner (`requestOwner`, i.e. the real `LoginID`) and the `username` query param is ignored, so a PAT client that authenticated with its token's virtual username still gets its real login back rather than a mismatch error. The optional `folder` field is deliberately omitted (Aether is not per-user library-scoped; clients get folders from `getMusicFolders`). Covered by `getuser_test.go` (admin role table, non-admin has no admin/settings role, real-login-not-alias, auth-`none`-is-admin).
 - [ ] XML response format for third-party clients
   Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
 
@@ -228,5 +228,7 @@ Notes for editors:
 
 # Won't implement
 
-- [ ] Sharing and Chat
+- [>] Sharing and Chat
   Sharing exists to hand out public unauthenticated links (`/share.php?id=…&secret=…` + an HTML landing page) that bypass auth by design; Chat is a global message wall with no rooms or delivery, vestigial in the ecosystem and pointless on a single-user server. Don't add them, and don't file them as gaps again.
+- [>] `getUsers` (and Subsonic user CRUD: `createUser`/`updateUser`/`deleteUser`/`changePassword`)
+  Admin-only user administration over `/rest`. It only duplicates the users CRUD that already lives on `/api/v1` — the intended admin surface per `CLAUDE.md`'s `/rest`-vs-`/api/v1` split — breaks no playback client (they only ever call `getUser` for their own record), and would add a second privileged write surface plus extra plumbing (the subsonic `Handler` holds only the `AdminChecker` closure, not a user lister). `getUser` (own record) IS implemented; this is the deliberate line where `/rest` stops. Don't file it as a gap again.

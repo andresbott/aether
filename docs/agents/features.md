@@ -85,5 +85,9 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 Last.fm scrobbling, DLNA/UPnP, jukebox/relay, transcoding, CUE sheets,
 app icon/branding, `/api/v1` → `/admin` path reorg, per-scan cover-path
 revalidation (known stale-cover bug with detailed root-cause notes),
-`getPlaylists` N+1 fix, favorites schema rework, `getUser`/`getUsers`,
-image-cache eviction.
+`getPlaylists` N+1 fix, favorites schema rework, image-cache eviction.
+
+`getUser` **is** implemented (`getuser.go`) — the caller's own record with a
+fixed role table, `adminRole` the only variable. `getUsers` is a deliberate
+non-goal: user administration lives on `/api/v1`, not `/rest` (see TODO.md and
+`CLAUDE.md`'s API split).
