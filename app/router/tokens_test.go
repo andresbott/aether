@@ -18,8 +18,6 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -549,13 +547,8 @@ func newRestAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := users.Create("bob", "secret"); err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, nil)
+	mkTestUser(t, users, "bob", "secret")
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -565,11 +558,7 @@ func newRestAuthRouter(t *testing.T) (*MainAppHandler, *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens,
 		Store: store.New(db), DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -649,13 +638,8 @@ func TestRestAuthenticatesWithApiKey(t *testing.T) {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := users.Create("bob", "secret"); err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, nil)
+	mkTestUser(t, users, "bob", "secret")
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -665,11 +649,7 @@ func TestRestAuthenticatesWithApiKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens,
 		Store: store.New(db), DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -713,13 +693,8 @@ func TestRestVerifierIOErrorReturnsCode0(t *testing.T) {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := users.Create("bob", "secret"); err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, nil)
+	mkTestUser(t, users, "bob", "secret")
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -729,12 +704,8 @@ func TestRestVerifierIOErrorReturnsCode0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	// Build router with NO logger to ensure nil-logger safety.
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens,
 		Store: store.New(db), DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -772,13 +743,8 @@ func TestRestApiKeyMaskedInLogs(t *testing.T) {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := users.Create("bob", "secret"); err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, nil)
+	mkTestUser(t, users, "bob", "secret")
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -788,11 +754,7 @@ func TestRestApiKeyMaskedInLogs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+	h, err := New(Cfg{AuthMethod: "native", Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens,
 		Store: store.New(db), DataDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -803,7 +765,7 @@ func TestRestApiKeyMaskedInLogs(t *testing.T) {
 
 	// Wrap the handler to capture RequestURI as it passes through middleware.
 	var capturedURI string
-	maskedHandler, _ := New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: tokens,
+	maskedHandler, _ := New(Cfg{AuthMethod: "native", Users: users, Passwords: passwords, Sessions: sessions, Tokens: tokens,
 		Store: store.New(db), DataDir: t.TempDir()})
 	// Inject a test middleware at the end to capture RequestURI after masking.
 	maskedHandler.router.Use(func(next http.Handler) http.Handler {

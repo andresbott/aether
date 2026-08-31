@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,7 +12,8 @@ import (
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // proxyIdentity is the resolved identity of a header-authenticated request:
@@ -91,10 +91,18 @@ func (h *MainAppHandler) jitUser(login string) (userauth.User, error) {
 	if _, err := rand.Read(secret); err != nil {
 		return userauth.User{}, fmt.Errorf("generate placeholder password: %w", err)
 	}
-	createErr := h.users.CreateUser(userdb.User{
-		LoginID: login,
-		Pw:      hex.EncodeToString(secret),
-		Enabled: true,
+	// The identity service stores only a recognized hash, so the throwaway
+	// secret is bcrypt-hashed even though nothing ever authenticates against it
+	// in proxy mode. DefaultCost keeps provisioning cheap.
+	hash, err := bcrypt.GenerateFromPassword(secret, bcrypt.DefaultCost)
+	if err != nil {
+		return userauth.User{}, fmt.Errorf("hash placeholder password: %w", err)
+	}
+	enabled := true
+	_, createErr := h.users.CreateUser(user.Draft{
+		LoginID:      login,
+		PasswordHash: string(hash),
+		Enabled:      &enabled,
 	})
 	// Two concurrent first requests race on the unique login; whoever loses
 	// just reads the winner's row.

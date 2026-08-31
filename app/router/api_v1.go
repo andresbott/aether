@@ -171,7 +171,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 
 	// Native auth only: login/logout and the users CRUD.
 	if h.users != nil && h.sessions != nil {
-		ah := &authHandler.Handler{Users: h.users, Sessions: h.sessions, Tokens: h.tokens, Logger: h.logger}
+		ah := &authHandler.Handler{Users: h.users, Passwords: h.passwords, Sessions: h.sessions, Tokens: h.tokens, Guard: h.loginGuard, Logger: h.logger}
 		ah.Routes(r)
 	}
 	if userManagement {

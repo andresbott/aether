@@ -28,8 +28,10 @@ import (
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
+	loginflow "github.com/go-bumbu/userauth/flow/login"
+	"github.com/go-bumbu/userauth/service/password"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
 	"github.com/gorilla/mux"
 )
 
@@ -61,10 +63,17 @@ type Cfg struct {
 	// AuthMethod is the configured authentication method
 	// ("none"/"native"/"proxy-header"), reported to the SPA via GET /api/v1/me.
 	AuthMethod string
-	// Users is the user store; nil unless AuthMethod is "native" or
+	// Users is the identity service; nil unless AuthMethod is "native" or
 	// "proxy-header". The users CRUD is mounted only in native mode; proxy
 	// mode provisions users on first sight and manages them at the proxy's IdP.
-	Users *userdb.Store
+	Users *user.Service
+	// Passwords hashes and verifies login passwords; nil unless AuthMethod is
+	// "native". The login flow consumes it as its password verifier.
+	Passwords *password.Service
+	// LoginGuard throttles the native login flow per login identifier
+	// (brute-force backoff). Nil leaves login unguarded; only meaningful with
+	// AuthMethod "native". See docs/agents/authentication.md.
+	LoginGuard loginflow.Guard
 	// Sessions is the cookie session manager; nil unless AuthMethod is
 	// "native". When set, the login/logout endpoints are mounted and every
 	// /api/v1 route except the public bootstrap set requires a session.
@@ -99,7 +108,9 @@ type MainAppHandler struct {
 	identifyOff   string
 	rescanner     metadataHandler.TrackRescanner
 	authMethod    string
-	users         *userdb.Store
+	users         *user.Service
+	passwords     *password.Service
+	loginGuard    loginflow.Guard
 	sessions      *cookieauth.Manager
 	tokens        *pat.Service
 	headerAuth    *headerauth.HeaderHandler
@@ -251,6 +262,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		rescanner:     cfg.Rescanner,
 		authMethod:    cfg.AuthMethod,
 		users:         cfg.Users,
+		passwords:     cfg.Passwords,
+		loginGuard:    cfg.LoginGuard,
 		sessions:      cfg.Sessions,
 		tokens:        cfg.Tokens,
 		headerAuth:    cfg.HeaderAuth,

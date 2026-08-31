@@ -276,11 +276,25 @@ session-tier route (verify current password, then set the new one) plus a form i
 UserSettingsView → General; unmounted in proxy mode, where the IdP owns
 credentials. TODO.md, 1.0.
 
-Also missing, and mode-independent: **nothing bounds password guessing** against
-`POST /api/v1/auth/login` — no rate limit, no lockout, no attempt counting, and
-the flow runs with a nil `AttemptStore` (which the library allows for
-single-factor policies; that store exists to persist multi-factor progress, not
-to throttle). TODO.md, 1.0.
+**Brute-force backoff — implemented.** `POST /api/v1/auth/login` is guarded by
+`userauth`'s login `Guard` (`flow/login.ThrottleGuard` over
+`service/throttle.Backoff`, persisted on the aether DB via
+`service/throttle/store/db` — the `login_throttle` table): after a few free
+failures per login identifier an escalating delay is required (library defaults:
+3 free failures, then 2s doubling to a 5-minute cap), so guessing is infeasible
+without locking the account out. It is an escalating delay, deliberately **not a
+hard lockout** — a lockout would let anyone who knows a login deny its owner
+access. The guard is keyed on the **raw login identifier before any credential
+work**, so submissions for unknown accounts throttle exactly like wrong
+passwords for existing ones (no account-existence oracle), and a throttled
+attempt is rendered as the same uniform 401 as a wrong password. Persisting the
+state means it survives a restart and cannot be reset by crashing the server.
+Wired in `setupAuth` (`app/cmd/users.go`) → `router.Cfg.LoginGuard` →
+`authHandler.Handler.Guard` → the login `Flow`; native mode only (proxy-header
+delegates login to the IdP, "none" has no login). Toggle with
+`Auth.LoginThrottle.Enabled` (default on; see config switch below). The flow
+still runs with a nil `AttemptStore`, which the library allows for single-factor
+policies — that store persists multi-factor progress, it is not the throttle.
 
 ## Mode: proxy-header (Authelia) — implemented
 
@@ -362,6 +376,11 @@ Native extras under `Auth.AdminBootstrap`: `User` / `Pw` seed the initial
 admin while the user store is empty (idempotent — `bootstrapAdmin` in
 `app/cmd/users.go`). `Pw` may be plaintext or a bcrypt hash (`$2` prefix,
 from `aether user hash`). Ignored in the other modes.
+
+`Auth.LoginThrottle.Enabled` toggles the brute-force backoff on native login
+(see "Brute-force backoff" above). It is a pointer bool: **omitted means on** —
+set it to `false` to disable. Meaningful in native mode only; proxy-header and
+`none` have no aether login to guard.
 
 Proxy-header extras under `Auth.ProxyHeader`: `UserHeader` (default
 `Remote-User`), `GroupsHeader` (default `Remote-Groups`), `AdminGroup`

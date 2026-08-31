@@ -228,6 +228,8 @@ func runServer(configFile string) error {
 		Rescanner:     libScanner,
 		AuthMethod:    cfg.Auth.Method,
 		Users:         auth.Users,
+		Passwords:     auth.Passwords,
+		LoginGuard:    auth.LoginGuard,
 		Sessions:      auth.Sessions,
 		Tokens:        auth.Tokens,
 		HeaderAuth:    auth.HeaderAuth,

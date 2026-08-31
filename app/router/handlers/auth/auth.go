@@ -13,16 +13,21 @@ import (
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	loginflow "github.com/go-bumbu/userauth/flow/login"
 	loginhandlers "github.com/go-bumbu/userauth/flow/login/handlers"
+	"github.com/go-bumbu/userauth/service/password"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
 	"github.com/gorilla/mux"
 )
 
 type Handler struct {
-	Users    *userdb.Store
-	Sessions *cookieauth.Manager
-	Tokens   *pat.Service
-	Logger   *slog.Logger
+	Users     *user.Service
+	Passwords *password.Service
+	Sessions  *cookieauth.Manager
+	Tokens    *pat.Service
+	// Guard throttles the login flow per login identifier (brute-force
+	// backoff). Nil leaves login unguarded.
+	Guard  loginflow.Guard
+	Logger *slog.Logger
 }
 
 // Routes mounts POST /auth/login and POST /auth/logout.
@@ -37,9 +42,10 @@ func (h *Handler) Routes(r *mux.Router) {
 	j := &loginhandlers.JSON{
 		Flow: &loginflow.Flow{
 			Users:   h.Users,
-			Methods: []loginflow.Method{loginflow.PasswordMethod{Users: h.Users}},
+			Methods: []loginflow.Method{loginflow.PasswordMethod{Users: h.Users, Password: h.Passwords}},
 			Policy:  loginflow.RequireAny(loginflow.Chain{loginflow.MethodPassword}),
 			Session: h.Sessions, // single-factor policy: no attempt store needed
+			Guard:   h.Guard,    // nil leaves login unguarded; set to throttle brute force
 			Logger:  h.Logger,
 		},
 		Logger: h.Logger,

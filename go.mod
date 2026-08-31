@@ -8,7 +8,7 @@ require (
 	github.com/go-bumbu/config v0.4.0
 	github.com/go-bumbu/http v0.5.1
 	github.com/go-bumbu/tempo v0.2.0
-	github.com/go-bumbu/userauth v0.4.1
+	github.com/go-bumbu/userauth v0.8.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/mattn/go-isatty v0.0.21

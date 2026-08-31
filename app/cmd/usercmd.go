@@ -96,7 +96,7 @@ func resetUserPassword(cfg AppCfg, login, pw string) error {
 	}
 	db.Exec("PRAGMA busy_timeout=5000")
 
-	users, err := newUserStore(db)
+	users, err := newUserStore(db, nil)
 	if err != nil {
 		return fmt.Errorf("user store: %w", err)
 	}

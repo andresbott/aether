@@ -57,6 +57,23 @@ type AuthCfg struct {
 	Method         string
 	AdminBootstrap AdminBootstrapCfg
 	ProxyHeader    ProxyHeaderCfg
+	LoginThrottle  LoginThrottleCfg
+}
+
+// LoginThrottleCfg gates the brute-force backoff on the native login endpoint:
+// after a few failed attempts per login identifier an escalating delay is
+// required, making password guessing infeasible without locking the account
+// out. It applies to method "native" only (proxy-header delegates login to the
+// IdP, "none" has no login). Enabled is a pointer so an omitted key keeps the
+// default (enabled) rather than decoding as false; set it to false to turn the
+// protection off.
+type LoginThrottleCfg struct {
+	Enabled *bool
+}
+
+// enabled reports whether login throttling is on: the default when unset.
+func (c LoginThrottleCfg) enabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // AdminBootstrapCfg seeds the initial admin user for method "native". Pw may

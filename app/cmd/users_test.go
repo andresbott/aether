@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,11 +9,24 @@ import (
 
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
+
+// createUser adds a user with a plaintext password by hashing it, standing in
+// for the identity service's hash-only CreateUser in tests.
+func createUser(t *testing.T, users *user.Service, login, pw string) {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := users.CreateUser(user.Draft{LoginID: login, PasswordHash: string(hash)}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -26,7 +40,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 }
 
 // assertAdminGroup checks that the user is a member of exactly the admin group.
-func assertAdminGroup(t *testing.T, users *userdb.Store, id string) {
+func assertAdminGroup(t *testing.T, users *user.Service, id string) {
 	t.Helper()
 	groups, err := users.GetGroups(id)
 	if err != nil {
@@ -39,7 +53,7 @@ func assertAdminGroup(t *testing.T, users *userdb.Store, id string) {
 
 func TestBootstrapAdmin(t *testing.T) {
 	t.Run("seeds admin with plaintext password", func(t *testing.T) {
-		users, err := newUserStore(openTestDB(t))
+		users, err := newUserStore(openTestDB(t), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +80,7 @@ func TestBootstrapAdmin(t *testing.T) {
 	})
 
 	t.Run("stores a pre-hashed password as-is", func(t *testing.T) {
-		users, err := newUserStore(openTestDB(t))
+		users, err := newUserStore(openTestDB(t), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +103,7 @@ func TestBootstrapAdmin(t *testing.T) {
 	})
 
 	t.Run("is a no-op once users exist", func(t *testing.T) {
-		users, err := newUserStore(openTestDB(t))
+		users, err := newUserStore(openTestDB(t), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -99,9 +113,7 @@ func TestBootstrapAdmin(t *testing.T) {
 		}
 		// deleting the seeded admin and re-bootstrapping must not resurrect it
 		// once another user exists
-		if err := users.Create("other", "pw"); err != nil {
-			t.Fatal(err)
-		}
+		createUser(t, users, "other", "pw")
 		admin, err := users.GetUserByLogin("admin")
 		if err != nil {
 			t.Fatal(err)
@@ -123,6 +135,38 @@ func TestBootstrapAdmin(t *testing.T) {
 	})
 }
 
+// TestSetupAuthLoginThrottle checks that the LoginThrottle config flag governs
+// whether setupAuth wires a brute-force guard for native login.
+func TestSetupAuthLoginThrottle(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	baseCfg := func() AuthCfg {
+		return AuthCfg{Method: AuthMethodNative, AdminBootstrap: AdminBootstrapCfg{User: "admin", Pw: "admin"}}
+	}
+
+	t.Run("enabled by default", func(t *testing.T) {
+		deps, err := setupAuth(openTestDB(t), t.TempDir(), baseCfg(), logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if deps.LoginGuard == nil {
+			t.Fatal("login throttle defaults to on, want a non-nil guard")
+		}
+	})
+
+	t.Run("disabled by config", func(t *testing.T) {
+		cfg := baseCfg()
+		off := false
+		cfg.LoginThrottle.Enabled = &off
+		deps, err := setupAuth(openTestDB(t), t.TempDir(), cfg, logger)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if deps.LoginGuard != nil {
+			t.Fatal("login throttle disabled by config, want a nil guard")
+		}
+	})
+}
+
 func TestResetUserPassword(t *testing.T) {
 	dataDir := t.TempDir()
 	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, dbFile)), &gorm.Config{
@@ -131,13 +175,11 @@ func TestResetUserPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users, err := newUserStore(db)
+	users, err := newUserStore(db, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := users.Create("alice", "old-pw"); err != nil {
-		t.Fatal(err)
-	}
+	createUser(t, users, "alice", "old-pw")
 	cfg := AppCfg{DataDir: dataDir}
 
 	t.Run("updates the password of an existing user", func(t *testing.T) {
