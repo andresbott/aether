@@ -365,12 +365,18 @@ Login/logout endpoints and the users CRUD are not mounted;
 is configured identically in all authenticated modes. `/api/v1/me` reports
 the active mode so the SPA reacts correctly to 401s.
 
-`none` is still the **shipped default**, and `BindIp` defaults to every
-interface — so a binary started with no config file serves the whole library
-unauthenticated to the LAN. In that mode there is also no user store at all
-(`setupNativeAuth` returns nils), so nothing can be created, edited or reset
-until the method changes. Both halves are a 1.0 decision in TODO.md, not
-settled policy.
+`none` is still the **shipped default**, but it may no longer bind to every
+interface: under `none` an unset `BindIp` resolves to `127.0.0.1` (a binary
+started with no config file stays on loopback instead of serving the LAN), an
+explicit wildcard (`0.0.0.0`, `::`) is a startup error, and a specific address
+— e.g. a LAN interface an auth proxy on another host reaches — is allowed
+(`getAppCfg` / `isWildcardBind` in `app/cmd/config.go`). The authenticated
+modes are unrestricted: they protect the surface themselves, so `BindIp`
+defaults to every interface there. The restriction covers the main server
+only, not the (default-off) observability server. Still open: in `none` mode
+there is no user store at all (`setupNativeAuth` returns nils), so nothing can
+be created, edited or reset until the method changes — a 1.0 decision in
+TODO.md, not settled policy.
 
 Native extras under `Auth.AdminBootstrap`: `User` / `Pw` seed the initial
 admin while the user store is empty (idempotent — `bootstrapAdmin` in
