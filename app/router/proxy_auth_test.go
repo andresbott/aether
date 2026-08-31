@@ -10,9 +10,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/headerauth"
-	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/go-bumbu/userauth/service/user"
 	"gorm.io/gorm"
 )
 
@@ -21,20 +19,13 @@ const testAdminGroup = "aether-admin"
 // newProxyAuthRouter builds a router in the shape proxy-header mode always
 // has in production: a user store and PAT service (shared with native) plus
 // the header handler — no sessions, no login endpoints, no users CRUD.
-func newProxyAuthRouter(t *testing.T, trusted []netip.Prefix) (*MainAppHandler, *userdb.Store) {
+func newProxyAuthRouter(t *testing.T, trusted []netip.Prefix) (*MainAppHandler, *user.Service) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	users, _, tokens := newTestAuthStores(t, db, nil)
 	headerAuth := headerauth.New(headerauth.Cfg{
 		UserHeader:     "Remote-User",
 		GroupsHeader:   "Remote-Groups",

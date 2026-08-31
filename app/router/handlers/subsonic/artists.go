@@ -13,6 +13,9 @@ import (
 // this endpoint exists solely for cover management. Mirrors
 // updatePlaylistMultipart in playlists.go.
 func (h *Handler) updateArtist(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	if !isMultipart(r) {
 		writeError(w, 0, "updateArtist requires a multipart request")
 		return

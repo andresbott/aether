@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/go-bumbu/userauth/service/cipher"
 	"github.com/go-bumbu/userauth/service/pat"
 	"github.com/gorilla/mux"
 )
@@ -232,7 +233,7 @@ func mapPatError(err error) (status int, code string) {
 		return http.StatusConflict, "too_many_tokens"
 	case errors.Is(err, pat.ErrTokenNotFound):
 		return http.StatusNotFound, "not_found"
-	case errors.Is(err, pat.ErrNoCipher):
+	case errors.Is(err, cipher.ErrNoCipher):
 		return http.StatusNotImplemented, "usertoken_unavailable"
 	default:
 		return http.StatusInternalServerError, "internal"

@@ -14,7 +14,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/userauth"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -48,7 +48,7 @@ const (
 var tokenShapedLogin = regexp.MustCompile(`^[0-9a-z]{10}$`)
 
 type Handler struct {
-	Users *userdb.Store
+	Users *user.Service
 }
 
 // userDTO exposes both halves of the upstream identity split: id is the
@@ -95,7 +95,7 @@ func (h *Handler) Routes(r *mux.Router) {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	// The store caps pages at 200; a self-hosted music server does not have
 	// more users than that, so the UI gets everything in one response.
-	res, err := h.Users.List(userdb.ListOpts{Limit: 200})
+	res, err := h.Users.List(user.ListOpts{Limit: 200})
 	if err != nil {
 		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -115,7 +115,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 // RoleOf derives the vertical from the stored group memberships: membership
 // in AdminGroup means admin, anything else (including no groups) means user.
 // Exported because the /api/v1 admin guard and /me apply the same policy.
-func RoleOf(store *userdb.Store, userID string) (string, error) {
+func RoleOf(store *user.Service, userID string) (string, error) {
 	groups, err := store.GetGroups(userID)
 	if err != nil {
 		return "", err
@@ -148,11 +148,12 @@ var errRenameUnsupported = errors.New(
 var errLastAdmin = errors.New(
 	"refusing to remove the last admin: promote another user to admin first")
 
-// isLastEnabledAdmin reports whether userID is the only admin that can still
+// IsLastEnabledAdmin reports whether userID is the only admin that can still
 // administer. Disabled admins do not count: they cannot log in, so leaving one
-// behind would be the same lockout with extra steps.
-func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
-	role, err := h.roleOf(userID)
+// behind would be the same lockout with extra steps. Exported so the CLI
+// (`aether user role`) enforces the same lockout guard as the users CRUD.
+func IsLastEnabledAdmin(store *user.Service, userID string) (bool, error) {
+	role, err := RoleOf(store, userID)
 	if err != nil {
 		return false, err
 	}
@@ -162,7 +163,7 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 	// The list is capped at 200 like list(); a self-hosted server does not have
 	// more users, and the alternative (a group-joined COUNT) is not exposed by
 	// the user store.
-	res, err := h.Users.List(userdb.ListOpts{Limit: 200})
+	res, err := store.List(user.ListOpts{Limit: 200})
 	if err != nil {
 		return false, err
 	}
@@ -170,7 +171,7 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 		if u.ID == userID || !u.Enabled {
 			continue
 		}
-		peerRole, err := h.roleOf(u.ID)
+		peerRole, err := RoleOf(store, u.ID)
 		if err != nil {
 			return false, err
 		}
@@ -179,6 +180,17 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
+	return IsLastEnabledAdmin(h.Users, userID)
+}
+
+// IsTokenShapedLogin reports whether a login collides with the usertoken PAT
+// virtual-username namespace (10 lowercase letters/digits). Such logins are
+// refused on creation so a real login can never shadow a token id on /rest.
+func IsTokenShapedLogin(login string) bool {
+	return tokenShapedLogin.MatchString(login)
 }
 
 // guardLastAdmin writes the 409 and reports whether the caller must stop. An
@@ -212,26 +224,31 @@ func validRole(role string) error {
 	return nil
 }
 
-// errPasswordTooLong flags a password that is present but would silently
+// ErrPasswordTooLong flags a password that is present but would silently
 // truncate at bcrypt's 72-byte input limit — a well-formed-but-invalid value,
-// unlike an outright missing password.
-var errPasswordTooLong = errors.New("password must be at most 72 characters")
+// unlike an outright missing password. Exported so the change-own-password
+// endpoint (handlers/auth) maps it to the same 422 this handler does.
+var ErrPasswordTooLong = errors.New("password must be at most 72 characters")
 
-func validPassword(pw string) error {
+// ValidPassword is the single rule every aether password write applies: it
+// must be present and within bcrypt's 72-byte input limit. Exported so the
+// change-own-password endpoint (handlers/auth) validates identically to the
+// admin CRUD, rather than growing a second, divergent rule.
+func ValidPassword(pw string) error {
 	if pw == "" {
 		return errors.New("password is required")
 	}
 	if len(pw) > maxPasswordLen {
-		return errPasswordTooLong
+		return ErrPasswordTooLong
 	}
 	return nil
 }
 
-// writePasswordErr answers a validPassword failure with the right status: an
+// writePasswordErr answers a ValidPassword failure with the right status: an
 // empty password is a missing required field (400); an over-length one is
 // well-formed but invalid (422).
 func writePasswordErr(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errPasswordTooLong) {
+	if errors.Is(err, ErrPasswordTooLong) {
 		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/password", Detail: err.Error()})
 		return
 	}
@@ -254,7 +271,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		httperr.WriteValidation(w, r, msg, httperr.FieldError{Pointer: "/login", Detail: msg})
 		return
 	}
-	if err := validPassword(in.Password); err != nil {
+	if err := ValidPassword(in.Password); err != nil {
 		writePasswordErr(w, r, err)
 		return
 	}
@@ -266,22 +283,22 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	enabled := in.Enabled == nil || *in.Enabled
-	usr := userdb.User{
-		LoginID: in.Login,
-		Pw:      in.Password,
-		Enabled: enabled,
-		Groups:  roleGroups(in.Role),
-	}
-	if err := h.Users.CreateUser(usr); err != nil {
-		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
-		return
-	}
-	// CreateUser does not return the generated UUID; read the row back so the
-	// client gets the id it must use for updates and deletes.
-	created, err := h.Users.GetUserByLogin(in.Login)
+	// The identity service stores only a hash; aether hashes at BcryptDifficulty
+	// here, the same cost as the CLI and the password service.
+	hash, err := bcrypt.GenerateFromPassword([]byte(in.Password), BcryptDifficulty)
 	if err != nil {
 		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	created, err := h.Users.CreateUser(user.Draft{
+		LoginID:      in.Login,
+		PasswordHash: string(hash),
+		Enabled:      &enabled,
+		Groups:       roleGroups(in.Role),
+	})
+	if err != nil {
+		status, code := mapStoreError(err)
+		httperr.Write(w, r, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, userDTO{ID: created.ID, Login: created.LoginID, Enabled: created.Enabled, Role: in.Role})
@@ -295,7 +312,7 @@ func (h *Handler) validateUpdate(w http.ResponseWriter, r *http.Request, id stri
 		return true
 	}
 	if in.Password != "" {
-		if err := validPassword(in.Password); err != nil {
+		if err := ValidPassword(in.Password); err != nil {
 			writePasswordErr(w, r, err)
 			return true
 		}
@@ -380,7 +397,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 // AdminGroup is touched: any other (future) memberships survive a promotion
 // or demotion. Exported because proxy mode mirrors the header-derived role
 // into the DB so surfaces the proxy bypasses (/rest) can consult it.
-func SetRole(store *userdb.Store, userID, role string) error {
+func SetRole(store *user.Service, userID, role string) error {
 	groups, err := store.GetGroups(userID)
 	if err != nil {
 		return err
@@ -425,7 +442,7 @@ func mapStoreError(err error) (status int, code string) {
 	if errors.Is(err, userauth.ErrUserNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
-	if store.IsUniqueViolation(err) {
+	if errors.Is(err, user.ErrLoginIDTaken) || store.IsUniqueViolation(err) {
 		return http.StatusConflict, "conflict"
 	}
 	return http.StatusInternalServerError, "internal"

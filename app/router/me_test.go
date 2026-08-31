@@ -7,9 +7,6 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
-	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -53,14 +50,7 @@ func TestMeWithNativeAuth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	users, _, tokens := newTestAuthStores(t, db, nil)
 	h, err := New(Cfg{AuthMethod: "native", Users: users, Tokens: tokens})
 	if err != nil {
 		t.Fatal(err)

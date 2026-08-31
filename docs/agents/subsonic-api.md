@@ -390,6 +390,32 @@ Handlers read the resolved identity via `requestOwner(r)`. Every per-user surfac
 — play queue, stars, playlists, history — is owner-scoped: data is keyed/filtered
 by the authenticated user's login.
 
+### Authorization policy: global catalog is admin-only, per-user data is not
+
+Write authorization on `/rest` follows one rule: **writes that mutate the shared
+catalog everyone sees are admin-only; writes that mutate one user's own data are
+not.** This is the policy — apply it to any new `update*`/write endpoint rather
+than deciding case by case.
+
+- **Global catalog → admin-only** (Subsonic error 50 for non-admins, via
+  `requireAdmin`): album / artist / genre cover art (`updateAlbum`,
+  `updateArtist`, `updateGenre` — the `albumCoverArt` / `artistCoverArt` /
+  `genreCoverArt` extensions) and radio-station CRUD (`createInternetRadioStation`,
+  `updateInternetRadioStation`, `deleteInternetRadioStation`, incl.
+  `internetRadioCoverArt`). These edit data that is not scoped to any user.
+- **Per-user → any authenticated user**: stars/annotations, play queue, play
+  history, and playlists incl. `playlistCoverArt` — the owner edits their own
+  object. Writes to a *foreign* playlist still answer error 50 (see Playlists
+  above), which is ownership enforcement, not the admin gate.
+
+Enforcement: handlers on the admin-only list call `h.requireAdmin(w, r)` as their
+first line (Subsonic error 50). The router injects the role lookup via
+`subsonic.WithAdminChecker` (`restAdminChecker` in `app/router/main.go`, owner
+login → `users.RoleOf`); a nil checker (auth "none") passes everyone, since that
+mode has a single fixed admin owner. The SPA mirrors the split: the album, artist
+and genre cover editors are gated on `useAuth().isAdmin` (hidden, not 403'd
+mid-save), while playlist cover editing is available to the owner.
+
 **Error codes:** 40 (no credentials or unknown virtual username), 41 (real login
 presented via `t`/`p` — the login password never works on `/rest`; clients should
 show "configure a token"), 43 (`apiKey` mixed with `u`/`p`/`t`/`s`), 44 (invalid

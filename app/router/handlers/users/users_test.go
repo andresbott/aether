@@ -10,36 +10,42 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
-	"github.com/go-bumbu/userauth/userstore/userdb"
+	"github.com/go-bumbu/userauth/service/user"
+	userstoredb "github.com/go-bumbu/userauth/service/user/store/db"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
-func newTestHandler(t *testing.T) (*userdb.Store, *mux.Router) {
+func newTestHandler(t *testing.T) (*user.Service, *mux.Router) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	store, err := userstoredb.New(db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &users.Handler{Users: store}
+	svc, err := user.NewService(store, user.Opts{DefaultEnabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &users.Handler{Users: svc}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return store, r
+	return svc, r
 }
 
 // mustCreate creates a user directly in the store and returns its stable UUID,
 // which is what the update/delete routes are addressed by.
-func mustCreate(t *testing.T, store *userdb.Store, login, pw string) string {
+func mustCreate(t *testing.T, store *user.Service, login, pw string) string {
 	t.Helper()
-	if err := store.Create(login, pw); err != nil {
+	hash, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.MinCost)
+	if err != nil {
 		t.Fatal(err)
 	}
-	usr, err := store.GetUserByLogin(login)
+	usr, err := store.CreateUser(user.Draft{LoginID: login, PasswordHash: string(hash)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +54,7 @@ func mustCreate(t *testing.T, store *userdb.Store, login, pw string) string {
 
 // mustAdmin creates an enabled user already in the admin group, for tests that
 // need a specific admin population rather than a specific request.
-func mustAdmin(t *testing.T, store *userdb.Store, login string) string {
+func mustAdmin(t *testing.T, store *user.Service, login string) string {
 	t.Helper()
 	id := mustCreate(t, store, login, "pw")
 	if err := store.SetGroups(id, []string{users.AdminGroup}); err != nil {
@@ -57,7 +63,7 @@ func mustAdmin(t *testing.T, store *userdb.Store, login string) string {
 	return id
 }
 
-func mustRole(t *testing.T, store *userdb.Store, id string) string {
+func mustRole(t *testing.T, store *user.Service, id string) string {
 	t.Helper()
 	role, err := users.RoleOf(store, id)
 	if err != nil {
@@ -66,7 +72,7 @@ func mustRole(t *testing.T, store *userdb.Store, id string) string {
 	return role
 }
 
-func mustGroups(t *testing.T, store *userdb.Store, id string) []string {
+func mustGroups(t *testing.T, store *user.Service, id string) []string {
 	t.Helper()
 	groups, err := store.GetGroups(id)
 	if err != nil {

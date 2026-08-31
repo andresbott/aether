@@ -14,8 +14,6 @@ import (
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -284,18 +282,13 @@ func TestRestNilUsersDoesNotPanicOn41Disambiguation(t *testing.T) {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
 	cipher, err := pat.NewAESGCMCipher(bytes.Repeat([]byte{0x42}, 32), "k1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher})
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Users is intentionally omitted from the Cfg below (h.users stays nil), so
+	// the identity service the helper builds is discarded here.
+	_, _, tokens := newTestAuthStores(t, db, cipher)
 	// Omit Users from the config: h.users will be nil.
 	h, err := New(Cfg{
 		AuthMethod: "native",

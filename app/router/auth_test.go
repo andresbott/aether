@@ -16,11 +16,19 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
+	loginflow "github.com/go-bumbu/userauth/flow/login"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
-	"golang.org/x/crypto/bcrypt"
+	throttlemem "github.com/go-bumbu/userauth/service/throttle/store/memory"
 	"gorm.io/gorm"
 )
+
+// withLoginThrottle wires the brute-force guard into the native login flow,
+// backed by an in-memory throttle store — the same guard type production wires
+// on a persistent store.
+func withLoginThrottle(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+	t.Helper()
+	cfg.LoginGuard = loginflow.ThrottleGuard{Throttle: &loginflow.Throttle{Store: throttlemem.New()}}
+}
 
 // routerOpt configures an optional piece of newNativeAuthRouter's Cfg that
 // most callers don't need — today, only the task-runner group does (see
@@ -62,16 +70,13 @@ func newNativeAuthRouter(t *testing.T, opts ...routerOpt) (*MainAppHandler, *gor
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
+	cipher, err := pat.NewAESGCMCipher(bytes.Repeat([]byte{0x42}, 32), "k1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := users.CreateUser(userdb.User{LoginID: "alice", Pw: "secret", Enabled: true, Groups: []string{usersHandler.AdminGroup}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := users.Create("bob", "secret"); err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, cipher)
+	mkTestUser(t, users, "alice", "secret", usersHandler.AdminGroup)
+	mkTestUser(t, users, "bob", "secret")
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -86,17 +91,10 @@ func newNativeAuthRouter(t *testing.T, opts ...routerOpt) (*MainAppHandler, *gor
 	if err != nil {
 		t.Fatal(err)
 	}
-	cipher, err := pat.NewAESGCMCipher(bytes.Repeat([]byte{0x42}, 32), "k1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher})
-	if err != nil {
-		t.Fatal(err)
-	}
 	cfg := Cfg{
 		AuthMethod: "native",
 		Users:      users,
+		Passwords:  passwords,
 		Sessions:   sessions,
 		Tokens:     tokens,
 		Store:      store.New(db),
@@ -415,10 +413,7 @@ func TestNativeModeRequiresTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
+	users, _, _ := newTestAuthStores(t, db, nil)
 	store, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -435,5 +430,38 @@ func TestNativeModeRequiresTokens(t *testing.T) {
 	_, err = New(Cfg{AuthMethod: "native", Users: users, Sessions: sessions, Tokens: nil})
 	if err == nil {
 		t.Fatal("New with native + nil Tokens succeeded, want error")
+	}
+}
+
+// TestLoginThrottleBlocksRepeatedFailures verifies the brute-force guard: after
+// the free failures are spent, a further attempt inside the backoff window is
+// refused before any credential check — so even the correct password is denied.
+func TestLoginThrottleBlocksRepeatedFailures(t *testing.T) {
+	h, _ := newNativeAuthRouter(t, withLoginThrottle)
+	// The default guard allows three free failures, each a plain 401.
+	for i := 0; i < 3; i++ {
+		w, _ := doLogin(t, h, "bob", "wrong")
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("failed attempt %d = %d, want 401: %s", i+1, w.Code, w.Body.String())
+		}
+	}
+	// The next attempt lands inside the backoff window: the guard denies it
+	// even though the password is correct, indistinguishable from a wrong one.
+	w, _ := doLogin(t, h, "bob", "secret")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("throttled correct-password login = %d, want 401 (guard should deny): %s", w.Code, w.Body.String())
+	}
+}
+
+// TestLoginNotThrottledWithoutGuard is the control: with no guard configured,
+// repeated failures never bar a subsequent correct login.
+func TestLoginNotThrottledWithoutGuard(t *testing.T) {
+	h, _ := newNativeAuthRouter(t)
+	for i := 0; i < 3; i++ {
+		_, _ = doLogin(t, h, "bob", "wrong")
+	}
+	w, _ := doLogin(t, h, "bob", "secret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("un-throttled correct-password login = %d, want 200: %s", w.Code, w.Body.String())
 	}
 }

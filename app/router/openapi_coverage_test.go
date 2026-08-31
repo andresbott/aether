@@ -22,9 +22,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/service/pat"
-	"github.com/go-bumbu/userauth/userstore/userdb"
 	"github.com/gorilla/mux"
-	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
@@ -58,10 +56,6 @@ func newMaximalAPIV1Router(t *testing.T) *mux.Router {
 	if err := model.Migrate(db); err != nil {
 		t.Fatal(err)
 	}
-	users, err := userdb.New(db, userdb.Opts{BcryptDifficulty: bcrypt.MinCost, DefaultEnabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
 	cookieStore, err := cookieauth.NewCookieStore(make([]byte, 64), make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
@@ -79,10 +73,7 @@ func newMaximalAPIV1Router(t *testing.T) *mux.Router {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tokens, err := pat.NewService(users.PATStore(), users, pat.Opts{Prefix: "aether", Cipher: cipher})
-	if err != nil {
-		t.Fatal(err)
-	}
+	users, passwords, tokens := newTestAuthStores(t, db, cipher)
 	runner, err := taskrunner.NewRunner(taskrunner.Cfg{DB: db})
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +83,7 @@ func newMaximalAPIV1Router(t *testing.T) *mux.Router {
 		logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 		authMethod: "native",
 		users:      users,
+		passwords:  passwords,
 		sessions:   sessions,
 		tokens:     tokens,
 		store:      store.New(db),

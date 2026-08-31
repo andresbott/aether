@@ -57,6 +57,23 @@ type AuthCfg struct {
 	Method         string
 	AdminBootstrap AdminBootstrapCfg
 	ProxyHeader    ProxyHeaderCfg
+	LoginThrottle  LoginThrottleCfg
+}
+
+// LoginThrottleCfg gates the brute-force backoff on the native login endpoint:
+// after a few failed attempts per login identifier an escalating delay is
+// required, making password guessing infeasible without locking the account
+// out. It applies to method "native" only (proxy-header delegates login to the
+// IdP, "none" has no login). Enabled is a pointer so an omitted key keeps the
+// default (enabled) rather than decoding as false; set it to false to turn the
+// protection off.
+type LoginThrottleCfg struct {
+	Enabled *bool
+}
+
+// enabled reports whether login throttling is on: the default when unset.
+func (c LoginThrottleCfg) enabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // AdminBootstrapCfg seeds the initial admin user for method "native". Pw may
@@ -289,7 +306,38 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 		}
 	}
 
+	// Auth "none" is unauthenticated, so the server must not listen on every
+	// interface: an unset BindIp resolves to loopback (a fresh install stays on
+	// localhost instead of serving the LAN), an explicit wildcard is refused,
+	// and a specific address — e.g. a LAN interface an auth proxy on another
+	// host reaches — is allowed. The authenticated modes protect the surface
+	// themselves and keep the default all-interfaces behavior.
+	if cfg.Auth.Method == AuthMethodNone {
+		switch bind := strings.TrimSpace(cfg.Server.BindIp); {
+		case bind == "":
+			cfg.Server.BindIp = "127.0.0.1"
+		case isWildcardBind(bind):
+			return cfg, fmt.Errorf("auth method %q must not bind to all interfaces "+
+				"(BindIp %q is a wildcard address): set a specific address (e.g. 127.0.0.1, "+
+				"or a LAN interface reachable by your auth proxy) or use auth method %q/%q",
+				AuthMethodNone, bind, AuthMethodNative, AuthMethodProxyHeader)
+		default:
+			cfg.Server.BindIp = bind
+		}
+	}
+
 	return cfg, nil
+}
+
+// isWildcardBind reports whether s is an unspecified ("all interfaces") IP
+// literal — 0.0.0.0, ::, or their bracketed/expanded forms. A non-IP string
+// (e.g. a hostname) is not a wildcard; it is left to fail at listen time.
+func isWildcardBind(s string) bool {
+	addr, err := netip.ParseAddr(strings.Trim(s, "[]"))
+	if err != nil {
+		return false
+	}
+	return addr.IsUnspecified()
 }
 
 // normalizeLibraryBools resets the optional library bools to nil when the key

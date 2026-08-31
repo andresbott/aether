@@ -249,12 +249,13 @@ identity is keyed and bootstrapped. Both are load-bearing, not defensive
 politeness:
 
 - **The last enabled admin cannot be demoted, disabled or deleted** (409,
-  code `last_admin`). This CRUD is the only path that grants the admin role and
-  `bootstrapAdmin` re-seeds only while the store is EMPTY, so removing the final
-  admin is unrecoverable without editing the DB by hand — a restart does not fix
-  it and the `aether user` CLI has no role subcommand. Disabled admins do not
-  count towards the quorum: they cannot log in, so leaving one behind is the
-  same lockout with extra steps (`isLastEnabledAdmin`).
+  code `last_admin`). `bootstrapAdmin` re-seeds only while the store is EMPTY, so
+  removing the final admin cannot be undone through the API — a restart does not
+  fix it. The break-glass recovery path is the offline `aether user role <login>
+  admin` CLI command (see below), which promotes freely; the same guard also
+  refuses a CLI demotion of the last admin (`users.IsLastEnabledAdmin`, shared
+  with the CRUD). Disabled admins do not count towards the quorum: they cannot log
+  in, so leaving one behind is the same lockout with extra steps.
 - **Renaming is refused** (400): owner-keyed data (play queue, stars, playlists,
   history) is keyed on the login STRING, not on `User.ID` — `patIdentityResolver`
   returns `info.LoginID` as the owner — so a rename orphans every owner-keyed row
@@ -268,19 +269,71 @@ Validation in `update` happens entirely before the first store write: the
 mutations are separate store calls rather than one transaction, so a late
 rejection would leave the update half-applied.
 
-Still missing from this mode: **change own password, endpoint and UI both.**
-`SetPasswordHash` is reachable only from the CLI (`aether user reset-password`)
-and the admin-tier `PUT /api/v1/users/{id}`, so a non-admin has no way to change
-their own password and an admin must go through the admin panel. The fix is a
-session-tier route (verify current password, then set the new one) plus a form in
-UserSettingsView → General; unmounted in proxy mode, where the IdP owns
-credentials. TODO.md, 1.0.
+**Change own password — implemented.** `PUT /api/v1/auth/password` is a
+session-tier route (any role; `apiV1SessionPath` in `app/router/api_v1.go`) in
+the auth handler (`handlers/auth/auth.go`): it re-verifies the caller's current
+password — a live session is not by itself authority to change the credential
+that mints it — with per-user brute-force backoff (a `service/throttle.Backoff`
+keyed on the `"reauth"` method, its own bucket separate from login, persisted on
+the aether DB), then hashes and stores the new one via `SetPasswordHash` and the
+shared `usersHandler.ValidPassword` rule. On success it **clears the caller's own
+session cookie** (`Sessions.LogoutUser`), so a password change signs this device
+out and the SPA drops to the login view (its success handler runs the normal
+`logout` flow); the user signs back in with the new password. Note this only
+signs out the **device that made the change**: aether's sessions are stateless
+encrypted cookies (no server-side registry — `app/cmd/session.go`), so
+`SetPasswordHash`'s revocation is a no-op and other devices' cookies stay valid
+until they expire on their own. A wrong current password is **403, not 401** — the session is still
+valid, only the re-auth check failed, and the SPA treats any `/api/v1` 401 as
+an expired session and signs the user out (`webui/src/lib/api/client.ts`); 401
+stays reserved for the guard's genuine no-session case. A throttled attempt is
+429 (`Retry-After`), an over-length new one 422. Wired only in native mode (the auth handler is not
+mounted under proxy-header, where the IdP owns credentials), and the
+UserSettingsView → Account tab (its own section, shown only in native mode when
+signed in) hosts the form, gated on `authRequired && currentUser` to
+match. `SetPasswordHash` is also reachable from the CLI
+(`aether user reset-password`) and the admin-tier `PUT /api/v1/users/{id}`.
 
-Also missing, and mode-independent: **nothing bounds password guessing** against
-`POST /api/v1/auth/login` — no rate limit, no lockout, no attempt counting, and
-the flow runs with a nil `AttemptStore` (which the library allows for
-single-factor policies; that store exists to persist multi-factor progress, not
-to throttle). TODO.md, 1.0.
+**Brute-force backoff — implemented.** `POST /api/v1/auth/login` is guarded by
+`userauth`'s login `Guard` (`flow/login.ThrottleGuard` over
+`service/throttle.Backoff`, persisted on the aether DB via
+`service/throttle/store/db` — the `login_throttle` table): after a few free
+failures per login identifier an escalating delay is required (library defaults:
+3 free failures, then 2s doubling to a 5-minute cap), so guessing is infeasible
+without locking the account out. It is an escalating delay, deliberately **not a
+hard lockout** — a lockout would let anyone who knows a login deny its owner
+access. The guard is keyed on the **raw login identifier before any credential
+work**, so submissions for unknown accounts throttle exactly like wrong
+passwords for existing ones (no account-existence oracle), and a throttled
+attempt is rendered as the same uniform 401 as a wrong password. Persisting the
+state means it survives a restart and cannot be reset by crashing the server.
+Wired in `setupAuth` (`app/cmd/users.go`) → `router.Cfg.LoginGuard` →
+`authHandler.Handler.Guard` → the login `Flow`; native mode only (proxy-header
+delegates login to the IdP, "none" has no login). Toggle with
+`Auth.LoginThrottle.Enabled` (default on; see config switch below). The flow
+still runs with a nil `AttemptStore`, which the library allows for single-factor
+policies — that store persists multi-factor progress, it is not the throttle.
+
+### Offline user management (`aether user` CLI)
+
+The `aether user` subcommands (`app/cmd/usercmd.go`) operate directly on the
+aether DB with the server stopped — the recovery and provisioning path that does
+not need a running admin session. All open the existing store via
+`openUsersStore` (the DB must already exist; they never bootstrap one) and share
+the config resolution the server uses:
+
+- `user hash [password]` — print a bcrypt hash for `Auth.AdminBootstrap.Pw`.
+- `user create <login> [password] [--admin]` — create a user; `--admin` grants
+  the admin role. Refuses a token-shaped login (`users.IsTokenShapedLogin`) and a
+  duplicate, matching the users CRUD.
+- `user list` — every user with derived role and enabled/disabled status.
+- `user role <login> admin|user` — grant/revoke admin. **This is the break-glass
+  fix for an admin lockout**: promotion is unconditional, demotion of the last
+  enabled admin is refused (`users.IsLastEnabledAdmin`, the same guard as the
+  CRUD). Together with `reset-password`, it means a lockout no longer requires
+  hand-editing the DB, and users can be prepared before switching `none` →
+  `native`. Only the "none" mode's total absence of a user store remains a gap
+  (TODO.md).
 
 ## Mode: proxy-header (Authelia) — implemented
 
@@ -351,17 +404,28 @@ Login/logout endpoints and the users CRUD are not mounted;
 is configured identically in all authenticated modes. `/api/v1/me` reports
 the active mode so the SPA reacts correctly to 401s.
 
-`none` is still the **shipped default**, and `BindIp` defaults to every
-interface — so a binary started with no config file serves the whole library
-unauthenticated to the LAN. In that mode there is also no user store at all
-(`setupNativeAuth` returns nils), so nothing can be created, edited or reset
-until the method changes. Both halves are a 1.0 decision in TODO.md, not
-settled policy.
+`none` is still the **shipped default**, but it may no longer bind to every
+interface: under `none` an unset `BindIp` resolves to `127.0.0.1` (a binary
+started with no config file stays on loopback instead of serving the LAN), an
+explicit wildcard (`0.0.0.0`, `::`) is a startup error, and a specific address
+— e.g. a LAN interface an auth proxy on another host reaches — is allowed
+(`getAppCfg` / `isWildcardBind` in `app/cmd/config.go`). The authenticated
+modes are unrestricted: they protect the surface themselves, so `BindIp`
+defaults to every interface there. The restriction covers the main server
+only, not the (default-off) observability server. Still open: in `none` mode
+there is no user store at all (`setupNativeAuth` returns nils), so nothing can
+be created, edited or reset until the method changes — a 1.0 decision in
+TODO.md, not settled policy.
 
 Native extras under `Auth.AdminBootstrap`: `User` / `Pw` seed the initial
 admin while the user store is empty (idempotent — `bootstrapAdmin` in
 `app/cmd/users.go`). `Pw` may be plaintext or a bcrypt hash (`$2` prefix,
 from `aether user hash`). Ignored in the other modes.
+
+`Auth.LoginThrottle.Enabled` toggles the brute-force backoff on native login
+(see "Brute-force backoff" above). It is a pointer bool: **omitted means on** —
+set it to `false` to disable. Meaningful in native mode only; proxy-header and
+`none` have no aether login to guard.
 
 Proxy-header extras under `Auth.ProxyHeader`: `UserHeader` (default
 `Remote-User`), `GroupsHeader` (default `Remote-Groups`), `AdminGroup`
