@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { computed, ref } from 'vue'
 import { mount } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import type { DiscoveryFeedEntry } from '@/types/subsonic'
+import { useUiStore } from '@/store/uiStore'
 
 const route = {
     params: { folderId: '1' } as Record<string, string>,
@@ -25,6 +27,17 @@ const discoveryItems = ref<DiscoveryFeedEntry[]>([])
 vi.mock('@/composables/useDiscovery', () => ({
     useDiscoveryFeed: () => ({
         items: computed(() => discoveryItems.value),
+        isLoading: ref(false),
+        isError: ref(false),
+        hasNextPage: ref(false),
+        isFetchingNextPage: ref(false),
+        fetchNextPage: vi.fn()
+    })
+}))
+const songItems = ref<any[]>([])
+vi.mock('@/composables/useSongList', () => ({
+    useSongList: () => ({
+        items: computed(() => songItems.value),
         isLoading: ref(false),
         isError: ref(false),
         hasNextPage: ref(false),
@@ -93,6 +106,11 @@ const DiscoveryFeedStub = {
     props: ['layout'],
     template: '<div class="discovery-feed-stub" :data-layout="layout" />'
 }
+const SongListStub = {
+    name: 'SongListView',
+    props: ['folderId', 'favoritesOnly'],
+    template: '<div class="song-list-stub" />'
+}
 
 import LibraryView from '@/views/LibraryView.vue'
 import SelectButton from 'primevue/selectbutton'
@@ -107,7 +125,8 @@ const mountView = () =>
                 AlbumGrid: AlbumGridStub,
                 ArtistListView: ArtistListStub,
                 ArtistGrid: ArtistGridStub,
-                DiscoveryFeed: DiscoveryFeedStub
+                DiscoveryFeed: DiscoveryFeedStub,
+                SongListView: SongListStub
             }
         }
     })
@@ -130,6 +149,7 @@ const albumEntry = (rank: number): DiscoveryFeedEntry => ({
 })
 
 beforeEach(() => {
+    setActivePinia(createPinia())
     replace.mockReset()
     route.params = { folderId: '1' }
     route.hash = '#albums'
@@ -149,7 +169,8 @@ describe('LibraryView', () => {
     })
 
     it('albums + list layout → AlbumListView', () => {
-        route.query = { view: 'list' }
+        const ui = useUiStore()
+        ui.setLibraryViewMode('albums', 'list')
         const w = mountView()
         expect(w.findComponent(AlbumListStub).exists()).toBe(true)
         expect(w.findComponent(AlbumListStub).props('folderId')).toBe(1)
@@ -165,13 +186,14 @@ describe('LibraryView', () => {
 
     it('artists + list layout → ArtistListView', () => {
         route.hash = '#artists'
-        route.query = { view: 'list' }
+        const ui = useUiStore()
+        ui.setLibraryViewMode('artists', 'list')
         const w = mountView()
         expect(w.findComponent(ArtistListStub).exists()).toBe(true)
         expect(w.findComponent(ArtistListStub).props('folderId')).toBe(1)
     })
 
-    it('shows the layout toggle on every tab', () => {
+    it('shows the layout toggle on every tab except songs', () => {
         route.hash = '#albums'
         const albumsView = mountView()
         expect(albumsView.findAllComponents(SelectButton).length).toBe(2)
@@ -182,18 +204,36 @@ describe('LibraryView', () => {
         route.hash = '#discover'
         const discoverView = mountView()
         expect(discoverView.findAllComponents(SelectButton).length).toBe(2)
+        // Songs tab has only the view mode selector, no layout toggle
+        route.params = { folderId: '1' }
+        route.hash = '#songs'
+        const songsView = mountView()
+        expect(songsView.findAllComponents(SelectButton).length).toBe(1)
     })
 
-    it('toggling layout preserves the hash', async () => {
+    it('toggling layout only affects the current type', async () => {
+        const ui = useUiStore()
         const w = mountView()
+        // Toggle albums to list
         w.findAllComponents(SelectButton)[1].vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
-        expect(replace).toHaveBeenCalledWith(
-            expect.objectContaining({
-                hash: '#albums',
-                query: expect.objectContaining({ view: 'list' })
-            })
-        )
+        expect(ui.getLibraryViewMode('albums')).toBe('list')
+        expect(ui.getLibraryViewMode('artists')).toBe('grid')
+        expect(ui.getLibraryViewMode('discover')).toBe('grid')
+    })
+
+    it('switching tabs shows each type own layout mode', async () => {
+        const ui = useUiStore()
+        ui.setLibraryViewMode('albums', 'list')
+        ui.setLibraryViewMode('artists', 'grid')
+
+        route.hash = '#albums'
+        const albumsView = mountView()
+        expect(albumsView.findComponent(AlbumListStub).exists()).toBe(true)
+
+        route.hash = '#artists'
+        const artistsView = mountView()
+        expect(artistsView.findComponent(ArtistGridStub).exists()).toBe(true)
     })
 
     it('hides the Artists tab and forces albums when the folder has showArtists=false', () => {
@@ -202,8 +242,8 @@ describe('LibraryView', () => {
         const w = mountView()
         expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
         expect(w.findComponent(ArtistGridStub).exists()).toBe(false)
-        // Only the layout toggle remains.
-        expect(w.findAllComponents(SelectButton).length).toBe(1)
+        // Albums and Songs tabs + layout toggle (only one SelectButton for tabs since songs has no layout toggle in this context).
+        expect(w.findAllComponents(SelectButton).length).toBe(2)
     })
 
     it('keeps the Artists tab when showArtists is true or unset', () => {
@@ -239,17 +279,21 @@ describe('LibraryView favorites filter', () => {
     })
 
     it('reads ?favorites=1 and passes it to whichever body is active', () => {
+        const ui = useUiStore()
         route.query = { favorites: '1' }
         expect(mountView().findComponent(AlbumGridStub).props('favoritesOnly')).toBe(true)
 
-        route.query = { favorites: '1', view: 'list' }
+        route.query = { favorites: '1' }
+        ui.setLibraryViewMode('albums', 'list')
         expect(mountView().findComponent(AlbumListStub).props('favoritesOnly')).toBe(true)
 
         route.hash = '#artists'
         route.query = { favorites: '1' }
+        ui.setLibraryViewMode('artists', 'grid')
         expect(mountView().findComponent(ArtistGridStub).props('favoritesOnly')).toBe(true)
 
-        route.query = { favorites: '1', view: 'list' }
+        route.query = { favorites: '1' }
+        ui.setLibraryViewMode('artists', 'list')
         expect(mountView().findComponent(ArtistListStub).props('favoritesOnly')).toBe(true)
     })
 
@@ -268,14 +312,17 @@ describe('LibraryView favorites filter', () => {
         expect(replace).toHaveBeenCalledWith({ hash: '#albums', query: {} })
     })
 
-    it('preserves the layout when the filter is toggled', async () => {
-        route.query = { view: 'list' }
+    it('layout state is independent of the favorites filter', async () => {
+        const ui = useUiStore()
+        ui.setLibraryViewMode('albums', 'list')
         const w = mountView()
         await favoritesToggle(w).trigger('click')
         expect(replace).toHaveBeenCalledWith({
             hash: '#albums',
-            query: { view: 'list', favorites: '1' }
+            query: { favorites: '1' }
         })
+        // Layout is not in query, still in store
+        expect(ui.getLibraryViewMode('albums')).toBe('list')
     })
 
     // "6 favorites", not "6 favorite albums": the active tab names the type, and the
@@ -357,13 +404,15 @@ describe('LibraryView Discover tab', () => {
         expect(tabs.props('options')).toEqual([
             { label: 'Discover', value: 'discover' },
             { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' }
+            { label: 'Artists', value: 'artists' },
+            { label: 'Songs', value: 'songs' }
         ])
     })
 
     it('passes the layout through to the feed', () => {
+        const ui = useUiStore()
         expect(mountView().findComponent(DiscoveryFeedStub).props('layout')).toBe('grid')
-        route.query = { view: 'list' }
+        ui.setLibraryViewMode('discover', 'list')
         expect(mountView().findComponent(DiscoveryFeedStub).props('layout')).toBe('list')
     })
 
@@ -392,7 +441,8 @@ describe('LibraryView Discover tab', () => {
         const tabs = mountView().findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
             { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' }
+            { label: 'Artists', value: 'artists' },
+            { label: 'Songs', value: 'songs' }
         ])
     })
 

@@ -126,7 +126,16 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
 
             <div class="song-info">
                 <h1 ref="titleRef">{{ song.title }}</h1>
-                <p class="artist">{{ song.artist }}</p>
+                <p class="artist">
+                    <router-link
+                        v-if="song.artistId"
+                        :to="{ name: 'artist', params: { id: song.artistId } }"
+                        class="artist-link"
+                    >
+                        {{ song.artist }}
+                    </router-link>
+                    <span v-else>{{ song.artist }}</span>
+                </p>
                 <p v-if="song.albumId" class="album-line">
                     <router-link
                         :to="{ name: 'album', params: { id: song.albumId } }"
@@ -309,6 +318,11 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
     font-size: 1.25rem;
     color: var(--app-text-secondary);
     margin: 0;
+}
+
+.artist-link {
+    font-size: 1.25rem;
+    color: var(--app-accent);
 }
 
 .album-line {

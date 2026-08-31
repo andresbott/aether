@@ -87,6 +87,37 @@ describe('apiErrorMessage', () => {
         const err = { message: 'Network Error', request: {}, code: 'ERR_NETWORK' }
         expect(apiErrorMessage(err)).toContain('server could not be reached')
     })
+
+    it('returns NETWORK_MESSAGE for errors with request but no response', () => {
+        // This is the shape axios throws when the backend is unreachable.
+        const err = { message: 'Network Error', request: {}, code: 'ERR_NETWORK' }
+        expect(apiErrorMessage(err)).toBe(
+            'The server could not be reached. Check your connection and try again.'
+        )
+    })
+
+    it('distinguishes server errors from network failures', () => {
+        // A 500 with a response is NOT a network failure — the server answered.
+        const err = {
+            response: { status: 500, data: { detail: 'Internal server error' } },
+            request: {}
+        }
+        expect(apiErrorMessage(err)).toBe('Internal server error')
+        expect(apiErrorMessage(err)).not.toContain('server could not be reached')
+    })
+
+    it('does not misclassify an AbortError as a network outage', () => {
+        // User-canceled requests are NOT network failures.
+        const abortErr = { name: 'AbortError', message: 'The operation was aborted' }
+        expect(apiErrorMessage(abortErr)).toBe('The operation was aborted')
+        expect(apiErrorMessage(abortErr)).not.toContain('server could not be reached')
+    })
+
+    it('does not misclassify a CanceledError as a network outage', () => {
+        const cancelErr = { code: 'ERR_CANCELED', message: 'canceled', name: 'CanceledError' }
+        expect(apiErrorMessage(cancelErr)).toBe('canceled')
+        expect(apiErrorMessage(cancelErr)).not.toContain('server could not be reached')
+    })
 })
 
 // Rate limiting is worth telling apart: the UI can invite a retry instead of

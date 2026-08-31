@@ -128,3 +128,18 @@ describe('SongDetail favorite toggle', () => {
         ).toBe(true)
     })
 })
+
+describe('SongDetail artist navigation', () => {
+    it('renders artist as a link when artistId is present', () => {
+        const w = mountCard(song({ artistId: 'ar1' }))
+        const link = w.find('.artist .artist-link')
+        expect(link.exists()).toBe(true)
+        expect(link.text()).toBe('The Artist')
+    })
+
+    it('renders artist as plain text when artistId is absent', () => {
+        const w = mountCard(song({ artistId: undefined }))
+        expect(w.find('.artist .artist-link').exists()).toBe(false)
+        expect(w.find('.artist span').text()).toBe('The Artist')
+    })
+})

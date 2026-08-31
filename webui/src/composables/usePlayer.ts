@@ -76,11 +76,27 @@ const maybeScrobble = (el: HTMLAudioElement): void => {
 
 const recoverStream = async (el: HTMLAudioElement): Promise<void> => {
     const track = currentTrack.value
-    if (!track || streamRetriedTrackId === track.id) return
+    if (!track) {
+        // Nothing is playing (e.g. the queue was cleared): a media error here is
+        // a deliberate stop, not a connectivity failure. Stay silent.
+        return
+    }
+    if (streamRetriedTrackId === track.id) {
+        // Already retried this track once and it failed again — a real stream
+        // failure. Report it so the connectivity banner surfaces.
+        const { reportNetworkError } = await import('@/composables/useConnectivity')
+        reportNetworkError()
+        return
+    }
     streamRetriedTrackId = track.id
     const { remintApiKey } = await import('@/lib/subsonicSession')
     const result = await remintApiKey()
-    if (result !== 'ok') return // dead session or failed: the login gate handles it
+    if (result !== 'ok') {
+        // Dead session or failed re-mint — report connectivity failure.
+        const { reportNetworkError } = await import('@/composables/useConnectivity')
+        reportNetworkError()
+        return
+    }
     const wasPlaying = isPlaying.value
     const position = el.currentTime || 0
     el.src = subsonicClient.getStreamUrl(track.id)
@@ -127,6 +143,9 @@ const attachListeners = (el: HTMLAudioElement): void => {
     })
     el.addEventListener('error', () => {
         if (el !== activeEl) return
+        // An error on a sourceless element is a deliberate stop (clearQueue
+        // empties the src), not a stream failure — never alarm the user for it.
+        if (!el.src) return
         void recoverStream(el)
     })
 }

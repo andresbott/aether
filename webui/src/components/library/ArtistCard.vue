@@ -4,12 +4,17 @@ import type { Artist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { versionedCoverUrl } from '@/composables/useCoverVersion'
 import { useToggleStar } from '@/composables/useSubsonicQueries'
+import { useArtistDrag } from '@/composables/useArtistDrag'
+import { usePlayer } from '@/composables/usePlayer'
+import { pickRandomAlbum } from '@/utils/artistPlayback'
 
 const props = defineProps<{
     artist: Artist
 }>()
 
 const toggleStar = useToggleStar()
+const artistDrag = useArtistDrag()
+const player = usePlayer()
 
 const coverUrl = computed(() => {
     if (!props.artist.coverArt || !subsonicClient.isConfigured()) return null
@@ -27,12 +32,35 @@ const onStar = (event: Event): void => {
     event.stopPropagation()
     toggleStar.mutate({ id: props.artist.id, starred: isStarred.value })
 }
+
+// Play a random album from this artist: fetch the artist, pick one album at
+// random, fetch its songs, and play from the start.
+const onPlay = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    event.stopPropagation()
+    const full = await subsonicClient.getArtist(props.artist.id)
+    if (!full?.album?.length) return
+    const randomAlbum = pickRandomAlbum(full.album)
+    if (!randomAlbum) return
+    const albumWithSongs = await subsonicClient.getAlbum(randomAlbum.id)
+    if (albumWithSongs?.song?.length) player.playAlbum(albumWithSongs.song)
+}
+
+const onCardDragStart = (event: DragEvent): void => {
+    artistDrag.start(event, props.artist, coverUrl.value)
+}
 </script>
 
 <template>
-    <router-link :to="{ name: 'artist', params: { id: artist.id } }" class="artist-card">
+    <router-link
+        :to="{ name: 'artist', params: { id: artist.id } }"
+        class="artist-card"
+        draggable="true"
+        @dragstart="onCardDragStart"
+        @dragend="artistDrag.end"
+    >
         <div class="card-cover">
-            <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
+            <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" draggable="false" />
             <div v-else class="cover-placeholder">
                 <i class="pi pi-user" style="font-size: 2rem"></i>
             </div>
@@ -53,6 +81,9 @@ const onStar = (event: Event): void => {
                 @click="onStar"
             >
                 <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+            </button>
+            <button class="card-play" type="button" aria-label="Play random album" @click="onPlay">
+                <i class="pi pi-play"></i>
             </button>
         </div>
     </router-link>
@@ -134,10 +165,10 @@ const onStar = (event: Event): void => {
 }
 
 /*
- * Favorite toggle, always present but dimmed until the card is hovered — a card
- * whose actions only appear on hover doesn't advertise that it has any. A
- * favorite is dimmed too: the FILL alone tells it apart, at any opacity.
- * Mirrors AlbumCard and PlaylistCard.
+ * Favorite toggle, always present but dimmed like the play icon until the card
+ * is hovered — a card whose actions only appear on hover doesn't advertise that
+ * it has any. A favorite is dimmed too: the FILL alone tells it apart, at any
+ * opacity. Mirrors AlbumCard and PlaylistCard.
  */
 .card-star {
     flex-shrink: 0;
@@ -163,5 +194,31 @@ const onStar = (event: Event): void => {
    TrackFavoriteButton and unified-play-experience.md. */
 .card-star:hover {
     color: var(--app-text-primary);
+}
+
+/* Inline play icon spanning the height of both text lines, dimmed until hover.
+   Mirrors AlbumCard. */
+.card-play {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    padding: 0 0.15rem;
+    line-height: 1;
+    color: var(--app-text-secondary);
+    font-size: 2rem;
+    cursor: pointer;
+    opacity: 0.4;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+.artist-card:hover .card-play {
+    opacity: 1;
+}
+
+.card-play:hover {
+    color: var(--app-accent);
 }
 </style>

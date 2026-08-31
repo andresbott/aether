@@ -195,9 +195,25 @@ onMounted(() => scrollCurrentIntoView('center'))
                     </div>
                     <div class="strip-info">
                         <div class="strip-title">{{ currentSong.title }}</div>
-                        <div class="strip-artist">{{ currentSong.artist || 'Unknown' }}</div>
+                        <div class="strip-artist">
+                            <router-link
+                                v-if="currentSong.artistId"
+                                :to="{ name: 'artist', params: { id: currentSong.artistId } }"
+                                class="strip-link"
+                            >
+                                {{ currentSong.artist || 'Unknown' }}
+                            </router-link>
+                            <span v-else>{{ currentSong.artist || 'Unknown' }}</span>
+                        </div>
                         <div v-if="currentSong.album" class="strip-album">
-                            {{ currentSong.album }}
+                            <router-link
+                                v-if="currentSong.albumId"
+                                :to="{ name: 'album', params: { id: currentSong.albumId } }"
+                                class="strip-link"
+                            >
+                                {{ currentSong.album }}
+                            </router-link>
+                            <span v-else>{{ currentSong.album }}</span>
                         </div>
                         <!-- The now-playing track is a track like any other in the
                              list, so it gets the same heart — but on its own line
@@ -425,6 +441,15 @@ onMounted(() => scrollCurrentIntoView('center'))
 .strip-album {
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+}
+
+.strip-link {
+    color: var(--app-accent);
+    text-decoration: none;
+}
+
+.strip-link:hover {
+    text-decoration: underline;
 }
 
 /* Own line below the title/artist/album stack, left-aligned with them. Always
