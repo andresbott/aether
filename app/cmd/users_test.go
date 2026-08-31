@@ -210,6 +210,173 @@ func TestResetUserPassword(t *testing.T) {
 	})
 }
 
+// usersAt opens a fresh identity store on a DB in dataDir, mirroring the file
+// layout the CLI commands expect (DataDir/dbFile).
+func usersAt(t *testing.T, dataDir string) *user.Service {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, dbFile)), &gorm.Config{
+		Logger: gormlogger.Discard,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := newUserStore(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return users
+}
+
+func TestCreateNativeUser(t *testing.T) {
+	dataDir := t.TempDir()
+	users := usersAt(t, dataDir)
+	cfg := AppCfg{DataDir: dataDir}
+
+	t.Run("creates a regular user", func(t *testing.T) {
+		if err := createNativeUser(cfg, "alice", "pw-alice", false); err != nil {
+			t.Fatal(err)
+		}
+		usr, err := users.GetUserByLogin("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !usr.Enabled {
+			t.Error("new user should be enabled")
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(usr.HashPw), []byte("pw-alice")); err != nil {
+			t.Errorf("password does not verify: %v", err)
+		}
+		role, err := usersHandler.RoleOf(users, usr.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role != usersHandler.RoleUser {
+			t.Errorf("role = %q, want %q", role, usersHandler.RoleUser)
+		}
+	})
+
+	t.Run("creates an admin with --admin", func(t *testing.T) {
+		if err := createNativeUser(cfg, "boss", "pw-boss", true); err != nil {
+			t.Fatal(err)
+		}
+		usr, err := users.GetUserByLogin("boss")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAdminGroup(t, users, usr.ID)
+	})
+
+	t.Run("rejects a token-shaped login", func(t *testing.T) {
+		err := createNativeUser(cfg, "abcde12345", "pw", false)
+		if err == nil || !strings.Contains(err.Error(), "token id") {
+			t.Errorf("expected a token-shaped-login rejection, got %v", err)
+		}
+	})
+
+	t.Run("rejects a duplicate login", func(t *testing.T) {
+		err := createNativeUser(cfg, "alice", "again", false)
+		if err == nil {
+			t.Error("expected an error creating a duplicate login")
+		}
+	})
+
+	t.Run("fails when the database does not exist", func(t *testing.T) {
+		err := createNativeUser(AppCfg{DataDir: t.TempDir()}, "x", "pw", false)
+		if err == nil || !strings.Contains(err.Error(), "database not found") {
+			t.Errorf("expected a database-not-found error, got %v", err)
+		}
+	})
+}
+
+func TestListNativeUsers(t *testing.T) {
+	dataDir := t.TempDir()
+	users := usersAt(t, dataDir)
+	cfg := AppCfg{DataDir: dataDir}
+
+	createUser(t, users, "alice", "pw")
+	if err := createNativeUser(cfg, "boss", "pw", true); err != nil {
+		t.Fatal(err)
+	}
+
+	lines, err := listNativeUsers(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("want 2 users, got %d: %+v", len(lines), lines)
+	}
+	byLogin := map[string]userLine{}
+	for _, l := range lines {
+		byLogin[l.Login] = l
+	}
+	if got := byLogin["alice"]; got.Role != usersHandler.RoleUser || !got.Enabled {
+		t.Errorf("alice = %+v, want role user, enabled", got)
+	}
+	if got := byLogin["boss"]; got.Role != usersHandler.RoleAdmin {
+		t.Errorf("boss role = %q, want %q", got.Role, usersHandler.RoleAdmin)
+	}
+}
+
+func TestSetUserRole(t *testing.T) {
+	dataDir := t.TempDir()
+	users := usersAt(t, dataDir)
+	cfg := AppCfg{DataDir: dataDir}
+
+	createUser(t, users, "alice", "pw")
+	if err := createNativeUser(cfg, "boss", "pw", true); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("promotes a user to admin", func(t *testing.T) {
+		if err := setUserRole(cfg, "alice", "admin"); err != nil {
+			t.Fatal(err)
+		}
+		usr, err := users.GetUserByLogin("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertAdminGroup(t, users, usr.ID)
+	})
+
+	t.Run("demotes an admin to user", func(t *testing.T) {
+		if err := setUserRole(cfg, "alice", "user"); err != nil {
+			t.Fatal(err)
+		}
+		usr, err := users.GetUserByLogin("alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		role, err := usersHandler.RoleOf(users, usr.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if role != usersHandler.RoleUser {
+			t.Errorf("role = %q, want %q", role, usersHandler.RoleUser)
+		}
+	})
+
+	t.Run("refuses to demote the last admin", func(t *testing.T) {
+		// boss is now the only enabled admin.
+		err := setUserRole(cfg, "boss", "user")
+		if err == nil || !strings.Contains(err.Error(), "last admin") {
+			t.Errorf("expected a last-admin refusal, got %v", err)
+		}
+	})
+
+	t.Run("rejects an invalid role", func(t *testing.T) {
+		if err := setUserRole(cfg, "alice", "superuser"); err == nil {
+			t.Error("expected an invalid-role error")
+		}
+	})
+
+	t.Run("fails for a missing user", func(t *testing.T) {
+		err := setUserRole(cfg, "nobody", "admin")
+		if err == nil || !strings.Contains(err.Error(), "not found") {
+			t.Errorf("expected a not-found error, got %v", err)
+		}
+	})
+}
+
 // loadAuthCfg writes a minimal config file and loads it through getAppCfg, so
 // every case below exercises the real validation path rather than a struct
 // literal.

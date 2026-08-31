@@ -249,12 +249,13 @@ identity is keyed and bootstrapped. Both are load-bearing, not defensive
 politeness:
 
 - **The last enabled admin cannot be demoted, disabled or deleted** (409,
-  code `last_admin`). This CRUD is the only path that grants the admin role and
-  `bootstrapAdmin` re-seeds only while the store is EMPTY, so removing the final
-  admin is unrecoverable without editing the DB by hand — a restart does not fix
-  it and the `aether user` CLI has no role subcommand. Disabled admins do not
-  count towards the quorum: they cannot log in, so leaving one behind is the
-  same lockout with extra steps (`isLastEnabledAdmin`).
+  code `last_admin`). `bootstrapAdmin` re-seeds only while the store is EMPTY, so
+  removing the final admin cannot be undone through the API — a restart does not
+  fix it. The break-glass recovery path is the offline `aether user role <login>
+  admin` CLI command (see below), which promotes freely; the same guard also
+  refuses a CLI demotion of the last admin (`users.IsLastEnabledAdmin`, shared
+  with the CRUD). Disabled admins do not count towards the quorum: they cannot log
+  in, so leaving one behind is the same lockout with extra steps.
 - **Renaming is refused** (400): owner-keyed data (play queue, stars, playlists,
   history) is keyed on the login STRING, not on `User.ID` — `patIdentityResolver`
   returns `info.LoginID` as the owner — so a rename orphans every owner-keyed row
@@ -295,6 +296,27 @@ delegates login to the IdP, "none" has no login). Toggle with
 `Auth.LoginThrottle.Enabled` (default on; see config switch below). The flow
 still runs with a nil `AttemptStore`, which the library allows for single-factor
 policies — that store persists multi-factor progress, it is not the throttle.
+
+### Offline user management (`aether user` CLI)
+
+The `aether user` subcommands (`app/cmd/usercmd.go`) operate directly on the
+aether DB with the server stopped — the recovery and provisioning path that does
+not need a running admin session. All open the existing store via
+`openUsersStore` (the DB must already exist; they never bootstrap one) and share
+the config resolution the server uses:
+
+- `user hash [password]` — print a bcrypt hash for `Auth.AdminBootstrap.Pw`.
+- `user create <login> [password] [--admin]` — create a user; `--admin` grants
+  the admin role. Refuses a token-shaped login (`users.IsTokenShapedLogin`) and a
+  duplicate, matching the users CRUD.
+- `user list` — every user with derived role and enabled/disabled status.
+- `user role <login> admin|user` — grant/revoke admin. **This is the break-glass
+  fix for an admin lockout**: promotion is unconditional, demotion of the last
+  enabled admin is refused (`users.IsLastEnabledAdmin`, the same guard as the
+  CRUD). Together with `reset-password`, it means a lockout no longer requires
+  hand-editing the DB, and users can be prepared before switching `none` →
+  `native`. Only the "none" mode's total absence of a user store remains a gap
+  (TODO.md).
 
 ## Mode: proxy-header (Authelia) — implemented
 

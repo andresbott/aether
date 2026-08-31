@@ -148,11 +148,12 @@ var errRenameUnsupported = errors.New(
 var errLastAdmin = errors.New(
 	"refusing to remove the last admin: promote another user to admin first")
 
-// isLastEnabledAdmin reports whether userID is the only admin that can still
+// IsLastEnabledAdmin reports whether userID is the only admin that can still
 // administer. Disabled admins do not count: they cannot log in, so leaving one
-// behind would be the same lockout with extra steps.
-func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
-	role, err := h.roleOf(userID)
+// behind would be the same lockout with extra steps. Exported so the CLI
+// (`aether user role`) enforces the same lockout guard as the users CRUD.
+func IsLastEnabledAdmin(store *user.Service, userID string) (bool, error) {
+	role, err := RoleOf(store, userID)
 	if err != nil {
 		return false, err
 	}
@@ -162,7 +163,7 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 	// The list is capped at 200 like list(); a self-hosted server does not have
 	// more users, and the alternative (a group-joined COUNT) is not exposed by
 	// the user store.
-	res, err := h.Users.List(user.ListOpts{Limit: 200})
+	res, err := store.List(user.ListOpts{Limit: 200})
 	if err != nil {
 		return false, err
 	}
@@ -170,7 +171,7 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 		if u.ID == userID || !u.Enabled {
 			continue
 		}
-		peerRole, err := h.roleOf(u.ID)
+		peerRole, err := RoleOf(store, u.ID)
 		if err != nil {
 			return false, err
 		}
@@ -179,6 +180,17 @@ func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (h *Handler) isLastEnabledAdmin(userID string) (bool, error) {
+	return IsLastEnabledAdmin(h.Users, userID)
+}
+
+// IsTokenShapedLogin reports whether a login collides with the usertoken PAT
+// virtual-username namespace (10 lowercase letters/digits). Such logins are
+// refused on creation so a real login can never shadow a token id on /rest.
+func IsTokenShapedLogin(login string) bool {
+	return tokenShapedLogin.MatchString(login)
 }
 
 // guardLastAdmin writes the 409 and reports whether the caller must stop. An
