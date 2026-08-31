@@ -16,6 +16,7 @@ import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
+import { useAuth } from '@/composables/useAuth'
 import type { Song } from '@/types/subsonic'
 
 const MAX_COVER_BYTES = 5 * 1024 * 1024
@@ -27,6 +28,11 @@ const player = usePlayer()
 const updateCover = useUpdateGenreCover()
 const songsDrag = useSongsDrag()
 const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+
+// Genre cover art is global catalog data, so editing it is admin-only — the
+// backend gates updateGenre on error 50. Match ArtistView/AlbumView and hide the
+// whole edit affordance from non-admins rather than let it 403 on save.
+const { isAdmin } = useAuth()
 
 const actionSong = ref<Song | null>(null)
 const actionIndex = ref(0)
@@ -254,6 +260,7 @@ watch(
         <ContentScaffold v-else title="" show-back @back="router.back()">
             <template #actions>
                 <EditActionBar
+                    v-if="isAdmin"
                     v-model:editing="editing"
                     :can-delete="false"
                     :save-disabled="!dirty"

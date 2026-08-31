@@ -95,6 +95,46 @@ func TestUpdateGenreUploadsCover(t *testing.T) {
 	}
 }
 
+// updateGenre writes global catalog data, so it must require admin privileges
+// (error 50 for non-admins), matching updateAlbum and updateArtist.
+func TestUpdateGenreRequiresAdmin(t *testing.T) {
+	s := testStore(t)
+	genre := model.Genre{Name: "Jazz"}
+	if err := s.DB().Create(&genre).Error; err != nil {
+		t.Fatal(err)
+	}
+	srv := newRadioServerWithRoles(t, s, "root")
+	defer srv.Close()
+
+	body, ct := buildMultipart(t, map[string]string{"id": encodeGenreID(genre.ID)}, pngBytes(t), "g.png")
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/rest/updateGenre.view", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", ct)
+	req.Header.Set("X-Test-User", "bob")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var env struct {
+		SubsonicResponse struct {
+			Status string `json:"status"`
+			Error  struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatal(err)
+	}
+	if env.SubsonicResponse.Status != "failed" || env.SubsonicResponse.Error.Code != 50 {
+		t.Fatalf("expected error 50 for non-admin, got status=%s code=%d", env.SubsonicResponse.Status, env.SubsonicResponse.Error.Code)
+	}
+}
+
 func TestUpdateGenreCoverClear(t *testing.T) {
 	s := testStore(t)
 	genre := model.Genre{Name: "Blues"}

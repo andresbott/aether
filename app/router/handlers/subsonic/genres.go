@@ -14,6 +14,9 @@ import (
 // artists.go; covers are keyed by DB ID because genre names may contain
 // characters the assetstore key regexp rejects.
 func (h *Handler) updateGenre(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
 	if !isMultipart(r) {
 		writeError(w, 0, "updateGenre requires a multipart request")
 		return
