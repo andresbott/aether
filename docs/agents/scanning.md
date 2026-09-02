@@ -184,7 +184,9 @@ tag and picture writes.
   otherwise share one value — and a file with no locatable audio at all, such as a
   WAV declaring a `data` size of 0) or of a row that has not been hashed yet —
   **one full scan arms it**, since incremental scans only read
-  changed files; two files swapping paths; a move straddling two scan runs;
+  changed files, and that is the accepted answer for now (see the backfill entry
+  under [known scanner debt](#known-scanner-debt-todomd-direction-chosen)); two
+  files swapping paths; a move straddling two scan runs;
   and any ambiguous key — a false match would merge two tracks' listening
   history, which is worse than losing one's. Note that byte-identical duplicates
   of the same track share an audio hash as well as a size, so both proofs rely on
@@ -364,6 +366,22 @@ candidate portrait as a selectable grid rather than auto-picking one:
   so the DB-id slot fails exactly as album covers did. The album planner
   generalises, but the continuity signal is weaker for an artist; needs its own
   spec.
+- An unhashed `tracks.audio_hash` is armed only by a **full scan**, and that is
+  the accepted answer until the app reaches a stable release. An incremental scan
+  reads only the files it thinks changed, so a row whose file has not been touched
+  since the column existed keeps `""` and cannot prove a retagged move. The cheap
+  fix is an **opportunistic backfill**: alongside the changed-file list, collect
+  the files that are still at the path the DB records but whose row has no hash,
+  hash those on the same worker pool and write that one column — no tag read, no
+  re-derived aggregates, nothing else touched, and filtered to the extensions
+  `audiohash` covers so an unsupported format is not re-opened on every scan
+  (without that filter a one-time repair becomes a permanent per-scan tax). It is
+  self-terminating: each file it arms it never sees again, so a steady state does
+  no work. **Deliberately deferred**, because its whole value is arming a library
+  whose operator does not know it needed arming, and with nothing shipped there is
+  no install to protect — "run one full scan" is free advice today. Note it can
+  never recover a *past* move either way: a file that moved before it was hashed
+  has no old path left to read.
 - `FindOrCreateArtists`/`FindOrCreateAlbum` should use
   `errors.Is(err, gorm.ErrRecordNotFound)` to distinguish not-found from
   real DB errors.

@@ -22,38 +22,35 @@ Notes for editors:
 
 # 1.0
 
+## Features
+
+- [ ] Proper playlist editing
+- [ ] multi user playlists
+- [ ] detach scaned folders from libraries
+  use metaadata queries insetd of folders for sources of songs
+
 ## Security & Authentication
 
-- [x] Authentication — implement real user auth with Subsonic token validation
-  The model is decided: see `docs/agents/authentication.md` (two modes, `native` and `proxy-header`, sharing one token layer — both implemented). Implement it, don't invent alternatives. PAT layer implemented: `/rest` authenticates via OpenSubsonic `apiKey` (PATs, hash-only storage in `userauth`'s `pat` service); session-scoped mint endpoint (`POST /api/v1/auth/token`) + CRUD endpoints (`/api/v1/auth/tokens[/*]`); SPA lifecycle (boot mint, transparent re-mint, generation counter on logout); PAT management UI in UserSettingsView. Sec-Fetch-Site CSRF mitigation and the interim cookie resolver removed.
-- [x] Change own password — session-tier endpoint + General-panel form
-  Done: `PUT /api/v1/auth/password` (session tier, any role; `apiV1SessionPath` in `app/router/api_v1.go`, handler in `handlers/auth/auth.go`) re-verifies the current password with per-user brute-force backoff (`service/throttle.Backoff` keyed on the `"reauth"` method, persisted on the aether DB), validates the new one with the shared `usersHandler.ValidPassword`, then `SetPasswordHash` and clears the caller's own cookie so a successful change signs this device out (the SPA runs its logout flow → login view; sign in with the new password). Sessions are stateless cookies, so other devices' cookies aren't force-revoked — they lapse on expiry. Wrong current → **403** (not 401: a 401 reads as an expired session and the SPA would sign the user out), throttled → 429, over-length → 422. Native only (auth handler unmounted under proxy-header, where the IdP owns credentials). UI: `UserSettingsView` → Account tab, gated on native + signed in (`authRequired && currentUser`). See `docs/agents/authentication.md`.
-- [x] Auth `none`: user edit/reset (bind hardening DONE)
-  Bind half **done**: under `none`, `getAppCfg` resolves an unset `BindIp` to `127.0.0.1`, refuses an explicit wildcard (`0.0.0.0`/`::`, `isWildcardBind`) with a startup error, and allows a specific address (e.g. a LAN interface an auth proxy on another host reaches); the authenticated modes stay all-interfaces. A fresh install with no config file no longer serves the LAN unauthenticated. CLI half **done**: `aether user` now has `create <login> [--admin]`, `list`, and `role <login> admin|user` alongside `hash`/`reset-password` (`app/cmd/usercmd.go`), all operating on the existing DB offline; `role` is the break-glass admin-lockout recovery (promotion unconditional, last-admin demotion refused via the shared `users.IsLastEnabledAdmin`), and users can be prepared before switching `none` → `native`. Only remaining gap: in `none` mode there is no user store at all (`setupNativeAuth` returns nils), so those commands need the DB to have been created by a prior `native`/`proxy-header` run; a user created while `none` was active does not exist.
-- [x] Decide & document the `/rest` cover-write authorization policy
-  `updateArtist` and `updateGenre` accept cover writes from any authenticated user, so the policy needs deciding and documenting. `updateAlbum` was gated on `requireAdmin` (`handlers/subsonic/albums.go`, Subsonic error 50) when it was added; the two older sibling cover-art extensions were left as they were because they predate that change, so today the same class of endpoint is admin-only in one case and open in two. `requireAdmin` is already wired in production (`WithAdminChecker`, `app/router/main.go`), passes everyone when the auth method is `none`, and is used by the radio CRUD writes (`handlers/subsonic/radio.go:64,131,257`) — so gating the other two is two lines each plus a test. The larger half is the policy: which `/rest` writes are admin-only (cover art, radio CRUD) versus per-user (stars, playlists, play queue), written down next to the compliance invariants in `docs/agents/subsonic-api.md` instead of living implicitly in three views' `v-if`s. Note the UI already gates artist covers on `isAdmin` (`ArtistView.vue`) while `GenreDetailView` does not, so the frontend is inconsistent too.
-- [x] No brute-force protection on login. => userauth library?
-  **Done** (userauth v0.8.0): the library grew `service/throttle` + `flow/login.Guard`, and native login now wires `flow/login.ThrottleGuard` over a persistent `service/throttle/store/db` (`login_throttle` table) — escalating per-login backoff (3 free failures, then 2s doubling to 5 min), keyed on the raw login id so it is not an account-existence oracle. Toggle with `Auth.LoginThrottle.Enabled` (default on; native only). See `docs/agents/authentication.md` → "Brute-force backoff". Only the **per-login** dimension is wired; a per-IP guard (a custom `flow/login.Guard` keyed on client IP) was deliberately deferred.
+## Backend
 
-## Backend — API Surface
+### Backend — API Surface
 
-- [ ] Review the non-OpenSubsonic API surface
-  Audit custom (non-Subsonic) endpoints, then move Libraries and Tasks management under an `/admin` path (e.g. `/api/admin/libraries`, `/api/admin/tasks`) so admin concerns are clearly separated from the Subsonic-compatible surface; update the frontend accordingly. Pre-1.0 because it is a breaking URL reorg — free now under the no-backwards-compat rule, expensive once anything depends on the paths. Not started: everything is still on one `/api/v1` subrouter (`app/router/main.go:201`), no `/admin` prefix anywhere. Note the authorization half already landed — `/api/v1` defaults to admin-only in both modes via the three-tier guards (`api_v1.go:56`, `proxy_auth.go`), so this is now purely about URL shape, not access control.
-- [x] Make `updateTracks`' all-failed response consistent with `rawTags` — **done (2026-09-02):** `PUT /metadata/tracks` now answers `200` with its `{results:[{path,ok,error}]}` envelope whenever the request was accepted, all-rows-failed included, exactly like `rawTags`; the old self-shaped `500` (the one plain-`application/json` failure status on `/api/v1`) is gone, so the `problem+json` invariant has no exceptions. Request-level errors (400/404/422, and the pre-row `GetLibrary` 500) are unchanged. Rule recorded in `docs/agents/api-conventions.md` ("Batch endpoints: status describes the request, the body describes the work") and `docs/openapi/aether-v1.yaml`; the SPA needed no change (`useUpdateTracks.onSuccess` already renders every failed row, and the all-failed guard in `updateTracksPartitioned` is now reachable).
 - [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints
   `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v1.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
 
-## Backend — OpenSubsonic Compliance
+### Backend — OpenSubsonic Compliance
 
-- [x] `getUser` — spec endpoint (was not routed at all)
-  Done: `handlers/subsonic/getuser.go`, registered under a "User" group in `subsonic.go`. Clients call `getUser` at login to discover their permissions (`streamRole`, `playlistRole`, `downloadRole`, `adminRole`, `coverArtRole`, …) and some refuse to start without it. Aether is single-tier, so the roles are a fixed table with `adminRole`/`settingsRole` the only variable ones — resolved via the existing `h.admin` `AdminChecker` (the same lookup `restAdminChecker`/`requireAdmin` use; `true` under auth `none`, where the fixed owner is the admin). The reported `username` is always the resolved request owner (`requestOwner`, i.e. the real `LoginID`) and the `username` query param is ignored, so a PAT client that authenticated with its token's virtual username still gets its real login back rather than a mismatch error. The optional `folder` field is deliberately omitted (Aether is not per-user library-scoped; clients get folders from `getMusicFolders`). Covered by `getuser_test.go` (admin role table, non-admin has no admin/settings role, real-login-not-alias, auth-`none`-is-admin).
+- [ ] Review the non-OpenSubsonic API surface
+  Audit custom (non-Subsonic) endpoints, then move Libraries and Tasks management under an `/admin` path (e.g. `/api/admin/libraries`, `/api/admin/tasks`) so admin concerns are clearly separated from the Subsonic-compatible surface; update the frontend accordingly. Pre-1.0 because it is a breaking URL reorg — free now under the no-backwards-compat rule, expensive once anything depends on the paths. Not started: everything is still on one `/api/v1` subrouter (`app/router/main.go:201`), no `/admin` prefix anywhere. Note the authorization half already landed — `/api/v1` defaults to admin-only in both modes via the three-tier guards (`api_v1.go:56`, `proxy_auth.go`), so this is now purely about URL shape, not access control.
 - [ ] XML response format for third-party clients
   Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
 
-## Backend — Data Integrity & Scanning
+### Backend — Data Integrity & Scanning
 
-- [ ] Move + retag: fixed for FLAC/MP3/MP4, still lost for the other formats
-  Largely fixed since this was written. The retag-surviving signal it was waiting for — an audio-stream hash — now exists and is wired into `planTrackContinuity` as a second re-link pass (`internal/scanner/trackcontinuity.go`, `relinkPasses`). `libs/audiohash` fingerprints the audio payload only, so a move that *also* retags a file — the common Picard/beets rename-from-tags case, where `file_size` and `title` both change and the original `size+title` pass goes blind — keeps its `tracks.id`, and with it playlists, history, stars and queue position. The hash is computed on the scan worker (`scanner.go:228`, `audioHashOf`), stored on the indexed `tracks.audio_hash` column (`internal/model/track.go:31`), and looked up by `store.TracksByAudioHashes`. `MBRecordingID` was rejected as the signal — it identifies a recording, not a file, so the same recording on an album and a compilation shares it. Remaining gap, now a documented conservative miss rather than a deliberate decline: `libs/audiohash` covers only FLAC, MP3 and MP4 (`libs/audiohash/audiohash.go:66-73`), so the other walk.go extensions (ogg, opus, wma, wav, aiff, ape, wv, aac, mka, tta, dsf, webm) fall back to `size+title` and still lose everything on a retagged move; and a row indexed before the `audio_hash` column existed keeps `""` until a full scan re-reads it, because an incremental scan only hashes changed files (`scanner.go:225-227`). Both misses are noted in `planTrackContinuity`'s doc comment.
+- [ ] Document the audio-hash format limit in the user-facing docs
+  The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
+- [ ] A row indexed before `audio_hash` existed stays unhashed until a full scan
+  The audio-hash move proof needs the **old** row to already carry a hash, and an incremental scan only reads changed files (`scanner.go:188`), so a row indexed before the column existed keeps `""` and cannot be re-linked no matter how many incremental scans run. One full scan arms every file. If it ever bites, the fix is an opportunistic backfill: hash rows with an empty `audio_hash` even on an incremental scan — bounded at 256 KiB per file and one time only — which removes the "needs a full scan first" caveat entirely. Noted in `planTrackContinuity`'s doc comment.
 - [ ] A move that straddles two scan runs is unrecoverable
   By the time the new path appears, `Cleanup` has deleted the row. Fixing it means tombstones — soft-delete plus re-link on reappearance — which makes every read path (`/rest` browsing, playlists, search, queue) decide whether to show missing tracks and makes a purge flow mandatory. A feature, not a fix.
 - [ ] Unreadable subtree swept silently — and can be re-linked
@@ -75,7 +72,7 @@ Notes for editors:
     `planAlbumContinuity` runs a whole batch in one transaction while its proof is per album, so one album's DB error rolls back every other album's retag in that batch (`internal/scanner/albumcontinuity.go`). Not a correctness bug — the caller logs and degrades to the old behaviour — but the granularity does not match the proof.
 - [ ] Big review of the whole import task
 
-## Backend — Resource Leaks
+### Backend — Resource Leaks
 
 - [ ] Nothing ever evicts from the image cache
   `Cache.Delete(kind, key)` exists (`internal/imagecache/imagecache.go:130`) and still has zero callers of any kind, production or test, so deleting an entity leaves its derivative directory behind forever. No prune task exists in `app/tasks` either. Superseded fingerprints of a still-live entry are already swept on rebuild (`Cache.sweep`), so this is only about entities that go away. Wire `Delete` in alongside the existing `assets.Delete` calls: `subsonic/artists.go:55,59`, `subsonic/genres.go:56`, `subsonic/playlists.go:348,423`, `subsonic/radio.go:223,226,228,275`, plus album deletion in the scanner's orphan cleanup (`store.DeleteOrphanedAggregates`, which has no assetstore counterpart today). One trap remains, reduced but not removed:
@@ -86,46 +83,12 @@ Notes for editors:
 
 ## Frontend
 
-- [x] library also shows songs additionally to albums and artists
-  In the library view we get to see discover | Albums | artists
-  Additinoally we should have a list of all songs.
+### Frontend - mobile
 
-  NOTE: the discover sections does not need to be changed, simply add a new view with songs. 
-- [ ] Implement radio mode queue => keep playing based on same type/taste
-  - [ ] If I just listened to an album, put the next album of the same artist
-    - [ ] If the artist has no more albums, jump to the next artist with similar tags
-- [x] Now Playing: navigate to related artists
-  In the now playing view we list artists and album, if you click on the album you get the album view, the artist should also be clikable to navigate to the artists
-- [x] Player should propagate error if server not accessible
-  If i have the SPA loaded and the backend is not available, currently the SPA silenty fails; instead it should propagete that error to the users
+### Frontend — Metadata editor
 
-  e.g. it might be that i'm on another network, or i lost internet completely
-- [x] Remember view mode per library type
-  if we are in library: on the discover page we can swith the view between grid and list, if we change to list and then navigate to albums, the albums are alsos shown as list.
-
-  instead each view type should have it's default view mode, that is grid for all, except for songs where it is list; but if a user decided to change the view mode, that is only for that particular item, meaning that if he navites to the next, then the view would be again the defaut if he hadn't changed it.
-
-  keep the selection for the session, if we reload, it's ok have to change the setting again.
-- [x] add Artist play button
-  in the artist view: e.g. http://localhost:5173/library/1#artists
-  same as the album view, the artist card should have a play button.
-
-  If clicked select one random album and play it
-
-  also the card should be drag/droppable, in that case we want the whole colecton of that artist to be drag and drop. that means it allows to add all albums sorted from new to old into the playlist
-
-## Frontend - mobile
-
-## Frontend — Metadata editor
-
-- [x] Align v1 API with OpenAPI spec — DONE (branch `feat/openapi-v1-spec-coverage`, unmerged): `docs/openapi/aether-v1.yaml` now describes the full `/api/v1` surface (bootstrap health/version/me, auth, tokens, users, libraries, radiobrowser, artists, tasks, and the whole metadata surface incl. identify/identify-album/artist-image), plus shared RFC 9457 components, a three-tier security model, and Spectral governance rules; `app/router/openapi_coverage_test.go` asserts the spec and mounted routes match two-way (56==56) in `make verify`/CI. `admin`/`/metrics` was excluded on purpose — it's a separate ops server, not `/api/v1`. Optional follow-ups: migrate `tasks` + the auth-gate plain-text errors to `httperr` directly, and add a `kin-openapi` response-contract test.
 - [ ] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
 - [ ] When identifying albums sometimes the track position is wrong — can we improve that?
-- [x] when i open the folder selection scroll to current folder
-  if i have many folders, with artist / album 
-  now in the nomral view in the top if i click on the album the dialog opens with the artists name expanded, but if i have to many items i need to scroll anyway
-
-  the goal of this issue is that we automatically scroll to that positon
 
 # Future releases
 
@@ -188,19 +151,19 @@ Notes for editors:
 - [ ] Album cover Remove can't tell if there's anything to remove
   `AlbumView`'s hero Remove clears aether's managed cover via `updateAlbum`'s `coverClear`, but most albums are served from folder art or embedded tags instead — so Remove → Save deletes a non-existent asset entry and the old cover reappears. Currently mitigated only by helper text spelling out the semantics; `HeroHeader` already has a `coverRemovable` prop for suppressing the affordance, and `ArtistView` drives it from an image-source query (`/api/v1/artists/{id}/image-source`, surfaced as `canRemoveImage`). The album equivalent needs `/rest` to report whether the served cover is aether-managed — an OpenSubsonic extension field or small endpoint, not an `/api/v1` route, since album covers are music functionality. Same gap exists for genres.
 - [ ] Better genre handling — needs scoping before it can be planned
-- [x] Search should also return genres
 - [ ] Playlist edit is not a nice experience for now — needs scoping
   Name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated.
 - [>] Add filter to artist / album etc
 
 ## Frontend — Player & Controls
 
+- [ ] Implement radio mode queue => keep playing based on same type/taste
+  - [ ] If I just listened to an album, put the next album of the same artist
+    - [ ] If the artist has no more albums, jump to the next artist with similar tags
 - [ ] Jukebox functionality — use the web UI only to control the audio
 - [ ] Relay — like jukebox, but loading songs from another instance
 
 ## Frontend — Layout
-
-- [x] Improve icon theme
 
 ## Metadata & External Integrations
 
@@ -228,6 +191,8 @@ Notes for editors:
 
 # Won't implement
 
+- [>] Audio-hash coverage for the remaining eight audio formats
+  `libs/audiohash` fingerprints the audio payload of FLAC, MP3, MP4/M4A/M4B, WAV, AIFF, Ogg Vorbis and Opus — eight of `walk.go`'s sixteen extensions — which is what lets `planTrackContinuity` keep a track's row, and with it its playlists, play history, stars and queue position, across a move that *also* retags the file (the common Picard/beets rename-from-tags case, where `file_size` and `title` both change so the `size+title` proof goes blind). The other eight — **WMA, APE, WavPack, raw AAC, Matroska/WebM (`.mka`, `.webm`), TTA, DSF** — will not be covered for now. Each needs a real per-format container parser (ASF objects, EBML, and four bespoke codec containers) for far worse coverage-per-line than the chunk-list and Ogg-page walkers already written, and they are rare in real libraries; the covered eight are what people actually store music in. The consequence is bounded and fail-safe: an uncovered format falls back to the `size+title` proof, which is exactly what every format had before the hash existed — nothing regressed, those moves just stay unprovable. Same for an Ogg file carrying a mapping other than Vorbis or Opus (Ogg FLAC is declined deliberately: it gives each metadata block its own packet, so a fixed header-packet skip would leave an embedded picture inside the digest and the hash would not survive an art edit), and for a chained, truncated or trailer-bearing Ogg, declined rather than hashed on a missing length component — a missing length component would collapse every such file into one collision class, and a false match merges two tracks' histories, which is worse than losing one's. Revisit only if a library shows up that is materially WMA or Matroska. **The user-visible half of this decision still needs writing down** — tracked under "Backend — Data Integrity & Scanning".
 - [>] Sharing and Chat
   Sharing exists to hand out public unauthenticated links (`/share.php?id=…&secret=…` + an HTML landing page) that bypass auth by design; Chat is a global message wall with no rooms or delivery, vestigial in the ecosystem and pointless on a single-user server. Don't add them, and don't file them as gaps again.
 - [>] `getUsers` (and Subsonic user CRUD: `createUser`/`updateUser`/`deleteUser`/`changePassword`)
