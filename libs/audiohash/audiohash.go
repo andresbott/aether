@@ -69,6 +69,10 @@ func Reader(r io.ReaderAt, size int64, name string) (string, error) {
 		return mp3Hash(r, size)
 	case ".m4a", ".m4b", ".mp4":
 		return mp4Hash(r, size)
+	case ".wav", ".wave":
+		return wavHash(r, size)
+	case ".aif", ".aiff", ".aifc":
+		return aiffHash(r, size)
 	default:
 		return "", ErrUnsupported
 	}

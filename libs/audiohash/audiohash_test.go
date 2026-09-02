@@ -272,10 +272,13 @@ func TestFileMP3IgnoresTrailingAPE(t *testing.T) {
 }
 
 func TestFileUnsupportedFormatReturnsErrUnsupported(t *testing.T) {
-	p := writeFixture(t, "song.wav", bytes.Repeat([]byte{0x00}, 64))
+	// .wma is one of walk.go's sixteen extensions that this package does not
+	// cover; such a file must report ErrUnsupported so the scanner falls back to
+	// its other identity signals rather than treating it as a failure.
+	p := writeFixture(t, "song.wma", bytes.Repeat([]byte{0x00}, 64))
 	_, err := File(p)
 	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("File(.wav) err = %v, want ErrUnsupported", err)
+		t.Fatalf("File(.wma) err = %v, want ErrUnsupported", err)
 	}
 }
 
