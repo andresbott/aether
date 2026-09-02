@@ -239,11 +239,23 @@ func findBox(f io.ReaderAt, size int64, want string) (start, length int64, err e
 
 // payloadHash returns the bounded FNV-1a hash of the byte range [start, end),
 // with the exact range length bound into the digest.
+//
+// An empty range is reported unsupported. It would digest nothing but its eight
+// length bytes, so every file with no locatable audio would share one value — a
+// WAV declaring a "data" size of 0 (the sentinel a stream-writing recorder leaves
+// when it never goes back to patch the header, so real audio can sit behind it),
+// an AIFF whose SSND chunk holds only its offset/blockSize prefix, an MP4 with an
+// empty mdat. The scanner's duration guard cannot separate them either, since
+// they all decode to about nothing. Declining costs a fallback; a shared hash can
+// move one track's play history onto another.
 func payloadHash(f io.ReaderAt, start, end int64) (string, error) {
 	if end < start {
 		end = start
 	}
 	payloadLen := end - start
+	if payloadLen == 0 {
+		return "", ErrUnsupported
+	}
 	readLen := payloadLen
 	if readLen > maxHashBytes {
 		readLen = maxHashBytes
@@ -254,10 +266,9 @@ func payloadHash(f io.ReaderAt, start, end int64) (string, error) {
 	// payloadLen is non-negative by construction: end is clamped to start above.
 	binary.BigEndian.PutUint64(lenBuf[:], uint64(payloadLen)) //nolint:gosec // G115: payloadLen >= 0, so the conversion cannot wrap.
 	_, _ = h.Write(lenBuf[:])
-	if readLen > 0 {
-		if _, err := io.Copy(h, io.NewSectionReader(f, start, readLen)); err != nil {
-			return "", fmt.Errorf("audiohash: read audio payload: %w", err)
-		}
+	// readLen is at least 1: an empty range was declined above.
+	if _, err := io.Copy(h, io.NewSectionReader(f, start, readLen)); err != nil {
+		return "", fmt.Errorf("audiohash: read audio payload: %w", err)
 	}
 	return fmt.Sprintf("fnv1a64:%016x", h.Sum64()), nil
 }

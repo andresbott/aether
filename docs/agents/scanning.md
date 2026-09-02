@@ -177,8 +177,12 @@ tag and picture writes.
   **before** `planAlbumContinuity` so a moved album is not counted as a split.
   Deliberate misses: a retagged move of a format `audiohash` does not cover (it
   handles FLAC, MP3, MP4, WAV, AIFF, Ogg Vorbis and Opus — eight of `walk.go`'s
-  sixteen extensions; WMA, APE, WavPack, TTA, DSF, Matroska and raw AAC remain,
-  as does an Ogg file carrying some other mapping) or of a row that has not been
+  sixteen extensions; WMA, APE, WavPack, TTA, DSF, Matroska/WebM and raw AAC
+  remain, as does an Ogg file carrying some other mapping, an Ogg file that is
+  chained, truncated or carries a trailer — its stream then has no page ending at
+  end of file, so the digest has no length component and every such file would
+  otherwise share one value — and a file with no locatable audio at all, such as a
+  WAV declaring a `data` size of 0) or of a row that has not been
   hashed yet — **one full scan arms it**, since incremental scans only read
   changed files; two files swapping paths; a move straddling two scan runs;
   and any ambiguous key — a false match would merge two tracks' listening

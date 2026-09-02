@@ -1,4 +1,3 @@
-// libs/audiohash/riff.go
 package audiohash
 
 import (
@@ -47,6 +46,13 @@ func aiffHash(f io.ReaderAt, size int64) (string, error) {
 // does not have, and that file is still perfectly hashable. A chunk being
 // *skipped* gets no such latitude — an out-of-range length there would make the
 // next offset a guess, so it is an error.
+//
+// The clamp is best-effort and has one honest limitation. When a file whose
+// wanted chunk had to be clamped also carries a tag chunk *after* it, the clamp
+// runs to end of file and pulls those tags into the digest, so editing them moves
+// the hash. Such a file's declared length is already impossible, which leaves no
+// way to locate where its audio really ends — there is nothing better to do than
+// take what is there. A file in that shape is simply not retag-stable.
 func findChunk(f io.ReaderAt, size int64, order binary.ByteOrder, container string, forms []string, want string) (start, length int64, err error) {
 	const containerHeader = 12 // magic + size + form type
 	hdr := make([]byte, containerHeader)

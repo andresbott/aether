@@ -181,6 +181,40 @@ func TestFileWAVClampsAnOverlongDataSize(t *testing.T) {
 	}
 }
 
+func TestFileZeroLengthPayloadIsUnsupported(t *testing.T) {
+	// A zero-length payload range digests nothing but its eight length bytes, so
+	// every such file lands on one universal value — and the duration guard in the
+	// scanner cannot separate them either, since they all decode to ~0 seconds.
+	// A declared "data" size of 0 is the sentinel a stream-writing recorder leaves
+	// behind when it never goes back to patch the header, so real audio can sit
+	// behind it; an AIFF whose SSND holds only its 8-byte offset/blockSize prefix
+	// is the same shape. Declining costs a fallback; a shared hash costs one
+	// track's listening history.
+	zeroData := func(audio []byte) []byte {
+		data := wavFixture(audio, nil, false)
+		// The data chunk is last, so its 4-byte size field sits 4 bytes ahead of
+		// the audio, i.e. at len(file)-len(audio)-4.
+		binary.LittleEndian.PutUint32(data[len(data)-len(audio)-4:], 0)
+		return data
+	}
+
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"zero-data-a.wav", zeroData(bytes.Repeat([]byte{0x11}, 2048))},
+		{"zero-data-b.wav", zeroData(bytes.Repeat([]byte{0x22}, 4096))},
+		{"empty-data.wav", wavFixture(nil, bytes.Repeat([]byte("A"), 40), false)},
+		{"empty-ssnd.aiff", aiffFixture(nil, nil, "AIFF", 0)},
+	}
+
+	for _, c := range cases {
+		if _, err := File(writeFixture(t, c.name, c.data)); !errors.Is(err, ErrUnsupported) {
+			t.Errorf("File(%s) err = %v, want ErrUnsupported", c.name, err)
+		}
+	}
+}
+
 func TestFileWAVRejectsAnOverlongSkippedChunk(t *testing.T) {
 	// A chunk being skipped gets no latitude: an out-of-range length makes the
 	// next chunk offset a guess, so it must be an error rather than a hash

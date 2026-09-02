@@ -92,9 +92,21 @@ func TestReadOggPageParsesHeaderAndPayload(t *testing.T) {
 	payload := bytes.Repeat([]byte{0xAB}, 300) // spans two lacing values
 	page := oggPageBytes(0xDEADBEEF, 7, 4242, 0x04, [][]byte{payload[:255], payload[255:]})
 
-	got, err := readOggPage(bytes.NewReader(page), 0, int64(len(page)))
+	r := bytes.NewReader(page)
+	got, err := readOggPage(r, 0, int64(len(page)))
 	if err != nil {
 		t.Fatalf("readOggPage: %v", err)
+	}
+	// Parsing the header must not have touched the payload — that is what lets a
+	// walk skip the pages it will not digest.
+	if got.payload != nil {
+		t.Fatalf("readOggPage loaded %d payload bytes; the payload is readPayload's job", len(got.payload))
+	}
+	if got.payloadLen != len(payload) {
+		t.Fatalf("payloadLen = %d, want %d (the lacing table states it exactly)", got.payloadLen, len(payload))
+	}
+	if err := got.readPayload(r); err != nil {
+		t.Fatalf("readPayload: %v", err)
 	}
 	if got.serial != 0xDEADBEEF {
 		t.Fatalf("serial = %#x, want 0xDEADBEEF", got.serial)
@@ -316,10 +328,14 @@ func TestFileOggIgnoresAnotherLogicalStream(t *testing.T) {
 }
 
 func TestFileOggToleratesAFalseOggSInTheAudio(t *testing.T) {
-	// Audio bytes can spell "OggS" by accident. Because a retag shifts every
-	// absolute offset, a granule search that accepted such a match could pick a
-	// different one before and after the retag — so the last-page candidate must
-	// be required to end exactly at EOF.
+	// Audio bytes can spell "OggS" by accident. This asserts only that such a file
+	// still survives a retag end to end — nothing more: both fixtures plant the
+	// same candidate at the same distance from EOF, so whichever candidate the
+	// granule search picks, it picks the same one in both and they compare equal.
+	// It therefore does *not* discharge the ends-at-EOF requirement and still
+	// passes with that guard deleted;
+	// TestOggLastGranuleIgnoresAPlantedHeaderThatDoesNotEndAtEOF is the white-box
+	// assertion that does.
 	ident := vorbisIdent()
 	setup := bytes.Repeat([]byte{0x05}, 600)
 	// Plant a full plausible page header carrying the stream's own serial so it
@@ -383,7 +399,10 @@ func TestOggLastGranuleIgnoresAPlantedHeaderThatDoesNotEndAtEOF(t *testing.T) {
 	data := oggStream(1, 2468, ident,
 		append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 20)...), setup, audio)
 
-	got := oggLastGranule(bytes.NewReader(data), int64(len(data)), 1)
+	got, ok := oggLastGranule(bytes.NewReader(data), int64(len(data)), 1)
+	if !ok {
+		t.Fatal("oggLastGranule found no qualifying page, but the stream's last page ends at EOF")
+	}
 	if got != 2468 {
 		t.Fatalf("oggLastGranule = %d, want 2468 (the true final granule, not the planted 0xDEAD)", got)
 	}
@@ -402,9 +421,82 @@ func TestFileOggUnknownMappingIsUnsupported(t *testing.T) {
 	}
 }
 
+func TestFileOggWithoutAPageEndingAtEOFIsDeclined(t *testing.T) {
+	// `cat a.ogg b.ogg` is a valid Ogg join, and a truncated file or a file
+	// carrying any trailer looks the same from here: the target stream has no page
+	// ending exactly at end of file, so the granule that serves as the digest's
+	// length component cannot be located. Without a length component every such
+	// file collapses into one equivalence class keyed on an audio prefix alone —
+	// two chains sharing only their first stream hash equal, and so does the first
+	// stream plus a handful of trailing bytes. That is a collision class, which is
+	// the one failure this hash must not have, so the file is declined instead.
+	intro := oggStream(1, 12345, vorbisIdent(),
+		append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...),
+		bytes.Repeat([]byte{0x05}, 600), bytes.Repeat([]byte{0x42, 0x43}, 4000))
+	episodeA := oggStream(2, 111, vorbisIdent(),
+		append([]byte("\x03vorbis"), bytes.Repeat([]byte("B"), 40)...),
+		bytes.Repeat([]byte{0x06}, 600), bytes.Repeat([]byte{0x71}, 50<<10))
+	episodeB := oggStream(3, 222, vorbisIdent(),
+		append([]byte("\x03vorbis"), bytes.Repeat([]byte("C"), 40)...),
+		bytes.Repeat([]byte{0x07}, 600), bytes.Repeat([]byte{0x72}, 90<<10))
+
+	chain := func(tail []byte) []byte {
+		return append(append([]byte{}, intro...), tail...)
+	}
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"chain-a.ogg", chain(episodeA)},
+		{"chain-b.ogg", chain(episodeB)},
+		{"trailer.ogg", chain(bytes.Repeat([]byte{0x00}, 128))},
+		// A file cut short mid-page. The granule lookup runs before the walk, so
+		// this is declined rather than reported as a parse error.
+		{"truncated.ogg", intro[:len(intro)-64]},
+	}
+
+	for _, c := range cases {
+		got, err := File(writeFixture(t, c.name, c.data))
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("File(%s) = %q, err = %v, want ErrUnsupported", c.name, got, err)
+		}
+	}
+}
+
+func TestReaderSkipsTheBytesOfALargeOggMetadataPacket(t *testing.T) {
+	// A METADATA_BLOCK_PICTURE inside a Vorbis comment is how Ogg carries cover
+	// art, so a multi-MiB metadata packet is ordinary rather than adversarial.
+	// Nothing on those pages reaches the digest, so nothing on them may be read: a
+	// page's lacing table states its exact payload length without a byte of the
+	// payload being touched, and the packet counter says whether any of its
+	// segments will be consumed. A fully skipped page must therefore cost its
+	// header and segment table and nothing more.
+	ident := vorbisIdent()
+	comment := append([]byte("\x03vorbis"), bytes.Repeat([]byte("P"), 6<<20)...)
+	setup := bytes.Repeat([]byte{0x05}, 900)
+	audio := bytes.Repeat([]byte{0x42, 0x43}, 150<<10) // 300 KiB
+
+	data := oggStream(1, 7654321, ident, comment, setup, audio)
+	counter := &countingReaderAt{r: bytes.NewReader(data)}
+	if _, err := Reader(counter, int64(len(data)), "cover.ogg"); err != nil {
+		t.Fatalf("Reader: %v", err)
+	}
+
+	// The honest budget is one bounded tail read for the granule, the 256 KiB the
+	// digest is capped at (rounded up to a page boundary), and one header plus
+	// segment table per page walked. Reading the payload of every page instead
+	// costs the whole file.
+	const budget = oggTailWindow + 2*maxHashBytes
+	t.Logf("read %d bytes of a %d-byte file (budget %d)", counter.bytes, len(data), budget)
+	if counter.bytes > budget {
+		t.Errorf("read %d bytes of a %d-byte file, want <= %d — the metadata packet's pages must be skipped unread",
+			counter.bytes, len(data), budget)
+	}
+}
+
 func TestFileOggLostSyncIsAnError(t *testing.T) {
 	// Build a stream but remove the EOS flag from its last page so the walk
-	// continues to EOF and encounters the trailing garbage.
+	// continues past it and runs into the garbage spliced in behind it.
 	data := oggStream(1, 100, vorbisIdent(),
 		append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 20)...),
 		bytes.Repeat([]byte{0x05}, 600), bytes.Repeat([]byte{0x11}, 1000))
@@ -416,14 +508,88 @@ func TestFileOggLostSyncIsAnError(t *testing.T) {
 			break
 		}
 	}
-	data = append(data, bytes.Repeat([]byte{0xFF}, 64)...) // trailing garbage
+	data = append(data, bytes.Repeat([]byte{0xFF}, 64)...) // garbage mid-file
+	// Close with a real page on the target serial so the granule lookup succeeds
+	// and the walk actually runs; without one the file has no page ending at EOF
+	// and is declined before a single page is walked.
+	data = append(data, oggPageBytes(1, 99, 100, oggFlagEOS, [][]byte{{0x11}})...)
 
 	_, err := File(writeFixture(t, "garbage.ogg", data))
 	if err == nil {
-		t.Fatal("trailing garbage where a page header should be must be an error")
+		t.Fatal("garbage where a page header should be must be an error")
 	}
 	if errors.Is(err, ErrUnsupported) {
 		t.Fatalf("got ErrUnsupported, want a parse error: %v", err)
+	}
+}
+
+// oggPinnedCases are the fixtures whose emitted digest is pinned as a literal.
+// They are built by one helper so the bytes cannot drift between the run that
+// captured the literals and the runs that check them.
+//
+// The set covers one fixture per supported mapping (Vorbis and Opus), a stream
+// whose metadata packet is large enough that its pages are skipped without their
+// payload being read, and a stream whose audio overruns the 256 KiB cap part-way
+// through a page — the fiddliest branch of the segment walk.
+func oggPinnedCases() []struct {
+	name string
+	data []byte
+	want string
+} {
+	ident := vorbisIdent()
+	comment := append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...)
+	setup := bytes.Repeat([]byte{0x05}, 900)
+
+	return []struct {
+		name string
+		data []byte
+		want string
+	}{
+		{
+			name: "vorbis.ogg",
+			data: oggStream(0x0BADF00D, 7654321, ident, comment, setup,
+				bytes.Repeat([]byte{0x42, 0x43}, 4000)),
+			want: "oggfnv1a64:899f9d6c56d39569",
+		},
+		{
+			// Opus has exactly two metadata packets where Vorbis has three, so a
+			// different set of packets reaches the digest.
+			name: "opus.opus",
+			data: oggStream(42, 999, opusHead(),
+				append([]byte("OpusTags"), bytes.Repeat([]byte("A"), 30)...),
+				bytes.Repeat([]byte{0x77, 0x88}, 4000)),
+			want: "oggfnv1a64:1ba0032c6c2a0aa7",
+		},
+		{
+			// A 3 MiB comment header: METADATA_BLOCK_PICTURE is how Ogg carries
+			// cover art. Every page of it is skipped, and the digest must not
+			// notice that its payload was never read.
+			name: "big-picture.ogg",
+			data: oggStream(7, 4242, ident,
+				append([]byte("\x03vorbis"), bytes.Repeat([]byte("P"), 3<<20)...),
+				setup, bytes.Repeat([]byte{0x11, 0x22, 0x33}, 40000)),
+			want: "oggfnv1a64:caeea76eb042109b",
+		},
+		{
+			// 400 KiB of audio: the digest stops at the 256 KiB cap in the middle
+			// of a page's segment run.
+			name: "capped.ogg",
+			data: oggStream(11, 555555, ident, comment, setup,
+				bytes.Repeat([]byte{0xA5, 0x5A}, 200*1024)),
+			want: "oggfnv1a64:ad817d0d90d89b92",
+		},
+	}
+}
+
+func TestFileOggPinnedDigests(t *testing.T) {
+	for _, c := range oggPinnedCases() {
+		got, err := File(writeFixture(t, c.name, c.data))
+		if err != nil {
+			t.Fatalf("File(%s): %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("File(%s) = %q, want %q", c.name, got, c.want)
+		}
 	}
 }
 
@@ -439,56 +605,78 @@ func (c *countingReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	return n, err
 }
 
-func TestReaderStopsAtEndOfStreamAndHonoursTheReadBound(t *testing.T) {
-	// Build a chained fixture: a Vorbis stream with ~200 KiB of audio (under the
-	// 256 KiB hash bound, so we finish hashing the first stream entirely) and the
-	// EOS flag on its final page, concatenated with a second logical stream carrying
-	// ~2 MiB of payload. Without the EOS check, the walk continues into the second
-	// stream to hash up to the 256 KiB bound, reading far more pages.
-	//
-	// A chained file's hash differs from the hash of a file containing only its
-	// first stream: the target stream has no page ending at end of file (a second
-	// logical stream follows it), so its granule comes back 0 instead of the true
-	// value. That is deterministic and retag-stable, which is the property that
-	// matters. This test pins the chained file's own retag-stability rather than
-	// comparing it to a different file.
+func TestReaderDeclinesAChainedFileCheaply(t *testing.T) {
+	// A chained file — a Vorbis stream with ~200 KiB of audio followed by a second
+	// logical stream carrying ~2 MiB — has no page of the target serial ending at
+	// end of file, so its granule cannot be found and the file is declined. That
+	// costs nothing worth measuring: the granule lookup runs *before* the page
+	// walk, so the whole attempt is one page read plus one bounded tail read, and
+	// not a byte of the 2 MiB second stream is touched.
 	ident := vorbisIdent()
 	setup := bytes.Repeat([]byte{0x05}, 600)
-	audio := bytes.Repeat([]byte{0x42, 0x43}, 100*1024) // ~200 KiB
+	audio := bytes.Repeat([]byte{0x42, 0x43}, 100<<10) // ~200 KiB
 
-	// Build a second stream on a different serial with ~2 MiB of payload.
-	secondIdent := vorbisIdent()
-	secondComment := append([]byte("\x03vorbis"), bytes.Repeat([]byte("B"), 40)...)
-	secondSetup := bytes.Repeat([]byte{0x06}, 600)
-	secondAudio := bytes.Repeat([]byte{0x99}, 1024*1024) // ~2 MiB
-	secondStream := oggStream(2, 67890, secondIdent, secondComment, secondSetup, secondAudio)
+	second := oggStream(2, 67890, vorbisIdent(),
+		append([]byte("\x03vorbis"), bytes.Repeat([]byte("B"), 40)...),
+		bytes.Repeat([]byte{0x06}, 600), bytes.Repeat([]byte{0x99}, 1<<20))
+	chained := append(oggStream(1, 12345, ident,
+		append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...), setup, audio), second...)
 
-	// Build the chained fixture twice with different first-stream comment-header sizes.
-	chainedShort := append(oggStream(1, 12345, ident,
-		append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...), setup, audio), secondStream...)
-	chainedLong := append(oggStream(1, 12345, ident,
-		append([]byte("\x03vorbis"), bytes.Repeat([]byte("C"), 3000)...), setup, audio), secondStream...)
+	counter := &countingReaderAt{r: bytes.NewReader(chained)}
+	got, err := Reader(counter, int64(len(chained)), "song.ogg")
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("Reader(chained) = %q, err = %v, want ErrUnsupported", got, err)
+	}
 
-	// Hash the chained stream with a counting reader.
-	counter := &countingReaderAt{r: bytes.NewReader(chainedShort)}
-	hashShort, err := Reader(counter, int64(len(chainedShort)), "song.ogg")
+	// One page header plus its short first packet, and one oggTailWindow read.
+	const budget = oggTailWindow + 1<<10
+	t.Logf("read %d bytes of a %d-byte file (budget %d)", counter.bytes, len(chained), budget)
+	if counter.bytes > budget {
+		t.Fatalf("declining read %d bytes, want <= %d — the granule lookup must come before the walk",
+			counter.bytes, budget)
+	}
+}
+
+func TestFileOggSameSerialChainStopsAtTheEndOfStreamPage(t *testing.T) {
+	// `cat a.ogg a.ogg` reuses one serial number across both links, which the Ogg
+	// spec forbids but a shell does not. It is the shape that keeps the walk's
+	// end-of-stream break alive: the second copy's final page carries the target
+	// serial and ends at end of file, so the granule lookup succeeds and the file
+	// is walked rather than declined. Breaking at the first copy's EOS page is what
+	// keeps the second copy's comment header — a retaggable region — out of the
+	// digest. Delete the break and this fixture stops surviving a retag.
+	ident := vorbisIdent()
+	setup := bytes.Repeat([]byte{0x05}, 600)
+	audio := bytes.Repeat([]byte{0x42, 0x43}, 4000)
+	tail := bytes.Repeat([]byte{0x99}, 1<<20) // makes "not walked" measurable
+
+	link := func(comment []byte) []byte {
+		return oggStream(1, 12345, ident, comment, setup, append(audio, tail...))
+	}
+	short := link(append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...))
+	long := link(append([]byte("\x03vorbis"), bytes.Repeat([]byte("C"), 3000)...))
+
+	doubled := append(append([]byte{}, short...), short...)
+	doubledRetagged := append(append([]byte{}, long...), long...)
+
+	counter := &countingReaderAt{r: bytes.NewReader(doubled)}
+	a, err := Reader(counter, int64(len(doubled)), "doubled.ogg")
 	if err != nil {
-		t.Fatalf("Reader(short): %v", err)
+		t.Fatalf("Reader(doubled): %v", err)
 	}
-
-	hashLong, err := Reader(bytes.NewReader(chainedLong), int64(len(chainedLong)), "song.ogg")
+	b, err := Reader(bytes.NewReader(doubledRetagged), int64(len(doubledRetagged)), "doubled.ogg")
 	if err != nil {
-		t.Fatalf("Reader(long): %v", err)
+		t.Fatalf("Reader(doubled, retagged): %v", err)
+	}
+	if a != b {
+		t.Fatalf("retag changed the hash of a same-serial chain: %q vs %q — the end-of-stream break must keep the second link out of the digest", a, b)
 	}
 
-	// Total bytes read must be well under 1 MiB. Without the EOS check, this
-	// lands north of 2.3 MiB because the entire second stream is read.
-	if counter.bytes >= 1024*1024 {
-		t.Fatalf("read %d bytes, want < 1 MiB (the walk must stop at the first stream's EOS)", counter.bytes)
-	}
-
-	// The chained file's hash must survive a retag of its first stream.
-	if hashShort != hashLong {
-		t.Fatalf("retag changed the hash: %q vs %q (only the first stream's comment header differs)", hashShort, hashLong)
+	// The digest caps at 256 KiB and the break stops the walk at the first link's
+	// last page, so the second link is never read.
+	const budget = oggTailWindow + 2*maxHashBytes
+	t.Logf("read %d bytes of a %d-byte file (budget %d)", counter.bytes, len(doubled), budget)
+	if counter.bytes > budget {
+		t.Fatalf("read %d bytes, want <= %d (the walk must stop at the first link's EOS page)", counter.bytes, budget)
 	}
 }

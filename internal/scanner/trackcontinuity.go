@@ -66,8 +66,12 @@ type relinkPass struct {
 //
 // Known conservative misses: a retagged move of a format libs/audiohash does not
 // cover — it handles FLAC, MP3, MP4, WAV, AIFF, Ogg Vorbis and Opus, leaving
-// WMA, APE, WavPack, TTA, DSF, Matroska and raw AAC of walk.go's sixteen
-// extensions — or of a track whose row has not been hashed yet; a full scan
+// WMA, APE, WavPack, TTA, DSF, Matroska/WebM and raw AAC of walk.go's sixteen
+// extensions, and it declines an Ogg file carrying a mapping other than Vorbis or
+// Opus, an Ogg file that is chained, truncated or carries a trailer (its stream
+// then has no page ending at end of file, so the digest has no length component),
+// and a file with no locatable audio at all, such as a WAV declaring a "data"
+// size of 0 — or of a track whose row has not been hashed yet; a full scan
 // hashes every file and arms it. Also: two files swapping paths (neither old
 // path is gone), and a move straddling two scan runs (Cleanup already deleted
 // the row).
