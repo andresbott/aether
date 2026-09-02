@@ -110,22 +110,21 @@ func oggHeaderPackets(firstPacket []byte) (int, error) {
 // serial — the stream's total decoded sample count, which stands in for the
 // payload length the other formats mix into their digest.
 //
-// A candidate must match the capture pattern, the version, the serial, *and* have
-// the end-of-stream flag set. The EOS flag is the unambiguous marker of a
-// stream's last page and works in both single-stream and chained files. Audio
-// bytes can spell "OggS" by accident, but will not coincidentally have the EOS
-// flag set, so the search is safe.
+// A candidate must match the capture pattern, the version and the serial *and*
+// end exactly at end of file. That last requirement is what makes the search
+// safe: audio bytes can spell "OggS" by accident, and since a retag shifts every
+// absolute offset, accepting such a match could pick a different one before and
+// after the retag — exactly the instability this hash exists to avoid.
 //
-// A file may end with a page whose serial does not match (a chained second
-// stream, or a multiplexed stream that outlives the target) — requiring the page
-// to end exactly at EOF would reject such cases, so the EOS flag is used instead.
+// A chained file's target stream has no page ending at end of file — a second
+// logical stream follows it — so its granule comes back 0. This is deterministic
+// and therefore retag-stable, which is the property that matters. The granule is
+// a discriminator rather than a requirement, so losing it costs a little digest
+// strength and nothing else.
 //
-// It returns 0 rather than an error when nothing qualifies. The granule is a
-// discriminator, not a requirement, and 0 is a deterministic stand-in that keeps
-// the file's hash stable instead of failing it.
+// It returns 0 rather than an error when nothing qualifies. 0 is a deterministic
+// stand-in that keeps the file's hash stable instead of failing it.
 func oggLastGranule(f io.ReaderAt, size int64, serial uint32) uint64 {
-	// Try the tail window first — for single-stream files and small chains, the
-	// EOS page sits near EOF and this is a single bounded read.
 	window := int64(oggTailWindow)
 	if window > size {
 		window = size
@@ -141,29 +140,18 @@ func oggLastGranule(f io.ReaderAt, size int64, serial uint32) uint64 {
 		if binary.LittleEndian.Uint32(buf[i+14:i+18]) != serial {
 			continue
 		}
-		if buf[i+5]&oggFlagEOS == 0 {
-			continue // not marked as the stream's last page
-		}
 		nSegments := int(buf[i+26])
 		if i+oggHeaderFixed+nSegments > len(buf) {
 			continue
 		}
+		payloadLen := 0
+		for _, lace := range buf[i+oggHeaderFixed : i+oggHeaderFixed+nSegments] {
+			payloadLen += int(lace)
+		}
+		if i+oggHeaderFixed+nSegments+payloadLen != len(buf) {
+			continue // not the page that ends the file
+		}
 		return binary.LittleEndian.Uint64(buf[i+6 : i+14])
-	}
-
-	// The tail window didn't reach the target stream's EOS page — happens in a
-	// large chained file where the first stream ends far from EOF. Walk forward
-	// from the beginning. This is more expensive, but chained files are rare and
-	// the cost is paid once.
-	for off := int64(0); off+oggHeaderFixed <= size; {
-		page, err := readOggPage(f, off, size)
-		if err != nil {
-			return 0 // lost sync or truncated; fall back to 0
-		}
-		off += page.total
-		if page.serial == serial && page.flags&oggFlagEOS != 0 {
-			return page.granule
-		}
 	}
 	return 0
 }
