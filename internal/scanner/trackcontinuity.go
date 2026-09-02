@@ -65,11 +65,16 @@ type relinkPass struct {
 // listening history, which is worse than losing one's.
 //
 // Known conservative misses: a retagged move of a format libs/audiohash does not
-// cover (Ogg, Opus, WMA, WAV and the rest of walk.go's extensions), or of a track
-// whose row predates the hash column and has not been re-read since — a full
-// scan hashes every file and arms it; two files swapping paths (neither old path
-// is gone); and a move straddling two scan runs (Cleanup already deleted the
-// row).
+// cover — it handles FLAC, MP3, MP4, WAV, AIFF, Ogg Vorbis and Opus, leaving
+// WMA, APE, WavPack, TTA, DSF, Matroska/WebM and raw AAC of walk.go's sixteen
+// extensions, and it declines an Ogg file carrying a mapping other than Vorbis or
+// Opus, an Ogg file that is chained, truncated or carries a trailer (its stream
+// then has no page ending at end of file, so the digest has no length component),
+// and a file with no locatable audio at all, such as a WAV declaring a "data"
+// size of 0 — or of a track whose row has not been hashed yet; a full scan
+// hashes every file and arms it. Also: two files swapping paths (neither old
+// path is gone), and a move straddling two scan runs (Cleanup already deleted
+// the row).
 func (s *Scanner) planTrackContinuity(results []tagResult) error {
 	if len(results) == 0 {
 		logTrackContinuity(0, 0, 0)

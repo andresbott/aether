@@ -272,10 +272,13 @@ func TestFileMP3IgnoresTrailingAPE(t *testing.T) {
 }
 
 func TestFileUnsupportedFormatReturnsErrUnsupported(t *testing.T) {
-	p := writeFixture(t, "song.wav", bytes.Repeat([]byte{0x00}, 64))
+	// .wma is one of walk.go's sixteen extensions that this package does not
+	// cover; such a file must report ErrUnsupported so the scanner falls back to
+	// its other identity signals rather than treating it as a failure.
+	p := writeFixture(t, "song.wma", bytes.Repeat([]byte{0x00}, 64))
 	_, err := File(p)
 	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("File(.wav) err = %v, want ErrUnsupported", err)
+		t.Fatalf("File(.wma) err = %v, want ErrUnsupported", err)
 	}
 }
 
@@ -298,6 +301,13 @@ func TestReaderHashesFromOpenHandle(t *testing.T) {
 			mp4Box("moov", bytes.Repeat([]byte("m"), 60)),
 			mp4Box("mdat", audio),
 		), "fnv1a64:"},
+		{"song.wav", wavFixture(audio, []byte("LISTINFOtag"), false), "fnv1a64:"},
+		{"song.aiff", aiffFixture(audio, []byte("id3tag"), "AIFF", 0), "fnv1a64:"},
+		{"song.ogg", oggStream(1, 4321, vorbisIdent(),
+			append([]byte("\x03vorbis"), []byte("ARTIST=A")...),
+			bytes.Repeat([]byte{0x05}, 600), audio), "oggfnv1a64:"},
+		{"song.opus", oggStream(1, 4321, opusHead(),
+			append([]byte("OpusTags"), []byte("ARTIST=A")...), audio), "oggfnv1a64:"},
 	}
 
 	for _, c := range cases {
