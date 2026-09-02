@@ -7,9 +7,12 @@
 // The package has no aether dependencies and is safe to use standalone.
 //
 // The returned hash is a self-describing, colon-prefixed string (for example
-// "flacmd5:<hex>" or "fnv1a64:<hex>"). The prefix names the scheme so the value
-// can be persisted and compared across scans and across versions; a future
-// scheme change stays distinguishable rather than silently comparing unequal.
+// "flacmd5:<hex>", "fnv1a64:<hex>" or "oggfnv1a64:<hex>"). The prefix names the
+// scheme so the value can be persisted and compared across scans and across
+// versions; a future scheme change stays distinguishable rather than silently
+// comparing unequal. Ogg gets its own prefix because its content rule differs:
+// it digests reassembled packet payloads plus the stream granule, where the
+// others digest a contiguous byte range plus its length.
 package audiohash
 
 import (
@@ -73,6 +76,8 @@ func Reader(r io.ReaderAt, size int64, name string) (string, error) {
 		return wavHash(r, size)
 	case ".aif", ".aiff", ".aifc":
 		return aiffHash(r, size)
+	case ".ogg", ".oga", ".opus":
+		return oggHash(r, size)
 	default:
 		return "", ErrUnsupported
 	}
