@@ -460,6 +460,16 @@ func validateUpdateRequest(body updateRequest) string {
 	return ""
 }
 
+// updateTracks applies one structured patch to every file in the selection
+// and reports one outcome per row. HTTP status describes the request, the
+// body describes the work: a malformed body, an unknown library, an over-cap
+// selection or an escaping path is rejected before any row is attempted and
+// answers problem+json; once the request is accepted the response is always
+// 200 — a file that cannot be written is that row's error, never a transport
+// status, even when every row failed. Files are written incrementally, so the
+// per-row ledger is the only honest report of what is now on disk; a 5xx
+// would invite a retry that re-writes the files that did land. Same rule as
+// rawTags; see docs/agents/api-conventions.md, "Batch endpoints".
 func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -521,7 +531,6 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]updateResult, 0, len(resolved))
 	written := make([]string, 0, len(resolved))
-	anyOK := false
 	for i, abs := range resolved {
 		var cur metadataedit.CurrentTags
 		if needMB {
@@ -543,18 +552,14 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		}
 		results = append(results, updateResult{Path: body.Paths[i], OK: true})
 		written = append(written, abs)
-		anyOK = true
-	}
-	status := http.StatusOK
-	if !anyOK {
-		status = http.StatusInternalServerError
 	}
 	out := map[string]any{"results": results}
-	// Only the files that were actually written need re-indexing.
+	// Only the files that were actually written need re-indexing; rescanSaved
+	// returns nil for an empty list, so an all-failed batch carries no rescan.
 	if rs := h.rescanSaved(r.Context(), libModel.ID, written); rs != nil {
 		out["rescan"] = rs
 	}
-	writeJSON(w, status, out)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func codeFor(status int) string {
