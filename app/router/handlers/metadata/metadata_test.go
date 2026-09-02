@@ -277,6 +277,57 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	}
 }
 
+// Every row failing is still a processed batch, not a transport failure: the
+// status stays 200 and each row carries its own error, exactly as rawTags
+// does. Before this rule the handler flipped to 500 with the identical body,
+// which made axios throw and lose the per-row detail in the SPA.
+func TestUpdateTracks_AllRowsFailStill200(t *testing.T) {
+	root := t.TempDir()
+	_, r, lib := newTestHandler(t, root)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["missing-a.flac", "missing-b.flac"],
+		"fields": { "title": "New Title" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 even when every row failed, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected application/json, got %q", ct)
+	}
+	var resp struct {
+		Results []struct {
+			Path  string `json:"path"`
+			OK    bool   `json:"ok"`
+			Error string `json:"error,omitempty"`
+		} `json:"results"`
+		Rescan *json.RawMessage `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v: %s", err, w.Body.String())
+	}
+	if len(resp.Results) != 2 {
+		t.Fatalf("expected 2 results, got %d: %s", len(resp.Results), w.Body.String())
+	}
+	for _, row := range resp.Results {
+		if row.OK {
+			t.Fatalf("%s should have failed: %+v", row.Path, resp.Results)
+		}
+		if row.Error == "" {
+			t.Fatalf("%s failed without an error message: %+v", row.Path, resp.Results)
+		}
+	}
+	// Nothing was written, so there is nothing to re-index and no rescan report.
+	if resp.Rescan != nil {
+		t.Fatalf("expected no rescan when no file was written, got %s", string(*resp.Rescan))
+	}
+}
+
 func TestUpdateTracks_RejectsTraversalPerPath(t *testing.T) {
 	root := t.TempDir()
 	_, r, lib := newTestHandler(t, root)

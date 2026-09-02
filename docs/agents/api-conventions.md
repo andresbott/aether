@@ -162,9 +162,10 @@ through untouched, so the two mechanisms never double-wrap each other.
 `jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
 together with the handler packages calling `httperr` directly, it is *how*
 `/api/v1` stays uniform: every error response under this mount,
-handler-authored or not, ends up `application/problem+json` — with one
-deliberate exception, the batch endpoints described below. (Outside the
-mount — chiefly
+handler-authored or not, ends up `application/problem+json`, with no
+exceptions — the batch endpoints described below report their per-row
+outcomes on a `200`, so they never author an error response of their own.
+(Outside the mount — chiefly
 `/rest` — the same middleware answers the legacy, pre-RFC-9457
 `apiError{error,code}` shape instead; see
 [architecture.md](architecture.md)'s error-envelope section — `/rest` must
@@ -182,29 +183,51 @@ stock message rather than a handler-authored sentence.
 `docs/openapi/aether-v1.yaml` documents it as `application/problem+json` like
 every other response on that path.
 
-**The batch endpoints are the one deliberate exception.** `updateTracks`
-(`PUT /metadata/tracks`) and its read-only sibling `rawTags` (`POST
-/metadata/tracks/raw-tags`), both in `app/router/handlers/metadata`, each act
-on a list of files and answer a per-row envelope instead of a single
-`Problem` — `{results: [{path, ok, error}, ...]}` for `updateTracks`,
+**Batch endpoints: status describes the request, the body describes the
+work.** `updateTracks` (`PUT /metadata/tracks`) and its read-only sibling
+`rawTags` (`POST /metadata/tracks/raw-tags`), both in
+`app/router/handlers/metadata`, act on a list of files and report one
+outcome per row — `{results: [{path, ok, error}, ...]}` for `updateTracks`,
 `{results: [{path, tags, unsupported, error}, ...]}` for `rawTags` — so a
-client can tell which files in the batch failed and why, rather than losing
-that detail behind one top-level error. `rawTags` always answers `200` once the selection is valid: an
-unreadable file is just that row's `error`, never a failed batch.
-`updateTracks` answers `200` when at least one file in the batch was written
-and `500` only when every row failed. Both build the body with the
-package's own `writeJSON`, which sets `Content-Type: application/json`
-directly; `jsonErrorEnvelope` sees an already-a-JSON-object body
-(`isJSONObject`) and forwards it untouched, so `updateTracks`' `500` is the
-one `/api/v1` failure status that leaves the server as plain
-`application/json`, never `application/problem+json`.
+client can tell which files failed and why. Both follow one rule, and it is
+a layering rule rather than a formatting one:
+
+- Everything the *request* needs in order to be processable is checked
+  before any row is attempted, and a failure there is an ordinary
+  problem+json rejection: malformed JSON or an invalid field combination
+  (`400`), a selection over `maxSelectionPaths` (`422`), an unknown library
+  (`404`), the `GetLibrary` lookup failing for any other reason (`500`).
+  Those are the only non-2xx responses these endpoints produce.
+- Once the request is accepted the response is **always `200`**, whatever
+  happened to the rows — one failed, some failed, or every one of them. A
+  per-file failure (unreadable, unwritable, outside the library root) is
+  that row's `error`; it never escalates to a transport status, not even
+  when the whole batch failed. `updateTracks` writes files incrementally,
+  so "N of M written" is the true state of the system after the call, and a
+  `200` carrying that ledger is the only honest response — a `5xx` would
+  tell a proxy or retry wrapper "nothing happened, safe to retry", which is
+  false and would re-write (and re-index) the files that did land.
+- A failure of something *every* row depends on — a dependency outage, not
+  a bad file — belongs to the first bullet, not the second: hoist it to a
+  pre-row problem+json rejection rather than letting the aggregate row
+  result bend the status. `identifyAlbum` is the worked example:
+  `albumidentify.upstreamFailure` answers `429`/`502` problem+json only when
+  every input failed *and* the failures are typed `*upstream.Error` from
+  AcoustID — positive evidence that the service, not the files, is down.
+
+Both build the `200` body with the package's own `writeJSON`
+(`Content-Type: application/json`). The SPA (`useUpdateTracks` in
+`webui/src/composables/useMetadataEditor.ts`) reports "N of M saved, K
+failed" from `results[]` alone; its `onError` path is reserved for genuine
+request-level and transport failures, which is what `apiErrorMessage` is
+built to read.
 
 **Enforcement/reference:** `docs/openapi/aether-v1.yaml`'s
 `components.schemas.{Problem,ValidationProblem,FieldError}` and
 `components.responses.{BadRequest,NotFound,UnprocessableEntity,TooManyRequests,UpstreamError}`
-— all typed `application/problem+json`, with no exception left among
-single-resource error responses; the batch endpoints above remain
-`/api/v1`'s one deliberate departure from that shape.
+— all typed `application/problem+json`, with no exception left: every
+non-2xx response documented under `/api/v1`, batch endpoints included, is a
+Problem.
 
 ## Mount-relative paths — model the base through `servers:`
 

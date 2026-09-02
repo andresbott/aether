@@ -395,26 +395,25 @@ paths:
       operationId: updateTracks
       summary: Apply a structured metadata patch to a track selection.
       description: >
-        **Deliberate exception to this surface's error shape.** Every other
-        `/api/v1` error is `application/problem+json`; `updateTracks` (like
-        its read-only sibling `batchReadRawTags`) answers a per-row envelope
-        instead, because a client needs to know which files in the batch
-        failed and why, not just that "the batch failed": `200` once at
-        least one file was written, `500` only when every row failed — and
-        even that `500` stays plain `application/json`, carrying the same
-        `UpdateTracksResponse` shape as the `200`, because the handler
-        builds it with the package's own `writeJSON` (which sets
-        `Content-Type: application/json` directly) rather than `httperr`,
-        and the router's `jsonErrorEnvelope` forwards an already-JSON-object
-        body untouched. See `docs/agents/api-conventions.md`, "One error
-        shape: RFC 9457 `application/problem+json`" §"the batch endpoints
-        are the one deliberate exception." A malformed request (bad JSON, an
-        invalid field combination, an unknown library, a path outside the
-        library root) still fails before any row is attempted and answers
-        the normal `application/problem+json` 400/404 below; so does a
-        `paths` selection over the shared `maxSelectionPaths` cap (50, the
-        same bound the picture-selection endpoints enforce), which answers
-        422 `ValidationProblem`, itemising `/paths`.
+        Applies one structured patch to every file in the selection and
+        reports one outcome per row. HTTP status describes the request, the
+        body describes the work. A malformed request (bad JSON, an invalid
+        field combination, an unknown library, a path outside the library
+        root) fails before any row is attempted and answers the normal
+        `application/problem+json` 400/404 below; a `paths` selection over
+        the shared `maxSelectionPaths` cap (50, the same bound the
+        picture-selection endpoints enforce) answers 422
+        `ValidationProblem`, itemising `/paths`; the library lookup failing
+        for a reason other than "not found" answers the standard 500
+        Problem. Once the request is accepted the response is always `200`
+        — like its read-only sibling `batchReadRawTags` — whatever happened
+        to the rows: a file that could not be written is reported on its
+        own row's `error`, and a batch where every row failed is still a
+        `200` with every `ok: false`. Files are written incrementally, so
+        the per-row ledger is the only honest report of what is now on
+        disk; a `5xx` would invite a retry that re-writes the files that
+        did land. See `docs/agents/api-conventions.md`, "Batch endpoints:
+        status describes the request, the body describes the work."
       tags: [metadata-browse]
       requestBody:
         required: true
@@ -424,8 +423,9 @@ paths:
       responses:
         '200':
           description: >
-            At least one file was written. `application/json` (see the
-            deliberate-exception note above), never `problem+json`.
+            The batch was processed; each row reports its own outcome (`ok`,
+            or `error`). This is also the response when every row failed.
+            `rescan` is present only when at least one file was written.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
@@ -434,21 +434,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
-        '500':
-          description: >
-            Every file in the batch failed to write; no rescan is attempted.
-            Still `UpdateTracksResponse`, still plain `application/json` —
-            **not** `application/problem+json` — per the
-            deliberate-exception note above; each row's own `error` carries
-            the per-file reason. This is the only `500` this operation
-            documents: a pre-row internal error (e.g. the `GetLibrary` DB
-            lookup failing for a reason other than "not found") also answers
-            `500`, but through the normal `httperr` path, so that response
-            is `application/problem+json` like every other `/api/v1`
-            internal error, not the `UpdateTracksResponse` shape below.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /metadata/capabilities:
     get:
@@ -2483,10 +2469,10 @@ components:
     UpdateTracksResponse:
       type: object
       description: >
-        `application/json`, not `problem+json` — see `updateTracks`'s
-        description. Returned unchanged, shape and content-type alike, on
-        both the `200` (at least one row written) and the `500` (every row
-        failed) response.
+        One row per requested path, in request order, plus the post-write
+        re-index report. Returned on `updateTracks`' only success status,
+        `200` — including when every row failed; see the operation's
+        description for the status rule.
       properties:
         results:
           type: array
