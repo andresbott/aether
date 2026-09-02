@@ -2,6 +2,7 @@ package scanner_test
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -824,6 +825,102 @@ func writeMP3WithTag(t *testing.T, path string, tagLen int, payload string) {
 	}
 }
 
+// writeWAVWithTag writes a minimal RIFF/WAVE file: a fmt chunk, a LIST chunk of
+// tagLen bytes standing in for editable tags, and a data chunk holding payload.
+// Varying tagLen is what a tag edit does on disk — the tag region grows, the
+// audio after it is untouched — so two files with the same payload and different
+// tagLen have different sizes and the same metadata-invariant hash.
+func writeWAVWithTag(t *testing.T, path string, tagLen int, payload string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	chunk := func(id string, body []byte) []byte {
+		b := make([]byte, 8)
+		copy(b[0:4], id)
+		binary.LittleEndian.PutUint32(b[4:8], uint32(len(body)))
+		b = append(b, body...)
+		if len(body)%2 == 1 {
+			b = append(b, 0x00)
+		}
+		return b
+	}
+	body := []byte("WAVE")
+	body = append(body, chunk("fmt ", make([]byte, 16))...)
+	body = append(body, chunk("LIST", make([]byte, tagLen))...)
+	body = append(body, chunk("data", []byte(payload))...)
+
+	out := make([]byte, 8)
+	copy(out[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(out[4:8], uint32(len(body)))
+	out = append(out, body...)
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The retagged-move proof must work for every format libs/audiohash covers, not
+// just the one the first tests happened to use. WAV stands in for the formats
+// added after the pass was written: the wiring — audioHashOf, the stored column,
+// TracksByAudioHashes — is format-agnostic, so one newly covered format proves
+// the integration end to end.
+func TestScanRelinksARetaggedMoveOfAWAV(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	src := filepath.Join(dir, "Apocaliptica/Cult/01.wav")
+	writeWAVWithTag(t, src, 20, "the-audio-payload")
+	seedLibrary(t, st, dir, nil)
+
+	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	before := theOnlyTrack(t, st)
+	if before.AudioHash == "" {
+		t.Fatal("a WAV must be hashed, or there is nothing for the proof to match on")
+	}
+	if err := st.Star("alice", "track", before.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(dir, "Apocalyptica/Cult/01 - Path Of Glory.wav")
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	writeWAVWithTag(t, dst, 400, "the-audio-payload")
+	delete(reader.titles, src)
+	reader.titles[dst] = "Path Of Glory"
+
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	after := theOnlyTrack(t, st)
+	if after.ID != before.ID {
+		t.Fatalf("a retagged WAV move must keep the row: id was %d, now %d", before.ID, after.ID)
+	}
+	if after.FilePath != dst {
+		t.Fatalf("expected the row to carry the new path, got %q", after.FilePath)
+	}
+	if after.FileSize == before.FileSize {
+		t.Fatal("the fixture is wrong: the retag must change the file size, or the size proof would have carried this")
+	}
+	if after.AudioHash != before.AudioHash {
+		t.Fatalf("the audio hash must survive a tag edit: was %q, now %q", before.AudioHash, after.AudioHash)
+	}
+
+	var stars int64
+	if err := st.DB().Table("starred_items").
+		Where("item_type = ? AND item_id = ?", "track", before.ID).
+		Count(&stars).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stars != 1 {
+		t.Fatalf("expected the star to survive the retagged move, found %d rows", stars)
+	}
+}
+
 // The case the size-and-title proof cannot reach: a tagger fixed the tags and
 // re-filed the track in one operation, so the path, the title AND the byte count
 // all changed at once. Only the audio hash still connects the two ends — and it
@@ -922,17 +1019,18 @@ func TestScanDoesNotRelinkWhenTheAudioItselfChanged(t *testing.T) {
 	}
 }
 
-// A format libs/audiohash cannot read has no hash, so a retagged move of it
-// keeps only the size-and-title proof — which a retag defeats. Locks in the
-// declined tier and the graceful fallback: no hash must never mean no scan.
+// A format libs/audiohash cannot read — WMA, say — has no hash, so a retagged
+// move of it keeps only the size-and-title proof, which a retag defeats. Locks
+// in the remaining conservative miss and the graceful fallback: no hash must
+// never mean no scan.
 func TestScanDoesNotRelinkARetaggedMoveWithoutAHash(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
-	src := filepath.Join(dir, "Apocalyptica/Cult/01.ogg")
+	src := filepath.Join(dir, "Apocalyptica/Cult/01.wma")
 	if err := os.MkdirAll(filepath.Dir(src), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(src, []byte("ogg-audio-payload"), 0o600); err != nil {
+	if err := os.WriteFile(src, []byte("wma-audio-payload"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	seedLibrary(t, st, dir, nil)
@@ -947,14 +1045,14 @@ func TestScanDoesNotRelinkARetaggedMoveWithoutAHash(t *testing.T) {
 		t.Fatalf("an unsupported format must store no hash, got %q", before.AudioHash)
 	}
 
-	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.ogg")
+	dst := filepath.Join(dir, "Apocalyptica/Cult (2000)/01.wma")
 	if err := os.Remove(src); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(dst, []byte("ogg-audio-payload-with-bigger-tags"), 0o600); err != nil {
+	if err := os.WriteFile(dst, []byte("wma-audio-payload-with-bigger-tags"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	delete(reader.titles, src)

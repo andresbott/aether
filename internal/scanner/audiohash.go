@@ -23,10 +23,12 @@ func audioHashOf(absPath string) string {
 	case err == nil:
 		return h
 	case errors.Is(err, audiohash.ErrUnsupported):
-		// audiohash covers FLAC, MP3 and MP4; walk.go admits sixteen
-		// extensions. Ogg, Opus, WMA, WAV and the rest simply keep the
-		// size-and-title proof — the behaviour they had before this existed —
-		// so an uncovered format is a quiet miss, not a warning.
+		// audiohash covers FLAC, MP3, MP4, WAV, AIFF, Ogg Vorbis and Opus;
+		// walk.go admits sixteen extensions. WMA, APE, WavPack, TTA, DSF,
+		// Matroska and raw AAC simply keep the size-and-title proof — the
+		// behaviour they had before this existed — so an uncovered format is a
+		// quiet miss, not a warning. So is an Ogg file carrying a mapping other
+		// than Vorbis or Opus.
 		return ""
 	default:
 		// A malformed or unreadable payload still gets indexed; it just cannot
