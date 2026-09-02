@@ -176,9 +176,11 @@ tag and picture writes.
   A file claimed by proof 1 is withdrawn before proof 2 runs. It all runs
   **before** `planAlbumContinuity` so a moved album is not counted as a split.
   Deliberate misses: a retagged move of a format `audiohash` does not cover (it
-  handles FLAC/MP3/MP4; `walk.go` admits sixteen extensions) or of a row that has
-  not been hashed yet — **one full scan arms it**, since incremental scans only
-  read changed files; two files swapping paths; a move straddling two scan runs;
+  handles FLAC, MP3, MP4, WAV, AIFF, Ogg Vorbis and Opus — eight of `walk.go`'s
+  sixteen extensions; WMA, APE, WavPack, TTA, DSF, Matroska and raw AAC remain,
+  as does an Ogg file carrying some other mapping) or of a row that has not been
+  hashed yet — **one full scan arms it**, since incremental scans only read
+  changed files; two files swapping paths; a move straddling two scan runs;
   and any ambiguous key — a false match would merge two tracks' listening
   history, which is worse than losing one's. Note that byte-identical duplicates
   of the same track share an audio hash as well as a size, so both proofs rely on
