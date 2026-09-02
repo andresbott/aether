@@ -182,8 +182,8 @@ tag and picture writes.
   chained, truncated or carries a trailer — its stream then has no page ending at
   end of file, so the digest has no length component and every such file would
   otherwise share one value — and a file with no locatable audio at all, such as a
-  WAV declaring a `data` size of 0) or of a row that has not been
-  hashed yet — **one full scan arms it**, since incremental scans only read
+  WAV declaring a `data` size of 0) or of a row that has not been hashed yet —
+  **one full scan arms it**, since incremental scans only read
   changed files; two files swapping paths; a move straddling two scan runs;
   and any ambiguous key — a false match would merge two tracks' listening
   history, which is worse than losing one's. Note that byte-identical duplicates

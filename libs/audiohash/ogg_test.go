@@ -639,44 +639,50 @@ func TestReaderDeclinesAChainedFileCheaply(t *testing.T) {
 
 func TestFileOggSameSerialChainStopsAtTheEndOfStreamPage(t *testing.T) {
 	// `cat a.ogg a.ogg` reuses one serial number across both links, which the Ogg
-	// spec forbids but a shell does not. It is the shape that keeps the walk's
-	// end-of-stream break alive: the second copy's final page carries the target
-	// serial and ends at end of file, so the granule lookup succeeds and the file
-	// is walked rather than declined. Breaking at the first copy's EOS page is what
-	// keeps the second copy's comment header — a retaggable region — out of the
-	// digest. Delete the break and this fixture stops surviving a retag.
+	// spec forbids but a shell does not. The doubled file's final page carries the
+	// target serial and ends at end of file, so the granule lookup succeeds and the
+	// file is walked rather than declined. Breaking at the first link's EOS page is
+	// what keeps the second link — including its retaggable comment header — out of
+	// the digest. Without the break, the packet counter runs on across the link
+	// boundary and the second link's ident and comment packets are hashed as though
+	// they were audio, destroying retag invariance.
 	ident := vorbisIdent()
 	setup := bytes.Repeat([]byte{0x05}, 600)
-	audio := bytes.Repeat([]byte{0x42, 0x43}, 4000)
-	tail := bytes.Repeat([]byte{0x99}, 1<<20) // makes "not walked" measurable
+	audio := bytes.Repeat([]byte{0x42, 0x43}, 4000) // 8 KiB, comfortably under maxHashBytes
 
 	link := func(comment []byte) []byte {
-		return oggStream(1, 12345, ident, comment, setup, append(audio, tail...))
+		return oggStream(1, 12345, ident, comment, setup, audio)
 	}
 	short := link(append([]byte("\x03vorbis"), bytes.Repeat([]byte("A"), 40)...))
 	long := link(append([]byte("\x03vorbis"), bytes.Repeat([]byte("C"), 3000)...))
 
+	single, err := Reader(bytes.NewReader(short), int64(len(short)), "single.ogg")
+	if err != nil {
+		t.Fatalf("Reader(single): %v", err)
+	}
+
 	doubled := append(append([]byte{}, short...), short...)
 	doubledRetagged := append(append([]byte{}, long...), long...)
 
-	counter := &countingReaderAt{r: bytes.NewReader(doubled)}
-	a, err := Reader(counter, int64(len(doubled)), "doubled.ogg")
+	doubledHash, err := Reader(bytes.NewReader(doubled), int64(len(doubled)), "doubled.ogg")
 	if err != nil {
 		t.Fatalf("Reader(doubled): %v", err)
 	}
-	b, err := Reader(bytes.NewReader(doubledRetagged), int64(len(doubledRetagged)), "doubled.ogg")
+	doubledRetaggedHash, err := Reader(bytes.NewReader(doubledRetagged), int64(len(doubledRetagged)), "doubled-retagged.ogg")
 	if err != nil {
 		t.Fatalf("Reader(doubled, retagged): %v", err)
 	}
-	if a != b {
-		t.Fatalf("retag changed the hash of a same-serial chain: %q vs %q — the end-of-stream break must keep the second link out of the digest", a, b)
+
+	// The EOS break stops the walk at the first link's last page, so the doubled
+	// file hashes identically to the single file — the second link is never read.
+	if doubledHash != single {
+		t.Errorf("doubled file differs from single: %q vs %q — the EOS break must stop at the first link's last page", doubledHash, single)
 	}
 
-	// The digest caps at 256 KiB and the break stops the walk at the first link's
-	// last page, so the second link is never read.
-	const budget = oggTailWindow + 2*maxHashBytes
-	t.Logf("read %d bytes of a %d-byte file (budget %d)", counter.bytes, len(doubled), budget)
-	if counter.bytes > budget {
-		t.Fatalf("read %d bytes, want <= %d (the walk must stop at the first link's EOS page)", counter.bytes, budget)
+	// Retagging the second link (which the break keeps out of the digest) must not
+	// change the hash. Without the break, the second link's comment packet is
+	// hashed and this assertion fails.
+	if doubledHash != doubledRetaggedHash {
+		t.Errorf("retag changed the hash: %q vs %q — the EOS break must keep the second link out of the digest", doubledHash, doubledRetaggedHash)
 	}
 }
