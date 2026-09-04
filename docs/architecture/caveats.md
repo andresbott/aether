@@ -9,13 +9,19 @@ Write an entry here — rather than burying a note in a code comment — when a 
 deployment assumption rather than by code, or (c) has candidate fixes worth
 recording but no chosen direction.
 
-This is not a work list. `TODO.md` carries the scheduled work and links here.
+This is not a work list. `TODO.md` carries the scheduled work and links here; every
+gap it lists under **Won't implement** should have an entry here, because that
+section records a decision and this file records the consequence.
 
 ---
 
 ## Vanished sub-trees inside a present library root
 
-**Status:** accepted — out of reach under the mount assumption below.
+**Status:** accepted — out of reach under the mount assumption below. Marked
+*won't implement* in `TODO.md` ("Guarding a vanished or unreadable sub-tree inside a
+present library root"), which merged the separate "unreadable subtree" item into
+this one: an unreadable subtree and an unattached one fail identically from the
+scanner's side, and the EACCES flavour is already declined (see *Not this caveat*).
 **Affects:** `internal/scanner` — `planTrackContinuity` (`trackcontinuity.go`) and
 step 5 cleanup (`store.Cleanup` → `store.DeleteOrphanedAggregates`).
 **Failure mode:** silent misattribution of user data. No error, nothing in the logs.
@@ -162,3 +168,117 @@ which is the root — so the existing root guards cover it. Windows also reports
 distinct error for a dead share rather than "not found", which the `fs.ErrNotExist`
 narrowing already declines on. The exposed case there is the same nested one: a volume
 mounted into an empty NTFS folder, or a junction. Fix 1 is portable; fix 3 is not.
+
+---
+
+## A move that straddles two scan runs
+
+**Status:** accepted — *won't implement* in `TODO.md` ("Recovering a move that
+straddles two scan runs"). The fix is a feature with a UI, not a repair.
+**Affects:** `internal/scanner` — `planTrackContinuity` (`trackcontinuity.go`) vs.
+step 5 cleanup (`store.Cleanup`).
+**Failure mode:** silent data loss, bounded to the moved tracks. No error.
+
+### The gap
+
+Move re-linking is a **within-one-run** proof. `planTrackContinuity` matches rows
+that vanished in *this* run against files that are new in *this* run; it runs before
+cleanup precisely so the old row is still there to re-point. Once cleanup has run,
+the row is hard-deleted and there is nothing left to match — the later scan sees only
+a brand-new file.
+
+So a move survives if and only if the disappearance and the reappearance are visible
+to the same scan. In practice:
+
+- **Safe:** reorganise the library, then scan. One run sees both halves.
+- **Loses data:** move the files somewhere outside every library root, scan, move them
+  back (or onward), scan again.
+- **Loses data:** move tracks between two libraries if those are reconciled as separate
+  runs rather than in one `Scan` call.
+
+What goes with the deleted row: `starred_items`, `playlist_tracks`, `play_histories`
+and `play_queue_entries` for that track. The files are byte-identical throughout — the
+audio hash would have proved the move perfectly, it simply has no surviving row to
+prove it against.
+
+### The assumption that defers it
+
+**A reorganisation is completed before the next scan.** The operator controls the
+sequence: batch the moves, then scan once, and pause the scheduled scan task while
+rearranging a library by hand. That is also the natural way to do it, which is why
+this stays theoretical.
+
+### Why the fix is out of proportion
+
+Tombstones (soft-delete plus revive on reappearance) are the only mechanism that
+spans runs, and the cost is not in the scanner. Every read path has to decide whether
+an absent row is visible, `DeleteOrphanedAggregates` must not reap an album or artist
+that holds only tombstones, and without an age-based prune the DB grows forever — so a
+purge flow becomes mandatory, with UI. The full objection list is fix 4 under *Vanished
+sub-trees* above, which is the same mechanism; note it also carries the trap that
+matters most here — the re-link candidate pool must stay restricted to rows that
+vanished in the current run, or a row deleted months ago gets resurrected onto an
+unrelated file that happens to share a fingerprint.
+
+**Revisit when:** soft delete is wanted for its own sake — a "recently removed" view,
+an undo, a trash can. At that point the read-path and purge costs are already being
+paid and cross-run re-linking is nearly free on top. It is not worth paying for alone.
+
+---
+
+## Artist id churn on rename
+
+**Status:** accepted — *won't implement* in `TODO.md` ("Stable artist identity across
+a rename"). Genres have the same root cause and **remain scheduled** there, as does
+the positional-id cover key that shrinks this entry's blast radius.
+**Affects:** `internal/store/artist.go:21`, `internal/model/artist.go:8` (identity),
+`scan_helpers.go:75,83` (orphan cleanup), `internal/assetkey/assetkey.go:74-79`
+(cover key), `subsonic/media.go:141,153` (imagecache key).
+**Failure mode:** visible data loss on a deliberate user action.
+
+### The gap
+
+An artist's identity is `name_norm` alone. Correcting a spelling therefore does not
+rename anything — it creates a second artist row, and `DeleteOrphanedAggregates`
+collects the first one once no track credits it. What goes with it:
+
+- the **star** (`scan_helpers.go:83`)
+- the **imagecache derivative** keyed on the DB id (`subsonic/media.go:141,153`)
+- **`LastImageFetchAt`**, which resets to nil — so the artist-image task re-hits the
+  rate-limited fanart.tv / TheAudioDB for an artist it already fetched
+- any **`/artist/:id`** link or bookmark
+
+The **manual cover** survives only for artists carrying an MBID: `assetkey.Artist`
+prefers `MBArtistID` and falls back to hashing `name_norm`, so a matched artist keeps
+its asset across the rename and an unmatched one does not. That inverts badly — the
+covers that break belong to exactly the *unmatched* artists, which are the ones most
+likely to hold a hand-uploaded image, since no MBID means no auto-fetch.
+
+### Why the album fix does not port
+
+`planAlbumContinuity` (the closed equivalent) proves continuity from *"every track
+this album holds is present in this batch"*. That test does not transfer:
+
+- An artist spans many albums and hundreds of tracks through two associations
+  (`album_artists`, `track_artists`), so on an incremental scan the batch essentially
+  never holds all of them — the guard would decline precisely when it is needed.
+- Credits are multi-valued, so *"the tracks agree on one new identity"* does not even
+  have the same shape as it does for a single-artist album.
+
+A real fix needs a different signal and its own spec: the MBID (already the durable
+asset key) plus explicit rename detection. That is a lot of machinery for a rare
+manual correction, which is why it is declined rather than deferred.
+
+### What is being fixed instead
+
+The three fix shapes for id churn all exist in the tree already — preserve the row
+(albums, `planAlbumContinuity`), migrate on re-key (radio, `subsonic/radio.go:230-243`
+moves the cover when a stream URL edit changes `RadioKey`), and key on content (artist
+MBIDs). The scheduled work takes the third for covers: with a content-derived key
+instead of a positional DB id, an artist rename still loses the star,
+`LastImageFetchAt` and the link, but no longer orphans or misattributes the image.
+That also fixes the drop-and-rescan case, where autoincrement ids are reassigned in
+insertion order and a hand-uploaded cover silently comes back on a different entity.
+
+**Revisit when:** renaming artists in the metadata editor becomes a routine operation
+rather than an occasional typo fix.

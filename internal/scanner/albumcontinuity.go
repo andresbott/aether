@@ -28,27 +28,81 @@ import (
 // misses: a track deleted from disk still counts until Cleanup runs, and an
 // album spanning two libraries is only ever half a batch because reconcile runs
 // per library.
+//
+// Shape: read a snapshot, plan off it in a pure function, then commit one album
+// per transaction. The proof is per album, so the unit of work is too — one
+// album's DB error no longer discards every other album's retag in the batch,
+// and the scanner never holds a write transaction across a whole library. That
+// matches reconcile's own per-track loop, which is one transaction per track.
+// Splitting the reads from the writes is only safe because applyAlbumRetag
+// re-proves every plan against the live rows inside the writing transaction.
 func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 	if len(results) == 0 {
 		return nil
 	}
+
+	snap, err := s.readAlbumSnapshot(results)
+	if err != nil {
+		return err
+	}
+
+	for _, plan := range planAlbumRetags(snap) {
+		applied, err := s.applyAlbumRetag(plan)
+		if err != nil {
+			// Per album, so the rest of the batch still gets its retag. This
+			// one degrades to the old behaviour: a new row with a new id.
+			slog.Warn("album retag failed, skipping; this album may get a new id",
+				"album_id", plan.albumID, "err", err)
+			continue
+		}
+		if !applied {
+			continue // the plan no longer held; see applyAlbumRetag
+		}
+
+		slog.Info("album retagged in place",
+			"album_id", plan.albumID, "merged_from", plan.mergedFrom,
+			"prev_name_norm", plan.oldIdent.NameNorm,
+			"prev_album_artist_norm", plan.oldIdent.AlbumArtistNorm,
+			"prev_mb_release_id", plan.oldIdent.MBReleaseID,
+			"name_norm", plan.newIdent.NameNorm,
+			"album_artist_norm", plan.newIdent.AlbumArtistNorm,
+			"mb_release_id", plan.newIdent.MBReleaseID)
+
+		// After the album's own transaction commits, never inside it: the
+		// asset store is not transactional and must not be moved for a write
+		// that could still roll back.
+		s.rekeyAlbumImages(plan.albumID, plan.oldIdent, plan.newIdent)
+	}
+	return nil
+}
+
+// albumSnapshot is everything planAlbumRetags reasons about. Read in one
+// transaction so the counts and the identities describe a single moment: a
+// count taken before an insert and an identity taken after it would prove
+// something that was never true at once.
+type albumSnapshot struct {
+	// current maps an already-indexed path to the album row it belongs to.
+	// Paths this batch walked for the first time are absent.
+	current map[string]uint
+	// want maps every path in the batch to the identity its tags resolve to.
+	want map[string]store.AlbumIdentity
+	// counts is how many tracks each candidate album currently holds, and is
+	// the load-bearing half of the proof.
+	counts map[uint]int
+	// held is the identity each candidate album currently carries.
+	held map[uint]store.AlbumIdentity
+}
+
+// readAlbumSnapshot reads the state planning needs. Read-only.
+func (s *Scanner) readAlbumSnapshot(results []tagResult) (albumSnapshot, error) {
+	snap := albumSnapshot{want: make(map[string]store.AlbumIdentity, len(results))}
 	paths := make([]string, 0, len(results))
-	want := make(map[string]store.AlbumIdentity, len(results))
 	for _, tr := range results {
 		paths = append(paths, tr.walk.FilePath)
-		want[tr.walk.FilePath] = AlbumIdentityOf(tr.meta)
+		snap.want[tr.walk.FilePath] = AlbumIdentityOf(tr.meta)
 	}
-
-	type albumRekey struct {
-		albumID  uint
-		oldIdent store.AlbumIdentity
-		newIdent store.AlbumIdentity
-	}
-	var rekeys []albumRekey
 
 	err := s.store.Transaction(func(tx *store.Store) error {
-		// Reads and the UPDATE share one transaction: the counts below are only
-		// a valid proof if nothing inserts a track into the album in between.
 		current, err := tx.TrackAlbumIDs(paths)
 		if err != nil {
 			return err
@@ -56,14 +110,14 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 		if len(current) == 0 {
 			return nil // nothing indexed yet — every track in this batch is new
 		}
-
-		batch := map[uint][]store.AlbumIdentity{}
-		for path, albumID := range current {
-			batch[albumID] = append(batch[albumID], want[path])
-		}
-		ids := make([]uint, 0, len(batch))
-		for id := range batch {
-			ids = append(ids, id)
+		ids := make([]uint, 0, len(current))
+		seen := make(map[uint]bool, len(current))
+		for _, albumID := range current {
+			if seen[albumID] {
+				continue
+			}
+			seen[albumID] = true
+			ids = append(ids, albumID)
 		}
 		counts, err := tx.AlbumTrackCounts(ids)
 		if err != nil {
@@ -73,72 +127,128 @@ func (s *Scanner) planAlbumContinuity(results []tagResult) error {
 		if err != nil {
 			return err
 		}
-
-		// One row per identity: several albums claiming the same target is a
-		// merge, and the map iteration order must not decide who survives.
-		claims := map[store.AlbumIdentityKey][]uint{}
-		targets := map[store.AlbumIdentityKey]store.AlbumIdentity{}
-		for albumID, idents := range batch {
-			if len(idents) != counts[albumID] {
-				continue // part of the album is not in this batch: a split
-			}
-			if !sameAlbumIdentity(idents) {
-				continue // the batch disagrees with itself: a split
-			}
-			target := idents[0]
-			if target.Key() == held[albumID].Key() {
-				continue // identity unchanged: nothing to plan
-			}
-			claims[target.Key()] = append(claims[target.Key()], albumID)
-			targets[target.Key()] = target
-		}
-
-		// Iterate claims in a stable order so chained renames are deterministic.
-		keys := sortedIdentityKeys(claims)
-
-		for _, key := range keys {
-			sources := claims[key]
-			taken, err := tx.AlbumIDForIdentity(key)
-			if err != nil {
-				return err
-			}
-			if taken != 0 {
-				continue // another row already holds it: a merge, not a rename
-			}
-			survivor := pickAlbumSurvivor(sources, counts)
-			if err := tx.RetagAlbum(survivor, targets[key]); err != nil {
-				if store.IsUniqueViolation(err) {
-					continue // a concurrent pass got there first
-				}
-				return fmt.Errorf("retag album %d: %w", survivor, err)
-			}
-			slog.Info("album retagged in place",
-				"album_id", survivor, "merged_from", len(sources)-1,
-				"prev_name_norm", held[survivor].NameNorm,
-				"prev_album_artist_norm", held[survivor].AlbumArtistNorm,
-				"prev_mb_release_id", held[survivor].MBReleaseID,
-				"name_norm", targets[key].NameNorm,
-				"album_artist_norm", targets[key].AlbumArtistNorm,
-				"mb_release_id", targets[key].MBReleaseID)
-
-			rekeys = append(rekeys, albumRekey{
-				albumID:  survivor,
-				oldIdent: held[survivor],
-				newIdent: targets[key],
-			})
-		}
+		snap.current, snap.counts, snap.held = current, counts, held
 		return nil
 	})
-
 	if err != nil {
-		return err
+		return albumSnapshot{}, err
+	}
+	return snap, nil
+}
+
+// albumRetagPlan is one provable in-place retag: album albumID holds trackCount
+// tracks and the identity oldIdent, every one of those tracks is in this batch,
+// and they all resolve to newIdent. mergedFrom is how many other albums claimed
+// the same target and therefore lose their row to this one; their tracks are
+// repointed by FindOrCreateAlbum during the per-track pass.
+//
+// Every field except mergedFrom is re-checked by applyAlbumRetag before it
+// writes: the plan is a proposal, not a promise.
+type albumRetagPlan struct {
+	albumID    uint
+	trackCount int
+	mergedFrom int
+	oldIdent   store.AlbumIdentity
+	newIdent   store.AlbumIdentity
+}
+
+// planAlbumRetags decides which albums can be retagged in place, in a
+// deterministic order. Pure by design: it touches no DB, so every leg of the
+// proof — a split, a batch disagreeing with itself, an unchanged identity,
+// several albums collapsing into one — is testable without a store.
+func planAlbumRetags(snap albumSnapshot) []albumRetagPlan {
+	if len(snap.current) == 0 {
+		return nil
 	}
 
-	// Re-key the albums' stored images after the transaction commits.
-	for _, rk := range rekeys {
-		s.rekeyAlbumImages(rk.albumID, rk.oldIdent, rk.newIdent)
+	batch := map[uint][]store.AlbumIdentity{}
+	for path, albumID := range snap.current {
+		batch[albumID] = append(batch[albumID], snap.want[path])
 	}
-	return nil
+
+	// One row per identity: several albums claiming the same target is a merge,
+	// and the map iteration order must not decide who survives.
+	claims := map[store.AlbumIdentityKey][]uint{}
+	targets := map[store.AlbumIdentityKey]store.AlbumIdentity{}
+	for albumID, idents := range batch {
+		if len(idents) != snap.counts[albumID] {
+			continue // part of the album is not in this batch: a split
+		}
+		if !sameAlbumIdentity(idents) {
+			continue // the batch disagrees with itself: a split
+		}
+		target := idents[0]
+		if target.Key() == snap.held[albumID].Key() {
+			continue // identity unchanged: nothing to plan
+		}
+		claims[target.Key()] = append(claims[target.Key()], albumID)
+		targets[target.Key()] = target
+	}
+
+	// Stable order so chained renames are deterministic.
+	plans := make([]albumRetagPlan, 0, len(claims))
+	for _, key := range sortedIdentityKeys(claims) {
+		sources := claims[key]
+		survivor := pickAlbumSurvivor(sources, snap.counts)
+		plans = append(plans, albumRetagPlan{
+			albumID:    survivor,
+			trackCount: snap.counts[survivor],
+			mergedFrom: len(sources) - 1,
+			oldIdent:   snap.held[survivor],
+			newIdent:   targets[key],
+		})
+	}
+	return plans
+}
+
+// applyAlbumRetag commits one plan in its own transaction, re-proving it
+// against the live rows first. The re-check is what makes planning off a
+// snapshot safe: by the time we write, the snapshot is history, and the counts
+// ARE the proof — acting on a stale one would rename an album that has since
+// gained or lost tracks, merging two albums that should stay apart. That is the
+// one failure this whole path exists to avoid, so every leg is re-read under
+// the same transaction as the UPDATE.
+//
+// Reports whether the retag happened. False with a nil error is a decline, not
+// a failure: the plan no longer holds, and FindOrCreateAlbum then creates a new
+// row exactly as it did before continuity existed.
+func (s *Scanner) applyAlbumRetag(plan albumRetagPlan) (bool, error) {
+	applied := false
+	err := s.store.Transaction(func(tx *store.Store) error {
+		counts, err := tx.AlbumTrackCounts([]uint{plan.albumID})
+		if err != nil {
+			return err
+		}
+		if counts[plan.albumID] != plan.trackCount {
+			return nil // the album gained or lost tracks: the proof is stale
+		}
+		held, err := tx.AlbumIdentities([]uint{plan.albumID})
+		if err != nil {
+			return err
+		}
+		if held[plan.albumID].Key() != plan.oldIdent.Key() {
+			return nil // the row moved under us, or is gone
+		}
+		taken, err := tx.AlbumIDForIdentity(plan.newIdent.Key())
+		if err != nil {
+			return err
+		}
+		if taken != 0 {
+			return nil // another row already holds it: a merge, not a rename
+		}
+		if err := tx.RetagAlbum(plan.albumID, plan.newIdent); err != nil {
+			if store.IsUniqueViolation(err) {
+				return nil // a concurrent pass got there first
+			}
+			return fmt.Errorf("retag album %d: %w", plan.albumID, err)
+		}
+		applied = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return applied, nil
 }
 
 // sameAlbumIdentity reports whether every entry resolves to the same album.

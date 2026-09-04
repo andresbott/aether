@@ -44,7 +44,7 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
    use case, since reorganising a library moves whole directories.
    `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
    subtree fails with EACCES rather than merely looking empty.
-   Accepted for now on an explicit assumption — mounts are library *roots*, never
+   Accepted, won't fix, on an explicit assumption — mounts are library *roots*, never
    directories inside a library — which is what keeps this out of reach, since a
    dropped root mount trips the guards above. Full analysis and the candidate fixes:
    [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
@@ -186,7 +186,8 @@ tag and picture writes.
   **one full scan arms it**, since incremental scans only read
   changed files, and that is the accepted answer for now (see the backfill entry
   under [known scanner debt](#known-scanner-debt-todomd-direction-chosen)); two
-  files swapping paths; a move straddling two scan runs;
+  files swapping paths; a move straddling two scan runs (accepted, won't fix —
+  [`caveats.md`](../architecture/caveats.md#a-move-that-straddles-two-scan-runs));
   and any ambiguous key — a false match would merge two tracks' listening
   history, which is worse than losing one's. Note that byte-identical duplicates
   of the same track share an audio hash as well as a size, so both proofs rely on
@@ -217,12 +218,29 @@ tag and picture writes.
   pre-pass is deliberately independent of tag-reader ordering — the survivor
   pick and the iteration order over claims are both deterministic.
   Design: [`../superpowers/specs/2026-08-18-album-identity-continuity.md`](../superpowers/specs/2026-08-18-album-identity-continuity.md).
+- **The album pre-pass is snapshot → plan → one transaction per album.**
+  `readAlbumSnapshot` reads the batch's current album ids, track counts and held
+  identities in one read transaction; `planAlbumRetags` is a **pure** function
+  over that snapshot (no DB, so every leg of the proof is unit-testable); and
+  `applyAlbumRetag` commits **one album per transaction**. The proof is per
+  album, so the unit of work is too — one album's DB error degrades that album
+  to a new id and leaves the rest of the batch retagged, matching `reconcile`'s
+  own per-track loop. Errors are logged and skipped, never returned, so a
+  failure never fails the scan. What makes splitting the reads from the writes
+  safe is that `applyAlbumRetag` **re-proves the plan inside the writing
+  transaction**: track count unchanged, the row still holds the planned old
+  identity, the target identity still free. The counts *are* the proof, and
+  acting on a stale one would rename an album that has since split — merging two
+  albums that must stay apart, the one failure this path exists to avoid. Any
+  leg that no longer holds is a decline (not an error) and falls through to
+  `FindOrCreateAlbum`. If you add a signal to the proof, add it in **both**
+  places or the re-check stops covering it.
 - **Stored images follow the row when continuity moves it.** Three re-key hooks
   (`assetstore.Rekey`, `internal/assetstore/assetstore.go:231-265`) carry an
   entity's asset-store images to its new identity-derived key:
-  1. **The album planner** (`scanner.rekeyAlbumImages`, `albumcontinuity.go:198-209`)
-     re-keys an album's images **after** its transaction commits, so a rollback
-     cannot leave a directory moved while the row is not. Failure is tolerated —
+  1. **The album planner** (`scanner.rekeyAlbumImages`, `albumcontinuity.go:303-319`)
+     re-keys an album's images **after** that album's transaction commits, so a
+     rollback cannot leave a directory moved while the row is not. Failure is tolerated —
      the row moved and the image did not, which is recoverable — and logged.
   2. **An artist gaining an MBID** (`store.FindOrCreateArtists`, `internal/store/artist.go:33-54`)
      appends the artist to a `gained` slice; `reconcileTrack` drains it into
@@ -361,11 +379,17 @@ candidate portrait as a selectable grid rather than auto-picking one:
   associations and track-level rows only** — dropping and re-inserting *album*
   rows would re-introduce the id churn `planAlbumContinuity` exists to prevent,
   taking stars, manual covers and `created_at` with it.
-- Artists and genres still churn their ids on a rename: `artists.name_norm` and
-  `genres.name` are their identities, and artist covers key on **MBID or DB id**,
-  so the DB-id slot fails exactly as album covers did. The album planner
-  generalises, but the continuity signal is weaker for an artist; needs its own
-  spec.
+- **Genres** still churn their ids on a rename: `genres.name` (not even normalised)
+  is the identity and the cover keys on the DB id with no fallback. In scope, along
+  with the wider fix of not keying any cover on a **positional** id — a
+  drop-and-rescan reassigns autoincrement ids in insertion order, so a hand-uploaded
+  genre or unmatched-artist cover silently returns attached to a different entity.
+  **Artists** have the same root cause and are *accepted, won't fix* — the album
+  planner does not generalise (an artist spans many albums through two multi-valued
+  associations, so the batch-completeness proof is never true on an incremental scan)
+  and a real fix needs MBID-based rename detection with its own spec. What a rename
+  loses, and why unmatched artists' covers are the ones that break:
+  [`caveats.md`](../architecture/caveats.md#artist-id-churn-on-rename).
 - An unhashed `tracks.audio_hash` is armed only by a **full scan**, and that is
   the accepted answer until the app reaches a stable release. An incremental scan
   reads only the files it thinks changed, so a row whose file has not been touched
