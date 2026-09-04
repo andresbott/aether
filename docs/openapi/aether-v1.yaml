@@ -2194,7 +2194,8 @@ components:
         The library and the selected track paths (library-relative), carried
         in the body rather than the URL so a large multi-disc selection can
         never overflow a header buffer — the production 431 this redesign
-        fixes.
+        fixes. The JSON request body is capped at 1 MiB; a larger body is
+        rejected as a malformed-request 400.
       properties:
         library_id: { type: integer, format: int64, minimum: 0 }
         paths:
