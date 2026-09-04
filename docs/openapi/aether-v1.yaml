@@ -2409,9 +2409,12 @@ components:
 
     UpdateTracksFields:
       type: object
+      minProperties: 1
       description: >
         Per-field patch: a field present (non-null) is set to that value; an
-        omitted field is left untouched. `artists`/`artist_mbids` (and,
+        omitted field is left untouched. At least one field must be set — an
+        empty object (or a request whose `fields` is omitted) answers 400.
+        `artists`/`artist_mbids` (and,
         symmetrically, `album_artists`/`album_artist_mbids`) cannot both be
         set in the same request — the MB-id maps are keyed by the CURRENT
         artist names, so a simultaneous rename would misalign them; the
