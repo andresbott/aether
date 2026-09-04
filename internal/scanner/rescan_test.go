@@ -288,7 +288,7 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 
 	// The invariant: the later scan's cleanup must not consider the rescanned
 	// track stale.
-	if err := st.Cleanup(laterScanStart); err != nil {
+	if err := st.Cleanup(t.Context(), laterScanStart); err != nil {
 		t.Fatal(err)
 	}
 

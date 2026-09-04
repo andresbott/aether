@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -89,12 +90,12 @@ func (s *Store) DeleteOrphanedAggregates() error {
 	return nil
 }
 
-func (s *Store) Cleanup(scanStart time.Time) error {
+func (s *Store) Cleanup(ctx context.Context, scanStart time.Time) error {
 	// One transaction for the track delete and the 16-statement aggregate sweep:
 	// otherwise a failure partway through the sweep commits a subset, leaving the
 	// DB partially cleaned (tracks gone but their join/starred rows dangling, or
 	// albums gone with album_artists left behind) until the next full scan.
-	return s.Transaction(func(tx *Store) error {
+	return s.TransactionContext(ctx, func(tx *Store) error {
 		if err := tx.DeleteTracksNotSeenSince(scanStart); err != nil {
 			return err
 		}

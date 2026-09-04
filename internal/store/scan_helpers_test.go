@@ -59,7 +59,7 @@ func TestBulkUpdateLastSeenNeverLowersTheMarker(t *testing.T) {
 	}
 
 	// The newer scan's cleanup must not delete it.
-	if err := s.Cleanup(later); err != nil {
+	if err := s.Cleanup(t.Context(), later); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -108,7 +108,7 @@ func TestCleanup(t *testing.T) {
 	db.Create(&t2)
 	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist})
 	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&artist})
-	if err := s.Cleanup(now.Add(-time.Minute)); err != nil {
+	if err := s.Cleanup(t.Context(), now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	var count int64

@@ -2,6 +2,7 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -36,18 +37,18 @@ import (
 // matches reconcile's own per-track loop, which is one transaction per track.
 // Splitting the reads from the writes is only safe because applyAlbumRetag
 // re-proves every plan against the live rows inside the writing transaction.
-func (s *Scanner) planAlbumContinuity(results []tagResult) error {
+func (s *Scanner) planAlbumContinuity(ctx context.Context, results []tagResult) error {
 	if len(results) == 0 {
 		return nil
 	}
 
-	snap, err := s.readAlbumSnapshot(results)
+	snap, err := s.readAlbumSnapshot(ctx, results)
 	if err != nil {
 		return err
 	}
 
 	for _, plan := range planAlbumRetags(snap) {
-		applied, err := s.applyAlbumRetag(plan)
+		applied, err := s.applyAlbumRetag(ctx, plan)
 		if err != nil {
 			// Per album, so the rest of the batch still gets its retag. This
 			// one degrades to the old behaviour: a new row with a new id.
@@ -94,7 +95,7 @@ type albumSnapshot struct {
 }
 
 // readAlbumSnapshot reads the state planning needs. Read-only.
-func (s *Scanner) readAlbumSnapshot(results []tagResult) (albumSnapshot, error) {
+func (s *Scanner) readAlbumSnapshot(ctx context.Context, results []tagResult) (albumSnapshot, error) {
 	snap := albumSnapshot{want: make(map[string]store.AlbumIdentity, len(results))}
 	paths := make([]string, 0, len(results))
 	for _, tr := range results {
@@ -102,7 +103,7 @@ func (s *Scanner) readAlbumSnapshot(results []tagResult) (albumSnapshot, error) 
 		snap.want[tr.walk.FilePath] = AlbumIdentityOf(tr.meta)
 	}
 
-	err := s.store.Transaction(func(tx *store.Store) error {
+	err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
 		current, err := tx.TrackAlbumIDs(paths)
 		if err != nil {
 			return err
@@ -212,9 +213,9 @@ func planAlbumRetags(snap albumSnapshot) []albumRetagPlan {
 // Reports whether the retag happened. False with a nil error is a decline, not
 // a failure: the plan no longer holds, and FindOrCreateAlbum then creates a new
 // row exactly as it did before continuity existed.
-func (s *Scanner) applyAlbumRetag(plan albumRetagPlan) (bool, error) {
+func (s *Scanner) applyAlbumRetag(ctx context.Context, plan albumRetagPlan) (bool, error) {
 	applied := false
-	err := s.store.Transaction(func(tx *store.Store) error {
+	err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
 		counts, err := tx.AlbumTrackCounts([]uint{plan.albumID})
 		if err != nil {
 			return err

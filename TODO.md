@@ -218,11 +218,12 @@ Notes for editors:
   `internal/scanner/reconcile.go:288-290` — `detectCoverInDir` calls `filepath.Glob` and discards the
   error, returning "" with no log. Permission/I/O errors that break cover detection for an album are
   invisible. Add a debug log before returning.
-- [ ] [INFO] store.Transaction does not receive a context for cancellation
-  `internal/store/store.go`'s `Transaction` is called (e.g. `reconcile.go:68`, `scanner.go:249`)
-  without propagating `context.Context`, so a cancelled scan's per-track txns run to completion rather
-  than aborting early, holding locks. Consider threading `ctx` and `db.WithContext(ctx)`. Project-wide
-  pattern, quality-of-life for clean shutdown rather than a correctness bug.
+- [x] [INFO] store.Transaction does not receive a context for cancellation (fixed 53350ef)
+  Added `TransactionContext(ctx, fn)` (via `db.WithContext(ctx)`); `Transaction` kept as a
+  `context.Background()` wrapper. Threaded `ctx` through the scan path (reconcile per-track loop,
+  album continuity, `Cleanup`) and the libraries handlers (`DeleteLibrary`, update). Startup config
+  load stays on the plain wrapper. The direct `s.db.Transaction` calls in playlist/playqueue are a
+  separate pattern and were left as-is.
 
 #### API contract (OpenAPI) drift
 

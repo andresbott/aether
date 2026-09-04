@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+
 	"github.com/andresbott/aether/internal/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -129,8 +131,8 @@ func (s *Store) CoverStyleForArtist(artistID uint) (string, error) {
 	return style, nil
 }
 
-func (s *Store) DeleteLibrary(id uint) error {
-	return s.Transaction(func(tx *Store) error {
+func (s *Store) DeleteLibrary(ctx context.Context, id uint) error {
+	return s.TransactionContext(ctx, func(tx *Store) error {
 		if err := tx.DeleteTracksForLibrary(id); err != nil {
 			return err
 		}

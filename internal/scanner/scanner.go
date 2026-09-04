@@ -94,7 +94,7 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	}
 
 	if ctx.Err() == nil {
-		if err := s.store.Cleanup(scanStart); err != nil {
+		if err := s.store.Cleanup(ctx, scanStart); err != nil {
 			return stats, err
 		}
 	}

@@ -53,7 +53,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// it degrades to the old behaviour (a new row and a new id), which is worse
 	// than a preserved id but better than a failed scan.
 	if ctx.Err() == nil {
-		if err := s.planAlbumContinuity(results); err != nil {
+		if err := s.planAlbumContinuity(ctx, results); err != nil {
 			slog.Warn("album continuity planning failed; retagged albums may get new ids", "err", err)
 		}
 	}
@@ -66,7 +66,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 		}
 
 		pendingArtistRekeys = pendingArtistRekeys[:0]
-		if err := s.store.Transaction(func(tx *store.Store) error {
+		if err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
 			return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
