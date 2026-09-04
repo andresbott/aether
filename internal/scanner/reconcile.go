@@ -288,6 +288,7 @@ func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistI
 func detectCoverInDir(dir string) string {
 	entries, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
+		slog.Debug("cover detection glob failed", "dir", dir, "err", err)
 		return ""
 	}
 	var candidates []string
