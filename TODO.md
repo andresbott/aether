@@ -167,7 +167,7 @@ Notes for editors:
   which aggregates its specific edit could have emptied (it already knows the touched tracks and their
   prior album/artist/genre ids via the snapshot machinery) and prune only those, leaving the
   exhaustive sweep to the scheduled scan's `Cleanup`.
-  - [ ] Wrap Cleanup + DeleteOrphanedAggregates in a single transaction
+  - [x] Wrap Cleanup + DeleteOrphanedAggregates in a single transaction (fixed 7d37c37)
     `Cleanup` (`internal/store/scan_helpers.go:66-97`) calls `DeleteTracksNotSeenSince` then runs 16
     sequential `db.Exec`s with no enclosing transaction. A failure/crash partway (`return
     fmt.Errorf(...)` at line 86) leaves a partially-cleaned DB — tracks deleted but join /
@@ -204,17 +204,17 @@ Notes for editors:
 
 #### Backend — code health (line-level)
 
-- [ ] [MED] Unchecked error from the genre re-query can silently corrupt associations
+- [x] [MED] Unchecked error from the genre re-query can silently corrupt associations (fixed e55886d)
   `internal/store/genre.go:25` — after conflict-handling create, the code re-queries for the id via
   `s.db.Where("name = ?", name).First(&genre)` without checking the error. On a race / connection loss
   the re-query fails, `genre.ID` stays 0, and that track's genre association is silently wrong. Check
   the error and return it.
-- [ ] [MED] reconcileTrack returns bare errors with no context — production scan failures are undiagnosable
+- [x] [MED] reconcileTrack returns bare errors with no context — production scan failures are undiagnosable (fixed ac9a85a)
   `internal/scanner/reconcile.go` (≈ lines 93-96, 104-106, 116-119, 126-128, 148-161, 208-210). Many
   `return err` sites pass through failures from `FindOrCreateArtists`/`FindOrCreateGenres`/
   `FindOrCreateAlbum`/`db.Save`/`Association.Replace`/`UpsertTrack` unwrapped, so the log shows
   "reconcile track failed" without which operation failed. Wrap each with `fmt.Errorf("...: %w", err)`.
-- [ ] [MED] Silent filesystem error in cover detection
+- [x] [MED] Silent filesystem error in cover detection (fixed 8729d02)
   `internal/scanner/reconcile.go:288-290` — `detectCoverInDir` calls `filepath.Glob` and discards the
   error, returning "" with no log. Permission/I/O errors that break cover detection for an album are
   invisible. Add a debug log before returning.
@@ -226,7 +226,7 @@ Notes for editors:
 
 #### API contract (OpenAPI) drift
 
-- [ ] [MED] applyPicture: spec claims `paths` has NO maxItems cap, but code enforces 50 and returns 422
+- [x] [MED] applyPicture: spec claims `paths` has NO maxItems cap, but code enforces 50 and returns 422 (fixed f9e1ed3)
   `docs/openapi/aether-v1.yaml` `ApplyPictureForm` (2245-2273) states verbatim that `paths` "carries
   no server-side maxItems cap" and omits `maxItems`, but `app/router/handlers/metadata/pictures.go:408-411`
   caps at `maxSelectionPaths` (50) and answers 422 `ValidationProblem` on `/paths`. Genuine drift (cap
@@ -234,7 +234,7 @@ Notes for editors:
   selection and gets an undocumented-shape 422. Fix: add `maxItems: 50` to `ApplyPictureForm.paths` and
   delete the "no maxItems cap" sentence (sibling schemas `PictureSelection`/`UpdateTracksRequest` both
   carry it; the 422 response is already listed on the op).
-- [ ] [MED] 401/403 documented on ~11 metadata ops but silently omitted on 8 equally-gated ones
+- [x] [MED] 401/403 documented on ~11 metadata ops but silently omitted on 8 equally-gated ones (fixed 4174666)
   The whole `/api/v1` subrouter is admin-gated (`app/router/api_v1.go:157,161`) so every route can
   answer 401/403, but the spec documents them on ~11 ops and omits them on `listPictureInventory`,
   `getPictureImage`, `applyPicture`, `clearPictureSelection`, `batchReadRawTags`,
@@ -249,12 +249,12 @@ Notes for editors:
   `identifyTracks` (`identify.go:86-88`) and `identifyAlbum` (`identify_album.go:58-61`) return a plain
   400 with no `errors[]`. Make these 422 to match, or drop the "empty selection" example from the
   shared 422 description.
-- [ ] [LOW] updateTracks rejects an all-empty `fields: {}` with 400, undocumented
+- [x] [LOW] updateTracks rejects an all-empty `fields: {}` with 400, undocumented (fixed dc09d2f)
   `metadata.go:427-429` rejects a zero-value `fields` with 400 "fields must set at least one value to
   write", but `UpdateTracksFields` (spec 2392-2441) has no `required`/`minProperties` and nothing
   documents the no-op rejection. A client sending `fields: {}` after a no-op diff expects a 200 no-op
   ledger. Fix: `minProperties: 1` on `UpdateTracksFields` and/or a prose note.
-- [ ] [INFO] Undocumented 1 MiB JSON selection-body cap
+- [x] [INFO] Undocumented 1 MiB JSON selection-body cap (fixed cf4d310)
   `decodeSelection` wraps the body in `http.MaxBytesReader(..., maxSelectionBodyBytes)` (1 MiB,
   `limits.go:27`; `metadata.go:241`) for inventory/removals/raw-tags; over-cap collapses into the
   generic 400. Defensible (no missing response) but the limit is undocumented on `PictureSelection`.
@@ -285,14 +285,14 @@ Notes for editors:
   not what's on disk; re-editing diffs against stale originals and mis-detects "dirty." Direction: after
   a successful save + refetch, remap `selection` by path onto the fresh `tracksQuery.data` (dropping
   vanished paths), not re-copy old references.
-- [ ] [CRITICAL] In-flight identify runs are orphaned, not aborted, when a new run starts
+- [x] [CRITICAL] In-flight identify runs are orphaned, not aborted, when a new run starts (fixed cc55d18)
   `useIdentifyRuns.ts:61-62,121-123` — `identify()`/`identifyAlbum()` overwrite
   `identifyAbort`/`albumAbort` with a new `AbortController` without aborting the previous one. The stale
   response is discarded (`if (identifyAbort !== abort) return`) but the previous request — an expensive
   fpcalc + rate-limited AcoustID/MusicBrainz pass — keeps running server-side, wasting the user's quota.
   Re-identify (`MetadataEditorView.vue:269`) is the likely trigger (its button isn't gated on
   `isIdentifying`). Fix: `identifyAbort?.abort()` at the top of each run.
-- [ ] [CRITICAL] Debounce timer leaked on unmount in MetadataEditorView
+- [x] [CRITICAL] Debounce timer leaked on unmount in MetadataEditorView (fixed 51ae43e)
   `MetadataEditorView.vue:42-49` — the `folderSearchTimer` setTimeout is never cleared; no `onUnmounted`
   hook exists. Navigating away while the 400ms debounce is pending fires the timer after unmount and
   mutates `folderFilter.value`. Fix: `onUnmounted(() => { if (folderSearchTimer) clearTimeout(folderSearchTimer) })`.
@@ -301,7 +301,7 @@ Notes for editors:
   (:72,186) with no cancellation or versioning. Changing library while a search is in-flight lets the
   old library's results overwrite the new library's folders. Fix: add sequence numbering and discard
   stale results — `PicturesSection.vue:69-78` already has the reference pattern.
-- [ ] [MED] RawEditPanel edit buffers are never cleared on selection change — stale values shown for a different track
+- [x] [MED] RawEditPanel edit buffers are never cleared on selection change — stale values shown for a different track (fixed eceb1af)
   `RawEditPanel.vue:86-99` — `editBuffers` (keyed by tag key) is written per keystroke and `displayValue`
   prefers it over recomputed `row.values`, with no watch clearing it when `selectionPaths`/`results`
   change. Since the panel stays mounted while the user clicks a different track in the live TrackList,
@@ -325,7 +325,7 @@ Notes for editors:
   (killing the re-copy trick), and split the pair/genre editors into child components. Related perf: the
   `fieldDirty(key)` template helper (`EditPanel.vue:138-140`, called per field per render) does
   O(fields×paths) work each render — a computed dirty-Map would cache it.
-- [ ] [MED-LOW] Over-broad `deep: true` watcher on the selection array
+- [x] [MED-LOW] Over-broad `deep: true` watcher on the selection array (fixed fca0123)
   `EditPanel.vue:375` — `watch(() => props.selection, reset, {immediate:true, deep:true})` deep-traverses
   an array of full `Track` objects on every trigger, but selection is only ever REPLACED by a new array
   reference (never mutated in place), so the deep flag buys nothing and costs a recursive traversal each
@@ -354,7 +354,7 @@ Notes for editors:
   returns `ok:false` it reports the rescan warning and RETURNS before the tag batches. The staged field
   overlays are neither written nor reported — the user sees the picture error and the "Unsaved changes"
   pill but nothing states the tag edits weren't attempted. At minimum surface that tag writes were skipped.
-- [ ] [LOW] Blob preview URLs rely solely on the route-leave guard for cleanup
+- [x] [LOW] Blob preview URLs rely solely on the route-leave guard for cleanup (fixed e87dc68)
   `useEditSession.ts:564-628` — object URLs are revoked on overwrite/discard/save and via `discardAll()`
   from `onBeforeRouteLeave`, but there is no `onScopeDispose`/`onUnmounted(discardAll)`. Any teardown that
   bypasses the router guard (programmatic unmount, error boundary, HMR) leaks the staged previews. Add an
