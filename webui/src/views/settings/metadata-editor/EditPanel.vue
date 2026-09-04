@@ -372,7 +372,11 @@ function reset() {
     resetPairs()
 }
 
-watch(() => props.selection, reset, { immediate: true, deep: true })
+// Watches the array reference, not its contents: the parent only ever replaces
+// `selection` with a new array (folder commit, identify apply, cancel) — the
+// Track objects are never mutated in place — so `deep` would traverse every
+// selected track's fields on each change for nothing.
+watch(() => props.selection, reset, { immediate: true })
 
 const identifiable = computed(() => props.selection.filter((t) => !t.error))
 
