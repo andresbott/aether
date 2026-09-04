@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -53,6 +53,12 @@ function clearFolderSearch() {
     folderSearch.value = ''
     folderFilter.value = ''
 }
+
+// Clear the pending debounce timer on unmount so it cannot fire after the
+// component is gone and mutate folderFilter on a torn-down instance.
+onUnmounted(() => {
+    if (folderSearchTimer) clearTimeout(folderSearchTimer)
+})
 
 const confirm = useConfirm()
 
