@@ -2247,15 +2247,17 @@ components:
       description: >
         multipart/form-data. Exactly one of `image`/`image_url` must be
         supplied; if both are present the uploaded file wins and `image_url`
-        is never consulted. Unlike the JSON-bodied selection endpoints,
-        `paths` here carries no server-side `maxItems` cap — it is bounded
-        only by the request's overall 12 MiB size cap.
+        is never consulted. `paths` is capped at the same `maxSelectionPaths`
+        (50) as the JSON-bodied selection endpoints — an oversized selection
+        answers 422, itemising `/paths` — and the whole request is additionally
+        bounded by a 12 MiB size cap.
       properties:
         library_id: { type: integer, format: int64, minimum: 0 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
+          maxItems: 50
           description: Selected track paths, library-relative; one repeated form field per path.
         slot: { $ref: '#/components/schemas/PictureSlot' }
         type: { $ref: '#/components/schemas/PictureType' }
