@@ -22,7 +22,13 @@ func (s *Store) FindOrCreateGenres(names []string) ([]*model.Genre, error) {
 			if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&genre).Error; err != nil {
 				return nil, err
 			}
-			s.db.Where("name = ?", name).First(&genre)
+			// On a name conflict OnConflict{DoNothing} leaves genre.ID at 0, so
+			// re-read the existing row. A failure here must not be swallowed:
+			// returning a genre with ID 0 silently corrupts the track's genre
+			// association.
+			if err := s.db.Where("name = ?", name).First(&genre).Error; err != nil {
+				return nil, err
+			}
 		}
 		genres = append(genres, &genre)
 	}
