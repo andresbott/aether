@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Button from 'primevue/button'
@@ -84,6 +84,14 @@ const rows = computed<RawRow[]>(() => {
 // Value editing: one value per line. Buffered per key so typing does not
 // re-render against the recomputed row mid-edit.
 const editBuffers = ref(new Map<string, string>())
+
+// Drop the buffered text when the selection changes or the underlying tags
+// refetch: the panel stays mounted while the user picks a different track, and
+// a stale buffer would show text typed for the previously-selected track. (Not
+// triggered by staging edits — those don't change `results`.)
+watch([() => props.selection, results], () => {
+    editBuffers.value.clear()
+})
 
 function displayValue(row: RawRow): string {
     return editBuffers.value.get(row.key) ?? row.values.join('\n')
