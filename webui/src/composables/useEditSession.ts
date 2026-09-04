@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import {
@@ -665,6 +665,11 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         for (const op of artistImages.value.values()) releaseArtistOpPreview(op)
         artistImages.value.clear()
     }
+
+    // Revoke any staged blob preview URLs if the owning scope is torn down
+    // without the route-leave guard firing (programmatic unmount, error
+    // boundary, HMR). Idempotent — discardAll no-ops on already-empty maps.
+    onScopeDispose(() => discardAll())
 
     // ----- Save -----
 
