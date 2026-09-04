@@ -18,7 +18,6 @@ import (
 	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/tags"
-	"gorm.io/gorm"
 )
 
 const (
@@ -136,9 +135,8 @@ func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
 // proxy's header buffer). Embedded presence is counted over paths[]; folder
 // art is resolved across the distinct directories paths[] spans.
 func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(w, r)
-	if err != nil {
-		writeSelectionErr(w, r, status, err)
+	lib, sel, ok := h.decodeSelection(w, r)
+	if !ok {
 		return
 	}
 	// decodeSelection already guarantees sel.Paths is non-empty (or it would
@@ -396,26 +394,15 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
+	// applyPicture reads paths[] from a multipart form rather than a JSON body,
+	// but the bound and the library lookup are the shared ones (checkPaths /
+	// resolveLibrary) so they can never drift from the JSON-body endpoints.
 	paths := r.Form["paths"]
-	if len(paths) == 0 {
-		httperr.WriteValidation(w, r, errNoSelection.Error(), httperr.FieldError{Pointer: "/paths", Detail: errNoSelection.Error()})
+	if !checkPaths(w, r, paths, 1) {
 		return
 	}
-	// Mirrors decodeSelection's cap for the JSON-body picture-selection
-	// endpoints (inventory, raw-tags, removals): applyPicture reads its
-	// paths[] from a multipart form instead, so it needs its own count guard
-	// to keep the bound from drifting between the two decoding paths.
-	if len(paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
-		return
-	}
-	libModel, err := h.Store.GetLibrary(uint(libID))
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	libModel, ok := h.resolveLibrary(w, r, uint(libID))
+	if !ok {
 		return
 	}
 
@@ -493,9 +480,8 @@ func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al
 // answers {ok:true} — removing a file that is not there, or a picture a
 // track never had, is a no-op, not an error.
 func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(w, r)
-	if err != nil {
-		writeSelectionErr(w, r, status, err)
+	lib, sel, ok := h.decodeSelection(w, r)
+	if !ok {
 		return
 	}
 	pt, terr := pictureTypeByIDOrDefault(sel.Type)

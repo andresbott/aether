@@ -225,49 +225,81 @@ type pictureSelection struct {
 	Slot      string   `json:"slot,omitempty"`
 }
 
-// decodeSelection decodes and validates a picture-selection POST body,
-// resolving library_id to its root path. The body is wrapped in
-// http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes) before decoding —
-// defense in depth against a pathologically large body, now that a
-// multi-disc selection travels in the body instead of the URL — so an
-// over-cap body fails json.Decode and is reported through the same
-// malformed-JSON 400 branch as any other unparseable body. status/err are
-// zero/nil on success; callers on failure answer writeSelectionErr(w, r,
-// status, err), which itemises an empty/over-cap paths[] as a 422 validation
-// problem and falls back to httperr.Write(w, r, status, codeFor(status),
-// err.Error()) for everything else (malformed JSON, an unknown or
-// unreachable library).
-func (h *Handler) decodeSelection(w http.ResponseWriter, r *http.Request) (lib *librarySummary, sel pictureSelection, status int, err error) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
-	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
-		return nil, pictureSelection{}, http.StatusBadRequest, fmt.Errorf("invalid JSON: %w", derr)
-	}
-	if len(sel.Paths) == 0 {
-		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errNoSelection
-	}
-	if len(sel.Paths) > maxSelectionPaths {
-		return nil, pictureSelection{}, http.StatusUnprocessableEntity, errTooManyPaths
-	}
-	libModel, gerr := h.Store.GetLibrary(sel.LibraryID)
-	if gerr != nil {
-		if errors.Is(gerr, gorm.ErrRecordNotFound) {
-			return nil, pictureSelection{}, http.StatusNotFound, gerr
+// checkPaths is the single owner of the paths[] bounds shared by every
+// endpoint that accepts a {library_id, paths[]} selection. An empty selection
+// (below minPaths) or one over maxSelectionPaths is well-formed-but-invalid
+// input: it answers a 422 ValidationProblem itemising /paths, writes that
+// response, and returns false. A valid paths[] returns true and writes
+// nothing. minPaths is 1 for every endpoint except identify-album (2). Keeping
+// the bound here is what stops the empty-vs-over-cap status from drifting the
+// way it did when each handler hand-rolled the check.
+func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths int) bool {
+	if len(paths) < minPaths {
+		detail := errNoSelection.Error()
+		if minPaths > 1 {
+			detail = fmt.Sprintf("at least %d paths are required", minPaths)
 		}
-		return nil, pictureSelection{}, http.StatusInternalServerError, gerr
+		httperr.WriteValidation(w, r, detail, httperr.FieldError{Pointer: "/paths", Detail: detail})
+		return false
 	}
-	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, sel, 0, nil
+	if len(paths) > maxSelectionPaths {
+		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
+		return false
+	}
+	return true
 }
 
-// writeSelectionErr answers a decodeSelection failure. An empty or over-cap
-// paths[] is well-formed-but-invalid input (422, itemising the paths field);
-// a malformed body or a library lookup failure is unrelated to the
-// selection's shape and keeps decodeSelection's original status.
-func writeSelectionErr(w http.ResponseWriter, r *http.Request, status int, err error) {
-	if errors.Is(err, errNoSelection) || errors.Is(err, errTooManyPaths) {
-		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/paths", Detail: err.Error()})
-		return
+// resolveLibrary is the single owner of the library_id lookup error mapping: a
+// missing library is 404, any other store failure 500. It writes the failure
+// itself and returns ok=false. library_id == 0 is not special-cased — no
+// library has id 0, so the lookup answers 404, which matches the schema
+// (library_id has minimum 0 and is therefore a well-formed value: "no such
+// library" is a 404, not a 400).
+func (h *Handler) resolveLibrary(w http.ResponseWriter, r *http.Request, id uint) (*librarySummary, bool) {
+	libModel, err := h.Store.GetLibrary(id)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
+			return nil, false
+		}
+		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		return nil, false
 	}
-	httperr.Write(w, r, status, codeFor(status), err.Error())
+	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, true
+}
+
+// resolveSelection is the one-call validation path for a decoded selection:
+// paths[] shape (checkPaths) then the library_id lookup (resolveLibrary). It
+// owns every failure response and returns the resolved library with ok=true
+// only when the caller may proceed. Every {library_id, paths[]} endpoint runs
+// through here so status code and error-body shape are defined in one place.
+func (h *Handler) resolveSelection(w http.ResponseWriter, r *http.Request, id uint, paths []string, minPaths int) (*librarySummary, bool) {
+	if !checkPaths(w, r, paths, minPaths) {
+		return nil, false
+	}
+	return h.resolveLibrary(w, r, id)
+}
+
+// decodeSelection decodes a picture-selection POST body and validates it
+// through resolveSelection. The body is wrapped in http.MaxBytesReader(w,
+// r.Body, maxSelectionBodyBytes) before decoding — defense in depth against a
+// pathologically large body, now that a multi-disc selection travels in the
+// body instead of the URL — so an over-cap body fails json.Decode and is
+// reported through the same malformed-JSON 400 branch as any other unparseable
+// body. On any failure it has already written the response and returns
+// ok=false; callers only check ok.
+func (h *Handler) decodeSelection(w http.ResponseWriter, r *http.Request) (*librarySummary, pictureSelection, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
+	var sel pictureSelection
+	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
+		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+derr.Error())
+		return nil, pictureSelection{}, false
+	}
+	lib, ok := h.resolveSelection(w, r, sel.LibraryID, sel.Paths, 1)
+	if !ok {
+		return nil, pictureSelection{}, false
+	}
+	return lib, sel, true
 }
 
 type folderDTO struct {
@@ -415,33 +447,33 @@ type updateResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// validateUpdateRequest returns a validation error message ("" = valid).
-func validateUpdateRequest(body updateRequest) string {
-	if body.LibraryID == 0 || len(body.Paths) == 0 {
-		return "library_id and paths are required"
-	}
+// validateUpdateFields returns a validation error message ("" = valid) for the
+// endpoint-specific `fields` payload of an update request. The {library_id,
+// paths[]} selection is validated separately by resolveSelection; this checks
+// only what is unique to updateTracks.
+func validateUpdateFields(f fields) string {
 	// Every field in `fields` is an optional pointer, so an omitted `fields`
 	// key and a present-but-empty `fields: {}` both decode to the zero value:
 	// a request that writes nothing yet reports every row ok. The spec marks
 	// fields required; reject the no-op so contract and behavior agree.
-	if body.Fields == (fields{}) {
+	if f == (fields{}) {
 		return "fields must set at least one value to write"
 	}
 	// MB-ID maps are keyed by the current artist names; changing the name field
 	// in the same request would write a positionally-misaligned MB-ID tag.
 	// Reject so a corrupt tag is never written — the two edits must be saved
 	// separately.
-	if body.Fields.Artists != nil && body.Fields.ArtistMBIDs != nil {
+	if f.Artists != nil && f.ArtistMBIDs != nil {
 		return "cannot change artist names and set artist MusicBrainz IDs in the same request; save them separately"
 	}
-	if body.Fields.AlbumArtists != nil && body.Fields.AlbumArtistMBIDs != nil {
+	if f.AlbumArtists != nil && f.AlbumArtistMBIDs != nil {
 		return "cannot change album-artist names and set album-artist MusicBrainz IDs in the same request; save them separately"
 	}
 	// The raw editor must not touch keys the structured editor owns — its
 	// edits would bypass the per-field patch logic (MB-ID alignment,
 	// multi-value policies) and silently corrupt those tags.
-	if body.Fields.RawTags != nil {
-		for key := range *body.Fields.RawTags {
+	if f.RawTags != nil {
+		for key := range *f.RawTags {
 			if metadataedit.IsManagedTag(key) {
 				return "tag " + key + " is managed by the metadata editor; edit it through the form fields"
 			}
@@ -450,8 +482,8 @@ func validateUpdateRequest(body updateRequest) string {
 	// Embedded cover art lives in unsupported data too (APIC/covr/...) but is
 	// managed through the cover endpoints; refuse to delete it as a hidden
 	// frame.
-	if body.Fields.RemoveUnsupported != nil {
-		for _, d := range *body.Fields.RemoveUnsupported {
+	if f.RemoveUnsupported != nil {
+		for _, d := range *f.RemoveUnsupported {
 			if metadataedit.IsCoverDescriptor(d) {
 				return "frame " + d + " is embedded cover art; manage it through the cover editor"
 			}
@@ -471,29 +503,18 @@ func validateUpdateRequest(body updateRequest) string {
 // would invite a retry that re-writes the files that did land. Same rule as
 // rawTags; see docs/agents/api-conventions.md, "Batch endpoints".
 func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	if msg := validateUpdateRequest(body); msg != "" {
+	if msg := validateUpdateFields(body.Fields); msg != "" {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
-	// Same defense-in-depth bound as every other paths[]-accepting endpoint
-	// (decodeSelection, identify, identify-album): well-formed but over the
-	// shared cap is a 422, not a 400.
-	if len(body.Paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
-		return
-	}
-	libModel, err := h.Store.GetLibrary(body.LibraryID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	libModel, ok := h.resolveSelection(w, r, body.LibraryID, body.Paths, 1)
+	if !ok {
 		return
 	}
 	patch := metadataedit.Patch{

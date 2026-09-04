@@ -234,13 +234,22 @@ func TestIdentify_RejectsTraversalPerPath(t *testing.T) {
 func TestIdentify_ValidationErrors(t *testing.T) {
 	r, lib := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
 
+	// An empty selection is well-formed but invalid: a 422 itemising /paths,
+	// the same as the picture endpoints (decodeSelection) — not a 400.
 	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{}})
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty paths, got %d", w.Code)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty paths, got %d", w.Code)
+	}
+	var empty httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
+		t.Fatal(err)
+	}
+	if len(empty.Errors) == 0 || empty.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", empty.Errors)
 	}
 
-	// Over-cap paths[] is well-formed but invalid (422), unlike the missing-
-	// input case above, which stays 400 — see decodeSelection's identical cap.
+	// Over-cap paths[] is likewise a 422 itemising /paths — the same shared
+	// bound (checkPaths) as the empty case above.
 	tooMany := make([]string, 51)
 	for i := range tooMany {
 		tooMany[i] = "a.mp3"

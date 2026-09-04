@@ -54,11 +54,11 @@ func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 // enforced a separately-defined maxSelectionPaths behind a
 // differently-worded combined empty-or-too-many message ("paths must
 // contain between 1 and 50 entries") — same limit, different text. A
-// request over the cap must now read identically everywhere. updateTracks
-// (PUT /metadata/tracks) reached parity later — it used to enforce no cap at
-// all — via its own inline check in metadata.go rather than decodeSelection,
-// since it decodes a distinct updateRequest shape carrying fields alongside
-// paths.
+// request over the cap must now read identically everywhere. All five
+// paths[]-accepting endpoints (including updateTracks, PUT /metadata/tracks,
+// which decodes a distinct updateRequest shape carrying fields alongside
+// paths) share one bound via checkPaths/resolveSelection, so the cap — and the
+// empty-selection 422 — can no longer drift between endpoints.
 func TestCapAppliesUniformly(t *testing.T) {
 	r, lib := newCapHandler(t)
 	paths := make([]string, 51)

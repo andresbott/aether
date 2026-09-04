@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -540,6 +541,33 @@ func TestUpdateTracks_MalformedJSON(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// An empty selection is well-formed but invalid: like every other
+// paths[]-accepting endpoint (shared checkPaths), it answers a 422 itemising
+// /paths, not a 400. The field validation still runs first, so a non-empty
+// fields object is supplied to reach the selection check.
+func TestUpdateTracks_EmptySelectionIs422(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": [],
+		"fields": { "title": "x" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty paths, got %d: %s", w.Code, w.Body.String())
+	}
+	var validation httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
+		t.Fatal(err)
+	}
+	if len(validation.Errors) == 0 || validation.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", validation.Errors)
 	}
 }
 

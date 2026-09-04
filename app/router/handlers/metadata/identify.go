@@ -3,13 +3,11 @@ package metadata
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/libs/acoustid"
-	"gorm.io/gorm"
 )
 
 // IdentifyService resolves an audio file to MusicBrainz recording candidates
@@ -78,26 +76,14 @@ func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body identifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	if body.LibraryID == 0 || len(body.Paths) == 0 {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "library_id and paths are required")
-		return
-	}
-	if len(body.Paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
-		return
-	}
-	libModel, err := h.Store.GetLibrary(body.LibraryID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	libModel, ok := h.resolveSelection(w, r, body.LibraryID, body.Paths, 1)
+	if !ok {
 		return
 	}
 

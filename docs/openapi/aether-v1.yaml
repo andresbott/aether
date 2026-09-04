@@ -2724,10 +2724,11 @@ components:
         The same `{library_id, paths[]}` shape as the picture-selection
         endpoints. Identifying "the album" needs more than one file to
         place: the handler requires **at least two** paths — a single path
-        is better served by `/metadata/identify` — and answers 400
-        (validation_error) for a shorter selection. This schema enforces
-        that floor with the `minItems: 2` override below, which narrows the
-        `minItems: 1` inherited from `PictureSelection`.
+        is better served by `/metadata/identify` — and answers 422
+        (`ValidationProblem`, itemising `/paths`) for a shorter selection,
+        the same as an empty selection on any other endpoint. This schema
+        enforces that floor with the `minItems: 2` override below, which
+        narrows the `minItems: 1` inherited from `PictureSelection`.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
         - type: object

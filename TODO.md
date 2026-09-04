@@ -243,7 +243,7 @@ Notes for editors:
   error handling from the spec won't handle 401/403 on the picture/browse endpoints. Fix: add the
   `Unauthorized`/`Forbidden` response `$ref`s (both components exist) to those 8 — or strip 401/403
   from all metadata ops and note the front-door guard once. The half-and-half state is the defect.
-- [ ] [LOW] Empty `paths` returns 400 on updateTracks/identifyTracks/identifyAlbum, but the spec frames empty selection as 422
+- [x] [LOW] Empty `paths` returns 400 on updateTracks/identifyTracks/identifyAlbum, but the spec frames empty selection as 422 (fixed: shared `checkPaths`/`resolveLibrary`/`resolveSelection` — all five selection endpoints now itemise empty/over-cap `/paths` as 422, and a zero/missing `library_id` resolves to 404, matching `decodeSelection`; spec prose + tests updated)
   The shared `UnprocessableEntity` response lists "an empty selection" as a 422 case and every
   selection schema has `minItems`, which holds for the 3 JSON picture-selection endpoints
   (`decodeSelection` → 422 `errNoSelection`). But `updateTracks` (`metadata.go:420-421,480`),
