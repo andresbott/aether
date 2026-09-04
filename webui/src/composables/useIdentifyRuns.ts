@@ -43,6 +43,11 @@ export function useIdentifyRuns(libraryId: () => number | null) {
         const lib = libraryId()
         if (lib === null || tracks.length === 0) return
 
+        // A new run supersedes any in-flight one: abort it so its fingerprint
+        // pass and rate-limited AcoustID lookups stop, and its late response
+        // cannot repopulate this run's dialog.
+        cancelIdentify()
+
         const paths = tracks.map((t) => t.path)
         const { cached, missing } = opts.force
             ? { cached: [], missing: paths }
@@ -109,6 +114,9 @@ export function useIdentifyRuns(libraryId: () => number | null) {
         // Album identification maps a SET onto one release, so a lone file has
         // nothing to map; per-track Identify is strictly better there.
         if (lib === null || tracks.length < 2) return
+
+        // Supersede any in-flight album run (see identify()).
+        cancelAlbumIdentify()
 
         const paths = tracks.map((t) => t.path)
         const hit = opts.force ? undefined : cache.getAlbumResponse(lib, paths)
