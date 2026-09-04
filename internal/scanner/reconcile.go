@@ -3,6 +3,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -92,7 +93,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	artistNames := TrackArtistNames(meta)
 	artists, gainedTrackArtists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create track artists: %w", err)
 	}
 	for _, a := range gainedTrackArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -102,7 +103,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	albumArtistNames := AlbumArtistNames(meta)
 	albumArtists, gainedAlbumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create album artists: %w", err)
 	}
 	for _, a := range gainedAlbumArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -115,7 +116,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	genreNames := nonEmpty(meta.Genre)
 	genres, err := tx.FindOrCreateGenres(genreNames)
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create genres: %w", err)
 	}
 
 	// Resolve album. AlbumIdentityOf is the same function planAlbumContinuity
@@ -124,7 +125,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	ident := AlbumIdentityOf(meta)
 	album, err := tx.FindOrCreateAlbum(ident)
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create album: %w", err)
 	}
 
 	// Update album metadata
@@ -147,17 +148,17 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 
 	db := tx.DB()
 	if err := db.Save(album).Error; err != nil {
-		return err
+		return fmt.Errorf("save album: %w", err)
 	}
 
 	// Update album artists association
 	if err := db.Model(album).Association("Artists").Replace(albumArtists); err != nil {
-		return err
+		return fmt.Errorf("replace album artists: %w", err)
 	}
 
 	// Update album genres association
 	if err := db.Model(album).Association("Genres").Replace(genres); err != nil {
-		return err
+		return fmt.Errorf("replace album genres: %w", err)
 	}
 
 	// Upsert track
@@ -206,7 +207,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	track.HasEmbeddedCover = meta.HasCover
 
 	if err := tx.UpsertTrack(&track, artists, genres); err != nil {
-		return err
+		return fmt.Errorf("upsert track: %w", err)
 	}
 
 	if isNew {
