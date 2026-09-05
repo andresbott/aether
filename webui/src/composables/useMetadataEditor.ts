@@ -37,7 +37,7 @@ export function invalidateAfterMetadataWrite(qc: QueryClient) {
 
 export function useFolders(libraryId: () => number | null, path: () => string) {
     return useQuery<Folder[]>({
-        queryKey: ['metadata', 'folders', libraryId, path] as any,
+        queryKey: ['metadata', 'folders', libraryId, path],
         queryFn: () => MetadataApi.listFolders(libraryId() as number, path()),
         enabled: () => libraryId() !== null,
         staleTime: 15_000
@@ -46,7 +46,7 @@ export function useFolders(libraryId: () => number | null, path: () => string) {
 
 export function useTracks(libraryId: () => number | null, path: () => string | null) {
     return useQuery<Track[]>({
-        queryKey: ['metadata', 'tracks', libraryId, path] as any,
+        queryKey: ['metadata', 'tracks', libraryId, path],
         queryFn: () => MetadataApi.listTracks(libraryId() as number, path() as string),
         enabled: () => libraryId() !== null && path() !== null,
         staleTime: 15_000
@@ -182,7 +182,7 @@ export function useRawTags(
     enabled: () => boolean
 ) {
     return useQuery({
-        queryKey: ['metadata', 'raw', libraryId, paths] as any,
+        queryKey: ['metadata', 'raw', libraryId, paths],
         queryFn: () => MetadataApi.getRawTags(libraryId() as number, paths()),
         enabled: () => enabled() && libraryId() !== null && paths().length > 0,
         staleTime: 15_000
