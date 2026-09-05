@@ -35,10 +35,16 @@ type Track struct {
 	Error            string
 }
 
-// ListTracks walks absDir recursively, calling reader.Read on every file for
-// which reader.CanRead returns true. Paths in the result are relative to
+// ListTracks walks absDir recursively, calling reader.Read on every file
+// Aether supports (tags.Supported). Paths in the result are relative to
 // libRoot. Read failures are captured per-row (non-fatal) so the client can
 // still see the file.
+//
+// Admission is gated on tags.Supported, not reader.CanRead: a reader's
+// capability is wider than what Aether indexes, so listing readable-but-
+// unsupported files would offer the user edits the scanner never applies to the
+// library — a save that reports success while the track never appears. Gating
+// on the same predicate the scanner uses keeps "editable" and "indexed" equal.
 //
 // A folder can hold hundreds of files, so ctx aborts the walk rather than
 // reading the rest for a client that has already gone away.
@@ -58,7 +64,7 @@ func ListTracks(ctx context.Context, libRoot, absDir string, reader tags.Reader)
 			}
 			return nil
 		}
-		if !reader.CanRead(path) {
+		if !tags.Supported(path) {
 			return nil
 		}
 		row := Track{

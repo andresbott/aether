@@ -20,9 +20,8 @@ import (
 // ScanStats.Errors. A run indexed everything it was supposed to when
 // TracksProcessed == len(absPaths)-TracksSkipped and Errors is empty — callers
 // must not compare TracksProcessed to len(absPaths) directly, because the
-// editor's file listing is deliberately wider than the scanner's admission
-// rules (it ignores the library's exclude patterns and accepts extensions the
-// scanner does not index).
+// editor's file listing ignores the library's exclude patterns, so it can hand
+// this method a path the scanner deliberately skips as excluded.
 //
 // It deliberately does NOT run the scan cleanup: store.Cleanup deletes every
 // track whose last_seen_at predates the run, which on a targeted rescan is the
@@ -105,9 +104,9 @@ func (s *Scanner) admitPath(libRoot string, libID uint, abs string, excludes []*
 	if err != nil || info.IsDir() {
 		return WalkResult{}, false
 	}
-	if !s.tagReader.CanRead(abs) {
-		return WalkResult{}, false
-	}
+	// No separate tagReader.CanRead gate: IsAudioFile is tags.Supported, and
+	// every supported format is readable by some reader (enforced by
+	// tags.TestSupportedIsReadable), so admission asks one question, not two.
 	return WalkResult{
 		FilePath:  abs,
 		LibraryID: libID,

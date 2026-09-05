@@ -12,7 +12,7 @@ import (
 )
 
 var taglibExtensions = map[string]bool{
-	".mp3": true, ".flac": true, ".aac": true, ".m4a": true, ".m4b": true,
+	".mp3": true, ".flac": true, ".aac": true, ".m4a": true, ".m4b": true, ".mp4": true,
 	".ogg": true, ".opus": true, ".wma": true, ".wav": true, ".wv": true, ".ape": true, ".aiff": true,
 }
 

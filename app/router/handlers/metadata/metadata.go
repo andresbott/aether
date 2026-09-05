@@ -131,11 +131,11 @@ func (h *Handler) rescanSaved(ctx context.Context, libraryID uint, absPaths []st
 //
 // The shortfall is measured against the paths the scanner actually admitted
 // (total minus the ones it deliberately skipped), never against total. The
-// editor lists files the scanner does not index — it ignores the library's
-// exclude patterns and its tag reader accepts extensions absent from the
-// scanner's audio set — so a perfectly correct save routinely hands
-// RescanPaths paths it will not index. Comparing against total would warn the
-// user about a save that worked.
+// editor lists exactly the formats the scanner indexes (both gate on
+// tags.Supported), but it still ignores the library's exclude patterns, so a
+// perfectly correct save can hand RescanPaths a path the scanner skips as
+// excluded. Comparing against total would warn the user about a save that
+// worked.
 func incompleteRescanMessage(stats scanner.ScanStats, total int) string {
 	if len(stats.Errors) > 0 {
 		if len(stats.Errors) == 1 {

@@ -21,7 +21,7 @@ import (
 const FFProbeTimeout = 30 * time.Second
 
 var ffprobeExtensions = map[string]bool{
-	".mp3": true, ".flac": true, ".ogg": true, ".opus": true, ".m4a": true, ".m4b": true,
+	".mp3": true, ".flac": true, ".ogg": true, ".opus": true, ".m4a": true, ".m4b": true, ".mp4": true,
 	".aac": true, ".wma": true, ".wav": true, ".wv": true, ".ape": true, ".aiff": true,
 	".mka": true, ".mpc": true, ".oga": true, ".tak": true, ".tta": true, ".dsf": true,
 	".webm": true, ".spx": true, ".w64": true, ".rf64": true,
