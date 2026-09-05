@@ -9,8 +9,7 @@ import type { Track, TrackOverlay } from '@/types/metadata'
 import {
     diffInitialValues,
     distinctArtistMbids,
-    type ArtistMbidRow,
-    type FieldDiff
+    type ArtistMbidRow
 } from '@/composables/useMetadataEditor'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ArtistMatchPayload, ReleaseArtistCredit } from '@/types/artists'
@@ -20,6 +19,7 @@ import RawEditPanel from './RawEditPanel.vue'
 import PicturesSection from './PicturesSection.vue'
 import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
+import { useEditForm } from './useEditForm'
 
 const props = defineProps<{
     selection: Track[]
@@ -70,155 +70,45 @@ const albumArtistsHelp =
     'same even when individual tracks credit featured guests or, on ' +
     'compilations, is “Various Artists”.'
 
-const isMass = computed(() => props.selection.length > 1)
-const selectionPaths = computed(() => props.selection.map((t) => t.path))
+const form = useEditForm(() => props.selection, props.session)
 
-// The editor displays and diffs EFFECTIVE values: original tags plus any
-// staged (unsaved) session edits. Editing stages onto the session; nothing is
-// persisted until the view-level Save.
-const effectiveSelection = computed(() => props.selection.map((t) => props.session.effective(t)))
+const title = form.text('title')
+const album = form.text('album')
+const mbRecordingId = form.text('mb_recording_id')
+const mbReleaseId = form.text('mb_release_id')
+const mbReleaseGroupId = form.text('mb_release_group_id')
+const discSubtitle = form.text('disc_subtitle')
+const year = form.num('year')
+const trackNumber = form.num('track_number')
+const discNumber = form.num('disc_number')
+const genres = form.genres
+const compilation = form.compilation
 
-type TextKey =
-    | 'title'
-    | 'album'
-    | 'mb_recording_id'
-    | 'mb_release_id'
-    | 'mb_release_group_id'
-    | 'disc_subtitle'
-type NumKey = 'year' | 'track_number' | 'disc_number'
-type ScalarKey = TextKey | NumKey | 'compilation'
-
-// Numeric buffers are nullable: InputNumber renders null as an empty box (0
-// would render "0" and hide the "(multiple values)" placeholder), so null
-// means "empty or mixed". Writes coerce it back to 0, which clears the tag.
-type ScalarValues = {
-    title: string
-    album: string
-    mb_recording_id: string
-    mb_release_id: string
-    mb_release_group_id: string
-    year: number | null
-    track_number: number | null
-    disc_number: number | null
-    disc_subtitle: string
-    compilation: boolean
-}
-
-const values = ref<ScalarValues>({
-    title: '',
-    album: '',
-    mb_recording_id: '',
-    mb_release_id: '',
-    mb_release_group_id: '',
-    year: null,
-    track_number: null,
-    disc_number: null,
-    disc_subtitle: '',
-    compilation: false
-})
-const placeholders = ref({
-    title: '',
-    album: '',
-    mb_recording_id: '',
-    mb_release_id: '',
-    mb_release_group_id: '',
-    year: '',
-    track_number: '',
-    disc_number: '',
-    disc_subtitle: ''
-})
+const isMass = form.isMass
 
 const artistPairs = ref<Pair[]>([])
 const albumArtistPairs = ref<Pair[]>([])
-// The genre chip list edit buffer, staged as a whole like the artist pairs.
-const genresList = ref<string[]>([])
 
-const diff = computed(() => diffInitialValues(effectiveSelection.value))
-// The overwrite-all-vs-leave-alone rule for artist lists keys off the ORIGINAL
-// tags: staged edits must not turn "leave each track's own artists alone" into
-// "clear artists everywhere" when the pair list goes back to empty.
-const originalDiff = computed(() => diffInitialValues(props.selection))
+const diff = computed(() => diffInitialValues(form.effective.value))
+const originalDiff = form.originalDiff
+const selectionPaths = form.paths
 // When the selected tracks don't all share the same artist list the names are
-// "mixed": we show a note and start with a blank list. Adding artists overwrites
+// “mixed”: we show a note and start with a blank list. Adding artists overwrites
 // the whole list on every selected track; leaving it empty writes nothing.
 const artistsMixed = computed(() => props.selection.length > 1 && !diff.value.artists.shared)
 const albumArtistsMixed = computed(
     () => props.selection.length > 1 && !diff.value.album_artists.shared
 )
-const genresMixed = computed(() => props.selection.length > 1 && !diff.value.genres.shared)
-// A checkbox has no placeholder to show "(multiple values)" in, so a mixed
-// compilation flag renders in the indeterminate (dash) state instead. Clicking
-// it commits an explicit true/false onto every selected track.
-const compilationMixed = computed(
-    () => props.selection.length > 1 && !diff.value.compilation.shared
-)
 
-// dirtyFields is the union of every staged field key across the selection,
-// recomputed only when overlays or the selection change — not per render.
-// (raw / removeUnsupported keys land here too and are harmless: the form
-// never queries them.)
-const dirtyFields = computed<Set<keyof TrackOverlay>>(() => {
-    const s = new Set<keyof TrackOverlay>()
-    for (const p of selectionPaths.value) {
-        const overlay = props.session.overlays.value.get(p)
-        if (overlay) for (const k of Object.keys(overlay)) s.add(k as keyof TrackOverlay)
-    }
-    return s
-})
-// isDirty drives the accent coloring and the per-field undo button.
-function isDirty(key: keyof TrackOverlay): boolean {
-    return dirtyFields.value.has(key)
-}
-
-// stageScalar pushes the edit buffer's current value for one field onto the
-// session (staged per selected track, normalized away when equal to original).
-// A cleared numeric buffer (null) stages 0, the value that clears the tag.
-function stageScalar(key: ScalarKey) {
-    if (key === 'title' || key === 'mb_recording_id' || key === 'track_number') {
-        // Per-recording fields are only editable in single-track mode.
-        if (isMass.value) return
-    }
-    const value = values.value[key]
-    props.session.stageField(selectionPaths.value, key, value === null ? 0 : value)
-}
-
-// stageNumber writes InputNumber's emitted value into the buffer and stages it.
-// The buffer keeps null (empty box) while the patch gets 0.
-function stageNumber(key: NumKey, v: number | null) {
-    values.value[key] = v
-    stageScalar(key)
-}
-
-// undoTooltip describes what the per-field undo button restores: the shared
-// original value, or a note when the selected tracks' originals differ.
-function undoTooltip(key: ScalarKey): string {
-    const d = originalDiff.value[key]
-    if (!d.shared) return 'Revert to each track’s own value'
-    const v = d.value
-    if (typeof v === 'boolean') return `Revert to ${v ? 'yes' : 'no'}`
-    if (v === '' || v === 0) return 'Revert to empty'
-    return `Revert to “${v}”`
-}
+const dirtyFields = form.dirtyFields
+const isDirty = form.isDirty
 
 // undoPairsTooltip is the credit-list variant: lists the original names.
 function undoPairsTooltip(scope: Scope): string {
     const d = originalDiff.value[creditsKey(scope)]
-    if (!d.shared) return 'Revert to each track’s own value'
+    if (!d.shared) return 'Revert to each track\'s own value'
     if (d.value.length === 0) return 'Revert to empty'
     return `Revert to “${d.value.join(', ')}”`
-}
-
-// undoField reverts one field to the original values and refreshes the buffer.
-function undoField(key: ScalarKey) {
-    props.session.unstageField(selectionPaths.value, key)
-    const d = diff.value
-    if (key === 'compilation') {
-        values.value.compilation = d.compilation.value
-    } else if (key === 'year' || key === 'track_number' || key === 'disc_number') {
-        values.value[key] = numBuffer(d[key])
-    } else {
-        values.value[key] = d[key].value
-    }
 }
 
 function pairsFor(scope: Scope) {
@@ -250,31 +140,6 @@ function stagePairs(scope: Scope) {
 function undoPairs(scope: Scope) {
     props.session.unstageField(selectionPaths.value, creditsKey(scope))
     resetPairs()
-}
-
-// stageGenres stages the full genre list onto every selected track, mirroring
-// stagePairs: a list left empty over originally-mixed tracks stages nothing
-// (keeps each track's own genres).
-function stageGenres() {
-    const originallyMixed = props.selection.length > 1 && !originalDiff.value.genres.shared
-    if (originallyMixed && genresList.value.length === 0) {
-        props.session.unstageField(selectionPaths.value, 'genres')
-        return
-    }
-    props.session.stageField(selectionPaths.value, 'genres', [...genresList.value])
-}
-
-function undoGenres() {
-    props.session.unstageField(selectionPaths.value, 'genres')
-    genresList.value = diff.value.genres.shared ? [...diff.value.genres.value] : []
-}
-
-// undoGenresTooltip lists the original shared genres, like undoPairsTooltip.
-function undoGenresTooltip(): string {
-    const d = originalDiff.value.genres
-    if (!d.shared) return 'Revert to each track’s own value'
-    if (d.value.length === 0) return 'Revert to empty'
-    return `Revert to “${d.value.join(', ')}”`
 }
 
 function addPair(scope: Scope) {
@@ -318,39 +183,23 @@ const currentAlbumArtistCredits = computed<ReleaseArtistCredit[]>(() =>
     albumArtistPairs.value.map((p) => ({ name: p.name, mbid: p.mbid }))
 )
 function onAlbumPickerSelect(payload: AlbumMatchPayload) {
-    if (payload.album !== undefined && payload.album !== values.value.album) {
-        values.value.album = payload.album
-        stageScalar('album')
-    }
-    if (payload.year !== undefined && payload.year !== (values.value.year ?? 0)) {
-        values.value.year = payload.year
-        stageScalar('year')
-    }
-    if (payload.mbReleaseId !== undefined) {
-        values.value.mb_release_id = payload.mbReleaseId
-        stageScalar('mb_release_id')
-    }
-    if (payload.mbReleaseGroupId !== undefined) {
-        values.value.mb_release_group_id = payload.mbReleaseGroupId
-        stageScalar('mb_release_group_id')
-    }
+    if (payload.album !== undefined) props.session.stageField(form.paths.value, 'album', payload.album)
+    if (payload.year !== undefined) props.session.stageField(form.paths.value, 'year', payload.year)
+    if (payload.mbReleaseId !== undefined)
+        props.session.stageField(form.paths.value, 'mb_release_id', payload.mbReleaseId)
+    if (payload.mbReleaseGroupId !== undefined)
+        props.session.stageField(form.paths.value, 'mb_release_group_id', payload.mbReleaseGroupId)
+    if (payload.genres !== undefined)
+        props.session.stageField(form.paths.value, 'genres', [...payload.genres])
     if (payload.albumArtists !== undefined) {
-        albumArtistPairs.value = payload.albumArtists.map((a) => ({
-            name: a.name,
-            mbid: a.mbid,
-            mixed: false
-        }))
+        albumArtistPairs.value = payload.albumArtists.map((a) => ({ name: a.name, mbid: a.mbid, mixed: false }))
         stagePairs('album_artist')
-    }
-    if (payload.genres !== undefined) {
-        genresList.value = [...payload.genres]
-        stageGenres()
     }
 }
 
 // resetPairs refills the artist pair editors from the effective selection.
 function resetPairs() {
-    const eff = effectiveSelection.value
+    const eff = form.effective.value
     const d = diff.value
     const artistRows = d.artists.shared
         ? distinctArtistMbids(eff, 'artists', 'mb_artist_ids')
@@ -361,53 +210,13 @@ function resetPairs() {
     const toPair = (r: ArtistMbidRow): Pair => ({ name: r.name, mbid: r.mbid, mixed: r.mixed })
     artistPairs.value = artistRows.map(toPair)
     albumArtistPairs.value = albumArtistRows.map(toPair)
-    genresList.value = d.genres.shared ? [...d.genres.value] : []
-}
-
-// numBuffer maps a numeric field diff onto the nullable buffer: mixed tracks
-// and an unset tag (0) both mean "show an empty box", so the placeholder is
-// visible in either case.
-function numBuffer(d: FieldDiff<number>): number | null {
-    if (!d.shared) return null
-    return d.value === 0 ? null : d.value
-}
-
-// reset refills the edit buffers when the selection changes. Purely a display
-// refresh: staged edits live in the session and are not discarded here.
-function reset() {
-    if (props.selection.length === 0) return
-    const d = diff.value
-    values.value = {
-        title: d.title.value,
-        album: d.album.value,
-        mb_recording_id: d.mb_recording_id.value,
-        mb_release_id: d.mb_release_id.value,
-        mb_release_group_id: d.mb_release_group_id.value,
-        year: numBuffer(d.year),
-        track_number: numBuffer(d.track_number),
-        disc_number: numBuffer(d.disc_number),
-        disc_subtitle: d.disc_subtitle.value,
-        compilation: d.compilation.value
-    }
-    placeholders.value = {
-        title: d.title.shared ? '' : '(multiple values)',
-        album: d.album.shared ? '' : '(multiple values)',
-        mb_recording_id: d.mb_recording_id.shared ? '' : '(multiple values)',
-        mb_release_id: d.mb_release_id.shared ? '' : '(multiple values)',
-        mb_release_group_id: d.mb_release_group_id.shared ? '' : '(multiple values)',
-        year: d.year.shared ? '' : '(multiple values)',
-        track_number: d.track_number.shared ? '' : '(multiple values)',
-        disc_number: d.disc_number.shared ? '' : '(multiple values)',
-        disc_subtitle: d.disc_subtitle.shared ? '' : '(multiple values)'
-    }
-    resetPairs()
 }
 
 // Watches the array reference, not its contents: the parent only ever replaces
 // `selection` with a new array (folder commit, identify apply, cancel) — the
 // Track objects are never mutated in place — so `deep` would traverse every
 // selected track's fields on each change for nothing.
-watch(() => props.selection, reset, { immediate: true })
+watch(() => props.selection, resetPairs, { immediate: true })
 
 const identifiable = computed(() => props.selection.filter((t) => !t.error))
 
@@ -537,110 +346,106 @@ watch(
 
         <template v-else>
         <CollapsibleSection title="Song" data-test="song-block">
-            <div class="field-row" :class="{ 'field-dirty': isDirty('title'), disabled: isMass }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('title'), disabled: isMass }">
                 <label :for="fid('title')">Title</label>
                 <InputText
                     :id="fid('title')"
                     class="field-title"
-                    v-model="values.title"
-                    @update:modelValue="stageScalar('title')"
-                    :placeholder="isMass ? '' : placeholders.title"
+                    v-model="title"
+                    :placeholder="isMass ? '' : form.placeholder('title').value"
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="isDirty('title')"
+                    v-if="form.isDirty('title')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset title"
                     data-test="undo-title"
-                    v-tooltip.left="undoTooltip('title')"
-                    @click="undoField('title')"
+                    v-tooltip.left="form.undoTooltip('title')"
+                    @click="form.undo('title')"
                 />
             </div>
 
             <div
                 class="field-row"
-                :class="{ 'field-dirty': isDirty('mb_recording_id'), disabled: isMass }"
+                :class="{ 'field-dirty': form.isDirty('mb_recording_id'), disabled: isMass }"
             >
                 <label :for="fid('mb_recording_id')">Recording ID</label>
                 <InputText
                     :id="fid('mb_recording_id')"
                     class="field-mbid"
-                    v-model="values.mb_recording_id"
-                    @update:modelValue="stageScalar('mb_recording_id')"
-                    :placeholder="isMass ? '' : placeholders.mb_recording_id"
+                    v-model="mbRecordingId"
+                    :placeholder="isMass ? '' : form.placeholder('mb_recording_id').value"
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="isDirty('mb_recording_id')"
+                    v-if="form.isDirty('mb_recording_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset recording ID"
                     data-test="undo-mb_recording_id"
-                    v-tooltip.left="undoTooltip('mb_recording_id')"
-                    @click="undoField('mb_recording_id')"
+                    v-tooltip.left="form.undoTooltip('mb_recording_id')"
+                    @click="form.undo('mb_recording_id')"
                 />
             </div>
 
             <div
                 class="field-row"
-                :class="{ 'field-dirty': isDirty('track_number'), disabled: isMass }"
+                :class="{ 'field-dirty': form.isDirty('track_number'), disabled: isMass }"
             >
                 <label :for="fid('track_number')">Track number</label>
                 <InputNumber
                     :inputId="fid('track_number')"
                     class="field-track-number"
-                    v-model="values.track_number"
-                    @update:modelValue="(v) => stageNumber('track_number', v)"
+                    v-model="trackNumber"
                     :useGrouping="false"
-                    :placeholder="isMass ? '' : placeholders.track_number"
+                    :placeholder="isMass ? '' : form.placeholder('track_number').value"
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="isDirty('track_number')"
+                    v-if="form.isDirty('track_number')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset track number"
                     data-test="undo-track_number"
-                    v-tooltip.left="undoTooltip('track_number')"
-                    @click="undoField('track_number')"
+                    v-tooltip.left="form.undoTooltip('track_number')"
+                    @click="form.undo('track_number')"
                 />
             </div>
 
             <div
                 class="field-block"
-                :class="{ 'section-dirty': isDirty('genres') }"
+                :class="{ 'section-dirty': form.isDirty('genres') }"
                 data-test="genres-block"
             >
                 <label :for="fid('genres')">
                     Genres
                     <Button
-                        v-if="isDirty('genres')"
+                        v-if="form.isDirty('genres')"
                         icon="pi pi-undo"
                         text
                         size="small"
                         aria-label="Reset genres"
                         data-test="undo-genres"
-                        v-tooltip.left="undoGenresTooltip()"
-                        @click="undoGenres"
+                        v-tooltip.left="form.undoGenresTooltip()"
+                        @click="form.undo('genres')"
                     />
                 </label>
                 <div class="genres-field">
-                    <small v-if="genresMixed" class="mixed-note" data-test="genres-mixed">
+                    <small v-if="form.genresMixed.value" class="mixed-note" data-test="genres-mixed">
                         Selected tracks have different genres. Add genres to overwrite all of
                         them; leave empty to keep each track's own.
                     </small>
                     <AutoComplete
                         :inputId="fid('genres')"
-                        v-model="genresList"
+                        v-model="genres"
                         multiple
                         :typeahead="false"
                         placeholder="Add genre and press Enter"
                         data-test="genres-input"
-                        @update:modelValue="stageGenres"
                     />
                 </div>
             </div>
@@ -737,7 +542,7 @@ watch(
                 />
             </template>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('album') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('album') }">
                 <label :for="fid('album')">
                     Name
                     <i
@@ -755,83 +560,79 @@ watch(
                 <InputText
                     :id="fid('album')"
                     class="album-name"
-                    v-model="values.album"
-                    @update:modelValue="stageScalar('album')"
-                    :placeholder="placeholders.album"
+                    v-model="album"
+                    :placeholder="form.placeholder('album').value"
                 />
                 <Button
-                    v-if="isDirty('album')"
+                    v-if="form.isDirty('album')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset album name"
                     data-test="undo-album"
-                    v-tooltip.left="undoTooltip('album')"
-                    @click="undoField('album')"
+                    v-tooltip.left="form.undoTooltip('album')"
+                    @click="form.undo('album')"
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('mb_release_id') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('mb_release_id') }">
                 <label :for="fid('mb_release_id')">Release ID</label>
                 <InputText
                     :id="fid('mb_release_id')"
                     class="album-mbid"
-                    v-model="values.mb_release_id"
-                    @update:modelValue="stageScalar('mb_release_id')"
-                    :placeholder="placeholders.mb_release_id"
+                    v-model="mbReleaseId"
+                    :placeholder="form.placeholder('mb_release_id').value"
                 />
                 <Button
-                    v-if="isDirty('mb_release_id')"
+                    v-if="form.isDirty('mb_release_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset release ID"
                     data-test="undo-mb_release_id"
-                    v-tooltip.left="undoTooltip('mb_release_id')"
-                    @click="undoField('mb_release_id')"
+                    v-tooltip.left="form.undoTooltip('mb_release_id')"
+                    @click="form.undo('mb_release_id')"
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('mb_release_group_id') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('mb_release_group_id') }">
                 <label :for="fid('mb_release_group_id')">Release-group ID</label>
                 <InputText
                     :id="fid('mb_release_group_id')"
                     class="album-mbid"
-                    v-model="values.mb_release_group_id"
-                    @update:modelValue="stageScalar('mb_release_group_id')"
-                    :placeholder="placeholders.mb_release_group_id"
+                    v-model="mbReleaseGroupId"
+                    :placeholder="form.placeholder('mb_release_group_id').value"
                 />
                 <Button
-                    v-if="isDirty('mb_release_group_id')"
+                    v-if="form.isDirty('mb_release_group_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset release-group ID"
                     data-test="undo-mb_release_group_id"
-                    v-tooltip.left="undoTooltip('mb_release_group_id')"
-                    @click="undoField('mb_release_group_id')"
+                    v-tooltip.left="form.undoTooltip('mb_release_group_id')"
+                    @click="form.undo('mb_release_group_id')"
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('year') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('year') }">
                 <label :for="fid('year')">Year</label>
                 <InputNumber
                     :inputId="fid('year')"
                     class="field-year"
-                    v-model="values.year"
-                    @update:modelValue="(v) => stageNumber('year', v)"
+                    v-model="year"
                     :useGrouping="false"
-                    :placeholder="placeholders.year"
+                    :placeholder="form.placeholder('year').value"
                 />
                 <Button
-                    v-if="isDirty('year')"
+                    v-if="form.isDirty('year')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset year"
                     data-test="undo-year"
-                    v-tooltip.left="undoTooltip('year')"
-                    @click="undoField('year')"
+                    v-tooltip.left="form.undoTooltip('year')"
+                    @click="form.undo('year')"
                 />
             </div>
 
@@ -919,19 +720,18 @@ watch(
                 </div>
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('compilation') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('compilation') }">
                 <label :for="fid('compilation')">Compilation</label>
                 <div class="compilation-field">
                     <Checkbox
                         :inputId="fid('compilation')"
-                        v-model="values.compilation"
-                        @update:modelValue="stageScalar('compilation')"
+                        v-model="compilation"
                         :binary="true"
-                        :indeterminate="compilationMixed"
+                        :indeterminate="form.compilationMixed.value"
                         data-test="compilation-input"
                     />
                     <small
-                        v-if="compilationMixed"
+                        v-if="form.compilationMixed.value"
                         class="mixed-note"
                         data-test="compilation-mixed"
                     >
@@ -939,57 +739,55 @@ watch(
                     </small>
                 </div>
                 <Button
-                    v-if="isDirty('compilation')"
+                    v-if="form.isDirty('compilation')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset compilation"
                     data-test="undo-compilation"
-                    v-tooltip.left="undoTooltip('compilation')"
-                    @click="undoField('compilation')"
+                    v-tooltip.left="form.undoTooltip('compilation')"
+                    @click="form.undo('compilation')"
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('disc_number') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('disc_number') }">
                 <label :for="fid('disc_number')">Disc number</label>
                 <InputNumber
                     :inputId="fid('disc_number')"
                     class="field-disc-number"
-                    v-model="values.disc_number"
-                    @update:modelValue="(v) => stageNumber('disc_number', v)"
+                    v-model="discNumber"
                     :useGrouping="false"
-                    :placeholder="placeholders.disc_number"
+                    :placeholder="form.placeholder('disc_number').value"
                 />
                 <Button
-                    v-if="isDirty('disc_number')"
+                    v-if="form.isDirty('disc_number')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset disc number"
                     data-test="undo-disc_number"
-                    v-tooltip.left="undoTooltip('disc_number')"
-                    @click="undoField('disc_number')"
+                    v-tooltip.left="form.undoTooltip('disc_number')"
+                    @click="form.undo('disc_number')"
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': isDirty('disc_subtitle') }">
+            <div class="field-row" :class="{ 'field-dirty': form.isDirty('disc_subtitle') }">
                 <label :for="fid('disc_subtitle')">Disc subtitle</label>
                 <InputText
                     :id="fid('disc_subtitle')"
                     class="field-disc-subtitle"
-                    v-model="values.disc_subtitle"
-                    @update:modelValue="stageScalar('disc_subtitle')"
-                    :placeholder="placeholders.disc_subtitle"
+                    v-model="discSubtitle"
+                    :placeholder="form.placeholder('disc_subtitle').value"
                 />
                 <Button
-                    v-if="isDirty('disc_subtitle')"
+                    v-if="form.isDirty('disc_subtitle')"
                     icon="pi pi-undo"
                     text
                     size="small"
                     aria-label="Reset disc subtitle"
                     data-test="undo-disc_subtitle"
-                    v-tooltip.left="undoTooltip('disc_subtitle')"
-                    @click="undoField('disc_subtitle')"
+                    v-tooltip.left="form.undoTooltip('disc_subtitle')"
+                    @click="form.undo('disc_subtitle')"
                 />
             </div>
         </CollapsibleSection>
@@ -998,9 +796,9 @@ watch(
             :selection="selection"
             :libraryId="libraryId"
             :session="session"
-            :releaseMbid="values.mb_release_id"
-            :releaseGroupMbid="values.mb_release_group_id"
-            :albumName="values.album"
+            :releaseMbid="mbReleaseId"
+            :releaseGroupMbid="mbReleaseGroupId"
+            :albumName="album"
         />
 
         </template>
@@ -1014,12 +812,12 @@ watch(
 
         <MusicBrainzAlbumPicker
             v-model:visible="albumPicker"
-            :albumName="values.album"
-            :currentReleaseMbid="values.mb_release_id"
-            :currentReleaseGroupMbid="values.mb_release_group_id"
-            :currentYear="values.year ?? 0"
+            :albumName="album"
+            :currentReleaseMbid="mbReleaseId"
+            :currentReleaseGroupMbid="mbReleaseGroupId"
+            :currentYear="year ?? 0"
             :currentAlbumArtists="currentAlbumArtistCredits"
-            :currentGenres="genresList"
+            :currentGenres="genres"
             @select="onAlbumPickerSelect"
         />
     </div>
