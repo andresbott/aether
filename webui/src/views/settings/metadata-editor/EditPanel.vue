@@ -15,6 +15,7 @@ import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 import FieldRow from './FieldRow.vue'
 import CreditListEditor from './CreditListEditor.vue'
+import GenreChips from './GenreChips.vue'
 import { useEditForm, type Pair, type Scope } from './useEditForm'
 
 const props = defineProps<{
@@ -266,39 +267,13 @@ watch(
                 @undo="form.undo('track_number')"
             />
 
-            <div
-                class="field-block"
-                :class="{ 'section-dirty': form.isDirty('genres') }"
-                data-test="genres-block"
-            >
-                <label :for="fid('genres')">
-                    Genres
-                    <Button
-                        v-if="form.isDirty('genres')"
-                        icon="pi pi-undo"
-                        text
-                        size="small"
-                        aria-label="Reset genres"
-                        data-test="undo-genres"
-                        v-tooltip.left="form.undoGenresTooltip()"
-                        @click="form.undo('genres')"
-                    />
-                </label>
-                <div class="genres-field">
-                    <small v-if="form.genresMixed.value" class="mixed-note" data-test="genres-mixed">
-                        Selected tracks have different genres. Add genres to overwrite all of
-                        them; leave empty to keep each track's own.
-                    </small>
-                    <AutoComplete
-                        :inputId="fid('genres')"
-                        v-model="genres"
-                        multiple
-                        :typeahead="false"
-                        placeholder="Add genre and press Enter"
-                        data-test="genres-input"
-                    />
-                </div>
-            </div>
+            <GenreChips
+                v-model="genres"
+                :mixed="form.genresMixed.value"
+                :dirty="form.isDirty('genres')"
+                :undo-tooltip="form.undoGenresTooltip()"
+                @undo="form.undo('genres')"
+            />
         </CollapsibleSection>
 
         <CollapsibleSection

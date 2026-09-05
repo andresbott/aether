@@ -21,6 +21,14 @@ const emit = defineEmits<{
     (e: 'update:modelValue', value: string | number | null): void
     (e: 'undo'): void
 }>()
+
+function handleTextUpdate(value: string | undefined) {
+    emit('update:modelValue', value ?? '')
+}
+
+function handleNumberUpdate(value: number | null | undefined) {
+    emit('update:modelValue', value ?? null)
+}
 </script>
 
 <template>
@@ -33,7 +41,7 @@ const emit = defineEmits<{
             :modelValue="modelValue as string"
             :placeholder="placeholder"
             :disabled="disabled"
-            @update:modelValue="emit('update:modelValue', $event)"
+            @update:modelValue="handleTextUpdate"
         />
         <InputNumber
             v-else
@@ -43,7 +51,7 @@ const emit = defineEmits<{
             :useGrouping="false"
             :placeholder="placeholder"
             :disabled="disabled"
-            @update:modelValue="emit('update:modelValue', $event)"
+            @update:modelValue="handleNumberUpdate"
         />
         <Button
             v-if="dirty"
