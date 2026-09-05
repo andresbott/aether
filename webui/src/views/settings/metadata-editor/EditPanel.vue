@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, useId } from 'vue'
 import InputText from 'primevue/inputtext'
 import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
@@ -49,6 +49,26 @@ interface Pair {
     mbid: string
     mixed: boolean
 }
+
+// Unique per-instance id prefix so each field label/input association is stable
+// and collision-free even if two panels ever mount at once.
+const uid = useId()
+const fid = (name: string) => `${uid}-${name}`
+
+// Load-bearing help/warning copy, shared between the hover tooltip and the
+// aria-label so keyboard/AT users reach the same text as mouse users.
+const albumGroupingHelp =
+    'Songs form one album when their album name, album artist and ' +
+    "Release ID all match. Upper/lower case and accents don't matter.\n\n" +
+    'An empty Release ID is treated as a value too, so songs ' +
+    'without one still group together — but they never join songs ' +
+    'that have one. Set the Release ID on all songs of an album or ' +
+    'on none; filling it for only some splits the album in two.'
+const albumArtistsHelp =
+    'The main artist the whole album is filed under, used for ' +
+    'grouping in the library. Usually one per album — it stays the ' +
+    'same even when individual tracks credit featured guests or, on ' +
+    'compilations, is “Various Artists”.'
 
 const isMass = computed(() => props.selection.length > 1)
 const selectionPaths = computed(() => props.selection.map((t) => t.path))
@@ -507,8 +527,9 @@ watch(
         <template v-else>
         <CollapsibleSection title="Song" data-test="song-block">
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('title'), disabled: isMass }">
-                <label>Title</label>
+                <label :for="fid('title')">Title</label>
                 <InputText
+                    :id="fid('title')"
                     class="field-title"
                     v-model="values.title"
                     @update:modelValue="stageScalar('title')"
@@ -531,8 +552,9 @@ watch(
                 class="field-row"
                 :class="{ 'field-dirty': fieldDirty('mb_recording_id'), disabled: isMass }"
             >
-                <label>Recording ID</label>
+                <label :for="fid('mb_recording_id')">Recording ID</label>
                 <InputText
+                    :id="fid('mb_recording_id')"
                     class="field-mbid"
                     v-model="values.mb_recording_id"
                     @update:modelValue="stageScalar('mb_recording_id')"
@@ -555,8 +577,9 @@ watch(
                 class="field-row"
                 :class="{ 'field-dirty': fieldDirty('track_number'), disabled: isMass }"
             >
-                <label>Track number</label>
+                <label :for="fid('track_number')">Track number</label>
                 <InputNumber
+                    :inputId="fid('track_number')"
                     class="field-track-number"
                     v-model="values.track_number"
                     @update:modelValue="(v) => stageNumber('track_number', v)"
@@ -581,7 +604,7 @@ watch(
                 :class="{ 'section-dirty': fieldDirty('genres') }"
                 data-test="genres-block"
             >
-                <label>
+                <label :for="fid('genres')">
                     Genres
                     <Button
                         v-if="fieldDirty('genres')"
@@ -600,6 +623,7 @@ watch(
                         them; leave empty to keep each track's own.
                     </small>
                     <AutoComplete
+                        :inputId="fid('genres')"
                         v-model="genresList"
                         multiple
                         :typeahead="false"
@@ -642,8 +666,9 @@ watch(
                 <div v-for="(pair, i) in artistPairs" :key="i" class="pair">
                     <div class="pair-fields">
                         <div class="pair-field">
-                            <label>Artist</label>
+                            <label :for="fid(`artist-name-${i}`)">Artist</label>
                             <InputText
+                                :id="fid(`artist-name-${i}`)"
                                 class="pair-name"
                                 v-model="pair.name"
                                 placeholder="Artist name"
@@ -651,8 +676,9 @@ watch(
                             />
                         </div>
                         <div class="pair-field">
-                            <label>MusicBrainz ID</label>
+                            <label :for="fid(`artist-mbid-${i}`)">MusicBrainz ID</label>
                             <InputText
+                                :id="fid(`artist-mbid-${i}`)"
                                 class="pair-mbid"
                                 v-model="pair.mbid"
                                 :placeholder="mbidPlaceholder(pair)"
@@ -701,25 +727,22 @@ watch(
             </template>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('album') }">
-                <label>
+                <label :for="fid('album')">
                     Name
                     <i
                         class="pi pi-exclamation-circle field-warn"
+                        tabindex="0"
+                        role="note"
+                        :aria-label="albumGroupingHelp"
                         v-tooltip.right="{
-                            value:
-                                'Songs form one album when their album name, album artist and ' +
-                                'Release ID all match. Upper/lower case and accents don\'t ' +
-                                'matter.\n\n' +
-                                'An empty Release ID is treated as a value too, so songs ' +
-                                'without one still group together — but they never join songs ' +
-                                'that have one. Set the Release ID on all songs of an album or ' +
-                                'on none; filling it for only some splits the album in two.',
+                            value: albumGroupingHelp,
                             class: 'wide-tooltip'
                         }"
                         data-test="album-grouping-help"
                     ></i>
                 </label>
                 <InputText
+                    :id="fid('album')"
                     class="album-name"
                     v-model="values.album"
                     @update:modelValue="stageScalar('album')"
@@ -738,8 +761,9 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_id') }">
-                <label>Release ID</label>
+                <label :for="fid('mb_release_id')">Release ID</label>
                 <InputText
+                    :id="fid('mb_release_id')"
                     class="album-mbid"
                     v-model="values.mb_release_id"
                     @update:modelValue="stageScalar('mb_release_id')"
@@ -758,8 +782,9 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_group_id') }">
-                <label>Release-group ID</label>
+                <label :for="fid('mb_release_group_id')">Release-group ID</label>
                 <InputText
+                    :id="fid('mb_release_group_id')"
                     class="album-mbid"
                     v-model="values.mb_release_group_id"
                     @update:modelValue="stageScalar('mb_release_group_id')"
@@ -778,8 +803,9 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('year') }">
-                <label>Year</label>
+                <label :for="fid('year')">Year</label>
                 <InputNumber
+                    :inputId="fid('year')"
                     class="field-year"
                     v-model="values.year"
                     @update:modelValue="(v) => stageNumber('year', v)"
@@ -806,12 +832,11 @@ watch(
                     Album artists
                     <i
                         class="pi pi-question-circle field-help"
+                        tabindex="0"
+                        role="note"
+                        :aria-label="albumArtistsHelp"
                         v-tooltip.right="{
-                            value:
-                                'The main artist the whole album is filed under, used for ' +
-                                'grouping in the library. Usually one per album — it stays the ' +
-                                'same even when individual tracks credit featured guests or, on ' +
-                                'compilations, is “Various Artists”.',
+                            value: albumArtistsHelp,
                             class: 'wide-tooltip'
                         }"
                         data-test="album-artists-help"
@@ -835,8 +860,9 @@ watch(
                     <div v-for="(pair, i) in albumArtistPairs" :key="i" class="pair">
                         <div class="pair-fields">
                             <div class="pair-field">
-                                <label>Album artist</label>
+                                <label :for="fid(`album-artist-name-${i}`)">Album artist</label>
                                 <InputText
+                                    :id="fid(`album-artist-name-${i}`)"
                                     class="pair-name"
                                     v-model="pair.name"
                                     placeholder="Album artist name"
@@ -844,8 +870,9 @@ watch(
                                 />
                             </div>
                             <div class="pair-field">
-                                <label>MusicBrainz ID</label>
+                                <label :for="fid(`album-artist-mbid-${i}`)">MusicBrainz ID</label>
                                 <InputText
+                                    :id="fid(`album-artist-mbid-${i}`)"
                                     class="pair-mbid"
                                     v-model="pair.mbid"
                                     :placeholder="mbidPlaceholder(pair)"
@@ -882,9 +909,10 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('compilation') }">
-                <label>Compilation</label>
+                <label :for="fid('compilation')">Compilation</label>
                 <div class="compilation-field">
                     <Checkbox
+                        :inputId="fid('compilation')"
                         v-model="values.compilation"
                         @update:modelValue="stageScalar('compilation')"
                         :binary="true"
@@ -912,8 +940,9 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('disc_number') }">
-                <label>Disc number</label>
+                <label :for="fid('disc_number')">Disc number</label>
                 <InputNumber
+                    :inputId="fid('disc_number')"
                     class="field-disc-number"
                     v-model="values.disc_number"
                     @update:modelValue="(v) => stageNumber('disc_number', v)"
@@ -933,8 +962,9 @@ watch(
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': fieldDirty('disc_subtitle') }">
-                <label>Disc subtitle</label>
+                <label :for="fid('disc_subtitle')">Disc subtitle</label>
                 <InputText
+                    :id="fid('disc_subtitle')"
                     class="field-disc-subtitle"
                     v-model="values.disc_subtitle"
                     @update:modelValue="stageScalar('disc_subtitle')"
