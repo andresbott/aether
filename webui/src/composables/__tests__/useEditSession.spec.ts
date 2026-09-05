@@ -542,6 +542,40 @@ describe('picture staging', () => {
         expect(session.hasStagedChanges.value).toBe(true)
     })
 
+    // Surface, on a picture-save abort, that the pending tag edits were skipped
+    // rather than leave the user with only the picture error and the unsaved pill.
+    const skippedTagWarnings = () =>
+        toastAddSpy.mock.calls
+            .map((c) => c[0])
+            .filter((t) => typeof t.summary === 'string' && t.summary.includes('were not saved'))
+
+    it('warns that pending tag edits were skipped when a picture save aborts', async () => {
+        const session = mkSession()
+        applyPictureSpy.mockRejectedValue(new Error('boom'))
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        session.stageField(['album/a.mp3'], 'title', 'New')
+        await session.save()
+        expect(updateTracksSpy).not.toHaveBeenCalled()
+        expect(skippedTagWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                summary: 'Tag edits for 1 track were not saved'
+            })
+        ])
+    })
+
+    it('stays silent about skipped tag edits when none were pending', async () => {
+        const session = mkSession()
+        applyPictureSpy.mockRejectedValue(new Error('boom'))
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        await session.save()
+        expect(skippedTagWarnings()).toEqual([])
+    })
+
     it('flags the staged tracks in stagedPaths for embedded ops', () => {
         const tracks = [
             mkTrack({ path: 'album/a.mp3' }),

@@ -820,6 +820,24 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         })
     }
 
+    // reportSkippedTagEdits warns, on a save that aborted because a picture or
+    // artist-image write failed, that the pending tag edits were never attempted.
+    // Without this the user sees only the picture error and the "Unsaved changes"
+    // pill, with nothing stating the staged field overlays were skipped (they
+    // stay staged — saving again retries them). Uses groupPatches, the same
+    // helper save() uses to build the tag batches, so no-op overlays don't warn.
+    function reportSkippedTagEdits() {
+        const batches = groupPatches(originals.value, overlays.value)
+        if (batches.length === 0) return
+        const tracks = new Set(batches.flatMap((b) => b.paths)).size
+        toast.add({
+            severity: 'warn',
+            summary: `Tag edits for ${tracks} track${tracks === 1 ? '' : 's'} were not saved`,
+            detail: 'The picture or artist-image save failed, so the pending tag edits were not attempted. They are still staged — save again to retry.',
+            life: 8000
+        })
+    }
+
     async function save() {
         const lib = libraryId()
         if (isSaving.value || lib === null) return
@@ -832,6 +850,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             let rescanFailure: string | null = pics.rescanFailure
             if (!pics.ok) {
                 reportRescanFailure(rescanFailure)
+                reportSkippedTagEdits()
                 return
             }
 
@@ -839,6 +858,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             if (arts.rescanFailure) rescanFailure = arts.rescanFailure
             if (!arts.ok) {
                 reportRescanFailure(rescanFailure)
+                reportSkippedTagEdits()
                 return
             }
 
