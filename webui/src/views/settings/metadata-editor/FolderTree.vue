@@ -36,6 +36,12 @@ const filteredExpandedKeys = ref<TreeExpandedKeys>({})
 const searching = ref(false)
 const searchTruncated = ref(false)
 
+// Monotonic tickets guarding against out-of-order responses when the library or
+// filter changes while a request is in flight: each async load grabs a ticket
+// and only commits its result if it is still the latest (see PicturesSection).
+let searchSeq = 0
+let treeSeq = 0
+
 const displayNodes = computed(() => (filtering.value ? filteredNodes.value : nodes.value))
 const displayExpandedKeys = computed(() =>
     filtering.value ? filteredExpandedKeys.value : expandedKeys.value
@@ -48,6 +54,7 @@ async function runSearch() {
         searchTruncated.value = false
         return
     }
+    const seq = ++searchSeq
     searching.value = true
     loadError.value = null
     try {
@@ -55,17 +62,19 @@ async function runSearch() {
             props.libraryId as number,
             filterQuery.value
         )
+        if (seq !== searchSeq) return
         const built = buildFilteredFolderTree(folders)
         filteredNodes.value = built.nodes
         filteredExpandedKeys.value = built.expandedKeys
         searchTruncated.value = truncated
     } catch (err: any) {
+        if (seq !== searchSeq) return
         loadError.value = apiErrorMessage(err)
         filteredNodes.value = []
         filteredExpandedKeys.value = {}
         searchTruncated.value = false
     } finally {
-        searching.value = false
+        if (seq === searchSeq) searching.value = false
     }
 }
 
@@ -129,7 +138,7 @@ function scrollToNode(nodeKey: string) {
 // selection to the user's click. If a segment no longer exists on disk it stops
 // at the deepest folder that does — expanding what it reached.
 // After expanding, scrolls the target node into view.
-async function expandToPath(target: string) {
+async function expandToPath(target: string, seq = treeSeq) {
     if (!target || props.libraryId === null) return
     const parts = target.split('/')
     let level = nodes.value
@@ -142,12 +151,15 @@ async function expandToPath(target: string) {
         if (!node) break
         if (node.leaf) break
         if (!node.children || node.children.length === 0) {
-            node.children = await loadChildren(node.data.path)
+            const children = await loadChildren(node.data.path)
+            if (seq !== treeSeq) return
+            node.children = children
         }
         nextExpanded[node.key as string] = true
         targetKey = node.key as string
         level = node.children ?? []
     }
+    if (seq !== treeSeq) return
     expandedKeys.value = nextExpanded
     // Scroll the target node into view after the DOM has rendered the expanded tree.
     if (targetKey) {
@@ -157,15 +169,19 @@ async function expandToPath(target: string) {
 }
 
 async function resetTree() {
+    const seq = ++treeSeq
     nodes.value = []
     expandedKeys.value = {}
     selectionKeys.value = {}
     loadError.value = null
     if (props.libraryId === null) return
     try {
-        nodes.value = await loadChildren('')
-        if (props.expandTo) await expandToPath(props.expandTo)
+        const loaded = await loadChildren('')
+        if (seq !== treeSeq) return
+        nodes.value = loaded
+        if (props.expandTo) await expandToPath(props.expandTo, seq)
     } catch (err: any) {
+        if (seq !== treeSeq) return
         loadError.value = apiErrorMessage(err)
     }
 }

@@ -202,67 +202,6 @@ Notes for editors:
   separate handler mounted under `/metadata`. Not urgent; decide before the next capability is bolted
   on. Handler-side counterpart to the known flat-`api_v1.go` / `/admin` reorg item.
 
-#### Backend — code health (line-level)
-
-- [x] [MED] Unchecked error from the genre re-query can silently corrupt associations (fixed e55886d)
-  `internal/store/genre.go:25` — after conflict-handling create, the code re-queries for the id via
-  `s.db.Where("name = ?", name).First(&genre)` without checking the error. On a race / connection loss
-  the re-query fails, `genre.ID` stays 0, and that track's genre association is silently wrong. Check
-  the error and return it.
-- [x] [MED] reconcileTrack returns bare errors with no context — production scan failures are undiagnosable (fixed ac9a85a)
-  `internal/scanner/reconcile.go` (≈ lines 93-96, 104-106, 116-119, 126-128, 148-161, 208-210). Many
-  `return err` sites pass through failures from `FindOrCreateArtists`/`FindOrCreateGenres`/
-  `FindOrCreateAlbum`/`db.Save`/`Association.Replace`/`UpsertTrack` unwrapped, so the log shows
-  "reconcile track failed" without which operation failed. Wrap each with `fmt.Errorf("...: %w", err)`.
-- [x] [MED] Silent filesystem error in cover detection (fixed 8729d02)
-  `internal/scanner/reconcile.go:288-290` — `detectCoverInDir` calls `filepath.Glob` and discards the
-  error, returning "" with no log. Permission/I/O errors that break cover detection for an album are
-  invisible. Add a debug log before returning.
-- [x] [INFO] store.Transaction does not receive a context for cancellation (fixed 53350ef)
-  Added `TransactionContext(ctx, fn)` (via `db.WithContext(ctx)`); `Transaction` kept as a
-  `context.Background()` wrapper. Threaded `ctx` through the scan path (reconcile per-track loop,
-  album continuity, `Cleanup`) and the libraries handlers (`DeleteLibrary`, update). Startup config
-  load stays on the plain wrapper. The direct `s.db.Transaction` calls in playlist/playqueue are a
-  separate pattern and were left as-is.
-
-#### API contract (OpenAPI) drift
-
-- [x] [MED] applyPicture: spec claims `paths` has NO maxItems cap, but code enforces 50 and returns 422 (fixed f9e1ed3)
-  `docs/openapi/aether-v1.yaml` `ApplyPictureForm` (2245-2273) states verbatim that `paths` "carries
-  no server-side maxItems cap" and omits `maxItems`, but `app/router/handlers/metadata/pictures.go:408-411`
-  caps at `maxSelectionPaths` (50) and answers 422 `ValidationProblem` on `/paths`. Genuine drift (cap
-  shipped #42, false prose written later in #43). A client trusting the spec sends a 60-track multi-disc
-  selection and gets an undocumented-shape 422. Fix: add `maxItems: 50` to `ApplyPictureForm.paths` and
-  delete the "no maxItems cap" sentence (sibling schemas `PictureSelection`/`UpdateTracksRequest` both
-  carry it; the 422 response is already listed on the op).
-- [x] [MED] 401/403 documented on ~11 metadata ops but silently omitted on 8 equally-gated ones (fixed 4174666)
-  The whole `/api/v1` subrouter is admin-gated (`app/router/api_v1.go:157,161`) so every route can
-  answer 401/403, but the spec documents them on ~11 ops and omits them on `listPictureInventory`,
-  `getPictureImage`, `applyPicture`, `clearPictureSelection`, `batchReadRawTags`,
-  `listPictureCandidates`, `listMetadataFolders`, `listMetadataTracks` (GET). A consumer generating
-  error handling from the spec won't handle 401/403 on the picture/browse endpoints. Fix: add the
-  `Unauthorized`/`Forbidden` response `$ref`s (both components exist) to those 8 — or strip 401/403
-  from all metadata ops and note the front-door guard once. The half-and-half state is the defect.
-- [x] [LOW] Empty `paths` returns 400 on updateTracks/identifyTracks/identifyAlbum, but the spec frames empty selection as 422 (fixed: shared `checkPaths`/`resolveLibrary`/`resolveSelection` — all five selection endpoints now itemise empty/over-cap `/paths` as 422, and a zero/missing `library_id` resolves to 404, matching `decodeSelection`; spec prose + tests updated)
-  The shared `UnprocessableEntity` response lists "an empty selection" as a 422 case and every
-  selection schema has `minItems`, which holds for the 3 JSON picture-selection endpoints
-  (`decodeSelection` → 422 `errNoSelection`). But `updateTracks` (`metadata.go:420-421,480`),
-  `identifyTracks` (`identify.go:86-88`) and `identifyAlbum` (`identify_album.go:58-61`) return a plain
-  400 with no `errors[]`. Make these 422 to match, or drop the "empty selection" example from the
-  shared 422 description.
-- [x] [LOW] updateTracks rejects an all-empty `fields: {}` with 400, undocumented (fixed dc09d2f)
-  `metadata.go:427-429` rejects a zero-value `fields` with 400 "fields must set at least one value to
-  write", but `UpdateTracksFields` (spec 2392-2441) has no `required`/`minProperties` and nothing
-  documents the no-op rejection. A client sending `fields: {}` after a no-op diff expects a 200 no-op
-  ledger. Fix: `minProperties: 1` on `UpdateTracksFields` and/or a prose note.
-- [x] [INFO] Undocumented 1 MiB JSON selection-body cap (fixed cf4d310)
-  `decodeSelection` wraps the body in `http.MaxBytesReader(..., maxSelectionBodyBytes)` (1 MiB,
-  `limits.go:27`; `metadata.go:241`) for inventory/removals/raw-tags; over-cap collapses into the
-  generic 400. Defensible (no missing response) but the limit is undocumented on `PictureSelection`.
-  Optional sentence. NOTE: extending the OpenAPI response-contract test to the mutation endpoints
-  (the existing "extend response-contract test" backlog item) would auto-catch the applyPicture,
-  empty-selection and empty-fields findings above — worth pairing.
-
 #### Frontend — metadata editor
 
 - [ ] [HIGH] Session picture-save fires one success toast + one full-tree cache invalidation PER op, defeating the aggregate-report design
@@ -297,11 +236,10 @@ Notes for editors:
   `MetadataEditorView.vue:42-49` — the `folderSearchTimer` setTimeout is never cleared; no `onUnmounted`
   hook exists. Navigating away while the 400ms debounce is pending fires the timer after unmount and
   mutates `folderFilter.value`. Fix: `onUnmounted(() => { if (folderSearchTimer) clearTimeout(folderSearchTimer) })`.
-- [ ] [CRITICAL] Async races in FolderTree loading — stale results overwrite fresh ones
-  `FolderTree.vue` `runSearch()` (:44-69) and `resetTree()` (:166-171) are async, called from watchers
-  (:72,186) with no cancellation or versioning. Changing library while a search is in-flight lets the
-  old library's results overwrite the new library's folders. Fix: add sequence numbering and discard
-  stale results — `PicturesSection.vue:69-78` already has the reference pattern.
+- [x] [CRITICAL] Async races in FolderTree loading — stale results overwrite fresh ones (fixed)
+  `FolderTree.vue` `runSearch()` and `resetTree()`/`expandToPath()` now grab a monotonic ticket
+  (`searchSeq`/`treeSeq`) and discard their result if superseded, mirroring `PicturesSection`. Regression
+  test in `FolderTree.race.spec.ts` (verified to fail without the guards).
 - [x] [MED] RawEditPanel edit buffers are never cleared on selection change — stale values shown for a different track (fixed eceb1af)
   `RawEditPanel.vue:86-99` — `editBuffers` (keyed by tag key) is written per keystroke and `displayValue`
   prefers it over recomputed `row.values`, with no watch clearing it when `selectionPaths`/`results`
