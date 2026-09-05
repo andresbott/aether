@@ -212,8 +212,7 @@ function onReload() {
 }
 
 // onCancel reverts every staged change (field overlays and picture ops) after
-// confirmation. The selection ref-copy makes EditPanel refresh its edit
-// buffers back to the original values.
+// confirmation.
 function onCancel() {
     confirm.require({
         header: 'Discard changes',
@@ -224,7 +223,6 @@ function onCancel() {
         acceptClass: 'p-button-danger',
         accept: () => {
             session.discardAll()
-            selection.value = [...selection.value]
         }
     })
 }
@@ -273,9 +271,6 @@ function onIdentifyApply(picks: IdentifyPick[], fields: IdentifyFieldId[]) {
     )
     session.stageOverlays(entries)
     runs.trackDialog.value = false
-    // New array reference so EditPanel's selection watcher refreshes its edit
-    // buffers with the just-staged values.
-    selection.value = [...selection.value]
 }
 
 function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldId[]) {
@@ -284,9 +279,6 @@ function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldI
     )
     session.stageOverlays(entries)
     runs.albumDialog.value = false
-    // New array reference so EditPanel's selection watcher refreshes its edit
-    // buffers with the just-staged values.
-    selection.value = [...selection.value]
 }
 
 // Re-identify: the user is asking past a cached answer, so the same files are
