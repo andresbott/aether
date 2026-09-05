@@ -75,7 +75,7 @@ Notes for editors:
 
 #### Backend — scan/import correctness & architecture
 
-- [ ] [HIGH] "Audio file" is defined four independent ways — the editor edits tags on files the index can never hold, and reports success
+- [x] [HIGH] "Audio file" is defined four independent ways — the editor edits tags on files the index can never hold, and reports success (fixed e8d05b3)
   `walk.audioExtensions` (16), `tags/taglib.taglibExtensions` (12), `tags/ffprobe.ffprobeExtensions`
   (22) and `FallbackReader.CanRead` (union = 22) each answer "does Aether handle this file?"
   differently, with no single source of truth and no test asserting a subset relationship. Six
