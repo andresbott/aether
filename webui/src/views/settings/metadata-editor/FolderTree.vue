@@ -103,31 +103,32 @@ async function loadChildren(parentPath: string): Promise<TreeNode[]> {
     )
 }
 
-// scrollToNode scrolls the target node into view within the tree container.
-// Fails silently if the container or node element cannot be found.
+// scrollToNode scrolls the target node into view within the tree's own scroller.
+// It locates the node by the stable `data-node-key` attribute the Tree
+// passthrough stamps on each row (never by mutating the bound selection, which
+// would flash a selection and race a user click landing in the same tick), and
+// scrolls only that scroller — never scrollIntoView, which also scrolls every
+// scrollable ancestor and the mobile visual viewport (see docs/agents/frontend.md).
+// Matches QueueBody's current-row pattern. Fails silently if the container or
+// node element cannot be found.
 function scrollToNode(nodeKey: string) {
-    if (!treeContainer.value) return
-    // PrimeVue Tree renders each node in a list. We query for aria-label that
-    // contains the node path or use data-pc-section to find nodes. As a simpler
-    // approach, we temporarily set the selection to trigger a focus/scroll, then
-    // clear it. However, the most robust approach is to query the DOM for the
-    // tree node element. PrimeVue uses [data-pc-section="node"] for node containers.
-    // We find all nodes and match by index or by checking the node's content.
-    const allNodes = treeContainer.value.querySelectorAll('[data-pc-section="node"]')
-    // Find the node by checking if it's currently expanded (has the right key)
-    // This is imprecise, so let's use a different approach: query by the aria-label
-    // or use the node's position. For now, let's try to find by the text content.
-    // A better approach: temporarily mark the target node as selected.
-    selectionKeys.value = { [nodeKey]: true }
-    // Wait a tick for the selection to render, then find the selected node.
-    nextTick(() => {
-        const selectedNode = treeContainer.value?.querySelector('[aria-selected="true"]')
-        if (selectedNode) {
-            selectedNode.scrollIntoView({ block: 'nearest', behavior: 'auto' })
-        }
-        // Clear the selection after scrolling
-        selectionKeys.value = {}
-    })
+    const scroller = treeContainer.value
+    if (!scroller) return
+    const node = Array.from(
+        scroller.querySelectorAll<HTMLElement>('[data-node-key]')
+    ).find((el) => el.getAttribute('data-node-key') === nodeKey)
+    if (!node) return
+    const nodeTop =
+        node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+    const nodeHeight = node.offsetHeight
+    let top: number | null = null
+    if (nodeTop < scroller.scrollTop) {
+        top = nodeTop
+    } else if (nodeTop + nodeHeight > scroller.scrollTop + scroller.clientHeight) {
+        top = nodeTop + nodeHeight - scroller.clientHeight
+    }
+    if (top === null) return
+    scroller.scrollTo?.({ top: Math.max(0, top), behavior: 'auto' })
 }
 
 // expandToPath opens the tree down to `target` (a full relative path), lazily
@@ -222,6 +223,7 @@ watch(
             :expandedKeys="displayExpandedKeys"
             selectionMode="single"
             v-model:selectionKeys="selectionKeys"
+            :pt="{ node: (opts: any) => ({ 'data-node-key': opts?.context?.node?.key }) }"
             @node-expand="onNodeExpand"
             @node-select="onNodeSelect"
         />

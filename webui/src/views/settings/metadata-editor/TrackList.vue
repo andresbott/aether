@@ -197,9 +197,26 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault()
 }
 
+// Scroll ONLY the list's own scroller to keep the moved row visible — never
+// scrollIntoView, which also scrolls every scrollable ancestor and the mobile
+// visual viewport (see docs/agents/frontend.md). Matches QueueBody's current-row
+// pattern: compute the row's offset within the scroller and scrollTo the minimal
+// amount, only when it isn't already fully in view ('nearest' semantics).
 function scrollRowIntoView(index: number): void {
-    const row = wrapperEl.value?.querySelectorAll('tbody tr')[index]
-    row?.scrollIntoView({ block: 'nearest' })
+    const scroller = wrapperEl.value
+    const row = scroller?.querySelectorAll<HTMLElement>('tbody tr')[index]
+    if (!scroller || !row) return
+    const rowTop =
+        row.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+    const rowHeight = row.offsetHeight
+    let top: number | null = null
+    if (rowTop < scroller.scrollTop) {
+        top = rowTop
+    } else if (rowTop + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+        top = rowTop + rowHeight - scroller.clientHeight
+    }
+    if (top === null) return
+    scroller.scrollTo?.({ top: Math.max(0, top), behavior: 'auto' })
 }
 
 const wrapperEl = ref<HTMLElement | null>(null)
