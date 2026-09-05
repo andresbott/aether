@@ -124,9 +124,12 @@ export async function updateTracksPartitioned(
 }
 
 // rescanWarning is the toast a failed post-write re-index produces: the write
-// itself landed on disk, only the library index lags. Shared by every write
-// path (tags and pictures) so the wording never drifts. Returns null when the
-// re-index succeeded or the server did not report one.
+// itself landed on disk; the library index did not catch up. The detail comes
+// verbatim from the server's `rescan.error`, which already says whether a full
+// scan is required (folder-cover / artist-image writes) or the next incremental
+// scan recovers on its own (tag / embedded-picture writes) — so this wording
+// stays generic. Shared by every write path. Returns null when the re-index
+// succeeded or the server did not report one.
 export function rescanWarning(rescan: RescanStatus | undefined) {
     if (!rescan || rescan.ok) return null
     return {

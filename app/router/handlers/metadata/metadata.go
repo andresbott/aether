@@ -94,12 +94,24 @@ type Handler struct {
 }
 
 // rescanStatus reports the outcome of the post-write re-index. A failure is
-// never fatal: the tags are already on disk, so the only consequence is that
-// the library index lags until the next scan.
+// never fatal — the write already landed on disk — but the recovery differs by
+// write kind. A tag or embedded-picture write changes the audio file's mtime,
+// so `filterChanged` (scanner.go) admits it and the next incremental scan
+// catches up on its own. A folder-cover or artist-image write touches no audio
+// mtime, so an incremental scan reconciles zero tracks in that directory and
+// never re-runs cover detection: only a full scan (or an unrelated tag edit to
+// a track in the same folder) repoints it. rescanFolderArt annotates the error
+// for those writes so the toast does not falsely promise "the next scan".
 type rescanStatus struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
 }
+
+// folderArtRescanNote is appended to a failed folder-cover / artist-image
+// rescan's error. These writes leave every audio mtime untouched, so an
+// incremental scan will never revisit the folder to re-detect the cover
+// (filterChanged keys on audio size/mtime); a full scan is required.
+const folderArtRescanNote = " A full library scan is required to update the index — an incremental scan will not pick up a cover-art change on its own."
 
 // rescanSaved re-indexes absPaths, returning nil when re-indexing is disabled
 // or there is nothing to do (the response then carries no "rescan" field).
@@ -122,6 +134,20 @@ func (h *Handler) rescanSaved(ctx context.Context, libraryID uint, absPaths []st
 		return &rescanStatus{Error: msg}
 	}
 	return &rescanStatus{OK: true}
+}
+
+// rescanFolderArt is rescanSaved for writes that only touch on-disk image files
+// (folder covers, artist images), never an audio file's tags. Because these
+// writes leave every audio mtime untouched, a failed synchronous re-index does
+// NOT self-heal on the next incremental scan the way a tag write does — it needs
+// a full scan. On failure it appends folderArtRescanNote so the message says so
+// instead of implying the index will catch up on its own.
+func (h *Handler) rescanFolderArt(ctx context.Context, libraryID uint, absPaths []string) *rescanStatus {
+	rs := h.rescanSaved(ctx, libraryID, absPaths)
+	if rs != nil && !rs.OK && rs.Error != "" {
+		rs.Error += folderArtRescanNote
+	}
+	return rs
 }
 
 // incompleteRescanMessage describes a partial re-index ("" = every path the

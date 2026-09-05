@@ -139,8 +139,21 @@ Two invariants:
   standalone.
 
 A rescan failure is reported in the response's `rescan: {ok, error}` field
-and never fails the write: the tags are already on disk, so the only
-consequence is that the index lags until the next scan. `ok: true` means every
+and never fails the write: the bytes are already on disk. What a failure costs
+depends on the write, and **"the next scan catches up" is only true for
+audio-file writes.** A tag or embedded-picture write changes the file's mtime,
+so `filterChanged` admits it and the next *incremental* scan re-indexes it. A
+**folder-cover or artist-image write touches no audio mtime**: `filterChanged`
+sees nothing changed in that directory, so an incremental scan reconciles zero
+tracks there and never re-runs `detectCoverInDir` — the stale cover persists
+indefinitely under the normal incremental cadence. Only a **full scan**
+(`opts.IsFull` bypasses `filterChanged`) — or an unrelated tag edit to a track
+in the same folder — repoints it. So the editor's cover-art paths
+(`rescanFolderArt` in `app/router/handlers/metadata`) append a note to the
+`rescan.error` on failure telling the user a full scan is required, rather than
+implying the index will self-heal.
+
+`ok: true` means every
 written path the library *covers* was re-indexed — the handler (`rescanSaved`)
 also treats a non-empty `ScanStats.Errors` or a shortfall against
 `len(paths) - TracksSkipped` as a failure, because `reconcile` swallows

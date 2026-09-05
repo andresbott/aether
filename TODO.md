@@ -111,7 +111,11 @@ Notes for editors:
   album's full track set, decided in the handler where the user's intent + the failed writes are
   both known) remains open — the scanner cannot distinguish a failed rename from a deliberate
   one-track reclassification, so it must not be a scanner-side heuristic.
-- [ ] [MEDIUM] Folder-art / album.CoverPath changes are invisible to incremental scans — a failed editor rescan is NOT fixed by "the next scan"
+- [x] [MEDIUM] Folder-art / album.CoverPath changes are invisible to incremental scans — a failed editor rescan is NOT fixed by "the next scan" (fixed)
+  Resolution: docs corrected (`scanning.md`, `metadata.go` comments) to stop claiming "the next scan
+  catches up" for folder art, and the editor's cover-art paths now use `rescanFolderArt`, which
+  appends "A full library scan is required…" to the `rescan.error` on failure. Tag/embedded-picture
+  writes keep the old wording since their audio mtime changes and an incremental scan does catch up.
   `album.CoverPath` is only (re)detected inside `reconcileTrack` (`detectCoverInDir`). `filterChanged`
   (`internal/scanner/scanner.go:260-278`) keys purely on AUDIO-file size/modtime, and a folder-cover
   write (`WriteFolderPicture`, `internal/metadataedit/pictures.go:107-137`) or artist.jpg touches no

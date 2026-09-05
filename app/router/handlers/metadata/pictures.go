@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -441,8 +442,10 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 
 	// Re-index the folder's tracks: the embedded slot changed their tags, and
 	// folder writes change which image the album should serve (reconcile
-	// redetects album.CoverPath).
-	rs := h.rescanSaved(r.Context(), libModel.ID, al.Tracks())
+	// redetects album.CoverPath). A folder write touches no audio mtime, so a
+	// failed re-index needs a full scan to recover (rescanFolderArt); an
+	// embedded write changed the tags, so the next incremental scan catches up.
+	rs := h.rescanForSlot(r.Context(), slot, libModel.ID, al.Tracks())
 	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Rescan: rs})
 }
 
@@ -520,10 +523,21 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{"ok": true}
-	if rs := h.rescanSaved(r.Context(), lib.ID, al.Tracks()); rs != nil {
+	if rs := h.rescanForSlot(r.Context(), sel.Slot, lib.ID, al.Tracks()); rs != nil {
 		out["rescan"] = rs
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// rescanForSlot picks the re-index helper for a picture slot: the "folder" slot
+// is an on-disk sidecar whose failed re-index needs a full scan to recover
+// (rescanFolderArt), while the "embedded" slot rewrote the audio files' tags, so
+// the next incremental scan catches up on its own (rescanSaved).
+func (h *Handler) rescanForSlot(ctx context.Context, slot string, libraryID uint, absPaths []string) *rescanStatus {
+	if slot == "folder" {
+		return h.rescanFolderArt(ctx, libraryID, absPaths)
+	}
+	return h.rescanSaved(ctx, libraryID, absPaths)
 }
 
 // writeImage writes raw image bytes with a sniffed image content-type.

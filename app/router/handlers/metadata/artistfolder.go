@@ -216,7 +216,9 @@ func (h *Handler) rescanArtistFolder(r *http.Request, libraryID uint, absDir str
 	if !ok {
 		return nil
 	}
-	return h.rescanSaved(r.Context(), libraryID, []string{p})
+	// Artist images are on-disk sidecar files, never audio tags, so a failed
+	// re-index needs a full scan to recover — rescanFolderArt says so.
+	return h.rescanFolderArt(r.Context(), libraryID, []string{p})
 }
 
 // artistImageSource returns the image bytes and normalized extension from either
