@@ -25,6 +25,16 @@ func (s *Store) FindOrCreateAlbum(ident AlbumIdentity) (*model.Album, error) {
 			MBReleaseID:     ident.MBReleaseID,
 		}
 		if err := s.db.Create(&album).Error; err != nil {
+			// An overlapping run (a targeted RescanPaths racing a scheduled scan)
+			// can First-miss and Create the same brand-new album concurrently; the
+			// loser hits the identity unique index. Re-read by the same key and use
+			// the winner's row instead of failing — and with it the whole track.
+			if IsUniqueViolation(err) {
+				var winner model.Album
+				if reErr := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", ident.NameNorm, ident.AlbumArtistNorm, ident.MBReleaseID).First(&winner).Error; reErr == nil {
+					return &winner, nil
+				}
+			}
 			return nil, err
 		}
 	}

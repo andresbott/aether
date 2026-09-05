@@ -28,6 +28,19 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 		if err != nil {
 			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 			if err := s.db.Create(&artist).Error; err != nil {
+				// An overlapping run (a targeted RescanPaths racing a scheduled
+				// scan) can First-miss and Create the same brand-new artist
+				// concurrently; the loser hits the name_norm unique index. Re-read
+				// and use the winner's row rather than failing — and with it the
+				// whole track. Any MBID divergence is transient and the next scan
+				// reconciles it.
+				if IsUniqueViolation(err) {
+					var winner model.Artist
+					if reErr := s.db.Where("name_norm = ?", norm).First(&winner).Error; reErr == nil {
+						artists = append(artists, &winner)
+						continue
+					}
+				}
 				return nil, nil, err
 			}
 		} else if mbid != "" && artist.MBArtistID != mbid {
