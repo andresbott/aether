@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, useId } from 'vue'
 import InputText from 'primevue/inputtext'
-import InputNumber from 'primevue/inputnumber'
-import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import type { Track } from '@/types/metadata'
@@ -16,7 +14,7 @@ import CollapsibleSection from './CollapsibleSection.vue'
 import FieldRow from './FieldRow.vue'
 import CreditListEditor from './CreditListEditor.vue'
 import GenreChips from './GenreChips.vue'
-import { useEditForm, type Pair, type Scope } from './useEditForm'
+import { useEditForm } from './useEditForm'
 
 const props = defineProps<{
     selection: Track[]
@@ -72,8 +70,6 @@ const genres = form.genres
 const compilation = form.compilation
 
 const isMass = form.isMass
-
-const dirtyFields = form.dirtyFields
 const isDirty = form.isDirty
 
 // Album search-dialog state. The picker emits only the fields the user left
@@ -89,8 +85,10 @@ function onAlbumPickerSelect(payload: AlbumMatchPayload) {
         props.session.stageField(form.paths.value, 'mb_release_id', payload.mbReleaseId)
     if (payload.mbReleaseGroupId !== undefined)
         props.session.stageField(form.paths.value, 'mb_release_group_id', payload.mbReleaseGroupId)
+    // Route genres through the composable's setter so the keep-each-track guard
+    // (unstage when originally-mixed and list is empty) applies.
     if (payload.genres !== undefined)
-        props.session.stageField(form.paths.value, 'genres', [...payload.genres])
+        form.genres.value = [...payload.genres]
     form.applyAlbumArtists(payload)
 }
 
@@ -299,6 +297,8 @@ watch(
                 />
             </template>
 
+            <!-- Shared by reference: CreditListEditor mutates the array in place;
+                 form.artistRows.value is the same reference that staging reads from. -->
             <CreditListEditor
                 :model-value="form.artistRows.value"
                 :mixed="form.artistsMixed.value"
@@ -434,6 +434,8 @@ watch(
                         @click="form.undoPairs('album_artist')"
                     />
                 </label>
+                <!-- Shared by reference: CreditListEditor mutates the array in place;
+                     form.albumArtistRows.value is the same reference that staging reads from. -->
                 <CreditListEditor
                     :model-value="form.albumArtistRows.value"
                     :mixed="form.albumArtistsMixed.value"

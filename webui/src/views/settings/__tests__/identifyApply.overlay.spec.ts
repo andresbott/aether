@@ -52,8 +52,8 @@ const mkTrack = (path: string, title: string, album: string): Track => ({
     mb_release_group_id: ''
 })
 
-describe('MetadataEditorView identify', () => {
-    it('onIdentifyApply stages the picked fields onto the session without re-selecting', () => {
+describe('identify apply → session overlay staging', () => {
+    it('stages picked fields from candidateToOverlay + pickOverlayFields onto the session', () => {
         // Arrange: create a session with two tracks
         const tracks = [
             mkTrack('track1.mp3', 'Original Title 1', 'Original Album'),

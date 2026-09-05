@@ -153,6 +153,8 @@ export function useEditForm(selection: () => Track[], session: EditSession) {
         session.stageField(paths.value, key, rows.map((p) => ({ name: p.name, mbid: p.mbid })))
     }
     function addPair(scope: Scope) {
+        // Known/accepted: adding multiple blank rows before typing collapses to one
+        // on reconcile (distinctArtistMbids dedups empty names) — intentional.
         rowsFor(scope).value.push({ name: '', mbid: '', mixed: false })
         stagePairs(scope)
     }

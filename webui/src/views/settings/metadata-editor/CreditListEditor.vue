@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, useId } from 'vue'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
 import MusicBrainzArtistPicker from '@/components/library/MusicBrainzArtistPicker.vue'
@@ -7,6 +7,9 @@ import type { Pair } from './useEditForm'
 import type { ArtistMatchPayload } from '@/types/artists'
 
 const props = defineProps<{
+    // The array of name/mbid pairs to edit. IMPORTANT: this array is mutated by
+    // reference (v-model="pair.name" mutates the object) and must be the same
+    // reference that staging reads from — do not clone or map it.
     modelValue: Pair[]
     mixed: boolean
     dirty: boolean
@@ -18,8 +21,6 @@ const props = defineProps<{
         removeAriaLabel: string
     }
     undoTooltip: string
-    undoTestId?: string
-    undoAriaLabel?: string
     mixedNote: string
 }>()
 
@@ -27,15 +28,15 @@ const emit = defineEmits<{
     (e: 'add'): void
     (e: 'remove', index: number): void
     (e: 'stage'): void
-    (e: 'undo'): void
     (e: 'pick', index: number, payload: ArtistMatchPayload): void
 }>()
 
-// Local refs for the pair inputs, synced with the prop
-const pairs = computed({
-    get: () => props.modelValue,
-    set: () => emit('stage')
-})
+// Unique per-instance id prefix so each field label/input association is stable
+const uid = useId()
+const fid = (name: string, index: number) => `${uid}-${name}-${index}`
+
+// Local access to the pairs for iteration
+const pairs = computed(() => props.modelValue)
 
 // Picker dialog state targeting a specific pair by index
 const pickerState = ref<{ open: boolean; index: number }>({ open: false, index: -1 })
@@ -63,8 +64,9 @@ function mbidPlaceholder(pair: Pair): string {
         <div v-for="(pair, i) in pairs" :key="i" class="pair">
             <div class="pair-fields">
                 <div class="pair-field">
-                    <label>{{ labels.heading }}</label>
+                    <label :for="fid('name', i)">{{ labels.heading }}</label>
                     <InputText
+                        :id="fid('name', i)"
                         class="pair-name"
                         v-model="pair.name"
                         :placeholder="labels.namePlaceholder"
@@ -72,8 +74,9 @@ function mbidPlaceholder(pair: Pair): string {
                     />
                 </div>
                 <div class="pair-field">
-                    <label>{{ labels.mbidPlaceholder }}</label>
+                    <label :for="fid('mbid', i)">{{ labels.mbidPlaceholder }}</label>
                     <InputText
+                        :id="fid('mbid', i)"
                         class="pair-mbid"
                         v-model="pair.mbid"
                         :placeholder="mbidPlaceholder(pair)"

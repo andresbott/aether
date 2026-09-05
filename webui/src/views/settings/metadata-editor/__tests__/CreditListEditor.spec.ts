@@ -247,4 +247,51 @@ describe('CreditListEditor', () => {
             { name: 'The Beatles', mbid: 'id-beatles' }
         ])
     })
+
+    it('associates labels with inputs via unique ids per row', () => {
+        const pairs: Pair[] = [
+            { name: 'Artist One', mbid: 'id-1', mixed: false },
+            { name: 'Artist Two', mbid: 'id-2', mixed: false }
+        ]
+        const wrapper = mount(CreditListEditor, {
+            props: {
+                modelValue: pairs,
+                mixed: false,
+                dirty: false,
+                labels: {
+                    heading: 'Artists',
+                    namePlaceholder: 'Artist name',
+                    mbidPlaceholder: 'MusicBrainz ID',
+                    addLabel: 'Add artist',
+                    removeAriaLabel: 'Remove artist'
+                },
+                undoTooltip: 'Reset',
+                mixedNote: ''
+            },
+            global: { stubs, directives: { tooltip: tooltipRecorder } }
+        })
+
+        const nameInputs = wrapper.findAll('input.pair-name')
+        const mbidInputs = wrapper.findAll('input.pair-mbid')
+        const labels = wrapper.findAll('.pair-field label')
+
+        // Each input must have an id
+        nameInputs.forEach((input) => {
+            expect(input.attributes('id')).toBeTruthy()
+        })
+        mbidInputs.forEach((input) => {
+            expect(input.attributes('id')).toBeTruthy()
+        })
+
+        // Each label must have a matching for attribute
+        for (let i = 0; i < pairs.length; i++) {
+            const nameLabel = labels[i * 2]
+            const mbidLabel = labels[i * 2 + 1]
+            const nameInput = nameInputs[i]
+            const mbidInput = mbidInputs[i]
+
+            expect(nameLabel.attributes('for')).toBe(nameInput.attributes('id'))
+            expect(mbidLabel.attributes('for')).toBe(mbidInput.attributes('id'))
+        }
+    })
 })
