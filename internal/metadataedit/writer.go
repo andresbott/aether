@@ -162,20 +162,35 @@ func WriteMetadata(path string, patch Patch, cur CurrentTags) error {
 	if patch.Empty() {
 		return nil
 	}
-	// Build (and thereby validate) the tag map before mutating anything, so
-	// an invalid patch never half-applies.
+	// Build (and thereby validate) the tag map before mutating anything, so a
+	// patch that fails validation never touches the file. This is validation
+	// atomicity only; the two write passes below are NOT atomic (see below).
 	tagMap, err := BuildTagMap(patch, cur)
 	if err != nil {
 		return err
+	}
+	// WriteTags and RemoveUnsupported are two independent taglib passes — the
+	// fork exposes no combined call — so a mid-way error (or the process dying
+	// between them) leaves the file partially edited. They touch disjoint
+	// frames: WriteTags only rewrites the text/property frames it is given,
+	// while RemoveUnsupported only deletes the hidden binary frames
+	// (PRIV/GEOB/POPM/unknown) named by the descriptors, which the tag map
+	// cannot represent. Because the sets are disjoint the order does not change
+	// the result on the success path. We deliberately run the destructive
+	// RemoveUnsupported LAST so that when a per-row failure is reported to the
+	// user the file is left with the structured edit APPLIED rather than with
+	// hidden frames stripped and the edit missing — the least-surprising state
+	// to be in when acting on that error.
+	if len(tagMap) > 0 {
+		// No Clear flag: only overwrite the keys we provide; leave others intact.
+		if err := taglib.WriteTags(path, tagMap, 0); err != nil {
+			return err
+		}
 	}
 	if patch.RemoveUnsupported != nil && len(*patch.RemoveUnsupported) > 0 {
 		if err := taglib.RemoveUnsupported(path, *patch.RemoveUnsupported); err != nil {
 			return fmt.Errorf("remove hidden frames: %w", err)
 		}
 	}
-	if len(tagMap) == 0 {
-		return nil
-	}
-	// No Clear flag: only overwrite the keys we provide; leave others intact.
-	return taglib.WriteTags(path, tagMap, 0)
+	return nil
 }
