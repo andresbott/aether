@@ -14,6 +14,7 @@ import RawEditPanel from './RawEditPanel.vue'
 import PicturesSection from './PicturesSection.vue'
 import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
+import FieldRow from './FieldRow.vue'
 import { useEditForm, type Pair, type Scope } from './useEditForm'
 
 const props = defineProps<{
@@ -241,75 +242,50 @@ watch(
 
         <template v-else>
         <CollapsibleSection title="Song" data-test="song-block">
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('title'), disabled: isMass }">
-                <label :for="fid('title')">Title</label>
-                <InputText
-                    :id="fid('title')"
-                    class="field-title"
-                    v-model="title"
-                    :placeholder="isMass ? '' : form.placeholder('title').value"
-                    :disabled="isMass"
-                />
-                <Button
-                    v-if="form.isDirty('title')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset title"
-                    data-test="undo-title"
-                    v-tooltip.left="form.undoTooltip('title')"
-                    @click="form.undo('title')"
-                />
-            </div>
+            <FieldRow
+                label="Title"
+                :id="fid('title')"
+                v-model="title"
+                type="text"
+                input-class="field-title"
+                :placeholder="isMass ? '' : form.placeholder('title').value"
+                :disabled="isMass"
+                :dirty="form.isDirty('title')"
+                :undo-tooltip="form.undoTooltip('title')"
+                undo-test-id="undo-title"
+                undo-aria-label="Reset title"
+                @undo="form.undo('title')"
+            />
 
-            <div
-                class="field-row"
-                :class="{ 'field-dirty': form.isDirty('mb_recording_id'), disabled: isMass }"
-            >
-                <label :for="fid('mb_recording_id')">Recording ID</label>
-                <InputText
-                    :id="fid('mb_recording_id')"
-                    class="field-mbid"
-                    v-model="mbRecordingId"
-                    :placeholder="isMass ? '' : form.placeholder('mb_recording_id').value"
-                    :disabled="isMass"
-                />
-                <Button
-                    v-if="form.isDirty('mb_recording_id')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset recording ID"
-                    data-test="undo-mb_recording_id"
-                    v-tooltip.left="form.undoTooltip('mb_recording_id')"
-                    @click="form.undo('mb_recording_id')"
-                />
-            </div>
+            <FieldRow
+                label="Recording ID"
+                :id="fid('mb_recording_id')"
+                v-model="mbRecordingId"
+                type="text"
+                input-class="field-mbid"
+                :placeholder="isMass ? '' : form.placeholder('mb_recording_id').value"
+                :disabled="isMass"
+                :dirty="form.isDirty('mb_recording_id')"
+                :undo-tooltip="form.undoTooltip('mb_recording_id')"
+                undo-test-id="undo-mb_recording_id"
+                undo-aria-label="Reset recording ID"
+                @undo="form.undo('mb_recording_id')"
+            />
 
-            <div
-                class="field-row"
-                :class="{ 'field-dirty': form.isDirty('track_number'), disabled: isMass }"
-            >
-                <label :for="fid('track_number')">Track number</label>
-                <InputNumber
-                    :inputId="fid('track_number')"
-                    class="field-track-number"
-                    v-model="trackNumber"
-                    :useGrouping="false"
-                    :placeholder="isMass ? '' : form.placeholder('track_number').value"
-                    :disabled="isMass"
-                />
-                <Button
-                    v-if="form.isDirty('track_number')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset track number"
-                    data-test="undo-track_number"
-                    v-tooltip.left="form.undoTooltip('track_number')"
-                    @click="form.undo('track_number')"
-                />
-            </div>
+            <FieldRow
+                label="Track number"
+                :id="fid('track_number')"
+                v-model="trackNumber"
+                type="number"
+                input-class="field-track-number"
+                :placeholder="isMass ? '' : form.placeholder('track_number').value"
+                :disabled="isMass"
+                :dirty="form.isDirty('track_number')"
+                :undo-tooltip="form.undoTooltip('track_number')"
+                undo-test-id="undo-track_number"
+                undo-aria-label="Reset track number"
+                @undo="form.undo('track_number')"
+            />
 
             <div
                 class="field-block"
@@ -470,66 +446,47 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('mb_release_id') }">
-                <label :for="fid('mb_release_id')">Release ID</label>
-                <InputText
-                    :id="fid('mb_release_id')"
-                    class="album-mbid"
-                    v-model="mbReleaseId"
-                    :placeholder="form.placeholder('mb_release_id').value"
-                />
-                <Button
-                    v-if="form.isDirty('mb_release_id')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset release ID"
-                    data-test="undo-mb_release_id"
-                    v-tooltip.left="form.undoTooltip('mb_release_id')"
-                    @click="form.undo('mb_release_id')"
-                />
-            </div>
+            <FieldRow
+                label="Release ID"
+                :id="fid('mb_release_id')"
+                v-model="mbReleaseId"
+                type="text"
+                input-class="album-mbid"
+                :placeholder="form.placeholder('mb_release_id').value"
+                :dirty="form.isDirty('mb_release_id')"
+                :undo-tooltip="form.undoTooltip('mb_release_id')"
+                undo-test-id="undo-mb_release_id"
+                undo-aria-label="Reset release ID"
+                @undo="form.undo('mb_release_id')"
+            />
 
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('mb_release_group_id') }">
-                <label :for="fid('mb_release_group_id')">Release-group ID</label>
-                <InputText
-                    :id="fid('mb_release_group_id')"
-                    class="album-mbid"
-                    v-model="mbReleaseGroupId"
-                    :placeholder="form.placeholder('mb_release_group_id').value"
-                />
-                <Button
-                    v-if="form.isDirty('mb_release_group_id')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset release-group ID"
-                    data-test="undo-mb_release_group_id"
-                    v-tooltip.left="form.undoTooltip('mb_release_group_id')"
-                    @click="form.undo('mb_release_group_id')"
-                />
-            </div>
+            <FieldRow
+                label="Release-group ID"
+                :id="fid('mb_release_group_id')"
+                v-model="mbReleaseGroupId"
+                type="text"
+                input-class="album-mbid"
+                :placeholder="form.placeholder('mb_release_group_id').value"
+                :dirty="form.isDirty('mb_release_group_id')"
+                :undo-tooltip="form.undoTooltip('mb_release_group_id')"
+                undo-test-id="undo-mb_release_group_id"
+                undo-aria-label="Reset release-group ID"
+                @undo="form.undo('mb_release_group_id')"
+            />
 
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('year') }">
-                <label :for="fid('year')">Year</label>
-                <InputNumber
-                    :inputId="fid('year')"
-                    class="field-year"
-                    v-model="year"
-                    :useGrouping="false"
-                    :placeholder="form.placeholder('year').value"
-                />
-                <Button
-                    v-if="form.isDirty('year')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset year"
-                    data-test="undo-year"
-                    v-tooltip.left="form.undoTooltip('year')"
-                    @click="form.undo('year')"
-                />
-            </div>
+            <FieldRow
+                label="Year"
+                :id="fid('year')"
+                v-model="year"
+                type="number"
+                input-class="field-year"
+                :placeholder="form.placeholder('year').value"
+                :dirty="form.isDirty('year')"
+                :undo-tooltip="form.undoTooltip('year')"
+                undo-test-id="undo-year"
+                undo-aria-label="Reset year"
+                @undo="form.undo('year')"
+            />
 
             <div
                 class="field-block"
@@ -645,46 +602,33 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('disc_number') }">
-                <label :for="fid('disc_number')">Disc number</label>
-                <InputNumber
-                    :inputId="fid('disc_number')"
-                    class="field-disc-number"
-                    v-model="discNumber"
-                    :useGrouping="false"
-                    :placeholder="form.placeholder('disc_number').value"
-                />
-                <Button
-                    v-if="form.isDirty('disc_number')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset disc number"
-                    data-test="undo-disc_number"
-                    v-tooltip.left="form.undoTooltip('disc_number')"
-                    @click="form.undo('disc_number')"
-                />
-            </div>
+            <FieldRow
+                label="Disc number"
+                :id="fid('disc_number')"
+                v-model="discNumber"
+                type="number"
+                input-class="field-disc-number"
+                :placeholder="form.placeholder('disc_number').value"
+                :dirty="form.isDirty('disc_number')"
+                :undo-tooltip="form.undoTooltip('disc_number')"
+                undo-test-id="undo-disc_number"
+                undo-aria-label="Reset disc number"
+                @undo="form.undo('disc_number')"
+            />
 
-            <div class="field-row" :class="{ 'field-dirty': form.isDirty('disc_subtitle') }">
-                <label :for="fid('disc_subtitle')">Disc subtitle</label>
-                <InputText
-                    :id="fid('disc_subtitle')"
-                    class="field-disc-subtitle"
-                    v-model="discSubtitle"
-                    :placeholder="form.placeholder('disc_subtitle').value"
-                />
-                <Button
-                    v-if="form.isDirty('disc_subtitle')"
-                    icon="pi pi-undo"
-                    text
-                    size="small"
-                    aria-label="Reset disc subtitle"
-                    data-test="undo-disc_subtitle"
-                    v-tooltip.left="form.undoTooltip('disc_subtitle')"
-                    @click="form.undo('disc_subtitle')"
-                />
-            </div>
+            <FieldRow
+                label="Disc subtitle"
+                :id="fid('disc_subtitle')"
+                v-model="discSubtitle"
+                type="text"
+                input-class="field-disc-subtitle"
+                :placeholder="form.placeholder('disc_subtitle').value"
+                :dirty="form.isDirty('disc_subtitle')"
+                :undo-tooltip="form.undoTooltip('disc_subtitle')"
+                undo-test-id="undo-disc_subtitle"
+                undo-aria-label="Reset disc subtitle"
+                @undo="form.undo('disc_subtitle')"
+            />
         </CollapsibleSection>
 
         <PicturesSection
