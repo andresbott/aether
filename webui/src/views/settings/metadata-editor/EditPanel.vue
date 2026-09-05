@@ -5,12 +5,7 @@ import InputNumber from 'primevue/inputnumber'
 import AutoComplete from 'primevue/autocomplete'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
-import type { Track, TrackOverlay } from '@/types/metadata'
-import {
-    diffInitialValues,
-    distinctArtistMbids,
-    type ArtistMbidRow
-} from '@/composables/useMetadataEditor'
+import type { Track } from '@/types/metadata'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ArtistMatchPayload, ReleaseArtistCredit } from '@/types/artists'
 import MusicBrainzArtistPicker from '@/components/library/MusicBrainzArtistPicker.vue'
@@ -19,7 +14,7 @@ import RawEditPanel from './RawEditPanel.vue'
 import PicturesSection from './PicturesSection.vue'
 import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
-import { useEditForm } from './useEditForm'
+import { useEditForm, type Pair, type Scope } from './useEditForm'
 
 const props = defineProps<{
     selection: Track[]
@@ -39,16 +34,6 @@ const emit = defineEmits<{
     (e: 'identify', tracks: Track[]): void
     (e: 'identify-album', tracks: Track[]): void
 }>()
-
-type Scope = 'artist' | 'album_artist'
-
-// One artist "group": an editable name and its MusicBrainz ID. `mixed` flags a
-// name whose selected tracks disagree on the ID (shown blank until edited).
-interface Pair {
-    name: string
-    mbid: string
-    mixed: boolean
-}
 
 // Unique per-instance id prefix so each field label/input association is stable
 // and collision-free even if two panels ever mount at once.
@@ -86,70 +71,8 @@ const compilation = form.compilation
 
 const isMass = form.isMass
 
-const artistPairs = ref<Pair[]>([])
-const albumArtistPairs = ref<Pair[]>([])
-
-const diff = computed(() => diffInitialValues(form.effective.value))
-const originalDiff = form.originalDiff
-const selectionPaths = form.paths
-// When the selected tracks don't all share the same artist list the names are
-// “mixed”: we show a note and start with a blank list. Adding artists overwrites
-// the whole list on every selected track; leaving it empty writes nothing.
-const artistsMixed = computed(() => props.selection.length > 1 && !diff.value.artists.shared)
-const albumArtistsMixed = computed(
-    () => props.selection.length > 1 && !diff.value.album_artists.shared
-)
-
 const dirtyFields = form.dirtyFields
 const isDirty = form.isDirty
-
-// undoPairsTooltip is the credit-list variant: lists the original names.
-function undoPairsTooltip(scope: Scope): string {
-    const d = originalDiff.value[creditsKey(scope)]
-    if (!d.shared) return 'Revert to each track\'s own value'
-    if (d.value.length === 0) return 'Revert to empty'
-    return `Revert to “${d.value.join(', ')}”`
-}
-
-function pairsFor(scope: Scope) {
-    return scope === 'artist' ? artistPairs : albumArtistPairs
-}
-function creditsKey(scope: Scope): 'artists' | 'album_artists' {
-    return scope === 'artist' ? 'artists' : 'album_artists'
-}
-
-// stagePairs stages the full credit list of a scope onto every selected track.
-// A pair list left empty over originally-mixed tracks stages nothing (keeps
-// each track's own artists), mirroring the pre-session mass-edit semantics.
-function stagePairs(scope: Scope) {
-    const key = creditsKey(scope)
-    const pairs = pairsFor(scope).value
-    const originallyMixed =
-        props.selection.length > 1 && !originalDiff.value[key].shared
-    if (originallyMixed && pairs.length === 0) {
-        props.session.unstageField(selectionPaths.value, key)
-        return
-    }
-    props.session.stageField(
-        selectionPaths.value,
-        key,
-        pairs.map((p) => ({ name: p.name, mbid: p.mbid }))
-    )
-}
-
-function undoPairs(scope: Scope) {
-    props.session.unstageField(selectionPaths.value, creditsKey(scope))
-    resetPairs()
-}
-
-function addPair(scope: Scope) {
-    pairsFor(scope).value.push({ name: '', mbid: '', mixed: false })
-    stagePairs(scope)
-}
-function removePair(scope: Scope, index: number) {
-    pairsFor(scope).value.splice(index, 1)
-    stagePairs(scope)
-}
 
 function mbidPlaceholder(pair: Pair): string {
     return pair.mixed && !pair.mbid ? '(mixed)' : ''
@@ -162,25 +85,21 @@ const picker = ref<{ open: boolean; scope: Scope; index: number }>({
     index: -1
 })
 const pickerPair = computed<Pair | undefined>(
-    () => pairsFor(picker.value.scope).value[picker.value.index]
+    () => (picker.value.scope === 'artist' ? form.artistRows : form.albumArtistRows).value[picker.value.index]
 )
 
 function openPicker(scope: Scope, index: number) {
     picker.value = { open: true, scope, index }
 }
 function onPickerSelect(payload: ArtistMatchPayload) {
-    const pair = pickerPair.value
-    if (!pair) return
-    if (payload.mbid !== undefined) pair.mbid = payload.mbid
-    if (payload.name !== undefined) pair.name = payload.name
-    stagePairs(picker.value.scope)
+    form.applyArtistPick(picker.value.scope, picker.value.index, payload)
 }
 
 // Album search-dialog state. The picker emits only the fields the user left
 // checked in its preview; clearing the match sends empty-string IDs.
 const albumPicker = ref(false)
 const currentAlbumArtistCredits = computed<ReleaseArtistCredit[]>(() =>
-    albumArtistPairs.value.map((p) => ({ name: p.name, mbid: p.mbid }))
+    form.albumArtistRows.value.map((p) => ({ name: p.name, mbid: p.mbid }))
 )
 function onAlbumPickerSelect(payload: AlbumMatchPayload) {
     if (payload.album !== undefined) props.session.stageField(form.paths.value, 'album', payload.album)
@@ -191,32 +110,8 @@ function onAlbumPickerSelect(payload: AlbumMatchPayload) {
         props.session.stageField(form.paths.value, 'mb_release_group_id', payload.mbReleaseGroupId)
     if (payload.genres !== undefined)
         props.session.stageField(form.paths.value, 'genres', [...payload.genres])
-    if (payload.albumArtists !== undefined) {
-        albumArtistPairs.value = payload.albumArtists.map((a) => ({ name: a.name, mbid: a.mbid, mixed: false }))
-        stagePairs('album_artist')
-    }
+    form.applyAlbumArtists(payload)
 }
-
-// resetPairs refills the artist pair editors from the effective selection.
-function resetPairs() {
-    const eff = form.effective.value
-    const d = diff.value
-    const artistRows = d.artists.shared
-        ? distinctArtistMbids(eff, 'artists', 'mb_artist_ids')
-        : []
-    const albumArtistRows = d.album_artists.shared
-        ? distinctArtistMbids(eff, 'album_artists', 'mb_album_artist_ids')
-        : []
-    const toPair = (r: ArtistMbidRow): Pair => ({ name: r.name, mbid: r.mbid, mixed: r.mixed })
-    artistPairs.value = artistRows.map(toPair)
-    albumArtistPairs.value = albumArtistRows.map(toPair)
-}
-
-// Watches the array reference, not its contents: the parent only ever replaces
-// `selection` with a new array (folder commit, identify apply, cancel) — the
-// Track objects are never mutated in place — so `deep` would traverse every
-// selected track's fields on each change for nothing.
-watch(() => props.selection, resetPairs, { immediate: true })
 
 const identifiable = computed(() => props.selection.filter((t) => !t.error))
 
@@ -469,17 +364,17 @@ watch(
                     size="small"
                     aria-label="Reset artists"
                     data-test="undo-artists"
-                    v-tooltip.left="undoPairsTooltip('artist')"
-                    @click="undoPairs('artist')"
+                    v-tooltip.left="form.undoPairsTooltip('artist')"
+                    @click="form.undoPairs('artist')"
                 />
             </template>
 
             <div class="pairs">
-                <small v-if="artistsMixed" class="mixed-note">
+                <small v-if="form.artistsMixed.value" class="mixed-note">
                     Selected tracks have different artists. Add artists to overwrite all of them;
                     leave empty to keep each track's own.
                 </small>
-                <div v-for="(pair, i) in artistPairs" :key="i" class="pair">
+                <div v-for="(pair, i) in form.artistRows.value" :key="i" class="pair">
                     <div class="pair-fields">
                         <div class="pair-field">
                             <label :for="fid(`artist-name-${i}`)">Artist</label>
@@ -488,7 +383,7 @@ watch(
                                 class="pair-name"
                                 v-model="pair.name"
                                 placeholder="Artist name"
-                                @update:modelValue="stagePairs('artist')"
+                                @update:modelValue="form.stagePairs('artist')"
                             />
                         </div>
                         <div class="pair-field">
@@ -498,7 +393,7 @@ watch(
                                 class="pair-mbid"
                                 v-model="pair.mbid"
                                 :placeholder="mbidPlaceholder(pair)"
-                                @update:modelValue="stagePairs('artist')"
+                                @update:modelValue="form.stagePairs('artist')"
                             />
                         </div>
                     </div>
@@ -516,7 +411,7 @@ watch(
                             size="small"
                             severity="secondary"
                             aria-label="Remove artist"
-                            @click="removePair('artist', i)"
+                            @click="form.removePair('artist', i)"
                         />
                     </div>
                 </div>
@@ -525,7 +420,7 @@ watch(
                     label="Add artist"
                     text
                     size="small"
-                    @click="addPair('artist')"
+                    @click="form.addPair('artist')"
                 />
             </div>
         </CollapsibleSection>
@@ -660,16 +555,16 @@ watch(
                         size="small"
                         aria-label="Reset album artists"
                         data-test="undo-album-artists"
-                        v-tooltip.left="undoPairsTooltip('album_artist')"
-                        @click="undoPairs('album_artist')"
+                        v-tooltip.left="form.undoPairsTooltip('album_artist')"
+                        @click="form.undoPairs('album_artist')"
                     />
                 </label>
                 <div class="pairs">
-                    <small v-if="albumArtistsMixed" class="mixed-note">
+                    <small v-if="form.albumArtistsMixed.value" class="mixed-note">
                         Selected tracks have different album artists. Add album artists to overwrite
                         all of them; leave empty to keep each track's own.
                     </small>
-                    <div v-for="(pair, i) in albumArtistPairs" :key="i" class="pair">
+                    <div v-for="(pair, i) in form.albumArtistRows.value" :key="i" class="pair">
                         <div class="pair-fields">
                             <div class="pair-field">
                                 <label :for="fid(`album-artist-name-${i}`)">Album artist</label>
@@ -678,7 +573,7 @@ watch(
                                     class="pair-name"
                                     v-model="pair.name"
                                     placeholder="Album artist name"
-                                    @update:modelValue="stagePairs('album_artist')"
+                                    @update:modelValue="form.stagePairs('album_artist')"
                                 />
                             </div>
                             <div class="pair-field">
@@ -688,7 +583,7 @@ watch(
                                     class="pair-mbid"
                                     v-model="pair.mbid"
                                     :placeholder="mbidPlaceholder(pair)"
-                                    @update:modelValue="stagePairs('album_artist')"
+                                    @update:modelValue="form.stagePairs('album_artist')"
                                 />
                             </div>
                         </div>
@@ -706,7 +601,7 @@ watch(
                                 size="small"
                                 severity="secondary"
                                 aria-label="Remove album artist"
-                                @click="removePair('album_artist', i)"
+                                @click="form.removePair('album_artist', i)"
                             />
                         </div>
                     </div>
@@ -715,7 +610,7 @@ watch(
                         label="Add album artist"
                         text
                         size="small"
-                        @click="addPair('album_artist')"
+                        @click="form.addPair('album_artist')"
                     />
                 </div>
             </div>

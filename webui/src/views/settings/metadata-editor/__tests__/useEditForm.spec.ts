@@ -85,3 +85,39 @@ describe('useEditForm scalars', () => {
         expect(api.isDirty('genres')).toBe(true)
     })
 })
+
+describe('useEditForm artist pairs', () => {
+    it('seeds rows from the shared effective credits', () => {
+        const { api } = useForm([mkTrack({ artists: ['A'], mb_artist_ids: ['id-a'] })])
+        expect(api.artistRows.value).toEqual([{ name: 'A', mbid: 'id-a', mixed: false }])
+    })
+
+    it('does NOT reseed rows while the user types (no clobber)', async () => {
+        const { api } = useForm([mkTrack({ artists: ['A'], mb_artist_ids: ['id-a'] })])
+        api.artistRows.value[0].name = 'Ab'
+        api.stagePairs('artist')
+        await nextTick()
+        // The typed row survives; derived == staged so no reseed replaced the array.
+        expect(api.artistRows.value[0].name).toBe('Ab')
+        expect(api.isDirty('artists')).toBe(true)
+    })
+
+    it('an added empty row persists across its own stage', async () => {
+        const { api } = useForm([mkTrack({ artists: ['A'], mb_artist_ids: ['id-a'] })])
+        api.addPair('artist') // pushes {name:'', mbid:'', mixed:false} and stages
+        await nextTick()
+        expect(api.artistRows.value.length).toBe(2)
+        expect(api.artistRows.value[1]).toEqual({ name: '', mbid: '', mixed: false })
+    })
+
+    it('undoPairs unstages and reseeds to the original rows', async () => {
+        const { api } = useForm([mkTrack({ artists: ['A'], mb_artist_ids: ['id-a'] })])
+        api.artistRows.value[0].name = 'Changed'
+        api.stagePairs('artist')
+        expect(api.isDirty('artists')).toBe(true)
+        api.undoPairs('artist')
+        await nextTick()
+        expect(api.isDirty('artists')).toBe(false)
+        expect(api.artistRows.value).toEqual([{ name: 'A', mbid: 'id-a', mixed: false }])
+    })
+})

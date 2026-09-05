@@ -864,3 +864,21 @@ describe('EditPanel album identify', () => {
         ).toBeDefined()
     })
 })
+
+it('reflects an externally staged album-artist list without a selection re-copy', async () => {
+    const track = mkTrack({ album_artists: ['Old'], mb_album_artist_ids: [''] })
+    const track2 = mkTrack({ path: 'b.mp3', album_artists: ['Old'], mb_album_artist_ids: [''] })
+    const { wrapper, session } = mountPanel([track, track2])
+
+    // Simulate identify: bulk-stage new album artists straight onto the session,
+    // WITHOUT the parent replacing the selection array.
+    session.stageOverlays(new Map([
+        [track.path, { album_artists: [{ name: 'New AA', mbid: 'mb-1' }] }],
+        [track2.path, { album_artists: [{ name: 'New AA', mbid: 'mb-1' }] }]
+    ]))
+    await nextTick()
+    await nextTick()
+
+    const names = wrapper.findAll('input.pair-name').map((i) => (i.element as HTMLInputElement).value)
+    expect(names).toContain('New AA')
+})
