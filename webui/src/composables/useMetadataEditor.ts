@@ -256,11 +256,15 @@ export function useIdentifyAlbum() {
 }
 
 // PictureMutationOptions tunes the shared picture mutations for a caller that
-// drives many of them in one logical save. quietRescanWarning suppresses the
-// per-call "index not updated" toast so that caller can raise one aggregate
-// warning instead of one per op (see useEditSession.savePictures).
+// drives many of them in one logical save. `quiet` hands ALL per-op reporting to
+// that caller: the success toast, the "index not updated" rescan warning, and
+// the cache invalidation are suppressed, so an N-cell save raises one aggregate
+// report and invalidates the caches once at the end of the loop instead of N
+// times mid-save — each mid-loop invalidation would otherwise refetch the
+// editor's own active query and re-trigger the session's prune while it is still
+// writing (see useEditSession.savePictures / save).
 export interface PictureMutationOptions {
-    quietRescanWarning?: boolean
+    quiet?: boolean
 }
 
 export function useApplyPicture(opts: PictureMutationOptions = {}) {
@@ -269,10 +273,13 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
     return useMutation({
         mutationFn: (form: FormData) => MetadataApi.applyPicture(form),
         onSuccess: (out) => {
+            // A quiet caller (batch/session save) owns invalidation and the
+            // aggregate report; stay out of its way so it fires exactly once.
+            if (opts.quiet) return
             invalidateAfterMetadataWrite(qc)
             // The image is written either way; warn when the index did not catch
             // up, or the album keeps serving the old cover with no explanation.
-            const warning = opts.quietRescanWarning ? null : rescanWarning(out.rescan)
+            const warning = rescanWarning(out.rescan)
             if (warning) {
                 toast.add(warning)
             }
@@ -300,8 +307,11 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
             paths: string[]
         }) => MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot),
         onSuccess: (out) => {
+            // A quiet caller (batch/session save) owns invalidation and the
+            // aggregate report; stay out of its way so it fires exactly once.
+            if (opts.quiet) return
             invalidateAfterMetadataWrite(qc)
-            const warning = opts.quietRescanWarning ? null : rescanWarning(out?.rescan)
+            const warning = rescanWarning(out?.rescan)
             if (warning) {
                 toast.add(warning)
             }

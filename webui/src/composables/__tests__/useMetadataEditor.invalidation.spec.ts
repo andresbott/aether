@@ -139,17 +139,20 @@ describe('picture write rescan reporting', () => {
         ])
     })
 
-    // The edit session raises one aggregate warning per save, so the per-op
-    // toast must be suppressible or a multi-cell save stacks duplicates.
-    it('quietRescanWarning suppresses the per-call warning', async () => {
+    // The edit session raises one aggregate warning per save and owns the cache
+    // invalidation, so a quiet op must stay fully silent — no rescan warning and
+    // no invalidation — or a multi-cell save stacks duplicates and refetches
+    // mid-write.
+    it('quiet suppresses the per-call warning and invalidation', async () => {
         applyPictureMock.mockResolvedValue({
             ok: true,
             slot: 'folder',
             type: 'Front Cover',
             rescan: { ok: false, error: 'db is locked' }
         })
-        const { mutation } = mountMutation(() => useApplyPicture({ quietRescanWarning: true }))
+        const { mutation, invalidateSpy } = mountMutation(() => useApplyPicture({ quiet: true }))
         await mutation.mutateAsync(new FormData())
         expect(rescanWarnings()).toEqual([])
+        expect(invalidateSpy).not.toHaveBeenCalled()
     })
 })

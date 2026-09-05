@@ -333,11 +333,14 @@ export type EditSession = ReturnType<typeof useEditSession>
 export function useEditSession(tracks: () => Track[] | undefined, libraryId: () => number | null) {
     const qc = useQueryClient()
     const toast = useToast()
-    // The session drives many picture ops per save and raises one aggregate
-    // "index not updated" warning itself, so the mutations must stay quiet
-    // about it — otherwise a 6-cell save would stack 6 identical toasts.
-    const applyPictureMutation = useApplyPicture({ quietRescanWarning: true })
-    const deletePictureMutation = useDeletePicture({ quietRescanWarning: true })
+    // The session drives many picture ops per save and owns the aggregate
+    // report — one "index not updated" warning and a single cache invalidation
+    // at the end of the loop. The mutations must therefore stay quiet: otherwise
+    // a 6-cell save would stack 6 success toasts and invalidate the whole
+    // music-UI tree 6 times mid-write (each refetching the editor's own query
+    // and re-triggering the prune while it is still writing).
+    const applyPictureMutation = useApplyPicture({ quiet: true })
+    const deletePictureMutation = useDeletePicture({ quiet: true })
 
     const overlays = ref(new Map<string, TrackOverlay>())
     const pictures = ref(new Map<string, PictureSessionEntry>())
@@ -685,7 +688,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // A failed re-index is not a write failure — the image is on disk — so it
     // does not abort; it is reported alongside the tag batches' failures, with
     // the same "last failure wins, never cleared by a later success" rule
-    // save() uses.
+    // save() uses. The mutations run quiet, so this loop owns the cache
+    // invalidation: one call after the whole loop, never one per op mid-write.
     async function savePictures(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
@@ -726,14 +730,20 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         slots.delete(slot)
                         wrote = true
                     } catch {
-                        if (wrote) picturesSavedAt.value = Date.now()
+                        if (wrote) {
+                            picturesSavedAt.value = Date.now()
+                            invalidateAfterMetadataWrite(qc)
+                        }
                         return { ok: false, rescanFailure }
                     }
                 }
             }
             prunePictureEntry(key)
         }
-        if (wrote) picturesSavedAt.value = Date.now()
+        if (wrote) {
+            picturesSavedAt.value = Date.now()
+            invalidateAfterMetadataWrite(qc)
+        }
         return { ok: true, rescanFailure }
     }
 
