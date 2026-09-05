@@ -7,14 +7,14 @@ import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
 import type { Track } from '@/types/metadata'
 import type { EditSession } from '@/composables/useEditSession'
-import type { AlbumMatchPayload, ArtistMatchPayload, ReleaseArtistCredit } from '@/types/artists'
-import MusicBrainzArtistPicker from '@/components/library/MusicBrainzArtistPicker.vue'
+import type { AlbumMatchPayload, ReleaseArtistCredit } from '@/types/artists'
 import MusicBrainzAlbumPicker from '@/components/library/MusicBrainzAlbumPicker.vue'
 import RawEditPanel from './RawEditPanel.vue'
 import PicturesSection from './PicturesSection.vue'
 import ArtistImageSection from './ArtistImageSection.vue'
 import CollapsibleSection from './CollapsibleSection.vue'
 import FieldRow from './FieldRow.vue'
+import CreditListEditor from './CreditListEditor.vue'
 import { useEditForm, type Pair, type Scope } from './useEditForm'
 
 const props = defineProps<{
@@ -74,27 +74,6 @@ const isMass = form.isMass
 
 const dirtyFields = form.dirtyFields
 const isDirty = form.isDirty
-
-function mbidPlaceholder(pair: Pair): string {
-    return pair.mixed && !pair.mbid ? '(mixed)' : ''
-}
-
-// Picker dialog state, targeting a specific pair by index.
-const picker = ref<{ open: boolean; scope: Scope; index: number }>({
-    open: false,
-    scope: 'artist',
-    index: -1
-})
-const pickerPair = computed<Pair | undefined>(
-    () => (picker.value.scope === 'artist' ? form.artistRows : form.albumArtistRows).value[picker.value.index]
-)
-
-function openPicker(scope: Scope, index: number) {
-    picker.value = { open: true, scope, index }
-}
-function onPickerSelect(payload: ArtistMatchPayload) {
-    form.applyArtistPick(picker.value.scope, picker.value.index, payload)
-}
 
 // Album search-dialog state. The picker emits only the fields the user left
 // checked in its preview; clearing the match sends empty-string IDs.
@@ -345,60 +324,24 @@ watch(
                 />
             </template>
 
-            <div class="pairs">
-                <small v-if="form.artistsMixed.value" class="mixed-note">
-                    Selected tracks have different artists. Add artists to overwrite all of them;
-                    leave empty to keep each track's own.
-                </small>
-                <div v-for="(pair, i) in form.artistRows.value" :key="i" class="pair">
-                    <div class="pair-fields">
-                        <div class="pair-field">
-                            <label :for="fid(`artist-name-${i}`)">Artist</label>
-                            <InputText
-                                :id="fid(`artist-name-${i}`)"
-                                class="pair-name"
-                                v-model="pair.name"
-                                placeholder="Artist name"
-                                @update:modelValue="form.stagePairs('artist')"
-                            />
-                        </div>
-                        <div class="pair-field">
-                            <label :for="fid(`artist-mbid-${i}`)">MusicBrainz ID</label>
-                            <InputText
-                                :id="fid(`artist-mbid-${i}`)"
-                                class="pair-mbid"
-                                v-model="pair.mbid"
-                                :placeholder="mbidPlaceholder(pair)"
-                                @update:modelValue="form.stagePairs('artist')"
-                            />
-                        </div>
-                    </div>
-                    <div class="pair-actions">
-                        <Button
-                            icon="pi pi-search"
-                            text
-                            size="small"
-                            aria-label="Search MusicBrainz"
-                            @click="openPicker('artist', i)"
-                        />
-                        <Button
-                            icon="pi pi-times"
-                            text
-                            size="small"
-                            severity="secondary"
-                            aria-label="Remove artist"
-                            @click="form.removePair('artist', i)"
-                        />
-                    </div>
-                </div>
-                <Button
-                    icon="pi pi-plus"
-                    label="Add artist"
-                    text
-                    size="small"
-                    @click="form.addPair('artist')"
-                />
-            </div>
+            <CreditListEditor
+                :model-value="form.artistRows.value"
+                :mixed="form.artistsMixed.value"
+                :dirty="isDirty('artists')"
+                :labels="{
+                    heading: 'Artist',
+                    namePlaceholder: 'Artist name',
+                    mbidPlaceholder: 'MusicBrainz ID',
+                    addLabel: 'Add artist',
+                    removeAriaLabel: 'Remove artist'
+                }"
+                :undo-tooltip="form.undoPairsTooltip('artist')"
+                mixed-note="Selected tracks have different artists. Add artists to overwrite all of them; leave empty to keep each track's own."
+                @add="form.addPair('artist')"
+                @remove="(i) => form.removePair('artist', i)"
+                @stage="form.stagePairs('artist')"
+                @pick="(i, payload) => form.applyArtistPick('artist', i, payload)"
+            />
         </CollapsibleSection>
 
         <CollapsibleSection title="Album" data-test="album-block">
@@ -516,60 +459,24 @@ watch(
                         @click="form.undoPairs('album_artist')"
                     />
                 </label>
-                <div class="pairs">
-                    <small v-if="form.albumArtistsMixed.value" class="mixed-note">
-                        Selected tracks have different album artists. Add album artists to overwrite
-                        all of them; leave empty to keep each track's own.
-                    </small>
-                    <div v-for="(pair, i) in form.albumArtistRows.value" :key="i" class="pair">
-                        <div class="pair-fields">
-                            <div class="pair-field">
-                                <label :for="fid(`album-artist-name-${i}`)">Album artist</label>
-                                <InputText
-                                    :id="fid(`album-artist-name-${i}`)"
-                                    class="pair-name"
-                                    v-model="pair.name"
-                                    placeholder="Album artist name"
-                                    @update:modelValue="form.stagePairs('album_artist')"
-                                />
-                            </div>
-                            <div class="pair-field">
-                                <label :for="fid(`album-artist-mbid-${i}`)">MusicBrainz ID</label>
-                                <InputText
-                                    :id="fid(`album-artist-mbid-${i}`)"
-                                    class="pair-mbid"
-                                    v-model="pair.mbid"
-                                    :placeholder="mbidPlaceholder(pair)"
-                                    @update:modelValue="form.stagePairs('album_artist')"
-                                />
-                            </div>
-                        </div>
-                        <div class="pair-actions">
-                            <Button
-                                icon="pi pi-search"
-                                text
-                                size="small"
-                                aria-label="Search MusicBrainz"
-                                @click="openPicker('album_artist', i)"
-                            />
-                            <Button
-                                icon="pi pi-times"
-                                text
-                                size="small"
-                                severity="secondary"
-                                aria-label="Remove album artist"
-                                @click="form.removePair('album_artist', i)"
-                            />
-                        </div>
-                    </div>
-                    <Button
-                        icon="pi pi-plus"
-                        label="Add album artist"
-                        text
-                        size="small"
-                        @click="form.addPair('album_artist')"
-                    />
-                </div>
+                <CreditListEditor
+                    :model-value="form.albumArtistRows.value"
+                    :mixed="form.albumArtistsMixed.value"
+                    :dirty="isDirty('album_artists')"
+                    :labels="{
+                        heading: 'Album artist',
+                        namePlaceholder: 'Album artist name',
+                        mbidPlaceholder: 'MusicBrainz ID',
+                        addLabel: 'Add album artist',
+                        removeAriaLabel: 'Remove album artist'
+                    }"
+                    :undo-tooltip="form.undoPairsTooltip('album_artist')"
+                    mixed-note="Selected tracks have different album artists. Add album artists to overwrite all of them; leave empty to keep each track's own."
+                    @add="form.addPair('album_artist')"
+                    @remove="(i) => form.removePair('album_artist', i)"
+                    @stage="form.stagePairs('album_artist')"
+                    @pick="(i, payload) => form.applyArtistPick('album_artist', i, payload)"
+                />
             </div>
 
             <div class="field-row" :class="{ 'field-dirty': form.isDirty('compilation') }">
@@ -641,13 +548,6 @@ watch(
         />
 
         </template>
-
-        <MusicBrainzArtistPicker
-            v-model:visible="picker.open"
-            :artistName="pickerPair?.name ?? ''"
-            :currentMbid="pickerPair?.mbid ?? ''"
-            @select="onPickerSelect"
-        />
 
         <MusicBrainzAlbumPicker
             v-model:visible="albumPicker"
