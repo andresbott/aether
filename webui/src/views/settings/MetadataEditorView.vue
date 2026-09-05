@@ -117,6 +117,26 @@ const session = useEditSession(
     () => selectedLibraryId.value
 )
 
+// A save (and any reload/invalidation) refetches the tracks into brand-new
+// Track objects, but `selection` still holds the references captured before the
+// write. EditPanel diffs its "original" baseline off `props.selection`, so left
+// alone it stays pre-save until the user reselects — wrong whenever the server
+// normalizes on write (genre trimming, the artist+MBID two-PUT split, a partial
+// per-path failure). Remap by path onto the fresh data as it settles (dropping
+// paths that vanished, preserving order) so the baseline tracks what is on disk.
+// vue-query's structural sharing keeps this ref stable when nothing changed, so
+// the watch only fires on a real refetch — no race with save() completing.
+watch(
+    () => tracksQuery.data.value,
+    (fresh) => {
+        if (!fresh || selection.value.length === 0) return
+        const byPath = new Map(fresh.map((t) => [t.path, t]))
+        selection.value = selection.value
+            .map((t) => byPath.get(t.path))
+            .filter((t): t is Track => t !== undefined)
+    }
+)
+
 // Both identify flows (and the in-memory cache behind them) live in
 // useIdentifyRuns: the dialog state, the abort controllers and the cache reads
 // are one concern, and the view only wires them to its children.
