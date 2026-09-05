@@ -337,6 +337,17 @@ describe('EditPanel staging and undo', () => {
         expect(session.stagedPaths.value.has('a.mp3')).toBe(true)
         expect(session.stagedPaths.value.has('b.mp3')).toBe(true)
     })
+
+    it('shows the album field dirty when staged directly on the session', async () => {
+        const track = mkTrack()
+        const { wrapper, session } = mountPanel([track])
+        expect(wrapper.find('[data-test="undo-album"]').exists()).toBe(false)
+
+        session.stageField([track.path], 'album', 'Staged Externally')
+        await nextTick()
+
+        expect(wrapper.find('[data-test="undo-album"]').exists()).toBe(true)
+    })
 })
 
 describe('EditPanel artist pairs', () => {

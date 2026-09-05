@@ -153,10 +153,21 @@ const compilationMixed = computed(
     () => props.selection.length > 1 && !diff.value.compilation.shared
 )
 
-// fieldDirty reports whether any selected track has this field staged; drives
-// the accent coloring and the per-field undo button.
-function fieldDirty(key: keyof TrackOverlay): boolean {
-    return props.session.isFieldStaged(selectionPaths.value, key)
+// dirtyFields is the union of every staged field key across the selection,
+// recomputed only when overlays or the selection change — not per render.
+// (raw / removeUnsupported keys land here too and are harmless: the form
+// never queries them.)
+const dirtyFields = computed<Set<keyof TrackOverlay>>(() => {
+    const s = new Set<keyof TrackOverlay>()
+    for (const p of selectionPaths.value) {
+        const overlay = props.session.overlays.value.get(p)
+        if (overlay) for (const k of Object.keys(overlay)) s.add(k as keyof TrackOverlay)
+    }
+    return s
+})
+// isDirty drives the accent coloring and the per-field undo button.
+function isDirty(key: keyof TrackOverlay): boolean {
+    return dirtyFields.value.has(key)
 }
 
 // stageScalar pushes the edit buffer's current value for one field onto the
@@ -526,7 +537,7 @@ watch(
 
         <template v-else>
         <CollapsibleSection title="Song" data-test="song-block">
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('title'), disabled: isMass }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('title'), disabled: isMass }">
                 <label :for="fid('title')">Title</label>
                 <InputText
                     :id="fid('title')"
@@ -537,7 +548,7 @@ watch(
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="fieldDirty('title')"
+                    v-if="isDirty('title')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -550,7 +561,7 @@ watch(
 
             <div
                 class="field-row"
-                :class="{ 'field-dirty': fieldDirty('mb_recording_id'), disabled: isMass }"
+                :class="{ 'field-dirty': isDirty('mb_recording_id'), disabled: isMass }"
             >
                 <label :for="fid('mb_recording_id')">Recording ID</label>
                 <InputText
@@ -562,7 +573,7 @@ watch(
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="fieldDirty('mb_recording_id')"
+                    v-if="isDirty('mb_recording_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -575,7 +586,7 @@ watch(
 
             <div
                 class="field-row"
-                :class="{ 'field-dirty': fieldDirty('track_number'), disabled: isMass }"
+                :class="{ 'field-dirty': isDirty('track_number'), disabled: isMass }"
             >
                 <label :for="fid('track_number')">Track number</label>
                 <InputNumber
@@ -588,7 +599,7 @@ watch(
                     :disabled="isMass"
                 />
                 <Button
-                    v-if="fieldDirty('track_number')"
+                    v-if="isDirty('track_number')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -601,13 +612,13 @@ watch(
 
             <div
                 class="field-block"
-                :class="{ 'section-dirty': fieldDirty('genres') }"
+                :class="{ 'section-dirty': isDirty('genres') }"
                 data-test="genres-block"
             >
                 <label :for="fid('genres')">
                     Genres
                     <Button
-                        v-if="fieldDirty('genres')"
+                        v-if="isDirty('genres')"
                         icon="pi pi-undo"
                         text
                         size="small"
@@ -637,7 +648,7 @@ watch(
 
         <CollapsibleSection
             title="Artists"
-            :dirty="fieldDirty('artists')"
+            :dirty="isDirty('artists')"
             :help="
                 'The performers credited on each track. Can differ per track ' +
                 'and include featured guests (e.g. a duet or a remix).'
@@ -646,7 +657,7 @@ watch(
         >
             <template #actions>
                 <Button
-                    v-if="fieldDirty('artists')"
+                    v-if="isDirty('artists')"
                     icon="pi pi-undo"
                     label="Reset"
                     text
@@ -726,7 +737,7 @@ watch(
                 />
             </template>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('album') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('album') }">
                 <label :for="fid('album')">
                     Name
                     <i
@@ -749,7 +760,7 @@ watch(
                     :placeholder="placeholders.album"
                 />
                 <Button
-                    v-if="fieldDirty('album')"
+                    v-if="isDirty('album')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -760,7 +771,7 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_id') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('mb_release_id') }">
                 <label :for="fid('mb_release_id')">Release ID</label>
                 <InputText
                     :id="fid('mb_release_id')"
@@ -770,7 +781,7 @@ watch(
                     :placeholder="placeholders.mb_release_id"
                 />
                 <Button
-                    v-if="fieldDirty('mb_release_id')"
+                    v-if="isDirty('mb_release_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -781,7 +792,7 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('mb_release_group_id') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('mb_release_group_id') }">
                 <label :for="fid('mb_release_group_id')">Release-group ID</label>
                 <InputText
                     :id="fid('mb_release_group_id')"
@@ -791,7 +802,7 @@ watch(
                     :placeholder="placeholders.mb_release_group_id"
                 />
                 <Button
-                    v-if="fieldDirty('mb_release_group_id')"
+                    v-if="isDirty('mb_release_group_id')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -802,7 +813,7 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('year') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('year') }">
                 <label :for="fid('year')">Year</label>
                 <InputNumber
                     :inputId="fid('year')"
@@ -813,7 +824,7 @@ watch(
                     :placeholder="placeholders.year"
                 />
                 <Button
-                    v-if="fieldDirty('year')"
+                    v-if="isDirty('year')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -826,7 +837,7 @@ watch(
 
             <div
                 class="field-block"
-                :class="{ 'section-dirty': fieldDirty('album_artists') }"
+                :class="{ 'section-dirty': isDirty('album_artists') }"
             >
                 <label>
                     Album artists
@@ -842,7 +853,7 @@ watch(
                         data-test="album-artists-help"
                     ></i>
                     <Button
-                        v-if="fieldDirty('album_artists')"
+                        v-if="isDirty('album_artists')"
                         icon="pi pi-undo"
                         text
                         size="small"
@@ -908,7 +919,7 @@ watch(
                 </div>
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('compilation') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('compilation') }">
                 <label :for="fid('compilation')">Compilation</label>
                 <div class="compilation-field">
                     <Checkbox
@@ -928,7 +939,7 @@ watch(
                     </small>
                 </div>
                 <Button
-                    v-if="fieldDirty('compilation')"
+                    v-if="isDirty('compilation')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -939,7 +950,7 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('disc_number') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('disc_number') }">
                 <label :for="fid('disc_number')">Disc number</label>
                 <InputNumber
                     :inputId="fid('disc_number')"
@@ -950,7 +961,7 @@ watch(
                     :placeholder="placeholders.disc_number"
                 />
                 <Button
-                    v-if="fieldDirty('disc_number')"
+                    v-if="isDirty('disc_number')"
                     icon="pi pi-undo"
                     text
                     size="small"
@@ -961,7 +972,7 @@ watch(
                 />
             </div>
 
-            <div class="field-row" :class="{ 'field-dirty': fieldDirty('disc_subtitle') }">
+            <div class="field-row" :class="{ 'field-dirty': isDirty('disc_subtitle') }">
                 <label :for="fid('disc_subtitle')">Disc subtitle</label>
                 <InputText
                     :id="fid('disc_subtitle')"
@@ -971,7 +982,7 @@ watch(
                     :placeholder="placeholders.disc_subtitle"
                 />
                 <Button
-                    v-if="fieldDirty('disc_subtitle')"
+                    v-if="isDirty('disc_subtitle')"
                     icon="pi pi-undo"
                     text
                     size="small"
