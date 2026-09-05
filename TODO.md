@@ -174,7 +174,7 @@ Notes for editors:
     `starred_items` rows still present, or albums gone with `album_artists` dangling — until the next
     full scan re-sweeps. Not a concurrency data-loss (SQLite serializes writers), but the error path
     commits a subset. Wrap both the track delete and the aggregate sweep in one `store.Transaction`.
-- [ ] [MEDIUM] WriteMetadata applies RemoveUnsupported and WriteTags as two non-atomic taglib operations
+- [x] [MEDIUM] WriteMetadata applies RemoveUnsupported and WriteTags as two non-atomic taglib operations (fixed 944ea9c)
   `internal/metadataedit/writer.go:161-181`. The comment promises "an invalid patch never
   half-applies," but that only covers validation (`BuildTagMap` before mutating). The write itself is
   two independent taglib ops: `RemoveUnsupported(path, ...)` then `WriteTags(path, ...)`. If the first
@@ -183,7 +183,7 @@ Notes for editors:
   user "this row failed" while the removal already persisted. Direction: document the ordering
   guarantee, ideally fold both into one write pass if the fork's API allows, or run the destructive
   `RemoveUnsupported` last.
-- [ ] [LOW] FindOrCreate* unique-violation under overlapping runs skips a track avoidably
+- [x] [LOW] FindOrCreate* unique-violation under overlapping runs skips a track avoidably (fixed 734ca6b)
   `FindOrCreateArtists`/`FindOrCreateAlbum` (`internal/store/{artist,album}.go`) do read-then-create
   with no `ON CONFLICT`. A targeted `RescanPaths` at `time.Now()` overlapping a scheduled `scan` can
   have both `First`-miss the same brand-new artist/album and both `Create`; the loser hits a
@@ -204,7 +204,7 @@ Notes for editors:
 
 #### Frontend — metadata editor
 
-- [ ] [HIGH] Session picture-save fires one success toast + one full-tree cache invalidation PER op, defeating the aggregate-report design
+- [x] [HIGH] Session picture-save fires one success toast + one full-tree cache invalidation PER op, defeating the aggregate-report design (fixed 078a410)
   `useEditSession.ts:337-340` builds picture mutations with `quietRescanWarning: true` specifically so
   "a 6-cell save doesn't stack 6 toasts," but that flag only suppresses the rescan WARNING.
   `useApplyPicture/useDeletePicture.onSuccess` (`useMetadataEditor.ts:271-308`) still unconditionally
@@ -215,7 +215,7 @@ Notes for editors:
   query and re-triggers the session's `watch(originals)` prune WHILE it is still writing. Direction:
   gate the success toast on `quietRescanWarning` (or a broader `quiet`), and drop/debounce the per-op
   invalidation when quiet so `save()` invalidates once at the end.
-- [ ] [HIGH] Selection is never re-synced to refetched track data after a save — the form baseline goes stale
+- [x] [HIGH] Selection is never re-synced to refetched track data after a save — the form baseline goes stale (fixed d573194)
   `MetadataEditorView.vue` (:29,252,263) holds `selection` as `Track` object references captured before
   the write; after `save()` invalidates and `tracksQuery` refetches, nothing updates `selection` — the
   three `selection.value = [...selection.value]` sites re-copy the SAME stale objects. `EditPanel`
@@ -247,7 +247,7 @@ Notes for editors:
   the textareas keep showing the previously-typed text for a matching key while the staged/dirty state
   reflects the new selection. (Save is masked because save flips `rawMode` off, remounting; the
   selection-change case is not.) Fix: `watch([() => props.selection, results], () => editBuffers.value.clear())`.
-- [ ] [MED] scrollIntoView used inside the app shell — documented-forbidden pattern, causes mobile regression
+- [x] [MED] scrollIntoView used inside the app shell — documented-forbidden pattern, causes mobile regression (fixed 07a76c7)
   `TrackList.vue:200-203` (arrow-key row nav) and `FolderTree.vue:117` call
   `element.scrollIntoView(...)` directly inside the shell. `docs/agents/frontend.md` forbids this ("scroll
   the intended scroller with `scrollTo`") because it reveals the target in every scrollable ancestor and
@@ -269,7 +269,7 @@ Notes for editors:
   an array of full `Track` objects on every trigger, but selection is only ever REPLACED by a new array
   reference (never mutated in place), so the deep flag buys nothing and costs a recursive traversal each
   change. Use a shallow watch (or watch `selectionPaths.value.join('\n')`).
-- [ ] [MED] Editor forms have real accessibility gaps
+- [x] [MED] Editor forms have real accessibility gaps (fixed bb592df)
   Field rows use bare `<label>Title</label>` next to PrimeVue `InputText`/`InputNumber` with no `for`/`id`
   association (`EditPanel.vue:505-537` and every field row); RawEditPanel textareas are labeled only by an
   adjacent span. Clicking labels doesn't focus and screen readers announce unlabeled inputs. Load-bearing
@@ -282,13 +282,13 @@ Notes for editors:
   large flat folder (hundreds–thousands of files) renders one `<tr>` per track, and the selection logic
   (`rangeBetween`, `dedupe`, `findIndex` per toggle) is O(n) per interaction. The rest of the app routes
   card grids through `VirtualCardGrid` for this reason. Add `scrollable` + `virtualScroll`.
-- [ ] [MED-LOW] FolderTree scrollToNode abuses the selectionKeys v-model as a DOM-query hack
+- [x] [MED-LOW] FolderTree scrollToNode abuses the selectionKeys v-model as a DOM-query hack (fixed 07a76c7)
   `FolderTree.vue:99-122` — to locate a node it temporarily sets `selectionKeys.value = {[nodeKey]:true}`,
   waits a tick, queries `[aria-selected="true"]`, scrolls, then clears it (the code's own comment calls it
   "imprecise"). This mutates the Tree's bound selection (visible flash, races a user click landing in the
   same tick) purely to find an element. Query by stable `key`/`data-*` instead, and `scrollTo` (see the
   scrollIntoView item).
-- [ ] [LOW] A picture/artist-image save failure silently skips the pending tag edits
+- [x] [LOW] A picture/artist-image save failure silently skips the pending tag edits (fixed 095d88a)
   `useEditSession.ts:817-828` — `save()` runs `savePictures()` then `saveArtistImages()` first; if either
   returns `ok:false` it reports the rescan warning and RETURNS before the tag batches. The staged field
   overlays are neither written nor reported — the user sees the picture error and the "Unsaved changes"
@@ -303,7 +303,7 @@ Notes for editors:
   `:hover`/`:focus-within`. Keyboard works (buttons stay tabbable), but a touch tablet (stays on the
   desktop shell) has no hover and no tap handler to flip the tile, so an occupied cell's controls can't be
   reached by tapping. Add a tap-to-flip affordance on coarse pointers.
-- [ ] [NOTE] Investigated, NOT a bug: TanStack Query queryKey getters
+- [x] [NOTE] Investigated, NOT a bug: TanStack Query queryKey getters (cast tidied 6e4dd16)
   vue-code-reviewer flagged `useFolders`/`useTracks`/`useRawTags` passing getter functions in the
   `queryKey` array (`useMetadataEditor.ts:40-53,184-189`) as broken reactivity. Natalia verified it is
   fine: vue-query's `cloneDeepUnref` turns `unrefGetters` on inside the queryKey branch, so
