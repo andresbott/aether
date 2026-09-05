@@ -278,6 +278,96 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	}
 }
 
+// warnHandler builds an updateTracks handler over a real fixture copied into the
+// library, so a save can partially fail (a missing sibling path) while one real
+// file writes.
+func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
+	t.Helper()
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return r, lib
+}
+
+func warnFromUpdate(t *testing.T, r *mux.Router, body string) string {
+	t.Helper()
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Warning string `json:"warning,omitempty"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v: %s", err, w.Body.String())
+	}
+	return resp.Warning
+}
+
+// When an identity-affecting edit (album, album artist, MB release id) writes
+// only part of the selection, the remaining files keep the old album identity
+// on disk: the scanner sees a split and mints a new album row, stranding the old
+// row's manual cover, stars and created_at on a remnant. The user must be warned
+// that those may have moved. See internal/scanner/albumcontinuity.go.
+func TestUpdateTracks_PartialIdentityEditWarnsAlbumMoved(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac", "missing.flac"],
+		"fields": { "album": "New Album Name" }
+	}`
+	warning := warnFromUpdate(t, r, body)
+	if warning == "" {
+		t.Fatal("expected a warning that the album cover/stars may have moved, got none")
+	}
+	if !strings.Contains(strings.ToLower(warning), "album") {
+		t.Fatalf("warning should mention the album, got %q", warning)
+	}
+}
+
+// A partial failure on a non-identity field (title) cannot strand an album, so
+// it must not raise the album-moved warning.
+func TestUpdateTracks_PartialNonIdentityEditDoesNotWarn(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac", "missing.flac"],
+		"fields": { "title": "New Title" }
+	}`
+	if warning := warnFromUpdate(t, r, body); warning != "" {
+		t.Fatalf("a title edit cannot move an album; expected no warning, got %q", warning)
+	}
+}
+
+// An identity edit where every file wrote is consistent on disk: continuity
+// retags the album in place and nothing moves, so there is no warning.
+func TestUpdateTracks_CompleteIdentityEditDoesNotWarn(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac"],
+		"fields": { "album": "New Album Name" }
+	}`
+	if warning := warnFromUpdate(t, r, body); warning != "" {
+		t.Fatalf("a fully-written album rename should not warn, got %q", warning)
+	}
+}
+
 // Every row failing is still a processed batch, not a transport failure: the
 // status stays 200 and each row carries its own error, exactly as rawTags
 // does. Before this rule the handler flipped to 500 with the identical body,

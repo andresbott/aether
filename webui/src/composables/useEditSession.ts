@@ -871,6 +871,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             }
             const results: UpdateResult[] = []
             let transportError: unknown = null
+            let albumMoved: string | null = null
             for (const batch of batches) {
                 try {
                     // Sequential on purpose: the server writes tags into files
@@ -886,6 +887,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     if (out.rescan && !out.rescan.ok) {
                         rescanFailure = out.rescan.error ?? 'unknown error'
                     }
+                    // A partial album-identity edit may have split the album;
+                    // keep the warning so it survives a later clean batch.
+                    if (out.warning) albumMoved = out.warning
                 } catch (err) {
                     // A transport-level failure likely affects the remaining
                     // batches too; stop and report what completed.
@@ -899,6 +903,14 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             invalidateAfterMetadataWrite(qc)
 
             reportRescanFailure(rescanFailure)
+            if (albumMoved !== null) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Album may have been split',
+                    detail: albumMoved,
+                    life: 10000
+                })
+            }
 
             const ok = results.filter((r) => r.ok).length
             const failed = results.length - ok

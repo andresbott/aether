@@ -506,6 +506,40 @@ describe('picture staging', () => {
         ])
     })
 
+    // A partial album-identity edit may have split the album on disk; the
+    // server flags it with a `warning` and the session must surface it, or the
+    // stranded cover/stars are lost silently.
+    const albumSplitWarnings = () =>
+        toastAddSpy.mock.calls
+            .map((c) => c[0])
+            .filter((t) => t.summary === 'Album may have been split')
+
+    it('surfaces the album-split warning the server returns on a tag save', async () => {
+        const session = mkSession()
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }],
+            warning: 'some files could not be updated; the album may have moved'
+        })
+        session.stageField(['album/a.mp3'], 'album', 'New Album Name')
+        await session.save()
+        expect(albumSplitWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                detail: 'some files could not be updated; the album may have moved'
+            })
+        ])
+    })
+
+    it('does not warn about a split when the server returns no warning', async () => {
+        const session = mkSession()
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }]
+        })
+        session.stageField(['album/a.mp3'], 'album', 'New Album Name')
+        await session.save()
+        expect(albumSplitWarnings()).toEqual([])
+    })
+
     it('reports a picture rescan failure even when the save then aborts', async () => {
         const session = mkSession()
         deletePictureSpy.mockResolvedValue({

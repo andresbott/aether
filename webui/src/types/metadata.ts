@@ -302,6 +302,9 @@ export interface RescanStatus {
 export interface UpdateTracksResponse {
     results: UpdateResult[]
     rescan?: RescanStatus
+    // Set when a partial write of an album-identity edit may have split the
+    // album, stranding its manual cover, stars and created_at. Human-readable.
+    warning?: string
 }
 
 // A cover candidate returned by the Cover Art Archive lookup.

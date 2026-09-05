@@ -580,7 +580,30 @@ func (h *Handler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	if rs := h.rescanSaved(r.Context(), libModel.ID, written); rs != nil {
 		out["rescan"] = rs
 	}
+	// A partial write of an album-identity edit leaves the album inconsistent on
+	// disk: the files that wrote carry the new identity, the ones that failed
+	// keep the old one. The scanner then sees a split and creates a NEW album row
+	// for the written files, stranding the old row's manual cover, stars and
+	// created_at on the unwritten remnant. Warn the user; re-saving once every
+	// file is writable reunites them. See internal/scanner/albumcontinuity.go.
+	if identityEdit(patch) && len(written) > 0 && len(written) < len(resolved) {
+		out["warning"] = albumMovedWarning
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// albumMovedWarning is surfaced when a partial write of an album-identity edit
+// may have split the album; see updateTracks.
+const albumMovedWarning = "Some files could not be updated, so this album is now half-renamed on disk. " +
+	"Its manual cover art, stars and other saved details may have moved to a new album — " +
+	"re-save the whole album once every file is writable to reunite it."
+
+// identityEdit reports whether a patch changes any field that determines which
+// album a track belongs to (album name, album artist, MusicBrainz release id).
+// These are the only edits a partial failure can use to split an album; every
+// other field resolves back to the same album row. See AlbumIdentityOf.
+func identityEdit(p metadataedit.Patch) bool {
+	return p.Album != nil || p.AlbumArtists != nil || p.MBReleaseID != nil
 }
 
 func codeFor(status int) string {

@@ -95,6 +95,9 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
 export interface UpdateTracksResult {
     results: UpdateResult[]
     rescan?: RescanStatus
+    // A partial album-identity edit may have split the album; see the server's
+    // updateTracks handler. Human-readable, surfaced once per save.
+    warning?: string
 }
 
 // updateTracksPartitioned performs one logical tracks update, transparently
@@ -113,7 +116,10 @@ export async function updateTracksPartitioned(
     const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
     return {
         results: mergeUpdateResults(first.results, second.results),
-        rescan: second.rescan ?? first.rescan
+        rescan: second.rescan ?? first.rescan,
+        // The identity fields ride in the names batch (first), so its warning
+        // is the one that matters; fall back either way since it is one message.
+        warning: first.warning ?? second.warning
     }
 }
 

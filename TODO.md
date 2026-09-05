@@ -89,7 +89,7 @@ Notes for editors:
   is about move re-linking across audiohash's 8 formats; this is basic indexability + a false
   success signal). Direction: one source of truth for the file-type sets, with an enforced invariant
   that editor-listable ⊆ indexable, or the editor must visibly mark non-indexable rows.
-- [ ] [HIGH] A single per-file tag-write failure during an album-identity edit splits the album and strands its manual cover, stars and created_at
+- [x] [HIGH] A single per-file tag-write failure during an album-identity edit splits the album and strands its manual cover, stars and created_at
   `updateTracks` (`app/router/handlers/metadata/metadata.go:534-559`) collects only successfully
   written paths into `written` and hands only that subset to `rescanSaved`. `planAlbumContinuity`
   (`internal/scanner/albumcontinuity.go:174-179`) proves an in-place retag only when the batch
@@ -103,6 +103,14 @@ Notes for editors:
   FULL track set after an identity-affecting edit (pass the album's dir paths, not just `written`),
   or refuse continuity unless the whole selection wrote; at minimum warn "album cover/stars may have
   moved" when `written < len(paths)` on an identity field.
+  MITIGATED (warning shipped): `updateTracks` now sets a `warning` on the response when an
+  identity-affecting edit (album / album_artist / mb_release_id, via `identityEdit`) wrote only part
+  of the selection (`len(written) > 0 && len(written) < len(resolved)`), and the metadata editor
+  surfaces it as an "Album may have been split" toast (`useEditSession.save`). The silent-loss harm
+  is gone; the split itself still happens. The deeper fix (per-album atomic identity edit over the
+  album's full track set, decided in the handler where the user's intent + the failed writes are
+  both known) remains open — the scanner cannot distinguish a failed rename from a deliberate
+  one-track reclassification, so it must not be a scanner-side heuristic.
 - [ ] [MEDIUM] Folder-art / album.CoverPath changes are invisible to incremental scans — a failed editor rescan is NOT fixed by "the next scan"
   `album.CoverPath` is only (re)detected inside `reconcileTrack` (`detectCoverInDir`). `filterChanged`
   (`internal/scanner/scanner.go:260-278`) keys purely on AUDIO-file size/modtime, and a folder-cover
