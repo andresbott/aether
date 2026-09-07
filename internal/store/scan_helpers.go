@@ -201,3 +201,66 @@ func sortedKeys(set map[uint]struct{}) []uint {
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
+
+// PruneOrphanedAggregates deletes only the album/artist/genre rows in t that the
+// edit could have emptied, plus the album join rows and album/artist stars that
+// dangle when one of those albums or artists is deleted. It is the targeted
+// counterpart to DeleteOrphanedAggregates — same emptiness rules, restricted to a
+// candidate set — so its cost scales with the edit, not the library. The
+// exhaustive whole-DB sweep stays in Cleanup, run off the request path by the
+// scheduled scan.
+//
+// A targeted rescan never deletes a track row (the metadata editor is file-only),
+// so no track-keyed join can dangle here. If that ever changes, the scheduled
+// scan's Cleanup is the backstop.
+func (s *Store) PruneOrphanedAggregates(ctx context.Context, t TouchedAggregates) error {
+	return s.TransactionContext(ctx, func(tx *Store) error {
+		// Albums first, then the album-keyed join and starred rows, so the
+		// "album no longer exists" predicate below sees the deletions.
+		if err := execInChunks(tx.db, t.AlbumIDs,
+			`DELETE FROM albums WHERE id IN ? AND id NOT IN (SELECT DISTINCT album_id FROM tracks)`); err != nil {
+			return fmt.Errorf("prune albums: %w", err)
+		}
+		if err := execInChunks(tx.db, t.AlbumIDs,
+			`DELETE FROM album_artists WHERE album_id IN ? AND album_id NOT IN (SELECT id FROM albums)`); err != nil {
+			return fmt.Errorf("prune album artists: %w", err)
+		}
+		if err := execInChunks(tx.db, t.AlbumIDs,
+			`DELETE FROM album_genres WHERE album_id IN ? AND album_id NOT IN (SELECT id FROM albums)`); err != nil {
+			return fmt.Errorf("prune album genres: %w", err)
+		}
+		if err := execInChunks(tx.db, t.AlbumIDs,
+			`DELETE FROM starred_items WHERE item_type = 'album' AND item_id IN ? AND item_id NOT IN (SELECT id FROM albums)`); err != nil {
+			return fmt.Errorf("prune album stars: %w", err)
+		}
+		// Artists: orphaned only once their album_artists rows above are gone.
+		if err := execInChunks(tx.db, t.ArtistIDs,
+			`DELETE FROM artists WHERE id IN ? AND id NOT IN (SELECT DISTINCT artist_id FROM album_artists) AND id NOT IN (SELECT DISTINCT artist_id FROM track_artists)`); err != nil {
+			return fmt.Errorf("prune artists: %w", err)
+		}
+		if err := execInChunks(tx.db, t.ArtistIDs,
+			`DELETE FROM starred_items WHERE item_type = 'artist' AND item_id IN ? AND item_id NOT IN (SELECT id FROM artists)`); err != nil {
+			return fmt.Errorf("prune artist stars: %w", err)
+		}
+		if err := execInChunks(tx.db, t.GenreIDs,
+			`DELETE FROM genres WHERE id IN ? AND id NOT IN (SELECT DISTINCT genre_id FROM track_genres) AND id NOT IN (SELECT DISTINCT genre_id FROM album_genres)`); err != nil {
+			return fmt.Errorf("prune genres: %w", err)
+		}
+		return nil
+	})
+}
+
+// execInChunks runs query once per chunkSize-sized slice of ids, binding the
+// chunk to the query's single `IN ?`. An empty ids slice runs nothing.
+func execInChunks(db *gorm.DB, ids []uint, query string) error {
+	for i := 0; i < len(ids); i += chunkSize {
+		end := i + chunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := db.Exec(query, ids[i:end]).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}

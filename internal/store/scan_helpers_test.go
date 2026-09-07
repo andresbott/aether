@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 )
 
 func TestBulkUpdateLastSeen(t *testing.T) {
@@ -265,5 +266,91 @@ func TestTouchedAggregatesForPathsEmptyIsEmpty(t *testing.T) {
 	}
 	if len(got.AlbumIDs)+len(got.ArtistIDs)+len(got.GenreIDs) != 0 {
 		t.Fatalf("expected empty result, got %+v", got)
+	}
+}
+
+func TestPruneOrphanedAggregatesScopedRemovesOnlyCandidates(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	// Candidate album that the "edit" emptied: an artist + album with no tracks,
+	// plus a star on each, all in the candidate set.
+	artist := model.Artist{Name: "Gone", NameNorm: "gone"}
+	db.Create(&artist)
+	album := model.Album{Name: "Gone LP", NameNorm: "gone lp", AlbumArtistNorm: "gone"}
+	db.Create(&album)
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	db.Create(&model.StarredItem{ItemType: "album", ItemID: album.ID})
+	db.Create(&model.StarredItem{ItemType: "artist", ItemID: artist.ID})
+
+	// An UNRELATED orphan, NOT in the candidate set — must survive (the scheduled
+	// scan's Cleanup is what removes it, not the targeted prune).
+	other := model.Album{Name: "Other", NameNorm: "other", AlbumArtistNorm: "x"}
+	db.Create(&other)
+
+	err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{
+		AlbumIDs:  []uint{album.ID},
+		ArtistIDs: []uint{artist.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var goneAlbum, goneArtist, goneAlbumStar, goneArtistStar, otherAlbum int64
+	db.Model(&model.Album{}).Where("id = ?", album.ID).Count(&goneAlbum)
+	db.Model(&model.Artist{}).Where("id = ?", artist.ID).Count(&goneArtist)
+	db.Model(&model.StarredItem{}).Where("item_type = 'album' AND item_id = ?", album.ID).Count(&goneAlbumStar)
+	db.Model(&model.StarredItem{}).Where("item_type = 'artist' AND item_id = ?", artist.ID).Count(&goneArtistStar)
+	db.Model(&model.Album{}).Where("id = ?", other.ID).Count(&otherAlbum)
+
+	if goneAlbum != 0 || goneArtist != 0 || goneAlbumStar != 0 || goneArtistStar != 0 {
+		t.Fatalf("expected candidate album/artist and their stars pruned, got album=%d artist=%d albumStar=%d artistStar=%d",
+			goneAlbum, goneArtist, goneAlbumStar, goneArtistStar)
+	}
+	if otherAlbum != 1 {
+		t.Fatal("expected the unrelated orphan to survive the scoped prune")
+	}
+}
+
+func TestPruneOrphanedAggregatesScopedKeepsPopulated(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	artist := model.Artist{Name: "Live", NameNorm: "live"}
+	db.Create(&artist)
+	genre := model.Genre{Name: "Jazz"}
+	db.Create(&genre)
+	album := model.Album{Name: "Live LP", NameNorm: "live lp", AlbumArtistNorm: "live"}
+	db.Create(&album)
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
+	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
+	db.Create(&track)
+	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
+
+	// Everything is a candidate but everything is still populated: nothing goes.
+	err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{
+		AlbumIDs:  []uint{album.ID},
+		ArtistIDs: []uint{artist.ID},
+		GenreIDs:  []uint{genre.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var albums, artists, genres int64
+	db.Model(&model.Album{}).Count(&albums)
+	db.Model(&model.Artist{}).Count(&artists)
+	db.Model(&model.Genre{}).Count(&genres)
+	if albums != 1 || artists != 1 || genres != 1 {
+		t.Fatalf("expected populated aggregates preserved, got albums=%d artists=%d genres=%d", albums, artists, genres)
+	}
+}
+
+func TestPruneOrphanedAggregatesEmptyIsANoop(t *testing.T) {
+	s := testStore(t)
+	if err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{}); err != nil {
+		t.Fatal(err)
 	}
 }
