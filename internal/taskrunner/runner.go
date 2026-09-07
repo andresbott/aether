@@ -164,6 +164,14 @@ func (r *Runner) AddRun(name string) (uuid.UUID, bool, error) {
 	return id, reused, nil
 }
 
+// AddRaw enqueues a run of the named task with a raw params payload, returning
+// the execution id and whether it coalesced onto an already waiting/running
+// singleton instance. It satisfies tempo's schedule.Enqueuer, so the Scheduler
+// can enqueue fires directly onto the runner.
+func (r *Runner) AddRaw(name string, params []byte) (uuid.UUID, bool, error) {
+	return r.queue.AddRaw(name, params)
+}
+
 func (r *Runner) List() []tempo.TaskInfo {
 	return r.queue.List()
 }
