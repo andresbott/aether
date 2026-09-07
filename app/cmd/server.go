@@ -244,6 +244,13 @@ func runServer(configFile string) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	return serveWithGracefulShutdown(l, cfg.Obs, mainSrv, scheduler, runner)
+}
+
+// serveWithGracefulShutdown runs the main HTTP server (and the optional
+// observability server) until a signal or a server error, then stops the
+// scheduler and drains the task runner within a bounded shutdown window.
+func serveWithGracefulShutdown(l *slog.Logger, obs obsCfg, mainSrv *http.Server, scheduler *taskrunner.Scheduler, runner *taskrunner.Runner) error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
@@ -254,9 +261,9 @@ func runServer(configFile string) error {
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
 	// The observability server (health, Prometheus metrics) is opt-in.
-	if cfg.Obs.Enabled {
+	if obs.Enabled {
 		obsSrv := &http.Server{
-			Addr:              cfg.Obs.Addr(),
+			Addr:              obs.Addr(),
 			Handler:           handlers.Admin(),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
