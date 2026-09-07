@@ -19,7 +19,7 @@ import (
 // valueError marks a validator failure as well-formed-but-invalid: the field
 // is present but its value fails a business rule (too long, not a usable
 // directory, ...) — as opposed to an outright missing required field. The
-// /api/v1 handlers (libraries.go's validateDTO) use this distinction to
+// /api/v0 handlers (libraries.go's validateDTO) use this distinction to
 // answer 422 instead of 400; app/cmd's config-load path only ever checks
 // err != nil, so it is unaffected.
 type valueError struct{ msg string }

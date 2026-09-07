@@ -1,7 +1,7 @@
-// Package tokens exposes the session-scoped token endpoints on /api/v1: the
+// Package tokens exposes the session-scoped token endpoints on /api/v0: the
 // SPA's short-lived mint plus CRUD for user-created PATs (Task 2). All
 // endpoints operate on the CALLER's tokens only — identity comes from the
-// session the /api/v1 guard validated, never from the request. See
+// session the /api/v0 guard validated, never from the request. See
 // docs/agents/authentication.md.
 package tokens
 
@@ -61,7 +61,7 @@ const SPATokenTTL = 48 * time.Hour
 type Handler struct {
 	Tokens *pat.Service
 	// Caller resolves the request's user ID from whatever identity the
-	// /api/v1 guard established (session cookie or proxy headers). The
+	// /api/v0 guard established (session cookie or proxy headers). The
 	// handler itself never branches on the auth mode — it trusts the
 	// middleware identity and nothing else (docs/agents/authentication.md).
 	Caller func(r *http.Request) (userID string, ok bool)

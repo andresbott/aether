@@ -60,7 +60,7 @@ func proxyReq(method, path, user, groups string) *http.Request {
 // proxyMintReq builds the spa-token mint the SPA sends in proxy mode: a
 // proxy-authenticated request naming the browser it mints for.
 func proxyMintReq(user string) *http.Request {
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token",
+	r := httptest.NewRequest(http.MethodPost, "/api/v0/auth/token",
 		strings.NewReader(`{"deviceId":"test-browser","deviceName":"Test Browser"}`))
 	r.Header.Set("Remote-User", user)
 	return r
@@ -70,7 +70,7 @@ func TestHeaderGuardTiers(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, nil)
 
 	// Public bootstrap set stays reachable without identity headers.
-	for _, path := range []string{"/api/v1/me", "/api/v1/health", "/api/v1/version"} {
+	for _, path := range []string{"/api/v0/me", "/api/v0/health", "/api/v0/version"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		if w.Code != http.StatusOK {
@@ -80,9 +80,9 @@ func TestHeaderGuardTiers(t *testing.T) {
 
 	// Protected route without identity headers answers 401.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/libraries", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/libraries", nil))
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("GET /api/v1/libraries without headers = %d, want 401: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/libraries without headers = %d, want 401: %s", w.Code, w.Body.String())
 	}
 
 	// Session-scoped tier: any authenticated identity may mint tokens.
@@ -94,17 +94,17 @@ func TestHeaderGuardTiers(t *testing.T) {
 
 	// Admin default: a non-admin identity answers 403...
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/tasks", "bob", "some-group"))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/tasks", "bob", "some-group"))
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("GET /api/v1/tasks as regular user = %d, want 403: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/tasks as regular user = %d, want 403: %s", w.Code, w.Body.String())
 	}
 	// ...and membership in the admin group grants access. (No task runner is
 	// wired in this test router, so the route is absent and the guard passing
 	// shows as the 400 catch-all rather than 401/403.)
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/tasks", "alice", "other,"+testAdminGroup))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/tasks", "alice", "other,"+testAdminGroup))
 	if w.Code == http.StatusForbidden || w.Code == http.StatusUnauthorized {
-		t.Fatalf("GET /api/v1/tasks as admin = %d, want the guard to pass: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/tasks as admin = %d, want the guard to pass: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -114,9 +114,9 @@ func TestHeaderGuardTiers(t *testing.T) {
 func TestProxyModeMountsNoNativeEndpoints(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, nil)
 	for _, tc := range []struct{ method, path string }{
-		{http.MethodPost, "/api/v1/auth/login"},
-		{http.MethodPost, "/api/v1/auth/logout"},
-		{http.MethodGet, "/api/v1/users"},
+		{http.MethodPost, "/api/v0/auth/login"},
+		{http.MethodPost, "/api/v0/auth/logout"},
+		{http.MethodGet, "/api/v0/users"},
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, proxyReq(tc.method, tc.path, "alice", testAdminGroup))
@@ -132,14 +132,14 @@ func TestHeaderGuardIgnoresUntrustedPeer(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")})
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/libraries", "alice", testAdminGroup))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/libraries", "alice", testAdminGroup))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("spoofed identity from untrusted peer = %d, want 401: %s", w.Code, w.Body.String())
 	}
 
 	// /me reports anonymous rather than the spoofed identity.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "alice", testAdminGroup))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "alice", testAdminGroup))
 	var body struct {
 		User any `json:"user"`
 	}
@@ -160,7 +160,7 @@ func TestHeaderGuardProvisionsUserOnFirstSight(t *testing.T) {
 		t.Fatal("carol exists before her first request")
 	}
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "carol", ""))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "carol", ""))
 	if w.Code != http.StatusOK {
 		t.Fatalf("first /me = %d, want 200", w.Code)
 	}
@@ -193,7 +193,7 @@ func TestHeaderGuardBlocksDisabledUser(t *testing.T) {
 
 	// Provision dave, then disable him.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "dave", ""))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "dave", ""))
 	usr, err := users.GetUserByLogin("dave")
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestHeaderGuardBlocksDisabledUser(t *testing.T) {
 
 	// /me reports anonymous for a disabled identity.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "dave", ""))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "dave", ""))
 	var body struct {
 		User any `json:"user"`
 	}
@@ -228,7 +228,7 @@ func TestProxyMeReportsIdentityAndFeatures(t *testing.T) {
 	h, _ := newProxyAuthRouter(t, nil)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "alice", testAdminGroup))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "alice", testAdminGroup))
 	var body struct {
 		AuthMethod string `json:"authMethod"`
 		User       *struct {
@@ -255,7 +255,7 @@ func TestProxyMeReportsIdentityAndFeatures(t *testing.T) {
 	// Role is read live from the headers: the same user without the admin
 	// group is a regular user on the very next request.
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v1/me", "alice", "listeners"))
+	h.ServeHTTP(w, proxyReq(http.MethodGet, "/api/v0/me", "alice", "listeners"))
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("/me body is not JSON: %s", w.Body.String())
 	}

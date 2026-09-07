@@ -69,7 +69,7 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	}
 	key := seedAlbum(t, s, lib, trackAbs)
 
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store:  s,
 		Reader: nullReader{},
 		Images: imagecache.New(t.TempDir()),

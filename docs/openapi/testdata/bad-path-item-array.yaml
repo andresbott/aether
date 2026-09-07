@@ -12,7 +12,7 @@ info:
     the exact 431-causing shape, encoded in a spec-legal way that an
     operation-level-only `given` misses entirely. `no-array-in-get-delete-url`
     MUST reject this. Kept under `testdata/` so `make spec-lint` (which only
-    lints `docs/openapi/aether-v1.yaml`) never touches it.
+    lints `docs/openapi/aether-v0.yaml`) never touches it.
 paths:
   /widgets:
     parameters:

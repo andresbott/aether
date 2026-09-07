@@ -338,7 +338,7 @@ export interface ImageMeta {
 
 // PictureImageRef is a populated cell's ready-to-render URLs, as resolved by
 // the server (see the inventory endpoint doc below). Mount-relative — never a
-// full origin or a hard-coded /api/v1 prefix — so the caller must prepend
+// full origin or a hard-coded /api/v0 prefix — so the caller must prepend
 // apiClient.defaults.baseURL before using it as an <img> src.
 export interface PictureImageRef {
     url: string

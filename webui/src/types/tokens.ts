@@ -15,7 +15,7 @@ export interface ApiToken {
     expiresAt?: string | null
 }
 
-/** POST /api/v1/auth/token — the SPA's short-lived spa-scoped token. */
+/** POST /api/v0/auth/token — the SPA's short-lived spa-scoped token. */
 export interface MintSpaTokenResponse {
     token: string
     tokenId: string
@@ -29,7 +29,7 @@ export interface CreateTokenInput {
     expiresAt?: string
 }
 
-/** POST /api/v1/auth/tokens — the plaintext appears here and nowhere else. */
+/** POST /api/v0/auth/tokens — the plaintext appears here and nowhere else. */
 export interface CreateTokenResponse extends ApiToken {
     token: string
     /** usertoken only: the virtual username (= tokenId) to enter in the app. */

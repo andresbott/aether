@@ -30,7 +30,7 @@ const props = defineProps<{ id?: string; create?: boolean }>()
 const router = useRouter()
 const player = usePlayer()
 
-// Discover proxies through the admin-only /api/v1/radiobrowser endpoints, so
+// Discover proxies through the admin-only /api/v0/radiobrowser endpoints, so
 // non-admins don't get a button that can only 403. (Station CRUD itself rides
 // on /rest and stays open until the planned role gate there — TODO.md.)
 const { isAdmin } = useAuth()

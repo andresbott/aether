@@ -25,7 +25,7 @@ vi.mock('@/lib/api/subsonic', () => ({
 const playNow = vi.fn()
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playNow }) }))
 
-// Discover is admin-only (it proxies the admin /api/v1/radiobrowser routes);
+// Discover is admin-only (it proxies the admin /api/v0/radiobrowser routes);
 // most specs run as admin so the button exists.
 const isAdmin = ref(true)
 vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ isAdmin }) }))
@@ -141,7 +141,7 @@ describe('RadioStationDetailView', () => {
         expect(w.find('.discover-station').exists()).toBe(false)
     })
 
-    // The radio-browser proxy lives on the admin-only /api/v1 surface, so a
+    // The radio-browser proxy lives on the admin-only /api/v0 surface, so a
     // non-admin creating a station by hand gets no Discover affordance.
     it('create mode: hides Discover from non-admins', () => {
         isAdmin.value = false

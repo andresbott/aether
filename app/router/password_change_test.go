@@ -18,7 +18,7 @@ import (
 func doChangePassword(t *testing.T, h *MainAppHandler, attach func(*http.Request), current, next string) *httptest.ResponseRecorder {
 	t.Helper()
 	body := strings.NewReader(`{"currentPassword":"` + current + `","newPassword":"` + next + `"}`)
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password", body)
+	req := httptest.NewRequest(http.MethodPut, "/api/v0/auth/password", body)
 	if attach != nil {
 		attach(req)
 	}
@@ -27,11 +27,11 @@ func doChangePassword(t *testing.T, h *MainAppHandler, attach func(*http.Request
 	return w
 }
 
-// meRole fetches /api/v1/me through attach and returns the reported role, or ""
+// meRole fetches /api/v0/me through attach and returns the reported role, or ""
 // when anonymous.
 func meRole(t *testing.T, h *MainAppHandler, attach func(*http.Request)) string {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -109,7 +109,7 @@ func TestChangePasswordRejectsWrongCurrent(t *testing.T) {
 }
 
 // Without a session the route is unreachable, exactly like every other guarded
-// /api/v1 route.
+// /api/v0 route.
 func TestChangePasswordRequiresSession(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	w := doChangePassword(t, h, nil, "secret", "brand-new-pw")

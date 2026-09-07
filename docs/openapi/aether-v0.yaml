@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Aether /api/v1 API
+  title: Aether /api/v0 API
   version: 0.1.0
   contact:
     name: Andres Bott
@@ -14,18 +14,18 @@ info:
     client does not consume one).
 
 
-    **Scope.** This document describes the full `/api/v1` surface as mounted
-    in `app/router/api_v1.go`: the metadata editor (pictures, raw tags,
+    **Scope.** This document describes the full `/api/v0` surface as mounted
+    in `app/router/api_v0.go`: the metadata editor (pictures, raw tags,
     folder/track browsing, identify and identify-album, artist images),
     artists, users, tasks, tokens, radiobrowser, auth, libraries, and
     health/version/me.
 servers:
-  - url: /api/v1
+  - url: /api/v0
     description: >
-      Every path below is mount-relative. A planned reorg moves this surface
-      to /api/admin (TODO.md) — modelling the base exclusively through this
-      `servers` entry makes that a one-line change, with no path or
-      operationId edits.
+      Every path below is mount-relative. The base is modelled exclusively
+      through this `servers` entry, so bumping the version prefix — this is
+      `/api/v0` while the API is pre-1.0 — stays a one-line change, with no
+      path or operationId edits.
 tags:
   - name: metadata-pictures
     description: Album/track picture (cover art) inventory, read, write and removal.
@@ -194,7 +194,7 @@ paths:
             picture was removed, or the folder file no longer exists). The
             handler itself answers with Go's plain `http.NotFound`, but the
             router-level error envelope (see `app/router/errors.go`) wraps
-            every bare `/api/v1` error — this one included — into the same
+            every bare `/api/v0` error — this one included — into the same
             `application/problem+json` Problem shape every other response on
             this surface uses, so it is not documented via the shared
             NotFound response only because its Detail text differs
@@ -834,7 +834,7 @@ paths:
         carries no identity.
 
 
-        Unlike the rest of `/api/v1`, go-bumbu's own error body —
+        Unlike the rest of `/api/v0`, go-bumbu's own error body —
         `{"error": "<message>"}` under plain `application/json` — passes
         through the router's error-envelope middleware untouched, because it
         is already a well-formed JSON object: the middleware only reshapes
@@ -1993,9 +1993,9 @@ components:
       name: _aether_login
       description: >
         Native-mode session cookie (see docs/agents/authentication.md).
-        `/api/v1` defaults every route to admin-only, so a valid, enabled
+        `/api/v0` defaults every route to admin-only, so a valid, enabled
         admin session is required for the whole metadata surface. This is the
-        only credential `/api/v1` actually validates: no route on this
+        only credential `/api/v0` actually validates: no route on this
         surface reads an `Authorization` header, and Aether's PATs
         (bearer-shaped credentials) are verified exclusively on `/rest` (via
         `apiKey`, or `u`+`t`+`s` / `u`+`p`), never here.
@@ -2916,7 +2916,7 @@ components:
       description: >
         go-bumbu's own uniform error body for `login` — plain
         `application/json`, not the RFC 9457 `Problem` the rest of
-        `/api/v1` answers with (see `login`'s description).
+        `/api/v0` answers with (see `login`'s description).
       properties:
         error: { type: string }
       required: [error]

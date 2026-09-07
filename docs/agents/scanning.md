@@ -346,7 +346,7 @@ track, so a large library lists each artist folder at most once per run.
 (`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →
 `ImagePath` → name-seeded generated avatar.
 
-`GET /api/v1/artists/{id}/image-source` (`handlers/artists`) reports which of
+`GET /api/v0/artists/{id}/image-source` (`handlers/artists`) reports which of
 those slots won — `"upload"` / `"fetched"` / `"folder"` (+ `path`) / `"none"`,
 plus a `filename` for everything but `"none"`. `ArtistView`'s cover editor uses
 it for the status line under the file picker (PrimeVue's FileUpload only ever
@@ -364,11 +364,11 @@ provider chain as the `fetch-artist-images` job, but from a MusicBrainz artist t
 user picks by name rather than the artist's stored `MBArtistID`, and shows every
 candidate portrait as a selectable grid rather than auto-picking one:
 
-- `GET /api/v1/artists/image-candidates?mbid=…` runs `Chain.List` and returns
+- `GET /api/v0/artists/image-candidates?mbid=…` runs `Chain.List` and returns
   every provider's portraits as `{url, thumbUrl, provider}` JSON — no bytes
   downloaded server-side, since the browser loads each `thumbUrl` straight from
   the provider's own CDN for the grid.
-- `PUT /api/v1/artists/{id}/image-from-search` (body `{mbid, url}`) — called by
+- `PUT /api/v0/artists/{id}/image-from-search` (body `{mbid, url}`) — called by
   the **editor's Save**, not the dialog: a pick is staged in `ArtistView` like a
   file upload (previewed in the cover, marks the editor dirty, discarded by
   Cancel/Remove). The three staged edits (file, clear, searched pick) are

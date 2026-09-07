@@ -1,4 +1,4 @@
-// Package users exposes CRUD for native users on /api/v1. It is a server
+// Package users exposes CRUD for native users on /api/v0. It is a server
 // management concern (like libraries), never a music-client feature: /rest
 // stays untouched. The handler is only registered when the auth method is
 // "native" — with "none" there is no user store at all.
@@ -114,7 +114,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 
 // RoleOf derives the vertical from the stored group memberships: membership
 // in AdminGroup means admin, anything else (including no groups) means user.
-// Exported because the /api/v1 admin guard and /me apply the same policy.
+// Exported because the /api/v0 admin guard and /me apply the same policy.
 func RoleOf(store *user.Service, userID string) (string, error) {
 	groups, err := store.GetGroups(userID)
 	if err != nil {

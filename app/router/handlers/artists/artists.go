@@ -181,7 +181,7 @@ func (h *Handler) getMBID(w http.ResponseWriter, r *http.Request) {
 // Filename names the image file in every case but "none": the stored file for
 // upload/fetched, the on-disk file for folder.
 //
-// This is a filesystem detail of the server, hence `/api/v1` rather than a
+// This is a filesystem detail of the server, hence `/api/v0` rather than a
 // non-standard field on the Subsonic artist response.
 type imageSourceResponse struct {
 	Source   string `json:"source"`

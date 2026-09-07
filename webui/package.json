@@ -11,7 +11,7 @@
         "test:watch": "vitest",
         "type-check": "npx vue-tsc --noEmit",
         "format": "prettier --write src/",
-        "spec-lint": "spectral lint ../docs/openapi/aether-v1.yaml -r ../.spectral.yaml --fail-severity=error"
+        "spec-lint": "spectral lint ../docs/openapi/aether-v0.yaml -r ../.spectral.yaml --fail-severity=error"
     },
     "dependencies": {
         "@fontsource-variable/inter": "^5.2.8",

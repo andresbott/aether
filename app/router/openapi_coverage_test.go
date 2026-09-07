@@ -27,7 +27,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// noopTagReader satisfies tags.Reader without touching disk. attachApiV1
+// noopTagReader satisfies tags.Reader without touching disk. attachApiV0
 // only checks the field for nilness to decide whether to mount /metadata; a
 // tag read is never exercised by this test.
 type noopTagReader struct{}
@@ -38,16 +38,16 @@ func (noopTagReader) Read(context.Context, string) (tags.Metadata, error) {
 	return tags.Metadata{}, nil
 }
 
-// newMaximalAPIV1Router builds a MainAppHandler with every conditional
-// /api/v1 mount active — store, taskRunner, users, sessions, tagReader and
+// newMaximalAPIV0Router builds a MainAppHandler with every conditional
+// /api/v0 mount active — store, taskRunner, users, sessions, tagReader and
 // identifier all non-nil, native auth mode — and returns a fresh router with
-// only attachApiV1's surface mounted on it (no /rest, no SPA), so nothing
+// only attachApiV0's surface mounted on it (no /rest, no SPA), so nothing
 // needs filtering before comparing against the spec. Auth wiring mirrors
 // newNativeAuthRouter (auth_test.go); the fields beyond that are exactly the
-// ones attachApiV1 gates a mount on (api_v1.go) — every other MainAppHandler
+// ones attachApiV0 gates a mount on (api_v0.go) — every other MainAppHandler
 // field is assigned into a handler struct but never checked for nilness
 // during route registration, so it is left at its zero value.
-func newMaximalAPIV1Router(t *testing.T) *mux.Router {
+func newMaximalAPIV0Router(t *testing.T) *mux.Router {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -92,19 +92,19 @@ func newMaximalAPIV1Router(t *testing.T) *mux.Router {
 		identifier: identify.New(nil, nil),
 	}
 	r := mux.NewRouter()
-	h.attachApiV1(r.PathPrefix(apiV1MountPrefix).Subrouter())
+	h.attachApiV0(r.PathPrefix(apiV0MountPrefix).Subrouter())
 	return r
 }
 
-// apiV1Route is one HTTP operation, mount-relative to /api/v1 — e.g.
+// apiV0Route is one HTTP operation, mount-relative to /api/v0 — e.g.
 // {Method: "GET", Path: "/libraries/{id}"} — the shape both the mounted
 // router and the OpenAPI spec are reduced to for comparison.
-type apiV1Route struct {
+type apiV0Route struct {
 	Method string
 	Path   string
 }
 
-func (o apiV1Route) String() string {
+func (o apiV0Route) String() string {
 	return o.Method + " " + o.Path
 }
 
@@ -113,17 +113,17 @@ func (o apiV1Route) String() string {
 // path: OpenAPI has no equivalent constraint syntax on the path itself.
 var muxVarPattern = regexp.MustCompile(`\{([^:}]+):[^}]*\}`)
 
-// walkMaximalAPIV1Routes walks root — which, per newMaximalAPIV1Router,
-// carries only attachApiV1's mounts under /api/v1 — and returns every
+// walkMaximalAPIV0Routes walks root — which, per newMaximalAPIV0Router,
+// carries only attachApiV0's mounts under /api/v0 — and returns every
 // (method, path) it finds, mount-relative and with mux vars normalized to
-// OpenAPI's bare {var} form. The wrong-api-call catch-all (api_v1.go,
+// OpenAPI's bare {var} form. The wrong-api-call catch-all (api_v0.go,
 // r.PathPrefix("").HandlerFunc(...)) binds no HTTP method, which is exactly
 // how it is excluded here: it answers "wrong api call" for anything
 // unmatched and describes no operation. The mount point itself (the
-// PathPrefix(apiV1MountPrefix) route) is excluded the same way.
-func walkMaximalAPIV1Routes(t *testing.T, root *mux.Router) map[apiV1Route]bool {
+// PathPrefix(apiV0MountPrefix) route) is excluded the same way.
+func walkMaximalAPIV0Routes(t *testing.T, root *mux.Router) map[apiV0Route]bool {
 	t.Helper()
-	routes := map[apiV1Route]bool{}
+	routes := map[apiV0Route]bool{}
 	err := root.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		tmpl, err := route.GetPathTemplate()
 		if err != nil {
@@ -133,15 +133,15 @@ func walkMaximalAPIV1Routes(t *testing.T, root *mux.Router) map[apiV1Route]bool 
 		if err != nil {
 			return nil // no bound method: the catch-all or the mount point itself
 		}
-		relPath := strings.TrimPrefix(tmpl, apiV1MountPrefix)
+		relPath := strings.TrimPrefix(tmpl, apiV0MountPrefix)
 		relPath = muxVarPattern.ReplaceAllString(relPath, "{$1}")
 		for _, m := range methods {
-			routes[apiV1Route{Method: m, Path: relPath}] = true
+			routes[apiV0Route{Method: m, Path: relPath}] = true
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking /api/v1 router: %v", err)
+		t.Fatalf("walking /api/v0 router: %v", err)
 	}
 	return routes
 }
@@ -154,13 +154,13 @@ var specHTTPMethods = map[string]bool{
 	"options": true, "head": true, "patch": true, "trace": true,
 }
 
-// loadSpecOperations parses docs/openapi/aether-v1.yaml's "paths" into the
-// same (method, path) shape walkMaximalAPIV1Routes produces. It reads the
+// loadSpecOperations parses docs/openapi/aether-v0.yaml's "paths" into the
+// same (method, path) shape walkMaximalAPIV0Routes produces. It reads the
 // plain YAML structure — via yaml.v3, already a dependency in go.mod, no new
 // one added — rather than a full OpenAPI loader (kin-openapi is not a
 // dependency of this project at all): this test checks surface coverage, not
 // schema fidelity, so only the path and method keys matter.
-func loadSpecOperations(t *testing.T) map[apiV1Route]bool {
+func loadSpecOperations(t *testing.T) map[apiV0Route]bool {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -168,7 +168,7 @@ func loadSpecOperations(t *testing.T) map[apiV1Route]bool {
 	}
 	// Resolved relative to this source file, not the "go test" working
 	// directory, so the path holds regardless of how the test is invoked.
-	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v1.yaml")
+	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v0.yaml")
 	data, err := os.ReadFile(specPath)
 	if err != nil {
 		t.Fatalf("reading %s: %v", specPath, err)
@@ -181,29 +181,29 @@ func loadSpecOperations(t *testing.T) map[apiV1Route]bool {
 		t.Fatalf("parsing %s: %v", specPath, err)
 	}
 
-	routes := map[apiV1Route]bool{}
+	routes := map[apiV0Route]bool{}
 	for path, ops := range doc.Paths {
 		for method := range ops {
 			if !specHTTPMethods[method] {
 				continue
 			}
-			routes[apiV1Route{Method: strings.ToUpper(method), Path: path}] = true
+			routes[apiV0Route{Method: strings.ToUpper(method), Path: path}] = true
 		}
 	}
 	return routes
 }
 
 // TestOpenAPICoversAllV1Routes is the anti-drift keystone for
-// docs/openapi/aether-v1.yaml (design spec
+// docs/openapi/aether-v0.yaml (design spec
 // docs/superpowers/specs/2026-08-26-openapi-v1-full-coverage.md, §D2): it
-// asserts the spec and the routes attachApiV1 mounts describe exactly the
-// same /api/v1 surface, in both directions. It runs against a maximal router
+// asserts the spec and the routes attachApiV0 mounts describe exactly the
+// same /api/v0 surface, in both directions. It runs against a maximal router
 // — every conditional mount active — because this test's job is to catch a
 // spec that fell behind the code, or the reverse, not to describe any one
 // deployment's actual feature set.
 func TestOpenAPICoversAllV1Routes(t *testing.T) {
-	root := newMaximalAPIV1Router(t)
-	mounted := walkMaximalAPIV1Routes(t, root)
+	root := newMaximalAPIV0Router(t)
+	mounted := walkMaximalAPIV0Routes(t, root)
 	specced := loadSpecOperations(t)
 
 	var missingFromSpec []string
@@ -223,11 +223,11 @@ func TestOpenAPICoversAllV1Routes(t *testing.T) {
 	sort.Strings(missingFromRouter)
 
 	if len(missingFromSpec) > 0 {
-		t.Errorf("routes mounted on /api/v1 but missing from the OpenAPI spec:\n%s",
+		t.Errorf("routes mounted on /api/v0 but missing from the OpenAPI spec:\n%s",
 			strings.Join(missingFromSpec, "\n"))
 	}
 	if len(missingFromRouter) > 0 {
-		t.Errorf("OpenAPI operations with no mounted /api/v1 route:\n%s",
+		t.Errorf("OpenAPI operations with no mounted /api/v0 route:\n%s",
 			strings.Join(missingFromRouter, "\n"))
 	}
 }

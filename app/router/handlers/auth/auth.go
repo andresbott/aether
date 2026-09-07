@@ -1,4 +1,4 @@
-// Package auth mounts the native-login endpoints on /api/v1: a JSON login
+// Package auth mounts the native-login endpoints on /api/v0: a JSON login
 // that establishes the aether session cookie and a logout that clears it.
 // Only registered with auth method "native" — with "none" there is no user
 // store, no session manager, and no login to offer. See
@@ -141,7 +141,7 @@ func (h *Handler) changePasswordHandler() http.Handler {
 			}
 			// 403, not 401: the session is valid — the re-auth check failed.
 			// A 401 here would read as a lost session and sign the caller out
-			// of the SPA (the client treats any /api/v1 401 as session expiry);
+			// of the SPA (the client treats any /api/v0 401 as session expiry);
 			// 401 stays reserved for the guard's genuine no-session case.
 			httperr.Write(w, r, http.StatusForbidden, "reauth_failed", "current password is incorrect")
 			return

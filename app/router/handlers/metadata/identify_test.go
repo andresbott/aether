@@ -50,7 +50,7 @@ func newIdentifyHandlerWithReason(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.IdentifyHandler{
 		Store:                     s,
 		Reader:                    nullReader{},
 		Identifier:                ident,

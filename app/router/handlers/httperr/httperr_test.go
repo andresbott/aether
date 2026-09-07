@@ -11,7 +11,7 @@ import (
 )
 
 func TestWrite(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/x", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/x", nil)
 	w := httptest.NewRecorder()
 
 	Write(w, req, http.StatusNotFound, "not_found", "the widget does not exist")
@@ -32,7 +32,7 @@ func TestWrite(t *testing.T) {
 		Title:    "Not found",
 		Status:   http.StatusNotFound,
 		Detail:   "the widget does not exist",
-		Instance: "/api/v1/x",
+		Instance: "/api/v0/x",
 	}
 	if got != want {
 		t.Fatalf("Problem = %+v, want %+v", got, want)
@@ -40,7 +40,7 @@ func TestWrite(t *testing.T) {
 }
 
 func TestWriteValidation(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/x", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/x", nil)
 	w := httptest.NewRecorder()
 
 	WriteValidation(w, req, "2 fields failed validation",
@@ -64,7 +64,7 @@ func TestWriteValidation(t *testing.T) {
 		Title:    "Validation error",
 		Status:   http.StatusUnprocessableEntity,
 		Detail:   "2 fields failed validation",
-		Instance: "/api/v1/x",
+		Instance: "/api/v0/x",
 	}
 	if got.Problem != wantProblem {
 		t.Fatalf("Problem = %+v, want %+v", got.Problem, wantProblem)
@@ -79,7 +79,7 @@ func TestWriteValidation(t *testing.T) {
 }
 
 func TestWriteUpstreamRateLimited(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/radio/browse", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/radio/browse", nil)
 	w := httptest.NewRecorder()
 
 	stub := upstream.WrapError("Test Service", upstream.KindRateLimited, http.StatusTooManyRequests, errors.New("boom"))
@@ -108,7 +108,7 @@ func TestWriteUpstreamRateLimited(t *testing.T) {
 }
 
 func TestWriteUpstreamFallsBackTo502ForNonUpstreamError(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/radio/browse", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/radio/browse", nil)
 	w := httptest.NewRecorder()
 
 	WriteUpstream(w, req, errors.New("plain error"), "fallback message")

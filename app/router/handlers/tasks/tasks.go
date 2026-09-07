@@ -126,7 +126,7 @@ func (h *Handler) CancelExecution() http.Handler {
 			// Cancel folds "unknown execution id" and any other cancellation
 			// failure into the same conflict — a documented quirk this refactor
 			// preserves as-is (see cancelTaskExecution's description in
-			// docs/openapi/aether-v1.yaml).
+			// docs/openapi/aether-v0.yaml).
 			h.Logger.Error("cancel execution failed", "id", id.String(), "err", err)
 			httperr.Write(w, r, http.StatusConflict, "conflict", "Failed to cancel the execution.")
 			return

@@ -7,7 +7,7 @@ Music server written in Go with a Vue 3 frontend.
 Before implementation work, read [`docs/agents/architecture.md`](docs/agents/architecture.md)
 and the subsystem doc for the area you're changing:
 [`subsonic-api.md`](docs/agents/subsonic-api.md) (anything under `/rest`),
-[`api-conventions.md`](docs/agents/api-conventions.md) (anything under `/api/v1`),
+[`api-conventions.md`](docs/agents/api-conventions.md) (anything under `/api/v0`),
 [`scanning.md`](docs/agents/scanning.md) (scanner/tags/store reconcile),
 [`frontend.md`](docs/agents/frontend.md) (webui). Check
 [`docs/agents/features.md`](docs/agents/features.md) before adding a
@@ -23,8 +23,8 @@ capability — gaps are catalogued with chosen directions — and
 ## API Compatibility
 
 - **The `/rest/` API must stay compliant with the [OpenSubsonic](https://opensubsonic.netlify.app/) standard** so third-party Subsonic/OpenSubsonic clients can consume this server. Do not add ad-hoc non-standard endpoints, parameters, or response fields to `/rest/`.
-- **All music functionality is powered exclusively by `/rest/`** — browsing, playback, playlists, album/artist navigation, search, etc. When the standard lacks something the music UI needs, do not bolt it onto `/api/v1`; instead add it as a proper **OpenSubsonic extension**: implement the endpoint under `/rest/` and advertise it via `getOpenSubsonicExtensions` so non-supporting clients ignore it and nothing breaks. Prefer upstreaming the extension to the OpenSubsonic registry so other clients can consume it too.
-- **The internal `/api/v1` API is for server-management actions only** — managing collections/libraries, backups, scanning, tasks/scheduling, and other admin concerns that have no place in a music-client API. Never route music browsing/playback features through `/api/v1`.
+- **All music functionality is powered exclusively by `/rest/`** — browsing, playback, playlists, album/artist navigation, search, etc. When the standard lacks something the music UI needs, do not bolt it onto `/api/v0`; instead add it as a proper **OpenSubsonic extension**: implement the endpoint under `/rest/` and advertise it via `getOpenSubsonicExtensions` so non-supporting clients ignore it and nothing breaks. Prefer upstreaming the extension to the OpenSubsonic registry so other clients can consume it too.
+- **The internal `/api/v0` API is for server-management actions only** — managing collections/libraries, backups, scanning, tasks/scheduling, and other admin concerns that have no place in a music-client API. Never route music browsing/playback features through `/api/v0`.
 
 ## Frontend Conventions
 
@@ -57,7 +57,7 @@ whole app whenever auth method `native` reports no session (see
 | `UserSettingsView` | `/user-settings/:tab?` | Personal settings (identity, theme, change password, API tokens). Vertical tablist whose active section is the `tab` path segment (`general` \| `account` \| `access`), so a reload or shared link reopens it; bare `/user-settings` is General, an unknown/unavailable section rewrites back to it. `account` holds the change-password form and appears only in native mode when signed in; `access` needs a signed-in user. Reached from the sidebar's `UserMenu` popup, not from `/settings` |
 | `AboutView` | `/about` | About Aether (keyboard shortcuts reference, build info, source link). Reached from the `UserMenu` popup |
 
-**Settings views** — nested under `/settings` with `meta: { layout: 'settings' }` (not the music layout); `/settings` redirects to `/settings/libraries`. Settings is administration only: account concerns (user settings, logout) live in the sidebar's `UserMenu` popup. The whole area is **admin-only**: `useAuth().isAdmin` hides the `UserMenu` Admin entry and `App.vue` redirects non-admins landing on a settings route; the backend enforces it with 403 on `/api/v1` (see `docs/agents/authentication.md`):
+**Settings views** — nested under `/settings` with `meta: { layout: 'settings' }` (not the music layout); `/settings` redirects to `/settings/libraries`. Settings is administration only: account concerns (user settings, logout) live in the sidebar's `UserMenu` popup. The whole area is **admin-only**: `useAuth().isAdmin` hides the `UserMenu` Admin entry and `App.vue` redirects non-admins landing on a settings route; the backend enforces it with 403 on `/api/v0` (see `docs/agents/authentication.md`):
 
 | View | Route | Purpose |
 |------|-------|---------|

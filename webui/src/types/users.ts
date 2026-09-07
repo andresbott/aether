@@ -12,14 +12,14 @@ export interface ServerFeatures {
     userManagement: boolean
 }
 
-/** GET /api/v1/me — the SPA's bootstrap: auth method, identity, features. */
+/** GET /api/v0/me — the SPA's bootstrap: auth method, identity, features. */
 export interface MeResponse {
     authMethod: AuthMethod
     user: MeUser | null
     features: ServerFeatures
 }
 
-/** POST /api/v1/auth/login success body. */
+/** POST /api/v0/auth/login success body. */
 export interface LoginResponse {
     /** Login complete and the session cookie is set. */
     done: boolean

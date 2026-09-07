@@ -87,7 +87,7 @@ plain `apt install aether` should get the full feature set:
   disables itself when absent (`app/cmd/server.go`). The detection runs **once
   at startup**, so installing fpcalc later needs a restart; until then the
   metadata editor shows Identify greyed out with the reason from
-  `/api/v1/metadata/capabilities`.
+  `/api/v0/metadata/capabilities`.
 
 ## Config resolution
 

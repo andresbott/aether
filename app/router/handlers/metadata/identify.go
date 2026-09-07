@@ -7,12 +7,15 @@ import (
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/gorilla/mux"
 )
 
 // IdentifyService resolves an audio file to MusicBrainz recording candidates
 // by acoustic fingerprint. Satisfied by *identify.Identifier. A nil service on
-// the Handler means identification is unavailable (fpcalc or the AcoustID key
+// the handler means identification is unavailable (fpcalc or the AcoustID key
 // is missing) — the capabilities endpoint reports it and identify returns 503.
 type IdentifyService interface {
 	IdentifyFile(ctx context.Context, absPath string) ([]acoustid.Recording, error)
@@ -22,7 +25,37 @@ type IdentifyService interface {
 // application did not say why, so the UI never has to invent an explanation.
 const defaultIdentifyUnavailableReason = "audio identification is not available on this server"
 
-func (h *Handler) capabilities(w http.ResponseWriter, _ *http.Request) {
+// IdentifyHandler serves the acoustic-identification endpoints of the metadata
+// editor: per-file identify, album identify, and the capabilities probe that
+// reports whether identification is available. It reads files (Reader, for the
+// album-identify ranking hints) and resolves selections against the library
+// store, but never writes — so it carries no rescanner.
+type IdentifyHandler struct {
+	Store  *store.Store
+	Reader tags.Reader
+	// Identifier is optional: nil disables the identify endpoint and is
+	// reported through /metadata/capabilities.
+	Identifier IdentifyService
+	// IdentifyUnavailableReason explains, in user-facing terms, why Identifier
+	// is nil (missing fpcalc binary, missing AcoustID key, ...). Surfaced
+	// through /metadata/capabilities so the UI can say what is missing instead
+	// of silently hiding the feature. Ignored when Identifier is set.
+	IdentifyUnavailableReason string
+	// AlbumIdentifier maps a multi-file selection onto one release. Optional:
+	// nil makes /metadata/identify-album answer 503, exactly as a nil
+	// Identifier does for /metadata/identify.
+	AlbumIdentifier AlbumIdentifyService
+}
+
+// Routes mounts the identify endpoints under an already-subrouted mux.Router.
+// Endpoints live beneath /metadata/.
+func (h *IdentifyHandler) Routes(r *mux.Router) {
+	r.Path("/metadata/capabilities").Methods(http.MethodGet).HandlerFunc(h.capabilities)
+	r.Path("/metadata/identify").Methods(http.MethodPost).HandlerFunc(h.identify)
+	r.Path("/metadata/identify-album").Methods(http.MethodPost).HandlerFunc(h.identifyAlbum)
+}
+
+func (h *IdentifyHandler) capabilities(w http.ResponseWriter, _ *http.Request) {
 	body := map[string]any{"identify": h.Identifier != nil}
 	if h.Identifier == nil {
 		reason := h.IdentifyUnavailableReason
@@ -67,7 +100,7 @@ type identifyResultDTO struct {
 	Error      string                 `json:"error,omitempty"`
 }
 
-func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
+func (h *IdentifyHandler) identify(w http.ResponseWriter, r *http.Request) {
 	if h.Identifier == nil {
 		reason := h.IdentifyUnavailableReason
 		if reason == "" {
@@ -82,7 +115,7 @@ func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := h.resolveSelection(w, r, body.LibraryID, body.Paths, 1)
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1)
 	if !ok {
 		return
 	}

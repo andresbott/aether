@@ -63,6 +63,6 @@ workflows).
 - `make run-ui` — rebuilds the SPA, copies it into `app/spa/files/ui`, then
   runs the server.
 - `cd webui && npm run dev` — Vite dev server for UI work (set
-  `VITE_SERVER_URL_V1` if not proxying).
+  `VITE_SERVER_URL_V0` if not proxying).
 
 See [releasing.md](releasing.md) for the release-time gates.

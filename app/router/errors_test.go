@@ -11,9 +11,9 @@ import (
 )
 
 // The production middleware wraps any >=400 body in an envelope, shaped by
-// mount: the internal admin API (apiV1MountPrefix, "/api/v1") gets a
+// mount: the internal admin API (apiV0MountPrefix, "/api/v0") gets a
 // problem+json Problem; everything else (chiefly /rest) keeps the legacy
-// apiError{error,code} shape unchanged. Our /api/v1 handlers already answer
+// apiError{error,code} shape unchanged. Our /api/v0 handlers already answer
 // JSON (most already problem+json via httperr), so without care the client
 // receives an envelope whose "detail" is an escaped JSON *document* — which
 // the UI then shows verbatim (the {"error":...,"code":"upstream_error"}
@@ -22,9 +22,9 @@ import (
 // contract: one envelope per mount, "detail" is a sentence, and the
 // handler's own type/slug survives.
 //
-// GET /api/v1/radiobrowser/search without q is a real registered handler that
+// GET /api/v0/radiobrowser/search without q is a real registered handler that
 // answers a JSON 400 through writeError, so it exercises the whole stack.
-const jsonErrPath = "/api/v1/radiobrowser/search"
+const jsonErrPath = "/api/v0/radiobrowser/search"
 
 func newTestRouter(t *testing.T) *MainAppHandler {
 	t.Helper()
@@ -82,7 +82,7 @@ func TestApiErrorKeepsHandlerCode(t *testing.T) {
 func TestSuccessResponsesArePassedThrough(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/health", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/health", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", w.Code)
@@ -110,14 +110,14 @@ func TestSubsonicErrorEnvelopeIsUntouched(t *testing.T) {
 }
 
 // Handlers that answer plain text (http.Error) still need an envelope — the
-// SPA parses every /api/v1 failure as problem+json, not just the ones a
-// handler builds itself via httperr. This exercises the real /api/v1
-// catch-all (api_v1.go), which answers unmatched paths with a bare
+// SPA parses every /api/v0 failure as problem+json, not just the ones a
+// handler builds itself via httperr. This exercises the real /api/v0
+// catch-all (api_v0.go), which answers unmatched paths with a bare
 // http.Error.
 func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/does-not-exist", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/does-not-exist", nil))
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
@@ -135,7 +135,7 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 	if got := httperr.Slug(body.Type); got != "validation_error" {
 		t.Errorf("slug = %q, want validation_error (400)", got)
 	}
-	if body.Instance != "/api/v1/does-not-exist" {
+	if body.Instance != "/api/v0/does-not-exist" {
 		t.Errorf("instance = %q, want the request path", body.Instance)
 	}
 }
@@ -146,7 +146,7 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 // specific registered route.
 func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/v1/nope", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v0/nope", nil)
 	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})).ServeHTTP(w, r)
@@ -167,7 +167,7 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	if got := httperr.Slug(body.Type); got != "not_found" {
 		t.Errorf("slug = %q, want not_found", got)
 	}
-	if body.Instance != "/api/v1/nope" {
+	if body.Instance != "/api/v0/nope" {
 		t.Errorf("instance = %q, want the request path", body.Instance)
 	}
 }

@@ -3,7 +3,7 @@
 Aether (module `github.com/andresbott/aether`) is a self-hosted **music server**:
 a single Go binary with an embedded Vue 3 SPA, SQLite persistence, an
 OpenSubsonic-compatible `/rest` API for all music functionality, and a private
-`/api/v1` API for server administration. It is pre-release software with **no
+`/api/v0` API for server administration. It is pre-release software with **no
 backwards-compatibility obligations** (see CLAUDE.md: no migration code, no
 compat shims — change schemas freely; the user drops the DB).
 
@@ -17,7 +17,7 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 
     app/cmd (cobra CLI, config, wiring)          webui/ (Vue 3 SPA)
             |                                        | (built + embedded)
-    app/router ──── /api/v1 handlers ── /rest subsonic ── app/spa (embed.FS)
+    app/router ──── /api/v0 handlers ── /rest subsonic ── app/spa (embed.FS)
             |            |                    |
     app/tasks (task defs)|                    |
             |            v                    v
@@ -34,7 +34,7 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
   gracefully (e.g. `Identifier: nil` disables audio identification; no
   provider API keys means the fetch task reports "not configured").
 - **`app/router` owns routing only.** Three surfaces on one gorilla/mux
-  router, in order: `/api/v1` (admin), `/rest` (Subsonic), then the SPA
+  router, in order: `/api/v0` (admin), `/rest` (Subsonic), then the SPA
   catch-all on `/`. A second HTTP server (observability, default :9009)
   serves Prometheus `/metrics` via `handlers.Admin()` — opt-in via
   `Observability.Enabled`, and not started at all when false.
@@ -57,8 +57,8 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 - **All music functionality goes through `/rest`** and must stay
   OpenSubsonic-compliant. Missing capability? Add a proper OpenSubsonic
   *extension* under `/rest` advertised via `getOpenSubsonicExtensions` —
-  never a bespoke `/api/v1` music endpoint. See [subsonic-api.md](subsonic-api.md).
-- **`/api/v1` is server management only**: libraries CRUD + folder browse,
+  never a bespoke `/api/v0` music endpoint. See [subsonic-api.md](subsonic-api.md).
+- **`/api/v0` is server management only**: libraries CRUD + folder browse,
   tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
   `GET /artists/{id}/image-source` (which of aether's store / the music folder /
   the generated avatar the artist's image comes from — a server filesystem
@@ -132,7 +132,7 @@ default for everyone who didn't spell the key out.
 
 ### Config-provisioned libraries
 
-Libraries come from **two additive sources**: the admin UI (`/api/v1/libraries`)
+Libraries come from **two additive sources**: the admin UI (`/api/v0/libraries`)
 and a `Libraries:` list in the config file. `Library.Source` (`model.SourceDB` /
 `model.SourceConfig`) records which.
 
@@ -178,7 +178,7 @@ bad request, with the same message. Don't add a second copy of those rules.
   binary on the host and a per-version app key baked into `app/metainfo`.
   Availability is decided once at startup; when either is missing the router
   gets a nil identifier plus a user-facing reason, which
-  `GET /api/v1/metadata/capabilities` returns as `identify: false` +
+  `GET /api/v0/metadata/capabilities` returns as `identify: false` +
   `identify_unavailable_reason` so the editor can grey out Identify and say
   what is missing rather than hiding it. What a confirmed match actually stages
   is the user's choice: both identify dialogs render the same
@@ -225,7 +225,7 @@ bad request, with the same message. Don't add a second copy of those rules.
   every reissue and compilation a track ever appeared on — and MusicBrainz is
   throttled to a few requests per second; the options past the cap still appear,
   with an unknown track count and no gap-fill. Exposed as
-  `POST /api/v1/metadata/identify-album` (management API, not `/rest`), nil-safe
+  `POST /api/v0/metadata/identify-album` (management API, not `/rest`), nil-safe
   exactly like identify: no fingerprinting service means a 503 and a greyed-out
   button. A per-file fingerprint failure is reported on that file's row and a
   failed MusicBrainz lookup only degrades its own option — neither fails the
@@ -260,9 +260,9 @@ Degrade rather than fail where a fallback exists: `coverart.List` tries the
 release-group MBID when the release lookup fails, since both describe the same
 album.
 
-## The `/api/v1` error envelope
+## The `/api/v0` error envelope
 
-Every `/api/v1` failure answers RFC 9457 `application/problem+json` — a
+Every `/api/v0` failure answers RFC 9457 `application/problem+json` — a
 `Problem{type, title, status, detail, instance}` body (see
 [api-conventions.md](api-conventions.md)) — except the metadata package's
 batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
@@ -273,9 +273,9 @@ packages (metadata, tokens, libraries, artists, radiobrowser, users) build a
 Problem directly via
 `app/router/handlers/httperr`; `tasks` calls it directly for its one JSON
 error body (`queue_full`) and otherwise still answers bare `http.Error`.
-Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v1` —
+Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v0` —
 `tasks`' remaining plain-text errors, the `sessionGuard`/`headerGuard` auth
-gate's `401`/`403`, the `/api/v1` catch-all's `400`, or a stray
+gate's `401`/`403`, the `/api/v0` catch-all's `400`, or a stray
 `http.NotFound` inside an otherwise-migrated handler (`pictureImage`'s "cell
 not found") — is still guaranteed the same shape by
 `app/router/errors.go`'s `jsonErrorEnvelope` middleware: a handler body that
@@ -294,7 +294,7 @@ logging and Prometheus. Successful responses are never buffered, so streaming
 **The `application/problem+json` rewrite is scoped to the admin API mount
 only.** `jsonErrorEnvelope` is mounted on the root router (`main.go`), so it
 technically also wraps `/rest` — but the middleware checks `r.URL.Path`
-against `apiV1MountPrefix` ("/api/v1") before choosing a shape: only a path
+against `apiV0MountPrefix` ("/api/v0") before choosing a shape: only a path
 under that prefix gets a `Problem`. Every other path — `/rest` foremost —
 keeps the original, non-RFC-9457 `apiError{error, code}` envelope this
 middleware has always answered with, byte-identical to before problem+json

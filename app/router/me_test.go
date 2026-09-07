@@ -13,7 +13,7 @@ import (
 func getMe(t *testing.T, h *MainAppHandler) (int, map[string]any) {
 	t.Helper()
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/me", nil))
 	var body map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("/me body is not JSON: %s", w.Body.String())
@@ -69,19 +69,19 @@ func TestMeWithNativeAuth(t *testing.T) {
 
 	// With the store present the users CRUD is mounted.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/users", nil))
 	if w.Code != http.StatusOK {
-		t.Errorf("GET /api/v1/users = %d, want 200 with native auth: %s", w.Code, w.Body.String())
+		t.Errorf("GET /api/v0/users = %d, want 200 with native auth: %s", w.Code, w.Body.String())
 	}
 }
 
 // With auth method "none" there is no user store and the users routes must not
-// exist at all — the request falls through to the /api/v1 catch-all.
+// exist at all — the request falls through to the /api/v0 catch-all.
 func TestUsersAPIIsNotMountedWithoutNativeAuth(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/users", nil))
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("GET /api/v1/users = %d, want the 400 catch-all: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/users = %d, want the 400 catch-all: %s", w.Code, w.Body.String())
 	}
 }

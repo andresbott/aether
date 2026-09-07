@@ -11,7 +11,7 @@ type MeUser struct {
 	Login string `json:"login"`
 	// Role is the user's vertical, "admin" or "user" (see handlers/users).
 	// The SPA gates the administration UI on it; the real enforcement is the
-	// admin guard on /api/v1.
+	// admin guard on /api/v0.
 	Role string `json:"role"`
 }
 
@@ -25,7 +25,7 @@ type MeIdentity func(w http.ResponseWriter, r *http.Request) *MeUser
 // cannot know them at build time.
 type meFeatures struct {
 	// UserManagement is true when the native users CRUD is mounted on
-	// /api/v1 (auth method "native").
+	// /api/v0 (auth method "native").
 	UserManagement bool `json:"userManagement"`
 }
 
@@ -35,7 +35,7 @@ type meResponse struct {
 	Features   meFeatures `json:"features"`
 }
 
-// MeHandler is the SPA's bootstrap endpoint (GET /api/v1/me, see
+// MeHandler is the SPA's bootstrap endpoint (GET /api/v0/me, see
 // docs/agents/authentication.md): it reports the active auth method, the
 // caller's identity and the features this server exposes, so the UI adapts
 // without build-time configuration. It is deliberately public — the SPA needs

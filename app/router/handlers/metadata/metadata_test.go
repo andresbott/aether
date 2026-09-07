@@ -59,7 +59,7 @@ func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *m
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib
@@ -174,7 +174,7 @@ func TestTracks_ListsFilesWithTags(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: stubTagReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: stubTagReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -239,7 +239,7 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -295,7 +295,7 @@ func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -447,7 +447,7 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -491,7 +491,7 @@ func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -538,7 +538,7 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -589,7 +589,7 @@ func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: tags.TaglibReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: tags.TaglibReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -734,7 +734,7 @@ func rescanTestHandler(t *testing.T, rs *fakeRescanner) (*mux.Router, *model.Lib
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -816,7 +816,7 @@ func realRescanHandler(t *testing.T, root string, excludes []string) (*mux.Route
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.TagsHandler{
 		Store:  s,
 		Reader: wideReader{},
 		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
@@ -945,7 +945,7 @@ func TestUpdateTracks_RescansWrittenPaths(t *testing.T) {
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
 	rs := &fakeRescanner{}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 

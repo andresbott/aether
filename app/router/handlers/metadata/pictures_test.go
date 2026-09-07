@@ -82,7 +82,7 @@ func newPictureHandlerWithRescan(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
@@ -128,7 +128,7 @@ func newArtistImageHandler(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
@@ -1236,7 +1236,7 @@ func TestRemovals_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store:  s,
 		Reader: wideReader{},
 		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),

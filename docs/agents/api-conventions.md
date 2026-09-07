@@ -1,18 +1,18 @@
-# API Conventions — `/api/v1` house rules: bounded URLs, POST-for-reads, one error shape
+# API Conventions — `/api/v0` house rules: bounded URLs, POST-for-reads, one error shape
 
-`/api/v1` is the internal, admin-only server-management API — see
+`/api/v0` is the internal, admin-only server-management API — see
 [architecture.md](architecture.md)'s "two-API split" for what belongs here
 versus `/rest`. This doc records the conventions the metadata picture/raw-tag
 **header-safe redesign** established
 (`docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md`)
-so they apply to every `/api/v1` endpoint you add or touch, not only
+so they apply to every `/api/v0` endpoint you add or touch, not only
 metadata's. The worked example throughout is
 `app/router/handlers/metadata/{metadata,pictures,raw}.go` plus the
-machine-readable seed spec, `docs/openapi/aether-v1.yaml`.
+machine-readable seed spec, `docs/openapi/aether-v0.yaml`.
 
 ## Bounded URLs: no list in a `GET`/`DELETE` URL
 
-**Rule:** no `/api/v1` `GET` or `DELETE` operation may carry a
+**Rule:** no `/api/v0` `GET` or `DELETE` operation may carry a
 variable-length list in its URL — neither a repeated/array query parameter
 nor an array-shaped path segment.
 
@@ -54,8 +54,8 @@ path-item level (a `parameters` array as a sibling of `get`/`delete`, which
 applies to every operation on that path) — a shared param is just as capable
 of causing a 431 as one declared under the operation. `make spec-lint` only
 catches a violation in an endpoint that's actually described in
-`docs/openapi/aether-v1.yaml` — the spec is a seed (see below), so a new
-`/api/v1` `GET`/`DELETE` isn't linted at all until you add it there.
+`docs/openapi/aether-v0.yaml` — the spec is a seed (see below), so a new
+`/api/v0` `GET`/`DELETE` isn't linted at all until you add it there.
 
 ## A read that needs a list is a `POST` to a read sub-resource
 
@@ -97,10 +97,10 @@ attach a payload to a verb that isn't specified to reliably carry one.
 
 ## One error shape: RFC 9457 `application/problem+json`, via `httperr`
 
-**Rule:** every `/api/v1` handler answers an error as
+**Rule:** every `/api/v0` handler answers an error as
 `application/problem+json` (RFC 9457 "Problem Details for HTTP APIs"), built
 with the shared `app/router/handlers/httperr` package. **This package is
-`/api/v1`-only** — `/rest` keeps its own OpenSubsonic envelope (numeric error
+`/api/v0`-only** — `/rest` keeps its own OpenSubsonic envelope (numeric error
 codes inside a 200 `subsonic-response`; see
 [subsonic-api.md](subsonic-api.md)) and must never use it.
 
@@ -137,31 +137,31 @@ when the provider is rate-limiting Aether, otherwise `502`/`504` — `detail`
 is always `upstream`'s human sentence or a fallback, **never a raw Go
 error**.
 
-**Status — uniform across all of `/api/v1`.** All seven handler packages call
+**Status — uniform across all of `/api/v0`.** All seven handler packages call
 `httperr.Write` directly for every error today: `metadata`, `tokens`,
 `libraries`, `artists`, `radiobrowser`, `users`, `tasks` (enumerated in the
 `titles` var's own comment, `app/router/handlers/httperr/httperr.go` — not the
 package doc above it, which only names a few as examples). The per-package
 `writeError`/`writeErr` shims that once wrapped it were removed; every call
 site now names `httperr.Write`. The front-door session/role
-gate (`sessionGuard`/`headerGuard` in `app/router/api_v1.go` and
+gate (`sessionGuard`/`headerGuard` in `app/router/api_v0.go` and
 `app/router/proxy_auth.go`, which answer `401`/`403`/`500`) calls
 `httperr.Write` directly too, rather than relying on the router fallback.
 The router-level `jsonErrorEnvelope` middleware (`app/router/errors.go`,
 wired in `app/router/main.go`) still guarantees the same `Problem` for any
 bare plain-text error that reaches it **on a path under the admin API
-mount** (`apiV1MountPrefix`, `"/api/v1"`) — `errorCodeFor` maps the response
+mount** (`apiV0MountPrefix`, `"/api/v0"`) — `errorCodeFor` maps the response
 status to a slug (`401` → `unauthorized`, `403` → `forbidden`, …),
 `httperr.TitleFor` maps that slug to its human title, and the plain-text
 body becomes `detail` verbatim. That fallback still matters for what's left
-on that path: the `/api/v1` catch-all (`api_v1.go`'s `PathPrefix("")`, a
+on that path: the `/api/v0` catch-all (`api_v0.go`'s `PathPrefix("")`, a
 bare `400`) and a stray `http.NotFound` inside an otherwise-migrated handler
 (`pictureImage`'s "cell not found" `404`, below). A body that is already a
 JSON object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
 through untouched, so the two mechanisms never double-wrap each other.
 `jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
 together with the handler packages calling `httperr` directly, it is *how*
-`/api/v1` stays uniform: every error response under this mount,
+`/api/v0` stays uniform: every error response under this mount,
 handler-authored or not, ends up `application/problem+json`, with no
 exceptions — the batch endpoints described below report their per-row
 outcomes on a `200`, so they never author an error response of their own.
@@ -180,7 +180,7 @@ endpoint is an image stream, not a JSON one. The envelope still turns it into
 the same `Problem{type: .../probs/not_found, title: "Not found", detail:
 "404 page not found", ...}` shape as everywhere else — `detail` is just Go's
 stock message rather than a handler-authored sentence.
-`docs/openapi/aether-v1.yaml` documents it as `application/problem+json` like
+`docs/openapi/aether-v0.yaml` documents it as `application/problem+json` like
 every other response on that path.
 
 **Batch endpoints: status describes the request, the body describes the
@@ -222,44 +222,41 @@ failed" from `results[]` alone; its `onError` path is reserved for genuine
 request-level and transport failures, which is what `apiErrorMessage` is
 built to read.
 
-**Enforcement/reference:** `docs/openapi/aether-v1.yaml`'s
+**Enforcement/reference:** `docs/openapi/aether-v0.yaml`'s
 `components.schemas.{Problem,ValidationProblem,FieldError}` and
 `components.responses.{BadRequest,NotFound,UnprocessableEntity,TooManyRequests,UpstreamError}`
 — all typed `application/problem+json`, with no exception left: every
-non-2xx response documented under `/api/v1`, batch endpoints included, is a
+non-2xx response documented under `/api/v0`, batch endpoints included, is a
 Problem.
 
 ## Mount-relative paths — model the base through `servers:`
 
-**Rule:** the OpenAPI document models `/api/v1` exclusively via
-`servers: [{ url: /api/v1 }]`; every `paths:` key is mount-relative
+**Rule:** the OpenAPI document models `/api/v0` exclusively via
+`servers: [{ url: /api/v0 }]`; every `paths:` key is mount-relative
 (`/metadata/pictures/inventory`, never
-`/api/v1/metadata/pictures/inventory`). Handlers already do the equivalent
+`/api/v0/metadata/pictures/inventory`). Handlers already do the equivalent
 thing structurally: routes are registered on the subrouter returned by
-`app.router.PathPrefix("/api/v1").Subrouter()` (`app/router/main.go`), never
-with `/api/v1` baked into an individual route string.
+`app.router.PathPrefix("/api/v0").Subrouter()` (`app/router/main.go`), never
+with `/api/v0` baked into an individual route string.
 
-**Why:** `TODO.md` tracks a planned reorg — moving admin-only groups like
-libraries and tasks under `/api/admin/...` — as a deliberate breaking URL
-change, free to do now under the no-backwards-compatibility rule and
-expensive once anything depends on the current paths. Keeping the base path
-out of every individual path key means that reorg is a one-line
-`servers[0].url` edit (plus the matching one-line mount-prefix change in
-`app/router/main.go`), not a mechanical rewrite of every path and
-`operationId` in the spec.
+**Why:** keeping the base path out of every individual path key means a change
+to the mount prefix is a one-line `servers[0].url` edit (plus the matching
+one-line mount-prefix change in `app/router/main.go`), not a mechanical rewrite
+of every path and `operationId` in the spec. The `/api/v0` version prefix — and
+any future bump — lives only there.
 
 **No automated check for this today** — confirmed by hand (grepping the spec)
-that no `paths:` key hard-codes `/api/v1` (only `servers[0].url` and prose
-may). A Spectral rule forbidding a literal `/api/v1` substring inside any
+that no `paths:` key hard-codes `/api/v0` (only `servers[0].url` and prose
+may). A Spectral rule forbidding a literal `/api/v0` substring inside any
 `paths` key would be a natural follow-up; none exists yet.
 
 ## The seed OpenAPI spec — what's specced, what isn't
 
-`docs/openapi/aether-v1.yaml` is the machine-readable contract for
-`/api/v1`, but it is a **seed**: today it covers only the metadata editor's
+`docs/openapi/aether-v0.yaml` is the machine-readable contract for
+`/api/v0`, but it is a **seed**: today it covers only the metadata editor's
 picture/raw-tag surface (the endpoints this doc uses as its worked examples)
 plus the shared `Problem`/`ValidationProblem`/`FieldError` components. Not
-yet specced — real, mounted endpoints per `app/router/api_v1.go`, just not
+yet specced — real, mounted endpoints per `app/router/api_v0.go`, just not
 described here: `artists`, `users`, `tasks`, `tokens`, `radiobrowser`,
 `auth`, `libraries`, `health`/`version`/`me`, and the rest of `/metadata/*`
 (`capabilities`, `identify`, `identify-album`, the structured editor's
@@ -268,13 +265,13 @@ described here: `artists`, `users`, `tasks`, `tokens`, `radiobrowser`,
 consider adding its spec coverage rather than letting the gap widen.
 
 Validate any spec edit with `make spec-lint` (`cd webui && npm run
-spec-lint`, which runs `spectral lint ../docs/openapi/aether-v1.yaml -r
+spec-lint`, which runs `spectral lint ../docs/openapi/aether-v0.yaml -r
 ../.spectral.yaml --fail-severity=error` — `spectral` is only installed as a
 `webui` devDependency, so it must run from there); it runs as part of `make
 verify` and in CI (`.github/workflows/spec-lint.yml`). The negative fixtures
 that prove the two bounded-URL rules actually fire live under
 `docs/openapi/testdata/` and are never linted by `make spec-lint` itself,
-which only targets `aether-v1.yaml` — lint them directly (from `webui/`:
+which only targets `aether-v0.yaml` — lint them directly (from `webui/`:
 `npx spectral lint ../docs/openapi/testdata/<file>.yaml -r
 ../.spectral.yaml`) if you change either rule and need to re-prove it still
 catches a violation.

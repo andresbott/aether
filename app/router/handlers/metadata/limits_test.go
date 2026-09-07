@@ -17,10 +17,11 @@ import (
 	"gorm.io/gorm"
 )
 
-// newCapHandler builds one handler with every optional service wired — a
-// fake Identifier/AlbumIdentifier so identify/identify-album reach their
-// paths[] validation instead of short-circuiting on 503 — for exercising the
-// shared maxSelectionPaths cap across every paths[]-accepting endpoint.
+// newCapHandler wires all three metadata handlers (identify, tags, images) onto
+// one router — with a fake Identifier/AlbumIdentifier so identify/identify-album
+// reach their paths[] validation instead of short-circuiting on 503 — for
+// exercising the shared maxSelectionPaths cap across every paths[]-accepting
+// endpoint, which now span all three handlers.
 func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -35,14 +36,15 @@ func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	r := mux.NewRouter()
+	(&metaHandler.IdentifyHandler{
 		Store:           s,
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
 		AlbumIdentifier: &fakeAlbumIdentifier{},
-	}
-	r := mux.NewRouter()
-	h.Routes(r)
+	}).Routes(r)
+	(&metaHandler.TagsHandler{Store: s, Reader: nullReader{}}).Routes(r)
+	(&metaHandler.ImagesHandler{Store: s, Reader: nullReader{}}).Routes(r)
 	return r, lib
 }
 

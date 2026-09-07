@@ -75,7 +75,7 @@ func bootstrapAdmin(users *user.Service, cfg AuthCfg) (bool, error) {
 
 // setupNativeAuth creates the identity and password services, seeds the initial
 // admin and builds the cookie session manager when the auth method is native,
-// returning them for the router (users CRUD, login endpoints, /api/v1 session
+// returning them for the router (users CRUD, login endpoints, /api/v0 session
 // guard). With auth method "none" it returns nils — nothing auth-related is
 // created at all.
 func setupNativeAuth(db *gorm.DB, dataDir string, cfg AuthCfg, l *slog.Logger) (*user.Service, *password.Service, *cookieauth.Manager, *pat.Service, error) {

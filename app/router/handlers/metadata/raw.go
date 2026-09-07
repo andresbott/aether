@@ -26,8 +26,8 @@ type rawTagsResultDTO struct {
 // against (a large multi-disc selection as a repeated ?paths= query param
 // overflowed a reverse proxy's header buffer). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
-func (h *Handler) rawTags(w http.ResponseWriter, r *http.Request) {
-	lib, sel, ok := h.decodeSelection(w, r)
+func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
+	lib, sel, ok := decodeSelection(h.Store, w, r)
 	if !ok {
 		return
 	}

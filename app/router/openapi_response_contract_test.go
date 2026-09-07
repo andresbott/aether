@@ -17,10 +17,10 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 )
 
-// This file is the response-contract test: it drives real /api/v1 requests
+// This file is the response-contract test: it drives real /api/v0 requests
 // through the same maximal-router/auth harness openapi_coverage_test.go and
 // auth_test.go already establish, and validates each captured response BODY
-// against docs/openapi/aether-v1.yaml's schema for that operation and
+// against docs/openapi/aether-v0.yaml's schema for that operation and
 // status. TestOpenAPICoversAllV1Routes (openapi_coverage_test.go) only
 // checks that a (method, path) exists on both sides; spec-lint only checks
 // the document is well-formed. Neither ever decodes a real handler response
@@ -38,7 +38,7 @@ import (
 // neither branch). EnableJSONSchema2020() is passed to VisitJSON per
 // kin-openapi's own guidance for 3.1+ documents.
 
-// specDoc parses and OpenAPI-validates docs/openapi/aether-v1.yaml once for
+// specDoc parses and OpenAPI-validates docs/openapi/aether-v0.yaml once for
 // the whole test binary (loading + validating a ~3700 line document on every
 // call would needlessly slow the suite down). Resolved relative to this
 // source file, like loadSpecOperations in openapi_coverage_test.go, so it
@@ -48,7 +48,7 @@ var specDocOnce = sync.OnceValues(func() (*openapi3.T, error) {
 	if !ok {
 		return nil, errors.New("could not resolve this test file's own location")
 	}
-	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v1.yaml")
+	specPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "docs", "openapi", "aether-v0.yaml")
 	doc, err := openapi3.NewLoader().LoadFromFile(specPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading %s: %w", specPath, err)
@@ -69,9 +69,9 @@ func specDoc(t *testing.T) *openapi3.T {
 }
 
 // operationByID finds the operation with the given operationId anywhere in
-// the spec. docs/openapi/aether-v1.yaml's paths are mount-relative
+// the spec. docs/openapi/aether-v0.yaml's paths are mount-relative
 // (api-conventions.md, "Mount-relative paths") while every request in this
-// file goes through the real /api/v1 mount, so looking operations up by
+// file goes through the real /api/v0 mount, so looking operations up by
 // their stable operationId — rather than reconstructing a mount-relative
 // path by hand at each call site — is both less error-prone and self-
 // documenting about which spec operation a given request is expected to
@@ -85,7 +85,7 @@ func operationByID(t *testing.T, doc *openapi3.T, id string) *openapi3.Operation
 			}
 		}
 	}
-	t.Fatalf("no operation with operationId %q in docs/openapi/aether-v1.yaml", id)
+	t.Fatalf("no operation with operationId %q in docs/openapi/aether-v0.yaml", id)
 	return nil
 }
 
@@ -99,7 +99,7 @@ func contentTypeBase(ct string) string {
 	return strings.TrimSpace(ct)
 }
 
-// responseSchema resolves the schema docs/openapi/aether-v1.yaml documents
+// responseSchema resolves the schema docs/openapi/aether-v0.yaml documents
 // for operationID's response at status, under contentType. Missing
 // operation/status/media-type is a Fatalf, not a skip: this file exists to
 // prove response bodies match the spec, so an assertion that silently
@@ -119,7 +119,7 @@ func responseSchema(t *testing.T, doc *openapi3.T, operationID string, status in
 }
 
 // assertJSONResponse validates w's JSON body against the schema
-// docs/openapi/aether-v1.yaml declares for operationID's response at status.
+// docs/openapi/aether-v0.yaml declares for operationID's response at status.
 // It also pins the Content-Type actually sent to a JSON media type, since a
 // schema match against the wrong media type (e.g. a plain-json body that
 // should have been problem+json) would prove nothing.
@@ -155,8 +155,8 @@ func mustJSON(t *testing.T, v any) []byte {
 
 // newContractTaskRouter builds a native-auth MainAppHandler with the task
 // runner and schedule store both wired, via withTaskRunner (auth_test.go) —
-// the one piece newNativeAuthRouter otherwise leaves unset, and attachApiV1
-// (api_v1.go) gates the entire /tasks group on a non-nil task runner —
+// the one piece newNativeAuthRouter otherwise leaves unset, and attachApiV0
+// (api_v0.go) gates the entire /tasks group on a non-nil task runner —
 // logged in as the sole admin user so every call site here can attach the
 // session immediately. Runner tasks are never actually started (no
 // Runner.Start()/RegisterTask call): AddRun only enqueues by name
@@ -177,14 +177,14 @@ func TestContractBootstrapResponses(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/health", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/health", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /health = %d, want 200: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "getHealth", http.StatusOK, w)
 
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/version", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/version", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /version = %d, want 200: %s", w.Code, w.Body.String())
 	}
@@ -193,7 +193,7 @@ func TestContractBootstrapResponses(t *testing.T) {
 	// Anonymous: MeResponse.user must validate as null (the oneOf's second
 	// branch, `{type: 'null'}` — OpenAPI 3.1 syntax).
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/me", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/me", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /me (anonymous) = %d, want 200: %s", w.Code, w.Body.String())
 	}
@@ -202,7 +202,7 @@ func TestContractBootstrapResponses(t *testing.T) {
 	// Authenticated: MeResponse.user must validate as a populated MeUser (the
 	// oneOf's first branch, a $ref).
 	_, attach := doLogin(t, h, "alice", "secret")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -219,10 +219,10 @@ func TestContractErrorShapes(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	// 401: no session at all on an admin-gated route. sessionGuard
-	// (api_v1.go) answers this before the listUsers handler ever runs, but
+	// (api_v0.go) answers this before the listUsers handler ever runs, but
 	// the spec documents 401 on the operation itself.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/users", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("GET /users without session = %d, want 401: %s", w.Code, w.Body.String())
 	}
@@ -230,7 +230,7 @@ func TestContractErrorShapes(t *testing.T) {
 
 	// 403: authenticated but not admin.
 	_, bobAttach := doLogin(t, h, "bob", "secret")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/users", nil)
 	bobAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -242,7 +242,7 @@ func TestContractErrorShapes(t *testing.T) {
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
 	// 404: a library id that does not exist.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/libraries/999999", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries/999999", nil)
 	adminAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -253,7 +253,7 @@ func TestContractErrorShapes(t *testing.T) {
 
 	// 400: malformed JSON body (a request that never gets far enough to be
 	// "well-formed but invalid").
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/libraries", strings.NewReader(`{`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", strings.NewReader(`{`))
 	adminAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -265,7 +265,7 @@ func TestContractErrorShapes(t *testing.T) {
 	// 422: well-formed but invalid — a name over LibraryCreateRequest's
 	// 200-char maxLength — itemising /name via ValidationProblem.
 	body := mustJSON(t, map[string]any{"name": strings.Repeat("x", 201), "path": t.TempDir()})
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/libraries", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -283,7 +283,7 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
 	body := mustJSON(t, map[string]any{"name": "Contract Test Library", "path": t.TempDir()})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/libraries", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -294,7 +294,7 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	// of the spec's `type: [string, 'null']` fields.
 	assertJSONResponse(t, doc, "createLibrary", http.StatusCreated, w)
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/libraries", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries", nil)
 	adminAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -311,7 +311,7 @@ func TestContractUsersCreateAndList(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", strings.NewReader(`{"login":"contractuser","password":"s3cret-password"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/users", strings.NewReader(`{"login":"contractuser","password":"s3cret-password"}`))
 	adminAttach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -320,7 +320,7 @@ func TestContractUsersCreateAndList(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "createUser", http.StatusCreated, w)
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/users", nil)
 	adminAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -340,7 +340,7 @@ func TestContractTokensCreateAndList(t *testing.T) {
 
 	// createToken, default type "apikey": CreateTokenResult without
 	// username/password (present only for "usertoken").
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(`{"name":"contract-apikey"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", strings.NewReader(`{"name":"contract-apikey"}`))
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -351,7 +351,7 @@ func TestContractTokensCreateAndList(t *testing.T) {
 
 	// createToken, type "usertoken": the conditional username/password
 	// branch, plus expiresAt:null (omitted in the request).
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(`{"name":"contract-usertoken","type":"usertoken"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", strings.NewReader(`{"name":"contract-usertoken","type":"usertoken"}`))
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -361,7 +361,7 @@ func TestContractTokensCreateAndList(t *testing.T) {
 	assertJSONResponse(t, doc, "createToken", http.StatusCreated, w)
 
 	// mintToken: the camelCase SPA session/device shape.
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", strings.NewReader(`{"deviceId":"contract-device"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/auth/token", strings.NewReader(`{"deviceId":"contract-device"}`))
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -374,7 +374,7 @@ func TestContractTokensCreateAndList(t *testing.T) {
 	// session, exercising TokenInfo's nullable lastUsedAt (never used yet)
 	// and expiresAt (the apikey token never expires) side by side with the
 	// mint session's populated ones.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/auth/tokens", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -385,7 +385,7 @@ func TestContractTokensCreateAndList(t *testing.T) {
 }
 
 // TestCreateTokenResultRejectsCredentialTypeMismatch proves the
-// CreateTokenResult oneOf split (aether-v1.yaml) is an enforced "iff", not
+// CreateTokenResult oneOf split (aether-v0.yaml) is an enforced "iff", not
 // merely documented prose: a synthetic "apikey" body wrongly carrying
 // username/password is REJECTED (the gap #5 closed — the apikey oneOf
 // variant now forbids them via not/anyOf over required, not just omits them
@@ -451,7 +451,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 
 	// listTasks: the TaskList envelope, entries with no schedule configured
 	// yet (Task.schedule entirely absent, per its omitempty allOf).
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/tasks", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -461,7 +461,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 	assertJSONResponse(t, doc, "listTasks", http.StatusOK, w)
 
 	// listTaskExecutions before any run: the empty-list envelope.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/tasks/executions", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/tasks/executions", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -472,7 +472,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 
 	// upsertTaskSchedule: bare Task, now WITH its schedule (TaskSchedule via
 	// allOf) — the trickiest shape in this group.
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/tasks/scan", strings.NewReader(`{"cron_expression":"0 0 3 * * *"}`))
+	req = httptest.NewRequest(http.MethodPut, "/api/v0/tasks/scan", strings.NewReader(`{"cron_expression":"0 0 3 * * *"}`))
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -482,7 +482,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 	assertJSONResponse(t, doc, "upsertTaskSchedule", http.StatusOK, w)
 
 	// getTask: bare Task, reading the schedule just saved back.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/tasks/scan", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/tasks/scan", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -492,7 +492,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 	assertJSONResponse(t, doc, "getTask", http.StatusOK, w)
 
 	// triggerTask: 202 + TriggerTaskResult's execution_id.
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/tasks/scan/trigger", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/tasks/scan/trigger", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -504,7 +504,7 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 	// listTaskExecutions again: now populated by the triggered run, and
 	// TaskExecution's ended_at is still its Go zero-time value (the run was
 	// never started: no Runner.Start() in newContractTaskRouter).
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/tasks/executions", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/tasks/executions", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)

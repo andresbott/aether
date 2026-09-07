@@ -39,7 +39,7 @@ type pathErrorDTO struct {
 	Error string `json:"error"`
 }
 
-func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
+func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	if h.AlbumIdentifier == nil {
 		reason := h.IdentifyUnavailableReason
 		if reason == "" {
@@ -54,7 +54,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := h.resolveSelection(w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths)
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths)
 	if !ok {
 		return
 	}
@@ -111,7 +111,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 // currentTags reads the tag values albumidentify uses as ranking and gap-fill
 // hints. A read failure is silent: the hints are optional, and the file's real
 // problem (if any) shows up on its assignment row.
-func (h *Handler) currentTags(ctx context.Context, absPath string) (album, title string, trackNumber, discNumber int) {
+func (h *IdentifyHandler) currentTags(ctx context.Context, absPath string) (album, title string, trackNumber, discNumber int) {
 	if h.Reader == nil {
 		return "", "", 0, 0
 	}

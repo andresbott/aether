@@ -60,7 +60,7 @@ func loadSessionKeys(dataDir string) (hashKey, blockKey []byte, err error) {
 	return keys[:sessionHashKeyLen], keys[sessionHashKeyLen:], nil
 }
 
-// newSessionManager builds the cookie session manager used to guard /api/v1
+// newSessionManager builds the cookie session manager used to guard /api/v0
 // in native mode. AllowRenew is on so the login payload's sessionRenew
 // ("remember me") opts a session into rolling renewal.
 func newSessionManager(dataDir string, l *slog.Logger) (*cookieauth.Manager, error) {

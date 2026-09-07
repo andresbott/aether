@@ -17,7 +17,7 @@ import {
 import { subsonicClient } from '@/lib/api/subsonic'
 
 // One purge per lost session. The purge's own resetQueries refetches active
-// /api/v1 queries, which 401 while logged out and flip sessionExpired — on an
+// /api/v0 queries, which 401 while logged out and flip sessionExpired — on an
 // explicit logout that transition would trigger the expiry watcher and purge
 // a second time. Re-armed on login (sessionExpired flips back to false).
 let purgedThisExpiry = false
@@ -59,7 +59,7 @@ let expiryPurgeInstalled = false
 /**
  * The SPA's login gate, driven by the /me bootstrap: with auth method "none"
  * nothing is ever required; with "native" the login view is shown until /me
- * reports an identity, and again when any /api/v1 call answers 401 (session
+ * reports an identity, and again when any /api/v0 call answers 401 (session
  * expired); with "proxy-header" the reverse proxy owns login entirely — no
  * login view, and a 401 (proxy session expired) triggers a full reload so the
  * proxy's portal redirect kicks in. See docs/agents/authentication.md.
@@ -151,7 +151,7 @@ export function useAuth() {
     // Gates the administration UI (the /settings area and the Admin menu
     // entry). With auth method "none" nothing is ever restricted, so every
     // visitor counts as admin; in the authenticated modes the role from /me
-    // decides. The backend enforces the same policy on /api/v1. False while
+    // decides. The backend enforces the same policy on /api/v0. False while
     // /me is still loading — admin affordances appear rather than flash away.
     const isAdmin = computed(() => {
         if (!me.data.value) return false

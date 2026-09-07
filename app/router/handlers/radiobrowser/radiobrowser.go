@@ -1,6 +1,6 @@
 // Package radiobrowser exposes admin-only proxy endpoints for the community
 // radio-browser.info directory: searching internet radio stations by name and
-// fetching a station favicon. These live under /api/v1 (server-management /
+// fetching a station favicon. These live under /api/v0 (server-management /
 // import tooling); the stations themselves are created via the OpenSubsonic
 // /rest/ API.
 package radiobrowser

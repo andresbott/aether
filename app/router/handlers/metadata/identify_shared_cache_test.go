@@ -80,7 +80,7 @@ func (c *countingReleaseLookup) Release(
 }
 
 // newSharedIdentifyHandler wires both identify endpoints onto one real
-// Identifier, exactly as app/router/api_v1.go does.
+// Identifier, exactly as app/router/api_v0.go does.
 func newSharedIdentifyHandler(
 	t *testing.T, libRoot string, ident *identify.Identifier,
 ) (*mux.Router, *model.Library) {
@@ -110,7 +110,7 @@ func newSharedIdentifyHandlerWithReleases(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.IdentifyHandler{
 		Store:      s,
 		Reader:     nullReader{},
 		Identifier: ident,

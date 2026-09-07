@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { apiErrorMessage, isCanceledError, isRateLimitError } from '@/lib/apiError'
 
-// The server answers /api/v1 failures as an RFC 9457 problem+json body:
+// The server answers /api/v0 failures as an RFC 9457 problem+json body:
 // {"type","title","status","detail","instance","errors"?}. apiErrorMessage is
 // the single place the UI turns any thrown value into text a person can
 // read — no raw JSON, no "[object Object]", never empty.
@@ -15,7 +15,7 @@ describe('apiErrorMessage', () => {
                     title: 'Upstream error',
                     status: 502,
                     detail: 'Cover Art Archive is temporarily unavailable. Try again in a few minutes.',
-                    instance: '/api/v1/metadata/pictures/candidates'
+                    instance: '/api/v0/metadata/pictures/candidates'
                 }
             }
         }
@@ -32,7 +32,7 @@ describe('apiErrorMessage', () => {
                     type: 'https://aether.local/probs/not_found',
                     title: 'Not found',
                     status: 404,
-                    instance: '/api/v1/libraries/9'
+                    instance: '/api/v0/libraries/9'
                 }
             }
         }

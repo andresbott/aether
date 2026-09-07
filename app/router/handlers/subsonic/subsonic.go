@@ -210,7 +210,7 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	register("getOpenSubsonicExtensions", h.getOpenSubsonicExtensions)
 
 	// User (getUser for the caller's own record only; getUsers is intentionally
-	// not mounted — user administration lives on /api/v1, see TODO.md)
+	// not mounted — user administration lives on /api/v0, see TODO.md)
 	register("getUser", h.getUser)
 
 	// Browsing
