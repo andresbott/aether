@@ -53,7 +53,7 @@ describe('ScheduleDialog', () => {
 
         const withSched = mountDialog({
             ...baseTask,
-            schedule: { id: 1, task_name: 'scan', cron_expression: '0 0 0 * * *', enabled: true, created_at: '', updated_at: '' }
+            schedule: { id: 's1', task_name: 'scan', cron_expression: '0 0 0 * * *', enabled: true, created_at: '', updated_at: '' }
         })
         await flushPromises()
         expect(withSched.findAll('button').some((b) => b.text().includes('Remove schedule'))).toBe(true)

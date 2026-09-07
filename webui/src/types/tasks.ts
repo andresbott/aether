@@ -5,7 +5,7 @@ export interface TaskDef {
 }
 
 export interface TaskSchedule {
-    id: number
+    id: string
     task_name: string
     cron_expression: string
     enabled: boolean
