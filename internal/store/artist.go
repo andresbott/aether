@@ -18,43 +18,33 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 		}
 		norm := unidecode.Normalize(name)
 		var artist model.Artist
-		err := s.db.Where("name_norm = ?", norm).First(&artist).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		findErr := s.db.Where("name_norm = ?", norm).First(&artist).Error
+		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
 			// A real DB failure must not be mistaken for "artist does not
 			// exist" — creating a duplicate row on top of a transient error is
 			// how a scan silently corrupts the artist index.
-			return nil, nil, err
+			return nil, nil, findErr
 		}
-		if err != nil {
-			artist = model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
-			if err := s.db.Create(&artist).Error; err != nil {
-				// An overlapping run (a targeted RescanPaths racing a scheduled
-				// scan) can First-miss and Create the same brand-new artist
-				// concurrently; the loser hits the name_norm unique index. Re-read
-				// and use the winner's row rather than failing — and with it the
-				// whole track. Any MBID divergence is transient and the next scan
-				// reconciles it.
-				if IsUniqueViolation(err) {
-					var winner model.Artist
-					if reErr := s.db.Where("name_norm = ?", norm).First(&winner).Error; reErr == nil {
-						artists = append(artists, &winner)
-						continue
-					}
-				}
-				return nil, nil, err
+		if findErr != nil {
+			created, cErr := s.createArtist(name, norm, mbid)
+			if cErr != nil {
+				return nil, nil, cErr
 			}
-		} else if mbid != "" && artist.MBArtistID != mbid {
+			artists = append(artists, created)
+			continue
+		}
+		if mbid != "" && artist.MBArtistID != mbid {
 			// Tag is source of truth: overwrite a differing (or previously
 			// empty) MBID and reset the image-fetch timestamp so the artist
 			// image is refetched for the corrected match.
 			oldMBID := artist.MBArtistID
 			artist.MBArtistID = mbid
 			artist.LastImageFetchAt = nil
-			if err := s.db.Model(&artist).Updates(map[string]interface{}{
+			if uErr := s.db.Model(&artist).Updates(map[string]interface{}{
 				"mb_artist_id":        mbid,
 				"last_image_fetch_at": nil,
-			}).Error; err != nil {
-				return nil, nil, err
+			}).Error; uErr != nil {
+				return nil, nil, uErr
 			}
 			// Report this artist as having gained an MBID only when the old
 			// MBID was empty. An MBID change (old != "" && old != new) is
@@ -69,6 +59,27 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 		artists = append(artists, &artist)
 	}
 	return artists, gained, nil
+}
+
+// createArtist inserts a new artist row, recovering from the unique-index race
+// an overlapping scan can trigger: a targeted RescanPaths and a scheduled scan
+// can both First-miss and Create the same brand-new artist, and the loser hits
+// the name_norm unique index. On that collision it re-reads and returns the
+// winner's row rather than failing the whole track; any MBID divergence is
+// transient and the next scan reconciles it.
+func (s *Store) createArtist(name, norm, mbid string) (*model.Artist, error) {
+	artist := model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
+	createErr := s.db.Create(&artist).Error
+	if createErr == nil {
+		return &artist, nil
+	}
+	if IsUniqueViolation(createErr) {
+		var winner model.Artist
+		if reErr := s.db.Where("name_norm = ?", norm).First(&winner).Error; reErr == nil {
+			return &winner, nil
+		}
+	}
+	return nil, createErr
 }
 
 // GetArtists returns the artist index: artists credited on at least one album
