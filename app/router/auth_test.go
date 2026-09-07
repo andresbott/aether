@@ -36,7 +36,7 @@ func withLoginThrottle(t *testing.T, cfg *Cfg, _ *gorm.DB) {
 // withTaskRunner).
 type routerOpt func(t *testing.T, cfg *Cfg, db *gorm.DB)
 
-// withTaskRunner wires a task runner and schedule store into Cfg — the one
+// withTaskRunner wires a task runner and scheduler into Cfg — the one
 // piece newNativeAuthRouter otherwise leaves unset, and attachApiV0
 // (api_v0.go) gates the entire /tasks group on a non-nil task runner. Runner
 // tasks are never actually started (no Runner.Start()/RegisterTask call):

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/go-bumbu/tempo/dbschedule"
@@ -44,6 +45,14 @@ func ValidateCronExpression(cron string) error { return schedule.ValidateCron(cr
 // so there is no separate "refresh" step.
 type Scheduler struct {
 	sched *schedule.Scheduler
+	// mu serializes the read-then-write in the write methods below, so two
+	// concurrent UpsertByTaskName calls for the same task cannot both miss in
+	// findByTaskName and both Create — which would leave two schedule rows for
+	// one task (the store has no unique index on task_name, matching tempo's
+	// multi-schedule design). aether runs a single scheduler process, tempo's
+	// own "one process per store" assumption, so an in-process mutex is the
+	// right scope.
+	mu sync.Mutex
 }
 
 // SchedulerCfg configures NewScheduler.
@@ -141,6 +150,8 @@ func (s *Scheduler) GetByTaskName(ctx context.Context, name string) (Schedule, e
 // schedule when there is one, otherwise creates it. cron should already be
 // validated (ValidateCronExpression); tempo validates and normalizes it again.
 func (s *Scheduler) UpsertByTaskName(ctx context.Context, name, cron string, enabled bool) (Schedule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	existing, err := s.findByTaskName(ctx, name)
 	switch {
 	case err == nil:
@@ -173,6 +184,8 @@ func (s *Scheduler) UpsertByTaskName(ctx context.Context, name, cron string, ena
 // leaving a nil field unchanged. Returns ErrScheduleNotFound when the task has no
 // schedule. A non-nil cron should already be validated.
 func (s *Scheduler) PatchByTaskName(ctx context.Context, name string, cron *string, enabled *bool) (Schedule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	existing, err := s.findByTaskName(ctx, name)
 	if err != nil {
 		return Schedule{}, err
@@ -198,6 +211,8 @@ func (s *Scheduler) PatchByTaskName(ctx context.Context, name string, cron *stri
 
 // DeleteByTaskName removes a task's schedule, or returns ErrScheduleNotFound.
 func (s *Scheduler) DeleteByTaskName(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	existing, err := s.findByTaskName(ctx, name)
 	if err != nil {
 		return err

@@ -3,6 +3,7 @@ package taskrunner_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,6 +114,28 @@ func TestSchedulerPatchByTaskName(t *testing.T) {
 	}
 	if _, err := s.PatchByTaskName(ctx, "missing", nil, &off); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
 		t.Fatalf("expected ErrScheduleNotFound, got %v", err)
+	}
+}
+
+func TestSchedulerUpsertByTaskNameConcurrent(t *testing.T) {
+	s := newTestScheduler(t)
+	ctx := context.Background()
+	const n = 20
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			_, _ = s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", true)
+		}()
+	}
+	wg.Wait()
+	list, err := s.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected exactly 1 schedule after concurrent upserts, got %d", len(list))
 	}
 }
 

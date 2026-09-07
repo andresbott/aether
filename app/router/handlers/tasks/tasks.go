@@ -254,6 +254,10 @@ func (h *Handler) PatchTask() http.Handler {
 		}
 		sch, err := h.Schedules.PatchByTaskName(r.Context(), name, cronPtr, body.Enabled)
 		if err != nil {
+			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
+				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
+				return
+			}
 			h.Logger.Error("patch task: update schedule failed", "task", name, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the task schedule.")
 			return
