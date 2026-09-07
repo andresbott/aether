@@ -27,7 +27,7 @@ const updateCover = useUpdateArtistCover()
 const setImageFromSearch = useSetArtistImageFromSearch()
 
 // Editing the artist image is curation, and half of it (the online search,
-// the image-source note) rides on the admin-only /api/v1 surface — so the
+// the image-source note) rides on the admin-only /api/v0 surface — so the
 // whole edit affordance is admin-only rather than a bar that 403s midway.
 const { isAdmin } = useAuth()
 

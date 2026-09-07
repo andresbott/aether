@@ -7,7 +7,7 @@ info:
     ../../../.spectral.yaml). This document MUST fail
     `spectral lint -r .spectral.yaml` — it exists to prove the rule fires,
     not to describe a real endpoint. Kept under `testdata/` so the normal
-    `make spec-lint` gate (which lints only `docs/openapi/aether-v1.yaml`)
+    `make spec-lint` gate (which lints only `docs/openapi/aether-v0.yaml`)
     never touches it.
 servers:
   - url: /api/v1

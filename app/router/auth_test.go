@@ -36,8 +36,8 @@ func withLoginThrottle(t *testing.T, cfg *Cfg, _ *gorm.DB) {
 type routerOpt func(t *testing.T, cfg *Cfg, db *gorm.DB)
 
 // withTaskRunner wires a task runner and schedule store into Cfg — the one
-// piece newNativeAuthRouter otherwise leaves unset, and attachApiV1
-// (api_v1.go) gates the entire /tasks group on a non-nil task runner. Runner
+// piece newNativeAuthRouter otherwise leaves unset, and attachApiV0
+// (api_v0.go) gates the entire /tasks group on a non-nil task runner. Runner
 // tasks are never actually started (no Runner.Start()/RegisterTask call):
 // AddRun only enqueues by name (internal/taskrunner, github.com/go-bumbu/
 // tempo's TaskQueue.Add), so a triggered task's immediate HTTP response
@@ -57,7 +57,7 @@ func withTaskRunner(t *testing.T, cfg *Cfg, db *gorm.DB) {
 }
 
 // newNativeAuthRouter builds a router in the shape native mode always has in
-// production: a user store AND a cookie session manager, so the /api/v1
+// production: a user store AND a cookie session manager, so the /api/v0
 // session guard is installed. Admin alice/secret and regular user bob/secret
 // exist. opts wires additional optional Cfg pieces some callers need (see
 // withTaskRunner); most callers pass none.
@@ -115,7 +115,7 @@ func newNativeAuthRouter(t *testing.T, opts ...routerOpt) (*MainAppHandler, *gor
 func doLogin(t *testing.T, h *MainAppHandler, username, password string) (*httptest.ResponseRecorder, func(r *http.Request)) {
 	t.Helper()
 	body := strings.NewReader(`{"username":"` + username + `","password":"` + password + `","sessionRenew":true}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/login", body)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	cookies := w.Result().Cookies()
@@ -165,9 +165,9 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	// Without a session, a protected route answers 401 as a problem+json
 	// envelope — sessionGuard builds it directly via httperr.Write.
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/users", nil))
 	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("GET /api/v1/users without session = %d, want 401: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/users without session = %d, want 401: %s", w.Code, w.Body.String())
 	}
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Errorf("Content-Type = %q, want application/problem+json", ct)
@@ -178,7 +178,7 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	}
 
 	// The public bootstrap set stays reachable.
-	for _, path := range []string{"/api/v1/me", "/api/v1/health", "/api/v1/version"} {
+	for _, path := range []string{"/api/v0/me", "/api/v0/health", "/api/v0/version"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		if w.Code != http.StatusOK {
@@ -188,22 +188,22 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 
 	// With an admin session the same protected route answers.
 	_, attach := doLogin(t, h, "alice", "secret")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/users", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /api/v1/users with admin session = %d, want 200: %s", w.Code, w.Body.String())
+		t.Fatalf("GET /api/v0/users with admin session = %d, want 200: %s", w.Code, w.Body.String())
 	}
 }
 
-// Everything /api/v1 protects is server administration, so a valid session
+// Everything /api/v0 protects is server administration, so a valid session
 // without the admin role answers 403 — authenticated is not enough.
 func TestSessionGuardRequiresAdmin(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
 
-	for _, path := range []string{"/api/v1/users", "/api/v1/libraries", "/api/v1/tasks"} {
+	for _, path := range []string{"/api/v0/users", "/api/v0/libraries", "/api/v0/tasks"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		attach(req)
 		w := httptest.NewRecorder()
@@ -215,12 +215,12 @@ func TestSessionGuardRequiresAdmin(t *testing.T) {
 
 	// The public bootstrap set stays reachable for non-admins; /me still
 	// reports who they are.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("GET /api/v1/me as regular user = %d, want 200", w.Code)
+		t.Fatalf("GET /api/v0/me as regular user = %d, want 200", w.Code)
 	}
 	var body struct {
 		User *struct {
@@ -242,7 +242,7 @@ func TestMeReflectsSession(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "alice", "secret")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -260,7 +260,7 @@ func TestMeReflectsSession(t *testing.T) {
 	}
 
 	// Logout clears the session; the cleared cookie replaces the old one.
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/auth/logout", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -269,7 +269,7 @@ func TestMeReflectsSession(t *testing.T) {
 	}
 	loggedOut := w.Result().Cookies()
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	for _, c := range loggedOut {
 		req.AddCookie(c)
 	}
@@ -313,7 +313,7 @@ func TestSessionOfDeletedUserIsAnonymous(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -339,7 +339,7 @@ func TestSessionGuardBlocksDisabledUser(t *testing.T) {
 
 	// Sanity: the session works before the disable, so a later 401 is caused by
 	// the disable and not by a broken login.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/users", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -355,7 +355,7 @@ func TestSessionGuardBlocksDisabledUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/users", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -365,7 +365,7 @@ func TestSessionGuardBlocksDisabledUser(t *testing.T) {
 
 	// The session-scoped tier is guarded too: a disabled user must not be able
 	// to mint a fresh /rest token and keep streaming.
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", nil)
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/auth/token", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -388,7 +388,7 @@ func TestMeIsAnonymousForDisabledUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/me", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

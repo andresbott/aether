@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
@@ -58,7 +59,7 @@ func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *m
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib
@@ -173,7 +174,7 @@ func TestTracks_ListsFilesWithTags(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: stubTagReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: stubTagReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -238,7 +239,7 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -274,6 +275,96 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	}
 	if gotByPath["missing.flac"] {
 		t.Fatalf("missing.flac should have failed: %+v", resp.Results)
+	}
+}
+
+// warnHandler builds an updateTracks handler over a real fixture copied into the
+// library, so a save can partially fail (a missing sibling path) while one real
+// file writes.
+func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
+	t.Helper()
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	r := mux.NewRouter()
+	h.Routes(r)
+	return r, lib
+}
+
+func warnFromUpdate(t *testing.T, r *mux.Router, body string) string {
+	t.Helper()
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Warning string `json:"warning,omitempty"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v: %s", err, w.Body.String())
+	}
+	return resp.Warning
+}
+
+// When an identity-affecting edit (album, album artist, MB release id) writes
+// only part of the selection, the remaining files keep the old album identity
+// on disk: the scanner sees a split and mints a new album row, stranding the old
+// row's manual cover, stars and created_at on a remnant. The user must be warned
+// that those may have moved. See internal/scanner/albumcontinuity.go.
+func TestUpdateTracks_PartialIdentityEditWarnsAlbumMoved(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac", "missing.flac"],
+		"fields": { "album": "New Album Name" }
+	}`
+	warning := warnFromUpdate(t, r, body)
+	if warning == "" {
+		t.Fatal("expected a warning that the album cover/stars may have moved, got none")
+	}
+	if !strings.Contains(strings.ToLower(warning), "album") {
+		t.Fatalf("warning should mention the album, got %q", warning)
+	}
+}
+
+// A partial failure on a non-identity field (title) cannot strand an album, so
+// it must not raise the album-moved warning.
+func TestUpdateTracks_PartialNonIdentityEditDoesNotWarn(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac", "missing.flac"],
+		"fields": { "title": "New Title" }
+	}`
+	if warning := warnFromUpdate(t, r, body); warning != "" {
+		t.Fatalf("a title edit cannot move an album; expected no warning, got %q", warning)
+	}
+}
+
+// An identity edit where every file wrote is consistent on disk: continuity
+// retags the album in place and nothing moves, so there is no warning.
+func TestUpdateTracks_CompleteIdentityEditDoesNotWarn(t *testing.T) {
+	r, lib := warnHandler(t)
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["ok.flac"],
+		"fields": { "album": "New Album Name" }
+	}`
+	if warning := warnFromUpdate(t, r, body); warning != "" {
+		t.Fatalf("a fully-written album rename should not warn, got %q", warning)
 	}
 }
 
@@ -356,7 +447,7 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -400,7 +491,7 @@ func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -447,7 +538,7 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -498,7 +589,7 @@ func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: tags.TaglibReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: tags.TaglibReader{}}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -540,6 +631,33 @@ func TestUpdateTracks_MalformedJSON(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// An empty selection is well-formed but invalid: like every other
+// paths[]-accepting endpoint (shared checkPaths), it answers a 422 itemising
+// /paths, not a 400. The field validation still runs first, so a non-empty
+// fields object is supplied to reach the selection check.
+func TestUpdateTracks_EmptySelectionIs422(t *testing.T) {
+	_, r, lib := newTestHandler(t, t.TempDir())
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": [],
+		"fields": { "title": "x" }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty paths, got %d: %s", w.Code, w.Body.String())
+	}
+	var validation httperr.ValidationProblem
+	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
+		t.Fatal(err)
+	}
+	if len(validation.Errors) == 0 || validation.Errors[0].Pointer != "/paths" {
+		t.Fatalf("expected a /paths field error, got %+v", validation.Errors)
 	}
 }
 
@@ -616,7 +734,7 @@ func rescanTestHandler(t *testing.T, rs *fakeRescanner) (*mux.Router, *model.Lib
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -698,7 +816,7 @@ func realRescanHandler(t *testing.T, root string, excludes []string) (*mux.Route
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.TagsHandler{
 		Store:  s,
 		Reader: wideReader{},
 		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
@@ -827,7 +945,7 @@ func TestUpdateTracks_RescansWrittenPaths(t *testing.T) {
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
 	rs := &fakeRescanner{}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, Rescan: rs}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Rescan: rs}
 	r := mux.NewRouter()
 	h.Routes(r)
 

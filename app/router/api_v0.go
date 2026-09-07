@@ -26,40 +26,40 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// apiV1PublicPaths are the /api/v1 routes reachable without a session in
+// apiV0PublicPaths are the /api/v0 routes reachable without a session in
 // native mode: the SPA bootstraps on /me before any login, /health and
 // /version carry nothing sensitive, and login/logout are the way in and out
 // of a session — neither can require one.
-var apiV1PublicPaths = map[string]bool{
-	"/api/v1/health":      true,
-	"/api/v1/version":     true,
-	"/api/v1/me":          true,
-	"/api/v1/auth/login":  true,
-	"/api/v1/auth/logout": true,
+var apiV0PublicPaths = map[string]bool{
+	"/api/v0/health":      true,
+	"/api/v0/version":     true,
+	"/api/v0/me":          true,
+	"/api/v0/auth/login":  true,
+	"/api/v0/auth/logout": true,
 }
 
-// apiV1SessionPath reports whether the route needs a valid session but NOT
+// apiV0SessionPath reports whether the route needs a valid session but NOT
 // the admin role — the session-scoped tier between the public bootstrap set
 // and the admin default. Everything here operates strictly on the caller's
-// own data (tokens). A func, not a map like apiV1PublicPaths, because the
+// own data (tokens). A func, not a map like apiV0PublicPaths, because the
 // token CRUD has a {tokenId} path segment.
-func apiV1SessionPath(path string) bool {
-	return path == "/api/v1/auth/token" ||
-		path == "/api/v1/auth/tokens" ||
-		path == "/api/v1/auth/password" ||
-		strings.HasPrefix(path, "/api/v1/auth/tokens/")
+func apiV0SessionPath(path string) bool {
+	return path == "/api/v0/auth/token" ||
+		path == "/api/v0/auth/tokens" ||
+		path == "/api/v0/auth/password" ||
+		strings.HasPrefix(path, "/api/v0/auth/tokens/")
 }
 
-// sessionGuard enforces three tiers on /api/v1 in native mode: (1) public
+// sessionGuard enforces three tiers on /api/v0 in native mode: (1) public
 // bootstrap (health/version/me/login/logout), (2) session-scoped endpoints
 // where a valid session suffices (personal token mint + CRUD), (3) everything
 // else defaults to admin-only (users CRUD, libraries, tasks, metadata). The
 // public tier is checked first, the session-scoped tier second; if neither
 // matches the path defaults to admin-only. With auth method "none" the guard
-// is not installed and /api/v1 stays open.
+// is not installed and /api/v0 stays open.
 func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if apiV1PublicPaths[r.URL.Path] {
+		if apiV0PublicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -92,7 +92,7 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		}
 		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
 		// only the role check is skipped, never the session check above.
-		if apiV1SessionPath(r.URL.Path) {
+		if apiV0SessionPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -145,7 +145,7 @@ func (h *MainAppHandler) meIdentity(w http.ResponseWriter, r *http.Request) *han
 	return &handlers.MeUser{Login: usr.LoginID, Role: role}
 }
 
-func (h *MainAppHandler) attachApiV1(r *mux.Router) {
+func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	// Identity for /me and the tokens handler comes from whichever guard the
 	// mode installs: the session cookie (native) or the proxy headers.
 	var identity handlers.MeIdentity
@@ -218,13 +218,23 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 		lh.Routes(r)
 
 		if h.tagReader != nil {
-			mh := &metadataHandler.Handler{
-				Store:                     h.store,
-				Reader:                    h.tagReader,
-				CoverArt:                  coverart.New(userAgent),
-				Images:                    h.images,
-				IdentifyUnavailableReason: h.identifyOff,
-				Rescan:                    h.rescanner,
+			// The metadata editor's endpoints are split across three handlers by
+			// concern — tag edits, on-disk pictures, and acoustic identify — that
+			// share only the library store and the post-write rescanner. Mounting
+			// them separately keeps each handler's dependency set to exactly what it
+			// uses.
+			(&metadataHandler.TagsHandler{
+				Store:  h.store,
+				Reader: h.tagReader,
+				Rescan: h.rescanner,
+			}).Routes(r)
+
+			(&metadataHandler.ImagesHandler{
+				Store:    h.store,
+				Reader:   h.tagReader,
+				Rescan:   h.rescanner,
+				CoverArt: coverart.New(userAgent),
+				Images:   h.images,
 				// Memoize provider image bytes so a repeated pre-save probe and the
 				// save reuse one download of the rate-limited image. Bounded and
 				// short-lived: an edit session touches a handful of images.
@@ -235,13 +245,19 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				// rather than wrapping a nil pointer — upload still works, online
 				// picks answer 503.
 				ArtistImages: h.artistFetcher,
+			}).Routes(r)
+
+			ih := &metadataHandler.IdentifyHandler{
+				Store:                     h.store,
+				Reader:                    h.tagReader,
+				IdentifyUnavailableReason: h.identifyOff,
 			}
 			if h.identifier != nil {
 				// Guard both assignments: a nil *identify.Identifier assigned
 				// to an interface-typed field produces a non-nil interface
 				// wrapping a nil pointer, breaking the nil checks in identify.go
 				// and identify_album.go.
-				mh.Identifier = h.identifier
+				ih.Identifier = h.identifier
 				// Album identification needs the same fingerprinting the
 				// per-file identify uses, plus MusicBrainz for tracklists.
 				// The tracklist lookup is cached IN FRONT of the throttle:
@@ -249,7 +265,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 				// up to MaxEnrichedOptions releases, so without this a repeat
 				// identify of the same album still waits several seconds even
 				// though the fingerprint pass is already cached.
-				mh.AlbumIdentifier = albumidentify.New(
+				ih.AlbumIdentifier = albumidentify.New(
 					h.identifier,
 					albumidentify.NewCachingReleaseLookup(
 						artistimage.NewMusicBrainzSearch(userAgent),
@@ -257,7 +273,7 @@ func (h *MainAppHandler) attachApiV1(r *mux.Router) {
 					),
 				)
 			}
-			mh.Routes(r)
+			ih.Routes(r)
 		}
 
 		ah := &artistsHandler.Handler{

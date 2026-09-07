@@ -22,7 +22,7 @@ import (
 func mintUserToken(t *testing.T, h *MainAppHandler, attach func(*http.Request), name string) (username, password string) {
 	t.Helper()
 	body := strings.NewReader(`{"name":"` + name + `","type":"usertoken"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", body)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -135,7 +135,7 @@ func TestRestApikeyTokenIDAnswers41OnTS(t *testing.T) {
 	// An apikey-type PAT's tokenID used as a username: recoverable storage
 	// is absent for it → 41 (token auth not supported for this user).
 	body := strings.NewReader(`{"name":"scripted","type":"apikey"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", body)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

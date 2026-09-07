@@ -13,7 +13,7 @@ to consume it**, so compliance beats convenience.
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
   Sixteen extensions exist today — copy their shape.
-- **Never route music features through `/api/v1`** — that surface is admin
+- **Never route music features through `/api/v0`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
   (the `register` helper in `subsonic.go` does this — use it).
@@ -336,7 +336,7 @@ display-sized, re-encoded derivative from `internal/imagecache`, cached under
 
 Embedded art used to be re-extracted from the audio file on every request; it is
 now extracted once per (file, size, format) and served from the cache afterwards.
-The editor's `/api/v1/metadata/pictures/image` takes an **optional** `size` with
+The editor's `/api/v0/metadata/pictures/image` takes an **optional** `size` with
 the same meaning — omitting it serves the original, which the picture picker
 relies on when copying an image into another slot.
 

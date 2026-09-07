@@ -20,16 +20,18 @@ import (
 // ScanStats.Errors. A run indexed everything it was supposed to when
 // TracksProcessed == len(absPaths)-TracksSkipped and Errors is empty — callers
 // must not compare TracksProcessed to len(absPaths) directly, because the
-// editor's file listing is deliberately wider than the scanner's admission
-// rules (it ignores the library's exclude patterns and accepts extensions the
-// scanner does not index).
+// editor's file listing ignores the library's exclude patterns, so it can hand
+// this method a path the scanner deliberately skips as excluded.
 //
 // It deliberately does NOT run the scan cleanup: store.Cleanup deletes every
 // track whose last_seen_at predates the run, which on a targeted rescan is the
-// entire library. Orphaned aggregates left behind by the edit (e.g. the artist
-// a renamed track used to belong to) are pruned with DeleteOrphanedAggregates,
-// which is keyed on "has no tracks" rather than on a timestamp and is therefore
-// safe to run standalone.
+// entire library. Nor does it run the exhaustive DeleteOrphanedAggregates sweep,
+// whose cost scales with the whole library. Instead it snapshots the aggregate
+// ids the touched tracks belonged to before reconcile and prunes only those with
+// store.PruneOrphanedAggregates — an edit can only empty an album/artist/genre it
+// moved a track away from. Anything that snapshot misses (a moved-and-retagged
+// row, say) is swept by the scheduled scan's Cleanup, which still runs the
+// exhaustive sweep.
 func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []string) (ScanStats, error) {
 	stats := ScanStats{}
 	if len(absPaths) == 0 {
@@ -68,6 +70,18 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		results = append(results, tagResult{walk: wr, meta: meta, audioHash: audioHashOf(abs)})
 	}
 
+	// Snapshot the aggregates the touched tracks belong to *before* reconcile
+	// re-points them: a retag can only orphan an album/artist/genre it moves a
+	// track away from, so these ids are the only ones the prune must check.
+	admitted := make([]string, 0, len(results))
+	for _, tr := range results {
+		admitted = append(admitted, tr.walk.FilePath)
+	}
+	touched, err := s.store.TouchedAggregatesForPaths(admitted)
+	if err != nil {
+		return stats, fmt.Errorf("rescan: snapshot aggregates: %w", err)
+	}
+
 	rec, err := s.reconcile(ctx, lib.Path, results, time.Now())
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
@@ -76,9 +90,9 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		return stats, err
 	}
 
-	// The edit may have emptied an album/artist/genre. This is the only prune
-	// that is safe outside a full scan.
-	if err := s.store.DeleteOrphanedAggregates(); err != nil {
+	// Prune only the aggregates this edit could have emptied. The exhaustive
+	// whole-DB sweep is left to the scheduled scan's Cleanup.
+	if err := s.store.PruneOrphanedAggregates(ctx, touched); err != nil {
 		return stats, fmt.Errorf("rescan: prune orphans: %w", err)
 	}
 	return stats, nil
@@ -105,9 +119,9 @@ func (s *Scanner) admitPath(libRoot string, libID uint, abs string, excludes []*
 	if err != nil || info.IsDir() {
 		return WalkResult{}, false
 	}
-	if !s.tagReader.CanRead(abs) {
-		return WalkResult{}, false
-	}
+	// No separate tagReader.CanRead gate: IsAudioFile is tags.Supported, and
+	// every supported format is readable by some reader (enforced by
+	// tags.TestSupportedIsReadable), so admission asks one question, not two.
 	return WalkResult{
 		FilePath:  abs,
 		LibraryID: libID,

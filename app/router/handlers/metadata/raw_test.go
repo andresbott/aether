@@ -44,7 +44,7 @@ func newRawHandlerUnsupported(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{Store: s, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib

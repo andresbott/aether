@@ -28,20 +28,29 @@ Notes for editors:
 - [ ] multi user playlists
 - [ ] detach scaned folders from libraries
   use metaadata queries insetd of folders for sources of songs
+- [ ] Migrate into own GH org
 
 ## Security & Authentication
 
 ## Backend
 
+### Backend — Task runner (job engine)
+
+- [ ] Update the job engine (`go-bumbu/tempo`) to the latest version
+  The task runner is `internal/taskrunner`, a thin wrapper over `github.com/go-bumbu/tempo`'s
+  `QueueRunner` (`internal/taskrunner/runner.go:12,20`), pinned at **v0.2.0** in `go.mod`. Bump it to
+  the latest release and adapt the wrapper to any API changes (`Cfg` / `QueueRunner` / `TaskLogSink` /
+  `TaskStatePersistence`). Prerequisite for moving the metadata editor's synchronous re-index onto
+  the job engine — see "[MEDIUM] Metadata edits re-index files inline…" under
+  `### 26-09-04-big-import-review`; that refactor should build on the current engine, not the old one.
+
 ### Backend — API Surface
 
 - [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints
-  `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v1.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
+  `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v0.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
 
 ### Backend — OpenSubsonic Compliance
 
-- [ ] Review the non-OpenSubsonic API surface
-  Audit custom (non-Subsonic) endpoints, then move Libraries and Tasks management under an `/admin` path (e.g. `/api/admin/libraries`, `/api/admin/tasks`) so admin concerns are clearly separated from the Subsonic-compatible surface; update the frontend accordingly. Pre-1.0 because it is a breaking URL reorg — free now under the no-backwards-compat rule, expensive once anything depends on the paths. Not started: everything is still on one `/api/v1` subrouter (`app/router/main.go:201`), no `/admin` prefix anywhere. Note the authorization half already landed — `/api/v1` defaults to admin-only in both modes via the three-tier guards (`api_v1.go:56`, `proxy_auth.go`), so this is now purely about URL shape, not access control.
 - [ ] XML response format for third-party clients
   Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
 
@@ -50,20 +59,94 @@ Notes for editors:
 - [ ] Document the audio-hash format limit in the user-facing docs
   The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
   Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
-- [x] A row that has never been hashed stays unhashed until a full scan
-  **Accepted, not fixed:** "run one full scan" is the answer, and the only obligation left is telling the user so — folded into the user-facing-docs item above. The audio-hash move proof needs the **old** row to already carry a hash, and an incremental scan only reads the files it thinks changed, so any row never successfully hashed — indexed before the column existed, in a format only supported by a later release, or declined once for a structural reason — keeps `""` and cannot be re-linked however many incremental scans run. A full scan arms every file `libs/audiohash` covers (the other eight never arm; see "Won't implement"). Revisit only if the manual full scan proves to be a real burden, in which case the fix is an opportunistic backfill — hash rows with an empty `audio_hash` even on an incremental scan, bounded and one time per file — designed in `docs/agents/scanning.md` under known scanner debt. Also noted in `planTrackContinuity`'s doc comment.
-- [x] Genre ids churn on rename, orphaning covers
-  Same root cause as the closed album item above. The artist half is now won't-implement — see "Stable artist identity across a rename (artist id churn)" — so what stays in scope here is genres plus the positional-id cover key, which is also the piece that shrinks the artist case's blast radius without needing rename detection.
-  - [x] Genres: raw-`name` identity, DB-id cover with no fallback
-    Genres: identity is `name`, not even normalised (`internal/store/genre.go:19`, unique index `internal/model/genre.go:9`), and the cover keys on the DB id with no fallback (`subsonic/genres.go:48`), so a genre rename always orphans it. Milder otherwise — there is no genre star type in the cleanup list, and `/genre/:name` routes by name, so links survive.
-  - [x] Cheap partial win: stop keying covers on a positional id
-    Cheap partial win, independent of rename detection: stop keying genre and unmatched-artist covers on a positional id. **Made more urgent by the drop-and-recreate policy, not less:** while there are no consumers, "drop the DB and rescan" is the accepted answer to every schema change, and a rescan reassigns autoincrement ids in whatever order it happens to insert — so a hand-uploaded genre or unmatched-artist cover comes back attached to a *different* entity, silently. The escape hatch is what triggers the bug. A non-positional key fixes the rename case and the rebuild case at once; scope them together. (Supersedes the old "DB rebuilds misattributing images" backlog item, which no longer exists separately.) This is also the only part of the won't-implement artist item that stays in scope: with a content-derived key, an artist rename still loses the star, `LastImageFetchAt` and the `/artist/:id` link, but no longer orphans or misattributes the cover.
-  - [x] Three fix shapes already exist in the codebase
-    Three fix shapes exist and the codebase already contains one of each: preserve the row (albums — `planAlbumContinuity`); migrate on re-key (radio — `subsonic/radio.go:230-243` computes old and new `RadioKey(streamURL)` and moves the cover so a URL edit does not orphan it); key on content (artist MBIDs). The remaining work is applying them, not inventing them.
-- [x] Small code-health follow-ups noted during the album-continuity review
-  - [x] `planAlbumContinuity` batch transaction vs per-album proof
-    **Fixed.** `planAlbumContinuity` was running a whole batch in one transaction while its proof is per album, so one album's DB error rolled back every other album's retag in that batch. Restructured as snapshot → plan → apply: `readAlbumSnapshot` reads the batch state in one read transaction, `planAlbumRetags` is a pure function over it (no DB, so every leg of the proof — split, disagreeing batch, unchanged identity, merge survivor, ordering — is unit-testable), and `applyAlbumRetag` commits **one album per transaction**, re-proving the plan against the live rows inside the writing transaction. That re-check is what makes the read/write split safe: the counts *are* the proof, and acting on a stale one would rename an album that has since split. A per-album failure is logged and skipped, so it degrades only that album to a new id — matching `reconcile`'s own per-track loop. Also drops the write-transaction-held-across-a-whole-library, so a scan no longer blocks the API's writers for the duration. Documented in `docs/agents/scanning.md`.
-- [ ] Big review of the whole import task
+- [/] Big review of the whole import task
+  Done 2026-09-04: six-agent review (Pike, go-architect-reviewer, go-code-reviewer,
+  Tony, Natalia, vue-code-reviewer) of the metadata-editing flow, the song-import/scan
+  flow, and the two combined (an edit writes tags/pictures to disk then triggers a
+  synchronous RescanPaths that reconciles; scheduled scan/scan-full index whole
+  libraries, both freshly-imported and pre-existing). Findings catalogued under
+  "26-09-04-big-import-review" below. Task stays open until those are triaged/fixed.
+
+### 26-09-04-big-import-review
+
+#### Backend — scan/import correctness & architecture
+
+- [ ] [MEDIUM] Metadata edits re-index files inline in the web request instead of using the background job engine
+  Plain version: when you edit metadata in the editor (apply a cover, update tracks, delete
+  pictures, save an artist folder), the server re-scans the touched files right inside the browser's
+  request instead of handing the work to the background job engine that scheduled scans use. Three
+  consequences: (1) nothing bounds how many of these run at once or coordinates them with an
+  in-flight full scan; (2) the re-index dies half-done if the user navigates away mid-save — files
+  written, index partial, repaired only by the next full scan; (3) under load it competes with the
+  scheduled scan for SQLite's single write lock, so per-track writes can wait 5s, fail, and get
+  swallowed, leaving `rescan.ok:false` as the only trace. Fix: make edit-triggered re-indexing a
+  first-class job-engine task (enqueued, bounded, observable, decoupled from the request), accepting
+  that the editor then polls or gives up its synchronous "index is current" guarantee.
+  Technical (original finding) — [MEDIUM] Editor's synchronous RescanPaths bypasses the task runner
+  entirely — no governance, request-coupled durability, write-lock contention:
+  Scheduled `scan`/`scan-full` run through the task runner (queue, history, `MaxParallelism`); the
+  editor's rescan does not — `applyPicture`/`updateTracks`/`removals`/artist-folder save call
+  `h.Rescan.RescanPaths(...)` directly on the request goroutine, on a shared `libScanner`, tied to
+  `r.Context()` (`app/router/handlers/metadata/metadata.go:113-125`; three `scanner.New` over one
+  `*store.Store` at `app/cmd/server.go:162,192-193`). Correctness under overlap rests only on
+  hand-maintained invariants; there is no bound on concurrent rescans, no coordination with an
+  in-flight full scan, and the reindex's durability is coupled to the browser request. At scale this
+  is a write-lock contention hotspot on single-writer SQLite (`busy_timeout=5000`): a 50-track folder
+  picture-apply reconciles serially in the request while a full scan holds the lock; each per-track
+  txn can wait 5s then fail, and `reconcile` swallows it (see below), so `rescan.ok:false` is the only
+  trace. Navigating away mid-save cancels the context and aborts the reindex partway (files written,
+  index partial), self-healing only on the next scan. Direction: consider making edit-triggered
+  reindex a first-class task-runner job (enqueued, bounded, observable, request-decoupled), accepting
+  the editor would then poll or lose its synchronous "index is current" guarantee.
+  Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (new item under
+  `## Backend`): the first-class-task refactor should land on the current engine, so bump tempo
+  (v0.2.0 → latest) first.
+  - [ ] [MEDIUM] admitPath vs Walk is a fragile hand-maintained mirror; symlink semantics are not mirrored at all
+    Same code path as the parent — the editor's synchronous `RescanPaths` → `admitPath` — but a distinct
+    correctness gap within it, and independent of the tempo bump: a shared-predicate + test fix that can
+    land before or after the job-engine move.
+    The invariant "admission must be a superset-free mirror of Walk" is enforced only by two shared
+    helpers (`matchesExclude`, `IsAudioFile`) plus prose — no test runs the same paths through both and
+    asserts agreement. It is already incomplete for symlinks: `Walk` honors `Library.FollowSymlinks`
+    (descends symlinked dirs, resolves to canonical paths in `symWalk`/`walkSymlinkEntry`, stats the
+    target for `FileSize`) while `admitPath` (`internal/scanner/rescan.go`) ignores `FollowSymlinks` and
+    just `os.Stat`s the given path. A path through a symlinked dir is admitted by the rescan when
+    `FollowSymlinks` is false (the walk would never reach it), and the two can disagree on the canonical
+    form of a followed-symlink file — colliding with `planTrackContinuity`'s path-identity assumptions.
+    An edit under a symlinked layout can index a row a scheduled scan then deletes (id churn, dropping
+    stars/playlists/history), or index one file under two path spellings. Narrow blast radius today, but
+    the invariant is load-bearing and unguarded. Direction: a single exported per-entry admission
+    predicate both `Walk` and `admitPath` call, plus a table-driven test asserting `admitPath(p) ⟺
+    Walk-would-emit(p)` over a fixture tree with excludes, ancestor pruning and symlinks.
+- [ ] [MEDIUM] Scheduled scans can silently drop songs and still report success
+  Plain version: when the library scanner saves songs to the database it saves them one at a time; if
+  one song fails to save, it just notes it in the log and moves on — it never counts that failure.
+  There are two ways a scan runs and they behave differently: the manual/editor rescan happens to
+  catch it (it notices the final song count doesn't add up), but the scheduled/automatic scan does not
+  — it only reports a different kind of problem (songs it couldn't read). So an automatic scan can
+  quietly lose an unknown number of songs from the library and still report "success": no error, no
+  count, no signal. Same failure, two scans, opposite outcomes — whether anyone finds out depends
+  entirely on which one ran. It's medium because nothing crashes and no data is corrupted; the risk is
+  silent under-reporting — you trust a scan that quietly did less than it claimed. Fix: have the save
+  step keep a running count of failures and report it, so every scan can say clearly "X saved, Y
+  unreadable, Z failed to save." Skipping a bad song and continuing is the right behavior; the gap is
+  that nobody's told it happened.
+  Technical (original finding) — [MEDIUM] reconcile swallows per-track transaction failures and the
+  scheduled scan surfaces them nowhere:
+  `reconcile` runs one txn per track and on failure logs at Warn + `continue` — it never returns the
+  error and never records it in `ScanStats.Errors` (which only collects tag-READ failures, `scanner.go:216-220`).
+  The rescan path compensates (`rescanSaved` treats `TracksProcessed < indexable` as `ok:false`), but
+  `NewScanTaskFn` (`app/tasks/scan.go:45-50`) only logs `len(stats.Errors)`. So a reconcile txn failure
+  — lost write lock (likely under the contention above), constraint violation, association-replace
+  error — is counted in neither `Processed` nor `Errors`: a scheduled scan can silently under-index an
+  arbitrary number of tracks and report success. The two entry points sharing `reconcile` give the
+  operator opposite visibility into the same failure. Direction: have `reconcile` return a per-track
+  failure count (or append to `ScanStats.Errors` with a distinct category) so the task log / a future
+  metric can distinguish processed / tag-read-failed / reconcile-failed. Swallow-and-continue itself
+  is correct; the invisibility on the scan path is the gap.
+  Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (under `## Backend`):
+  surfacing these failures through the task log / a future metric rides on the job engine, so bump
+  tempo (v0.2.0 → latest) first.
 
 ### Backend — Resource Leaks
 
@@ -140,7 +223,7 @@ Notes for editors:
   Spotify-style: on row hover, show a checkbox next to the duration for multi-select. A checkbox-in-the-index-cell pattern already exists in queue edit mode — `components/layout/QueueRow.vue:68-82` — but the browsing song lists (`components/library/AlbumTrackRow.vue`, `GenreTrackRow.vue`) select by plain/ctrl/shift click with no hover affordance; they only tint the row on `:hover`.
 - [ ] Album cover drag and drop in the album view
 - [ ] Album cover Remove can't tell if there's anything to remove
-  `AlbumView`'s hero Remove clears aether's managed cover via `updateAlbum`'s `coverClear`, but most albums are served from folder art or embedded tags instead — so Remove → Save deletes a non-existent asset entry and the old cover reappears. Currently mitigated only by helper text spelling out the semantics; `HeroHeader` already has a `coverRemovable` prop for suppressing the affordance, and `ArtistView` drives it from an image-source query (`/api/v1/artists/{id}/image-source`, surfaced as `canRemoveImage`). The album equivalent needs `/rest` to report whether the served cover is aether-managed — an OpenSubsonic extension field or small endpoint, not an `/api/v1` route, since album covers are music functionality. Same gap exists for genres.
+  `AlbumView`'s hero Remove clears aether's managed cover via `updateAlbum`'s `coverClear`, but most albums are served from folder art or embedded tags instead — so Remove → Save deletes a non-existent asset entry and the old cover reappears. Currently mitigated only by helper text spelling out the semantics; `HeroHeader` already has a `coverRemovable` prop for suppressing the affordance, and `ArtistView` drives it from an image-source query (`/api/v0/artists/{id}/image-source`, surfaced as `canRemoveImage`). The album equivalent needs `/rest` to report whether the served cover is aether-managed — an OpenSubsonic extension field or small endpoint, not an `/api/v0` route, since album covers are music functionality. Same gap exists for genres.
 - [ ] Better genre handling — needs scoping before it can be planned
 - [ ] Playlist edit is not a nice experience for now — needs scoping
   Name the specific interactions that are wrong (reorder? multi-remove? add-from-search?) before this can be estimated.
@@ -193,4 +276,4 @@ Notes for editors:
 - [>] Sharing and Chat
   Sharing exists to hand out public unauthenticated links (`/share.php?id=…&secret=…` + an HTML landing page) that bypass auth by design; Chat is a global message wall with no rooms or delivery, vestigial in the ecosystem and pointless on a single-user server. Don't add them, and don't file them as gaps again.
 - [>] `getUsers` (and Subsonic user CRUD: `createUser`/`updateUser`/`deleteUser`/`changePassword`)
-  Admin-only user administration over `/rest`. It only duplicates the users CRUD that already lives on `/api/v1` — the intended admin surface per `CLAUDE.md`'s `/rest`-vs-`/api/v1` split — breaks no playback client (they only ever call `getUser` for their own record), and would add a second privileged write surface plus extra plumbing (the subsonic `Handler` holds only the `AdminChecker` closure, not a user lister). `getUser` (own record) IS implemented; this is the deliberate line where `/rest` stops. Don't file it as a gap again.
+  Admin-only user administration over `/rest`. It only duplicates the users CRUD that already lives on `/api/v0` — the intended admin surface per `CLAUDE.md`'s `/rest`-vs-`/api/v0` split — breaks no playback client (they only ever call `getUser` for their own record), and would add a second privileged write surface plus extra plumbing (the subsonic `Handler` holds only the `AdminChecker` closure, not a user lister). `getUser` (own record) IS implemented; this is the deliberate line where `/rest` stops. Don't file it as a gap again.

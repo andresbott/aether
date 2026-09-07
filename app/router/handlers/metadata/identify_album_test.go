@@ -56,7 +56,7 @@ func newAlbumIdentifyHandler(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.IdentifyHandler{
 		Store:           s,
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
@@ -92,27 +92,33 @@ func TestIdentifyAlbum_UnavailableWithoutService(t *testing.T) {
 func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 	r, lib := newAlbumIdentifyHandler(t, t.TempDir(), &fakeAlbumIdentifier{})
 
+	// An empty selection, or one below the two-file floor, is well-formed but
+	// invalid: a 422 itemising /paths, the same as the picture endpoints — not
+	// a 400.
 	if w := postIdentifyAlbum(t, r, map[string]any{
 		"library_id": lib.ID, "paths": []string{},
-	}); w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty paths, got %d", w.Code)
+	}); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for empty paths, got %d", w.Code)
 	}
 
-	// Album identification is meaningless for a single file.
+	// Album identification is meaningless for a single file — still a /paths
+	// floor violation, so 422.
 	if w := postIdentifyAlbum(t, r, map[string]any{
 		"library_id": lib.ID, "paths": []string{"only.mp3"},
-	}); w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for a single path, got %d", w.Code)
+	}); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for a single path, got %d", w.Code)
 	}
 
+	// A missing library_id decodes to 0; no library has id 0, so the lookup
+	// answers 404 ("no such library"), not a request-shape error.
 	if w := postIdentifyAlbum(t, r, map[string]any{
 		"paths": []string{"a.mp3", "b.mp3"},
-	}); w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 for a missing library_id, got %d", w.Code)
+	}); w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a missing library_id, got %d", w.Code)
 	}
 
-	// Over-cap paths[] is well-formed but invalid (422), unlike the missing-
-	// input cases above, which stay 400 — see decodeSelection's identical cap.
+	// Over-cap paths[] is likewise a 422 itemising /paths — the same shared
+	// bound (checkPaths) as the floor cases above.
 	tooMany := make([]string, 51)
 	for i := range tooMany {
 		tooMany[i] = "a.mp3"

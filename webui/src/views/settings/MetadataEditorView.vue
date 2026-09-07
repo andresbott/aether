@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -53,6 +53,12 @@ function clearFolderSearch() {
     folderSearch.value = ''
     folderFilter.value = ''
 }
+
+// Clear the pending debounce timer on unmount so it cannot fire after the
+// component is gone and mutate folderFilter on a torn-down instance.
+onUnmounted(() => {
+    if (folderSearchTimer) clearTimeout(folderSearchTimer)
+})
 
 const confirm = useConfirm()
 
@@ -109,6 +115,26 @@ const tracksQuery = useTracks(
 const session = useEditSession(
     () => tracksQuery.data.value,
     () => selectedLibraryId.value
+)
+
+// A save (and any reload/invalidation) refetches the tracks into brand-new
+// Track objects, but `selection` still holds the references captured before the
+// write. EditPanel diffs its "original" baseline off `props.selection`, so left
+// alone it stays pre-save until the user reselects — wrong whenever the server
+// normalizes on write (genre trimming, the artist+MBID two-PUT split, a partial
+// per-path failure). Remap by path onto the fresh data as it settles (dropping
+// paths that vanished, preserving order) so the baseline tracks what is on disk.
+// vue-query's structural sharing keeps this ref stable when nothing changed, so
+// the watch only fires on a real refetch — no race with save() completing.
+watch(
+    () => tracksQuery.data.value,
+    (fresh) => {
+        if (!fresh || selection.value.length === 0) return
+        const byPath = new Map(fresh.map((t) => [t.path, t]))
+        selection.value = selection.value
+            .map((t) => byPath.get(t.path))
+            .filter((t): t is Track => t !== undefined)
+    }
 )
 
 // Both identify flows (and the in-memory cache behind them) live in
@@ -186,8 +212,7 @@ function onReload() {
 }
 
 // onCancel reverts every staged change (field overlays and picture ops) after
-// confirmation. The selection ref-copy makes EditPanel refresh its edit
-// buffers back to the original values.
+// confirmation.
 function onCancel() {
     confirm.require({
         header: 'Discard changes',
@@ -198,7 +223,6 @@ function onCancel() {
         acceptClass: 'p-button-danger',
         accept: () => {
             session.discardAll()
-            selection.value = [...selection.value]
         }
     })
 }
@@ -247,9 +271,6 @@ function onIdentifyApply(picks: IdentifyPick[], fields: IdentifyFieldId[]) {
     )
     session.stageOverlays(entries)
     runs.trackDialog.value = false
-    // New array reference so EditPanel's selection watcher refreshes its edit
-    // buffers with the just-staged values.
-    selection.value = [...selection.value]
 }
 
 function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldId[]) {
@@ -258,9 +279,6 @@ function onAlbumIdentifyApply(picks: AlbumIdentifyPick[], fields: IdentifyFieldI
     )
     session.stageOverlays(entries)
     runs.albumDialog.value = false
-    // New array reference so EditPanel's selection watcher refreshes its edit
-    // buffers with the just-staged values.
-    selection.value = [...selection.value]
 }
 
 // Re-identify: the user is asking past a cached answer, so the same files are

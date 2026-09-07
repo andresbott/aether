@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Button from 'primevue/button'
@@ -15,6 +15,12 @@ const props = defineProps<{
 }>()
 
 const selectionPaths = computed(() => props.selection.map((t) => t.path))
+
+// Help copy shared between the hover tooltip and the aria-label so keyboard/AT
+// users reach the same text as mouse users.
+const managedTagHelp = 'Managed by the metadata editor — edit this field in the form view.'
+const hiddenFramesHelp =
+    'Binary or non-text metadata (private data, ratings, embedded objects) that cannot be shown as tags. It can only be deleted.'
 
 const rawQuery = useRawTags(
     () => props.libraryId,
@@ -84,6 +90,14 @@ const rows = computed<RawRow[]>(() => {
 // Value editing: one value per line. Buffered per key so typing does not
 // re-render against the recomputed row mid-edit.
 const editBuffers = ref(new Map<string, string>())
+
+// Drop the buffered text when the selection changes or the underlying tags
+// refetch: the panel stays mounted while the user picks a different track, and
+// a stale buffer would show text typed for the previously-selected track. (Not
+// triggered by staging edits — those don't change `results`.)
+watch([() => props.selection, results], () => {
+    editBuffers.value.clear()
+})
 
 function displayValue(row: RawRow): string {
     return editBuffers.value.get(row.key) ?? row.values.join('\n')
@@ -233,9 +247,10 @@ function addTag() {
                     <i
                         v-if="row.managed"
                         class="pi pi-lock raw-managed"
-                        v-tooltip.right="
-                            'Managed by the metadata editor — edit this field in the form view.'
-                        "
+                        tabindex="0"
+                        role="note"
+                        :aria-label="managedTagHelp"
+                        v-tooltip.right="managedTagHelp"
                         data-test="raw-managed"
                     ></i>
                 </div>
@@ -246,6 +261,7 @@ function addTag() {
                 <Textarea
                     v-else
                     class="raw-value"
+                    :aria-label="`${row.key} value`"
                     autoResize
                     rows="1"
                     :modelValue="displayValue(row)"
@@ -283,9 +299,10 @@ function addTag() {
                     <span class="raw-hidden-title">Hidden frames</span>
                     <i
                         class="pi pi-question-circle raw-hidden-help"
-                        v-tooltip.right="
-                            'Binary or non-text metadata (private data, ratings, embedded objects) that cannot be shown as tags. It can only be deleted.'
-                        "
+                        tabindex="0"
+                        role="note"
+                        :aria-label="hiddenFramesHelp"
+                        v-tooltip.right="hiddenFramesHelp"
                     ></i>
                 </div>
                 <div
@@ -339,12 +356,14 @@ function addTag() {
             <div class="raw-add" data-test="raw-add">
                 <InputText
                     class="raw-add-key"
+                    aria-label="New tag name"
                     v-model="newKey"
                     placeholder="NEW_TAG_NAME"
                     data-test="raw-add-key"
                 />
                 <Textarea
                     class="raw-add-value"
+                    aria-label="New tag value (one per line)"
                     autoResize
                     rows="1"
                     v-model="newValue"

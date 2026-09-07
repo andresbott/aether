@@ -1,6 +1,7 @@
 package metadata
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,12 +15,68 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/internal/coverart"
+	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"gorm.io/gorm"
+	"github.com/gorilla/mux"
 )
+
+// CoverArtClient looks up and downloads album covers from the Cover Art
+// Archive. Satisfied by *coverart.Client.
+type CoverArtClient interface {
+	List(ctx context.Context, releaseMBID, releaseGroupMBID string) ([]coverart.CoverImage, error)
+	DownloadImage(ctx context.Context, imageURL string) ([]byte, string, error)
+}
+
+// ImagesHandler serves the picture endpoints of the metadata editor: the
+// embedded and folder cover-art cells of a track selection, the artist-folder
+// image, and the online candidate proxies (Cover Art Archive, artist image
+// providers). Every write lands on disk and is followed by a rescan of the
+// touched files; the library index is never written directly.
+type ImagesHandler struct {
+	Store  *store.Store
+	Reader tags.Reader
+	// Rescan re-indexes the files a write touched so the edit shows up in the
+	// music UI without waiting for a scan task. nil disables re-indexing; the
+	// file write still succeeds and the index catches up on the next scan.
+	Rescan TrackRescanner
+	// CoverArt backs the album-cover candidate list and image_url downloads.
+	// Optional: nil answers the candidate endpoints with an empty list / 503.
+	CoverArt CoverArtClient
+	// ArtistImages downloads the online-picked artist portrait for the
+	// artist-folder image feature. Optional: nil leaves upload working and makes
+	// an online pick answer 503.
+	ArtistImages ArtistImageFetcher
+	// Downloads memoizes provider image bytes by URL, so the pre-save probe and
+	// the save reuse a single download instead of pulling the same rate-limited
+	// image twice. Optional: nil disables caching (every probe/save downloads
+	// fresh). A cache hit also skips the artist-image SSRF re-list.
+	Downloads *dlcache.Cache
+	// Images serves display-sized copies of the editor's picture cells, so a
+	// grid of thumbnails does not download full-resolution scans. Optional: nil
+	// makes every cell serve its original.
+	Images *imagecache.Cache
+}
+
+// Routes mounts the picture endpoints under an already-subrouted mux.Router.
+// Endpoints live beneath /metadata/.
+func (h *ImagesHandler) Routes(r *mux.Router) {
+	r.Path("/metadata/artist-folder").Methods(http.MethodGet).HandlerFunc(h.artistFolder)
+	r.Path("/metadata/artist-image").Methods(http.MethodGet).HandlerFunc(h.artistImage)
+	r.Path("/metadata/artist-image/candidate-info").Methods(http.MethodGet).HandlerFunc(h.artistImageCandidateInfo)
+	r.Path("/metadata/artist-image").Methods(http.MethodPost).HandlerFunc(h.setArtistImage)
+	r.Path("/metadata/artist-image").Methods(http.MethodDelete).HandlerFunc(h.deleteArtistImage)
+	r.Path("/metadata/pictures/inventory").Methods(http.MethodPost).HandlerFunc(h.inventory)
+	r.Path("/metadata/pictures").Methods(http.MethodPost).HandlerFunc(h.applyPicture)
+	r.Path("/metadata/pictures/removals").Methods(http.MethodPost).HandlerFunc(h.removals)
+	r.Path(pictureImagePath).Methods(http.MethodGet).HandlerFunc(h.pictureImage)
+	r.Path("/metadata/pictures/candidates").Methods(http.MethodGet).HandlerFunc(h.pictureCandidates)
+	r.Path("/metadata/pictures/candidate-info").Methods(http.MethodGet).HandlerFunc(h.pictureCandidateInfo)
+}
 
 const (
 	pictureMultipartMemory = 1 << 20  // 1 MiB kept in memory; larger parts spill to temp files
@@ -100,7 +157,7 @@ type pictureDTO struct {
 }
 
 // pictureImagePath is the picture image endpoint's route, relative to
-// wherever Routes is mounted (see the Routes doc comment in metadata.go).
+// wherever Routes is mounted (see the Routes doc comment on ImagesHandler).
 // Both Routes (mounting it) and pictureImageRef (building the inventory's
 // URLs) reuse this constant so the registered route and the generated URLs
 // can never drift apart.
@@ -114,8 +171,8 @@ const inventoryThumbSize = 320
 
 // pictureImageRef builds one present slot's ready-to-render image URLs from
 // its representative Source. The URLs are mount-relative — no scheme/host,
-// and never a hard-coded /api/v1 prefix — so the handler stays agnostic to
-// whatever prefix it is mounted under (the planned /admin reorg); the SPA
+// and never a hard-coded /api/v0 prefix — so the handler stays agnostic to
+// whatever prefix it is mounted under (e.g. a future API version bump); the SPA
 // prepends apiClient.defaults.baseURL when rendering (see serverPictureUrl in
 // PicturesSection.vue).
 func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
@@ -135,10 +192,9 @@ func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
 // selection, as a repeated ?paths= query param, overflowed the forward_auth
 // proxy's header buffer). Embedded presence is counted over paths[]; folder
 // art is resolved across the distinct directories paths[] spans.
-func (h *Handler) inventory(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(w, r)
-	if err != nil {
-		writeSelectionErr(w, r, status, err)
+func (h *ImagesHandler) inventory(w http.ResponseWriter, r *http.Request) {
+	lib, sel, ok := decodeSelection(h.Store, w, r)
+	if !ok {
 		return
 	}
 	// decodeSelection already guarantees sel.Paths is non-empty (or it would
@@ -194,11 +250,11 @@ func slotMeta(al metadataedit.Album, s metadataedit.Source) *imageMetaDTO {
 // picture was removed, or the folder file no longer exists); 422 on a type
 // or slot value that fails validation (well-formed but invalid); 400 on a
 // missing slot or a bad file reference.
-func (h *Handler) pictureImage(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	// path is absent from this endpoint's query (see the Routes doc comment);
 	// resolveLibraryRel tolerates that (an empty path resolves to the library
 	// root itself), so it is reused here purely for the library_id lookup.
-	lib, _, status, err := h.resolveLibraryRel(r)
+	lib, _, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
 		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -285,7 +341,7 @@ func requestedPictureSize(r *http.Request) int {
 // servePictureThumb serves a cached, display-sized copy of the resolved picture.
 // It reports false when no derivative could be produced (an undecodable or
 // unreadable source), leaving the caller to serve the original.
-func (h *Handler) servePictureThumb(
+func (h *ImagesHandler) servePictureThumb(
 	w http.ResponseWriter, r *http.Request, pt metadataedit.PictureType, slot string, rp resolvedPicture, fingerprint string, size int,
 ) bool {
 	// Keyed by the picture's identity — type and slot — under a kind of its own,
@@ -371,7 +427,7 @@ type applyPictureResult struct {
 // the album folder ("folder") or embedded in the tags of the given tracks
 // ("embedded"). The image source is either an uploaded file part ("image") or a
 // Cover Art Archive URL ("image_url").
-func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
@@ -396,26 +452,15 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
+	// applyPicture reads paths[] from a multipart form rather than a JSON body,
+	// but the bound and the library lookup are the shared ones (checkPaths /
+	// resolveLibrary) so they can never drift from the JSON-body endpoints.
 	paths := r.Form["paths"]
-	if len(paths) == 0 {
-		httperr.WriteValidation(w, r, errNoSelection.Error(), httperr.FieldError{Pointer: "/paths", Detail: errNoSelection.Error()})
+	if !checkPaths(w, r, paths, 1) {
 		return
 	}
-	// Mirrors decodeSelection's cap for the JSON-body picture-selection
-	// endpoints (inventory, raw-tags, removals): applyPicture reads its
-	// paths[] from a multipart form instead, so it needs its own count guard
-	// to keep the bound from drifting between the two decoding paths.
-	if len(paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
-		return
-	}
-	libModel, err := h.Store.GetLibrary(uint(libID))
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	libModel, ok := resolveLibrary(h.Store, w, r, uint(libID))
+	if !ok {
 		return
 	}
 
@@ -454,8 +499,10 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 
 	// Re-index the folder's tracks: the embedded slot changed their tags, and
 	// folder writes change which image the album should serve (reconcile
-	// redetects album.CoverPath).
-	rs := h.rescanSaved(r.Context(), libModel.ID, al.Tracks())
+	// redetects album.CoverPath). A folder write touches no audio mtime, so a
+	// failed re-index needs a full scan to recover (rescanFolderArt); an
+	// embedded write changed the tags, so the next incremental scan catches up.
+	rs := h.rescanForSlot(r.Context(), slot, libModel.ID, al.Tracks())
 	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Rescan: rs})
 }
 
@@ -463,7 +510,7 @@ func (h *Handler) applyPicture(w http.ResponseWriter, r *http.Request) {
 // an HTTP status + error on failure (0, nil on success). Both slots are on
 // disk; the DB catches up through the caller's rescan, which re-reads the tags
 // and re-detects the album's cover file.
-func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al metadataedit.Album, ext string, data []byte) (int, error) {
+func (h *ImagesHandler) savePictureToSlot(slot string, pt metadataedit.PictureType, al metadataedit.Album, ext string, data []byte) (int, error) {
 	switch slot {
 	case "folder":
 		// An album can span several directories (a multi-disc release laid out
@@ -492,10 +539,9 @@ func (h *Handler) savePictureToSlot(slot string, pt metadataedit.PictureType, al
 // targets exactly the selected tracks. Clearing an already-empty cell still
 // answers {ok:true} — removing a file that is not there, or a picture a
 // track never had, is a no-op, not an error.
-func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
-	lib, sel, status, err := h.decodeSelection(w, r)
-	if err != nil {
-		writeSelectionErr(w, r, status, err)
+func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
+	lib, sel, ok := decodeSelection(h.Store, w, r)
+	if !ok {
 		return
 	}
 	pt, terr := pictureTypeByIDOrDefault(sel.Type)
@@ -534,10 +580,21 @@ func (h *Handler) removals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{"ok": true}
-	if rs := h.rescanSaved(r.Context(), lib.ID, al.Tracks()); rs != nil {
+	if rs := h.rescanForSlot(r.Context(), sel.Slot, lib.ID, al.Tracks()); rs != nil {
 		out["rescan"] = rs
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// rescanForSlot picks the re-index helper for a picture slot: the "folder" slot
+// is an on-disk sidecar whose failed re-index needs a full scan to recover
+// (rescanFolderArt), while the "embedded" slot rewrote the audio files' tags, so
+// the next incremental scan catches up on its own (rescanSaved).
+func (h *ImagesHandler) rescanForSlot(ctx context.Context, slot string, libraryID uint, absPaths []string) *rescanStatus {
+	if slot == "folder" {
+		return rescanFolderArt(ctx, h.Rescan, libraryID, absPaths)
+	}
+	return rescanSaved(ctx, h.Rescan, libraryID, absPaths)
 }
 
 // writeImage writes raw image bytes with a sniffed image content-type.
@@ -557,7 +614,7 @@ type pictureCandidateDTO struct {
 
 // pictureCandidates proxies the Cover Art Archive listing for a release (and
 // optional release-group) MBID.
-func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 	mbid := r.URL.Query().Get("mbid")
 	releaseGroup := r.URL.Query().Get("release_group")
 	if mbid == "" && releaseGroup == "" {
@@ -591,7 +648,7 @@ func (h *Handler) pictureCandidates(w http.ResponseWriter, r *http.Request) {
 // size, dimensions and format, so the editor can show what an online pick will
 // write before the user saves. It mirrors the write's image_url download;
 // nothing is persisted.
-func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if imgURL == "" {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
@@ -621,7 +678,7 @@ func (h *Handler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
 // status is the HTTP status to answer with on failure; a zero status alongside
 // a non-nil err means the failure came from the external image host, which the
 // caller maps through httperr.WriteUpstream.
-func (h *Handler) pictureImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
+func (h *ImagesHandler) pictureImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
 	if file, header, ferr := r.FormFile("image"); ferr == nil {
 		defer func() { _ = file.Close() }()
 		data, rerr := io.ReadAll(io.LimitReader(file, maxPictureRequestBytes))

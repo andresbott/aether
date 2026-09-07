@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"path/filepath"
 	"time"
 
@@ -27,7 +28,7 @@ type TrackRow struct {
 // KnownTrackPaths reports which of paths already have a track row. The
 // complement — the paths absent from the result — is the set that a move could
 // have produced, and the only set the re-link pre-pass considers.
-func (s *Store) KnownTrackPaths(paths []string) (map[string]bool, error) {
+func (s *Store) KnownTrackPaths(ctx context.Context, paths []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(paths))
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
@@ -35,7 +36,7 @@ func (s *Store) KnownTrackPaths(paths []string) (map[string]bool, error) {
 			end = len(paths)
 		}
 		var found []string
-		if err := s.db.Table("tracks").
+		if err := s.db.WithContext(ctx).Table("tracks").
 			Where("file_path IN ?", paths[i:end]).
 			Pluck("file_path", &found).Error; err != nil {
 			return nil, err
@@ -51,7 +52,7 @@ func (s *Store) KnownTrackPaths(paths []string) (map[string]bool, error) {
 // Size is the cheap discriminator of a moved file; the rest of the proof is
 // checked by the caller. There is deliberately no index on the column — this
 // runs at most once per reconcile batch, next to reading every file's tags.
-func (s *Store) TracksByFileSizes(sizes []int64) ([]TrackRow, error) {
+func (s *Store) TracksByFileSizes(ctx context.Context, sizes []int64) ([]TrackRow, error) {
 	var out []TrackRow
 	for i := 0; i < len(sizes); i += chunkSize {
 		end := i + chunkSize
@@ -59,7 +60,7 @@ func (s *Store) TracksByFileSizes(sizes []int64) ([]TrackRow, error) {
 			end = len(sizes)
 		}
 		var rows []TrackRow
-		if err := s.db.Table("tracks").
+		if err := s.db.WithContext(ctx).Table("tracks").
 			Select(trackRowColumns).
 			Where("file_size IN ?", sizes[i:end]).
 			Scan(&rows).Error; err != nil {
@@ -80,7 +81,7 @@ const trackRowColumns = "id, file_path, library_id, file_size, file_mod_time, du
 // the only lookup that can find the far end of a move that also retagged the
 // file. Rows with no stored hash are unreachable here by construction — an empty
 // hash is never a candidate key, so they simply keep the size-and-title proof.
-func (s *Store) TracksByAudioHashes(hashes []string) ([]TrackRow, error) {
+func (s *Store) TracksByAudioHashes(ctx context.Context, hashes []string) ([]TrackRow, error) {
 	// Drop the empty key here rather than trusting every caller to. `audio_hash
 	// = ''` is the value every unhashed row carries, so one empty string in the
 	// list would return the whole unhashed library as move candidates — the one
@@ -102,7 +103,7 @@ func (s *Store) TracksByAudioHashes(hashes []string) ([]TrackRow, error) {
 			end = len(keys)
 		}
 		var rows []TrackRow
-		if err := s.db.Table("tracks").
+		if err := s.db.WithContext(ctx).Table("tracks").
 			Select(trackRowColumns).
 			Where("audio_hash IN ?", keys[i:end]).
 			Scan(&rows).Error; err != nil {
@@ -122,8 +123,8 @@ func (s *Store) TracksByAudioHashes(hashes []string) ([]TrackRow, error) {
 // filesystem reads it must not hold a write transaction across, so the update
 // itself is the check: a row whose path changed underneath reports
 // relinked=false and is skipped rather than overwritten.
-func (s *Store) RelinkTrack(id uint, oldPath, newPath string, libraryID uint) (bool, error) {
-	res := s.db.Model(&model.Track{}).
+func (s *Store) RelinkTrack(ctx context.Context, id uint, oldPath, newPath string, libraryID uint) (bool, error) {
+	res := s.db.WithContext(ctx).Model(&model.Track{}).
 		Where("id = ? AND file_path = ?", id, oldPath).
 		Updates(map[string]any{
 			"file_path":  newPath,

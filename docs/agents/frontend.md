@@ -3,7 +3,7 @@
 `webui/` is a Vue 3 + TypeScript SPA (Vite, PrimeVue 4, Pinia, TanStack
 vue-query, vue-router). Built output is copied into `app/spa/files/ui` and
 embedded in the Go binary (`make package-ui`); in the binary the SPA is the
-catch-all route behind `/api/v1` and `/rest`.
+catch-all route behind `/api/v0` and `/rest`.
 
 ## The three convention registries (read before UI work)
 
@@ -88,8 +88,8 @@ When a view diverges from these registries, the registry wins.
   The editor works in file paths, so there is no precise key set to target. The
   server re-indexes synchronously, so a resolved write already means the DB is
   current; no polling needed.
-- `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v1`, overridable via
-  `VITE_SERVER_URL_V1`) and `subsonic.ts` (`SubsonicClient`; same-origin
+- `lib/api/` — HTTP clients: `client.ts` (axios, `/api/v0`, overridable via
+  `VITE_SERVER_URL_V0`) and `subsonic.ts` (`SubsonicClient`; same-origin
   default; `initWithDefaults()` is the **auth-method-`none`** path only —
   authenticated modes call `setApiKey()` with the PAT minted by
   `lib/subsonicSession.ts` — see [subsonic-api.md](subsonic-api.md) and

@@ -60,7 +60,7 @@ func mintBody(t *testing.T, h *MainAppHandler, attach func(*http.Request), paylo
 	if payload != nil {
 		reader = bytes.NewReader(payload)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", reader)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/token", reader)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -77,7 +77,7 @@ func mintBody(t *testing.T, h *MainAppHandler, attach func(*http.Request), paylo
 // listTokenDTOs returns what the management endpoint reports for the caller.
 func listTokenDTOs(t *testing.T, h *MainAppHandler, attach func(*http.Request)) []tokenDTO {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/auth/tokens", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -99,7 +99,7 @@ func TestMintRequiresSessionNotAdmin(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v0/auth/token", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("mint without session = %d, want 401", w.Code)
 	}
@@ -297,7 +297,7 @@ func TestMintRejectsMissingOrMalformedDeviceID(t *testing.T) {
 		if body != "" {
 			reader = strings.NewReader(body)
 		}
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", reader)
+		req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/token", reader)
 		attach(req)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -398,7 +398,7 @@ func TestListTokensReportsKinds(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 	doMintDevice(t, h, attach, "browser-a", "Firefox on Linux") // creates a session token
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens",
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens",
 		strings.NewReader(`{"name":"Symfonium on phone"}`))
 	attach(req)
 	w := httptest.NewRecorder()
@@ -414,7 +414,7 @@ func TestListTokensReportsKinds(t *testing.T) {
 		t.Fatalf("create body = %s, want plaintext token", w.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/auth/tokens", nil)
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -451,7 +451,7 @@ func TestRevokeTokenOwnerScoped(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, bobAttach := doLogin(t, h, "bob", "secret")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens",
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens",
 		strings.NewReader(`{"name":"phone"}`))
 	bobAttach(req)
 	w := httptest.NewRecorder()
@@ -464,7 +464,7 @@ func TestRevokeTokenOwnerScoped(t *testing.T) {
 	}
 
 	_, aliceAttach := doLogin(t, h, "alice", "secret")
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens/"+created.TokenID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v0/auth/tokens/"+created.TokenID, nil)
 	aliceAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -472,7 +472,7 @@ func TestRevokeTokenOwnerScoped(t *testing.T) {
 		t.Fatalf("foreign revoke = %d, want 404", w.Code)
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/auth/tokens/"+created.TokenID, nil)
+	req = httptest.NewRequest(http.MethodDelete, "/api/v0/auth/tokens/"+created.TokenID, nil)
 	bobAttach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -490,7 +490,7 @@ func TestCreateTokenValidation(t *testing.T) {
 		`{"name":""}`,
 		`{"name":"x","expiresAt":"2020-01-01T00:00:00Z"}`,
 	} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", strings.NewReader(body))
 		attach(req)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -507,7 +507,7 @@ func TestLogoutRevokesSpaToken(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 	minted := doMint(t, h, attach)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout",
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/logout",
 		strings.NewReader(`{"tokenId":"`+minted.TokenID+`"}`))
 	attach(req)
 	w := httptest.NewRecorder()
@@ -526,7 +526,7 @@ func TestLogoutWithoutTokenStillWorks(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, attach := doLogin(t, h, "bob", "secret")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/logout", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -804,7 +804,7 @@ func TestCreateUserTokenReturnsCredentialPair(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 
 	body := strings.NewReader(`{"name":"phone","type":"usertoken"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", body)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -840,7 +840,7 @@ func TestCreateApikeyTokenOmitsCredentialPair(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 
 	body := strings.NewReader(`{"name":"scripted"}`) // type omitted = apikey
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", body)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -867,7 +867,7 @@ func TestCreateTokenRejectsUnknownType(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 
 	body := strings.NewReader(`{"name":"x","type":"banana"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", body)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -881,7 +881,7 @@ func TestListReportsTokenType(t *testing.T) {
 	_, attach := doLogin(t, h, "bob", "secret")
 
 	for _, payload := range []string{`{"name":"a","type":"apikey"}`, `{"name":"b","type":"usertoken"}`} {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/tokens", strings.NewReader(payload))
+		req := httptest.NewRequest(http.MethodPost, "/api/v0/auth/tokens", strings.NewReader(payload))
 		attach(req)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -889,7 +889,7 @@ func TestListReportsTokenType(t *testing.T) {
 			t.Fatalf("create %s: status %d", payload, w.Code)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/tokens", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/auth/tokens", nil)
 	attach(req)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)

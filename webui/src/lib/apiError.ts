@@ -1,6 +1,6 @@
 // Turning a thrown value into text a person can read.
 //
-// Every /api/v1 failure answers an RFC 9457 ("Problem Details for HTTP
+// Every /api/v0 failure answers an RFC 9457 ("Problem Details for HTTP
 // APIs") body — Content-Type: application/problem+json, shaped
 // {"type","title","status","detail","instance","errors"?} — and the backend
 // writes user-facing sentences into `detail` for upstream problems (see
@@ -12,7 +12,7 @@
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
 export const NETWORK_MESSAGE = 'The server could not be reached. Check your connection and try again.'
 
-/** The RFC 9457 problem+json body every /api/v1 handler answers with. */
+/** The RFC 9457 problem+json body every /api/v0 handler answers with. */
 export interface ApiErrorBody {
     type?: string
     title?: string

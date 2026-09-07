@@ -506,6 +506,40 @@ describe('picture staging', () => {
         ])
     })
 
+    // A partial album-identity edit may have split the album on disk; the
+    // server flags it with a `warning` and the session must surface it, or the
+    // stranded cover/stars are lost silently.
+    const albumSplitWarnings = () =>
+        toastAddSpy.mock.calls
+            .map((c) => c[0])
+            .filter((t) => t.summary === 'Album may have been split')
+
+    it('surfaces the album-split warning the server returns on a tag save', async () => {
+        const session = mkSession()
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }],
+            warning: 'some files could not be updated; the album may have moved'
+        })
+        session.stageField(['album/a.mp3'], 'album', 'New Album Name')
+        await session.save()
+        expect(albumSplitWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                detail: 'some files could not be updated; the album may have moved'
+            })
+        ])
+    })
+
+    it('does not warn about a split when the server returns no warning', async () => {
+        const session = mkSession()
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }]
+        })
+        session.stageField(['album/a.mp3'], 'album', 'New Album Name')
+        await session.save()
+        expect(albumSplitWarnings()).toEqual([])
+    })
+
     it('reports a picture rescan failure even when the save then aborts', async () => {
         const session = mkSession()
         deletePictureSpy.mockResolvedValue({
@@ -540,6 +574,40 @@ describe('picture staging', () => {
         await session.save()
         expect(session.getPictureOp(ALBUM, 'Back Cover', 'folder')).toBeDefined()
         expect(session.hasStagedChanges.value).toBe(true)
+    })
+
+    // Surface, on a picture-save abort, that the pending tag edits were skipped
+    // rather than leave the user with only the picture error and the unsaved pill.
+    const skippedTagWarnings = () =>
+        toastAddSpy.mock.calls
+            .map((c) => c[0])
+            .filter((t) => typeof t.summary === 'string' && t.summary.includes('were not saved'))
+
+    it('warns that pending tag edits were skipped when a picture save aborts', async () => {
+        const session = mkSession()
+        applyPictureSpy.mockRejectedValue(new Error('boom'))
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        session.stageField(['album/a.mp3'], 'title', 'New')
+        await session.save()
+        expect(updateTracksSpy).not.toHaveBeenCalled()
+        expect(skippedTagWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                summary: 'Tag edits for 1 track were not saved'
+            })
+        ])
+    })
+
+    it('stays silent about skipped tag edits when none were pending', async () => {
+        const session = mkSession()
+        applyPictureSpy.mockRejectedValue(new Error('boom'))
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
+        await session.save()
+        expect(skippedTagWarnings()).toEqual([])
     })
 
     it('flags the staged tracks in stagedPaths for embedded ops', () => {

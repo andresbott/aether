@@ -128,7 +128,7 @@ describe('useAuth', () => {
         expect(auth.currentUser.value).toEqual({ login: 'alice', role: 'admin' })
     })
 
-    // isAdmin drives every admin affordance in the UI; the /api/v1 guard
+    // isAdmin drives every admin affordance in the UI; the /api/v0 guard
     // enforces the same policy server-side.
     it('reports admin for an admin session and not for a regular user', async () => {
         getMe.mockResolvedValue(meAlice)
@@ -143,7 +143,7 @@ describe('useAuth', () => {
     })
 
     // With auth method "none" nothing is restricted: every visitor may
-    // administer the server, matching the open /api/v1.
+    // administer the server, matching the open /api/v0.
     it('treats every visitor as admin when the server needs no login', async () => {
         getMe.mockResolvedValue(meNone)
         const auth = withAuth()
@@ -329,7 +329,7 @@ describe('useAuth', () => {
 
         sessionExpired.value = true
         await flushPromises()
-        // The echo: another /api/v1 call 401s while the gate is already open.
+        // The echo: another /api/v0 call 401s while the gate is already open.
         sessionExpired.value = true
         await flushPromises()
 

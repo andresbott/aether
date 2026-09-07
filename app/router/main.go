@@ -62,7 +62,7 @@ type Cfg struct {
 	// up in the music UI without a scan task. Optional: nil disables it.
 	Rescanner metadataHandler.TrackRescanner
 	// AuthMethod is the configured authentication method
-	// ("none"/"native"/"proxy-header"), reported to the SPA via GET /api/v1/me.
+	// ("none"/"native"/"proxy-header"), reported to the SPA via GET /api/v0/me.
 	AuthMethod string
 	// Users is the identity service; nil unless AuthMethod is "native" or
 	// "proxy-header". The users CRUD is mounted only in native mode; proxy
@@ -81,14 +81,14 @@ type Cfg struct {
 	Reauth *throttle.Backoff
 	// Sessions is the cookie session manager; nil unless AuthMethod is
 	// "native". When set, the login/logout endpoints are mounted and every
-	// /api/v1 route except the public bootstrap set requires a session.
+	// /api/v0 route except the public bootstrap set requires a session.
 	Sessions *cookieauth.Manager
 	// Tokens is the personal-access-token service; nil unless AuthMethod is
 	// "native" or "proxy-header". When set, the session-scoped token endpoints
-	// are mounted on /api/v1 and /rest authenticates via OpenSubsonic apiKey.
+	// are mounted on /api/v0 and /rest authenticates via OpenSubsonic apiKey.
 	Tokens *pat.Service
 	// HeaderAuth validates proxy-injected identity headers; nil unless
-	// AuthMethod is "proxy-header". When set, every /api/v1 route except the
+	// AuthMethod is "proxy-header". When set, every /api/v0 route except the
 	// public bootstrap set requires a trusted header identity.
 	HeaderAuth *headerauth.HeaderHandler
 	// AdminGroup is the proxy-asserted group that grants the admin role;
@@ -131,7 +131,7 @@ func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // holds the admin role, for the spec's admin-only endpoints (radio CRUD
 // writes). Role comes from the DB groups in both modes: native writes them
 // directly, proxy mode mirrors the header-derived role into them on every
-// /api/v1 request (resolveProxyIdentity) because /rest is proxy-bypassed and
+// /api/v0 request (resolveProxyIdentity) because /rest is proxy-bypassed and
 // carries no identity headers. nil when auth is "none" — single fixed owner,
 // no roles to check.
 func (h *MainAppHandler) restAdminChecker() subsonic.AdminChecker {
@@ -331,7 +331,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	r.Use(prodMid.Middleware)
 	r.Use(jsonErrorEnvelope)
 
-	app.attachApiV1(app.router.PathPrefix(apiV1MountPrefix).Subrouter())
+	app.attachApiV0(app.router.PathPrefix(apiV0MountPrefix).Subrouter())
 
 	if app.store != nil {
 		identity := app.patIdentityResolver()

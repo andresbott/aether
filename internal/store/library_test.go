@@ -172,7 +172,7 @@ func TestDeleteLibraryCascade(t *testing.T) {
 	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
 	db.Create(&model.StarredItem{ItemType: "track", ItemID: track.ID})
 
-	if err := s.DeleteLibrary(lib.ID); err != nil {
+	if err := s.DeleteLibrary(t.Context(), lib.ID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -59,7 +59,7 @@ func (h *MainAppHandler) resolveProxyIdentity(w http.ResponseWriter, r *http.Req
 		}
 	}
 	// Mirror the header-derived role into the DB groups. The IdP stays
-	// authoritative on /api/v1 (the guard uses the live role above, never the
+	// authoritative on /api/v0 (the guard uses the live role above, never the
 	// DB) — but /rest is proxy-bypassed and carries no identity headers, so
 	// its admin check (restAdminChecker) can only consult the DB. Written only
 	// on change, so the steady state costs one read per request.
@@ -117,13 +117,13 @@ func (h *MainAppHandler) jitUser(login string) (userauth.User, error) {
 }
 
 // headerGuard is the proxy-header counterpart of sessionGuard, enforcing the
-// same three tiers on /api/v1: public bootstrap, header-authenticated
+// same three tiers on /api/v0: public bootstrap, header-authenticated
 // (personal token mint + CRUD), and admin default. Identity comes exclusively
 // from the trusted proxy's headers; the login/logout endpoints and users CRUD
 // are not mounted in this mode.
 func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if apiV1PublicPaths[r.URL.Path] {
+		if apiV0PublicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -144,7 +144,7 @@ func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), proxyIdentityCtxKey{}, *id))
-		if apiV1SessionPath(r.URL.Path) {
+		if apiV0SessionPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

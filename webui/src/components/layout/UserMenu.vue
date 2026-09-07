@@ -16,7 +16,7 @@ const router = useRouter()
 // out of, so the Log out entry is dropped (same gate as SettingsLayout).
 // The Admin and Metadata editor entries only exist for admins — the routes
 // they open both use the admin-only settings layout, so a non-admin is
-// redirected away and the /api/v1 data behind them answers 403.
+// redirected away and the /api/v0 data behind them answers 403.
 const { authRequired, currentUser, isAdmin, logout } = useAuth()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)

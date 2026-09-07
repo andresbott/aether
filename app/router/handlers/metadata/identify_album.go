@@ -3,13 +3,11 @@ package metadata
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"gorm.io/gorm"
 )
 
 // AlbumIdentifyService maps a set of files onto a single MusicBrainz release,
@@ -41,7 +39,7 @@ type pathErrorDTO struct {
 	Error string `json:"error"`
 }
 
-func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
+func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 	if h.AlbumIdentifier == nil {
 		reason := h.IdentifyUnavailableReason
 		if reason == "" {
@@ -50,27 +48,14 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body identifyAlbumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	if body.LibraryID == 0 || len(body.Paths) < minAlbumIdentifyPaths {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error",
-			"library_id and at least two paths are required")
-		return
-	}
-	if len(body.Paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
-		return
-	}
-	libModel, err := h.Store.GetLibrary(body.LibraryID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths)
+	if !ok {
 		return
 	}
 
@@ -126,7 +111,7 @@ func (h *Handler) identifyAlbum(w http.ResponseWriter, r *http.Request) {
 // currentTags reads the tag values albumidentify uses as ranking and gap-fill
 // hints. A read failure is silent: the hints are optional, and the file's real
 // problem (if any) shows up on its assignment row.
-func (h *Handler) currentTags(ctx context.Context, absPath string) (album, title string, trackNumber, discNumber int) {
+func (h *IdentifyHandler) currentTags(ctx context.Context, absPath string) (album, title string, trackNumber, discNumber int) {
 	if h.Reader == nil {
 		return "", "", 0, 0
 	}

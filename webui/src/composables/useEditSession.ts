@@ -1,4 +1,4 @@
-import { computed, ref, watch } from 'vue'
+import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import {
@@ -333,11 +333,14 @@ export type EditSession = ReturnType<typeof useEditSession>
 export function useEditSession(tracks: () => Track[] | undefined, libraryId: () => number | null) {
     const qc = useQueryClient()
     const toast = useToast()
-    // The session drives many picture ops per save and raises one aggregate
-    // "index not updated" warning itself, so the mutations must stay quiet
-    // about it — otherwise a 6-cell save would stack 6 identical toasts.
-    const applyPictureMutation = useApplyPicture({ quietRescanWarning: true })
-    const deletePictureMutation = useDeletePicture({ quietRescanWarning: true })
+    // The session drives many picture ops per save and owns the aggregate
+    // report — one "index not updated" warning and a single cache invalidation
+    // at the end of the loop. The mutations must therefore stay quiet: otherwise
+    // a 6-cell save would stack 6 success toasts and invalidate the whole
+    // music-UI tree 6 times mid-write (each refetching the editor's own query
+    // and re-triggering the prune while it is still writing).
+    const applyPictureMutation = useApplyPicture({ quiet: true })
+    const deletePictureMutation = useDeletePicture({ quiet: true })
 
     const overlays = ref(new Map<string, TrackOverlay>())
     const pictures = ref(new Map<string, PictureSessionEntry>())
@@ -666,6 +669,15 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         artistImages.value.clear()
     }
 
+    // Revoke any staged blob preview URLs if the owning scope is torn down
+    // without the route-leave guard firing (programmatic unmount, error
+    // boundary, HMR). Idempotent — discardAll no-ops on already-empty maps.
+    // failSilently (2nd arg): this composable is deliberately created without an
+    // effect scope in unit tests, where there is nothing to auto-dispose and the
+    // caller owns cleanup — so suppress Vue's "no active effect scope" warning
+    // rather than have every bare-composable test log it.
+    onScopeDispose(() => discardAll(), true)
+
     // ----- Save -----
 
     // One savePictures run: whether every staged op was written, plus the last
@@ -673,6 +685,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     interface SavePicturesOutcome {
         ok: boolean
         rescanFailure: string | null
+        // Whether any op reached disk. save() owns the one post-write cache
+        // invalidation, so each step reports whether it wrote.
+        wrote: boolean
     }
 
     // savePictures persists all staged picture ops. ok is false to abort the
@@ -680,11 +695,12 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // A failed re-index is not a write failure — the image is on disk — so it
     // does not abort; it is reported alongside the tag batches' failures, with
     // the same "last failure wins, never cleared by a later success" rule
-    // save() uses.
+    // save() uses. The mutations run quiet; cache invalidation is save()'s job —
+    // one call after every step — so this only reports whether it wrote.
     async function savePictures(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: pictures.value.size === 0, rescanFailure: null }
+            return { ok: pictures.value.size === 0, rescanFailure: null, wrote: false }
         }
         let wrote = false
         let rescanFailure: string | null = null
@@ -722,24 +738,25 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         wrote = true
                     } catch {
                         if (wrote) picturesSavedAt.value = Date.now()
-                        return { ok: false, rescanFailure }
+                        return { ok: false, rescanFailure, wrote }
                     }
                 }
             }
             prunePictureEntry(key)
         }
         if (wrote) picturesSavedAt.value = Date.now()
-        return { ok: true, rescanFailure }
+        return { ok: true, rescanFailure, wrote }
     }
 
     // saveArtistImages persists staged artist-folder image ops (writes and
     // removals). Mirrors savePictures: a failed write aborts (ok=false), a failed
-    // re-index is reported but not fatal (the file is on disk). Invalidates the
-    // music caches on success, since the artist's served cover may now differ.
+    // re-index is reported but not fatal (the file is on disk). Reports whether it
+    // wrote so save() invalidates the music caches once, since the artist's served
+    // cover may now differ.
     async function saveArtistImages(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: artistImages.value.size === 0, rescanFailure: null }
+            return { ok: artistImages.value.size === 0, rescanFailure: null, wrote: false }
         }
         let wrote = false
         let rescanFailure: string | null = null
@@ -777,18 +794,12 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     detail: apiErrorMessage(err),
                     life: 8000
                 })
-                if (wrote) {
-                    picturesSavedAt.value = Date.now()
-                    invalidateAfterMetadataWrite(qc)
-                }
-                return { ok: false, rescanFailure }
+                if (wrote) picturesSavedAt.value = Date.now()
+                return { ok: false, rescanFailure, wrote }
             }
         }
-        if (wrote) {
-            picturesSavedAt.value = Date.now()
-            invalidateAfterMetadataWrite(qc)
-        }
-        return { ok: true, rescanFailure }
+        if (wrote) picturesSavedAt.value = Date.now()
+        return { ok: true, rescanFailure, wrote }
     }
 
     // reportRescanFailure warns that the write landed on disk but the library
@@ -805,25 +816,51 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         })
     }
 
+    // reportSkippedTagEdits warns, on a save that aborted because a picture or
+    // artist-image write failed, that the pending tag edits were never attempted.
+    // Without this the user sees only the picture error and the "Unsaved changes"
+    // pill, with nothing stating the staged field overlays were skipped (they
+    // stay staged — saving again retries them). Uses groupPatches, the same
+    // helper save() uses to build the tag batches, so no-op overlays don't warn.
+    function reportSkippedTagEdits() {
+        const batches = groupPatches(originals.value, overlays.value)
+        if (batches.length === 0) return
+        const tracks = new Set(batches.flatMap((b) => b.paths)).size
+        toast.add({
+            severity: 'warn',
+            summary: `Tag edits for ${tracks} track${tracks === 1 ? '' : 's'} were not saved`,
+            detail: 'The picture or artist-image save failed, so the pending tag edits were not attempted. They are still staged — save again to retry.',
+            life: 8000
+        })
+    }
+
     async function save() {
         const lib = libraryId()
         if (isSaving.value || lib === null) return
         isSaving.value = true
+        // save() owns the single post-write cache invalidation: each write path
+        // below flips this, and the finally invalidates once — instead of
+        // savePictures / saveArtistImages / the tag loop each firing their own.
+        let wrote = false
         try {
             const pics = await savePictures()
+            wrote = wrote || pics.wrote
             // The picture writes carry their own re-index report. Seed the
             // session's failure with it so it is not lost on either exit path
             // below: the images are on disk regardless, only the index lags.
             let rescanFailure: string | null = pics.rescanFailure
             if (!pics.ok) {
                 reportRescanFailure(rescanFailure)
+                reportSkippedTagEdits()
                 return
             }
 
             const arts = await saveArtistImages()
+            wrote = wrote || arts.wrote
             if (arts.rescanFailure) rescanFailure = arts.rescanFailure
             if (!arts.ok) {
                 reportRescanFailure(rescanFailure)
+                reportSkippedTagEdits()
                 return
             }
 
@@ -836,6 +873,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             }
             const results: UpdateResult[] = []
             let transportError: unknown = null
+            let albumMoved: string | null = null
             for (const batch of batches) {
                 try {
                     // Sequential on purpose: the server writes tags into files
@@ -851,6 +889,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     if (out.rescan && !out.rescan.ok) {
                         rescanFailure = out.rescan.error ?? 'unknown error'
                     }
+                    // A partial album-identity edit may have split the album;
+                    // keep the warning so it survives a later clean batch.
+                    if (out.warning) albumMoved = out.warning
                 } catch (err) {
                     // A transport-level failure likely affects the remaining
                     // batches too; stop and report what completed.
@@ -861,9 +902,18 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             for (const r of results) {
                 if (r.ok) overlays.value.delete(r.path)
             }
-            invalidateAfterMetadataWrite(qc)
+            // Reached only with tag batches to write; mark so the finally invalidates.
+            wrote = true
 
             reportRescanFailure(rescanFailure)
+            if (albumMoved !== null) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Album may have been split',
+                    detail: albumMoved,
+                    life: 10000
+                })
+            }
 
             const ok = results.filter((r) => r.ok).length
             const failed = results.length - ok
@@ -893,6 +943,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 })
             }
         } finally {
+            if (wrote) invalidateAfterMetadataWrite(qc)
             isSaving.value = false
         }
     }

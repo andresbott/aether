@@ -12,7 +12,7 @@ test: ## run fast go tests
 ui-test: ## run webui unit tests
 	@cd webui && npm test
 
-spec-lint: ## lint docs/openapi/aether-v1.yaml against .spectral.yaml (header-safe bounded-URL invariant)
+spec-lint: ## lint docs/openapi/aether-v0.yaml against .spectral.yaml (header-safe bounded-URL invariant)
 	@cd webui && npm run spec-lint
 
 lint: ## run go linter

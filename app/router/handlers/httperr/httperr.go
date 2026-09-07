@@ -1,12 +1,12 @@
 // Package httperr writes RFC 9457 ("Problem Details for HTTP APIs")
-// application/problem+json responses for /api/v1 handlers. It replaces the
+// application/problem+json responses for /api/v0 handlers. It replaces the
 // ad-hoc {"error":..., "code":...} shapes previously duplicated across
 // handlers (metadata, libraries, tasks, ...) with one consistent, spec-shaped
 // error body: a stable, dereferenceable-looking but never-fetched type URI in
 // place of a loose code string, a human title/detail, and the request path as
 // instance.
 //
-// This package is /api/v1-only. The /rest/ (Subsonic/OpenSubsonic) API has
+// This package is /api/v0-only. The /rest/ (Subsonic/OpenSubsonic) API has
 // its own response envelope mandated by that spec and must not use this.
 package httperr
 
@@ -108,7 +108,7 @@ func Slug(typeURI string) string {
 // TypeURI is Slug's inverse: it builds the stable Type URI (problemBaseURI +
 // "/" + slug) a Problem carries. Exported for the one caller outside this
 // package that must build a Problem body without a ResponseWriter to hand to
-// Write — the /api/v1 router-level error-envelope fallback for a bare
+// Write — the /api/v0 router-level error-envelope fallback for a bare
 // http.Error/http.NotFound (see jsonErrorEnvelope in app/router/errors.go),
 // which only has a status code and a plain-text message to work with.
 func TypeURI(slug string) string {
@@ -116,7 +116,7 @@ func TypeURI(slug string) string {
 }
 
 // titles maps a known slug to the human title its Problem should carry. It
-// covers every slug the /api/v1 handler packages (metadata, tokens,
+// covers every slug the /api/v0 handler packages (metadata, tokens,
 // libraries, artists, radiobrowser, users, tasks) pass to httperr.Write
 // directly, plus the status-derived slugs the router-level
 // error-envelope fallback builds for a bare http.Error/http.NotFound that

@@ -8,7 +8,7 @@ import type { Track } from '@/types/metadata'
 // events (TrackList owns the selection logic) without rendering the real table.
 const DataTableStub = {
     name: 'DataTable',
-    props: ['value', 'selection', 'dataKey', 'rowClass'],
+    props: ['value', 'selection', 'dataKey', 'rowClass', 'scrollable', 'scrollHeight', 'virtualScrollerOptions'],
     emits: ['row-click', 'update:selection'],
     template: '<div><slot /></div>'
 }
@@ -230,6 +230,29 @@ describe('TrackList arrow-key navigation', () => {
         const w = mountWithSelection(tracks, [tracks[0], tracks[1]])
         await w.find('.table-wrapper').trigger('keydown', { key: 'ArrowDown' })
         expect(w.emitted('update:selection')).toBeUndefined()
+    })
+})
+
+describe('TrackList virtualization', () => {
+    // The list is windowed only for large flat folders; small albums render every
+    // row so they pay no virtual-scroll cost (and the real-DataTable specs below
+    // keep finding every <tr>).
+    it('passes virtualScrollerOptions for a folder above the threshold', () => {
+        const many = Array.from({ length: 101 }, (_, i) => mkTrack({ path: `p${i}.mp3` }))
+        const w = mount(TrackList, {
+            props: { tracks: many, isLoading: false, selection: [] },
+            global: { stubs }
+        })
+        const opts = w.findComponent(DataTableStub).props('virtualScrollerOptions') as
+            | { itemSize?: number }
+            | undefined
+        expect(opts).toBeTruthy()
+        expect(opts?.itemSize).toBeGreaterThan(0)
+    })
+
+    it('does not virtualize a small folder', () => {
+        const w = mountList() // 6 tracks, below the threshold
+        expect(w.findComponent(DataTableStub).props('virtualScrollerOptions')).toBeUndefined()
     })
 })
 

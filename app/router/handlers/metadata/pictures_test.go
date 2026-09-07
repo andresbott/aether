@@ -82,7 +82,7 @@ func newPictureHandlerWithRescan(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
@@ -128,7 +128,7 @@ func newArtistImageHandler(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
@@ -1236,7 +1236,7 @@ func TestRemovals_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.Handler{
+	h := &metaHandler.ImagesHandler{
 		Store:  s,
 		Reader: wideReader{},
 		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
@@ -1310,6 +1310,52 @@ func TestRemovals_PartialRescanReportsNotOK(t *testing.T) {
 	}
 	if !strings.Contains(resp.Rescan.Error, "read tags") {
 		t.Fatalf("expected the tag-read error, got %q", resp.Rescan.Error)
+	}
+	// A folder-cover write touches no audio mtime, so an incremental scan will
+	// never re-detect the cover: the message must tell the user a full scan is
+	// required instead of implying the index self-heals on the next scan.
+	if !strings.Contains(resp.Rescan.Error, "full library scan is required") {
+		t.Fatalf("folder-art rescan failure must warn that a full scan is required, got %q", resp.Rescan.Error)
+	}
+}
+
+// TestRemovals_EmbeddedRescanFailureOmitsFullScanNote is the counterpart to the
+// folder case: an embedded-picture write changes the audio file's mtime, so the
+// next incremental scan catches up on its own and the "full scan required" note
+// must NOT be appended.
+func TestRemovals_EmbeddedRescanFailureOmitsFullScanNote(t *testing.T) {
+	root := t.TempDir()
+	albumDir := filepath.Join(root, "album")
+	if err := os.MkdirAll(albumDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(albumDir, "01.flac"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs := &fakeRescanner{stats: &scanner.ScanStats{
+		TracksProcessed: 0,
+		Errors:          []error{errors.New(`read tags "01.flac": broken`)},
+	}}
+	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+
+	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Front Cover", "embedded")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Rescan *struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"rescan"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Rescan == nil || resp.Rescan.OK {
+		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
+	}
+	if strings.Contains(resp.Rescan.Error, "full library scan is required") {
+		t.Fatalf("embedded-picture rescan failure must not claim a full scan is required, got %q", resp.Rescan.Error)
 	}
 }
 

@@ -3,6 +3,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// the old behaviour (delete plus insert, and the user-authored rows go with
 	// it), which is worse than a re-link but better than a failed scan.
 	if ctx.Err() == nil {
-		if err := s.planTrackContinuity(results); err != nil {
+		if err := s.planTrackContinuity(ctx, results); err != nil {
 			slog.Warn("track continuity planning failed; moved files lose playlists, history and stars", "err", err)
 		}
 	}
@@ -52,7 +53,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// it degrades to the old behaviour (a new row and a new id), which is worse
 	// than a preserved id but better than a failed scan.
 	if ctx.Err() == nil {
-		if err := s.planAlbumContinuity(results); err != nil {
+		if err := s.planAlbumContinuity(ctx, results); err != nil {
 			slog.Warn("album continuity planning failed; retagged albums may get new ids", "err", err)
 		}
 	}
@@ -65,7 +66,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 		}
 
 		pendingArtistRekeys = pendingArtistRekeys[:0]
-		if err := s.store.Transaction(func(tx *store.Store) error {
+		if err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
 			return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
 		}); err != nil {
 			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
@@ -92,7 +93,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	artistNames := TrackArtistNames(meta)
 	artists, gainedTrackArtists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create track artists: %w", err)
 	}
 	for _, a := range gainedTrackArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -102,7 +103,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	albumArtistNames := AlbumArtistNames(meta)
 	albumArtists, gainedAlbumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create album artists: %w", err)
 	}
 	for _, a := range gainedAlbumArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -115,7 +116,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	genreNames := nonEmpty(meta.Genre)
 	genres, err := tx.FindOrCreateGenres(genreNames)
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create genres: %w", err)
 	}
 
 	// Resolve album. AlbumIdentityOf is the same function planAlbumContinuity
@@ -124,7 +125,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	ident := AlbumIdentityOf(meta)
 	album, err := tx.FindOrCreateAlbum(ident)
 	if err != nil {
-		return err
+		return fmt.Errorf("find/create album: %w", err)
 	}
 
 	// Update album metadata
@@ -147,17 +148,17 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 
 	db := tx.DB()
 	if err := db.Save(album).Error; err != nil {
-		return err
+		return fmt.Errorf("save album: %w", err)
 	}
 
 	// Update album artists association
 	if err := db.Model(album).Association("Artists").Replace(albumArtists); err != nil {
-		return err
+		return fmt.Errorf("replace album artists: %w", err)
 	}
 
 	// Update album genres association
 	if err := db.Model(album).Association("Genres").Replace(genres); err != nil {
-		return err
+		return fmt.Errorf("replace album genres: %w", err)
 	}
 
 	// Upsert track
@@ -206,7 +207,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	track.HasEmbeddedCover = meta.HasCover
 
 	if err := tx.UpsertTrack(&track, artists, genres); err != nil {
-		return err
+		return fmt.Errorf("upsert track: %w", err)
 	}
 
 	if isNew {
@@ -287,6 +288,7 @@ func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistI
 func detectCoverInDir(dir string) string {
 	entries, err := filepath.Glob(filepath.Join(dir, "*"))
 	if err != nil {
+		slog.Debug("cover detection glob failed", "dir", dir, "err", err)
 		return ""
 	}
 	var candidates []string

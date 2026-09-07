@@ -36,6 +36,12 @@ const filteredExpandedKeys = ref<TreeExpandedKeys>({})
 const searching = ref(false)
 const searchTruncated = ref(false)
 
+// Monotonic tickets guarding against out-of-order responses when the library or
+// filter changes while a request is in flight: each async load grabs a ticket
+// and only commits its result if it is still the latest (see PicturesSection).
+let searchSeq = 0
+let treeSeq = 0
+
 const displayNodes = computed(() => (filtering.value ? filteredNodes.value : nodes.value))
 const displayExpandedKeys = computed(() =>
     filtering.value ? filteredExpandedKeys.value : expandedKeys.value
@@ -48,6 +54,7 @@ async function runSearch() {
         searchTruncated.value = false
         return
     }
+    const seq = ++searchSeq
     searching.value = true
     loadError.value = null
     try {
@@ -55,17 +62,19 @@ async function runSearch() {
             props.libraryId as number,
             filterQuery.value
         )
+        if (seq !== searchSeq) return
         const built = buildFilteredFolderTree(folders)
         filteredNodes.value = built.nodes
         filteredExpandedKeys.value = built.expandedKeys
         searchTruncated.value = truncated
     } catch (err: any) {
+        if (seq !== searchSeq) return
         loadError.value = apiErrorMessage(err)
         filteredNodes.value = []
         filteredExpandedKeys.value = {}
         searchTruncated.value = false
     } finally {
-        searching.value = false
+        if (seq === searchSeq) searching.value = false
     }
 }
 
@@ -94,31 +103,32 @@ async function loadChildren(parentPath: string): Promise<TreeNode[]> {
     )
 }
 
-// scrollToNode scrolls the target node into view within the tree container.
-// Fails silently if the container or node element cannot be found.
+// scrollToNode scrolls the target node into view within the tree's own scroller.
+// It locates the node by the stable `data-node-key` attribute the Tree
+// passthrough stamps on each row (never by mutating the bound selection, which
+// would flash a selection and race a user click landing in the same tick), and
+// scrolls only that scroller — never scrollIntoView, which also scrolls every
+// scrollable ancestor and the mobile visual viewport (see docs/agents/frontend.md).
+// Matches QueueBody's current-row pattern. Fails silently if the container or
+// node element cannot be found.
 function scrollToNode(nodeKey: string) {
-    if (!treeContainer.value) return
-    // PrimeVue Tree renders each node in a list. We query for aria-label that
-    // contains the node path or use data-pc-section to find nodes. As a simpler
-    // approach, we temporarily set the selection to trigger a focus/scroll, then
-    // clear it. However, the most robust approach is to query the DOM for the
-    // tree node element. PrimeVue uses [data-pc-section="node"] for node containers.
-    // We find all nodes and match by index or by checking the node's content.
-    const allNodes = treeContainer.value.querySelectorAll('[data-pc-section="node"]')
-    // Find the node by checking if it's currently expanded (has the right key)
-    // This is imprecise, so let's use a different approach: query by the aria-label
-    // or use the node's position. For now, let's try to find by the text content.
-    // A better approach: temporarily mark the target node as selected.
-    selectionKeys.value = { [nodeKey]: true }
-    // Wait a tick for the selection to render, then find the selected node.
-    nextTick(() => {
-        const selectedNode = treeContainer.value?.querySelector('[aria-selected="true"]')
-        if (selectedNode) {
-            selectedNode.scrollIntoView({ block: 'nearest', behavior: 'auto' })
-        }
-        // Clear the selection after scrolling
-        selectionKeys.value = {}
-    })
+    const scroller = treeContainer.value
+    if (!scroller) return
+    const node = Array.from(
+        scroller.querySelectorAll<HTMLElement>('[data-node-key]')
+    ).find((el) => el.getAttribute('data-node-key') === nodeKey)
+    if (!node) return
+    const nodeTop =
+        node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
+    const nodeHeight = node.offsetHeight
+    let top: number | null = null
+    if (nodeTop < scroller.scrollTop) {
+        top = nodeTop
+    } else if (nodeTop + nodeHeight > scroller.scrollTop + scroller.clientHeight) {
+        top = nodeTop + nodeHeight - scroller.clientHeight
+    }
+    if (top === null) return
+    scroller.scrollTo?.({ top: Math.max(0, top), behavior: 'auto' })
 }
 
 // expandToPath opens the tree down to `target` (a full relative path), lazily
@@ -129,7 +139,7 @@ function scrollToNode(nodeKey: string) {
 // selection to the user's click. If a segment no longer exists on disk it stops
 // at the deepest folder that does — expanding what it reached.
 // After expanding, scrolls the target node into view.
-async function expandToPath(target: string) {
+async function expandToPath(target: string, seq = treeSeq) {
     if (!target || props.libraryId === null) return
     const parts = target.split('/')
     let level = nodes.value
@@ -142,12 +152,15 @@ async function expandToPath(target: string) {
         if (!node) break
         if (node.leaf) break
         if (!node.children || node.children.length === 0) {
-            node.children = await loadChildren(node.data.path)
+            const children = await loadChildren(node.data.path)
+            if (seq !== treeSeq) return
+            node.children = children
         }
         nextExpanded[node.key as string] = true
         targetKey = node.key as string
         level = node.children ?? []
     }
+    if (seq !== treeSeq) return
     expandedKeys.value = nextExpanded
     // Scroll the target node into view after the DOM has rendered the expanded tree.
     if (targetKey) {
@@ -157,15 +170,19 @@ async function expandToPath(target: string) {
 }
 
 async function resetTree() {
+    const seq = ++treeSeq
     nodes.value = []
     expandedKeys.value = {}
     selectionKeys.value = {}
     loadError.value = null
     if (props.libraryId === null) return
     try {
-        nodes.value = await loadChildren('')
-        if (props.expandTo) await expandToPath(props.expandTo)
+        const loaded = await loadChildren('')
+        if (seq !== treeSeq) return
+        nodes.value = loaded
+        if (props.expandTo) await expandToPath(props.expandTo, seq)
     } catch (err: any) {
+        if (seq !== treeSeq) return
         loadError.value = apiErrorMessage(err)
     }
 }
@@ -206,6 +223,7 @@ watch(
             :expandedKeys="displayExpandedKeys"
             selectionMode="single"
             v-model:selectionKeys="selectionKeys"
+            :pt="{ node: (opts: any) => ({ 'data-node-key': opts?.context?.node?.key }) }"
             @node-expand="onNodeExpand"
             @node-select="onNodeSelect"
         />

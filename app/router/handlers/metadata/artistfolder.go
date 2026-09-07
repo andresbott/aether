@@ -17,6 +17,15 @@ import (
 	"gorm.io/gorm"
 )
 
+// ArtistImageFetcher lists and downloads artist portraits from the online image
+// providers (fanart.tv / TheAudioDB), keyed by a MusicBrainz artist id. Satisfied
+// by *artistimage.Chain. Optional on the handler: nil disables the online source
+// for the artist-folder image, leaving upload working.
+type ArtistImageFetcher interface {
+	List(ctx context.Context, mbid string) ([]artistimage.ImageCandidate, error)
+	Download(ctx context.Context, providerName, url string) ([]byte, string, error)
+}
+
 // artistImageBase is the folder-picture base name for an artist portrait. It is
 // the highest-priority artist-image name (see internal/artistimage folderdetect),
 // so it wins over any stray folder.jpg/artistthumb already in the folder.
@@ -50,8 +59,8 @@ type artistFolderDTO struct {
 // own name (metadataedit.IsArtistFolder). This is a pure filesystem+tags question
 // (no library index), so the editor can offer an artist image for a folder the
 // moment it is selected, independent of any track selection.
-func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
+	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
 		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -91,8 +100,8 @@ func (h *Handler) artistFolder(w http.ResponseWriter, r *http.Request) {
 // artistimage.Detect would pick), 404 when there is none. It reports the on-disk
 // file directly rather than the DB-resolved cover, so the editor previews exactly
 // what it manages.
-func (h *Handler) artistImage(w http.ResponseWriter, r *http.Request) {
-	_, abs, status, err := h.resolveLibraryRel(r)
+func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
+	_, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
 		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -122,7 +131,7 @@ type artistImageResult struct {
 // library index: the DB catches up through a targeted rescan of one track under
 // the folder, whose reconcile pass detects the file as the artist's image (a soft
 // fallback — a managed/DB image still wins).
-func (h *Handler) setArtistImage(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
@@ -185,8 +194,8 @@ func (h *Handler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 // deleteArtistImage removes the selected folder's current artist image (the file
 // the serve endpoint returns), 404 when there is none, then rescans so the
 // scanner's reconcile clears (or re-detects) artist.ImagePath.
-func (h *Handler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := h.resolveLibraryRel(r)
+func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
+	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
 		httperr.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -211,12 +220,14 @@ func (h *Handler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
 // which is enough for the scanner's reconcile to re-probe the artist and pick up
 // (or drop) the folder image — without re-indexing the whole discography. Returns
 // nil when re-indexing is disabled or the folder has no readable track.
-func (h *Handler) rescanArtistFolder(r *http.Request, libraryID uint, absDir string) *rescanStatus {
+func (h *ImagesHandler) rescanArtistFolder(r *http.Request, libraryID uint, absDir string) *rescanStatus {
 	p, ok := metadataedit.FirstAudioPath(absDir, h.Reader)
 	if !ok {
 		return nil
 	}
-	return h.rescanSaved(r.Context(), libraryID, []string{p})
+	// Artist images are on-disk sidecar files, never audio tags, so a failed
+	// re-index needs a full scan to recover — rescanFolderArt says so.
+	return rescanFolderArt(r.Context(), h.Rescan, libraryID, []string{p})
 }
 
 // artistImageSource returns the image bytes and normalized extension from either
@@ -224,7 +235,7 @@ func (h *Handler) rescanArtistFolder(r *http.Request, libraryID uint, absDir str
 // from the providers. status is the HTTP status to answer with on failure; a zero
 // status with a non-nil err means the failure came from an external host, mapped
 // through writeUpstreamErr.
-func (h *Handler) artistImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
+func (h *ImagesHandler) artistImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
 	if file, header, ferr := r.FormFile("image"); ferr == nil {
 		defer func() { _ = file.Close() }()
 		b, rerr := io.ReadAll(io.LimitReader(file, maxPictureRequestBytes))
@@ -247,7 +258,7 @@ func (h *Handler) artistImageSource(r *http.Request) (data []byte, ext string, s
 // image is ever fetched from an arbitrary host. Shared by the write and the
 // pre-save metadata probe. A zero status with a non-nil err marks an upstream
 // download failure for writeUpstreamErr.
-func (h *Handler) downloadArtistPick(ctx context.Context, mbid, imgURL string) (data []byte, ext string, status int, err error) {
+func (h *ImagesHandler) downloadArtistPick(ctx context.Context, mbid, imgURL string) (data []byte, ext string, status int, err error) {
 	if h.ArtistImages == nil {
 		return nil, "", http.StatusServiceUnavailable, errArtistImageNotConfigured
 	}
@@ -284,7 +295,7 @@ func (h *Handler) downloadArtistPick(ctx context.Context, mbid, imgURL string) (
 // a provider-offered URL — and reports its size, dimensions and format, so the
 // editor can show what an online pick will write before the user saves. It uses
 // the same SSRF-guarded download as the write; nothing is persisted.
-func (h *Handler) artistImageCandidateInfo(w http.ResponseWriter, r *http.Request) {
+func (h *ImagesHandler) artistImageCandidateInfo(w http.ResponseWriter, r *http.Request) {
 	mbid := strings.TrimSpace(r.URL.Query().Get("mbid"))
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if mbid == "" || imgURL == "" {

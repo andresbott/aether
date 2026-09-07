@@ -1,4 +1,4 @@
-// A station returned by the radio-browser.info search proxy (/api/v1/radiobrowser/search).
+// A station returned by the radio-browser.info search proxy (/api/v0/radiobrowser/search).
 export interface RadioBrowserStation {
     name: string
     streamUrl: string

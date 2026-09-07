@@ -187,7 +187,7 @@ describe('ArtistView', () => {
         expect(meta).toContain('20 songs')
     })
 
-    // The edit affordance rides on the admin-only /api/v1 surface (online
+    // The edit affordance rides on the admin-only /api/v0 surface (online
     // search, image-source note), so non-admins get no edit bar at all.
     it('hides the edit action bar from non-admins', () => {
         isAdmin.value = false

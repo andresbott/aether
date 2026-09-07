@@ -9,7 +9,24 @@ import (
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
+	"github.com/andresbott/aether/internal/tags"
 )
+
+// TestIsAudioFileTracksSupported guards the structural rule that the scanner
+// keeps no private extension list: IsAudioFile must agree with tags.Supported
+// for every extension, so the "what do we index" and "what do we edit" answers
+// can never drift apart again.
+func TestIsAudioFileTracksSupported(t *testing.T) {
+	for _, ext := range []string{
+		".mp3", ".flac", ".oga", ".m4a", ".mp4", ".wma", ".aac",
+		".mpc", ".ape", ".wv", ".txt", ".jpg", "",
+	} {
+		name := "f" + ext
+		if got, want := scanner.IsAudioFile(name), tags.Supported(name); got != want {
+			t.Errorf("IsAudioFile(%q) = %v, tags.Supported = %v — a divergent scanner extension list has been reintroduced", name, got, want)
+		}
+	}
+}
 
 func createTestFiles(t *testing.T, dir string, files []string) {
 	t.Helper()

@@ -31,15 +31,15 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 
 | Feature | Status | Where |
 |---|---|---|
-| Authentication | **Implemented — both modes** | Full model in [authentication.md](authentication.md); do not invent a different scheme. `Auth.Method` selects `none` (open, the shipped default) / `native` (login + cookie session, `handlers/auth`, three-tier `sessionGuard` in `api_v1.go`) / `proxy-header` (`headerGuard` + JIT provisioning, `proxy_auth.go`). **`/rest` is PAT-only in every mode** via the `IdentityResolver` seam (`subsonic/subsonic.go`, injected by `patIdentityResolver` in `main.go`): `apiKey`, or `u`+`t`+`s`/`u`+`p` against `usertoken` PATs; errors 40/41/43/44/0; `apiKeyAuthentication` advertised. The SPA mints a 48h per-device `spa` token on boot (`POST /api/v1/auth/token`) and re-mints transparently |
-| Token (PAT) management | Implemented | `handlers/tokens` — mint + CRUD on `/api/v1/auth/token[s]` (session tier: any authenticated role); `MaxSessionsPerUser` = 10 with per-device + LRU sweep at mint; UI in `UserSettingsView` → Connected apps |
+| Authentication | **Implemented — both modes** | Full model in [authentication.md](authentication.md); do not invent a different scheme. `Auth.Method` selects `none` (open, the shipped default) / `native` (login + cookie session, `handlers/auth`, three-tier `sessionGuard` in `api_v0.go`) / `proxy-header` (`headerGuard` + JIT provisioning, `proxy_auth.go`). **`/rest` is PAT-only in every mode** via the `IdentityResolver` seam (`subsonic/subsonic.go`, injected by `patIdentityResolver` in `main.go`): `apiKey`, or `u`+`t`+`s`/`u`+`p` against `usertoken` PATs; errors 40/41/43/44/0; `apiKeyAuthentication` advertised. The SPA mints a 48h per-device `spa` token on boot (`POST /api/v0/auth/token`) and re-mints transparently |
+| Token (PAT) management | Implemented | `handlers/tokens` — mint + CRUD on `/api/v0/auth/token[s]` (session tier: any authenticated role); `MaxSessionsPerUser` = 10 with per-device + LRU sweep at mint; UI in `UserSettingsView` → Connected apps |
 | Native users CRUD + roles | Implemented, native only | `handlers/users` — admin role = membership in the `admin` group; `last_admin` refusal (409) and rename refusal (400) are load-bearing, see [authentication.md](authentication.md#users-crud-guards-native-only). UI in `/settings/users` |
-| Change own password | Implemented, native only | `PUT /api/v1/auth/password` (session tier, any role; `handlers/auth`) re-verifies the current password with per-user brute-force backoff, then `SetPasswordHash` and clears the caller's own cookie — a successful change signs this device out (the SPA drops to login; sign in with the new password). Wrong current password → 403 (not 401, which the SPA reads as an expired session). UI in `UserSettingsView` → **Account** tab, gated on native + signed in. Unmounted under proxy-header. See [authentication.md](authentication.md) |
+| Change own password | Implemented, native only | `PUT /api/v0/auth/password` (session tier, any role; `handlers/auth`) re-verifies the current password with per-user brute-force backoff, then `SetPasswordHash` and clears the caller's own cookie — a successful change signs this device out (the SPA drops to login; sign in with the new password). Wrong current password → 403 (not 401, which the SPA reads as an expired session). UI in `UserSettingsView` → **Account** tab, gated on native + signed in. Unmounted under proxy-header. See [authentication.md](authentication.md) |
 | Brute-force protection on login | **Not implemented** | No rate limiting or lockout anywhere in `app/`; the login flow runs with a nil `AttemptStore`. TODO.md (1.0) |
 | Multi-user | Implemented, with one caveat | Per-user scoping of queue, stars, playlists and history via owner-keyed schemas (`model.PlayQueue`/`star`/`playlist`/`scrobble` all carry `Owner`). The caveat: `owner` is the login **string**, not `User.ID` — contained, not live, because renaming is refused. Re-keying is TODO.md (Future releases, Multi-user) |
 | Path traversal validation on stream/getCoverArt | Implemented | `pathguard` confines every file the media handlers read to the configured library roots (`mediaPathAllowed`/`currentGuard` in `subsonic/media.go`, installed via `WithLibraryRoots` so runtime-added libraries are covered). No usable roots installs no guard — "no libraries yet" must not black out generated covers |
 
-## Server administration (`/api/v1`)
+## Server administration (`/api/v0`)
 
 | Feature | Status | Where |
 |---|---|---|
@@ -53,7 +53,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Metadata editor (on-disk tags + folder art, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` — file-only by design: no DB writes beyond the post-write rescan |
 | Manual album cover (aether's managed store) | Implemented | `updateAlbum` / `albumCoverArt` extension in `handlers/subsonic/albums.go`, set from `AlbumView` |
 | Album identify (map a multi-file selection onto one release) | Implemented, key-gated | `POST /metadata/identify-album` → `internal/albumidentify`; `IdentifyAlbumDialog.vue` ([architecture.md](architecture.md)) |
-| Shared per-file fingerprint cache (both identify flows) | Implemented | `identify.Cache` on the one `*identify.Identifier` both endpoints resolve through (`app/router/api_v1.go`); keyed path+size+mtime, LRU. Per-track and album identify reuse each other's fpcalc/AcoustID pass |
+| Shared per-file fingerprint cache (both identify flows) | Implemented | `identify.Cache` on the one `*identify.Identifier` both endpoints resolve through (`app/router/api_v0.go`); keyed path+size+mtime, LRU. Per-track and album identify reuse each other's fpcalc/AcoustID pass |
 | MusicBrainz tracklist cache (album identify) | Implemented | `albumidentify.CachingReleaseLookup`, keyed by release MBID, wrapped **in front of** the 1 req/sec throttle — without it a repeat album identify still waited ~8s enriching options ([architecture.md](architecture.md)) |
 | Genres from identify (both flows) | Implemented | Frontend-only: reuses `GET /musicbrainz/release-groups/{mbid}/genres`. Genre votes live on the release GROUP, not the release, so the identify response carries none; each dialog looks them up for the group the user settled on. No backend change — enriching server-side would cost a second throttled request per option (~8s per cold album identify, 7 of 8 wasted) and still leave the per-song flow uncovered |
 | Radio-browser station import | Implemented | `handlers/radiobrowser` (server-side proxy) |
@@ -83,11 +83,11 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 ## Not implemented (catalogued in TODO.md — read it first)
 
 Last.fm scrobbling, DLNA/UPnP, jukebox/relay, transcoding, CUE sheets,
-app icon/branding, `/api/v1` → `/admin` path reorg, per-scan cover-path
+app icon/branding, per-scan cover-path
 revalidation (known stale-cover bug with detailed root-cause notes),
 `getPlaylists` N+1 fix, favorites schema rework, image-cache eviction.
 
 `getUser` **is** implemented (`getuser.go`) — the caller's own record with a
 fixed role table, `adminRole` the only variable. `getUsers` is a deliberate
-non-goal: user administration lives on `/api/v1`, not `/rest` (see TODO.md and
+non-goal: user administration lives on `/api/v0`, not `/rest` (see TODO.md and
 `CLAUDE.md`'s API split).

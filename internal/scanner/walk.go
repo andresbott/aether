@@ -6,18 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/tags"
 )
-
-var audioExtensions = map[string]bool{
-	".mp3": true, ".flac": true, ".ogg": true, ".opus": true,
-	".m4a": true, ".wma": true, ".wav": true, ".aiff": true,
-	".ape": true, ".wv": true, ".aac": true, ".m4b": true,
-	".mka": true, ".tta": true, ".dsf": true, ".webm": true,
-}
 
 type WalkResult struct {
 	FilePath  string
@@ -27,8 +20,12 @@ type WalkResult struct {
 	Dir       string
 }
 
+// IsAudioFile reports whether name is a file Aether indexes. It delegates to
+// tags.Supported so the scanner holds no extension list of its own: what gets
+// walked into the library and what the metadata editor offers to edit are the
+// same set by construction.
 func IsAudioFile(name string) bool {
-	return audioExtensions[strings.ToLower(filepath.Ext(name))]
+	return tags.Supported(name)
 }
 
 func Walk(libs []model.Library, excludes []*regexp.Regexp, followSymlinks bool) ([]WalkResult, error) {

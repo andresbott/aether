@@ -15,23 +15,23 @@ import (
 // forwarded unwrapped rather than held in memory.
 const maxErrorBodyBytes = 8 << 10
 
-// apiV1MountPrefix is the internal admin API's mount path — must match
-// main.go's app.router.PathPrefix("/api/v1").Subrouter() call. It is the one
+// apiV0MountPrefix is the internal admin API's mount path — must match
+// main.go's app.router.PathPrefix("/api/v0").Subrouter() call. It is the one
 // surface finish() may rewrite into RFC 9457 application/problem+json; every
 // other path keeps the legacy apiError{error,code} shape below, byte-for-byte
 // unchanged from before this middleware knew about problem+json at all. If
-// the admin mount ever moves (the OpenAPI seed doc already flags a planned
-// /api/admin reorg), update this constant alongside main.go's — the
+// the mount prefix ever changes (e.g. a future API version bump), update this
+// constant alongside main.go's — the
 // end-to-end tests in errors_test.go exercise the real router at this literal
 // path and will fail loudly if the two drift apart.
-const apiV1MountPrefix = "/api/v1"
+const apiV0MountPrefix = "/api/v0"
 
-// jsonErrorEnvelope guarantees every internal admin API (apiV1MountPrefix)
+// jsonErrorEnvelope guarantees every internal admin API (apiV0MountPrefix)
 // error response (>= 400) leaves the server as an RFC 9457 "Problem Details
 // for HTTP APIs" application/problem+json object — the same httperr.Problem
 // shape the migrated handler packages (metadata, tokens, libraries, artists,
 // radiobrowser, users, tasks) write directly — so that surface is uniform
-// even for a bare http.Error/http.NotFound (the /api/v1 catch-all's 400, a
+// even for a bare http.Error/http.NotFound (the /api/v0 catch-all's 400, a
 // stray http.NotFound inside an otherwise-migrated handler; the tasks
 // package and the sessionGuard/headerGuard auth gate now build their
 // Problem directly via httperr too and no longer reach this fallback).
@@ -169,7 +169,7 @@ func (w *errorEnvelopeWriter) finish() {
 	if w.req != nil {
 		path = w.req.URL.Path
 	}
-	if strings.HasPrefix(path, apiV1MountPrefix) {
+	if strings.HasPrefix(path, apiV0MountPrefix) {
 		w.writeProblemFallback(msg, path)
 		return
 	}
@@ -177,7 +177,7 @@ func (w *errorEnvelopeWriter) finish() {
 }
 
 // writeProblemFallback answers a bare plain-text admin-API error (a route
-// that never called httperr directly: the /api/v1 catch-all, a stray
+// that never called httperr directly: the /api/v0 catch-all, a stray
 // http.NotFound inside an otherwise-migrated handler — the tasks package and
 // the sessionGuard/headerGuard auth gate build their Problem directly via
 // httperr now and no longer reach this path) with the same httperr.Problem

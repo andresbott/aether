@@ -12,23 +12,36 @@ import (
 func (s *Store) FindOrCreateAlbum(ident AlbumIdentity) (*model.Album, error) {
 	var album model.Album
 	err := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", ident.NameNorm, ident.AlbumArtistNorm, ident.MBReleaseID).First(&album).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	if err == nil {
+		return &album, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		// A real DB failure must not be mistaken for "album does not exist":
 		// creating a duplicate on a transient error splits one album in two.
 		return nil, err
 	}
-	if err != nil {
-		album = model.Album{
-			Name:            ident.Name,
-			NameNorm:        ident.NameNorm,
-			AlbumArtistNorm: ident.AlbumArtistNorm,
-			MBReleaseID:     ident.MBReleaseID,
-		}
-		if err := s.db.Create(&album).Error; err != nil {
-			return nil, err
+
+	album = model.Album{
+		Name:            ident.Name,
+		NameNorm:        ident.NameNorm,
+		AlbumArtistNorm: ident.AlbumArtistNorm,
+		MBReleaseID:     ident.MBReleaseID,
+	}
+	createErr := s.db.Create(&album).Error
+	if createErr == nil {
+		return &album, nil
+	}
+	// An overlapping run (a targeted RescanPaths racing a scheduled scan) can
+	// First-miss and Create the same brand-new album concurrently; the loser hits
+	// the identity unique index. Re-read by the same key and use the winner's row
+	// instead of failing — and with it the whole track.
+	if IsUniqueViolation(createErr) {
+		var winner model.Album
+		if reErr := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", ident.NameNorm, ident.AlbumArtistNorm, ident.MBReleaseID).First(&winner).Error; reErr == nil {
+			return &winner, nil
 		}
 	}
-	return &album, nil
+	return nil, createErr
 }
 
 func (s *Store) GetAlbum(id uint) (*model.Album, error) {

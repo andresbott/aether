@@ -37,7 +37,7 @@ export function invalidateAfterMetadataWrite(qc: QueryClient) {
 
 export function useFolders(libraryId: () => number | null, path: () => string) {
     return useQuery<Folder[]>({
-        queryKey: ['metadata', 'folders', libraryId, path] as any,
+        queryKey: ['metadata', 'folders', libraryId, path],
         queryFn: () => MetadataApi.listFolders(libraryId() as number, path()),
         enabled: () => libraryId() !== null,
         staleTime: 15_000
@@ -46,7 +46,7 @@ export function useFolders(libraryId: () => number | null, path: () => string) {
 
 export function useTracks(libraryId: () => number | null, path: () => string | null) {
     return useQuery<Track[]>({
-        queryKey: ['metadata', 'tracks', libraryId, path] as any,
+        queryKey: ['metadata', 'tracks', libraryId, path],
         queryFn: () => MetadataApi.listTracks(libraryId() as number, path() as string),
         enabled: () => libraryId() !== null && path() !== null,
         staleTime: 15_000
@@ -95,6 +95,9 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
 export interface UpdateTracksResult {
     results: UpdateResult[]
     rescan?: RescanStatus
+    // A partial album-identity edit may have split the album; see the server's
+    // updateTracks handler. Human-readable, surfaced once per save.
+    warning?: string
 }
 
 // updateTracksPartitioned performs one logical tracks update, transparently
@@ -113,14 +116,20 @@ export async function updateTracksPartitioned(
     const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
     return {
         results: mergeUpdateResults(first.results, second.results),
-        rescan: second.rescan ?? first.rescan
+        rescan: second.rescan ?? first.rescan,
+        // The identity fields ride in the names batch (first), so its warning
+        // is the one that matters; fall back either way since it is one message.
+        warning: first.warning ?? second.warning
     }
 }
 
 // rescanWarning is the toast a failed post-write re-index produces: the write
-// itself landed on disk, only the library index lags. Shared by every write
-// path (tags and pictures) so the wording never drifts. Returns null when the
-// re-index succeeded or the server did not report one.
+// itself landed on disk; the library index did not catch up. The detail comes
+// verbatim from the server's `rescan.error`, which already says whether a full
+// scan is required (folder-cover / artist-image writes) or the next incremental
+// scan recovers on its own (tag / embedded-picture writes) — so this wording
+// stays generic. Shared by every write path. Returns null when the re-index
+// succeeded or the server did not report one.
 export function rescanWarning(rescan: RescanStatus | undefined) {
     if (!rescan || rescan.ok) return null
     return {
@@ -182,7 +191,7 @@ export function useRawTags(
     enabled: () => boolean
 ) {
     return useQuery({
-        queryKey: ['metadata', 'raw', libraryId, paths] as any,
+        queryKey: ['metadata', 'raw', libraryId, paths],
         queryFn: () => MetadataApi.getRawTags(libraryId() as number, paths()),
         enabled: () => enabled() && libraryId() !== null && paths().length > 0,
         staleTime: 15_000
@@ -256,11 +265,15 @@ export function useIdentifyAlbum() {
 }
 
 // PictureMutationOptions tunes the shared picture mutations for a caller that
-// drives many of them in one logical save. quietRescanWarning suppresses the
-// per-call "index not updated" toast so that caller can raise one aggregate
-// warning instead of one per op (see useEditSession.savePictures).
+// drives many of them in one logical save. `quiet` hands ALL per-op reporting to
+// that caller: the success toast, the "index not updated" rescan warning, and
+// the cache invalidation are suppressed, so an N-cell save raises one aggregate
+// report and invalidates the caches once at the end of the loop instead of N
+// times mid-save — each mid-loop invalidation would otherwise refetch the
+// editor's own active query and re-trigger the session's prune while it is still
+// writing (see useEditSession.savePictures / save).
 export interface PictureMutationOptions {
-    quietRescanWarning?: boolean
+    quiet?: boolean
 }
 
 export function useApplyPicture(opts: PictureMutationOptions = {}) {
@@ -269,10 +282,13 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
     return useMutation({
         mutationFn: (form: FormData) => MetadataApi.applyPicture(form),
         onSuccess: (out) => {
+            // A quiet caller (batch/session save) owns invalidation and the
+            // aggregate report; stay out of its way so it fires exactly once.
+            if (opts.quiet) return
             invalidateAfterMetadataWrite(qc)
             // The image is written either way; warn when the index did not catch
             // up, or the album keeps serving the old cover with no explanation.
-            const warning = opts.quietRescanWarning ? null : rescanWarning(out.rescan)
+            const warning = rescanWarning(out.rescan)
             if (warning) {
                 toast.add(warning)
             }
@@ -300,8 +316,11 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
             paths: string[]
         }) => MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot),
         onSuccess: (out) => {
+            // A quiet caller (batch/session save) owns invalidation and the
+            // aggregate report; stay out of its way so it fires exactly once.
+            if (opts.quiet) return
             invalidateAfterMetadataWrite(qc)
-            const warning = opts.quietRescanWarning ? null : rescanWarning(out?.rescan)
+            const warning = rescanWarning(out?.rescan)
             if (warning) {
                 toast.add(warning)
             }

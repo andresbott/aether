@@ -284,7 +284,7 @@ func TestApplyAlbumRetagWritesAProvenPlan(t *testing.T) {
 	id := seedAlbum(t, st, old, 2)
 	s := New(Config{}, st, nil)
 
-	applied, err := s.applyAlbumRetag(albumRetagPlan{
+	applied, err := s.applyAlbumRetag(t.Context(), albumRetagPlan{
 		albumID:    id,
 		trackCount: 2,
 		oldIdent:   old,
@@ -313,7 +313,7 @@ func TestApplyAlbumRetagDeclinesWhenTheTrackCountMoved(t *testing.T) {
 	s := New(Config{}, st, nil)
 
 	// The plan was built when the album held 2 tracks; it now holds 3.
-	applied, err := s.applyAlbumRetag(albumRetagPlan{
+	applied, err := s.applyAlbumRetag(t.Context(), albumRetagPlan{
 		albumID:    id,
 		trackCount: 2,
 		oldIdent:   old,
@@ -337,7 +337,7 @@ func TestApplyAlbumRetagDeclinesWhenTheRowAlreadyMoved(t *testing.T) {
 	id := seedAlbum(t, st, ident("cult", "apocalyptica"), 1)
 	s := New(Config{}, st, nil)
 
-	applied, err := s.applyAlbumRetag(albumRetagPlan{
+	applied, err := s.applyAlbumRetag(t.Context(), albumRetagPlan{
 		albumID:    id,
 		trackCount: 1,
 		oldIdent:   ident("something else entirely", "apocalyptica"),
@@ -359,7 +359,7 @@ func TestApplyAlbumRetagDeclinesWhenTheRowIsGone(t *testing.T) {
 	st := applyTestStore(t)
 	s := New(Config{}, st, nil)
 
-	applied, err := s.applyAlbumRetag(albumRetagPlan{
+	applied, err := s.applyAlbumRetag(t.Context(), albumRetagPlan{
 		albumID:    4242,
 		trackCount: 1,
 		oldIdent:   ident("cult", "apocalyptica"),
@@ -383,7 +383,7 @@ func TestApplyAlbumRetagDeclinesWhenTheTargetIdentityIsTaken(t *testing.T) {
 	seedAlbum(t, st, target, 1)
 	s := New(Config{}, st, nil)
 
-	applied, err := s.applyAlbumRetag(albumRetagPlan{
+	applied, err := s.applyAlbumRetag(t.Context(), albumRetagPlan{
 		albumID:    id,
 		trackCount: 1,
 		oldIdent:   old,
@@ -421,7 +421,7 @@ func TestPlanAlbumContinuityAppliesTheOtherAlbumsWhenOneDeclines(t *testing.T) {
 	}
 	var appliedIDs []uint
 	for _, plan := range plans {
-		applied, err := s.applyAlbumRetag(plan)
+		applied, err := s.applyAlbumRetag(t.Context(), plan)
 		if err != nil {
 			t.Fatalf("album %d: %v", plan.albumID, err)
 		}

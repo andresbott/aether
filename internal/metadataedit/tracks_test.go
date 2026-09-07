@@ -93,6 +93,44 @@ func TestListTracks_ReadErrorCapturedPerFile(t *testing.T) {
 	}
 }
 
+// wideStubReader can read a format Aether does not support (.mpc), mirroring
+// the real ffprobe reader whose capability is wider than tags.Supported.
+type wideStubReader struct{ byPath map[string]tags.Metadata }
+
+func (wideStubReader) CanRead(p string) bool {
+	ext := filepath.Ext(p)
+	return ext == ".mp3" || ext == ".mpc"
+}
+
+func (r wideStubReader) Read(_ context.Context, p string) (tags.Metadata, error) {
+	return r.byPath[p], nil
+}
+
+// TestListTracks_GatesOnSupportedNotReadable is the false-success fix: the
+// editor must only offer files the scanner will index. A reader that can parse
+// an unsupported format (.mpc) must not cause that file to be listed, or a user
+// would edit it, get a green save, and the track would never appear.
+func TestListTracks_GatesOnSupportedNotReadable(t *testing.T) {
+	root := t.TempDir()
+	touch(t, filepath.Join(root, "keep.mp3"))
+	touch(t, filepath.Join(root, "drop.mpc"))
+
+	reader := wideStubReader{byPath: map[string]tags.Metadata{
+		filepath.Join(root, "keep.mp3"): {Title: "Keep"},
+		filepath.Join(root, "drop.mpc"): {Title: "Drop"},
+	}}
+	got, err := metadataedit.ListTracks(context.Background(), root, root, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected only the supported file listed, got %d: %+v", len(got), got)
+	}
+	if got[0].Path != "keep.mp3" {
+		t.Fatalf("expected keep.mp3, got %q", got[0].Path)
+	}
+}
+
 func mustMkdir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {

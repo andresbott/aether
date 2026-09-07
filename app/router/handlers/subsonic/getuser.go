@@ -13,7 +13,7 @@ import "net/http"
 // itself by its token's virtual username and would pass that alias, so echoing
 // it back — or rejecting the mismatch — would misreport or lock out that
 // client. /rest never exposes another user's record (getUsers is intentionally
-// unimplemented; user administration lives on /api/v1), so serving the caller's
+// unimplemented; user administration lives on /api/v0), so serving the caller's
 // own record is the only supported behavior.
 func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 	owner := requestOwner(r)

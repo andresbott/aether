@@ -23,6 +23,18 @@ const emit = defineEmits<{
 
 const rows = computed(() => props.tracks)
 
+// Virtualize only large flat folders. Below the threshold the DataTable stays a
+// plain table that renders every row, so small albums pay no virtual-scroll cost.
+const VIRTUAL_THRESHOLD = 100
+// Fixed row height (px) the virtual scroller uses for its windowing math. Rows are
+// uniform single lines (relative path + a marker), so one height is safe — but it
+// MUST equal the rendered <tr> height in this app's theme or the scroll position
+// drifts. Verify in the running app.
+const ROW_H = 38
+const virtualOptions = computed(() =>
+    rows.value.length > VIRTUAL_THRESHOLD ? { itemSize: ROW_H, numToleratedItems: 10 } : undefined
+)
+
 // Selection mirrors the Now Playing queue (see useQueueEdit): a plain click
 // selects just that row — clicking the row that is already the sole selection
 // again clears it, so a re-click toggles off — Ctrl/Cmd click toggles a row, and Shift click extends a
@@ -197,9 +209,32 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault()
 }
 
+// Keep the moved row visible by scrolling ONLY the list's own scroller — never
+// scrollIntoView, which also scrolls every scrollable ancestor and the mobile
+// visual viewport (see docs/agents/frontend.md). The scroller is the virtual
+// scroller when the list is windowed, else the plain table container. Both pin a
+// sticky header that overlays the top, and rows are a uniform ROW_H, so the target
+// row's offset is computed directly (headerH + index*ROW_H) without needing it to
+// be rendered — which it may not be under virtualization. Scrolls the minimal
+// amount, and not at all when the row is already fully in view ('nearest'). We do
+// the math ourselves because PrimeVue's own scrollInView is header-unaware and
+// leaves the row clipped by roughly the header height.
 function scrollRowIntoView(index: number): void {
-    const row = wrapperEl.value?.querySelectorAll('tbody tr')[index]
-    row?.scrollIntoView({ block: 'nearest' })
+    const scroller =
+        wrapperEl.value?.querySelector<HTMLElement>('.p-virtualscroller') ??
+        wrapperEl.value?.querySelector<HTMLElement>('.p-datatable-table-container')
+    if (!scroller) return
+    const headerH = scroller.querySelector<HTMLElement>('thead')?.offsetHeight ?? 0
+    const rowTop = headerH + index * ROW_H
+    const rowBottom = rowTop + ROW_H
+    let top: number | null = null
+    if (rowTop < scroller.scrollTop + headerH) {
+        top = rowTop - headerH // reveal just below the sticky header
+    } else if (rowBottom > scroller.scrollTop + scroller.clientHeight) {
+        top = rowBottom - scroller.clientHeight
+    }
+    if (top === null) return
+    scroller.scrollTo?.({ top: Math.max(0, top), behavior: 'auto' })
 }
 
 const wrapperEl = ref<HTMLElement | null>(null)
@@ -228,6 +263,9 @@ const wrapperEl = ref<HTMLElement | null>(null)
             :selection="selection"
             dataKey="path"
             :rowClass="rowClass"
+            scrollable
+            scrollHeight="flex"
+            :virtualScrollerOptions="virtualOptions"
             @row-click="onRowClick"
             @update:selection="onCheckboxSelection"
         >
@@ -242,7 +280,7 @@ const wrapperEl = ref<HTMLElement | null>(null)
                     ></i>
                 </template>
             </Column>
-            <Column field="path" header="Path">
+            <Column field="path" header="Path" bodyClass="col-path">
                 <template #body="{ data }">{{ displayPath(data as Track) }}</template>
             </Column>
             <Column header="" style="width: 10rem">
@@ -266,11 +304,34 @@ const wrapperEl = ref<HTMLElement | null>(null)
     overflow: hidden;
 }
 
+/* With scrollable + scrollHeight="flex" the DataTable owns the scroll region, so
+   the wrapper no longer scrolls itself — it just bounds the height and hosts the
+   keyboard focus/handlers. The DataTable flex-fills it. */
 .table-wrapper {
     flex: 1;
-    overflow-y: auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     outline: none;
+}
+.table-wrapper :deep(.p-datatable) {
+    flex: 1;
+    min-height: 0;
+}
+.table-wrapper :deep(.p-datatable-table-container) {
+    scrollbar-gutter: stable;
+}
+/* Uniform single-line rows so the virtual scroller's fixed itemSize (ROW_H) holds;
+   the flexible path cell ellipsises instead of wrapping to a second line. */
+:deep(.p-datatable-tbody > tr > td) {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    white-space: nowrap;
+}
+:deep(td.col-path) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 0;
 }
 .loading,
 .empty {

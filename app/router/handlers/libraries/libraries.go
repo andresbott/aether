@@ -346,7 +346,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.CoverStyle = cs
 
-	err = h.Store.Transaction(func(tx *store.Store) error {
+	err = h.Store.TransactionContext(r.Context(), func(tx *store.Store) error {
 		if pathChanged {
 			if err := tx.DeleteTracksForLibrary(existing.ID); err != nil {
 				return err
@@ -387,7 +387,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	if refuseIfConfigManaged(w, r, existing) {
 		return
 	}
-	if err := h.Store.DeleteLibrary(id); err != nil {
+	if err := h.Store.DeleteLibrary(r.Context(), id); err != nil {
 		status, code := mapStoreError(err)
 		httperr.Write(w, r, status, code, err.Error())
 		return

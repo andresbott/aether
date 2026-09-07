@@ -1,7 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import PictureCell from '@/views/settings/metadata-editor/PictureCell.vue'
+
+// PictureCell reads useViewport().isTouch to add a tap-to-flip affordance where
+// there is no hover to reveal the on-image controls. Mock it with a toggleable
+// ref, per the AlbumTrackRow touch spec. Default desktop (false) so the existing,
+// hover-era assertions below are unaffected.
+const isTouch = ref(false)
+vi.mock('@/composables/useViewport', () => ({
+    useViewport: () => ({ isTouch, tier: ref('desktop'), shell: ref('desktop') })
+}))
 
 const mountCell = (props: Record<string, unknown> = {}) =>
     mount(PictureCell, {
@@ -85,5 +95,53 @@ describe('PictureCell', () => {
 
         const empty = mountCell({ image: null, addLabel: 'Add image' })
         expect(empty.find('[data-test="change"]').text()).toContain('Add image')
+    })
+
+    // A coarse-pointer tablet stays on the desktop shell but has no hover, so the
+    // hover/focus flip can never reveal an occupied cell's controls. A tap must.
+    describe('coarse pointer (touch)', () => {
+        it('reveals the on-image controls when an occupied tile is tapped', async () => {
+            isTouch.value = true
+            const w = mountCell({ canRemove: true })
+            expect(w.find('.cell-art').classes()).not.toContain('flipped')
+            await w.find('.cell-art').trigger('click')
+            expect(w.find('.cell-art').classes()).toContain('flipped')
+        })
+
+        it('flips back to the image on a second tap', async () => {
+            isTouch.value = true
+            const w = mountCell({ canRemove: true })
+            await w.find('.cell-art').trigger('click')
+            await w.find('.cell-art').trigger('click')
+            expect(w.find('.cell-art').classes()).not.toContain('flipped')
+        })
+
+        it('still emits from a revealed control, and acting flips the tile back', async () => {
+            isTouch.value = true
+            const w = mountCell({ canRemove: true })
+            await w.find('.cell-art').trigger('click')
+            expect(w.find('.cell-art').classes()).toContain('flipped')
+            await w.find('[data-test="remove"]').trigger('click')
+            expect(w.emitted('remove')).toHaveLength(1)
+            expect(w.find('.cell-art').classes()).not.toContain('flipped')
+        })
+
+        it('does not flip an empty cell (its add button is the tile)', async () => {
+            isTouch.value = true
+            const w = mountCell({ image: null })
+            await w.find('.cell-art').trigger('click')
+            expect(w.find('.cell-art').classes()).not.toContain('flipped')
+            await w.find('[data-test="change"]').trigger('click')
+            expect(w.emitted('change')).toHaveLength(1)
+        })
+    })
+
+    describe('fine pointer (mouse/keyboard)', () => {
+        it('does not tap-flip — hover/focus still owns the reveal', async () => {
+            isTouch.value = false
+            const w = mountCell({ canRemove: true })
+            await w.find('.cell-art').trigger('click')
+            expect(w.find('.cell-art').classes()).not.toContain('flipped')
+        })
     })
 })
