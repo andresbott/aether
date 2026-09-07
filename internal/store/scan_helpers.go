@@ -110,6 +110,10 @@ func (s *Store) Cleanup(ctx context.Context, scanStart time.Time) error {
 // only empty an aggregate it moves a track away from, so this "before" set is the
 // only set its prune has to check — every aggregate the edit moves a track *to*
 // is, by definition, still populated.
+// It snapshots only what the touched tracks pointed at before the edit; an
+// aggregate orphaned as collateral of a track moving into a different
+// pre-existing album (whose credits reconcile then overwrites) is not captured
+// here and is left to the scheduled scan's Cleanup.
 type TouchedAggregates struct {
 	AlbumIDs  []uint
 	ArtistIDs []uint
@@ -125,6 +129,11 @@ func (s *Store) TouchedAggregatesForPaths(paths []string) (TouchedAggregates, er
 	artistSet := map[uint]struct{}{}
 	genreSet := map[uint]struct{}{}
 
+	type trackRow struct {
+		ID      uint
+		AlbumID uint
+	}
+
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {
@@ -132,10 +141,6 @@ func (s *Store) TouchedAggregatesForPaths(paths []string) (TouchedAggregates, er
 		}
 		chunk := paths[i:end]
 
-		type trackRow struct {
-			ID      uint
-			AlbumID uint
-		}
 		var rows []trackRow
 		if err := s.db.Model(&model.Track{}).Select("id, album_id").
 			Where("file_path IN ?", chunk).Scan(&rows).Error; err != nil {

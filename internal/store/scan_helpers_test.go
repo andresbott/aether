@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -229,18 +230,34 @@ func TestTouchedAggregatesForPaths(t *testing.T) {
 	db := s.DB()
 
 	artist := model.Artist{Name: "A", NameNorm: "a"}
-	db.Create(&artist)
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
 	genre := model.Genre{Name: "Rock"}
-	db.Create(&genre)
+	if err := db.Create(&genre).Error; err != nil {
+		t.Fatal(err)
+	}
 	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "a"}
-	db.Create(&album)
-	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre}); err != nil {
+		t.Fatal(err)
+	}
 
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
-	db.Create(&track)
-	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
-	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre}); err != nil {
+		t.Fatal(err)
+	}
 
 	// A path with no stored track contributes nothing.
 	got, err := s.TouchedAggregatesForPaths([]string{"/music/01.mp3", "/music/new.mp3"})
@@ -276,17 +293,29 @@ func TestPruneOrphanedAggregatesScopedRemovesOnlyCandidates(t *testing.T) {
 	// Candidate album that the "edit" emptied: an artist + album with no tracks,
 	// plus a star on each, all in the candidate set.
 	artist := model.Artist{Name: "Gone", NameNorm: "gone"}
-	db.Create(&artist)
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
 	album := model.Album{Name: "Gone LP", NameNorm: "gone lp", AlbumArtistNorm: "gone"}
-	db.Create(&album)
-	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Create(&model.StarredItem{ItemType: "album", ItemID: album.ID})
-	db.Create(&model.StarredItem{ItemType: "artist", ItemID: artist.ID})
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.StarredItem{ItemType: "album", ItemID: album.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.StarredItem{ItemType: "artist", ItemID: artist.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	// An UNRELATED orphan, NOT in the candidate set — must survive (the scheduled
 	// scan's Cleanup is what removes it, not the targeted prune).
 	other := model.Album{Name: "Other", NameNorm: "other", AlbumArtistNorm: "x"}
-	db.Create(&other)
+	if err := db.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{
 		AlbumIDs:  []uint{album.ID},
@@ -317,17 +346,33 @@ func TestPruneOrphanedAggregatesScopedKeepsPopulated(t *testing.T) {
 	db := s.DB()
 
 	artist := model.Artist{Name: "Live", NameNorm: "live"}
-	db.Create(&artist)
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
 	genre := model.Genre{Name: "Jazz"}
-	db.Create(&genre)
+	if err := db.Create(&genre).Error; err != nil {
+		t.Fatal(err)
+	}
 	album := model.Album{Name: "Live LP", NameNorm: "live lp", AlbumArtistNorm: "live"}
-	db.Create(&album)
-	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre}); err != nil {
+		t.Fatal(err)
+	}
 	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/01.mp3"}
-	db.Create(&track)
-	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
-	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Everything is a candidate but everything is still populated: nothing goes.
 	err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{
@@ -352,5 +397,64 @@ func TestPruneOrphanedAggregatesEmptyIsANoop(t *testing.T) {
 	s := testStore(t)
 	if err := s.PruneOrphanedAggregates(t.Context(), store.TouchedAggregates{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTouchedAggregatesForPathsCapturesAlbumOnlyCredits(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	// An artist and genre credited ONLY at album level (e.g. a compilation
+	// album-artist) — never on any track. They must still be captured, via the
+	// album-level pass, so they are pruned when the album empties.
+	albumArtist := model.Artist{Name: "VA", NameNorm: "va"}
+	if err := db.Create(&albumArtist).Error; err != nil {
+		t.Fatal(err)
+	}
+	albumGenre := model.Genre{Name: "Compilation"}
+	if err := db.Create(&albumGenre).Error; err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "Comp", NameNorm: "comp", AlbumArtistNorm: "va"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Artists").Replace([]*model.Artist{&albumArtist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Genres").Replace([]*model.Genre{&albumGenre}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The track credits DIFFERENT artist/genre at track level, so the album-only
+	// ones can only reach the result through the album-level pass.
+	trackArtist := model.Artist{Name: "Solo", NameNorm: "solo"}
+	if err := db.Create(&trackArtist).Error; err != nil {
+		t.Fatal(err)
+	}
+	trackGenre := model.Genre{Name: "Pop"}
+	if err := db.Create(&trackGenre).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Artists").Replace([]*model.Artist{&trackArtist}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&track).Association("Genres").Replace([]*model.Genre{&trackGenre}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.TouchedAggregatesForPaths([]string{"/music/01.mp3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(got.ArtistIDs, albumArtist.ID) {
+		t.Fatalf("album-only artist %d must be captured via the album-level pass, got %v", albumArtist.ID, got.ArtistIDs)
+	}
+	if !slices.Contains(got.GenreIDs, albumGenre.ID) {
+		t.Fatalf("album-only genre %d must be captured via the album-level pass, got %v", albumGenre.ID, got.GenreIDs)
 	}
 }

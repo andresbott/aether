@@ -344,10 +344,16 @@ func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
 	// and an artist credited only on it.
 	db := st.DB()
 	orphanArtist := model.Artist{Name: "Ghost", NameNorm: "ghost"}
-	db.Create(&orphanArtist)
+	if err := db.Create(&orphanArtist).Error; err != nil {
+		t.Fatal(err)
+	}
 	orphanAlbum := model.Album{Name: "Ghost LP", NameNorm: "ghost lp", AlbumArtistNorm: "ghost"}
-	db.Create(&orphanAlbum)
-	_ = db.Model(&orphanAlbum).Association("Artists").Replace([]*model.Artist{&orphanArtist})
+	if err := db.Create(&orphanAlbum).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&orphanAlbum).Association("Artists").Replace([]*model.Artist{&orphanArtist}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Rescan the same real file again — touches only its own aggregates.
 	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
