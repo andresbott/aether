@@ -102,16 +102,24 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 	return r.queue.ShutDown(ctx)
 }
 
-func (r *Runner) RegisterTask(fn func(ctx context.Context) error, name string, maxParallelism int) {
-	wrapped := r.wrapTaskRun(name, fn)
-	r.queue.RegisterTask(tempo.TaskDef{Name: name, Run: wrapped, MaxParallelism: maxParallelism})
+func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int) {
+	run := r.wrapTaskRun(name, fn)
+	var opts []tempo.TaskOption
+	if maxParallelism > 0 {
+		opts = append(opts, tempo.WithMaxParallelism(maxParallelism))
+	}
+	r.queue.RegisterRaw(name, run, opts...)
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 
-func (r *Runner) wrapTaskRun(name string, fn func(ctx context.Context) error) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
+// wrapTaskRun adapts a task function to tempo's handler signature. tempo hands
+// the task a *slog.Logger whose lines are routed to the configured LogSink
+// (tagged with the execution id); we pass it straight through to fn. The
+// progress reporter and raw params payload are unused for now.
+func (r *Runner) wrapTaskRun(name string, fn func(ctx context.Context, log *slog.Logger) error) func(ctx context.Context, log *slog.Logger, _ tempo.Progress, _ []byte) error {
+	return func(ctx context.Context, log *slog.Logger, _ tempo.Progress, _ []byte) error {
 		r.logger.Info("task started", slog.String("component", "taskrunner"), slog.String("task", name))
-		err := fn(ctx)
+		err := fn(ctx, log)
 		if err != nil {
 			r.logger.Error("task failed", slog.String("component", "taskrunner"), slog.String("task", name), slog.String("error", err.Error()))
 			return err
@@ -122,7 +130,7 @@ func (r *Runner) wrapTaskRun(name string, fn func(ctx context.Context) error) fu
 }
 
 func (r *Runner) AddRun(name string) (uuid.UUID, error) {
-	id, err := r.queue.Add(name)
+	id, _, err := r.queue.AddRaw(name, nil)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("enqueue task %q: %w", name, err)
 	}

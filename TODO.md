@@ -36,13 +36,55 @@ Notes for editors:
 
 ### Backend — Task runner (job engine)
 
-- [ ] Update the job engine (`go-bumbu/tempo`) to the latest version
+- [/] Update the job engine (`go-bumbu/tempo`) to the latest version
+  Done in code on branch `chore/upgrade-tempo-v0.4` (v0.2.0 → v0.4.0): wrapper adapted to
+  `RegisterRaw`/`WithMaxParallelism`/`AddRaw`, task fns now receive tempo's per-task `*slog.Logger`
+  (replacing the removed `tempo.Info/Error` package helpers). Left open pending commit/merge; the
+  adopt-later items below track what v0.4.0 newly enables.
   The task runner is `internal/taskrunner`, a thin wrapper over `github.com/go-bumbu/tempo`'s
   `QueueRunner` (`internal/taskrunner/runner.go:12,20`), pinned at **v0.2.0** in `go.mod`. Bump it to
   the latest release and adapt the wrapper to any API changes (`Cfg` / `QueueRunner` / `TaskLogSink` /
   `TaskStatePersistence`). Prerequisite for moving the metadata editor's synchronous re-index onto
   the job engine — see "[MEDIUM] Metadata edits re-index files inline…" under
   `### 26-09-04-big-import-review`; that refactor should build on the current engine, not the old one.
+- [ ] Adopt tempo's task progress reporting for long scans
+  v0.4.0 hands each task a `tempo.Progress` reporter (`SetTotal` / `Inc` / `SetStage`) and the runner takes
+  a `RunnerCfg.ProgressSink` (built-in `tempo.MemTaskProgressSink`, or a gorm-backed sink). Wire a progress
+  sink into `internal/taskrunner`, widen `Runner.RegisterTask`'s task-fn signature to pass the reporter
+  (it is currently dropped as `_ tempo.Progress` in `runner.go`), thread it into `scanner.Scan`'s phase-2
+  reconcile loop, and surface percent/ETA in the tasks UI (`ProgressState.Percent()` / `ETA(startedAt)`).
+- [ ] Make `scan` / `scan-full` singleton so duplicate triggers coalesce
+  Both are registered with `MaxParallelism: 1`, which serializes runs but still lets duplicate triggers
+  pile up as waiting. `tempo.WithSingleton()` keeps at most one instance queued — re-triggering while a
+  scan is waiting or running returns the in-flight id (the new `coalesced` bool from `AddRaw` / `Enqueue`)
+  instead of enqueuing another. Thread a per-task option through `Runner.RegisterTask` and set it for the
+  scan tasks; decide what the enqueue endpoint reports when a trigger coalesces.
+- [ ] Replace the go-quartz scheduler with tempo's built-in `schedule` package
+  v0.4.0 ships `tempo/schedule` (cron on 5-field Unix or 6-field Quartz expressions, persisted, editable at
+  runtime; `*tempo.QueueRunner` satisfies its `Enqueuer` directly) plus `dbschedule` for gorm persistence —
+  overlapping `internal/taskrunner`'s current `reugn/go-quartz`-based scheduler and `NewScheduleStore`.
+  Evaluate folding onto tempo's scheduler to drop the separate go-quartz dependency; confirm `ValidateCron`
+  / `NormalizeCron` cover what the schedule UI expects.
+- [ ] Adopt typed task params instead of name-only enqueue
+  v0.4.0 tasks can carry a JSON payload: `tempo.Register[T]` / `Enqueue[T]` (typed) or `RegisterRaw` /
+  `AddRaw(name, []byte)` (raw). The wrapper now enqueues by name only (`AddRaw(name, nil)`) and encodes scan
+  mode as two task names (`scan` / `scan-full`). Params would collapse that into one task taking
+  `{full: bool}` and, more importantly, let an edit-triggered re-index pass its path list — a prerequisite
+  for "[MEDIUM] Metadata edits re-index files inline…".
+  - [ ] Persist `TaskInfo.Params` in the task-execution store
+    v0.4.0 added `Params []byte` to `tempo.TaskInfo`; `internal/taskrunner/persistence.go` neither stores
+    nor restores it, so a task recovered after a restart comes back with nil params. Harmless today (every
+    enqueue is param-less) but must land before typed params, or a crash mid-queue silently drops a
+    recovered task's payload. Add a `params` column to `dbTaskExecution` and round-trip it in `SaveTask` /
+    `List`.
+- [ ] Implement tempo's log reader/cleaner interfaces on `FileTaskLogSink`
+  v0.4.0 splits optional sink behaviour into `TaskLogReader` (`Logs`) and `TaskLogCleaner` (`RemoveTasks` /
+  `RetainOnly`). Steady-state removal already works (our `TaskExecutionStore.RemoveTasks` calls the file
+  cleaner), but the runner's startup orphaned-log sweep (`RetainOnly`) and its own reap path only fire on a
+  sink that implements tempo's `TaskLogCleaner` — `FileTaskLogSink` exposes `RemoveTaskLogs`, a different
+  project-local interface. Implement tempo's `TaskLogReader` / `TaskLogCleaner` on it (adapt
+  `RemoveTaskLogs` → `RemoveTasks`, add `RetainOnly`, and optionally `Logs` to unify with
+  `NewFileTaskLogReader`).
 
 ### Backend — API Surface
 

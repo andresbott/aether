@@ -14,11 +14,13 @@ import (
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/go-bumbu/tempo"
 )
 
 type ScanOptions struct {
 	IsFull bool
+	// Log receives task-scoped log lines (e.g. into the per-execution log). A nil
+	// Log discards them, so callers outside the task runner can omit it.
+	Log *slog.Logger
 }
 
 type ScanStats struct {
@@ -67,12 +69,17 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	scanStart := time.Now()
 	stats := ScanStats{}
 
+	log := opts.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+
 	libs, err := s.store.ListLibraries()
 	if err != nil {
 		return stats, fmt.Errorf("list libraries: %w", err)
 	}
 	if len(libs) == 0 {
-		tempo.Info(ctx, "no libraries configured; nothing to scan")
+		log.Info("no libraries configured; nothing to scan")
 		return stats, nil
 	}
 

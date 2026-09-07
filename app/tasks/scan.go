@@ -3,13 +3,11 @@ package tasks
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/go-bumbu/tempo"
 )
 
 const ScanTaskName = "scan"
@@ -27,26 +25,28 @@ var ScanFullTaskDef = TaskDef{
 	Description: "Full scan -- re-reads all tracks regardless of modification time",
 }
 
-func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, logger *slog.Logger, isFull bool) func(ctx context.Context) error {
+func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, isFull bool) func(ctx context.Context, log *slog.Logger) error {
 	sc := scanner.New(cfg, s, tagReader)
-	return func(ctx context.Context) error {
+	return func(ctx context.Context, log *slog.Logger) error {
 		mode := "incremental"
 		if isFull {
 			mode = "full"
 		}
-		tempo.Info(ctx, fmt.Sprintf("starting %s library scan", mode))
+		log.Info("starting library scan", slog.String("mode", mode))
 
-		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: isFull})
+		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: isFull, Log: log})
 		if err != nil {
-			tempo.Error(ctx, fmt.Sprintf("scan failed: %v", err))
+			log.Error("scan failed", slog.String("error", err.Error()))
 			return err
 		}
 
-		tempo.Info(ctx, fmt.Sprintf("scan complete: %d processed (%d new, %d updated)",
-			stats.TracksProcessed, stats.TracksNew, stats.TracksUpdated))
+		log.Info("scan complete",
+			slog.Int("processed", stats.TracksProcessed),
+			slog.Int("new", stats.TracksNew),
+			slog.Int("updated", stats.TracksUpdated))
 
 		if len(stats.Errors) > 0 {
-			tempo.Info(ctx, fmt.Sprintf("scan had %d tag reading errors", len(stats.Errors)))
+			log.Info("scan had tag reading errors", slog.Int("count", len(stats.Errors)))
 		}
 		return nil
 	}

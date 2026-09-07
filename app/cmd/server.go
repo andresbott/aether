@@ -189,10 +189,10 @@ func runServer(configFile string) error {
 
 	// Register tasks — scan and metadata fetch are independent tasks; a scan
 	// does NOT auto-trigger the artist-image fetch. Run each on demand.
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1)
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, true), tasks.ScanFullTaskName, 1)
 	runner.RegisterTask(
-		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
+		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, 24*time.Hour),
 		tasks.FetchArtistImagesTaskName, 1,
 	)
 	runner.Start()

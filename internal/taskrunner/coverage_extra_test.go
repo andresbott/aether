@@ -289,7 +289,7 @@ func TestRunnerListAndCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner.RegisterTask(func(ctx context.Context) error { return nil }, "t", 1)
+	runner.RegisterTask(func(ctx context.Context, log *slog.Logger) error { return nil }, "t", 1)
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 

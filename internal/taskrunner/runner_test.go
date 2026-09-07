@@ -2,6 +2,7 @@ package taskrunner_test
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func TestRunnerExecuteTask(t *testing.T) {
 	}
 
 	var ran atomic.Bool
-	runner.RegisterTask(func(ctx context.Context) error {
+	runner.RegisterTask(func(ctx context.Context, log *slog.Logger) error {
 		ran.Store(true)
 		return nil
 	}, "test-task", 1)
@@ -65,7 +66,7 @@ func TestRunnerExecutions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runner.RegisterTask(func(ctx context.Context) error { return nil }, "test-task", 1)
+	runner.RegisterTask(func(ctx context.Context, log *slog.Logger) error { return nil }, "test-task", 1)
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 
