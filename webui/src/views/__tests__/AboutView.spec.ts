@@ -17,6 +17,12 @@ vi.mock('@/composables/useViewport', () => ({
     })
 }))
 
+// AboutView renders ContentScaffold, which calls useRouter().
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ push })
+}))
+
 import AboutView from '@/views/AboutView.vue'
 
 const mountView = () => mount(AboutView)

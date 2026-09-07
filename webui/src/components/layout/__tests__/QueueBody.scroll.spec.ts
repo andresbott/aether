@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, RouterLinkStub } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
@@ -53,7 +53,7 @@ const song = (id: string) => ({
 const mountBody = () =>
     mount(QueueBody, {
         props: { variant: 'sidebar' as const, editMode: false },
-        global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+        global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs: { RouterLink: RouterLinkStub } }
     })
 
 // jsdom has no layout, so the geometry the scroll math reads is stubbed onto

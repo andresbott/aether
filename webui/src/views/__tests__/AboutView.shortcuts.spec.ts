@@ -6,6 +6,12 @@ vi.mock('@/composables/useVersion', () => ({
     useVersion: () => ({ data: ref(undefined) })
 }))
 
+// AboutView renders ContentScaffold, which calls useRouter().
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ push })
+}))
+
 import AboutView from '@/views/AboutView.vue'
 import { VISIBLE_SHORTCUTS } from '@/utils/shortcuts'
 

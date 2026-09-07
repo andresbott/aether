@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 
@@ -44,6 +44,12 @@ vi.mock('@/lib/api/subsonic', () => ({
 
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
+// ContentScaffold (the full variant's header) calls useRouter().
+const push = vi.fn()
+vi.mock('vue-router', () => ({
+    useRouter: () => ({ push })
+}))
+
 // Queue rows carry a favorite toggle, whose real mutation needs a
 // VueQueryPlugin-provided client this spec has no use for.
 vi.mock('@/composables/useSubsonicQueries', () => ({
@@ -83,7 +89,7 @@ const song = (id: string, extra: Record<string, unknown> = {}) => ({
 const mountView = (variant: 'full' | 'sidebar') =>
     mount(QueueView, {
         props: { variant },
-        global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+        global: { plugins: [PrimeVue], directives: { tooltip: {} }, stubs: { RouterLink: RouterLinkStub } }
     })
 
 beforeEach(() => {

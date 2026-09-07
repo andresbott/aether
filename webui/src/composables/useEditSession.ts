@@ -672,7 +672,11 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // Revoke any staged blob preview URLs if the owning scope is torn down
     // without the route-leave guard firing (programmatic unmount, error
     // boundary, HMR). Idempotent — discardAll no-ops on already-empty maps.
-    onScopeDispose(() => discardAll())
+    // failSilently (2nd arg): this composable is deliberately created without an
+    // effect scope in unit tests, where there is nothing to auto-dispose and the
+    // caller owns cleanup — so suppress Vue's "no active effect scope" warning
+    // rather than have every bare-composable test log it.
+    onScopeDispose(() => discardAll(), true)
 
     // ----- Save -----
 
