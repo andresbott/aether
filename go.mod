@@ -15,7 +15,6 @@ require (
 	github.com/phsym/console-slog v0.3.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rainycape/unidecode v0.0.0-20150907023854-cb7f23ec59be
-	github.com/reugn/go-quartz v0.15.2
 	github.com/samber/slog-formatter v1.3.0
 	github.com/spf13/cobra v1.10.2
 	go.senan.xyz/taglib v0.11.1
@@ -35,6 +34,7 @@ require (
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/pquerna/otp v1.5.0 // indirect
+	github.com/reugn/go-quartz v0.15.2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 )
 
