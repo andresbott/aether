@@ -322,3 +322,42 @@ func TestRescanPathsEmptyListIsANoop(t *testing.T) {
 		t.Fatalf("expected 0 processed, got %d", stats.TracksProcessed)
 	}
 }
+
+// The edit path prunes only the aggregates it touched; an unrelated orphan is
+// left for the scheduled scan's Cleanup. This is the observable contract of the
+// scoped prune — the old whole-DB sweep would have deleted the orphan here.
+func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	lib := seedLibrary(t, st, dir, nil)
+	abs := filepath.Join(dir, "Artist/Album/01.mp3")
+
+	s := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+		abs: meta("Song", "Real Artist", "Album"),
+	}})
+	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed an unrelated orphan the edit will never touch: an album with no tracks
+	// and an artist credited only on it.
+	db := st.DB()
+	orphanArtist := model.Artist{Name: "Ghost", NameNorm: "ghost"}
+	db.Create(&orphanArtist)
+	orphanAlbum := model.Album{Name: "Ghost LP", NameNorm: "ghost lp", AlbumArtistNorm: "ghost"}
+	db.Create(&orphanAlbum)
+	_ = db.Model(&orphanAlbum).Association("Artists").Replace([]*model.Artist{&orphanArtist})
+
+	// Rescan the same real file again — touches only its own aggregates.
+	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+		t.Fatal(err)
+	}
+
+	var albums, artists int64
+	db.Model(&model.Album{}).Where("name = ?", "Ghost LP").Count(&albums)
+	db.Model(&model.Artist{}).Where("name = ?", "Ghost").Count(&artists)
+	if albums != 1 || artists != 1 {
+		t.Fatalf("expected the unrelated orphan to survive the targeted rescan, got albums=%d artists=%d", albums, artists)
+	}
+}
