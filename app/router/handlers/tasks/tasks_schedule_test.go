@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
 	apptasks "github.com/andresbott/aether/app/tasks"
@@ -17,21 +18,33 @@ import (
 	"gorm.io/gorm"
 )
 
-func newTestScheduleStore(t *testing.T) *taskrunner.ScheduleStore {
+func newTestScheduler(t *testing.T) *taskrunner.Scheduler {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	store, err := taskrunner.NewScheduleStore(db)
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{})
 	if err != nil {
-		t.Fatalf("schedule store: %v", err)
+		t.Fatalf("new runner: %v", err)
 	}
-	return store
+	sched, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{DB: db, Enqueuer: runner})
+	if err != nil {
+		t.Fatalf("new scheduler: %v", err)
+	}
+	if err := sched.Start(context.Background()); err != nil {
+		t.Fatalf("start scheduler: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sched.Stop(ctx)
+	})
+	return sched
 }
 
 func TestUpsertAndGetTaskSchedule(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 
 	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
 		strings.NewReader(`{"cron_expression":"0 0 0 * * *","enabled":true}`))
@@ -62,7 +75,7 @@ func TestUpsertAndGetTaskSchedule(t *testing.T) {
 }
 
 func TestUpsertTaskInvalidCron(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
 		strings.NewReader(`{"cron_expression":"not a cron","enabled":true}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
@@ -74,7 +87,7 @@ func TestUpsertTaskInvalidCron(t *testing.T) {
 }
 
 func TestUpsertUnknownTask(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 	req := httptest.NewRequest(http.MethodPut, "/tasks/nope",
 		strings.NewReader(`{"cron_expression":"0 0 0 * * *"}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "nope"})
@@ -86,7 +99,7 @@ func TestUpsertUnknownTask(t *testing.T) {
 }
 
 func TestPatchTaskSchedule(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 
 	// First upsert a schedule for "scan"
 	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
@@ -123,7 +136,7 @@ func TestPatchTaskSchedule(t *testing.T) {
 }
 
 func TestPatchTaskNoSchedule(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 
 	// PATCH "scan" which has no schedule
 	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan",
@@ -137,7 +150,7 @@ func TestPatchTaskNoSchedule(t *testing.T) {
 }
 
 func TestDeleteTaskSchedule(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 
 	// Upsert a schedule for "scan"
 	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
@@ -176,7 +189,7 @@ func TestDeleteTaskSchedule(t *testing.T) {
 }
 
 func TestDeleteTaskScheduleNoSchedule(t *testing.T) {
-	h := &Handler{ScheduleStore: newTestScheduleStore(t)}
+	h := &Handler{Schedules: newTestScheduler(t)}
 
 	// DELETE "scan" with no schedule
 	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan", nil)

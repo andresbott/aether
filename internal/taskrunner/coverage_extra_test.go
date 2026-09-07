@@ -12,6 +12,8 @@ import (
 
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/tempo"
+	"github.com/go-bumbu/tempo/dbschedule"
+	"github.com/go-bumbu/tempo/schedule"
 	"github.com/google/uuid"
 )
 
@@ -80,72 +82,6 @@ func TestNewFileTaskLogSinkError(t *testing.T) {
 	}
 }
 
-func TestScheduleStoreExtraMethods(t *testing.T) {
-	db := testDB(t)
-	store, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-
-	// Both are created enabled (the dbSchedule.Enabled column defaults to true,
-	// so Create can't store a false zero-value); we disable "b" via Update,
-	// whose map-based write does persist false.
-	a, err := store.Create(ctx, taskrunner.Schedule{TaskName: "a", CronExpression: "0 * * * *", Enabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := store.Create(ctx, taskrunner.Schedule{TaskName: "b", CronExpression: "0 0 * * *", Enabled: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.Enabled = false
-	if err := store.Update(ctx, b); err != nil {
-		t.Fatal(err)
-	}
-
-	enabled, err := store.ListEnabled(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(enabled) != 1 || enabled[0].TaskName != "a" {
-		t.Fatalf("ListEnabled = %v", enabled)
-	}
-
-	got, err := store.GetByID(ctx, a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.TaskName != "a" {
-		t.Fatalf("GetByID = %+v", got)
-	}
-	if _, err := store.GetByID(ctx, 99999); err == nil {
-		t.Fatal("expected not found for missing id")
-	}
-
-	a.Enabled = false
-	if err := store.Update(ctx, a); err != nil {
-		t.Fatal(err)
-	}
-	updated, err := store.GetByID(ctx, a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Enabled {
-		t.Fatal("expected disabled after update")
-	}
-	if err := store.Update(ctx, taskrunner.Schedule{ID: 0}); err == nil {
-		t.Fatal("expected error updating with zero id")
-	}
-
-	if err := store.DeleteByTaskName(ctx, "a"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.DeleteByTaskName(ctx, "missing"); err == nil {
-		t.Fatal("expected ErrScheduleNotFound for missing task name")
-	}
-}
-
 func TestCronExpressionHelpers(t *testing.T) {
 	if got := taskrunner.NormalizeCronExpression("* * * * *"); got != "0 * * * * *" {
 		t.Fatalf("normalize 5-field: got %q", got)
@@ -164,74 +100,56 @@ func TestCronExpressionHelpers(t *testing.T) {
 	}
 }
 
-func TestFuncEnqueuer(t *testing.T) {
-	var got string
-	var f taskrunner.FuncEnqueuer = func(ctx context.Context, name string) error {
-		got = name
-		return nil
-	}
-	if err := f.EnqueueTask(context.Background(), "scan"); err != nil {
-		t.Fatal(err)
-	}
-	if got != "scan" {
-		t.Fatalf("EnqueueTask passed %q", got)
-	}
-}
-
 func TestNewSchedulerValidation(t *testing.T) {
-	db := testDB(t)
-	store, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{Enqueuer: fakeEnqueuer{}}); err == nil {
+		t.Fatal("expected error with nil DB")
 	}
-	enq := taskrunner.FuncEnqueuer(func(ctx context.Context, name string) error { return nil })
-
-	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{Enqueuer: enq}); err == nil {
-		t.Fatal("expected error with nil schedule store")
-	}
-	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{ScheduleStore: store}); err == nil {
+	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{DB: testDB(t)}); err == nil {
 		t.Fatal("expected error with nil enqueuer")
 	}
-	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{ScheduleStore: store, Enqueuer: enq}); err != nil {
+	if _, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{DB: testDB(t), Enqueuer: fakeEnqueuer{}}); err != nil {
 		t.Fatalf("expected scheduler created: %v", err)
 	}
 }
 
 func TestSchedulerLifecycle(t *testing.T) {
 	db := testDB(t)
-	store, err := taskrunner.NewScheduleStore(db)
+
+	// Seed a broken-cron row straight through the store, bypassing validation, so
+	// Start's reload exercises its warn-and-skip branch.
+	store, err := dbschedule.New(db)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
-	// One valid + one broken cron: exercises both the schedule and the skip branch.
-	if _, err := store.Create(ctx, taskrunner.Schedule{TaskName: "valid", CronExpression: "0 * * * *", Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Create(ctx, taskrunner.Schedule{TaskName: "broken", CronExpression: "not-a-cron", Enabled: true}); err != nil {
+	if err := store.Save(context.Background(), schedule.Schedule{
+		ID:       uuid.New(),
+		TaskName: "broken",
+		Cron:     "not-a-cron",
+		Enabled:  true,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	enq := taskrunner.FuncEnqueuer(func(ctx context.Context, name string) error { return nil })
 	sched, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
-		ScheduleStore: store,
-		Enqueuer:      enq,
-		Logger:        discardLogger(),
+		DB:       db,
+		Enqueuer: fakeEnqueuer{},
+		Logger:   discardLogger(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	runCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sched.Start(runCtx) // covers Start + loadSchedules (valid + skip branches)
-	if err := sched.Refresh(runCtx); err != nil {
-		t.Fatalf("Refresh: %v", err)
+	if err := sched.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
 	}
-	sched.Stop()
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
-	defer waitCancel()
-	sched.Wait(waitCtx)
+	// A valid schedule added at runtime schedules cleanly.
+	if _, err := sched.UpsertByTaskName(context.Background(), "valid", "0 0 * * * *", true); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := sched.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
 }
 
 func TestTaskExecutionStore(t *testing.T) {

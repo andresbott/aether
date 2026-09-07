@@ -197,17 +197,10 @@ func runServer(configFile string) error {
 	)
 	runner.Start()
 
-	scheduleStore, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		return fmt.Errorf("schedule store: %w", err)
-	}
 	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
-		ScheduleStore: scheduleStore,
-		Enqueuer: taskrunner.FuncEnqueuer(func(_ context.Context, name string) error {
-			_, _, addErr := runner.AddRun(name)
-			return addErr
-		}),
-		Logger: l,
+		DB:       db,
+		Enqueuer: runner,
+		Logger:   l,
 	})
 	if err != nil {
 		return fmt.Errorf("scheduler: %w", err)
@@ -219,7 +212,6 @@ func runServer(configFile string) error {
 		Logger:        l,
 		TaskRunner:    runner,
 		TaskLogGetter: taskLogReader,
-		ScheduleStore: scheduleStore,
 		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
@@ -255,7 +247,9 @@ func runServer(configFile string) error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
-	scheduler.Start(rootCtx)
+	if err := scheduler.Start(rootCtx); err != nil {
+		return fmt.Errorf("start scheduler: %w", err)
+	}
 
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
@@ -272,9 +266,11 @@ func runServer(configFile string) error {
 	}
 	g.Go(func() error {
 		<-gctx.Done()
-		scheduler.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		if err := scheduler.Stop(shutdownCtx); err != nil {
+			l.Error("scheduler shutdown", slog.String("component", "taskrunner"), slog.String("error", err.Error()))
+		}
 		return runner.Shutdown(shutdownCtx)
 	})
 

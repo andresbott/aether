@@ -195,8 +195,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		th := taskHandler.Handler{
 			Runner:        h.taskRunner,
 			TaskLogGetter: h.taskLogGetter,
-			ScheduleStore: h.scheduleStore,
-			Scheduler:     h.scheduler,
+			Schedules:     h.scheduler,
 			Logger:        h.logger,
 		}
 		// Executions are global. Register these before /tasks/{name} so the

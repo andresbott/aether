@@ -2,146 +2,205 @@ package taskrunner
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
-	"strings"
-	"sync"
+	"time"
 
-	"github.com/reugn/go-quartz/quartz"
+	"github.com/go-bumbu/tempo/dbschedule"
+	"github.com/go-bumbu/tempo/schedule"
+	"gorm.io/gorm"
 )
 
-type TaskEnqueuer interface {
-	EnqueueTask(ctx context.Context, taskName string) error
+// Schedule is aether's API-facing view of one task schedule. The scheduler keeps
+// at most one Schedule per task (task-name-keyed), even though the underlying
+// tempo scheduler is uuid-keyed and would allow several per task.
+type Schedule struct {
+	ID             string    `json:"id"`
+	TaskName       string    `json:"task_name"`
+	CronExpression string    `json:"cron_expression"`
+	Enabled        bool      `json:"enabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-type FuncEnqueuer func(ctx context.Context, taskName string) error
+// ErrScheduleNotFound is returned when no schedule exists for a task.
+var ErrScheduleNotFound = schedule.ErrScheduleNotFound
 
-func (f FuncEnqueuer) EnqueueTask(ctx context.Context, taskName string) error {
-	return f(ctx, taskName)
-}
+// NormalizeCronExpression and ValidateCronExpression re-export tempo's cron
+// helpers so callers (the HTTP handlers) need not import tempo directly.
+//
+// tempo's NormalizeCron is a superset of the old hand-rolled version: besides
+// prepending a "0" seconds field to a 5-field Unix expression, it translates the
+// day-of-week field from Unix numbering (0-6, Sun=0) to Quartz (1-7, Sun=1). The
+// old code skipped that translation, so a 5-field weekday expression was
+// scheduled one day off; it is now correct.
+func NormalizeCronExpression(cron string) string { return schedule.NormalizeCron(cron) }
 
-type enqueueJob struct {
-	taskName string
-	enqueuer TaskEnqueuer
-}
+func ValidateCronExpression(cron string) error { return schedule.ValidateCron(cron) }
 
-func (j *enqueueJob) Execute(ctx context.Context) error {
-	return j.enqueuer.EnqueueTask(ctx, j.taskName)
-}
-
-func (j *enqueueJob) Description() string {
-	return fmt.Sprintf("enqueue task %q", j.taskName)
-}
-
+// Scheduler fires registered tasks on a cron timetable. It is a thin façade over
+// tempo's schedule.Scheduler presenting a one-schedule-per-task, task-name-keyed
+// API. tempo owns the write path atomically (persist + reschedule in one call),
+// so there is no separate "refresh" step.
 type Scheduler struct {
-	quartzSched quartz.Scheduler
-	store       *ScheduleStore
-	enqueuer    TaskEnqueuer
-	logger      *slog.Logger
-	mu          sync.Mutex
+	sched *schedule.Scheduler
 }
 
+// SchedulerCfg configures NewScheduler.
 type SchedulerCfg struct {
-	ScheduleStore *ScheduleStore
-	Enqueuer      TaskEnqueuer
-	Logger        *slog.Logger
+	// DB backs the schedule store (the tempo_schedules table). Required.
+	DB *gorm.DB
+	// Enqueuer receives a task when a schedule fires. *Runner satisfies it.
+	Enqueuer schedule.Enqueuer
+	// Logger receives fire/skip messages; nil uses slog.Default().
+	Logger *slog.Logger
 }
 
-func NormalizeCronExpression(cron string) string {
-	cron = strings.TrimSpace(cron)
-	parts := strings.Fields(cron)
-	if len(parts) == 5 {
-		return "0 " + cron
-	}
-	return cron
-}
-
-func ValidateCronExpression(cron string) error {
-	if cron == "" {
-		return fmt.Errorf("cron expression is required")
-	}
-	cron = NormalizeCronExpression(cron)
-	_, err := quartz.NewCronTrigger(cron)
-	return err
-}
+// Verify *Runner can be used as the scheduler's enqueuer.
+var _ schedule.Enqueuer = (*Runner)(nil)
 
 func NewScheduler(cfg SchedulerCfg) (*Scheduler, error) {
-	if cfg.ScheduleStore == nil {
-		return nil, fmt.Errorf("schedule store is required")
+	if cfg.DB == nil {
+		return nil, errors.New("db is required")
 	}
 	if cfg.Enqueuer == nil {
-		return nil, fmt.Errorf("enqueuer is required")
+		return nil, errors.New("enqueuer is required")
 	}
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	qs, err := quartz.NewStdScheduler()
+	store, err := dbschedule.New(cfg.DB)
 	if err != nil {
-		return nil, fmt.Errorf("create quartz scheduler: %w", err)
+		return nil, err
 	}
-	return &Scheduler{
-		quartzSched: qs,
-		store:       cfg.ScheduleStore,
-		enqueuer:    cfg.Enqueuer,
-		logger:      logger,
-	}, nil
+	s, err := schedule.New(schedule.Cfg{
+		Store:    store,
+		Enqueuer: cfg.Enqueuer,
+		Logger:   cfg.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Scheduler{sched: s}, nil
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
-	s.quartzSched.Start(ctx)
-	if err := s.loadSchedules(ctx); err != nil {
-		s.logger.Error("failed to load task schedules", slog.String("component", "taskrunner"), slog.String("error", err.Error()))
+// Start loads stored schedules and begins firing. It must be called before the
+// write methods below (tempo rejects writes on an unstarted scheduler).
+func (s *Scheduler) Start(ctx context.Context) error { return s.sched.Start(ctx) }
+
+// Stop stops firing and waits for in-flight fires, bounded by ctx.
+func (s *Scheduler) Stop(ctx context.Context) error { return s.sched.ShutDown(ctx) }
+
+func toSchedule(si schedule.ScheduleInfo) Schedule {
+	return Schedule{
+		ID:             si.ID.String(),
+		TaskName:       si.TaskName,
+		CronExpression: si.Cron,
+		Enabled:        si.Enabled,
+		CreatedAt:      si.CreatedAt,
+		UpdatedAt:      si.UpdatedAt,
 	}
 }
 
-func (s *Scheduler) loadSchedules(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.quartzSched.Clear(); err != nil {
+// List returns every schedule, enabled or not.
+func (s *Scheduler) List(ctx context.Context) ([]Schedule, error) {
+	list, err := s.sched.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Schedule, len(list))
+	for i, si := range list {
+		out[i] = toSchedule(si)
+	}
+	return out, nil
+}
+
+// findByTaskName returns the single schedule for a task, or ErrScheduleNotFound.
+// This is where the one-schedule-per-task invariant lives now that the store no
+// longer carries a unique index on task_name.
+func (s *Scheduler) findByTaskName(ctx context.Context, name string) (schedule.ScheduleInfo, error) {
+	list, err := s.sched.List(ctx)
+	if err != nil {
+		return schedule.ScheduleInfo{}, err
+	}
+	for _, si := range list {
+		if si.TaskName == name {
+			return si, nil
+		}
+	}
+	return schedule.ScheduleInfo{}, ErrScheduleNotFound
+}
+
+// GetByTaskName returns the schedule for a task, or ErrScheduleNotFound.
+func (s *Scheduler) GetByTaskName(ctx context.Context, name string) (Schedule, error) {
+	si, err := s.findByTaskName(ctx, name)
+	if err != nil {
+		return Schedule{}, err
+	}
+	return toSchedule(si), nil
+}
+
+// UpsertByTaskName enforces one schedule per task: it updates the task's existing
+// schedule when there is one, otherwise creates it. cron should already be
+// validated (ValidateCronExpression); tempo validates and normalizes it again.
+func (s *Scheduler) UpsertByTaskName(ctx context.Context, name, cron string, enabled bool) (Schedule, error) {
+	existing, err := s.findByTaskName(ctx, name)
+	switch {
+	case err == nil:
+		out, uErr := s.sched.Update(ctx, schedule.Schedule{
+			ID:       existing.ID,
+			TaskName: name,
+			Cron:     cron,
+			Enabled:  enabled,
+		})
+		if uErr != nil {
+			return Schedule{}, uErr
+		}
+		return toSchedule(out), nil
+	case errors.Is(err, ErrScheduleNotFound):
+		out, cErr := s.sched.Create(ctx, schedule.Schedule{
+			TaskName: name,
+			Cron:     cron,
+			Enabled:  enabled,
+		})
+		if cErr != nil {
+			return Schedule{}, cErr
+		}
+		return toSchedule(out), nil
+	default:
+		return Schedule{}, err
+	}
+}
+
+// PatchByTaskName updates cron and/or enabled on a task's existing schedule,
+// leaving a nil field unchanged. Returns ErrScheduleNotFound when the task has no
+// schedule. A non-nil cron should already be validated.
+func (s *Scheduler) PatchByTaskName(ctx context.Context, name string, cron *string, enabled *bool) (Schedule, error) {
+	existing, err := s.findByTaskName(ctx, name)
+	if err != nil {
+		return Schedule{}, err
+	}
+	upd := schedule.Schedule{
+		ID:       existing.ID,
+		TaskName: name,
+		Cron:     existing.Cron,
+		Enabled:  existing.Enabled,
+	}
+	if cron != nil {
+		upd.Cron = *cron
+	}
+	if enabled != nil {
+		upd.Enabled = *enabled
+	}
+	out, err := s.sched.Update(ctx, upd)
+	if err != nil {
+		return Schedule{}, err
+	}
+	return toSchedule(out), nil
+}
+
+// DeleteByTaskName removes a task's schedule, or returns ErrScheduleNotFound.
+func (s *Scheduler) DeleteByTaskName(ctx context.Context, name string) error {
+	existing, err := s.findByTaskName(ctx, name)
+	if err != nil {
 		return err
 	}
-	list, err := s.store.ListEnabled(ctx)
-	if err != nil {
-		return err
-	}
-	for _, sch := range list {
-		expr := NormalizeCronExpression(sch.CronExpression)
-		trigger, err := quartz.NewCronTrigger(expr)
-		if err != nil {
-			s.logger.Warn("invalid cron expression for task, skipping",
-				slog.String("component", "taskrunner"),
-				slog.String("task", sch.TaskName),
-				slog.String("cron", sch.CronExpression),
-				slog.String("error", err.Error()))
-			continue
-		}
-		job := &enqueueJob{taskName: sch.TaskName, enqueuer: s.enqueuer}
-		jobKey := quartz.NewJobKey("task:" + sch.TaskName)
-		detail := quartz.NewJobDetail(job, jobKey)
-		if err := s.quartzSched.ScheduleJob(detail, trigger); err != nil {
-			s.logger.Warn("failed to schedule task",
-				slog.String("component", "taskrunner"),
-				slog.String("task", sch.TaskName),
-				slog.String("error", err.Error()))
-			continue
-		}
-		s.logger.Info("scheduled task",
-			slog.String("component", "taskrunner"),
-			slog.String("task", sch.TaskName),
-			slog.String("cron", sch.CronExpression))
-	}
-	return nil
-}
-
-func (s *Scheduler) Refresh(ctx context.Context) error {
-	return s.loadSchedules(ctx)
-}
-
-func (s *Scheduler) Stop() {
-	s.quartzSched.Stop()
-}
-
-func (s *Scheduler) Wait(ctx context.Context) {
-	s.quartzSched.Wait(ctx)
+	return s.sched.Delete(ctx, existing.ID)
 }

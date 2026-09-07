@@ -3669,15 +3669,14 @@ components:
     TaskSchedule:
       type: object
       description: >
-        A task's stored schedule — `taskrunner.Schedule`
-        (internal/taskrunner/schedule.go:11-18), an external type embedded
-        by reference (not flattened) as `Task.schedule`.
+        A task's stored schedule — aether's `taskrunner.Schedule`
+        (internal/taskrunner/scheduler.go), a task-name-keyed view over the
+        tempo schedule backing it, embedded by reference (not flattened) as
+        `Task.schedule`.
       properties:
         id:
-          type: integer
-          format: int64
-          minimum: 0
-          description: The schedule row's own id — distinct from the owning task's `id` (a string).
+          type: string
+          description: The schedule's own id — a uuid, distinct from the owning task's `id`.
         task_name:
           type: string
           description: The owning task's stable id (matches `Task.id`).
@@ -3685,8 +3684,10 @@ components:
           type: string
           description: >
             A 5 or 6-field cron expression. A submitted 5-field value is
-            normalized by prepending a "0" seconds field before storage, so
-            a read-back value is always 6-field.
+            normalized to the 6-field Quartz form before storage — a "0"
+            seconds field is prepended and the day-of-week is translated from
+            Unix (0-6) to Quartz (1-7) numbering — so a read-back value is
+            always 6-field.
           example: "0 0 0 * * *"
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }

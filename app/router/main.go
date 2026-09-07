@@ -46,7 +46,6 @@ type Cfg struct {
 	Logger        *slog.Logger
 	TaskRunner    *taskrunner.Runner
 	TaskLogGetter taskrunner.TaskLogGetter
-	ScheduleStore *taskrunner.ScheduleStore
 	Scheduler     *taskrunner.Scheduler
 	Store         *store.Store
 	DataDir       string
@@ -101,7 +100,6 @@ type MainAppHandler struct {
 	logger        *slog.Logger
 	taskRunner    *taskrunner.Runner
 	taskLogGetter taskrunner.TaskLogGetter
-	scheduleStore *taskrunner.ScheduleStore
 	scheduler     *taskrunner.Scheduler
 	store         *store.Store
 	dataDir       string
@@ -255,7 +253,6 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		logger:        logger,
 		taskRunner:    cfg.TaskRunner,
 		taskLogGetter: cfg.TaskLogGetter,
-		scheduleStore: cfg.ScheduleStore,
 		scheduler:     cfg.Scheduler,
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,

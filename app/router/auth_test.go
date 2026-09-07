@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -48,12 +49,22 @@ func withTaskRunner(t *testing.T, cfg *Cfg, db *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scheduleStore, err := taskrunner.NewScheduleStore(db)
+	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{DB: db, Enqueuer: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// tempo rejects writes on an unstarted scheduler, and the contract test upserts
+	// a schedule, so start it here and stop it on cleanup.
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = scheduler.Stop(ctx)
+	})
 	cfg.TaskRunner = runner
-	cfg.ScheduleStore = scheduleStore
+	cfg.Scheduler = scheduler
 }
 
 // newNativeAuthRouter builds a router in the shape native mode always has in

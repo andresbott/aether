@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -17,8 +16,7 @@ import (
 type Handler struct {
 	Runner        *taskrunner.Runner
 	TaskLogGetter taskrunner.TaskLogGetter
-	ScheduleStore *taskrunner.ScheduleStore
-	Scheduler     *taskrunner.Scheduler
+	Schedules     *taskrunner.Scheduler
 	Logger        *slog.Logger
 }
 
@@ -41,8 +39,8 @@ func (h *Handler) ListTasks() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		out := make([]TaskWithSchedule, 0, len(apptasks.AvailableTasks))
 		var scheduleMap map[string]taskrunner.Schedule
-		if h.ScheduleStore != nil {
-			list, err := h.ScheduleStore.List(r.Context())
+		if h.Schedules != nil {
+			list, err := h.Schedules.List(r.Context())
 			if err != nil {
 				h.Logger.Error("list tasks: schedule list failed", "err", err)
 				httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to list tasks.")
@@ -74,8 +72,8 @@ func (h *Handler) GetTask() http.Handler {
 			return
 		}
 		out := TaskWithSchedule{TaskDef: def}
-		if h.ScheduleStore != nil {
-			if sch, err := h.ScheduleStore.GetByTaskName(r.Context(), name); err == nil {
+		if h.Schedules != nil {
+			if sch, err := h.Schedules.GetByTaskName(r.Context(), name); err == nil {
 				out.Schedule = &sch
 			}
 		}
@@ -174,7 +172,7 @@ type UpsertTaskRequest struct {
 
 func (h *Handler) UpsertTask() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.ScheduleStore == nil {
+		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
@@ -202,14 +200,11 @@ func (h *Handler) UpsertTask() http.Handler {
 		if body.Enabled != nil {
 			enabled = *body.Enabled
 		}
-		sch, err := h.ScheduleStore.UpsertByTaskName(r.Context(), name, cronExpr, enabled)
+		sch, err := h.Schedules.UpsertByTaskName(r.Context(), name, cronExpr, enabled)
 		if err != nil {
 			h.Logger.Error("upsert task schedule failed", "task", name, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to save the task schedule.")
 			return
-		}
-		if h.Scheduler != nil {
-			_ = h.Scheduler.Refresh(context.Background())
 		}
 		out := TaskWithSchedule{TaskDef: def, Schedule: &sch}
 		w.Header().Set("Content-Type", "application/json")
@@ -224,7 +219,7 @@ type PatchTaskRequest struct {
 
 func (h *Handler) PatchTask() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.ScheduleStore == nil {
+		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
@@ -234,8 +229,7 @@ func (h *Handler) PatchTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		sch, err := h.ScheduleStore.GetByTaskName(r.Context(), name)
-		if err != nil {
+		if _, err := h.Schedules.GetByTaskName(r.Context(), name); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
 				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
 				return
@@ -249,30 +243,20 @@ func (h *Handler) PatchTask() http.Handler {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
+		var cronPtr *string
 		if body.CronExpression != nil {
 			cronExpr := taskrunner.NormalizeCronExpression(*body.CronExpression)
 			if err := taskrunner.ValidateCronExpression(cronExpr); err != nil {
 				httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid cron_expression: "+err.Error())
 				return
 			}
-			sch.CronExpression = cronExpr
+			cronPtr = &cronExpr
 		}
-		if body.Enabled != nil {
-			sch.Enabled = *body.Enabled
-		}
-		if err := h.ScheduleStore.Update(r.Context(), sch); err != nil {
+		sch, err := h.Schedules.PatchByTaskName(r.Context(), name, cronPtr, body.Enabled)
+		if err != nil {
 			h.Logger.Error("patch task: update schedule failed", "task", name, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the task schedule.")
 			return
-		}
-		sch, err = h.ScheduleStore.GetByTaskName(r.Context(), name)
-		if err != nil {
-			h.Logger.Error("patch task: reload schedule failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to reload the task schedule.")
-			return
-		}
-		if h.Scheduler != nil {
-			_ = h.Scheduler.Refresh(context.Background())
 		}
 		out := TaskWithSchedule{TaskDef: def, Schedule: &sch}
 		w.Header().Set("Content-Type", "application/json")
@@ -282,7 +266,7 @@ func (h *Handler) PatchTask() http.Handler {
 
 func (h *Handler) DeleteTaskSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.ScheduleStore == nil {
+		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
@@ -291,7 +275,7 @@ func (h *Handler) DeleteTaskSchedule() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		if err := h.ScheduleStore.DeleteByTaskName(r.Context(), name); err != nil {
+		if err := h.Schedules.DeleteByTaskName(r.Context(), name); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
 				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
 				return
@@ -299,9 +283,6 @@ func (h *Handler) DeleteTaskSchedule() http.Handler {
 			h.Logger.Error("delete task schedule failed", "task", name, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to delete the task schedule.")
 			return
-		}
-		if h.Scheduler != nil {
-			_ = h.Scheduler.Refresh(context.Background())
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
