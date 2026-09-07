@@ -222,3 +222,48 @@ func TestDeleteOrphanedAggregatesPreservesLiveStarredItems(t *testing.T) {
 		t.Fatalf("expected all 3 starred items preserved (none orphaned), got %d", siCount)
 	}
 }
+
+func TestTouchedAggregatesForPaths(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	artist := model.Artist{Name: "A", NameNorm: "a"}
+	db.Create(&artist)
+	genre := model.Genre{Name: "Rock"}
+	db.Create(&genre)
+	album := model.Album{Name: "Alb", NameNorm: "alb", AlbumArtistNorm: "a"}
+	db.Create(&album)
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&album).Association("Genres").Replace([]*model.Genre{&genre})
+
+	track := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
+	db.Create(&track)
+	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
+	_ = db.Model(&track).Association("Genres").Replace([]*model.Genre{&genre})
+
+	// A path with no stored track contributes nothing.
+	got, err := s.TouchedAggregatesForPaths([]string{"/music/01.mp3", "/music/new.mp3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.AlbumIDs) != 1 || got.AlbumIDs[0] != album.ID {
+		t.Fatalf("albums: expected [%d], got %v", album.ID, got.AlbumIDs)
+	}
+	if len(got.ArtistIDs) != 1 || got.ArtistIDs[0] != artist.ID {
+		t.Fatalf("artists: expected [%d], got %v", artist.ID, got.ArtistIDs)
+	}
+	if len(got.GenreIDs) != 1 || got.GenreIDs[0] != genre.ID {
+		t.Fatalf("genres: expected [%d], got %v", genre.ID, got.GenreIDs)
+	}
+}
+
+func TestTouchedAggregatesForPathsEmptyIsEmpty(t *testing.T) {
+	s := testStore(t)
+	got, err := s.TouchedAggregatesForPaths(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.AlbumIDs)+len(got.ArtistIDs)+len(got.GenreIDs) != 0 {
+		t.Fatalf("expected empty result, got %+v", got)
+	}
+}

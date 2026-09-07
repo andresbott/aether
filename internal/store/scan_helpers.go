@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
+	"gorm.io/gorm"
 )
 
 // BulkUpdateLastSeen advances the liveness marker on paths an incremental scan
@@ -101,4 +103,101 @@ func (s *Store) Cleanup(ctx context.Context, scanStart time.Time) error {
 		}
 		return tx.DeleteOrphanedAggregates()
 	})
+}
+
+// TouchedAggregates holds the album, artist and genre ids that the tracks at a
+// set of paths belonged to *before* a targeted rescan rewrote them. A rescan can
+// only empty an aggregate it moves a track away from, so this "before" set is the
+// only set its prune has to check — every aggregate the edit moves a track *to*
+// is, by definition, still populated.
+type TouchedAggregates struct {
+	AlbumIDs  []uint
+	ArtistIDs []uint
+	GenreIDs  []uint
+}
+
+// TouchedAggregatesForPaths captures the album/artist/genre ids reachable from
+// the tracks currently stored at paths. Call it before reconcile runs: afterwards
+// the rows have already been re-pointed and the "before" membership is gone. Ids
+// are de-duplicated and returned ascending so the result is deterministic.
+func (s *Store) TouchedAggregatesForPaths(paths []string) (TouchedAggregates, error) {
+	albumSet := map[uint]struct{}{}
+	artistSet := map[uint]struct{}{}
+	genreSet := map[uint]struct{}{}
+
+	for i := 0; i < len(paths); i += chunkSize {
+		end := i + chunkSize
+		if end > len(paths) {
+			end = len(paths)
+		}
+		chunk := paths[i:end]
+
+		type trackRow struct {
+			ID      uint
+			AlbumID uint
+		}
+		var rows []trackRow
+		if err := s.db.Model(&model.Track{}).Select("id, album_id").
+			Where("file_path IN ?", chunk).Scan(&rows).Error; err != nil {
+			return TouchedAggregates{}, fmt.Errorf("touched aggregates: tracks: %w", err)
+		}
+
+		trackIDs := make([]uint, 0, len(rows))
+		for _, r := range rows {
+			trackIDs = append(trackIDs, r.ID)
+			albumSet[r.AlbumID] = struct{}{}
+		}
+		if len(trackIDs) == 0 {
+			continue
+		}
+		if err := pluckInto(s.db.Model(&model.TrackArtist{}).Where("track_id IN ?", trackIDs), "artist_id", artistSet); err != nil {
+			return TouchedAggregates{}, fmt.Errorf("touched aggregates: track artists: %w", err)
+		}
+		if err := pluckInto(s.db.Model(&model.TrackGenre{}).Where("track_id IN ?", trackIDs), "genre_id", genreSet); err != nil {
+			return TouchedAggregates{}, fmt.Errorf("touched aggregates: track genres: %w", err)
+		}
+	}
+
+	albumIDs := sortedKeys(albumSet)
+	for i := 0; i < len(albumIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(albumIDs) {
+			end = len(albumIDs)
+		}
+		chunk := albumIDs[i:end]
+		if err := pluckInto(s.db.Model(&model.AlbumArtist{}).Where("album_id IN ?", chunk), "artist_id", artistSet); err != nil {
+			return TouchedAggregates{}, fmt.Errorf("touched aggregates: album artists: %w", err)
+		}
+		if err := pluckInto(s.db.Model(&model.AlbumGenre{}).Where("album_id IN ?", chunk), "genre_id", genreSet); err != nil {
+			return TouchedAggregates{}, fmt.Errorf("touched aggregates: album genres: %w", err)
+		}
+	}
+
+	return TouchedAggregates{
+		AlbumIDs:  albumIDs,
+		ArtistIDs: sortedKeys(artistSet),
+		GenreIDs:  sortedKeys(genreSet),
+	}, nil
+}
+
+// pluckInto reads a single uint column from tx and adds every value to set.
+func pluckInto(tx *gorm.DB, column string, set map[uint]struct{}) error {
+	var ids []uint
+	if err := tx.Distinct().Pluck(column, &ids).Error; err != nil {
+		return err
+	}
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return nil
+}
+
+// sortedKeys returns the map's keys ascending.
+func sortedKeys(set map[uint]struct{}) []uint {
+	out := make([]uint, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
