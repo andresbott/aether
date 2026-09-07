@@ -30,11 +30,11 @@ describe('Tasks API', () => {
         expect(res).toEqual([{ id: 'a' }])
     })
 
-    it('triggerTask posts to /tasks/{name}/trigger and returns the execution id', async () => {
-        post.mockResolvedValue({ data: { execution_id: 'xyz' } })
-        const id = await Tasks.triggerTask('scan')
+    it('triggerTask posts to /tasks/{name}/trigger and returns the result with the reused flag', async () => {
+        post.mockResolvedValue({ data: { execution_id: 'xyz', reused: true } })
+        const res = await Tasks.triggerTask('scan')
         expect(post).toHaveBeenCalledWith('/tasks/scan/trigger')
-        expect(id).toBe('xyz')
+        expect(res).toEqual({ execution_id: 'xyz', reused: true })
     })
 
     it('cancelExecution posts to /tasks/executions/{id}/cancel', async () => {

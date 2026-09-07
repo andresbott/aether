@@ -84,6 +84,15 @@ func (h *Handler) GetTask() http.Handler {
 	})
 }
 
+// TriggerTaskResult is the 202 body of TriggerTask. Reused is true when the
+// trigger coalesced onto an already waiting/running instance of a singleton
+// task (e.g. scan): ExecutionID then points at that in-flight run and nothing
+// new was enqueued.
+type TriggerTaskResult struct {
+	ExecutionID string `json:"execution_id"`
+	Reused      bool   `json:"reused"`
+}
+
 func (h *Handler) TriggerTask() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := mux.Vars(r)["name"]
@@ -91,7 +100,7 @@ func (h *Handler) TriggerTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		id, err := h.Runner.AddRun(name)
+		id, reused, err := h.Runner.AddRun(name)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
 				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")
@@ -103,7 +112,7 @@ func (h *Handler) TriggerTask() http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]string{"execution_id": id.String()})
+		_ = json.NewEncoder(w).Encode(TriggerTaskResult{ExecutionID: id.String(), Reused: reused})
 	})
 }
 

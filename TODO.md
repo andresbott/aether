@@ -53,7 +53,7 @@ Notes for editors:
   sink into `internal/taskrunner`, widen `Runner.RegisterTask`'s task-fn signature to pass the reporter
   (it is currently dropped as `_ tempo.Progress` in `runner.go`), thread it into `scanner.Scan`'s phase-2
   reconcile loop, and surface percent/ETA in the tasks UI (`ProgressState.Percent()` / `ETA(startedAt)`).
-- [ ] Make `scan` / `scan-full` singleton so duplicate triggers coalesce
+- [x] Make `scan` / `scan-full` singleton so duplicate triggers coalesce
   Both are registered with `MaxParallelism: 1`, which serializes runs but still lets duplicate triggers
   pile up as waiting. `tempo.WithSingleton()` keeps at most one instance queued — re-triggering while a
   scan is waiting or running returns the in-flight id (the new `coalesced` bool from `AddRaw` / `Enqueue`)

@@ -1886,7 +1886,11 @@ paths:
           schema: { type: string }
       responses:
         '202':
-          description: Enqueued; the run has not necessarily started yet.
+          description: >
+            Enqueued; the run has not necessarily started yet. For a singleton
+            task (`scan`/`scan-full`) already waiting or running, the trigger
+            coalesces instead: the response carries that in-flight run's id with
+            `reused: true` and nothing new is enqueued.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TriggerTaskResult' }
@@ -3773,8 +3777,18 @@ components:
         execution_id:
           type: string
           format: uuid
-          description: The newly-queued execution's id — pass to `cancelTaskExecution`/`getTaskExecutionLog`.
-      required: [execution_id]
+          description: >
+            The execution's id — pass to
+            `cancelTaskExecution`/`getTaskExecutionLog`. When `reused` is true
+            this is the already in-flight run's id, not a newly-queued one.
+        reused:
+          type: boolean
+          description: >
+            True when the trigger coalesced onto an instance of a singleton
+            task (`scan`/`scan-full`) that was already waiting or running:
+            nothing new was enqueued and `execution_id` points at that in-flight
+            run. Always false for non-singleton tasks.
+      required: [execution_id, reused]
 
     TaskExecution:
       type: object

@@ -26,11 +26,11 @@ export async function listExecutions(): Promise<ExecutionInfo[]> {
     return data.executions ?? []
 }
 
-export async function triggerTask(name: string): Promise<string> {
+export async function triggerTask(name: string): Promise<TriggerTaskResponse> {
     const { data } = await apiClient.post<TriggerTaskResponse>(
         `${TASKS_PATH}/${encodeURIComponent(name)}/trigger`
     )
-    return data.execution_id
+    return data
 }
 
 export async function cancelExecution(executionId: string): Promise<void> {

@@ -118,6 +118,19 @@ export function useTasks() {
         onMutate: (name: string) => {
             triggeringTaskId.value = name
         },
+        onSuccess: (result) => {
+            // Singleton tasks (scan/scan-full) coalesce: a trigger while one is
+            // already waiting/running enqueues nothing and returns the in-flight
+            // run. Tell the user rather than silently doing nothing.
+            if (result.reused) {
+                toast.add({
+                    severity: 'info',
+                    summary: 'Already in progress',
+                    detail: 'This task is already queued or running — showing the current run.',
+                    life: 4000
+                })
+            }
+        },
         onError: (error: Error) => {
             toast.add({ severity: 'error', summary: 'Task trigger failed', detail: error.message, life: 5000 })
         },

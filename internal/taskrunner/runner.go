@@ -102,13 +102,36 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 	return r.queue.ShutDown(ctx)
 }
 
-func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int) {
-	run := r.wrapTaskRun(name, fn)
-	var opts []tempo.TaskOption
-	if maxParallelism > 0 {
-		opts = append(opts, tempo.WithMaxParallelism(maxParallelism))
+// TaskOption configures a registered task.
+type TaskOption func(*taskOpts)
+
+type taskOpts struct {
+	singleton bool
+}
+
+// Singleton makes a task coalesce on trigger: while an instance of it is
+// already waiting or running, triggering it again returns the in-flight
+// execution's id instead of piling up a duplicate (see AddRun's reused return).
+// Use it for tasks where two concurrent runs would only fight each other, such
+// as the library scan.
+func Singleton() TaskOption {
+	return func(o *taskOpts) { o.singleton = true }
+}
+
+func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int, opts ...TaskOption) {
+	var o taskOpts
+	for _, opt := range opts {
+		opt(&o)
 	}
-	r.queue.RegisterRaw(name, run, opts...)
+	run := r.wrapTaskRun(name, fn)
+	var topts []tempo.TaskOption
+	if maxParallelism > 0 {
+		topts = append(topts, tempo.WithMaxParallelism(maxParallelism))
+	}
+	if o.singleton {
+		topts = append(topts, tempo.WithSingleton())
+	}
+	r.queue.RegisterRaw(name, run, topts...)
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 
@@ -129,12 +152,16 @@ func (r *Runner) wrapTaskRun(name string, fn func(ctx context.Context, log *slog
 	}
 }
 
-func (r *Runner) AddRun(name string) (uuid.UUID, error) {
-	id, _, err := r.queue.AddRaw(name, nil)
+// AddRun enqueues a run of the named task and returns its execution id. The
+// bool reports whether the trigger coalesced onto an already waiting/running
+// instance of a Singleton task — when true, the returned id is that in-flight
+// run's, and nothing new was enqueued.
+func (r *Runner) AddRun(name string) (uuid.UUID, bool, error) {
+	id, reused, err := r.queue.AddRaw(name, nil)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("enqueue task %q: %w", name, err)
+		return uuid.Nil, false, fmt.Errorf("enqueue task %q: %w", name, err)
 	}
-	return id, nil
+	return id, reused, nil
 }
 
 func (r *Runner) List() []tempo.TaskInfo {

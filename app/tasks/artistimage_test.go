@@ -87,7 +87,7 @@ func TestFetchTaskLogsFetchErrors(t *testing.T) {
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 
-	id, err := runner.AddRun("fetch")
+	id, _, err := runner.AddRun("fetch")
 	if err != nil {
 		t.Fatal(err)
 	}

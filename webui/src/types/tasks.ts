@@ -36,6 +36,9 @@ export interface ListExecutionsResponse {
 
 export interface TriggerTaskResponse {
     execution_id: string
+    // True when the trigger coalesced onto a singleton task (scan/scan-full)
+    // that was already waiting or running: execution_id is that in-flight run's.
+    reused: boolean
 }
 
 export interface UpsertTaskBody {

@@ -1,13 +1,16 @@
 package tasks
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/andresbott/aether/app/router/handlers/httperr"
+	apptasks "github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
@@ -227,5 +230,57 @@ func TestTriggerTaskQueueFull(t *testing.T) {
 	}
 	if body.Detail != "Task queue is full. Try again later." {
 		t.Errorf("detail = %q, want the queue-full message", body.Detail)
+	}
+}
+
+// A singleton task (scan) that is triggered again while already queued must
+// coalesce: the handler answers 202 with the in-flight execution id and
+// reused=true, rather than enqueuing a duplicate.
+func TestTriggerTaskSingletonCoalesces(t *testing.T) {
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+	// Registered Singleton but never Started, so the first run stays queued and
+	// the second trigger has an in-flight instance to coalesce onto.
+	runner.RegisterTask(func(context.Context, *slog.Logger) error { return nil }, apptasks.ScanTaskName, 1, taskrunner.Singleton())
+	h := &Handler{Runner: runner}
+
+	type triggerResp struct {
+		ExecutionID string `json:"execution_id"`
+		Reused      bool   `json:"reused"`
+	}
+	trigger := func() (int, triggerResp) {
+		req := httptest.NewRequest(http.MethodPost, "/tasks/"+apptasks.ScanTaskName+"/trigger", nil)
+		req = mux.SetURLVars(req, map[string]string{"name": apptasks.ScanTaskName})
+		rec := httptest.NewRecorder()
+		h.TriggerTask().ServeHTTP(rec, req)
+		var body triggerResp
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode trigger body: %s", rec.Body.String())
+		}
+		return rec.Code, body
+	}
+
+	code1, first := trigger()
+	if code1 != http.StatusAccepted {
+		t.Fatalf("first trigger status = %d, want 202", code1)
+	}
+	if first.ExecutionID == "" {
+		t.Fatal("first trigger must return an execution_id")
+	}
+	if first.Reused {
+		t.Fatal("first trigger must report reused=false")
+	}
+
+	code2, second := trigger()
+	if code2 != http.StatusAccepted {
+		t.Fatalf("second trigger status = %d, want 202", code2)
+	}
+	if !second.Reused {
+		t.Fatal("second trigger of a singleton task must report reused=true")
+	}
+	if second.ExecutionID != first.ExecutionID {
+		t.Fatalf("coalesced trigger execution_id = %q, want the in-flight id %q", second.ExecutionID, first.ExecutionID)
 	}
 }

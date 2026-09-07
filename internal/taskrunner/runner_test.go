@@ -41,7 +41,7 @@ func TestRunnerExecuteTask(t *testing.T) {
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 
-	id, err := runner.AddRun("test-task")
+	id, _, err := runner.AddRun("test-task")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRunnerExecutions(t *testing.T) {
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 
-	_, _ = runner.AddRun("test-task")
+	_, _, _ = runner.AddRun("test-task")
 	time.Sleep(200 * time.Millisecond)
 
 	execs := runner.Executions()
@@ -82,5 +82,60 @@ func TestRunnerExecutions(t *testing.T) {
 	}
 	if execs[0].Status != "complete" {
 		t.Fatalf("expected status complete, got %s", execs[0].Status)
+	}
+}
+
+func TestRunnerSingletonCoalesces(t *testing.T) {
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop := func(ctx context.Context, log *slog.Logger) error { return nil }
+	runner.RegisterTask(noop, "singleton-task", 1, taskrunner.Singleton())
+
+	// The runner is never Started, so the first run stays queued: a second
+	// trigger of a singleton task must coalesce onto it rather than pile up a
+	// duplicate.
+	id1, reused1, err := runner.AddRun("singleton-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused1 {
+		t.Fatal("first enqueue of a singleton task must not report reused")
+	}
+
+	id2, reused2, err := runner.AddRun("singleton-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reused2 {
+		t.Fatal("second enqueue of a singleton task must coalesce (reused=true)")
+	}
+	if id2 != id1 {
+		t.Fatalf("coalesced enqueue returned id %s, want the in-flight id %s", id2, id1)
+	}
+}
+
+func TestRunnerNonSingletonDoesNotCoalesce(t *testing.T) {
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	noop := func(ctx context.Context, log *slog.Logger) error { return nil }
+	runner.RegisterTask(noop, "plain-task", 1)
+
+	id1, reused1, err := runner.AddRun("plain-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id2, reused2, err := runner.AddRun("plain-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reused1 || reused2 {
+		t.Fatal("a non-singleton task must never report reused")
+	}
+	if id1 == id2 {
+		t.Fatal("non-singleton enqueues must get distinct execution ids")
 	}
 }
