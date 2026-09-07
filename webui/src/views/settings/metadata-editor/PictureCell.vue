@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import Button from 'primevue/button'
+import { useViewport } from '@/composables/useViewport'
 
 // PictureCell is the shared image card of the metadata editor: a square image on
 // the left with its edit controls ON the image (a hover/focus flip to
@@ -10,7 +12,7 @@ import Button from 'primevue/button'
 // It is presentational: it emits change/remove/undo and lets the parent decide
 // what each does. The parent also supplies the data-test ids, since the two call
 // sites name their cells differently.
-withDefaults(
+const props = withDefaults(
     defineProps<{
         // Thumbnail URL, or null for an empty cell (renders the add placeholder).
         image: string | null
@@ -54,12 +56,24 @@ defineEmits<{
     (e: 'remove'): void
     (e: 'undo'): void
 }>()
+
+// A coarse pointer has no hover, so the :hover / :focus-within reveal can never
+// bring up an occupied cell's controls. Tapping the tile flips it instead (a
+// second tap — or acting on a control — flips it back). Inert unless isTouch, so
+// mouse/keyboard keep the hover/focus reveal untouched; empty cells never flip
+// (their add button IS the tile, already tappable).
+const { isTouch } = useViewport()
+const flipped = ref(false)
+const onArtTap = (): void => {
+    if (!isTouch.value || !props.image) return
+    flipped.value = !flipped.value
+}
 </script>
 
 <template>
     <div class="picture-cell" :class="{ pending, removing }">
-        <div class="cell-art">
-            <!-- Occupied: the image, flipping on hover/focus to its controls. -->
+        <div class="cell-art" :class="{ flipped }" @click="onArtTap">
+            <!-- Occupied: the image, flipping on hover/focus/tap to its controls. -->
             <div v-if="image" class="cell-flip">
                 <div class="cell-face cell-front">
                     <img :src="image" class="cell-thumb" :alt="alt" />
@@ -162,10 +176,10 @@ defineEmits<{
     text-decoration: line-through;
 }
 
-/* --- The image tile, with a 3D flip to its controls on hover/focus. ---
+/* --- The image tile, with a 3D flip to its controls on hover/focus/tap. ---
    `backface-visibility` (not `display: none`) hides the control face, so its
    buttons stay tabbable — tabbing to one triggers :focus-within and flips the
-   tile into view. */
+   tile into view. Coarse pointers have no hover, so a tap adds `.flipped`. */
 .cell-art {
     flex: 0 0 auto;
     width: 9rem;
@@ -181,7 +195,8 @@ defineEmits<{
     transition: transform 0.4s;
 }
 .cell-art:hover .cell-flip,
-.cell-art:focus-within .cell-flip {
+.cell-art:focus-within .cell-flip,
+.cell-art.flipped .cell-flip {
     transform: rotateY(180deg);
 }
 .cell-face {

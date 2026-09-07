@@ -364,11 +364,17 @@ Notes for editors:
   from `onBeforeRouteLeave`, but there is no `onScopeDispose`/`onUnmounted(discardAll)`. Any teardown that
   bypasses the router guard (programmatic unmount, error boundary, HMR) leaks the staged previews. Add an
   `onScopeDispose(discardAll)`.
-- [ ] [LOW] PictureCell edit controls are hover/focus-only — unreachable by touch
+- [x] [LOW] PictureCell edit controls are hover/focus-only — unreachable by touch (fixed)
   `PictureCell.vue:183-186` — Change/Remove/Undo live on the back face of a CSS flip revealed by
   `:hover`/`:focus-within`. Keyboard works (buttons stay tabbable), but a touch tablet (stays on the
   desktop shell) has no hover and no tap handler to flip the tile, so an occupied cell's controls can't be
   reached by tapping. Add a tap-to-flip affordance on coarse pointers.
+  Fixed: PictureCell reads `useViewport().isTouch` and adds a `.flipped` class toggled by a tap on coarse
+  pointers (a second tap — or acting on a control — flips back); mouse/keyboard keep the hover/focus
+  reveal untouched, empty cells never flip. Fixes both call sites (pictures grid + artist image) since
+  they share the component; `HeroHeader` cover editing was unaffected (it flips on an explicit Edit
+  button, not hover). Covered by PictureCell.spec.ts and verified in a real browser under `(pointer:
+  coarse)` emulation.
 - [x] [NOTE] Investigated, NOT a bug: TanStack Query queryKey getters (cast tidied 6e4dd16)
   vue-code-reviewer flagged `useFolders`/`useTracks`/`useRawTags` passing getter functions in the
   `queryKey` array (`useMetadataEditor.ts:40-53,184-189`) as broken reactivity. Natalia verified it is
