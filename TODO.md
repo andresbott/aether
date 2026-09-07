@@ -266,7 +266,7 @@ Notes for editors:
   the mobile visual viewport, sliding the whole app under the URL bar (won't reproduce under DevTools
   emulation; the editor still renders on the mobile shell to phone tier). Fix: compute the row/node
   offset and `scrollTo` the known scroller, matching `QueueBody`'s current-row pattern.
-- [ ] [MED] EditPanel.vue is a 1168-line god component with a second source of truth for form state
+- [x] [MED] EditPanel.vue is a 1168-line god component with a second source of truth for form state (fixed 3b70545..135733a)
   Its ~250 lines of buffer/diff/stage logic (`values`, `placeholders`, `artistPairs`, `genresList`,
   `reset`, `stageScalar`, `undo*`, …) are a second source of truth alongside the session overlays, kept
   in sync only by `watch(() => props.selection, reset, {deep:true})`. That is why the view resorts to
@@ -289,7 +289,7 @@ Notes for editors:
   — the album-grouping warning ("filling Release ID for only some songs splits the album in two") is
   mouse-hover-only, unreachable by keyboard/AT. Fix: associate labels via `for`/`id`; move tooltip content
   onto focusable elements (`tabindex="0"` + `aria-label`).
-- [ ] [MED-LOW] TrackList uses a non-virtualized PrimeVue DataTable
+- [x] [MED-LOW] TrackList uses a non-virtualized PrimeVue DataTable (fixed de9c9ff)
   `TrackList.vue:226-255` — the `DataTable` has no `scrollable`/`virtualScroll`; `listTracks(folder)` for a
   large flat folder (hundreds–thousands of files) renders one `<tr>` per track, and the selection logic
   (`rangeBetween`, `dedupe`, `findIndex` per toggle) is O(n) per interaction. The rest of the app routes
