@@ -681,6 +681,9 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     interface SavePicturesOutcome {
         ok: boolean
         rescanFailure: string | null
+        // Whether any op reached disk. save() owns the one post-write cache
+        // invalidation, so each step reports whether it wrote.
+        wrote: boolean
     }
 
     // savePictures persists all staged picture ops. ok is false to abort the
@@ -688,12 +691,12 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // A failed re-index is not a write failure — the image is on disk — so it
     // does not abort; it is reported alongside the tag batches' failures, with
     // the same "last failure wins, never cleared by a later success" rule
-    // save() uses. The mutations run quiet, so this loop owns the cache
-    // invalidation: one call after the whole loop, never one per op mid-write.
+    // save() uses. The mutations run quiet; cache invalidation is save()'s job —
+    // one call after every step — so this only reports whether it wrote.
     async function savePictures(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: pictures.value.size === 0, rescanFailure: null }
+            return { ok: pictures.value.size === 0, rescanFailure: null, wrote: false }
         }
         let wrote = false
         let rescanFailure: string | null = null
@@ -730,31 +733,26 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         slots.delete(slot)
                         wrote = true
                     } catch {
-                        if (wrote) {
-                            picturesSavedAt.value = Date.now()
-                            invalidateAfterMetadataWrite(qc)
-                        }
-                        return { ok: false, rescanFailure }
+                        if (wrote) picturesSavedAt.value = Date.now()
+                        return { ok: false, rescanFailure, wrote }
                     }
                 }
             }
             prunePictureEntry(key)
         }
-        if (wrote) {
-            picturesSavedAt.value = Date.now()
-            invalidateAfterMetadataWrite(qc)
-        }
-        return { ok: true, rescanFailure }
+        if (wrote) picturesSavedAt.value = Date.now()
+        return { ok: true, rescanFailure, wrote }
     }
 
     // saveArtistImages persists staged artist-folder image ops (writes and
     // removals). Mirrors savePictures: a failed write aborts (ok=false), a failed
-    // re-index is reported but not fatal (the file is on disk). Invalidates the
-    // music caches on success, since the artist's served cover may now differ.
+    // re-index is reported but not fatal (the file is on disk). Reports whether it
+    // wrote so save() invalidates the music caches once, since the artist's served
+    // cover may now differ.
     async function saveArtistImages(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: artistImages.value.size === 0, rescanFailure: null }
+            return { ok: artistImages.value.size === 0, rescanFailure: null, wrote: false }
         }
         let wrote = false
         let rescanFailure: string | null = null
@@ -792,18 +790,12 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     detail: apiErrorMessage(err),
                     life: 8000
                 })
-                if (wrote) {
-                    picturesSavedAt.value = Date.now()
-                    invalidateAfterMetadataWrite(qc)
-                }
-                return { ok: false, rescanFailure }
+                if (wrote) picturesSavedAt.value = Date.now()
+                return { ok: false, rescanFailure, wrote }
             }
         }
-        if (wrote) {
-            picturesSavedAt.value = Date.now()
-            invalidateAfterMetadataWrite(qc)
-        }
-        return { ok: true, rescanFailure }
+        if (wrote) picturesSavedAt.value = Date.now()
+        return { ok: true, rescanFailure, wrote }
     }
 
     // reportRescanFailure warns that the write landed on disk but the library
@@ -842,8 +834,13 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         const lib = libraryId()
         if (isSaving.value || lib === null) return
         isSaving.value = true
+        // save() owns the single post-write cache invalidation: each write path
+        // below flips this, and the finally invalidates once — instead of
+        // savePictures / saveArtistImages / the tag loop each firing their own.
+        let wrote = false
         try {
             const pics = await savePictures()
+            wrote = wrote || pics.wrote
             // The picture writes carry their own re-index report. Seed the
             // session's failure with it so it is not lost on either exit path
             // below: the images are on disk regardless, only the index lags.
@@ -855,6 +852,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             }
 
             const arts = await saveArtistImages()
+            wrote = wrote || arts.wrote
             if (arts.rescanFailure) rescanFailure = arts.rescanFailure
             if (!arts.ok) {
                 reportRescanFailure(rescanFailure)
@@ -900,7 +898,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             for (const r of results) {
                 if (r.ok) overlays.value.delete(r.path)
             }
-            invalidateAfterMetadataWrite(qc)
+            // Reached only with tag batches to write; mark so the finally invalidates.
+            wrote = true
 
             reportRescanFailure(rescanFailure)
             if (albumMoved !== null) {
@@ -940,6 +939,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 })
             }
         } finally {
+            if (wrote) invalidateAfterMetadataWrite(qc)
             isSaving.value = false
         }
     }

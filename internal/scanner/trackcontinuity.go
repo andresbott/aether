@@ -2,6 +2,7 @@
 package scanner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -34,7 +35,8 @@ type relinkPass struct {
 	rowKeyOf func(store.TrackRow) string
 	// rowsFor fetches the rows that could match these files. Each pass queries
 	// a different column, which is why this is a callback and not a key list.
-	rowsFor func([]tagResult) ([]store.TrackRow, error)
+	// ctx carries the scan's cancellation into the query.
+	rowsFor func(context.Context, []tagResult) ([]store.TrackRow, error)
 }
 
 // planTrackContinuity re-points track rows at the path their file moved to, so a
@@ -75,7 +77,7 @@ type relinkPass struct {
 // hashes every file and arms it. Also: two files swapping paths (neither old
 // path is gone), and a move straddling two scan runs (Cleanup already deleted
 // the row).
-func (s *Scanner) planTrackContinuity(results []tagResult) error {
+func (s *Scanner) planTrackContinuity(ctx context.Context, results []tagResult) error {
 	if len(results) == 0 {
 		logTrackContinuity(0, 0, 0)
 		return nil
@@ -84,7 +86,7 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 	for _, tr := range results {
 		paths = append(paths, tr.walk.FilePath)
 	}
-	known, err := s.store.KnownTrackPaths(paths)
+	known, err := s.store.KnownTrackPaths(ctx, paths)
 	if err != nil {
 		return err
 	}
@@ -112,7 +114,7 @@ func (s *Scanner) planTrackContinuity(results []tagResult) error {
 	relinked := 0
 	vanishedIDs := map[uint]bool{} // by id, so a row both passes consider is counted once
 	for _, pass := range s.relinkPasses() {
-		got, vanished, consumed, err := s.runRelinkPass(pass, candidates, inBatch)
+		got, vanished, consumed, err := s.runRelinkPass(ctx, pass, candidates, inBatch)
 		relinked += got
 		for id := range vanished {
 			vanishedIDs[id] = true
@@ -150,19 +152,19 @@ func (s *Scanner) relinkPasses() []relinkPass {
 			name:     "size+title",
 			keyOf:    func(tr tagResult) string { return sizeTitleKey(tr.walk.FileSize, tr.meta.Title) },
 			rowKeyOf: func(r store.TrackRow) string { return sizeTitleKey(r.FileSize, r.Title) },
-			rowsFor: func(files []tagResult) ([]store.TrackRow, error) {
+			rowsFor: func(ctx context.Context, files []tagResult) ([]store.TrackRow, error) {
 				sizes := map[int64]bool{}
 				for _, tr := range files {
 					sizes[tr.walk.FileSize] = true
 				}
-				return s.store.TracksByFileSizes(sortedSizes(sizes))
+				return s.store.TracksByFileSizes(ctx, sortedSizes(sizes))
 			},
 		},
 		{
 			name:     "audiohash",
 			keyOf:    func(tr tagResult) string { return tr.audioHash },
 			rowKeyOf: func(r store.TrackRow) string { return r.AudioHash },
-			rowsFor: func(files []tagResult) ([]store.TrackRow, error) {
+			rowsFor: func(ctx context.Context, files []tagResult) ([]store.TrackRow, error) {
 				hashes := map[string]bool{}
 				for _, tr := range files {
 					if tr.audioHash != "" {
@@ -172,7 +174,7 @@ func (s *Scanner) relinkPasses() []relinkPass {
 				if len(hashes) == 0 {
 					return nil, nil // nothing in this batch is hashable
 				}
-				return s.store.TracksByAudioHashes(sortedStrings(hashes))
+				return s.store.TracksByAudioHashes(ctx, sortedStrings(hashes))
 			},
 		},
 	}
@@ -183,7 +185,7 @@ func (s *Scanner) relinkPasses() []relinkPass {
 // re-links every bucket that resolves to exactly one pair. It reports the rows
 // it considered doomed and the paths it claimed, so the caller can keep an
 // honest count and withdraw claimed files from later passes.
-func (s *Scanner) runRelinkPass(p relinkPass, files []tagResult, inBatch map[string]bool) (int, map[uint]bool, map[string]bool, error) {
+func (s *Scanner) runRelinkPass(ctx context.Context, p relinkPass, files []tagResult, inBatch map[string]bool) (int, map[uint]bool, map[string]bool, error) {
 	consumed := map[string]bool{}
 	vanishedIDs := map[uint]bool{}
 
@@ -197,7 +199,7 @@ func (s *Scanner) runRelinkPass(p relinkPass, files []tagResult, inBatch map[str
 		return 0, vanishedIDs, consumed, nil
 	}
 
-	rows, err := p.rowsFor(files)
+	rows, err := p.rowsFor(ctx, files)
 	if err != nil {
 		return 0, vanishedIDs, consumed, err
 	}
@@ -229,7 +231,7 @@ func (s *Scanner) runRelinkPass(p relinkPass, files []tagResult, inBatch map[str
 		if !durationsAgree(row.Duration, int(tr.meta.Duration.Seconds())) {
 			continue
 		}
-		done, err := s.store.RelinkTrack(row.ID, row.FilePath, tr.walk.FilePath, tr.walk.LibraryID)
+		done, err := s.store.RelinkTrack(ctx, row.ID, row.FilePath, tr.walk.FilePath, tr.walk.LibraryID)
 		if err != nil {
 			if store.IsUniqueViolation(err) {
 				continue // a concurrent pass got there first

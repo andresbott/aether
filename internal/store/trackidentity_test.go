@@ -1,6 +1,7 @@
 package store_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -33,7 +34,7 @@ func TestKnownTrackPaths(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	seedIdentityTrack(t, s, album.ID, "/music/a.mp3", 4, mod, "A")
 
-	known, err := s.KnownTrackPaths([]string{"/music/a.mp3", "/music/b.mp3"})
+	known, err := s.KnownTrackPaths(context.Background(), []string{"/music/a.mp3", "/music/b.mp3"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestTracksByFileSizes(t *testing.T) {
 	want := seedIdentityTrack(t, s, album.ID, "/music/a.mp3", 4, mod, "A")
 	seedIdentityTrack(t, s, album.ID, "/music/b.mp3", 99, mod, "B")
 
-	rows, err := s.TracksByFileSizes([]int64{4})
+	rows, err := s.TracksByFileSizes(context.Background(), []int64{4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestRelinkTrackKeepsTheRow(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/old/a.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(track.ID, "/music/old/a.mp3", "/music/new/b.mp3", 7)
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/old/a.mp3", "/music/new/b.mp3", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestRelinkTrackReportsNoChangeWhenThePathMoved(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/current.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(track.ID, "/music/stale.mp3", "/music/new.mp3", 1)
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/stale.mp3", "/music/new.mp3", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestTracksByAudioHashes(t *testing.T) {
 	// libs/audiohash cannot read. It must stay invisible to this lookup.
 	seedIdentityTrack(t, s, album.ID, "/music/c.mp3", 4, mod, "C")
 
-	rows, err := s.TracksByAudioHashes([]string{"fnv1a64:aaaa", "fnv1a64:zzzz"})
+	rows, err := s.TracksByAudioHashes(context.Background(), []string{"fnv1a64:aaaa", "fnv1a64:zzzz"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +163,7 @@ func TestTracksByAudioHashes(t *testing.T) {
 	}
 
 	// An empty key must never match the rows that have no hash.
-	none, err := s.TracksByAudioHashes([]string{""})
+	none, err := s.TracksByAudioHashes(context.Background(), []string{""})
 	if err != nil {
 		t.Fatal(err)
 	}

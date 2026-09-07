@@ -42,7 +42,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	// the old behaviour (delete plus insert, and the user-authored rows go with
 	// it), which is worse than a re-link but better than a failed scan.
 	if ctx.Err() == nil {
-		if err := s.planTrackContinuity(results); err != nil {
+		if err := s.planTrackContinuity(ctx, results); err != nil {
 			slog.Warn("track continuity planning failed; moved files lose playlists, history and stars", "err", err)
 		}
 	}
