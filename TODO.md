@@ -59,12 +59,6 @@ Notes for editors:
   scan is waiting or running returns the in-flight id (the new `coalesced` bool from `AddRaw` / `Enqueue`)
   instead of enqueuing another. Thread a per-task option through `Runner.RegisterTask` and set it for the
   scan tasks; decide what the enqueue endpoint reports when a trigger coalesces.
-- [ ] Replace the go-quartz scheduler with tempo's built-in `schedule` package
-  v0.4.0 ships `tempo/schedule` (cron on 5-field Unix or 6-field Quartz expressions, persisted, editable at
-  runtime; `*tempo.QueueRunner` satisfies its `Enqueuer` directly) plus `dbschedule` for gorm persistence —
-  overlapping `internal/taskrunner`'s current `reugn/go-quartz`-based scheduler and `NewScheduleStore`.
-  Evaluate folding onto tempo's scheduler to drop the separate go-quartz dependency; confirm `ValidateCron`
-  / `NormalizeCron` cover what the schedule UI expects.
 - [ ] Adopt typed task params instead of name-only enqueue
   v0.4.0 tasks can carry a JSON payload: `tempo.Register[T]` / `Enqueue[T]` (typed) or `RegisterRaw` /
   `AddRaw(name, []byte)` (raw). The wrapper now enqueues by name only (`AddRaw(name, nil)`) and encodes scan

@@ -229,6 +229,8 @@ func (h *Handler) PatchTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
+		// Pre-check existence first so a task with no schedule answers 404 before
+		// an invalid cron below could answer 400 (404-before-400 precedence).
 		if _, err := h.Schedules.GetByTaskName(r.Context(), name); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
 				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)

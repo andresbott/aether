@@ -3,6 +3,7 @@ package taskrunner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -77,7 +78,7 @@ func NewScheduler(cfg SchedulerCfg) (*Scheduler, error) {
 	}
 	store, err := dbschedule.New(cfg.DB)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("schedule store: %w", err)
 	}
 	s, err := schedule.New(schedule.Cfg{
 		Store:    store,
@@ -85,7 +86,7 @@ func NewScheduler(cfg SchedulerCfg) (*Scheduler, error) {
 		Logger:   cfg.Logger,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scheduler: %w", err)
 	}
 	return &Scheduler{sched: s}, nil
 }
