@@ -170,20 +170,25 @@ func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) err
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 
+// runWithLog runs a task body between the wrapper's start/finish/fail log
+// lines, shared by the raw (RegisterTask) and typed (Register) paths.
+func (r *Runner) runWithLog(_ context.Context, name string, call func() error) error {
+	r.logger.Info("task started", slog.String("component", "taskrunner"), slog.String("task", name))
+	if err := call(); err != nil {
+		r.logger.Error("task failed", slog.String("component", "taskrunner"), slog.String("task", name), slog.String("error", err.Error()))
+		return err
+	}
+	r.logger.Info("task finished", slog.String("component", "taskrunner"), slog.String("task", name))
+	return nil
+}
+
 // wrapTaskRun adapts a task function to tempo's handler signature. tempo hands
 // the task a *slog.Logger whose lines are routed to the configured LogSink
 // (tagged with the execution id); we pass it straight through to fn. The
 // progress reporter and raw params payload are unused for now.
 func (r *Runner) wrapTaskRun(name string, fn func(ctx context.Context, log *slog.Logger) error) func(ctx context.Context, log *slog.Logger, _ tempo.Progress, _ []byte) error {
 	return func(ctx context.Context, log *slog.Logger, _ tempo.Progress, _ []byte) error {
-		r.logger.Info("task started", slog.String("component", "taskrunner"), slog.String("task", name))
-		err := fn(ctx, log)
-		if err != nil {
-			r.logger.Error("task failed", slog.String("component", "taskrunner"), slog.String("task", name), slog.String("error", err.Error()))
-			return err
-		}
-		r.logger.Info("task finished", slog.String("component", "taskrunner"), slog.String("task", name))
-		return nil
+		return r.runWithLog(ctx, name, func() error { return fn(ctx, log) })
 	}
 }
 
@@ -253,4 +258,36 @@ func (r *Runner) Cancel(ctx context.Context, id uuid.UUID) error {
 	}
 	r.logger.Info("task canceled", slog.String("component", "taskrunner"), slog.String("id", id.String()))
 	return nil
+}
+
+// Register adds a typed task: tempo JSON-decodes the enqueued params into T
+// before fn runs (an empty payload yields a zero-value T). It preserves the
+// same start/finish/fail logging as RegisterTask. Package-level rather than a
+// method because Go methods cannot have type parameters.
+func Register[T any](r *Runner, fn func(ctx context.Context, log *slog.Logger, params T) error, name string, maxParallelism int, opts ...TaskOption) {
+	var o taskOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	var topts []tempo.TaskOption
+	if maxParallelism > 0 {
+		topts = append(topts, tempo.WithMaxParallelism(maxParallelism))
+	}
+	if o.singleton {
+		topts = append(topts, tempo.WithSingleton())
+	}
+	tempo.Register[T](r.queue, name, func(ctx context.Context, log *slog.Logger, _ tempo.Progress, p T) error {
+		return r.runWithLog(ctx, name, func() error { return fn(ctx, log, p) })
+	}, topts...)
+	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
+}
+
+// Enqueue enqueues a run of a typed task with JSON-encoded params, returning the
+// execution id and whether it coalesced onto an in-flight singleton instance.
+func Enqueue[T any](r *Runner, name string, params T) (uuid.UUID, bool, error) {
+	id, reused, err := tempo.Enqueue[T](r.queue, name, params)
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("enqueue task %q: %w", name, err)
+	}
+	return id, reused, nil
 }
