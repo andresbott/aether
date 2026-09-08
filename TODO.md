@@ -71,14 +71,14 @@ Notes for editors:
     enqueue is param-less) but must land before typed params, or a crash mid-queue silently drops a
     recovered task's payload. Add a `params` column to `dbTaskExecution` and round-trip it in `SaveTask` /
     `List`.
-- [ ] Implement tempo's log reader/cleaner interfaces on `FileTaskLogSink`
-  v0.4.0 splits optional sink behaviour into `TaskLogReader` (`Logs`) and `TaskLogCleaner` (`RemoveTasks` /
-  `RetainOnly`). Steady-state removal already works (our `TaskExecutionStore.RemoveTasks` calls the file
-  cleaner), but the runner's startup orphaned-log sweep (`RetainOnly`) and its own reap path only fire on a
-  sink that implements tempo's `TaskLogCleaner` — `FileTaskLogSink` exposes `RemoveTaskLogs`, a different
-  project-local interface. Implement tempo's `TaskLogReader` / `TaskLogCleaner` on it (adapt
-  `RemoveTaskLogs` → `RemoveTasks`, add `RetainOnly`, and optionally `Logs` to unify with
-  `NewFileTaskLogReader`).
+- [x] Implement tempo's log reader/cleaner interfaces on task logs — DONE
+  Adopted tempo v0.4.0's `filelog.Store` (JSON-Lines, striped locks) as the task-log sink/reader/cleaner,
+  replacing the bespoke `FileTaskLogSink` + `FileTaskLogReader`. The tempo runner now drives the startup
+  orphan sweep (`RetainOnly`) and on-trim reap (`RemoveTasks`); `TaskExecutionStore` no longer cleans
+  log files. Logs are read back via `Runner.GetTaskLog`, which formats `[]tempo.LogEntry` to the prior
+  text/plain lines. One-time: wipe `<DataDir>/task-logs` — format changed `.log` → `.jsonl`.
+- [ ] verify impl
+  ask: are we using the same scan with parameters for short and long scan
 
 ### Backend — API Surface
 
