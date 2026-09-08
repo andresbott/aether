@@ -29,9 +29,12 @@ type Cfg struct {
 	HistorySize int
 	Logger      *slog.Logger
 	DB          *gorm.DB
-	LogSink     tempo.TaskLogSink
-	LogLevel    slog.Level
-	LogDir      string
+	// LogSink is used as the task log sink when LogDir is empty; ignored otherwise.
+	LogSink  tempo.TaskLogSink
+	LogLevel slog.Level
+	// LogDir, if set, takes precedence over LogSink: NewRunner builds a
+	// filelog.Store rooted here and any injected LogSink is ignored.
+	LogDir string
 }
 
 // TaskLogGetter reads back a task execution's log as plain text; the tasks HTTP

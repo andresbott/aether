@@ -13,6 +13,7 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/tempo"
 	"github.com/go-bumbu/tempo/dbschedule"
+	"github.com/go-bumbu/tempo/filelog"
 	"github.com/go-bumbu/tempo/schedule"
 	"github.com/google/uuid"
 )
@@ -199,5 +200,72 @@ func TestRunnerStartupSweepsOrphanLogs(t *testing.T) {
 	}
 	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
 		t.Fatalf("expected orphan log swept at startup, stat err = %v", err)
+	}
+}
+
+func TestRunnerGetTaskLogFilelogRoundTrip(t *testing.T) {
+	// Unlike TestRunnerGetTaskLog's MemTaskLogSink, a real filelog.Store exercises
+	// the on-disk JSON round-trip: local time.Now() -> JSON .jsonl -> UTC RFC3339Nano.
+	store, err := filelog.New(filelog.Config{Dir: t.TempDir(), DirPerm: 0o750})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{Parallelism: 1, QueueSize: 5, LogSink: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Append only after NewRunner returns: construction runs tempo's startup
+	// RetainOnly sweep over the store, and with no DB (MemPersistence recovers
+	// nothing) it would delete any pre-existing files.
+	ctx := context.Background()
+	id := uuid.New()
+	if err := store.Append(ctx, id, "INFO", "hello world"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Append(ctx, id, "ERROR", "boom"); err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := runner.GetTaskLog(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 log lines, got %d: %q", len(lines), text)
+	}
+
+	wantLevels := []string{"INFO", "ERROR"}
+	wantMessages := []string{"hello world", "boom"}
+	for i, line := range lines {
+		parts := strings.SplitN(line, " ", 3)
+		if len(parts) != 3 {
+			t.Fatalf("line %d: expected 3 space-separated fields, got %d: %q", i, len(parts), line)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, parts[0]); err != nil {
+			t.Fatalf("line %d: timestamp %q did not parse as RFC3339Nano: %v", i, parts[0], err)
+		}
+		if parts[1] != wantLevels[i] {
+			t.Fatalf("line %d: level = %q, want %q", i, parts[1], wantLevels[i])
+		}
+		if parts[2] != wantMessages[i] {
+			t.Fatalf("line %d: message = %q, want %q", i, parts[2], wantMessages[i])
+		}
+	}
+
+	// Unknown id -> empty, no error.
+	empty, err := runner.GetTaskLog(ctx, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty != "" {
+		t.Fatalf("expected empty for unknown id, got %q", empty)
 	}
 }
