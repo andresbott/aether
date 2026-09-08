@@ -1,19 +1,34 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref, computed } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
 const triggerTask = vi.fn()
+const createSchedule = vi.fn()
+const patchSchedule = vi.fn()
+const deleteSchedule = vi.fn()
+
+// Mutated per-test (before mounting) to exercise different schedule shapes;
+// reset to this single unscheduled task in beforeEach.
+let tasksFixture: unknown[] = [
+    {
+        id: 'scan',
+        name: 'Library Scan',
+        description: 'desc',
+        schedules: [],
+        lastExecution: null,
+        lastExecutionStatus: 'complete'
+    }
+]
+
 vi.mock('@/composables/useTasks', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/composables/useTasks')>()
     return {
         ...actual,
         useTasks: () => ({
-            tasks: computed(() => [
-                { id: 'scan', name: 'Library Scan', description: 'desc', schedule: null, lastExecution: null, lastExecutionStatus: 'complete' }
-            ]),
+            tasks: computed(() => tasksFixture),
             executions: computed(() => [
                 { id: 'a', task_name: 'scan', status: 'complete', queued_at: '2026-01-01T09:00:00Z', ended_at: '2026-01-01T09:00:02Z' }
             ]),
@@ -23,9 +38,9 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
             triggerTask,
             cancelTaskExecution: vi.fn(),
             cancelMutation: { isPending: ref(false) },
-            upsertTask: vi.fn(),
-            patchTask: vi.fn(),
-            deleteTaskSchedule: vi.fn(),
+            createSchedule,
+            patchSchedule,
+            deleteSchedule,
             getStatusSeverity: actual.getStatusSeverity,
             getStatusLabel: actual.getStatusLabel,
             getExecutionLog: vi.fn()
@@ -34,15 +49,55 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
 })
 
 import TasksView from '@/views/settings/TasksView.vue'
+import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
+
+// A minimal stand-in for PrimeVue's SplitButton: a primary button forwarding
+// the real click event (so the template's `.stop` modifier has an Event to
+// call stopPropagation on, matching how the real component forwards it) plus
+// one button per menu item invoking that item's `command`.
+const splitButtonStub = {
+    props: ['label', 'icon', 'model', 'loading', 'disabled'],
+    template: `<div class="split-button-stub">
+        <button type="button" :disabled="disabled" @click="$emit('click', $event)">{{ label }}</button>
+        <button
+            v-for="item in model"
+            :key="item.label"
+            type="button"
+            @click="item.command && item.command()"
+        >{{ item.label }}</button>
+    </div>`
+}
 
 const mountView = () =>
     mount(TasksView, {
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: {} },
-            stubs: { ExecutionHistory: true, LogViewer: true, ScheduleDialog: true }
+            stubs: {
+                ExecutionHistory: true,
+                LogViewer: true,
+                ScheduleDialog: true,
+                SplitButton: splitButtonStub
+            }
         }
     })
+
+beforeEach(() => {
+    triggerTask.mockReset()
+    createSchedule.mockReset()
+    patchSchedule.mockReset()
+    deleteSchedule.mockReset()
+    tasksFixture = [
+        {
+            id: 'scan',
+            name: 'Library Scan',
+            description: 'desc',
+            schedules: [],
+            lastExecution: null,
+            lastExecutionStatus: 'complete'
+        }
+    ]
+})
 
 describe('TasksView', () => {
     it('renders Tasks and Queue tabs', () => {
@@ -51,11 +106,95 @@ describe('TasksView', () => {
         expect(w.text()).toContain('Queue')
     })
 
-    it('lists the task and triggers a run when Run is clicked', async () => {
+    it('lists the task and triggers a plain run when Run is clicked', async () => {
         const w = mountView()
         expect(w.text()).toContain('Library Scan')
         const runBtn = w.findAll('button').find((b) => b.text().includes('Run'))!
         await runBtn.trigger('click')
-        expect(triggerTask).toHaveBeenCalled()
+        expect(triggerTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'scan' }))
+    })
+
+    it('shows "Not scheduled" when a task has no schedules', () => {
+        const w = mountView()
+        expect(w.text()).toContain('Not scheduled')
+    })
+
+    it('summarizes multiple schedules in the Schedule column', () => {
+        tasksFixture = [
+            {
+                id: 'scan',
+                name: 'Library Scan',
+                description: 'desc',
+                schedules: [
+                    {
+                        id: 's1',
+                        task_name: 'scan',
+                        cron_expression: '0 0 0 * * *',
+                        enabled: true,
+                        created_at: '',
+                        updated_at: ''
+                    },
+                    {
+                        id: 's2',
+                        task_name: 'scan',
+                        cron_expression: '0 0 0 * * 1',
+                        enabled: true,
+                        created_at: '',
+                        updated_at: ''
+                    }
+                ],
+                lastExecution: null,
+                lastExecutionStatus: 'complete'
+            }
+        ]
+        const w = mountView()
+        expect(w.text()).toContain('2 schedules')
+    })
+
+    it('exposes a full-scan run action on the scan row that triggers with { full: true }', async () => {
+        const w = mountView()
+        const fullScanBtn = w.findAll('button').find((b) => b.text().includes('Full scan'))!
+        await fullScanBtn.trigger('click')
+        expect(triggerTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'scan' }), { full: true })
+    })
+
+    it('does not render a full-scan action for a non-scan task', () => {
+        tasksFixture = [
+            {
+                id: 'fetch-artist-images',
+                name: 'Fetch artist images',
+                description: '',
+                schedules: [],
+                lastExecution: null,
+                lastExecutionStatus: null
+            }
+        ]
+        const w = mountView()
+        expect(w.findAll('button').some((b) => b.text().includes('Full scan'))).toBe(false)
+    })
+
+    it('calls createSchedule with the task id when the dialog emits create', async () => {
+        const w = mountView()
+        await w.find('[aria-label="Schedule"]').trigger('click')
+        const body = { cron_expression: '0 0 0 * * *', enabled: true, params: { full: false } }
+        w.findComponent(ScheduleDialog).vm.$emit('create', body)
+        await flushPromises()
+        expect(createSchedule).toHaveBeenCalledWith('scan', body)
+    })
+
+    it('calls patchSchedule with the task id and schedule id when the dialog emits patch', async () => {
+        const w = mountView()
+        await w.find('[aria-label="Schedule"]').trigger('click')
+        w.findComponent(ScheduleDialog).vm.$emit('patch', { id: 's1', body: { enabled: false } })
+        await flushPromises()
+        expect(patchSchedule).toHaveBeenCalledWith('scan', 's1', { enabled: false })
+    })
+
+    it('calls deleteSchedule with the task id and schedule id when the dialog emits remove', async () => {
+        const w = mountView()
+        await w.find('[aria-label="Schedule"]').trigger('click')
+        w.findComponent(ScheduleDialog).vm.$emit('remove', 's1')
+        await flushPromises()
+        expect(deleteSchedule).toHaveBeenCalledWith('scan', 's1')
     })
 })

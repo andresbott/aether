@@ -37,8 +37,8 @@ describe('status helpers', () => {
 describe('deriveTasksWithLastExecution', () => {
     it('attaches the newest execution status per task', () => {
         const tasks: TaskWithSchedule[] = [
-            { id: 'scan', name: 'Scan', description: '' },
-            { id: 'scan-full', name: 'Full', description: '' }
+            { id: 'scan', name: 'Scan', description: '', schedules: [] },
+            { id: 'scan-full', name: 'Full', description: '', schedules: [] }
         ]
         const execs: ExecutionInfo[] = [
             { id: '1', task_name: 'scan', status: 'complete', queued_at: '2026-01-01T10:00:00Z', ended_at: '' },

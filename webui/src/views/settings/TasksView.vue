@@ -8,6 +8,7 @@ import TabPanel from 'primevue/tabpanel'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
+import SplitButton from 'primevue/splitbutton'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
@@ -15,7 +16,7 @@ import LogViewer from '@/components/admin/LogViewer.vue'
 import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
 import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS } from '@/composables/useTasks'
 import type { Task } from '@/composables/useTasks'
-import type { ExecutionInfo } from '@/types/tasks'
+import type { ExecutionInfo, CreateScheduleBody, PatchScheduleBody } from '@/types/tasks'
 import { useViewport } from '@/composables/useViewport'
 
 const toast = useToast()
@@ -30,9 +31,9 @@ const {
     triggerTask,
     cancelTaskExecution,
     cancelMutation,
-    upsertTask,
-    patchTask,
-    deleteTaskSchedule
+    createSchedule,
+    patchSchedule,
+    deleteSchedule
 } = useTasks()
 
 const isTaskRunning = (task: Task): boolean =>
@@ -40,12 +41,22 @@ const isTaskRunning = (task: Task): boolean =>
     task.lastExecutionStatus === EXECUTION_STATUS.running
 
 const scheduleSummary = (task: Task): string => {
-    if (!task.schedule) return 'Not scheduled'
-    const cron = task.schedule.cron_expression
-    const preset = SCHEDULE_PRESETS.find((p) => p.cron === cron)
-    const label = preset ? preset.label : cron
-    return task.schedule.enabled ? label : `${label} (paused)`
+    const list = task.schedules ?? []
+    if (list.length === 0) return 'Not scheduled'
+    if (list.length === 1) {
+        const s = list[0]
+        const label = SCHEDULE_PRESETS.find((p) => p.cron === s.cron_expression)?.label ?? s.cron_expression
+        return s.enabled ? label : `${label} (paused)`
+    }
+    return `${list.length} schedules`
 }
+
+const fullScanMenuItems = (task: Task) => [
+    {
+        label: 'Full scan',
+        command: () => triggerTask(task, { full: true })
+    }
+]
 
 // Schedule dialog
 const scheduleDialogVisible = ref(false)
@@ -57,14 +68,12 @@ const openSchedule = (task: Task) => {
     scheduleDialogVisible.value = true
 }
 
-const onScheduleSave = async (payload: { cron_expression: string; enabled: boolean }) => {
+const onScheduleCreate = async (body: CreateScheduleBody) => {
     const task = scheduleDialogTask.value
     if (!task) return
     scheduleSaving.value = true
     try {
-        if (task.schedule) await patchTask(task.id, payload)
-        else await upsertTask(task.id, payload)
-        scheduleDialogVisible.value = false
+        await createSchedule(task.id, body)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -72,13 +81,25 @@ const onScheduleSave = async (payload: { cron_expression: string; enabled: boole
     }
 }
 
-const onScheduleRemove = async () => {
+const onSchedulePatch = async (payload: { id: string; body: PatchScheduleBody }) => {
     const task = scheduleDialogTask.value
-    if (!task?.schedule) return
+    if (!task) return
     scheduleSaving.value = true
     try {
-        await deleteTaskSchedule(task.id)
-        scheduleDialogVisible.value = false
+        await patchSchedule(task.id, payload.id, payload.body)
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
+    } finally {
+        scheduleSaving.value = false
+    }
+}
+
+const onScheduleRemove = async (id: string) => {
+    const task = scheduleDialogTask.value
+    if (!task) return
+    scheduleSaving.value = true
+    try {
+        await deleteSchedule(task.id, id)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to remove schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -153,14 +174,25 @@ const phoneCols = computed(() => tier.value === 'phone')
                                         text
                                         rounded
                                         size="small"
-                                        :aria-label="data.schedule ? 'Edit schedule' : 'Schedule'"
+                                        :aria-label="data.schedules?.length ? 'Edit schedules' : 'Schedule'"
                                         @click.stop="openSchedule(data)"
                                     />
                                 </template>
                             </Column>
                             <Column header="Actions" style="width: 9rem">
                                 <template #body="{ data }">
+                                    <SplitButton
+                                        v-if="data.id === 'scan'"
+                                        :label="isTaskRunning(data) ? 'Running' : 'Run'"
+                                        :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
+                                        size="small"
+                                        :loading="triggeringTaskId === data.id || isTaskRunning(data)"
+                                        :disabled="triggeringTaskId !== null || isTaskRunning(data)"
+                                        :model="fullScanMenuItems(data)"
+                                        @click.stop="triggerTask(data)"
+                                    />
                                     <Button
+                                        v-else
                                         :label="isTaskRunning(data) ? 'Running' : 'Run'"
                                         :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
                                         size="small"
@@ -190,7 +222,8 @@ const phoneCols = computed(() => tier.value === 'phone')
             v-model:visible="scheduleDialogVisible"
             :task="scheduleDialogTask"
             :saving="scheduleSaving"
-            @save="onScheduleSave"
+            @create="onScheduleCreate"
+            @patch="onSchedulePatch"
             @remove="onScheduleRemove"
         />
 

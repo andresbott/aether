@@ -3,7 +3,13 @@ import type { Ref } from 'vue'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as TasksApi from '@/lib/api/Tasks'
-import type { TaskWithSchedule, ExecutionInfo, UpsertTaskBody, PatchTaskBody } from '@/types/tasks'
+import type {
+    TaskWithSchedule,
+    ExecutionInfo,
+    CreateScheduleBody,
+    PatchScheduleBody,
+    TriggerTaskBody
+} from '@/types/tasks'
 
 export const TASKS_QUERY_KEY = ['tasks'] as const
 export const EXECUTIONS_QUERY_KEY = ['tasks', 'executions'] as const
@@ -114,14 +120,14 @@ export function useTasks() {
     const executions = computed<ExecutionInfo[]>(() => executionsQuery.data.value ?? [])
 
     const triggerMutation = useMutation({
-        mutationFn: (name: string) => TasksApi.triggerTask(name),
-        onMutate: (name: string) => {
+        mutationFn: ({ name, body }: { name: string; body?: TriggerTaskBody }) => TasksApi.triggerTask(name, body),
+        onMutate: ({ name }: { name: string; body?: TriggerTaskBody }) => {
             triggeringTaskId.value = name
         },
         onSuccess: (result) => {
-            // Singleton tasks (scan/scan-full) coalesce: a trigger while one is
-            // already waiting/running enqueues nothing and returns the in-flight
-            // run. Tell the user rather than silently doing nothing.
+            // Singleton task (scan) coalesces: a trigger while one is already
+            // waiting/running enqueues nothing and returns the in-flight run.
+            // Tell the user rather than silently doing nothing.
             if (result.reused) {
                 toast.add({
                     severity: 'info',
@@ -147,23 +153,19 @@ export function useTasks() {
         }
     })
 
-    const upsertMutation = useMutation({
-        mutationFn: ({ name, body }: { name: string; body: UpsertTaskBody }) => TasksApi.upsertTask(name, body),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
-        }
+    const createScheduleMutation = useMutation({
+        mutationFn: ({ name, body }: { name: string; body: CreateScheduleBody }) =>
+            TasksApi.createSchedule(name, body),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
     })
-    const patchMutation = useMutation({
-        mutationFn: ({ name, body }: { name: string; body: PatchTaskBody }) => TasksApi.patchTask(name, body),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
-        }
+    const patchScheduleMutation = useMutation({
+        mutationFn: ({ name, id, body }: { name: string; id: string; body: PatchScheduleBody }) =>
+            TasksApi.patchSchedule(name, id, body),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
     })
-    const deleteMutation = useMutation({
-        mutationFn: (name: string) => TasksApi.deleteTaskSchedule(name),
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
-        }
+    const deleteScheduleMutation = useMutation({
+        mutationFn: ({ name, id }: { name: string; id: string }) => TasksApi.deleteSchedule(name, id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY })
     })
 
     return {
@@ -172,12 +174,14 @@ export function useTasks() {
         triggeringTaskId,
         tasksQuery,
         executionsQuery,
-        triggerTask: (task: Task) => triggerMutation.mutate(task.id),
+        triggerTask: (task: Task, body?: TriggerTaskBody) => triggerMutation.mutate({ name: task.id, body }),
         cancelTaskExecution: (executionId: string) => cancelMutation.mutate(executionId),
         cancelMutation,
-        upsertTask: (name: string, body: UpsertTaskBody) => upsertMutation.mutateAsync({ name, body }),
-        patchTask: (name: string, body: PatchTaskBody) => patchMutation.mutateAsync({ name, body }),
-        deleteTaskSchedule: (name: string) => deleteMutation.mutateAsync(name),
+        createSchedule: (name: string, body: CreateScheduleBody) =>
+            createScheduleMutation.mutateAsync({ name, body }),
+        patchSchedule: (name: string, id: string, body: PatchScheduleBody) =>
+            patchScheduleMutation.mutateAsync({ name, id, body }),
+        deleteSchedule: (name: string, id: string) => deleteScheduleMutation.mutateAsync({ name, id }),
         getStatusSeverity,
         getStatusLabel,
         getExecutionLog: (executionId: string) => TasksApi.getExecutionLog(executionId)

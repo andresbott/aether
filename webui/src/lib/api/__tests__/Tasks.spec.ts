@@ -30,11 +30,17 @@ describe('Tasks API', () => {
         expect(res).toEqual([{ id: 'a' }])
     })
 
-    it('triggerTask posts to /tasks/{name}/trigger and returns the result with the reused flag', async () => {
+    it('triggerTask posts to /tasks/{name}/trigger with no body and returns the result with the reused flag', async () => {
         post.mockResolvedValue({ data: { execution_id: 'xyz', reused: true } })
         const res = await Tasks.triggerTask('scan')
-        expect(post).toHaveBeenCalledWith('/tasks/scan/trigger')
+        expect(post).toHaveBeenCalledWith('/tasks/scan/trigger', {})
         expect(res).toEqual({ execution_id: 'xyz', reused: true })
+    })
+
+    it('triggerTask forwards a params body (e.g. full scan)', async () => {
+        post.mockResolvedValue({ data: { execution_id: 'xyz', reused: false } })
+        await Tasks.triggerTask('scan', { full: true })
+        expect(post).toHaveBeenCalledWith('/tasks/scan/trigger', { full: true })
     })
 
     it('cancelExecution posts to /tasks/executions/{id}/cancel', async () => {
@@ -50,15 +56,25 @@ describe('Tasks API', () => {
         expect(text).toBe('line1\nline2')
     })
 
-    it('upsertTask PUTs the body to /tasks/{name}', async () => {
-        put.mockResolvedValue({ data: { id: 'scan' } })
-        await Tasks.upsertTask('scan', { cron_expression: '0 0 0 * * *', enabled: true })
-        expect(put).toHaveBeenCalledWith('/tasks/scan', { cron_expression: '0 0 0 * * *', enabled: true })
+    it('createSchedule POSTs the body to /tasks/{name}/schedules', async () => {
+        post.mockResolvedValue({ data: { id: 's1', task_name: 'scan', cron_expression: '0 0 0 * * *', enabled: true } })
+        await Tasks.createSchedule('scan', { cron_expression: '0 0 0 * * *', enabled: true, params: { full: false } })
+        expect(post).toHaveBeenCalledWith('/tasks/scan/schedules', {
+            cron_expression: '0 0 0 * * *',
+            enabled: true,
+            params: { full: false }
+        })
     })
 
-    it('deleteTaskSchedule DELETEs /tasks/{name}', async () => {
+    it('patchSchedule PATCHes /tasks/{name}/schedules/{id} with the body', async () => {
+        patch.mockResolvedValue({ data: { id: 's1', task_name: 'scan', cron_expression: '0 0 0 * * *', enabled: false } })
+        await Tasks.patchSchedule('scan', 's1', { enabled: false })
+        expect(patch).toHaveBeenCalledWith('/tasks/scan/schedules/s1', { enabled: false })
+    })
+
+    it('deleteSchedule DELETEs /tasks/{name}/schedules/{id}', async () => {
         del.mockResolvedValue({ data: {} })
-        await Tasks.deleteTaskSchedule('scan')
-        expect(del).toHaveBeenCalledWith('/tasks/scan')
+        await Tasks.deleteSchedule('scan', 's1')
+        expect(del).toHaveBeenCalledWith('/tasks/scan/schedules/s1')
     })
 })
