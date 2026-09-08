@@ -49,6 +49,18 @@ watch(
     { immediate: true }
 )
 
+// The dialog stays open after a save (it's a manager, not a one-shot form),
+// so once the parent's create mutation succeeds and the task's `schedules`
+// list grows, clear the add form as the only feedback the user gets that it
+// worked. Only for the add form (not while editing an existing row) and only
+// on growth, so removing a row elsewhere never disturbs in-progress input.
+watch(
+    () => schedules.value.length,
+    (count, previousCount) => {
+        if (editingId.value === null && count > previousCount) resetForm()
+    }
+)
+
 const scheduleLabel = (s: TaskSchedule): string => {
     const preset = SCHEDULE_PRESETS.find((p) => p.cron === s.cron_expression)
     return preset ? preset.label : s.cron_expression

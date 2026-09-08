@@ -155,4 +155,51 @@ describe('ScheduleDialog', () => {
         expect(w.emitted('remove')).toBeTruthy()
         expect(w.emitted('remove')![0]).toEqual(['s2'])
     })
+
+    it('clears the add form once the parent confirms the create (schedules list grows)', async () => {
+        const w = mountDialog(scanTaskNoSchedules)
+        await flushPromises()
+        await w.find('#schedule-cron').setValue('0 0 0 * * *')
+        const addBtn = w.findAll('button').find((b) => b.text().includes('Add schedule'))!
+        await addBtn.trigger('click')
+        await flushPromises()
+        expect(w.emitted('create')).toBeTruthy()
+
+        // The dialog never closes itself; it relies on the parent re-passing
+        // `task` once its create mutation invalidates the tasks query and the
+        // refetch lands. That's the only feedback the user gets, so the add
+        // form must clear itself rather than keep showing the just-submitted
+        // values as if nothing happened.
+        await w.setProps({
+            task: {
+                ...scanTaskNoSchedules,
+                schedules: [
+                    {
+                        id: 's1',
+                        task_name: 'scan',
+                        cron_expression: '0 0 0 * * *',
+                        enabled: true,
+                        created_at: '',
+                        updated_at: '',
+                        params: { full: true }
+                    }
+                ]
+            }
+        })
+        await flushPromises()
+
+        expect((w.find('#schedule-cron').element as HTMLInputElement).value).toBe('')
+        expect(w.find('#schedule-full').exists() && (w.find('#schedule-full').element as HTMLInputElement).checked).toBe(false)
+    })
+
+    it('does not clear the add form when a schedule is merely removed (count drops)', async () => {
+        const w = mountDialog(scanTaskTwoSchedules)
+        await flushPromises()
+        await w.find('#schedule-cron').setValue('unsaved input')
+
+        await w.setProps({ task: { ...scanTaskTwoSchedules, schedules: [twoSchedules[0]] } })
+        await flushPromises()
+
+        expect((w.find('#schedule-cron').element as HTMLInputElement).value).toBe('unsaved input')
+    })
 })

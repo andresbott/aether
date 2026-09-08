@@ -59,21 +59,30 @@ const fullScanMenuItems = (task: Task) => [
 ]
 
 // Schedule dialog
+// `tasks` is rebuilt into brand-new objects on every refetch
+// (deriveTasksWithLastExecution maps to fresh Task instances), so holding a
+// snapshot Task ref here would freeze the dialog on stale `schedules` after a
+// create/patch/remove invalidates the query. Track only the id and look the
+// current task back up reactively, so the open dialog re-renders with the
+// live schedules list.
 const scheduleDialogVisible = ref(false)
-const scheduleDialogTask = ref<Task | null>(null)
+const scheduleDialogTaskId = ref<string | null>(null)
+const scheduleDialogTask = computed<Task | null>(
+    () => tasks.value.find((t) => t.id === scheduleDialogTaskId.value) ?? null
+)
 const scheduleSaving = ref(false)
 
 const openSchedule = (task: Task) => {
-    scheduleDialogTask.value = task
+    scheduleDialogTaskId.value = task.id
     scheduleDialogVisible.value = true
 }
 
 const onScheduleCreate = async (body: CreateScheduleBody) => {
-    const task = scheduleDialogTask.value
-    if (!task) return
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
     scheduleSaving.value = true
     try {
-        await createSchedule(task.id, body)
+        await createSchedule(taskId, body)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -82,11 +91,11 @@ const onScheduleCreate = async (body: CreateScheduleBody) => {
 }
 
 const onSchedulePatch = async (payload: { id: string; body: PatchScheduleBody }) => {
-    const task = scheduleDialogTask.value
-    if (!task) return
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
     scheduleSaving.value = true
     try {
-        await patchSchedule(task.id, payload.id, payload.body)
+        await patchSchedule(taskId, payload.id, payload.body)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -95,11 +104,11 @@ const onSchedulePatch = async (payload: { id: string; body: PatchScheduleBody })
 }
 
 const onScheduleRemove = async (id: string) => {
-    const task = scheduleDialogTask.value
-    if (!task) return
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
     scheduleSaving.value = true
     try {
-        await deleteSchedule(task.id, id)
+        await deleteSchedule(taskId, id)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to remove schedule', detail: (e as Error).message, life: 5000 })
     } finally {

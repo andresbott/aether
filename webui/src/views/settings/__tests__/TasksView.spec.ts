@@ -10,9 +10,11 @@ const createSchedule = vi.fn()
 const patchSchedule = vi.fn()
 const deleteSchedule = vi.fn()
 
-// Mutated per-test (before mounting) to exercise different schedule shapes;
-// reset to this single unscheduled task in beforeEach.
-let tasksFixture: unknown[] = [
+// A real ref (not a plain variable) so mutating it *after* a component is
+// already mounted behaves like a TanStack Query refetch: dependents that
+// read `tasks.value` reactively pick up the change without remounting.
+// Reset to this single unscheduled task in beforeEach.
+const tasksFixtureRef = ref<unknown[]>([
     {
         id: 'scan',
         name: 'Library Scan',
@@ -21,14 +23,14 @@ let tasksFixture: unknown[] = [
         lastExecution: null,
         lastExecutionStatus: 'complete'
     }
-]
+])
 
 vi.mock('@/composables/useTasks', async (importOriginal) => {
     const actual = await importOriginal<typeof import('@/composables/useTasks')>()
     return {
         ...actual,
         useTasks: () => ({
-            tasks: computed(() => tasksFixture),
+            tasks: computed(() => tasksFixtureRef.value),
             executions: computed(() => [
                 { id: 'a', task_name: 'scan', status: 'complete', queued_at: '2026-01-01T09:00:00Z', ended_at: '2026-01-01T09:00:02Z' }
             ]),
@@ -87,7 +89,7 @@ beforeEach(() => {
     createSchedule.mockReset()
     patchSchedule.mockReset()
     deleteSchedule.mockReset()
-    tasksFixture = [
+    tasksFixtureRef.value = [
         {
             id: 'scan',
             name: 'Library Scan',
@@ -120,7 +122,7 @@ describe('TasksView', () => {
     })
 
     it('summarizes multiple schedules in the Schedule column', () => {
-        tasksFixture = [
+        tasksFixtureRef.value = [
             {
                 id: 'scan',
                 name: 'Library Scan',
@@ -159,7 +161,7 @@ describe('TasksView', () => {
     })
 
     it('does not render a full-scan action for a non-scan task', () => {
-        tasksFixture = [
+        tasksFixtureRef.value = [
             {
                 id: 'fetch-artist-images',
                 name: 'Fetch artist images',
@@ -196,5 +198,44 @@ describe('TasksView', () => {
         w.findComponent(ScheduleDialog).vm.$emit('remove', 's1')
         await flushPromises()
         expect(deleteSchedule).toHaveBeenCalledWith('scan', 's1')
+    })
+
+    it('re-derives the open dialog\'s task reactively so a post-mutation refetch shows the fresh schedules list', async () => {
+        const w = mountView()
+        await w.find('[aria-label="Schedule"]').trigger('click')
+
+        // Sanity: dialog opened for `scan`, which currently has no schedules.
+        expect(w.findComponent(ScheduleDialog).props('task')).toEqual(
+            expect.objectContaining({ id: 'scan', schedules: [] })
+        )
+
+        // Simulate what actually happens after createSchedule succeeds: the
+        // mutation's onSuccess invalidates the tasks query, it refetches, and
+        // deriveTasksWithLastExecution rebuilds brand-new Task objects with
+        // the new schedule included. The dialog is never closed in between.
+        tasksFixtureRef.value = [
+            {
+                id: 'scan',
+                name: 'Library Scan',
+                description: 'desc',
+                schedules: [
+                    {
+                        id: 's1',
+                        task_name: 'scan',
+                        cron_expression: '0 0 0 * * *',
+                        enabled: true,
+                        created_at: '',
+                        updated_at: '',
+                        params: { full: false }
+                    }
+                ],
+                lastExecution: null,
+                lastExecutionStatus: 'complete'
+            }
+        ]
+        await flushPromises()
+
+        const dialogTask = w.findComponent(ScheduleDialog).props('task') as { schedules: unknown[] } | null
+        expect(dialogTask?.schedules).toHaveLength(1)
     })
 })
