@@ -18,6 +18,7 @@ type dbTaskExecution struct {
 	QueuedAt  time.Time `gorm:"not null;index;column:queued_at"`
 	StartedAt time.Time `gorm:"column:started_at"`
 	EndedAt   time.Time `gorm:"column:ended_at"`
+	Params    []byte    `gorm:"column:params"`
 }
 
 func (dbTaskExecution) TableName() string { return "task_executions" }
@@ -64,6 +65,7 @@ func (s *TaskExecutionStore) SaveTask(ctx context.Context, task tempo.TaskInfo) 
 		QueuedAt:  task.QueuedAt,
 		StartedAt: task.StartedAt,
 		EndedAt:   task.EndedAt,
+		Params:    task.Params,
 	}
 	return s.db.WithContext(ctx).Save(&row).Error
 }
@@ -95,6 +97,7 @@ func (s *TaskExecutionStore) List(ctx context.Context) ([]tempo.TaskInfo, error)
 			QueuedAt:  rows[i].QueuedAt,
 			StartedAt: rows[i].StartedAt,
 			EndedAt:   rows[i].EndedAt,
+			Params:    rows[i].Params,
 		}
 	}
 	return out, nil
