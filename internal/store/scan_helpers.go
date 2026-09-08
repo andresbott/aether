@@ -14,14 +14,14 @@ import (
 // found unchanged on disk.
 //
 // The update is monotonic — `last_seen_at < scanTime` in the WHERE clause — for
-// the same reason reconcileTrack's assignment is: scans of different types
-// (`scan` / `scan-full`) are separately registered tasks, so MaxParallelism 1
-// does not stop them overlapping, and a targeted rescan runs with its own
-// scanStart. Lowering a newer marker would make a live track look stale to a
-// scan already in flight, and its Cleanup would delete the row along with the
-// track's playlist memberships, play history and stars. Within a single scan
-// every row is either already at scanTime (no-op) or older (advances), so the
-// added predicate never skips a row that needs the bump.
+// the same reason reconcileTrack's assignment is: the scheduled scan is now a
+// singleton (at most one in flight), but the metadata editor's targeted rescan
+// (libScanner, run off the request path) can still overlap a scheduled scan,
+// each with its own scanStart. Lowering a newer marker would make a live track
+// look stale to a scan already in flight, and its Cleanup would delete the row
+// along with the track's playlist memberships, play history and stars. Within a
+// single scan every row is either already at scanTime (no-op) or older
+// (advances), so the added predicate never skips a row that needs the bump.
 func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize

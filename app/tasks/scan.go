@@ -11,30 +11,27 @@ import (
 )
 
 const ScanTaskName = "scan"
-const ScanFullTaskName = "scan-full"
+
+type ScanParams struct {
+	Full bool `json:"full"`
+}
 
 var ScanTaskDef = TaskDef{
 	ID:          ScanTaskName,
 	Name:        "Library Scan",
-	Description: "Incremental scan -- only re-reads tracks modified since last scan",
+	Description: "Scan the music library. Pass full to re-read every track regardless of modification time; otherwise only tracks modified since the last scan are re-read.",
 }
 
-var ScanFullTaskDef = TaskDef{
-	ID:          ScanFullTaskName,
-	Name:        "Full Library Scan",
-	Description: "Full scan -- re-reads all tracks regardless of modification time",
-}
-
-func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, isFull bool) func(ctx context.Context, log *slog.Logger) error {
+func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader) func(ctx context.Context, log *slog.Logger, p ScanParams) error {
 	sc := scanner.New(cfg, s, tagReader)
-	return func(ctx context.Context, log *slog.Logger) error {
+	return func(ctx context.Context, log *slog.Logger, p ScanParams) error {
 		mode := "incremental"
-		if isFull {
+		if p.Full {
 			mode = "full"
 		}
 		log.Info("starting library scan", slog.String("mode", mode))
 
-		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: isFull, Log: log})
+		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: p.Full, Log: log})
 		if err != nil {
 			log.Error("scan failed", slog.String("error", err.Error()))
 			return err

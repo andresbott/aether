@@ -29,9 +29,9 @@ func TestBulkUpdateLastSeen(t *testing.T) {
 	}
 }
 
-// The marker must never move backwards: `scan` and `scan-full` are separately
-// registered tasks, so they can overlap, and lowering a newer marker would make
-// a live track look stale to the other scan's Cleanup — which deletes the row
+// The marker must never move backwards: the scheduled scan is a singleton, but
+// a targeted rescan can overlap it, and lowering a newer marker would make a
+// live track look stale to the other scan's Cleanup — which deletes the row
 // and cascades its playlist entries, play history and stars.
 func TestBulkUpdateLastSeenNeverLowersTheMarker(t *testing.T) {
 	s := testStore(t)
