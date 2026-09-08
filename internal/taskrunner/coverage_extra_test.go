@@ -203,6 +203,18 @@ func TestRunnerStartupSweepsOrphanLogs(t *testing.T) {
 	}
 }
 
+func TestNewRunnerLogDirError(t *testing.T) {
+	// filelog.New fails when LogDir can't be created (here: a path under an
+	// existing regular file), and NewRunner surfaces that error.
+	f := filepath.Join(t.TempDir(), "afile")
+	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := taskrunner.NewRunner(taskrunner.Cfg{Parallelism: 1, QueueSize: 5, LogDir: filepath.Join(f, "sub")}); err == nil {
+		t.Fatal("expected error creating task log sink under a regular file")
+	}
+}
+
 func TestRunnerGetTaskLogFilelogRoundTrip(t *testing.T) {
 	// Unlike TestRunnerGetTaskLog's MemTaskLogSink, a real filelog.Store exercises
 	// the on-disk JSON round-trip: local time.Now() -> JSON .jsonl -> UTC RFC3339Nano.

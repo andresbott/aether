@@ -94,7 +94,7 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 persist in the DB, and each run's logs stream to a per-execution JSON-Lines
 file under `<DataDir>/task-logs` via tempo's `filelog.Store` (read back
 through `Runner.GetTaskLog`); the runner sweeps orphaned log files at startup
-and reaps them with task history. Cron scheduling uses `go-bumbu/tempo`'s
+(`RetainOnly`) and reaps them with task history (`RemoveTasks`). Cron scheduling uses `go-bumbu/tempo`'s
 `schedule` package (persisted via `dbschedule` in the `tempo_schedules`
 table), re-armed at startup; `internal/taskrunner` wraps it behind a
 one-schedule-per-task, task-name-keyed façade.
