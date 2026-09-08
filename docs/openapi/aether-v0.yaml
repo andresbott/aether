@@ -1725,11 +1725,11 @@ paths:
       summary: List every registered task, with its schedules.
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
-        fixed set of tasks aether ships today (scan, scan-full,
-        fetch-artist-images) — not a user-extensible registry, so there is
-        no create/delete for the task definitions themselves, only for their
-        schedules. A task may carry any number of schedules (possibly zero),
-        each with its own cron and params.
+        fixed set of tasks aether ships today (scan, fetch-artist-images) —
+        not a user-extensible registry, so there is no create/delete for the
+        task definitions themselves, only for their schedules. A task may
+        carry any number of schedules (possibly zero), each with its own
+        cron and params.
       tags: [tasks]
       responses:
         '200':

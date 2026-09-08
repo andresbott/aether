@@ -167,6 +167,46 @@ func TestPatchSchedule(t *testing.T) {
 	}
 }
 
+// An explicit JSON null for params (`{"params":null}`) must be treated the
+// same as an omitted params field — "leave params unchanged" — not as a
+// literal null overwrite (PatchTaskScheduleRequest.params' documented
+// contract; the OpenAPI TaskSchedule.params schema also disallows null).
+func TestPatchScheduleExplicitNullParamsKeepsExisting(t *testing.T) {
+	h := &Handler{Schedules: newTestScheduler(t)}
+	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true,"params":{"full":true}}`)
+
+	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+created.ID,
+		strings.NewReader(`{"enabled":false,"params":null}`))
+	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": created.ID})
+	rec := httptest.NewRecorder()
+	h.PatchSchedule().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/tasks/scan", nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+	rec = httptest.NewRecorder()
+	h.GetTask().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var got TaskWithSchedule
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	if len(got.Schedules) != 1 {
+		t.Fatalf("expected 1 schedule, got %+v", got.Schedules)
+	}
+	sch := got.Schedules[0]
+	if sch.Enabled {
+		t.Fatalf("expected Enabled=false, got true")
+	}
+	if string(sch.Params) != `{"full":true}` {
+		t.Fatalf("params = %q, want {\"full\":true} (explicit null must keep existing params)", sch.Params)
+	}
+}
+
 func TestPatchScheduleUnknownID(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
 	id := uuid.NewString()

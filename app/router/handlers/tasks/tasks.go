@@ -76,7 +76,13 @@ func (h *Handler) GetTask() http.Handler {
 		}
 		out := TaskWithSchedule{TaskDef: def, Schedules: []taskrunner.Schedule{}}
 		if h.Schedules != nil {
-			out.Schedules, _ = h.Schedules.ListByTaskName(r.Context(), name)
+			scheds, err := h.Schedules.ListByTaskName(r.Context(), name)
+			if err != nil {
+				h.Logger.Error("get task: schedule list failed", "task", name, "err", err)
+				httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the task.")
+				return
+			}
+			out.Schedules = scheds
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
@@ -254,6 +260,12 @@ func (h *Handler) PatchSchedule() http.Handler {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
+		}
+		// An explicit JSON null (`{"params":null}`) decodes to the 4 bytes
+		// "null", which is non-nil — treat it the same as an omitted field
+		// (Update's contract: nil params means "keep the current value").
+		if bytes.Equal(bytes.TrimSpace(body.Params), []byte("null")) {
+			body.Params = nil
 		}
 		var cronPtr *string
 		if body.CronExpression != nil {

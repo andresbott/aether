@@ -121,6 +121,30 @@ describe('TasksView', () => {
         expect(w.text()).toContain('Not scheduled')
     })
 
+    it('renders the single schedule\'s preset label, and "(paused)" when it is disabled', () => {
+        tasksFixtureRef.value = [
+            {
+                id: 'scan',
+                name: 'Library Scan',
+                description: 'desc',
+                schedules: [
+                    {
+                        id: 's1',
+                        task_name: 'scan',
+                        cron_expression: '0 0 0 * * *',
+                        enabled: false,
+                        created_at: '',
+                        updated_at: ''
+                    }
+                ],
+                lastExecution: null,
+                lastExecutionStatus: 'complete'
+            }
+        ]
+        const w = mountView()
+        expect(w.text()).toContain('Daily (paused)')
+    })
+
     it('summarizes multiple schedules in the Schedule column', () => {
         tasksFixtureRef.value = [
             {
