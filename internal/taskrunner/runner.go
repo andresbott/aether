@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-bumbu/tempo"
+	"github.com/go-bumbu/tempo/filelog"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -17,8 +18,9 @@ import (
 var ErrQueueFull = tempo.ErrQueueFull
 
 type Runner struct {
-	queue  *tempo.QueueRunner
-	logger *slog.Logger
+	queue     *tempo.QueueRunner
+	logger    *slog.Logger
+	logReader tempo.TaskLogReader
 }
 
 type Cfg struct {
@@ -30,6 +32,12 @@ type Cfg struct {
 	LogSink     tempo.TaskLogSink
 	LogLevel    slog.Level
 	LogDir      string
+}
+
+// TaskLogGetter reads back a task execution's log as plain text; the tasks HTTP
+// handler serves it verbatim as text/plain. *Runner implements it.
+type TaskLogGetter interface {
+	GetTaskLog(ctx context.Context, executionID uuid.UUID) (string, error)
 }
 
 func NewRunner(cfg Cfg) (*Runner, error) {
@@ -44,23 +52,22 @@ func NewRunner(cfg Cfg) (*Runner, error) {
 	}
 
 	logSink := cfg.LogSink
-	var logCleaner TaskLogCleaner
 	if cfg.LogDir != "" {
-		fileSink, err := NewFileTaskLogSink(cfg.LogDir)
+		logStore, err := filelog.New(filelog.Config{Dir: cfg.LogDir, DirPerm: 0o750})
 		if err != nil {
 			return nil, fmt.Errorf("task log sink: %w", err)
 		}
-		logSink = fileSink
-		logCleaner = fileSink
+		logSink = logStore
+	}
+
+	l := cfg.Logger
+	if l == nil {
+		l = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
 	var persistence tempo.TaskStatePersistence
 	if cfg.DB != nil {
-		l := cfg.Logger
-		if l == nil {
-			l = slog.New(slog.NewTextHandler(io.Discard, nil))
-		}
-		store, err := NewTaskExecutionStore(cfg.DB, l, logCleaner)
+		store, err := NewTaskExecutionStore(cfg.DB, l)
 		if err != nil {
 			return nil, fmt.Errorf("task execution store: %w", err)
 		}
@@ -81,15 +88,40 @@ func NewRunner(cfg Cfg) (*Runner, error) {
 		return nil, fmt.Errorf("queue runner: %w", err)
 	}
 
-	l := cfg.Logger
-	if l == nil {
-		l = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logReader tempo.TaskLogReader
+	if lr, ok := logSink.(tempo.TaskLogReader); ok {
+		logReader = lr
 	}
 
 	return &Runner{
-		queue:  qr,
-		logger: l,
+		queue:     qr,
+		logger:    l,
+		logReader: logReader,
 	}, nil
+}
+
+// GetTaskLog returns the execution's log as plain text — one
+// "<RFC3339Nano-UTC> <LEVEL> <message>" line per entry, empty for an unknown id
+// or when no log store is configured. Reproduces the prior on-disk format so the
+// /api/v0 task-log endpoint's text/plain output is unchanged.
+func (r *Runner) GetTaskLog(ctx context.Context, executionID uuid.UUID) (string, error) {
+	if r.logReader == nil {
+		return "", nil
+	}
+	entries, err := r.logReader.Logs(ctx, executionID)
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(e.At.UTC().Format(time.RFC3339Nano))
+		b.WriteByte(' ')
+		b.WriteString(e.Level)
+		b.WriteByte(' ')
+		b.WriteString(e.Message)
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
 }
 
 func (r *Runner) Start() {

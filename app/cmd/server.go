@@ -206,12 +206,10 @@ func runServer(configFile string) error {
 		return fmt.Errorf("scheduler: %w", err)
 	}
 
-	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)
-
 	routerCfg := router.Cfg{
 		Logger:        l,
 		TaskRunner:    runner,
-		TaskLogGetter: taskLogReader,
+		TaskLogGetter: runner,
 		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,

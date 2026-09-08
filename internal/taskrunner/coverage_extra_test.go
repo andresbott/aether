@@ -21,67 +21,6 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func TestFileTaskLogSinkAndReader(t *testing.T) {
-	dir := t.TempDir()
-	sink, err := taskrunner.NewFileTaskLogSink(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	id := uuid.New()
-	if err := sink.Append(ctx, id, "INFO", "first line"); err != nil {
-		t.Fatal(err)
-	}
-	if err := sink.Append(ctx, id, "ERROR", "second line"); err != nil {
-		t.Fatal(err)
-	}
-
-	reader := taskrunner.NewFileTaskLogReader(dir)
-	text, err := reader.GetTaskLog(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(text, "first line") || !strings.Contains(text, "second line") {
-		t.Fatalf("unexpected log content: %q", text)
-	}
-
-	// Unknown id -> empty string, no error.
-	empty, err := reader.GetTaskLog(ctx, uuid.New())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if empty != "" {
-		t.Fatalf("expected empty log for unknown id, got %q", empty)
-	}
-
-	// Remove logs, then the reader returns empty again.
-	if err := sink.RemoveTaskLogs(ctx, []uuid.UUID{id}); err != nil {
-		t.Fatal(err)
-	}
-	after, err := reader.GetTaskLog(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after != "" {
-		t.Fatalf("expected empty after remove, got %q", after)
-	}
-	// Removing a missing file is a no-op.
-	if err := sink.RemoveTaskLogs(ctx, []uuid.UUID{id}); err != nil {
-		t.Fatalf("removing missing log should be a no-op: %v", err)
-	}
-}
-
-func TestNewFileTaskLogSinkError(t *testing.T) {
-	// Creating the sink dir under an existing regular file must fail.
-	f := filepath.Join(t.TempDir(), "afile")
-	if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := taskrunner.NewFileTaskLogSink(filepath.Join(f, "sub")); err == nil {
-		t.Fatal("expected error creating sink dir under a regular file")
-	}
-}
-
 func TestCronExpressionHelpers(t *testing.T) {
 	if got := taskrunner.NormalizeCronExpression("* * * * *"); got != "0 * * * * *" {
 		t.Fatalf("normalize 5-field: got %q", got)
@@ -154,19 +93,12 @@ func TestSchedulerLifecycle(t *testing.T) {
 
 func TestTaskExecutionStore(t *testing.T) {
 	db := testDB(t)
-	sink, err := taskrunner.NewFileTaskLogSink(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	store, err := taskrunner.NewTaskExecutionStore(db, discardLogger(), sink)
+	store, err := taskrunner.NewTaskExecutionStore(db, discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
 	id := uuid.New()
-	if err := sink.Append(ctx, id, "INFO", "log line"); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.SaveTask(ctx, tempo.TaskInfo{
 		ID:       id,
 		Name:     "scan",
@@ -188,7 +120,6 @@ func TestTaskExecutionStore(t *testing.T) {
 	if err := store.RemoveTasks(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	// Removing also clears the associated log via the cleaner.
 	if err := store.RemoveTasks(ctx, []uuid.UUID{id}); err != nil {
 		t.Fatal(err)
 	}
@@ -216,5 +147,57 @@ func TestRunnerListAndCancel(t *testing.T) {
 	// Canceling an unknown execution id returns an error.
 	if err := runner.Cancel(context.Background(), uuid.New()); err == nil {
 		t.Fatal("expected error canceling unknown id")
+	}
+}
+
+func TestRunnerGetTaskLog(t *testing.T) {
+	// Inject a mem sink (also a tempo.TaskLogReader) so GetTaskLog has a
+	// backing store without touching disk or running a task.
+	mem := tempo.NewMemTaskLogSink()
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{Parallelism: 1, QueueSize: 5, LogSink: mem})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	id := uuid.New()
+	_ = mem.Append(ctx, id, "INFO", "first line")
+	_ = mem.Append(ctx, id, "ERROR", "second line")
+
+	text, err := runner.GetTaskLog(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "INFO first line") || !strings.Contains(text, "ERROR second line") {
+		t.Fatalf("unexpected log text: %q", text)
+	}
+
+	// Unknown id -> empty, no error.
+	empty, err := runner.GetTaskLog(ctx, uuid.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty != "" {
+		t.Fatalf("expected empty for unknown id, got %q", empty)
+	}
+}
+
+func TestRunnerStartupSweepsOrphanLogs(t *testing.T) {
+	dir := t.TempDir()
+	// Pre-seed an orphan .jsonl log for a task the recovered queue won't know about.
+	orphan := uuid.New()
+	orphanPath := filepath.Join(dir, orphan.String()+".jsonl")
+	if err := os.WriteFile(orphanPath, []byte(`{"at":"2020-01-01T00:00:00Z","level":"INFO","msg":"stale"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A runner with DB persistence recovering zero tasks must sweep the orphan
+	// at construction (tempo calls filelog.Store.RetainOnly in NewQueueRunner).
+	db := testDB(t)
+	if _, err := taskrunner.NewRunner(taskrunner.Cfg{
+		Parallelism: 1, QueueSize: 5, DB: db, LogDir: dir, Logger: discardLogger(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphanPath); !os.IsNotExist(err) {
+		t.Fatalf("expected orphan log swept at startup, stat err = %v", err)
 	}
 }

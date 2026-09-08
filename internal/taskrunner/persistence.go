@@ -23,12 +23,11 @@ type dbTaskExecution struct {
 func (dbTaskExecution) TableName() string { return "task_executions" }
 
 type TaskExecutionStore struct {
-	db      *gorm.DB
-	logger  *slog.Logger
-	cleaner TaskLogCleaner
+	db     *gorm.DB
+	logger *slog.Logger
 }
 
-func NewTaskExecutionStore(db *gorm.DB, logger *slog.Logger, cleaner TaskLogCleaner) (*TaskExecutionStore, error) {
+func NewTaskExecutionStore(db *gorm.DB, logger *slog.Logger) (*TaskExecutionStore, error) {
 	if db == nil {
 		return nil, nil
 	}
@@ -54,7 +53,7 @@ func NewTaskExecutionStore(db *gorm.DB, logger *slog.Logger, cleaner TaskLogClea
 			slog.String("component", "taskrunner"),
 			slog.Int64("count", res.RowsAffected))
 	}
-	return &TaskExecutionStore{db: db, logger: logger, cleaner: cleaner}, nil
+	return &TaskExecutionStore{db: db, logger: logger}, nil
 }
 
 func (s *TaskExecutionStore) SaveTask(ctx context.Context, task tempo.TaskInfo) error {
@@ -78,15 +77,7 @@ func (s *TaskExecutionStore) RemoveTasks(ctx context.Context, ids []uuid.UUID) e
 	for i, id := range ids {
 		strIDs[i] = id.String()
 	}
-	if err := s.db.WithContext(ctx).Where("id IN ?", strIDs).Delete(&dbTaskExecution{}).Error; err != nil {
-		return err
-	}
-	if s.cleaner != nil {
-		if err := s.cleaner.RemoveTaskLogs(ctx, ids); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.db.WithContext(ctx).Where("id IN ?", strIDs).Delete(&dbTaskExecution{}).Error
 }
 
 func (s *TaskExecutionStore) List(ctx context.Context) ([]tempo.TaskInfo, error) {
