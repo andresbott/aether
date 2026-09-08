@@ -1,8 +1,8 @@
 # Scanning — pipeline, identity rules, cleanup invariants
 
 `internal/scanner` turns files on disk into `internal/model` rows. It runs as
-the `scan` / `scan-full` tasks (registered in `app/cmd/server.go`, defined in
-`app/tasks/scan.go`). Task progress/log lines go through `tempo`'s
+the `scan` task (`ScanParams{Full bool}`; registered in `app/cmd/server.go`,
+defined in `app/tasks/scan.go`). Task progress/log lines go through `tempo`'s
 context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 
 ## Pipeline (per library, `scanner.go`)
@@ -66,9 +66,10 @@ during a scan must set it to the scan's start time, or cleanup will delete
 live tracks. It is **monotonic in both writers**: `reconcileTrack` guards its
 assignment, and `store.BulkUpdateLastSeen` carries `last_seen_at < scanTime`
 in its WHERE clause. Concurrent runs with different `scanStart` values are
-normal — a targeted rescan (below) uses its own, and `scan` / `scan-full` are
-separately registered tasks so `MaxParallelism: 1` does not stop them
-overlapping. Writing an older timestamp over a newer one would make a live
+normal even though the scheduled scan is now a `taskrunner.Singleton()` (at
+most one in flight): the metadata editor's targeted rescan (below) runs off
+the request path and can still overlap a scheduled scan, each with its own
+`scanStart`. Writing an older timestamp over a newer one would make a live
 track look stale to the other run's `Cleanup` and delete it, taking its
 playlist memberships, play history and stars with it. Within a single scan
 every row is either already at `scanStart` or older, so the guards never skip

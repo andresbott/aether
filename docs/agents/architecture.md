@@ -96,11 +96,15 @@ file under `<DataDir>/task-logs` via tempo's `filelog.Store` (read back
 through `Runner.GetTaskLog`); the runner sweeps orphaned log files at startup
 (`RetainOnly`) and reaps them with task history (`RemoveTasks`). Cron scheduling uses `go-bumbu/tempo`'s
 `schedule` package (persisted via `dbschedule` in the `tempo_schedules`
-table), re-armed at startup; `internal/taskrunner` wraps it behind a
-one-schedule-per-task, task-name-keyed façade.
-Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan`,
-`scan-full`, `fetch-artist-images`. **A scan does not auto-trigger the
-artist-image fetch** — they are deliberately independent.
+table), re-armed at startup; `internal/taskrunner` wraps it in a façade that
+allows many param-carrying schedules per task over tempo's uuid-keyed
+scheduler — schedules are addressed by their own id, not the task name, so
+an hourly incremental scan and a nightly full scan are two schedules on the
+one `scan` task.
+Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan` (typed
+`ScanParams{Full bool}` via `taskrunner.Register[tasks.ScanParams]`, still
+`Singleton()` — at most one scan in flight) and `fetch-artist-images`. **A
+scan does not auto-trigger the artist-image fetch** — they are deliberately independent.
 
 ## Data directory layout
 
