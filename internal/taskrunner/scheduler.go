@@ -2,30 +2,33 @@ package taskrunner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/go-bumbu/tempo/dbschedule"
 	"github.com/go-bumbu/tempo/schedule"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-// Schedule is aether's API-facing view of one task schedule. The scheduler keeps
-// at most one Schedule per task (task-name-keyed), even though the underlying
-// tempo scheduler is uuid-keyed and would allow several per task.
+// Schedule is aether's API-facing view of one task schedule. Schedules are
+// addressed by their own id: the underlying tempo scheduler is uuid-keyed and
+// allows several schedules per task (e.g. an hourly incremental scan and a
+// nightly full scan), and this façade no longer restricts that to one.
 type Schedule struct {
-	ID             string    `json:"id"`
-	TaskName       string    `json:"task_name"`
-	CronExpression string    `json:"cron_expression"`
-	Enabled        bool      `json:"enabled"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID             string          `json:"id"`
+	TaskName       string          `json:"task_name"`
+	CronExpression string          `json:"cron_expression"`
+	Params         json.RawMessage `json:"params,omitempty"`
+	Enabled        bool            `json:"enabled"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
-// ErrScheduleNotFound is returned when no schedule exists for a task.
+// ErrScheduleNotFound is returned when no schedule exists for the given id.
 var ErrScheduleNotFound = schedule.ErrScheduleNotFound
 
 // NormalizeCronExpression and ValidateCronExpression re-export tempo's cron
@@ -40,20 +43,12 @@ func NormalizeCronExpression(cron string) string { return schedule.NormalizeCron
 
 func ValidateCronExpression(cron string) error { return schedule.ValidateCron(cron) }
 
-// Scheduler fires registered tasks on a cron timetable. It is a thin façade over
-// tempo's schedule.Scheduler presenting a one-schedule-per-task, task-name-keyed
-// API. tempo owns the write path atomically (persist + reschedule in one call),
-// so there is no separate "refresh" step.
+// Scheduler fires registered tasks on a cron timetable. It is a thin façade
+// over tempo's schedule.Scheduler presenting an id-addressable API and
+// aether's own Schedule view type. tempo owns the write path atomically
+// (persist + reschedule in one call), so there is no separate "refresh" step.
 type Scheduler struct {
 	sched *schedule.Scheduler
-	// mu serializes the read-then-write in the write methods below, so two
-	// concurrent UpsertByTaskName calls for the same task cannot both miss in
-	// findByTaskName and both Create — which would leave two schedule rows for
-	// one task (the store has no unique index on task_name, matching tempo's
-	// multi-schedule design). aether runs a single scheduler process, tempo's
-	// own "one process per store" assumption, so an in-process mutex is the
-	// right scope.
-	mu sync.Mutex
 }
 
 // SchedulerCfg configures NewScheduler.
@@ -103,6 +98,7 @@ func toSchedule(si schedule.ScheduleInfo) Schedule {
 		ID:             si.ID.String(),
 		TaskName:       si.TaskName,
 		CronExpression: si.Cron,
+		Params:         si.Params,
 		Enabled:        si.Enabled,
 		CreatedAt:      si.CreatedAt,
 		UpdatedAt:      si.UpdatedAt,
@@ -122,86 +118,80 @@ func (s *Scheduler) List(ctx context.Context) ([]Schedule, error) {
 	return out, nil
 }
 
-// findByTaskName returns the single schedule for a task, or ErrScheduleNotFound.
-// This is where the one-schedule-per-task invariant lives now that the store no
-// longer carries a unique index on task_name.
-func (s *Scheduler) findByTaskName(ctx context.Context, name string) (schedule.ScheduleInfo, error) {
-	list, err := s.sched.List(ctx)
+// ListByTaskName returns every schedule registered for a task, newest-id order
+// as tempo lists them. Empty (not an error) when the task has no schedules.
+func (s *Scheduler) ListByTaskName(ctx context.Context, name string) ([]Schedule, error) {
+	all, err := s.List(ctx)
 	if err != nil {
-		return schedule.ScheduleInfo{}, err
+		return nil, err
 	}
-	for _, si := range list {
-		if si.TaskName == name {
-			return si, nil
+	out := make([]Schedule, 0)
+	for _, sc := range all {
+		if sc.TaskName == name {
+			out = append(out, sc)
 		}
 	}
-	return schedule.ScheduleInfo{}, ErrScheduleNotFound
+	return out, nil
 }
 
-// GetByTaskName returns the schedule for a task, or ErrScheduleNotFound.
-func (s *Scheduler) GetByTaskName(ctx context.Context, name string) (Schedule, error) {
-	si, err := s.findByTaskName(ctx, name)
+// Get returns one schedule by id, or ErrScheduleNotFound.
+func (s *Scheduler) Get(ctx context.Context, id string) (Schedule, error) {
+	uid, err := uuid.Parse(id)
 	if err != nil {
+		return Schedule{}, ErrScheduleNotFound
+	}
+	si, err := s.sched.Get(ctx, uid)
+	if err != nil {
+		if errors.Is(err, ErrScheduleNotFound) {
+			return Schedule{}, ErrScheduleNotFound
+		}
 		return Schedule{}, err
 	}
 	return toSchedule(si), nil
 }
 
-// UpsertByTaskName enforces one schedule per task: it updates the task's existing
-// schedule when there is one, otherwise creates it. cron should already be
-// validated (ValidateCronExpression); tempo validates and normalizes it again.
-func (s *Scheduler) UpsertByTaskName(ctx context.Context, name, cron string, enabled bool) (Schedule, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, err := s.findByTaskName(ctx, name)
-	switch {
-	case err == nil:
-		out, uErr := s.sched.Update(ctx, schedule.Schedule{
-			ID:       existing.ID,
-			TaskName: name,
-			Cron:     cron,
-			Enabled:  enabled,
-		})
-		if uErr != nil {
-			return Schedule{}, uErr
-		}
-		return toSchedule(out), nil
-	case errors.Is(err, ErrScheduleNotFound):
-		out, cErr := s.sched.Create(ctx, schedule.Schedule{
-			TaskName: name,
-			Cron:     cron,
-			Enabled:  enabled,
-		})
-		if cErr != nil {
-			return Schedule{}, cErr
-		}
-		return toSchedule(out), nil
-	default:
+// Create adds a new schedule for a task. cron should already be validated;
+// tempo validates and normalizes it again. params may be nil.
+func (s *Scheduler) Create(ctx context.Context, taskName, cron string, enabled bool, params json.RawMessage) (Schedule, error) {
+	out, err := s.sched.Create(ctx, schedule.Schedule{
+		TaskName: taskName,
+		Cron:     cron,
+		Enabled:  enabled,
+		Params:   params,
+	})
+	if err != nil {
 		return Schedule{}, err
 	}
+	return toSchedule(out), nil
 }
 
-// PatchByTaskName updates cron and/or enabled on a task's existing schedule,
-// leaving a nil field unchanged. Returns ErrScheduleNotFound when the task has no
-// schedule. A non-nil cron should already be validated.
-func (s *Scheduler) PatchByTaskName(ctx context.Context, name string, cron *string, enabled *bool) (Schedule, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, err := s.findByTaskName(ctx, name)
+// Update partially updates a schedule by id: a nil cron/enabled keeps the
+// current value; a non-nil params replaces it, nil params keeps it. Returns
+// ErrScheduleNotFound for an unknown id.
+func (s *Scheduler) Update(ctx context.Context, id string, cron *string, enabled *bool, params json.RawMessage) (Schedule, error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return Schedule{}, ErrScheduleNotFound
+	}
+	existing, err := s.Get(ctx, id)
 	if err != nil {
 		return Schedule{}, err
 	}
 	upd := schedule.Schedule{
-		ID:       existing.ID,
-		TaskName: name,
-		Cron:     existing.Cron,
+		ID:       uid,
+		TaskName: existing.TaskName,
+		Cron:     existing.CronExpression,
 		Enabled:  existing.Enabled,
+		Params:   existing.Params,
 	}
 	if cron != nil {
 		upd.Cron = *cron
 	}
 	if enabled != nil {
 		upd.Enabled = *enabled
+	}
+	if params != nil {
+		upd.Params = params
 	}
 	out, err := s.sched.Update(ctx, upd)
 	if err != nil {
@@ -210,13 +200,17 @@ func (s *Scheduler) PatchByTaskName(ctx context.Context, name string, cron *stri
 	return toSchedule(out), nil
 }
 
-// DeleteByTaskName removes a task's schedule, or returns ErrScheduleNotFound.
-func (s *Scheduler) DeleteByTaskName(ctx context.Context, name string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	existing, err := s.findByTaskName(ctx, name)
+// Delete removes a schedule by id, or returns ErrScheduleNotFound.
+func (s *Scheduler) Delete(ctx context.Context, id string) error {
+	uid, err := uuid.Parse(id)
 	if err != nil {
+		return ErrScheduleNotFound
+	}
+	if err := s.sched.Delete(ctx, uid); err != nil {
+		if errors.Is(err, ErrScheduleNotFound) {
+			return ErrScheduleNotFound
+		}
 		return err
 	}
-	return s.sched.Delete(ctx, existing.ID)
+	return nil
 }

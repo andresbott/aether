@@ -1722,17 +1722,18 @@ paths:
   /tasks:
     get:
       operationId: listTasks
-      summary: List every registered task, with its schedule if one is configured.
+      summary: List every registered task, with its schedules.
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
         fixed set of tasks aether ships today (scan, scan-full,
         fetch-artist-images) — not a user-extensible registry, so there is
         no create/delete for the task definitions themselves, only for their
-        schedules.
+        schedules. A task may carry any number of schedules (possibly zero),
+        each with its own cron and params.
       tags: [tasks]
       responses:
         '200':
-          description: Every task definition, joined with its schedule where one exists.
+          description: Every task definition, joined with its configured schedules.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TaskList' }
@@ -1743,12 +1744,15 @@ paths:
   /tasks/{name}:
     get:
       operationId: getTask
-      summary: Fetch one task definition and its schedule, if any.
+      summary: Fetch one task definition and every schedule configured for it.
       description: >
         Admin. Bare `Task` — unlike `listTasks`, the response is not wrapped
         in an envelope object. See the `Task` schema for the anonymous-embed
         flattening (`TaskWithSchedule` embeds `apptasks.TaskDef`) this
-        response relies on.
+        response relies on. `schedules` may hold several entries (e.g. an
+        hourly incremental scan and a nightly full scan) — manage them
+        individually via `createTaskSchedule`/`patchTaskSchedule`/
+        `deleteTaskSchedule`.
       tags: [tasks]
       parameters:
         - name: name
@@ -1761,67 +1765,58 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: The task and its schedule, if one is configured.
+          description: The task and every schedule configured for it (possibly none).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Task' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      operationId: upsertTaskSchedule
-      summary: Create or fully replace a task's schedule.
+
+  /tasks/{name}/schedules:
+    post:
+      operationId: createTaskSchedule
+      summary: Add a cron schedule to a task.
       description: >
-        Admin. Bare `Task`, like `getTask` — not wrapped. Creates the
-        schedule when the task has none yet, otherwise replaces it outright.
-        `cron_expression` is required (blank answers 400); a 5-field value
-        is normalized by prepending a "0" seconds field. `enabled` omitted
-        defaults to true — a plain default, not "leave unchanged" (contrast
-        `patchTaskSchedule`, which is genuinely tri-state). Answers 404 for
-        an unknown task id, and 503 when the schedule store is unavailable.
+        Admin. A task may have many schedules, each with its own cron and
+        params (e.g. an incremental and a full scan cadence). `cron_expression`
+        is required (blank ⇒ 400); a 5-field value is normalized to 6-field
+        Quartz. `enabled` omitted defaults to true. `params` is forwarded to the
+        task verbatim on every fire (`scan`: `{ "full": true }`). 404 for an
+        unknown task, 503 when the schedule store is unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpsertTaskScheduleRequest' }
+            schema: { $ref: '#/components/schemas/CreateTaskScheduleRequest' }
       responses:
-        '200':
-          description: The task with its newly-saved schedule.
+        '201':
+          description: The created schedule.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Task' }
+              schema: { $ref: '#/components/schemas/TaskSchedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /tasks/{name}/schedules/{id}:
     patch:
       operationId: patchTaskSchedule
-      summary: Partially update an existing task's schedule.
+      summary: Partially update one of a task's schedules.
       description: >
-        Admin. Bare `Task`, like `getTask`. Genuinely tri-state: both
-        `cron_expression` and `enabled` are optional, and omitting either
-        (or sending it explicit null) leaves that attribute unchanged — see
-        `PatchTaskScheduleRequest`. Requires a schedule to already exist:
-        answers 404 both for an unknown task id and for a known task with no
-        schedule yet (create one first with `upsertTaskSchedule`); the two
-        causes are not distinguished. Answers 503 when the schedule store is
-        unavailable.
+        Admin. Tri-state: `cron_expression`, `enabled`, and `params` are all
+        optional; an omitted field is left unchanged. 404 for an unknown
+        schedule id, 503 when the schedule store is unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
         required: true
         content:
@@ -1829,10 +1824,10 @@ paths:
             schema: { $ref: '#/components/schemas/PatchTaskScheduleRequest' }
       responses:
         '200':
-          description: The task with its updated schedule.
+          description: The updated schedule.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Task' }
+              schema: { $ref: '#/components/schemas/TaskSchedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1841,22 +1836,16 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
     delete:
       operationId: deleteTaskSchedule
-      summary: Remove a task's schedule (the task definition itself is never deletable).
+      summary: Remove one of a task's schedules.
       description: >
-        Admin. Answers 404 both for an unknown task id and for a known task
-        with no schedule to delete — the two causes are not distinguished,
-        like `patchTaskSchedule`. Answers 503 when the schedule store is
+        Admin. 404 for an unknown schedule id, 503 when the schedule store is
         unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '204':
-          description: Schedule deleted. No body.
+        '204': { description: Schedule deleted. No body. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1868,8 +1857,8 @@ paths:
       operationId: triggerTask
       summary: Enqueue an ad hoc run of a task, independent of its schedule.
       description: >
-        Admin. Works whether or not the task has a schedule configured — a
-        manual "run now", unrelated to `upsertTaskSchedule`. Answers 404 for
+        Admin. Works whether or not the task has any schedules configured —
+        a manual "run now", unrelated to `createTaskSchedule`. Answers 404 for
         an unknown task id. Answers 429 when the run queue is full
         (`taskrunner.ErrQueueFull`): this is the one operation on this
         surface where the handler calls `httperr.Write` directly instead of
@@ -3679,10 +3668,10 @@ components:
     TaskSchedule:
       type: object
       description: >
-        A task's stored schedule — aether's `taskrunner.Schedule`
-        (internal/taskrunner/scheduler.go), a task-name-keyed view over the
-        tempo schedule backing it, embedded by reference (not flattened) as
-        `Task.schedule`.
+        One of a task's stored schedules — aether's `taskrunner.Schedule`
+        (internal/taskrunner/scheduler.go). Id-addressable: a task may have
+        any number of these (e.g. an hourly incremental scan and a nightly
+        full scan), embedded by reference (not flattened) in `Task.schedules`.
       properties:
         id:
           type: string
@@ -3699,6 +3688,12 @@ components:
             Unix (0-6) to Quartz (1-7) numbering — so a read-back value is
             always 6-field.
           example: "0 0 0 * * *"
+        params:
+          type: object
+          additionalProperties: true
+          description: >
+            Parameters handed to the task verbatim on every fire. Absent when
+            the schedule carries none. `scan`: `{ "full": true }`.
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3707,13 +3702,13 @@ components:
     Task:
       type: object
       description: >
-        A task definition combined with its schedule, if configured
-        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:24-27).
+        A task definition combined with every schedule configured for it
+        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:26-29).
         `id`/`name`/`description` are not nested fields on the handler
         struct — they come from `apptasks.TaskDef` (app/tasks/tasks.go:4-8),
         anonymously embedded, so Go's `encoding/json` flattens them directly
-        onto this object. Returned bare by `getTask`/`upsertTaskSchedule`/
-        `patchTaskSchedule`; wrapped in `TaskList` by `listTasks`.
+        onto this object. Returned bare by `getTask`; wrapped in `TaskList`
+        by `listTasks`.
       properties:
         id:
           type: string
@@ -3726,15 +3721,11 @@ components:
         description:
           type: string
           example: "Incremental scan -- only re-reads tracks modified since last scan"
-        schedule:
-          description: >
-            Present only when a schedule has been configured for this task
-            (via `upsertTaskSchedule`); entirely absent — not null — for a
-            task with none, since the Go field is `*taskrunner.Schedule`
-            with `omitempty`.
-          allOf:
-            - $ref: '#/components/schemas/TaskSchedule'
-      required: [id, name, description]
+        schedules:
+          type: array
+          description: Every cron schedule configured for this task (possibly empty).
+          items: { $ref: '#/components/schemas/TaskSchedule' }
+      required: [id, name, description, schedules]
 
     TaskList:
       type: object
@@ -3744,12 +3735,12 @@ components:
           items: { $ref: '#/components/schemas/Task' }
       required: [tasks]
 
-    UpsertTaskScheduleRequest:
+    CreateTaskScheduleRequest:
       type: object
       description: >
-        Full create-or-replace body for `upsertTaskSchedule`. `enabled`
-        omitted defaults to true — a plain default, not "leave unchanged";
-        contrast `PatchTaskScheduleRequest`.
+        Create body for `createTaskSchedule`. `enabled` omitted defaults to
+        true. A task may hold several of these at once — creating one never
+        replaces another.
       properties:
         cron_expression:
           type: string
@@ -3761,18 +3752,25 @@ components:
           type: boolean
           default: true
           description: Omitted defaults to true.
+        params:
+          type: object
+          additionalProperties: true
+          description: >
+            Forwarded to the task verbatim on every fire. Omitted stores no
+            params. `scan`: `{ "full": true }`.
       required: [cron_expression]
 
     PatchTaskScheduleRequest:
       type: object
       description: >
-        Tri-state partial update for `patchTaskSchedule`: both properties
-        are optional, backing pointer fields
-        (`PatchTaskRequest.CronExpression *string`, `.Enabled *bool` —
-        app/router/handlers/tasks/tasks.go:200-203). Omitting a field, or
-        sending it explicit null, leaves that attribute unchanged — unlike
-        `UpsertTaskScheduleRequest.enabled`, which defaults rather than
-        preserves. Requires an existing schedule; see `patchTaskSchedule`.
+        Tri-state partial update for `patchTaskSchedule`: all three
+        properties are optional, backing pointer fields
+        (`PatchScheduleRequest.CronExpression *string`, `.Enabled *bool`,
+        `.Params json.RawMessage` — app/router/handlers/tasks/tasks.go).
+        Omitting a field, or sending it explicit null, leaves that attribute
+        unchanged — unlike `CreateTaskScheduleRequest.enabled`, which
+        defaults rather than preserves. Requires the schedule id to already
+        exist; see `patchTaskSchedule`.
       properties:
         cron_expression:
           type: string
@@ -3781,6 +3779,10 @@ components:
         enabled:
           type: boolean
           description: Omitted (or explicit null) leaves the current enabled state unchanged.
+        params:
+          type: object
+          additionalProperties: true
+          description: Omitted (or explicit null) leaves the current params unchanged.
 
     TriggerTaskRequest:
       type: object

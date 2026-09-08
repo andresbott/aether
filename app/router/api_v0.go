@@ -207,9 +207,9 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		r.Path("/tasks").Methods(http.MethodGet).Handler(th.ListTasks())
 		r.Path("/tasks/{name}/trigger").Methods(http.MethodPost).Handler(th.TriggerTask())
 		r.Path("/tasks/{name}").Methods(http.MethodGet).Handler(th.GetTask())
-		r.Path("/tasks/{name}").Methods(http.MethodPut).Handler(th.UpsertTask())
-		r.Path("/tasks/{name}").Methods(http.MethodPatch).Handler(th.PatchTask())
-		r.Path("/tasks/{name}").Methods(http.MethodDelete).Handler(th.DeleteTaskSchedule())
+		r.Path("/tasks/{name}/schedules").Methods(http.MethodPost).Handler(th.CreateSchedule())
+		r.Path("/tasks/{name}/schedules/{id}").Methods(http.MethodPatch).Handler(th.PatchSchedule())
+		r.Path("/tasks/{name}/schedules/{id}").Methods(http.MethodDelete).Handler(th.DeleteSchedule())
 	}
 
 	if h.store != nil {

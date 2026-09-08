@@ -3,7 +3,6 @@ package taskrunner_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -41,117 +40,71 @@ func newTestScheduler(t *testing.T) *taskrunner.Scheduler {
 	return sched
 }
 
-func TestSchedulerUpsertByTaskName(t *testing.T) {
+func TestSchedulerCreateListByTaskName(t *testing.T) {
 	s := newTestScheduler(t)
 	ctx := context.Background()
 
-	s1, err := s.UpsertByTaskName(ctx, "scan", "0 0 * * * *", true)
+	fast, err := s.Create(ctx, "scan", "0 0 * * * *", true, []byte(`{"full":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s1.ID == "" {
-		t.Fatal("expected a non-empty schedule id")
+	full, err := s.Create(ctx, "scan", "0 0 3 * * *", true, []byte(`{"full":true}`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if s1.CronExpression != "0 0 * * * *" || !s1.Enabled {
-		t.Fatalf("unexpected schedule: %+v", s1)
+	if fast.ID == full.ID || fast.ID == "" {
+		t.Fatalf("expected two distinct non-empty ids, got %q and %q", fast.ID, full.ID)
 	}
 
-	// A second upsert for the same task updates in place: same id, one per task.
-	s2, err := s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", false)
+	list, err := s.ListByTaskName(ctx, "scan")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s2.ID != s1.ID {
-		t.Fatalf("upsert created a new schedule: %q != %q", s2.ID, s1.ID)
+	if len(list) != 2 {
+		t.Fatalf("expected 2 schedules for scan, got %d", len(list))
 	}
-	if s2.CronExpression != "0 0 0 * * *" || s2.Enabled {
-		t.Fatalf("unexpected after upsert: %+v", s2)
-	}
-
-	list, err := s.List(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1 schedule, got %d", len(list))
+	if none, _ := s.ListByTaskName(ctx, "other"); len(none) != 0 {
+		t.Fatalf("expected 0 schedules for other task, got %d", len(none))
 	}
 }
 
-func TestSchedulerGetByTaskName(t *testing.T) {
+func TestSchedulerUpdatePartial(t *testing.T) {
 	s := newTestScheduler(t)
 	ctx := context.Background()
-	if _, err := s.GetByTaskName(ctx, "scan"); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
-		t.Fatalf("expected ErrScheduleNotFound, got %v", err)
-	}
-	if _, err := s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", true); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.GetByTaskName(ctx, "scan")
+	sc, err := s.Create(ctx, "scan", "0 0 3 * * *", true, []byte(`{"full":false}`))
 	if err != nil {
-		t.Fatal(err)
-	}
-	if got.CronExpression != "0 0 0 * * *" {
-		t.Fatalf("cron = %q", got.CronExpression)
-	}
-}
-
-func TestSchedulerPatchByTaskName(t *testing.T) {
-	s := newTestScheduler(t)
-	ctx := context.Background()
-	if _, err := s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", true); err != nil {
 		t.Fatal(err)
 	}
 	off := false
-	got, err := s.PatchByTaskName(ctx, "scan", nil, &off)
+	upd, err := s.Update(ctx, sc.ID, nil, &off, []byte(`{"full":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Enabled {
+	if upd.Enabled {
 		t.Fatal("expected Enabled=false")
 	}
-	if got.CronExpression != "0 0 0 * * *" {
-		t.Fatalf("cron changed: %q", got.CronExpression)
+	if upd.CronExpression != sc.CronExpression {
+		t.Fatalf("cron changed: %q -> %q", sc.CronExpression, upd.CronExpression)
 	}
-	if _, err := s.PatchByTaskName(ctx, "missing", nil, &off); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
-		t.Fatalf("expected ErrScheduleNotFound, got %v", err)
+	if string(upd.Params) != `{"full":true}` {
+		t.Fatalf("params = %q, want {\"full\":true}", upd.Params)
 	}
 }
 
-func TestSchedulerUpsertByTaskNameConcurrent(t *testing.T) {
+func TestSchedulerDeleteByID(t *testing.T) {
 	s := newTestScheduler(t)
 	ctx := context.Background()
-	const n = 20
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := 0; i < n; i++ {
-		go func() {
-			defer wg.Done()
-			_, _ = s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", true)
-		}()
-	}
-	wg.Wait()
-	list, err := s.List(ctx)
+	sc, err := s.Create(ctx, "scan", "0 0 3 * * *", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected exactly 1 schedule after concurrent upserts, got %d", len(list))
-	}
-}
-
-func TestSchedulerDeleteByTaskName(t *testing.T) {
-	s := newTestScheduler(t)
-	ctx := context.Background()
-	if _, err := s.UpsertByTaskName(ctx, "scan", "0 0 0 * * *", true); err != nil {
+	if err := s.Delete(ctx, sc.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteByTaskName(ctx, "scan"); err != nil {
-		t.Fatal(err)
+	if _, err := s.Get(ctx, sc.ID); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
+		t.Fatalf("expected ErrScheduleNotFound after delete, got %v", err)
 	}
-	if _, err := s.GetByTaskName(ctx, "scan"); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
-		t.Fatalf("expected not found after delete, got %v", err)
-	}
-	if err := s.DeleteByTaskName(ctx, "missing"); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
-		t.Fatalf("expected ErrScheduleNotFound, got %v", err)
+	if err := s.Delete(ctx, uuid.NewString()); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
+		t.Fatalf("delete missing: expected ErrScheduleNotFound, got %v", err)
 	}
 }

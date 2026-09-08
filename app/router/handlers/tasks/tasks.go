@@ -22,10 +22,11 @@ type Handler struct {
 	Logger        *slog.Logger
 }
 
-// TaskWithSchedule is a task definition combined with its schedule (if any).
+// TaskWithSchedule is a task definition combined with every schedule
+// configured for it (possibly none).
 type TaskWithSchedule struct {
 	apptasks.TaskDef
-	Schedule *taskrunner.Schedule `json:"schedule,omitempty"`
+	Schedules []taskrunner.Schedule `json:"schedules"`
 }
 
 func taskDefByName(name string) (apptasks.TaskDef, bool) {
@@ -40,7 +41,7 @@ func taskDefByName(name string) (apptasks.TaskDef, bool) {
 func (h *Handler) ListTasks() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		out := make([]TaskWithSchedule, 0, len(apptasks.AvailableTasks))
-		var scheduleMap map[string]taskrunner.Schedule
+		var scheduleMap map[string][]taskrunner.Schedule
 		if h.Schedules != nil {
 			list, err := h.Schedules.List(r.Context())
 			if err != nil {
@@ -48,15 +49,15 @@ func (h *Handler) ListTasks() http.Handler {
 				httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to list tasks.")
 				return
 			}
-			scheduleMap = make(map[string]taskrunner.Schedule, len(list))
+			scheduleMap = make(map[string][]taskrunner.Schedule, len(list))
 			for _, s := range list {
-				scheduleMap[s.TaskName] = s
+				scheduleMap[s.TaskName] = append(scheduleMap[s.TaskName], s)
 			}
 		}
 		for _, t := range apptasks.AvailableTasks {
-			ent := TaskWithSchedule{TaskDef: t}
-			if s, ok := scheduleMap[t.ID]; ok {
-				ent.Schedule = &s
+			ent := TaskWithSchedule{TaskDef: t, Schedules: []taskrunner.Schedule{}}
+			if scheds, ok := scheduleMap[t.ID]; ok {
+				ent.Schedules = scheds
 			}
 			out = append(out, ent)
 		}
@@ -73,11 +74,9 @@ func (h *Handler) GetTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		out := TaskWithSchedule{TaskDef: def}
+		out := TaskWithSchedule{TaskDef: def, Schedules: []taskrunner.Schedule{}}
 		if h.Schedules != nil {
-			if sch, err := h.Schedules.GetByTaskName(r.Context(), name); err == nil {
-				out.Schedule = &sch
-			}
+			out.Schedules, _ = h.Schedules.ListByTaskName(r.Context(), name)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
@@ -182,24 +181,24 @@ func (h *Handler) GetExecutionLog() http.Handler {
 	})
 }
 
-type UpsertTaskRequest struct {
-	CronExpression string `json:"cron_expression"`
-	Enabled        *bool  `json:"enabled"`
+type CreateScheduleRequest struct {
+	CronExpression string          `json:"cron_expression"`
+	Enabled        *bool           `json:"enabled"`
+	Params         json.RawMessage `json:"params"`
 }
 
-func (h *Handler) UpsertTask() http.Handler {
+func (h *Handler) CreateSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
 		name := mux.Vars(r)["name"]
-		def, ok := taskDefByName(name)
-		if !ok {
+		if !apptasks.TaskNameExists(name) {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		var body UpsertTaskRequest
+		var body CreateScheduleRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
@@ -217,47 +216,41 @@ func (h *Handler) UpsertTask() http.Handler {
 		if body.Enabled != nil {
 			enabled = *body.Enabled
 		}
-		sch, err := h.Schedules.UpsertByTaskName(r.Context(), name, cronExpr, enabled)
+		sch, err := h.Schedules.Create(r.Context(), name, cronExpr, enabled, body.Params)
 		if err != nil {
-			h.Logger.Error("upsert task schedule failed", "task", name, "err", err)
+			h.Logger.Error("create task schedule failed", "task", name, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to save the task schedule.")
 			return
 		}
-		out := TaskWithSchedule{TaskDef: def, Schedule: &sch}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(sch)
 	})
 }
 
-type PatchTaskRequest struct {
-	CronExpression *string `json:"cron_expression"`
-	Enabled        *bool   `json:"enabled"`
+type PatchScheduleRequest struct {
+	CronExpression *string         `json:"cron_expression"`
+	Enabled        *bool           `json:"enabled"`
+	Params         json.RawMessage `json:"params"`
 }
 
-func (h *Handler) PatchTask() http.Handler {
+func (h *Handler) PatchSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
-		name := mux.Vars(r)["name"]
-		def, ok := taskDefByName(name)
-		if !ok {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
-			return
-		}
-		// Pre-check existence first so a task with no schedule answers 404 before
-		// an invalid cron below could answer 400 (404-before-400 precedence).
-		if _, err := h.Schedules.GetByTaskName(r.Context(), name); err != nil {
+		id := mux.Vars(r)["id"]
+		if _, err := h.Schedules.Get(r.Context(), id); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
+				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
-			h.Logger.Error("patch task: load schedule failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the task schedule.")
+			h.Logger.Error("patch schedule: load failed", "id", id, "err", err)
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
 			return
 		}
-		var body PatchTaskRequest
+		var body PatchScheduleRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
@@ -271,40 +264,35 @@ func (h *Handler) PatchTask() http.Handler {
 			}
 			cronPtr = &cronExpr
 		}
-		sch, err := h.Schedules.PatchByTaskName(r.Context(), name, cronPtr, body.Enabled)
+		sch, err := h.Schedules.Update(r.Context(), id, cronPtr, body.Enabled, body.Params)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
+				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
-			h.Logger.Error("patch task: update schedule failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the task schedule.")
+			h.Logger.Error("patch schedule failed", "id", id, "err", err)
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the schedule.")
 			return
 		}
-		out := TaskWithSchedule{TaskDef: def, Schedule: &sch}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		_ = json.NewEncoder(w).Encode(sch)
 	})
 }
 
-func (h *Handler) DeleteTaskSchedule() http.Handler {
+func (h *Handler) DeleteSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
-		name := mux.Vars(r)["name"]
-		if !apptasks.TaskNameExists(name) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
-			return
-		}
-		if err := h.Schedules.DeleteByTaskName(r.Context(), name); err != nil {
+		id := mux.Vars(r)["id"]
+		if err := h.Schedules.Delete(r.Context(), id); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found for task: "+name)
+				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
-			h.Logger.Error("delete task schedule failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to delete the task schedule.")
+			h.Logger.Error("delete schedule failed", "id", id, "err", err)
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to delete the schedule.")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

@@ -82,8 +82,8 @@ func TestSchedulerLifecycle(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// A valid schedule added at runtime schedules cleanly.
-	if _, err := sched.UpsertByTaskName(context.Background(), "valid", "0 0 * * * *", true); err != nil {
-		t.Fatalf("upsert: %v", err)
+	if _, err := sched.Create(context.Background(), "valid", "0 0 * * * *", true, nil); err != nil {
+		t.Fatalf("create: %v", err)
 	}
 	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

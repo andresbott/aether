@@ -14,6 +14,7 @@ import (
 	apptasks "github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -43,21 +44,38 @@ func newTestScheduler(t *testing.T) *taskrunner.Scheduler {
 	return sched
 }
 
-func TestUpsertAndGetTaskSchedule(t *testing.T) {
+// createSchedule POSTs a schedule for name and fails the test unless the
+// response is 201, returning the decoded created schedule.
+func createSchedule(t *testing.T, h *Handler, name, body string) taskrunner.Schedule {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/tasks/"+name+"/schedules", strings.NewReader(body))
+	req = mux.SetURLVars(req, map[string]string{"name": name})
+	rec := httptest.NewRecorder()
+	h.CreateSchedule().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 (%s)", rec.Code, rec.Body.String())
+	}
+	var created taskrunner.Schedule
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	return created
+}
+
+func TestCreateAndGetTaskSchedule(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
 
-	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
-		strings.NewReader(`{"cron_expression":"0 0 0 * * *","enabled":true}`))
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
-	rec := httptest.NewRecorder()
-	h.UpsertTask().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upsert status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true,"params":{"full":true}}`)
+	if created.ID == "" {
+		t.Fatal("expected a non-empty schedule id")
+	}
+	if string(created.Params) != `{"full":true}` {
+		t.Fatalf("params = %q, want {\"full\":true}", created.Params)
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/tasks/scan", nil)
+	req := httptest.NewRequest(http.MethodGet, "/tasks/scan", nil)
 	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	h.GetTask().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get status = %d, want 200", rec.Code)
@@ -69,109 +87,112 @@ func TestUpsertAndGetTaskSchedule(t *testing.T) {
 	if got.ID != "scan" {
 		t.Fatalf("task id = %q, want scan", got.ID)
 	}
-	if got.Schedule == nil || got.Schedule.CronExpression != "0 0 0 * * *" {
-		t.Fatalf("schedule not returned: %+v", got.Schedule)
+	if len(got.Schedules) != 1 || got.Schedules[0].CronExpression != "0 0 0 * * *" {
+		t.Fatalf("schedule not returned: %+v", got.Schedules)
+	}
+	if string(got.Schedules[0].Params) != `{"full":true}` {
+		t.Fatalf("params not returned: %+v", got.Schedules[0])
 	}
 }
 
-func TestUpsertTaskInvalidCron(t *testing.T) {
+// A task may carry more than one schedule at once (e.g. an hourly incremental
+// scan and a nightly full scan) — this is the whole point of Task 5.
+func TestCreateTaskSchedule_MultiplePerTask(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
-	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
+
+	fast := createSchedule(t, h, "scan", `{"cron_expression":"0 0 * * * *","params":{"full":false}}`)
+	full := createSchedule(t, h, "scan", `{"cron_expression":"0 0 3 * * *","params":{"full":true}}`)
+	if fast.ID == full.ID {
+		t.Fatalf("expected two distinct schedule ids, got the same %q twice", fast.ID)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks/scan", nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+	rec := httptest.NewRecorder()
+	h.GetTask().ServeHTTP(rec, req)
+	var got TaskWithSchedule
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	if len(got.Schedules) != 2 {
+		t.Fatalf("expected 2 schedules for scan, got %d: %+v", len(got.Schedules), got.Schedules)
+	}
+}
+
+func TestCreateScheduleInvalidCron(t *testing.T) {
+	h := &Handler{Schedules: newTestScheduler(t)}
+	req := httptest.NewRequest(http.MethodPost, "/tasks/scan/schedules",
 		strings.NewReader(`{"cron_expression":"not a cron","enabled":true}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
 	rec := httptest.NewRecorder()
-	h.UpsertTask().ServeHTTP(rec, req)
+	h.CreateSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
 	}
 }
 
-func TestUpsertUnknownTask(t *testing.T) {
+func TestCreateScheduleUnknownTask(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
-	req := httptest.NewRequest(http.MethodPut, "/tasks/nope",
+	req := httptest.NewRequest(http.MethodPost, "/tasks/nope/schedules",
 		strings.NewReader(`{"cron_expression":"0 0 0 * * *"}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "nope"})
 	rec := httptest.NewRecorder()
-	h.UpsertTask().ServeHTTP(rec, req)
+	h.CreateSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
 
-func TestPatchTaskSchedule(t *testing.T) {
+func TestPatchSchedule(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
+	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
-	// First upsert a schedule for "scan"
-	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
-		strings.NewReader(`{"cron_expression":"0 0 0 * * *","enabled":true}`))
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
-	rec := httptest.NewRecorder()
-	h.UpsertTask().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upsert status = %d, want 200 (%s)", rec.Code, rec.Body.String())
-	}
-
-	// PATCH to disable the schedule
-	req = httptest.NewRequest(http.MethodPatch, "/tasks/scan",
+	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+created.ID,
 		strings.NewReader(`{"enabled":false}`))
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
-	rec = httptest.NewRecorder()
-	h.PatchTask().ServeHTTP(rec, req)
+	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": created.ID})
+	rec := httptest.NewRecorder()
+	h.PatchSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch status = %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
-	var got TaskWithSchedule
+	var got taskrunner.Schedule
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode %q: %v", rec.Body.String(), err)
 	}
-	if got.Schedule == nil {
-		t.Fatal("expected schedule in response, got nil")
-	}
-	if got.Schedule.Enabled {
+	if got.Enabled {
 		t.Fatalf("expected Enabled=false, got true")
 	}
-	if got.Schedule.CronExpression != "0 0 0 * * *" {
-		t.Fatalf("cron_expression = %q, want %q", got.Schedule.CronExpression, "0 0 0 * * *")
+	if got.CronExpression != "0 0 0 * * *" {
+		t.Fatalf("cron_expression = %q, want %q", got.CronExpression, "0 0 0 * * *")
 	}
 }
 
-func TestPatchTaskNoSchedule(t *testing.T) {
+func TestPatchScheduleUnknownID(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
-
-	// PATCH "scan" which has no schedule
-	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan",
+	id := uuid.NewString()
+	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+id,
 		strings.NewReader(`{"enabled":false}`))
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": id})
 	rec := httptest.NewRecorder()
-	h.PatchTask().ServeHTTP(rec, req)
+	h.PatchSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("patch status = %d, want 404 (%s)", rec.Code, rec.Body.String())
 	}
 }
 
-func TestDeleteTaskSchedule(t *testing.T) {
+func TestDeleteSchedule(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
+	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
-	// Upsert a schedule for "scan"
-	req := httptest.NewRequest(http.MethodPut, "/tasks/scan",
-		strings.NewReader(`{"cron_expression":"0 0 0 * * *","enabled":true}`))
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan/schedules/"+created.ID, nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": created.ID})
 	rec := httptest.NewRecorder()
-	h.UpsertTask().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("upsert status = %d, want 200 (%s)", rec.Code, rec.Body.String())
-	}
-
-	// DELETE the schedule
-	req = httptest.NewRequest(http.MethodDelete, "/tasks/scan", nil)
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
-	rec = httptest.NewRecorder()
-	h.DeleteTaskSchedule().ServeHTTP(rec, req)
+	h.DeleteSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204 (%s)", rec.Code, rec.Body.String())
 	}
 
-	// GET scan and assert schedule is nil
+	// GET scan and assert the schedule list no longer contains it.
 	req = httptest.NewRequest(http.MethodGet, "/tasks/scan", nil)
 	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
 	rec = httptest.NewRecorder()
@@ -183,19 +204,18 @@ func TestDeleteTaskSchedule(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("decode %q: %v", rec.Body.String(), err)
 	}
-	if got.Schedule != nil {
-		t.Fatalf("expected Schedule=nil after delete, got %+v", got.Schedule)
+	if len(got.Schedules) != 0 {
+		t.Fatalf("expected no schedules after delete, got %+v", got.Schedules)
 	}
 }
 
-func TestDeleteTaskScheduleNoSchedule(t *testing.T) {
+func TestDeleteScheduleUnknownID(t *testing.T) {
 	h := &Handler{Schedules: newTestScheduler(t)}
-
-	// DELETE "scan" with no schedule
-	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan", nil)
-	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
+	id := uuid.NewString()
+	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan/schedules/"+id, nil)
+	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": id})
 	rec := httptest.NewRecorder()
-	h.DeleteTaskSchedule().ServeHTTP(rec, req)
+	h.DeleteSchedule().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("delete status = %d, want 404 (%s)", rec.Code, rec.Body.String())
 	}
