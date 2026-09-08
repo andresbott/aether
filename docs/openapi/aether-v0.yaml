@@ -1884,11 +1884,21 @@ paths:
           required: true
           description: The task's stable id. See `getTask`.
           schema: { type: string }
+      requestBody:
+        required: false
+        description: >
+          Optional task parameters, forwarded verbatim as the run's params.
+          For the `scan` task this is `{ "full": true }` for a full re-read
+          (omit or send an empty body for an incremental scan). Other tasks
+          take no parameters.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TriggerTaskRequest' }
       responses:
         '202':
           description: >
-            Enqueued; the run has not necessarily started yet. For a singleton
-            task (`scan`/`scan-full`) already waiting or running, the trigger
+            Enqueued; the run has not necessarily started yet. For a
+            singleton `scan` task already waiting or running, the trigger
             coalesces instead: the response carries that in-flight run's id with
             `reused: true` and nothing new is enqueued.
           content:
@@ -3772,6 +3782,17 @@ components:
           type: boolean
           description: Omitted (or explicit null) leaves the current enabled state unchanged.
 
+    TriggerTaskRequest:
+      type: object
+      description: >
+        Optional parameters for an ad-hoc run, forwarded verbatim to the task.
+        Task-specific: only `scan` reads `full` today.
+      properties:
+        full:
+          type: boolean
+          description: "`scan` only: re-read every track regardless of modification time."
+      additionalProperties: true
+
     TriggerTaskResult:
       type: object
       properties:
@@ -3785,8 +3806,8 @@ components:
         reused:
           type: boolean
           description: >
-            True when the trigger coalesced onto an instance of a singleton
-            task (`scan`/`scan-full`) that was already waiting or running:
+            True when the trigger coalesced onto an instance of the singleton
+            `scan` task that was already waiting or running:
             nothing new was enqueued and `execution_id` points at that in-flight
             run. Always false for non-singleton tasks.
       required: [execution_id, reused]

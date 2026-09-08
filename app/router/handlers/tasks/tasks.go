@@ -1,8 +1,10 @@
 package tasks
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -98,7 +100,22 @@ func (h *Handler) TriggerTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		id, reused, err := h.Runner.AddRun(name)
+		var params []byte
+		if r.Body != nil {
+			raw, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+			if err != nil {
+				httperr.Write(w, r, http.StatusBadRequest, "validation_error", "could not read request body")
+				return
+			}
+			if raw = bytes.TrimSpace(raw); len(raw) > 0 {
+				if !json.Valid(raw) {
+					httperr.Write(w, r, http.StatusBadRequest, "validation_error", "params must be valid JSON")
+					return
+				}
+				params = raw
+			}
+		}
+		id, reused, err := h.Runner.AddRaw(name, params)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
 				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")

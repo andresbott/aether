@@ -297,3 +297,46 @@ func TestTriggerTaskSingletonCoalesces(t *testing.T) {
 		t.Fatalf("coalesced trigger execution_id = %q, want the in-flight id %q", second.ExecutionID, first.ExecutionID)
 	}
 }
+
+func TestTriggerTaskForwardsBodyAsParams(t *testing.T) {
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{QueueSize: 4})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+	h := &Handler{Runner: runner}
+
+	// A params body is forwarded verbatim to the enqueued task.
+	req := httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger",
+		strings.NewReader(`{"full":true}`))
+	req = mux.SetURLVars(req, map[string]string{"name": apptasks.ScanTaskName})
+	rec := httptest.NewRecorder()
+	h.TriggerTask().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202 (%s)", rec.Code, rec.Body.String())
+	}
+	list := runner.List()
+	if len(list) != 1 {
+		t.Fatalf("queued %d tasks, want 1", len(list))
+	}
+	if string(list[0].Params) != `{"full":true}` {
+		t.Fatalf("queued params = %q, want {\"full\":true}", list[0].Params)
+	}
+
+	// An empty body enqueues nil params (an incremental scan).
+	runner2, err := taskrunner.NewRunner(taskrunner.Cfg{QueueSize: 4})
+	if err != nil {
+		t.Fatalf("new runner: %v", err)
+	}
+	h2 := &Handler{Runner: runner2}
+	req = httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger", nil)
+	req = mux.SetURLVars(req, map[string]string{"name": apptasks.ScanTaskName})
+	rec = httptest.NewRecorder()
+	h2.TriggerTask().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("empty-body status = %d, want 202 (%s)", rec.Code, rec.Body.String())
+	}
+	list = runner2.List()
+	if len(list) != 1 || len(list[0].Params) != 0 {
+		t.Fatalf("empty body should queue nil params, got %q", list[0].Params)
+	}
+}
