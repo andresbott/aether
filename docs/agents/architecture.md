@@ -91,11 +91,13 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 ## Background work: taskrunner + scheduler
 
 `internal/taskrunner` wraps `go-bumbu/tempo`'s queue runner; executions
-persist in the DB, and each run's logs stream to a per-execution file under
-`<DataDir>/task-logs` (read back via `FileTaskLogReader`). Cron scheduling uses
-`go-bumbu/tempo`'s `schedule` package (persisted via `dbschedule` in the
-`tempo_schedules` table), re-armed at startup; `internal/taskrunner` wraps it
-behind a one-schedule-per-task, task-name-keyed façade.
+persist in the DB, and each run's logs stream to a per-execution JSON-Lines
+file under `<DataDir>/task-logs` via tempo's `filelog.Store` (read back
+through `Runner.GetTaskLog`); the runner sweeps orphaned log files at startup
+and reaps them with task history. Cron scheduling uses `go-bumbu/tempo`'s
+`schedule` package (persisted via `dbschedule` in the `tempo_schedules`
+table), re-armed at startup; `internal/taskrunner` wraps it behind a
+one-schedule-per-task, task-name-keyed façade.
 Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan`,
 `scan-full`, `fetch-artist-images`. **A scan does not auto-trigger the
 artist-image fetch** — they are deliberately independent.
