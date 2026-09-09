@@ -35,7 +35,14 @@ type ScanStats struct {
 	// caller can tell "skipped by design" from "reconcile failed" instead of
 	// inferring a shortfall from TracksProcessed.
 	TracksSkipped int
-	Errors        []error
+	// TracksFailed counts tracks whose per-track reconcile transaction still
+	// failed after its one retry (a lost write lock, a constraint violation, an
+	// association-replace error). They are skipped so one bad file does not fail
+	// the whole scan — but, unlike TracksSkipped (skipped by design) and Errors
+	// (tag-read failures), these are tracks the scan meant to index and could
+	// not, so a non-zero count is a real shortfall a caller should surface.
+	TracksFailed int
+	Errors       []error
 }
 
 type Scanner struct {
@@ -262,6 +269,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
 	stats.TracksUpdated += rec.Updated
+	stats.TracksFailed += rec.Failed
 
 	return nil
 }

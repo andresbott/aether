@@ -84,6 +84,7 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
 	stats.TracksUpdated += rec.Updated
+	stats.TracksFailed += rec.Failed
 	if err != nil {
 		return stats, err
 	}

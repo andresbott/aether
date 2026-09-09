@@ -53,12 +53,18 @@ func NewReindexTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader)
 			slog.Int("processed", stats.TracksProcessed),
 			slog.Int("new", stats.TracksNew),
 			slog.Int("updated", stats.TracksUpdated),
-			slog.Int("skipped", stats.TracksSkipped))
+			slog.Int("skipped", stats.TracksSkipped),
+			slog.Int("failed", stats.TracksFailed))
 		if len(stats.Errors) > 0 {
-			// Per-file tag-read failures are logged, not fatal (mirrors the scan
-			// task). Surfacing them as a job failure is out of scope here — that
-			// is the separate "reconcile swallows failures" TODO item.
+			// Per-file tag-read failures are logged, not fatal (mirrors the scan task).
 			log.Info("re-index had tag reading errors", slog.Int("count", len(stats.Errors)))
+		}
+		// Tracks that could not be saved even after a retry are a real shortfall,
+		// surfaced the same way the scheduled scan surfaces them — this path
+		// shares reconcile, so it shares the visibility.
+		if stats.TracksFailed > 0 {
+			log.Warn("re-index could not save some tracks; they were skipped and left unindexed",
+				slog.Int("failed", stats.TracksFailed))
 		}
 		return nil
 	}

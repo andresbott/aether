@@ -20,6 +20,10 @@ type reconcileStats struct {
 	Processed int
 	New       int
 	Updated   int
+	// Failed counts tracks whose per-track transaction still failed after its
+	// one retry and were therefore skipped. Surfaced so a caller can tell a
+	// silently under-indexed scan from a clean one.
+	Failed int
 }
 
 type artistRekey struct {
@@ -65,11 +69,31 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			return stats, ctx.Err()
 		}
 
-		pendingArtistRekeys = pendingArtistRekeys[:0]
-		if err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
-			return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
-		}); err != nil {
-			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
+		// A per-track transaction that fails is retried once before being given
+		// up on. The likeliest cause is a lost SQLite write lock under
+		// contention — busy_timeout has already waited its full window, and by
+		// the retry the competing writer has almost certainly finished — so a
+		// second attempt recovers it. A deterministic failure just costs one
+		// more cheap attempt on a rare path. Rekeys are reset before each
+		// attempt so a rolled-back attempt leaves none behind.
+		var txErr error
+		for attempt := 0; attempt < 2; attempt++ {
+			pendingArtistRekeys = pendingArtistRekeys[:0]
+			txErr = s.store.TransactionContext(ctx, func(tx *store.Store) error {
+				return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
+			})
+			if txErr == nil || ctx.Err() != nil {
+				break
+			}
+		}
+		if txErr != nil {
+			// A cancelled scan is not a save failure: it aborts the whole run
+			// on the next loop check and is reported as an error, so it is
+			// neither counted nor warned about here.
+			if ctx.Err() == nil {
+				stats.Failed++
+				slog.Warn("reconcile track failed after retry, skipping", "path", tr.walk.FilePath, "err", txErr)
+			}
 			continue
 		}
 		for _, rk := range pendingArtistRekeys {

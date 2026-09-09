@@ -40,10 +40,19 @@ func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader) fu
 		log.Info("scan complete",
 			slog.Int("processed", stats.TracksProcessed),
 			slog.Int("new", stats.TracksNew),
-			slog.Int("updated", stats.TracksUpdated))
+			slog.Int("updated", stats.TracksUpdated),
+			slog.Int("failed", stats.TracksFailed))
 
 		if len(stats.Errors) > 0 {
 			log.Info("scan had tag reading errors", slog.Int("count", len(stats.Errors)))
+		}
+		// A non-zero failed count is a genuine shortfall — tracks the scan meant
+		// to index but could not save even after a retry. It does not fail the
+		// job (one bad file must not abort a scan), but it must not be silent
+		// either, or a scan reports success while quietly indexing fewer tracks.
+		if stats.TracksFailed > 0 {
+			log.Warn("scan could not save some tracks; they were skipped and left unindexed",
+				slog.Int("failed", stats.TracksFailed))
 		}
 		return nil
 	}
