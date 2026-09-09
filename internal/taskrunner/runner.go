@@ -141,7 +141,8 @@ func (r *Runner) Shutdown(ctx context.Context) error {
 type TaskOption func(*taskOpts)
 
 type taskOpts struct {
-	singleton bool
+	singleton      bool
+	exclusionGroup string
 }
 
 // Singleton makes a task coalesce on trigger: while an instance of it is
@@ -151,6 +152,14 @@ type taskOpts struct {
 // as the library scan.
 func Singleton() TaskOption {
 	return func(o *taskOpts) { o.singleton = true }
+}
+
+// ExclusionGroup puts the task in a named tempo exclusion group: at most one
+// task in the group runs at a time, across all task names in the group. Use it
+// to serialize different tasks that must not touch the same resource
+// concurrently — here, "scan" and "reindex" over SQLite's single write lock.
+func ExclusionGroup(name string) TaskOption {
+	return func(o *taskOpts) { o.exclusionGroup = name }
 }
 
 func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int, opts ...TaskOption) {
@@ -165,6 +174,9 @@ func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) err
 	}
 	if o.singleton {
 		topts = append(topts, tempo.WithSingleton())
+	}
+	if o.exclusionGroup != "" {
+		topts = append(topts, tempo.WithExclusionGroup(o.exclusionGroup))
 	}
 	r.queue.RegisterRaw(name, run, topts...)
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
@@ -275,6 +287,9 @@ func Register[T any](r *Runner, fn func(ctx context.Context, log *slog.Logger, p
 	}
 	if o.singleton {
 		topts = append(topts, tempo.WithSingleton())
+	}
+	if o.exclusionGroup != "" {
+		topts = append(topts, tempo.WithExclusionGroup(o.exclusionGroup))
 	}
 	tempo.Register[T](r.queue, name, func(ctx context.Context, log *slog.Logger, _ tempo.Progress, p T) error {
 		return r.runWithLog(ctx, name, func() error { return fn(ctx, log, p) })
