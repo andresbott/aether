@@ -4,8 +4,6 @@ package scanner
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -52,7 +50,7 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		wr, ok := s.admitPath(lib.Path, lib.ID, abs, excludes)
+		wr, ok := WalkWouldEmit(lib.Path, lib.ID, abs, excludes, lib.FollowSymlinks)
 		if !ok {
 			stats.TracksSkipped++
 			continue
@@ -96,39 +94,6 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		return stats, fmt.Errorf("rescan: prune orphans: %w", err)
 	}
 	return stats, nil
-}
-
-// admitPath decides whether abs may be reconciled into libRoot and, if so,
-// builds its WalkResult. It mirrors the walk's admission rules (inside the
-// root, audio extension, not excluded — including by an ancestor directory the
-// walk would have pruned — and stat-able) so a rescan can never insert a track
-// that the next real scan would immediately delete.
-func (s *Scanner) admitPath(libRoot string, libID uint, abs string, excludes []*regexp.Regexp) (WalkResult, bool) {
-	rel, err := filepath.Rel(filepath.Clean(libRoot), filepath.Clean(abs))
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		slog.Warn("rescan: path outside library, skipping", "path", abs, "library", libRoot)
-		return WalkResult{}, false
-	}
-	if !IsAudioFile(abs) {
-		return WalkResult{}, false
-	}
-	if excludedByAnySegment(rel, excludes) {
-		return WalkResult{}, false
-	}
-	info, err := os.Stat(abs)
-	if err != nil || info.IsDir() {
-		return WalkResult{}, false
-	}
-	// No separate tagReader.CanRead gate: IsAudioFile is tags.Supported, and
-	// every supported format is readable by some reader (enforced by
-	// tags.TestSupportedIsReadable), so admission asks one question, not two.
-	return WalkResult{
-		FilePath:  abs,
-		LibraryID: libID,
-		FileSize:  info.Size(),
-		ModTime:   info.ModTime(),
-		Dir:       filepath.Dir(abs),
-	}, true
 }
 
 // excludedByAnySegment reports whether rel — a path relative to the library

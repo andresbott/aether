@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
@@ -43,6 +44,98 @@ func Walk(libs []model.Library, excludes []*regexp.Regexp, followSymlinks bool) 
 		}
 	}
 	return results, nil
+}
+
+// WalkWouldEmit reports whether a full Walk of libRoot would index abs and, if
+// so, the WalkResult it would produce. It is the single admission predicate the
+// editor's targeted rescan shares with the crawling Walk, so a rescan can never
+// insert a track the next scan would immediately delete. followSymlinks must
+// carry the library's setting, because whether abs is even reachable — and the
+// canonical path the walk would record it under — depends on it.
+func WalkWouldEmit(libRoot string, libID uint, abs string, excludes []*regexp.Regexp, followSymlinks bool) (WalkResult, bool) {
+	root := filepath.Clean(libRoot)
+	clean := filepath.Clean(abs)
+
+	// The spelled path must live inside the library: the crawl only reaches a
+	// file by descending from the root, so a path lexically outside it is one no
+	// walk could visit. (A followed symlink may point the resolved file outside
+	// the root; that is judged below, on the resolved path.)
+	relOrig, err := filepath.Rel(root, clean)
+	if err != nil || relOrig == ".." || strings.HasPrefix(relOrig, ".."+string(filepath.Separator)) {
+		return WalkResult{}, false
+	}
+	// Audio-ness keys off the entry name the walk sees — the spelled leaf, not a
+	// symlink target — so IsAudioFile reads abs, not the resolved path.
+	if !IsAudioFile(abs) {
+		return WalkResult{}, false
+	}
+
+	// Resolve to the path the walk actually visits, records and tests against. A
+	// no-follow walk (filepath.WalkDir) never descends a symlinked directory, so
+	// a file behind one is unreachable and refused; the leaf itself may be a
+	// symlink, which the walk emits under its link spelling. With follow, the
+	// walk descends into the target and judges the resolved path, so admission
+	// resolves and judges that same spelling.
+	path := clean
+	segments := strings.Split(relOrig, string(filepath.Separator))
+	if followSymlinks {
+		if anySegmentIsSymlink(root, segments) {
+			resolved, rerr := filepath.EvalSymlinks(abs)
+			if rerr != nil {
+				return WalkResult{}, false // broken or unreadable link: the walk skips it
+			}
+			path = resolved
+		}
+	} else if anySegmentIsSymlink(root, segments[:len(segments)-1]) {
+		return WalkResult{}, false
+	}
+
+	// Excludes are tested against the path the walk visits — the resolved one
+	// under follow — so a pattern keys off the same spelling either code path
+	// would see (e.g. a symlink into a directory excluded by its real name).
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return WalkResult{}, false
+	}
+	if excludedByAnySegment(rel, excludes) {
+		return WalkResult{}, false
+	}
+
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return WalkResult{}, false
+	}
+	// No separate tagReader.CanRead gate: IsAudioFile is tags.Supported, and
+	// every supported format is readable by some reader (enforced by
+	// tags.TestSupportedIsReadable), so admission asks one question, not two.
+	return WalkResult{
+		FilePath:  path,
+		LibraryID: libID,
+		FileSize:  info.Size(),
+		ModTime:   info.ModTime(),
+		Dir:       filepath.Dir(path),
+	}, true
+}
+
+// anySegmentIsSymlink reports whether any of the given path segments, joined
+// onto libRoot in order, is a symlink. It underpins two rules: a no-follow walk
+// skips a file whose ancestor directory is a symlink, and a follow walk records
+// a symlinked file by its resolved path.
+func anySegmentIsSymlink(libRoot string, segments []string) bool {
+	prefix := filepath.Clean(libRoot)
+	for _, seg := range segments {
+		prefix = filepath.Join(prefix, seg)
+		fi, err := os.Lstat(prefix)
+		if err != nil {
+			// Unreadable segment: the file won't stat either, so WalkWouldEmit's
+			// own stat rejects it. Don't mask that decision here.
+			return false
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // makeWalkFn builds the WalkDirFunc for one library: it applies excludes,

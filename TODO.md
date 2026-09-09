@@ -140,7 +140,13 @@ Notes for editors:
   `## Backend`): the first-class-task refactor should land on the current engine, so bump tempo
   (v0.2.0 → latest) first. Resolved: the tempo bump landed in code on the same branch, and this
   item's own fix builds on it (v0.4.2, for `WithExclusionGroup`).
-  - [ ] [MEDIUM] admitPath vs Walk is a fragile hand-maintained mirror; symlink semantics are not mirrored at all
+  - [x] [MEDIUM] admitPath vs Walk is a fragile hand-maintained mirror; symlink semantics are not mirrored at all
+    DONE (branch chore/upgrade-tempo-v0.4): `admitPath` replaced by an exported `WalkWouldEmit` that both the
+    rescan (`RescanPaths`) and a new table-driven test run against the real `Walk`. It now mirrors
+    `FollowSymlinks` — rejects a file reachable only through an unfollowed symlinked dir, and resolves a
+    followed-symlink file to `Walk`'s canonical path (excludes tested on that resolved path too). Guardrail:
+    `TestWalkWouldEmitAgreesWithWalk` (`internal/scanner/walk_admission_test.go`) asserts `admit(p) ⟺ Walk
+    emits p` over excludes, ancestor pruning and symlinks in both follow modes.
     Same code path as the parent — the editor's synchronous `RescanPaths` → `admitPath` — but a distinct
     correctness gap within it, and independent of the tempo bump: a shared-predicate + test fix that can
     land before or after the job-engine move.
