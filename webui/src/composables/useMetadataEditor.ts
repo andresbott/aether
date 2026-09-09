@@ -259,13 +259,15 @@ export function useIdentifyAlbum() {
 }
 
 // PictureMutationOptions tunes the shared picture mutations for a caller that
-// drives many of them in one logical save. `quiet` hands ALL per-op reporting to
-// that caller: the success toast, the "index not updated" reindex warning, and
-// the cache invalidation are suppressed, so an N-cell save raises one aggregate
-// report and invalidates the caches once at the end of the loop instead of N
-// times mid-save — each mid-loop invalidation would otherwise refetch the
-// editor's own active query and re-trigger the session's prune while it is still
-// writing (see useEditSession.savePictures / save).
+// drives many of them in one logical save. `quiet` hands ALL per-op polling and
+// reporting to that caller: the internal reindex poll, the success toast, the
+// "index not updated" reindex warning, and the cache invalidation are all
+// suppressed, so an N-cell save polls the collected execution ids once and
+// raises one aggregate report and invalidation at the end of the loop instead
+// of N times mid-save — each mid-loop poll/invalidation would otherwise
+// serialize the batch and refetch the editor's own active query, re-triggering
+// the session's prune while it is still writing (see
+// useEditSession.savePictures / save).
 export interface PictureMutationOptions {
     quiet?: boolean
 }
@@ -276,6 +278,12 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
     return useMutation({
         mutationFn: async (form: FormData) => {
             const out = await MetadataApi.applyPicture(form)
+            // A quiet caller (batch/session save) owns polling: it collects
+            // every write's reindex id and polls them all once at the end, so
+            // polling here too would serialize one poll per cell into its loop.
+            // Skip it and return the write result — reindex ref intact — for
+            // the caller to collect.
+            if (opts.quiet) return { ...out, reindexFailed: false }
             const { failed } = await pollReindex(out.reindex ? [out.reindex.execution_id] : [])
             return { ...out, reindexFailed: failed > 0 }
         },
@@ -318,6 +326,8 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
             paths: string[]
         }) => {
             const out = await MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot)
+            // See useApplyPicture: a quiet caller polls the batch itself.
+            if (opts.quiet) return { ...out, reindexFailed: false }
             const { failed } = await pollReindex(out?.reindex ? [out.reindex.execution_id] : [])
             return { ...out, reindexFailed: failed > 0 }
         },

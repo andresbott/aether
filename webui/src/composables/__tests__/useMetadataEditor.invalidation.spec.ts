@@ -218,4 +218,48 @@ describe('metadata write reindex polling', () => {
         expect(reindexWarnings()).toEqual([])
         expect(invalidateSpy).not.toHaveBeenCalled()
     })
+
+    // A quiet caller (the batch/session save) collects every write's execution
+    // id itself and polls them all in ONE call at the end. If the mutation also
+    // polled internally while quiet, a sequential per-cell batch would
+    // serialize one poll per cell into its loop — exactly what quiet exists to
+    // avoid. So a quiet mutationFn must skip pollReindex entirely and just hand
+    // back the write result, reindex ref intact, for the caller to collect.
+    it('useApplyPicture quiet skips the internal poll, still returning the reindex ref', async () => {
+        applyPictureMock.mockResolvedValue({
+            ok: true,
+            slot: 'folder',
+            type: 'Front Cover',
+            reindex: { execution_id: 'x' }
+        })
+        const { mutation } = mountMutation(() => useApplyPicture({ quiet: true }))
+        const out = await mutation.mutateAsync(new FormData())
+        expect(pollReindexMock).not.toHaveBeenCalled()
+        expect(out.reindex).toEqual({ execution_id: 'x' })
+    })
+
+    it('useApplyPicture non-quiet still polls internally', async () => {
+        applyPictureMock.mockResolvedValue({
+            ok: true,
+            slot: 'folder',
+            type: 'Front Cover',
+            reindex: { execution_id: 'x' }
+        })
+        const { mutation } = mountMutation(useApplyPicture)
+        await mutation.mutateAsync(new FormData())
+        expect(pollReindexMock).toHaveBeenCalledWith(['x'])
+    })
+
+    it('useDeletePicture quiet skips the internal poll, still returning the reindex ref', async () => {
+        deletePictureMock.mockResolvedValue({ ok: true, reindex: { execution_id: 'y' } })
+        const { mutation } = mountMutation(() => useDeletePicture({ quiet: true }))
+        const out = await mutation.mutateAsync({
+            libraryId: 1,
+            paths: ['Artist/Album/01.mp3'],
+            type: 'Front Cover',
+            slot: 'folder'
+        })
+        expect(pollReindexMock).not.toHaveBeenCalled()
+        expect(out.reindex).toEqual({ execution_id: 'y' })
+    })
 })

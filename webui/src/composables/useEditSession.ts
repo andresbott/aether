@@ -7,6 +7,7 @@ import {
     useApplyPicture,
     useDeletePicture
 } from '@/composables/useMetadataEditor'
+import { pollReindex } from '@/composables/useReindexPolling'
 import { applyArtistImage, deleteArtistImage } from '@/lib/api/Metadata'
 import { albumKey, dirOf } from '@/lib/albumIdentity'
 import { apiErrorMessage } from '@/lib/apiError'
@@ -16,7 +17,7 @@ import type {
     IdentifyRelease,
     PatchFields,
     PictureSlot,
-    RescanStatus,
+    ReindexRef,
     StagedArtistImageSource,
     StagedPictureSource,
     Track,
@@ -680,11 +681,11 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
 
     // ----- Save -----
 
-    // One savePictures run: whether every staged op was written, plus the last
-    // re-index failure any of them reported (null = the index is current).
+    // One savePictures run: whether every staged op was written, plus every
+    // reindex job any of them enqueued (save() polls them all in one batch).
     interface SavePicturesOutcome {
         ok: boolean
-        rescanFailure: string | null
+        executionIds: string[]
         // Whether any op reached disk. save() owns the one post-write cache
         // invalidation, so each step reports whether it wrote.
         wrote: boolean
@@ -693,22 +694,25 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // savePictures persists all staged picture ops. ok is false to abort the
     // save on the first failure (the mutations show their own error toasts).
     // A failed re-index is not a write failure — the image is on disk — so it
-    // does not abort; it is reported alongside the tag batches' failures, with
-    // the same "last failure wins, never cleared by a later success" rule
-    // save() uses. The mutations run quiet; cache invalidation is save()'s job —
-    // one call after every step — so this only reports whether it wrote.
+    // does not abort; its execution id is collected instead and polled once by
+    // save() alongside every other write's, at the end of the batch. The
+    // mutations run quiet, which also means they do NOT poll internally (see
+    // useApplyPicture/useDeletePicture's `quiet` gate) — this loop, not each
+    // mutation, owns when the re-index is awaited. Cache invalidation is
+    // save()'s job too — one call after every step — so this only reports
+    // whether it wrote.
     async function savePictures(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: pictures.value.size === 0, rescanFailure: null, wrote: false }
+            return { ok: pictures.value.size === 0, executionIds: [], wrote: false }
         }
         let wrote = false
-        let rescanFailure: string | null = null
+        const executionIds: string[] = []
         for (const [key, entry] of pictures.value) {
             for (const [type, slots] of entry.ops) {
                 for (const [slot, op] of [...slots]) {
                     try {
-                        let out: { rescan?: RescanStatus } | undefined
+                        let out: { reindex?: ReindexRef } | undefined
                         if (op.kind === 'set') {
                             const form = new FormData()
                             form.append('library_id', String(lib))
@@ -730,39 +734,39 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                                 paths: op.paths
                             })
                         }
-                        if (out?.rescan && !out.rescan.ok) {
-                            rescanFailure = out.rescan.error ?? 'unknown error'
-                        }
+                        if (out?.reindex) executionIds.push(out.reindex.execution_id)
                         releaseOpPreview(op)
                         slots.delete(slot)
                         wrote = true
                     } catch {
                         if (wrote) picturesSavedAt.value = Date.now()
-                        return { ok: false, rescanFailure, wrote }
+                        return { ok: false, executionIds, wrote }
                     }
                 }
             }
             prunePictureEntry(key)
         }
         if (wrote) picturesSavedAt.value = Date.now()
-        return { ok: true, rescanFailure, wrote }
+        return { ok: true, executionIds, wrote }
     }
 
     // saveArtistImages persists staged artist-folder image ops (writes and
     // removals). Mirrors savePictures: a failed write aborts (ok=false), a failed
-    // re-index is reported but not fatal (the file is on disk). Reports whether it
-    // wrote so save() invalidates the music caches once, since the artist's served
-    // cover may now differ.
+    // re-index is not fatal (the file is on disk) — its execution id is collected
+    // for save() to poll alongside every other write's. These APIs are called
+    // raw, not through a mutation, so there is no internal poll to gate here.
+    // Reports whether it wrote so save() invalidates the music caches once,
+    // since the artist's served cover may now differ.
     async function saveArtistImages(): Promise<SavePicturesOutcome> {
         const lib = libraryId()
         if (lib === null) {
-            return { ok: artistImages.value.size === 0, rescanFailure: null, wrote: false }
+            return { ok: artistImages.value.size === 0, executionIds: [], wrote: false }
         }
         let wrote = false
-        let rescanFailure: string | null = null
+        const executionIds: string[] = []
         for (const [folderPath, op] of [...artistImages.value]) {
             try {
-                let out: { rescan?: RescanStatus } | undefined
+                let out: { reindex?: ReindexRef } | undefined
                 if (op.kind === 'set') {
                     const form = new FormData()
                     form.append('library_id', String(lib))
@@ -776,9 +780,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 } else {
                     out = await deleteArtistImage(lib, folderPath)
                 }
-                if (out?.rescan && !out.rescan.ok) {
-                    rescanFailure = out.rescan.error ?? 'unknown error'
-                }
+                if (out?.reindex) executionIds.push(out.reindex.execution_id)
                 releaseArtistOpPreview(op)
                 artistImages.value.delete(folderPath)
                 wrote = true
@@ -795,23 +797,23 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     life: 8000
                 })
                 if (wrote) picturesSavedAt.value = Date.now()
-                return { ok: false, rescanFailure, wrote }
+                return { ok: false, executionIds, wrote }
             }
         }
         if (wrote) picturesSavedAt.value = Date.now()
-        return { ok: true, rescanFailure, wrote }
+        return { ok: true, executionIds, wrote }
     }
 
-    // reportRescanFailure warns that the write landed on disk but the library
-    // index did not catch up. Deliberately reports the LAST failure of the save
-    // and never clears it because a later batch succeeded: a stale index for
-    // part of the selection is still a stale index.
-    function reportRescanFailure(rescanFailure: string | null) {
-        if (rescanFailure === null) return
+    // reportReindexFailure warns that some writes landed on disk but their
+    // library re-index did not complete (as polled, in one batch, from every
+    // execution id the save collected — pictures, artist images and tag
+    // batches alike).
+    function reportReindexFailure(failed: number) {
+        if (failed === 0) return
         toast.add({
             severity: 'warn',
-            summary: 'Saved, but the library index was not updated',
-            detail: rescanFailure,
+            summary: 'Saved, but the library index was not fully updated',
+            detail: `The re-index did not complete for ${failed} item${failed === 1 ? '' : 's'}; a library scan will fix it.`,
             life: 8000
         })
     }
@@ -842,24 +844,32 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         // below flips this, and the finally invalidates once — instead of
         // savePictures / saveArtistImages / the tag loop each firing their own.
         let wrote = false
+        // Every write's reindex job id, collected across pictures, artist
+        // images and each tag batch, so the whole save polls the library index
+        // ONCE at the end instead of mid-loop per write (see the `quiet` gate on
+        // useApplyPicture/useDeletePicture, which skips their internal poll for
+        // exactly this reason).
+        const executionIds: string[] = []
         try {
             const pics = await savePictures()
             wrote = wrote || pics.wrote
-            // The picture writes carry their own re-index report. Seed the
-            // session's failure with it so it is not lost on either exit path
-            // below: the images are on disk regardless, only the index lags.
-            let rescanFailure: string | null = pics.rescanFailure
+            executionIds.push(...pics.executionIds)
             if (!pics.ok) {
-                reportRescanFailure(rescanFailure)
+                // The images collected so far are on disk regardless of the
+                // abort; settle their re-index before reporting so the warning
+                // (if any) reflects a terminal status, not a job still running.
+                const { failed } = await pollReindex(executionIds)
+                reportReindexFailure(failed)
                 reportSkippedTagEdits()
                 return
             }
 
             const arts = await saveArtistImages()
             wrote = wrote || arts.wrote
-            if (arts.rescanFailure) rescanFailure = arts.rescanFailure
+            executionIds.push(...arts.executionIds)
             if (!arts.ok) {
-                reportRescanFailure(rescanFailure)
+                const { failed } = await pollReindex(executionIds)
+                reportReindexFailure(failed)
                 reportSkippedTagEdits()
                 return
             }
@@ -868,7 +878,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             if (batches.length === 0) {
                 // Overlays may exist whose patch is a no-op; nothing to write.
                 overlays.value.clear()
-                reportRescanFailure(rescanFailure)
+                const { failed } = await pollReindex(executionIds)
+                reportReindexFailure(failed)
                 return
             }
             const results: UpdateResult[] = []
@@ -884,11 +895,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         fields: batch.fields
                     })
                     results.push(...out.results)
-                    // Report the last re-index failure; the tags are written
-                    // either way, only the library index lags.
-                    if (out.rescan && !out.rescan.ok) {
-                        rescanFailure = out.rescan.error ?? 'unknown error'
-                    }
+                    if (out.reindex) executionIds.push(out.reindex.execution_id)
                     // A partial album-identity edit may have split the album;
                     // keep the warning so it survives a later clean batch.
                     if (out.warning) albumMoved = out.warning
@@ -905,7 +912,12 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             // Reached only with tag batches to write; mark so the finally invalidates.
             wrote = true
 
-            reportRescanFailure(rescanFailure)
+            // Poll every write's reindex job in one batch — pictures, artist
+            // images and tag writes alike — now that the whole save has run.
+            // isSaving stays true through this await, which is the
+            // "re-indexing…" state the Save button reflects.
+            const { failed: reindexFailed } = await pollReindex(executionIds)
+            reportReindexFailure(reindexFailed)
             if (albumMoved !== null) {
                 toast.add({
                     severity: 'warn',
