@@ -441,7 +441,10 @@ paths:
           description: >
             The batch was processed; each row reports its own outcome (`ok`,
             or `error`). This is also the response when every row failed.
-            `rescan` is present only when at least one file was written.
+            `reindex` is present only when at least one file was written —
+            it references the background re-index job enqueued for those
+            files; poll it via `listTaskExecutions` to know when the library
+            index reflects the edit.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
@@ -632,10 +635,11 @@ paths:
         removing any other-format `artist.*` sibling — from either an
         uploaded file or an online pick downloaded through the
         SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
-        Nothing is written to the library index directly: one
-        representative track under the folder is rescanned synchronously so
-        the scanner's reconcile re-detects the artist's image (`rescan`
-        reports the outcome; a rescan failure is never a write failure —
+        Nothing is written to the library index directly: a re-index of one
+        representative track under the folder is enqueued so the scanner's
+        reconcile re-detects the artist's image asynchronously (`reindex`
+        carries the enqueued job's `execution_id` — poll it via
+        `listTaskExecutions`; a failure to enqueue is never a write failure —
         the file is already on disk).
       tags: [metadata-artist-image]
       requestBody:
@@ -662,11 +666,11 @@ paths:
       operationId: deleteArtistImage
       summary: Remove the selected artist folder's current portrait image.
       description: >
-        Removes the same file `getArtistImage` serves, then re-indexes one
-        representative track so the scanner's reconcile clears (or
-        re-detects a fallback) artist image. `MutationResult` here only
-        ever sets `ok`/`rescan` — `slot`/`type` are absent entirely,
-        meaningless for an artist-folder image.
+        Removes the same file `getArtistImage` serves, then enqueues a
+        re-index of one representative track so the scanner's reconcile
+        clears (or re-detects a fallback) artist image. `MutationResult`
+        here only ever sets `ok`/`reindex` — `slot`/`type` are absent
+        entirely, meaningless for an artist-folder image.
       tags: [metadata-artist-image]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
@@ -1725,11 +1729,15 @@ paths:
       summary: List every registered task, with its schedules.
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
-        fixed set of tasks aether ships today (scan, fetch-artist-images) —
-        not a user-extensible registry, so there is no create/delete for the
-        task definitions themselves, only for their schedules. A task may
-        carry any number of schedules (possibly zero), each with its own
-        cron and params.
+        fixed set of tasks aether ships today (scan, reindex,
+        fetch-artist-images) — not a user-extensible registry, so there is no
+        create/delete for the task definitions themselves, only for their
+        schedules. `reindex` is enqueued automatically by the metadata editor
+        after a write, over `{ "library_id", "paths" }` params, and shares
+        `scan`'s `library-writes` exclusion group so the two never touch the
+        library index at once; it is not meant to be scheduled by hand. A
+        task may carry any number of schedules (possibly zero), each with
+        its own cron and params.
       tags: [tasks]
       responses:
         '200':
@@ -1878,8 +1886,10 @@ paths:
         description: >
           Optional task parameters, forwarded verbatim as the run's params.
           For the `scan` task this is `{ "full": true }` for a full re-read
-          (omit or send an empty body for an incremental scan). Other tasks
-          take no parameters.
+          (omit or send an empty body for an incremental scan). `reindex`
+          takes `{ "library_id", "paths" }`, but is enqueued automatically by
+          the metadata editor after a write rather than triggered by hand.
+          Every other task takes no parameters.
         content:
           application/json:
             schema: { $ref: '#/components/schemas/TriggerTaskRequest' }
@@ -2294,29 +2304,31 @@ components:
           description: A Cover Art Archive image URL to download instead of an upload.
       required: [library_id, paths, slot]
 
-    RescanStatus:
+    ReindexRef:
       type: object
       description: >
-        Post-write re-index outcome. Never fatal — the tags/art are already
-        on disk; a failure only means the library index lags until the next
-        scan.
+        Reference to the background re-index job enqueued after a metadata
+        write. Poll the execution (listTaskExecutions, match `execution_id`)
+        to terminal status to know when the music-UI index reflects the edit;
+        `complete` = current, any other terminal status = the write landed on
+        disk but the index did not catch up and a scan is required. Absent when
+        nothing needed re-indexing.
       properties:
-        ok: { type: boolean }
-        error: { type: string }
-      required: [ok]
+        execution_id: { type: string }
+      required: [execution_id]
 
     MutationResult:
       type: object
       description: >
         Shared response shape: applyPicture always sets `ok`/`slot`/`type`
-        (plus `rescan` when re-indexing ran); clearPictureSelection sets only
-        `ok` (plus `rescan`) — `slot`/`type` are absent from that response
-        entirely, not merely empty.
+        (plus `reindex` when a re-index was enqueued); clearPictureSelection
+        sets only `ok` (plus `reindex`) — `slot`/`type` are absent from that
+        response entirely, not merely empty.
       properties:
         ok: { type: boolean }
         slot: { $ref: '#/components/schemas/PictureSlot' }
         type: { $ref: '#/components/schemas/PictureType' }
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok]
 
     PictureCandidate:
@@ -2494,15 +2506,15 @@ components:
     UpdateTracksResponse:
       type: object
       description: >
-        One row per requested path, in request order, plus the post-write
-        re-index report. Returned on `updateTracks`' only success status,
-        `200` — including when every row failed; see the operation's
-        description for the status rule.
+        One row per requested path, in request order, plus a reference to
+        the re-index job enqueued for the written files. Returned on
+        `updateTracks`' only success status, `200` — including when every
+        row failed; see the operation's description for the status rule.
       properties:
         results:
           type: array
           items: { $ref: '#/components/schemas/UpdateTracksResult' }
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [results]
 
     MetadataCapabilities:
@@ -2840,7 +2852,7 @@ components:
         path:
           type: string
           description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok, path]
 
     HealthStatus:
@@ -3788,11 +3800,24 @@ components:
       type: object
       description: >
         Optional parameters for an ad-hoc run, forwarded verbatim to the task.
-        Task-specific: only `scan` reads `full` today.
+        Task-specific: `scan` reads `full`; `reindex` reads `library_id` and
+        `paths`, though in practice `reindex` is enqueued automatically by the
+        metadata editor after a write rather than triggered by hand.
       properties:
         full:
           type: boolean
           description: "`scan` only: re-read every track regardless of modification time."
+        library_id:
+          type: integer
+          format: int64
+          minimum: 0
+          description: "`reindex` only: the library the paths belong to."
+        paths:
+          type: array
+          items: { type: string }
+          description: >
+            `reindex` only: absolute filesystem paths of the files to
+            re-read and reconcile.
       additionalProperties: true
 
     TriggerTaskResult:
