@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { QueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
+import { onScopeDispose } from 'vue'
 import * as MetadataApi from '@/lib/api/Metadata'
 import { pollReindex } from '@/composables/useReindexPolling'
 import { apiErrorMessage, isCanceledError } from '@/lib/apiError'
@@ -129,11 +130,16 @@ export async function updateTracksPartitioned(
 export function useUpdateTracks() {
     const qc = useQueryClient()
     const toast = useToast()
+    const abort = new AbortController()
+    onScopeDispose(() => abort.abort())
     return useMutation({
         mutationFn: async (body: UpdateTracksRequest) => {
             const out = await updateTracksPartitioned(body)
-            const { failed } = await pollReindex(out.reindex ? [out.reindex.execution_id] : [])
-            return { ...out, reindexFailed: failed > 0 }
+            const { failed, pending } = await pollReindex(
+                out.reindex ? [out.reindex.execution_id] : [],
+                { signal: abort.signal }
+            )
+            return { ...out, reindexFailed: failed > 0 || pending > 0 }
         },
         onSuccess: (out) => {
             invalidateAfterMetadataWrite(qc)
@@ -275,6 +281,8 @@ export interface PictureMutationOptions {
 export function useApplyPicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
+    const abort = new AbortController()
+    onScopeDispose(() => abort.abort())
     return useMutation({
         mutationFn: async (form: FormData) => {
             const out = await MetadataApi.applyPicture(form)
@@ -284,8 +292,11 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
             // Skip it and return the write result — reindex ref intact — for
             // the caller to collect.
             if (opts.quiet) return { ...out, reindexFailed: false }
-            const { failed } = await pollReindex(out.reindex ? [out.reindex.execution_id] : [])
-            return { ...out, reindexFailed: failed > 0 }
+            const { failed, pending } = await pollReindex(
+                out.reindex ? [out.reindex.execution_id] : [],
+                { signal: abort.signal }
+            )
+            return { ...out, reindexFailed: failed > 0 || pending > 0 }
         },
         onSuccess: (out) => {
             // A quiet caller (batch/session save) owns invalidation and the
@@ -318,6 +329,8 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
 export function useDeletePicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
+    const abort = new AbortController()
+    onScopeDispose(() => abort.abort())
     return useMutation({
         mutationFn: async (v: {
             libraryId: number
@@ -328,8 +341,11 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
             const out = await MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot)
             // See useApplyPicture: a quiet caller polls the batch itself.
             if (opts.quiet) return { ...out, reindexFailed: false }
-            const { failed } = await pollReindex(out?.reindex ? [out.reindex.execution_id] : [])
-            return { ...out, reindexFailed: failed > 0 }
+            const { failed, pending } = await pollReindex(
+                out?.reindex ? [out.reindex.execution_id] : [],
+                { signal: abort.signal }
+            )
+            return { ...out, reindexFailed: failed > 0 || pending > 0 }
         },
         onSuccess: (out) => {
             // A quiet caller (batch/session save) owns invalidation and the

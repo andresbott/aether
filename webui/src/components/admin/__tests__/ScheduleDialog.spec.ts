@@ -79,31 +79,16 @@ describe('ScheduleDialog', () => {
         expect(w.text()).toContain('(paused)')
     })
 
-    it('shows the Full/Incremental control for the scan task', async () => {
-        const w = mountDialog(scanTaskTwoSchedules)
-        await flushPromises()
-        expect(w.find('#schedule-full').exists()).toBe(true)
-        expect(w.text()).toContain('Full')
-        expect(w.text()).toContain('Incremental')
-    })
-
-    it('does not show the Full/Incremental control for a non-scan task', async () => {
-        const w = mountDialog(otherTask)
-        await flushPromises()
-        expect(w.find('#schedule-full').exists()).toBe(false)
-    })
-
-    it('emits create with cron_expression, enabled and params.full when the add form is saved', async () => {
+    it('emits create with cron_expression and enabled when the add form is saved', async () => {
         const w = mountDialog(scanTaskNoSchedules)
         await flushPromises()
         await w.find('#schedule-cron').setValue('0 0 0 * * *')
-        await w.find('#schedule-full').setValue(true)
         const addBtn = w.findAll('button').find((b) => b.text().includes('Add schedule'))!
         await addBtn.trigger('click')
         await flushPromises()
         expect(w.emitted('create')).toBeTruthy()
         expect(w.emitted('create')![0]).toEqual([
-            { cron_expression: '0 0 0 * * *', enabled: true, params: { full: true } }
+            { cron_expression: '0 0 0 * * *', enabled: true }
         ])
     })
 
@@ -142,7 +127,7 @@ describe('ScheduleDialog', () => {
         await flushPromises()
         expect(w.emitted('patch')).toBeTruthy()
         expect(w.emitted('patch')![0]).toEqual([
-            { id: 's1', body: { cron_expression: '0 0 0 * * 2', enabled: true, params: { full: false } } }
+            { id: 's1', body: { cron_expression: '0 0 0 * * 2', enabled: true } }
         ])
     })
 
@@ -156,47 +141,26 @@ describe('ScheduleDialog', () => {
         expect(w.emitted('remove')![0]).toEqual(['s2'])
     })
 
-    it('clears the add form once the parent confirms the create (schedules list grows)', async () => {
+    it('exposes resetAddForm, which the parent calls on a confirmed create to clear the add form', async () => {
         const w = mountDialog(scanTaskNoSchedules)
         await flushPromises()
         await w.find('#schedule-cron').setValue('0 0 0 * * *')
-        const addBtn = w.findAll('button').find((b) => b.text().includes('Add schedule'))!
-        await addBtn.trigger('click')
-        await flushPromises()
-        expect(w.emitted('create')).toBeTruthy()
 
-        // The dialog never closes itself; it relies on the parent re-passing
-        // `task` once its create mutation invalidates the tasks query and the
-        // refetch lands. That's the only feedback the user gets, so the add
-        // form must clear itself rather than keep showing the just-submitted
-        // values as if nothing happened.
-        await w.setProps({
-            task: {
-                ...scanTaskNoSchedules,
-                schedules: [
-                    {
-                        id: 's1',
-                        task_name: 'scan',
-                        cron_expression: '0 0 0 * * *',
-                        enabled: true,
-                        created_at: '',
-                        updated_at: '',
-                        params: { full: true }
-                    }
-                ]
-            }
-        })
+        // The parent awaits its create mutation and calls the exposed reset on
+        // success — deterministic, with no dependency on the tasks query refetch.
+        ;(w.vm as unknown as { resetAddForm: () => void }).resetAddForm()
         await flushPromises()
 
         expect((w.find('#schedule-cron').element as HTMLInputElement).value).toBe('')
-        expect(w.find('#schedule-full').exists() && (w.find('#schedule-full').element as HTMLInputElement).checked).toBe(false)
     })
 
-    it('does not clear the add form when a schedule is merely removed (count drops)', async () => {
+    it('does not clobber in-progress add input when the schedules prop changes (a refetch)', async () => {
         const w = mountDialog(scanTaskTwoSchedules)
         await flushPromises()
         await w.find('#schedule-cron').setValue('unsaved input')
 
+        // A background refetch re-passing `task` must not wipe typed input; only
+        // an explicit resetAddForm (or reopening the dialog) clears it.
         await w.setProps({ task: { ...scanTaskTwoSchedules, schedules: [twoSchedules[0]] } })
         await flushPromises()
 

@@ -7,8 +7,7 @@ import type {
     TaskWithSchedule,
     ExecutionInfo,
     CreateScheduleBody,
-    PatchScheduleBody,
-    TriggerTaskBody
+    PatchScheduleBody
 } from '@/types/tasks'
 
 export const TASKS_QUERY_KEY = ['tasks'] as const
@@ -108,7 +107,7 @@ export function useTasks() {
 
     const executionsQuery = useQuery({
         queryKey: EXECUTIONS_QUERY_KEY,
-        queryFn: TasksApi.listExecutions,
+        queryFn: ({ signal }) => TasksApi.listExecutions(signal),
         refetchInterval: (query) =>
             hasActiveExecutions(query.state.data) ? EXECUTIONS_POLL_INTERVAL_MS : false,
         refetchIntervalInBackground: false
@@ -120,14 +119,14 @@ export function useTasks() {
     const executions = computed<ExecutionInfo[]>(() => executionsQuery.data.value ?? [])
 
     const triggerMutation = useMutation({
-        mutationFn: ({ name, body }: { name: string; body?: TriggerTaskBody }) => TasksApi.triggerTask(name, body),
-        onMutate: ({ name }: { name: string; body?: TriggerTaskBody }) => {
+        mutationFn: (name: string) => TasksApi.triggerTask(name),
+        onMutate: (name: string) => {
             triggeringTaskId.value = name
         },
         onSuccess: (result) => {
-            // Singleton task (scan) coalesces: a trigger while one is already
-            // waiting/running enqueues nothing and returns the in-flight run.
-            // Tell the user rather than silently doing nothing.
+            // A singleton task (scan, scan-full) coalesces: a trigger while one
+            // is already waiting/running enqueues nothing and returns the
+            // in-flight run. Tell the user rather than silently doing nothing.
             if (result.reused) {
                 toast.add({
                     severity: 'info',
@@ -174,7 +173,7 @@ export function useTasks() {
         triggeringTaskId,
         tasksQuery,
         executionsQuery,
-        triggerTask: (task: Task, body?: TriggerTaskBody) => triggerMutation.mutate({ name: task.id, body }),
+        triggerTask: (task: Task) => triggerMutation.mutate(task.id),
         cancelTaskExecution: (executionId: string) => cancelMutation.mutate(executionId),
         cancelMutation,
         createSchedule: (name: string, body: CreateScheduleBody) =>

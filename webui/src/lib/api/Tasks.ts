@@ -7,8 +7,7 @@ import type {
     ExecutionInfo,
     TaskSchedule,
     CreateScheduleBody,
-    PatchScheduleBody,
-    TriggerTaskBody
+    PatchScheduleBody
 } from '@/types/tasks'
 
 const TASKS_PATH = '/tasks'
@@ -23,15 +22,14 @@ export async function getTask(name: string): Promise<TaskWithSchedule> {
     return data
 }
 
-export async function listExecutions(): Promise<ExecutionInfo[]> {
-    const { data } = await apiClient.get<ListExecutionsResponse>(`${TASKS_PATH}/executions`)
+export async function listExecutions(signal?: AbortSignal): Promise<ExecutionInfo[]> {
+    const { data } = await apiClient.get<ListExecutionsResponse>(`${TASKS_PATH}/executions`, { signal })
     return data.executions ?? []
 }
 
-export async function triggerTask(name: string, body?: TriggerTaskBody): Promise<TriggerTaskResponse> {
+export async function triggerTask(name: string): Promise<TriggerTaskResponse> {
     const { data } = await apiClient.post<TriggerTaskResponse>(
-        `${TASKS_PATH}/${encodeURIComponent(name)}/trigger`,
-        body ?? {}
+        `${TASKS_PATH}/${encodeURIComponent(name)}/trigger`
     )
     return data
 }

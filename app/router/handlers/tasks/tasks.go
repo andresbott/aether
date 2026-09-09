@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 
@@ -105,22 +104,10 @@ func (h *Handler) TriggerTask() http.Handler {
 			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
-		var params []byte
-		if r.Body != nil {
-			raw, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
-			if err != nil {
-				httperr.Write(w, r, http.StatusBadRequest, "validation_error", "could not read request body")
-				return
-			}
-			if raw = bytes.TrimSpace(raw); len(raw) > 0 {
-				if !json.Valid(raw) {
-					httperr.Write(w, r, http.StatusBadRequest, "validation_error", "params must be valid JSON")
-					return
-				}
-				params = raw
-			}
-		}
-		id, reused, err := h.Runner.AddRaw(name, params)
+		// The user-triggerable tasks (scan, scan-full, the artist-image fetch)
+		// take no parameters — the run mode is the task identity — so the trigger
+		// enqueues by name and ignores any request body.
+		id, reused, err := h.Runner.AddRun(name)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
 				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")
@@ -209,6 +196,12 @@ func (h *Handler) CreateSchedule() http.Handler {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
+		// An explicit `{"params":null}` decodes to the 4 bytes "null"; treat it as
+		// an omitted params field (nil) exactly as PatchSchedule does, so a created
+		// schedule never round-trips a bare `null` for its params object.
+		if bytes.Equal(bytes.TrimSpace(body.Params), []byte("null")) {
+			body.Params = nil
+		}
 		if body.CronExpression == "" {
 			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "cron_expression required")
 			return
@@ -246,14 +239,22 @@ func (h *Handler) PatchSchedule() http.Handler {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
+		name := mux.Vars(r)["name"]
 		id := mux.Vars(r)["id"]
-		if _, err := h.Schedules.Get(r.Context(), id); err != nil {
+		existing, err := h.Schedules.Get(r.Context(), id)
+		if err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
 				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
 			h.Logger.Error("patch schedule: load failed", "id", id, "err", err)
 			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
+			return
+		}
+		// The schedule is addressed under its task (/tasks/{name}/schedules/{id});
+		// a mismatched {name} must not edit another task's schedule.
+		if existing.TaskName != name {
+			httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
 			return
 		}
 		var body PatchScheduleRequest
@@ -297,7 +298,24 @@ func (h *Handler) DeleteSchedule() http.Handler {
 			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
+		name := mux.Vars(r)["name"]
 		id := mux.Vars(r)["id"]
+		existing, err := h.Schedules.Get(r.Context(), id)
+		if err != nil {
+			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
+				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
+				return
+			}
+			h.Logger.Error("delete schedule: load failed", "id", id, "err", err)
+			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
+			return
+		}
+		// Addressed under its task; a mismatched {name} must not delete another
+		// task's schedule.
+		if existing.TaskName != name {
+			httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
+			return
+		}
 		if err := h.Schedules.Delete(r.Context(), id); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
 				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/go-bumbu/tempo/dbschedule"
@@ -49,6 +50,13 @@ func ValidateCronExpression(cron string) error { return schedule.ValidateCron(cr
 // (persist + reschedule in one call), so there is no separate "refresh" step.
 type Scheduler struct {
 	sched *schedule.Scheduler
+	// mu serializes Update's read-modify-write. Update reads the schedule via
+	// Get, merges the partial patch, then writes the whole struct back; tempo
+	// persists that struct authoritatively rather than re-merging, so two
+	// concurrent partial PATCHes of the same id would otherwise each read the
+	// same snapshot and the second would clobber the first's field. Only Update
+	// does a read-modify-write across two tempo calls, so only it needs the lock.
+	mu sync.Mutex
 }
 
 // SchedulerCfg configures NewScheduler.
@@ -173,6 +181,8 @@ func (s *Scheduler) Update(ctx context.Context, id string, cron *string, enabled
 	if err != nil {
 		return Schedule{}, ErrScheduleNotFound
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	existing, err := s.Get(ctx, id)
 	if err != nil {
 		return Schedule{}, err

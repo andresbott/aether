@@ -162,12 +162,10 @@ func ExclusionGroup(name string) TaskOption {
 	return func(o *taskOpts) { o.exclusionGroup = name }
 }
 
-func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int, opts ...TaskOption) {
-	var o taskOpts
-	for _, opt := range opts {
-		opt(&o)
-	}
-	run := r.wrapTaskRun(name, fn)
+// tempoOptions renders the accumulated task options — plus a max-parallelism
+// bound — into tempo's option list, shared by the raw (RegisterTask) and typed
+// (Register) register paths.
+func (o taskOpts) tempoOptions(maxParallelism int) []tempo.TaskOption {
 	var topts []tempo.TaskOption
 	if maxParallelism > 0 {
 		topts = append(topts, tempo.WithMaxParallelism(maxParallelism))
@@ -178,7 +176,16 @@ func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) err
 	if o.exclusionGroup != "" {
 		topts = append(topts, tempo.WithExclusionGroup(o.exclusionGroup))
 	}
-	r.queue.RegisterRaw(name, run, topts...)
+	return topts
+}
+
+func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) error, name string, maxParallelism int, opts ...TaskOption) {
+	var o taskOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	run := r.wrapTaskRun(name, fn)
+	r.queue.RegisterRaw(name, run, o.tempoOptions(maxParallelism)...)
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 
@@ -221,7 +228,11 @@ func (r *Runner) AddRun(name string) (uuid.UUID, bool, error) {
 // singleton instance. It satisfies tempo's schedule.Enqueuer, so the Scheduler
 // can enqueue fires directly onto the runner.
 func (r *Runner) AddRaw(name string, params []byte) (uuid.UUID, bool, error) {
-	return r.queue.AddRaw(name, params)
+	id, reused, err := r.queue.AddRaw(name, params)
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("enqueue task %q: %w", name, err)
+	}
+	return id, reused, nil
 }
 
 func (r *Runner) List() []tempo.TaskInfo {
@@ -281,19 +292,9 @@ func Register[T any](r *Runner, fn func(ctx context.Context, log *slog.Logger, p
 	for _, opt := range opts {
 		opt(&o)
 	}
-	var topts []tempo.TaskOption
-	if maxParallelism > 0 {
-		topts = append(topts, tempo.WithMaxParallelism(maxParallelism))
-	}
-	if o.singleton {
-		topts = append(topts, tempo.WithSingleton())
-	}
-	if o.exclusionGroup != "" {
-		topts = append(topts, tempo.WithExclusionGroup(o.exclusionGroup))
-	}
 	tempo.Register[T](r.queue, name, func(ctx context.Context, log *slog.Logger, _ tempo.Progress, p T) error {
 		return r.runWithLog(ctx, name, func() error { return fn(ctx, log, p) })
-	}, topts...)
+	}, o.tempoOptions(maxParallelism)...)
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 

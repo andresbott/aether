@@ -358,14 +358,16 @@ func TestTriggerTaskSingletonCoalesces(t *testing.T) {
 	}
 }
 
-func TestTriggerTaskForwardsBodyAsParams(t *testing.T) {
+func TestTriggerTaskIgnoresBodyAndEnqueuesByName(t *testing.T) {
 	runner, err := taskrunner.NewRunner(taskrunner.Cfg{QueueSize: 4})
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
 	h := &Handler{Runner: runner}
 
-	// A params body is forwarded verbatim to the enqueued task.
+	// User-triggerable tasks take no parameters (the run mode is the task
+	// identity), so a stray request body is ignored and the task is enqueued by
+	// name with no params.
 	req := httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger",
 		strings.NewReader(`{"full":true}`))
 	req = mux.SetURLVars(req, map[string]string{"name": apptasks.ScanTaskName})
@@ -378,11 +380,11 @@ func TestTriggerTaskForwardsBodyAsParams(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("queued %d tasks, want 1", len(list))
 	}
-	if string(list[0].Params) != `{"full":true}` {
-		t.Fatalf("queued params = %q, want {\"full\":true}", list[0].Params)
+	if len(list[0].Params) != 0 {
+		t.Fatalf("trigger must ignore the body and enqueue no params, got %q", list[0].Params)
 	}
 
-	// An empty body enqueues nil params (an incremental scan).
+	// An empty body behaves identically.
 	runner2, err := taskrunner.NewRunner(taskrunner.Cfg{QueueSize: 4})
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
@@ -397,6 +399,6 @@ func TestTriggerTaskForwardsBodyAsParams(t *testing.T) {
 	}
 	list = runner2.List()
 	if len(list) != 1 || len(list[0].Params) != 0 {
-		t.Fatalf("empty body should queue nil params, got %q", list[0].Params)
+		t.Fatalf("empty body should queue no params, got %q", list[0].Params)
 	}
 }

@@ -53,7 +53,3 @@ export interface PatchScheduleBody {
     enabled?: boolean
     params?: Record<string, unknown>
 }
-
-export interface TriggerTaskBody {
-    full?: boolean
-}

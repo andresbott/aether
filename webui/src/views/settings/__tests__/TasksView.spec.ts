@@ -177,28 +177,6 @@ describe('TasksView', () => {
         expect(w.text()).toContain('2 schedules')
     })
 
-    it('exposes a full-scan run action on the scan row that triggers with { full: true }', async () => {
-        const w = mountView()
-        const fullScanBtn = w.findAll('button').find((b) => b.text().includes('Full scan'))!
-        await fullScanBtn.trigger('click')
-        expect(triggerTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'scan' }), { full: true })
-    })
-
-    it('does not render a full-scan action for a non-scan task', () => {
-        tasksFixtureRef.value = [
-            {
-                id: 'fetch-artist-images',
-                name: 'Fetch artist images',
-                description: '',
-                schedules: [],
-                lastExecution: null,
-                lastExecutionStatus: null
-            }
-        ]
-        const w = mountView()
-        expect(w.findAll('button').some((b) => b.text().includes('Full scan'))).toBe(false)
-    })
-
     it('calls createSchedule with the task id when the dialog emits create', async () => {
         const w = mountView()
         await w.find('[aria-label="Schedule"]').trigger('click')

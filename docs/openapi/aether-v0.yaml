@@ -441,10 +441,12 @@ paths:
           description: >
             The batch was processed; each row reports its own outcome (`ok`,
             or `error`). This is also the response when every row failed.
-            `reindex` is present only when at least one file was written —
-            it references the background re-index job enqueued for those
-            files; poll it via `listTaskExecutions` to know when the library
-            index reflects the edit.
+            `reindex` references the background re-index job enqueued for the
+            written files; poll it via `listTaskExecutions` to know when the
+            library index reflects the edit. It is absent when nothing was
+            written, and also when the re-index could not be enqueued (task
+            runner disabled or queue full) — the writes still landed on disk
+            and the next scheduled scan reconciles them.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
@@ -1729,15 +1731,17 @@ paths:
       summary: List every registered task, with its schedules.
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
-        fixed set of tasks aether ships today (scan, reindex,
+        fixed set of user-facing tasks aether ships today (scan, scan-full,
         fetch-artist-images) — not a user-extensible registry, so there is no
         create/delete for the task definitions themselves, only for their
-        schedules. `reindex` is enqueued automatically by the metadata editor
-        after a write, over `{ "library_id", "paths" }` params, and shares
-        `scan`'s `library-writes` exclusion group so the two never touch the
-        library index at once; it is not meant to be scheduled by hand. A
-        task may carry any number of schedules (possibly zero), each with
-        its own cron and params.
+        schedules. Incremental and full scans are two distinct tasks (`scan` and
+        `scan-full`) rather than one task with a flag, so a full run is never
+        coalesced onto an in-flight incremental one; both share the
+        `library-writes` exclusion group so they never scan concurrently. The
+        `reindex` job the metadata editor enqueues after a write shares that same
+        group but is deliberately absent from this list — it is enqueued
+        internally, never triggered or scheduled by hand. A task may carry any
+        number of schedules (possibly zero), each with its own cron.
       tags: [tasks]
       responses:
         '200':
@@ -1780,18 +1784,20 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
 
   /tasks/{name}/schedules:
     post:
       operationId: createTaskSchedule
       summary: Add a cron schedule to a task.
       description: >
-        Admin. A task may have many schedules, each with its own cron and
-        params (e.g. an incremental and a full scan cadence). `cron_expression`
-        is required (blank ⇒ 400); a 5-field value is normalized to 6-field
-        Quartz. `enabled` omitted defaults to true. `params` is forwarded to the
-        task verbatim on every fire (`scan`: `{ "full": true }`). 404 for an
-        unknown task, 503 when the schedule store is unavailable.
+        Admin. A task may have many schedules, each with its own cron (e.g. an
+        hourly and a nightly cadence). `cron_expression` is required (blank ⇒
+        400); a 5-field value is normalized to 6-field Quartz. `enabled` omitted
+        defaults to true. `params` is forwarded to the task verbatim on every
+        fire; the tasks aether ships today take no parameters, so it is normally
+        omitted. 404 for an unknown task, 503 when the schedule store is
+        unavailable.
       tags: [tasks]
       parameters:
         - { name: name, in: path, required: true, schema: { type: string } }
@@ -1881,23 +1887,11 @@ paths:
           required: true
           description: The task's stable id. See `getTask`.
           schema: { type: string }
-      requestBody:
-        required: false
-        description: >
-          Optional task parameters, forwarded verbatim as the run's params.
-          For the `scan` task this is `{ "full": true }` for a full re-read
-          (omit or send an empty body for an incremental scan). `reindex`
-          takes `{ "library_id", "paths" }`, but is enqueued automatically by
-          the metadata editor after a write rather than triggered by hand.
-          Every other task takes no parameters.
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/TriggerTaskRequest' }
       responses:
         '202':
           description: >
-            Enqueued; the run has not necessarily started yet. For a
-            singleton `scan` task already waiting or running, the trigger
+            Enqueued; the run has not necessarily started yet. Triggering a
+            singleton task (`scan`, `scan-full`) already waiting or running
             coalesces instead: the response carries that in-flight run's id with
             `reused: true` and nothing new is enqueued.
           content:
@@ -2308,11 +2302,14 @@ components:
       type: object
       description: >
         Reference to the background re-index job enqueued after a metadata
-        write. Poll the execution (listTaskExecutions, match `execution_id`)
-        to terminal status to know when the music-UI index reflects the edit;
-        `complete` = current, any other terminal status = the write landed on
-        disk but the index did not catch up and a scan is required. Absent when
-        nothing needed re-indexing.
+        write. Poll the execution (listTaskExecutions, match this
+        `execution_id` against each entry's `id`) to terminal status to know
+        when the music-UI index reflects the edit; `complete` = current, any
+        other terminal status = the write landed on disk but the index did not
+        catch up and a scan is required. Absent when nothing needed
+        re-indexing, or when the re-index could not be enqueued (task runner
+        disabled or queue full) — the write still landed on disk and the next
+        scheduled scan reconciles it.
       properties:
         execution_id: { type: string, format: uuid }
       required: [execution_id]
@@ -3705,7 +3702,8 @@ components:
           additionalProperties: true
           description: >
             Parameters handed to the task verbatim on every fire. Absent when
-            the schedule carries none. `scan`: `{ "full": true }`.
+            the schedule carries none; the tasks aether ships today take no
+            parameters, so it is normally absent.
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3769,7 +3767,7 @@ components:
           additionalProperties: true
           description: >
             Forwarded to the task verbatim on every fire. Omitted stores no
-            params. `scan`: `{ "full": true }`.
+            params; the tasks aether ships today take no parameters.
       required: [cron_expression]
 
     PatchTaskScheduleRequest:
@@ -3795,30 +3793,6 @@ components:
           type: object
           additionalProperties: true
           description: Omitted (or explicit null) leaves the current params unchanged.
-
-    TriggerTaskRequest:
-      type: object
-      description: >
-        Optional parameters for an ad-hoc run, forwarded verbatim to the task.
-        Task-specific: `scan` reads `full`; `reindex` reads `library_id` and
-        `paths`, though in practice `reindex` is enqueued automatically by the
-        metadata editor after a write rather than triggered by hand.
-      properties:
-        full:
-          type: boolean
-          description: "`scan` only: re-read every track regardless of modification time."
-        library_id:
-          type: integer
-          format: int64
-          minimum: 1
-          description: "`reindex` only: the library the paths belong to."
-        paths:
-          type: array
-          items: { type: string }
-          description: >
-            `reindex` only: absolute filesystem paths of the files to
-            re-read and reconcile.
-      additionalProperties: true
 
     TriggerTaskResult:
       type: object

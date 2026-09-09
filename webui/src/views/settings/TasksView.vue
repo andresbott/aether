@@ -8,7 +8,6 @@ import TabPanel from 'primevue/tabpanel'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
-import SplitButton from 'primevue/splitbutton'
 import Message from 'primevue/message'
 import { useToast } from 'primevue/usetoast'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
@@ -51,13 +50,6 @@ const scheduleSummary = (task: Task): string => {
     return `${list.length} schedules`
 }
 
-const fullScanMenuItems = (task: Task) => [
-    {
-        label: 'Full scan',
-        command: () => triggerTask(task, { full: true })
-    }
-]
-
 // Schedule dialog
 // `tasks` is rebuilt into brand-new objects on every refetch
 // (deriveTasksWithLastExecution maps to fresh Task instances), so holding a
@@ -71,6 +63,8 @@ const scheduleDialogTask = computed<Task | null>(
     () => tasks.value.find((t) => t.id === scheduleDialogTaskId.value) ?? null
 )
 const scheduleSaving = ref(false)
+const scheduleRemovingId = ref<string | null>(null)
+const scheduleDialogRef = ref<InstanceType<typeof ScheduleDialog> | null>(null)
 
 const openSchedule = (task: Task) => {
     scheduleDialogTaskId.value = task.id
@@ -83,6 +77,9 @@ const onScheduleCreate = async (body: CreateScheduleBody) => {
     scheduleSaving.value = true
     try {
         await createSchedule(taskId, body)
+        // Reset the add form on confirmed success, not by inferring it from the
+        // schedules list growing after a refetch (which may be slow or fail).
+        scheduleDialogRef.value?.resetAddForm()
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -106,13 +103,13 @@ const onSchedulePatch = async (payload: { id: string; body: PatchScheduleBody })
 const onScheduleRemove = async (id: string) => {
     const taskId = scheduleDialogTaskId.value
     if (!taskId) return
-    scheduleSaving.value = true
+    scheduleRemovingId.value = id
     try {
         await deleteSchedule(taskId, id)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to remove schedule', detail: (e as Error).message, life: 5000 })
     } finally {
-        scheduleSaving.value = false
+        scheduleRemovingId.value = null
     }
 }
 
@@ -190,18 +187,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                             </Column>
                             <Column header="Actions" style="width: 9rem">
                                 <template #body="{ data }">
-                                    <SplitButton
-                                        v-if="data.id === 'scan'"
-                                        :label="isTaskRunning(data) ? 'Running' : 'Run'"
-                                        :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
-                                        size="small"
-                                        :loading="triggeringTaskId === data.id || isTaskRunning(data)"
-                                        :disabled="triggeringTaskId !== null || isTaskRunning(data)"
-                                        :model="fullScanMenuItems(data)"
-                                        @click.stop="triggerTask(data)"
-                                    />
                                     <Button
-                                        v-else
                                         :label="isTaskRunning(data) ? 'Running' : 'Run'"
                                         :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
                                         size="small"
@@ -228,9 +214,11 @@ const phoneCols = computed(() => tier.value === 'phone')
         </Tabs>
 
         <ScheduleDialog
+            ref="scheduleDialogRef"
             v-model:visible="scheduleDialogVisible"
             :task="scheduleDialogTask"
             :saving="scheduleSaving"
+            :removingId="scheduleRemovingId"
             @create="onScheduleCreate"
             @patch="onSchedulePatch"
             @remove="onScheduleRemove"

@@ -129,7 +129,7 @@ describe('metadata write reindex polling', () => {
             resolved = true
         })
 
-        await vi.waitFor(() => expect(pollReindexMock).toHaveBeenCalledWith(['x']))
+        await vi.waitFor(() => expect(pollReindexMock).toHaveBeenCalledWith(['x'], { signal: expect.any(AbortSignal) }))
         expect(resolved).toBe(false)
         expect(invalidateSpy).not.toHaveBeenCalled()
 
@@ -143,7 +143,7 @@ describe('metadata write reindex polling', () => {
         applyPictureMock.mockResolvedValue({ ok: true, slot: 'folder', type: 'Front Cover' })
         const { mutation } = mountMutation(useApplyPicture)
         await mutation.mutateAsync(new FormData())
-        expect(pollReindexMock).toHaveBeenCalledWith([])
+        expect(pollReindexMock).toHaveBeenCalledWith([], { signal: expect.any(AbortSignal) })
     })
 
     it('useApplyPicture warns when the polled re-index failed', async () => {
@@ -182,7 +182,7 @@ describe('metadata write reindex polling', () => {
             type: 'Front Cover',
             slot: 'folder'
         })
-        expect(pollReindexMock).toHaveBeenCalledWith(['y'])
+        expect(pollReindexMock).toHaveBeenCalledWith(['y'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([expect.objectContaining({ severity: 'warn', life: 8000 })])
     })
 
@@ -194,7 +194,7 @@ describe('metadata write reindex polling', () => {
         pollReindexMock.mockResolvedValue({ failed: 1 })
         const { mutation } = mountMutation(useUpdateTracks)
         await mutation.mutateAsync({ library_id: 1, paths: ['a.mp3'], fields: { title: 'T' } })
-        expect(pollReindexMock).toHaveBeenCalledWith(['z'])
+        expect(pollReindexMock).toHaveBeenCalledWith(['z'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([expect.objectContaining({ severity: 'warn', life: 8000 })])
         expect(toastAddSpy).toHaveBeenCalledWith(
             expect.objectContaining({ severity: 'success', summary: '1 of 1 saved' })
@@ -247,7 +247,7 @@ describe('metadata write reindex polling', () => {
         })
         const { mutation } = mountMutation(useApplyPicture)
         await mutation.mutateAsync(new FormData())
-        expect(pollReindexMock).toHaveBeenCalledWith(['x'])
+        expect(pollReindexMock).toHaveBeenCalledWith(['x'], { signal: expect.any(AbortSignal) })
     })
 
     it('useDeletePicture quiet skips the internal poll, still returning the reindex ref', async () => {

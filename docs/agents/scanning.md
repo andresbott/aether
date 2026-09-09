@@ -1,13 +1,17 @@
 # Scanning — pipeline, identity rules, cleanup invariants
 
 `internal/scanner` turns files on disk into `internal/model` rows. It backs
-two tasks: the full/incremental `scan` (`ScanParams{Full bool}`; registered in
-`app/cmd/server.go`, defined in `app/tasks/scan.go`) and the metadata editor's
-targeted `reindex` (`ReindexParams{LibraryID, Paths}`, `app/tasks/reindex.go`
-— see "Targeted re-index" below). Both hand their progress/log lines to the
-`*slog.Logger` tempo passes into the task function, which lands in the
-per-execution log (`internal/taskrunner`'s `filelog.Store`; see
-architecture.md).
+three registered tasks: the incremental `scan` and the full `scan-full` — two
+distinct, parameterless tasks (`app/tasks/scan.go`, registered in
+`app/cmd/server.go`), each pinned to a `ScanOptions.IsFull` mode rather than one
+task carrying a `full` flag — and the metadata editor's targeted `reindex`
+(`ReindexParams{LibraryID, Paths}`, `app/tasks/reindex.go` — see "Targeted
+re-index" below). `scan` and `scan-full` are user-triggerable and schedulable
+(they are in `apptasks.AvailableTasks`); `reindex` is deliberately absent from
+that catalog — enqueued only by the editor's write handlers, never triggered or
+scheduled by hand. All hand their progress/log lines to the `*slog.Logger` tempo
+passes into the task function, which lands in the per-execution log
+(`internal/taskrunner`'s `filelog.Store`; see architecture.md).
 
 ## Pipeline (per library, `scanner.go`)
 
@@ -72,7 +76,7 @@ assignment, and `store.BulkUpdateLastSeen` carries `last_seen_at < scanTime`
 in its WHERE clause. Concurrent runs with different `scanStart` values used
 to be normal — before the `reindex` task existed, the metadata editor's
 targeted rescan ran off the request path and could overlap a scheduled scan
-freely. `scan` and `reindex` (below) are now the two writers, each a
+freely. `scan`/`scan-full` and `reindex` (below) are now the writers, each a
 singly-parallel task in the same `library-writes` exclusion group, so tempo
 never runs one of them while the other (or another instance of the same one)
 is in flight — there is only ever one `scanStart` live at a time between
@@ -116,23 +120,31 @@ re-index only one representative track under the folder
 (`metadataedit.FirstAudioPath`) — enough for the per-artist reconcile pass to
 re-probe the image, not the whole discography.
 
-**`scan` and `reindex` share tempo's `library-writes` exclusion group**
-(`tasks.LibraryWriteExclusionGroup`, joined via `taskrunner.ExclusionGroup`,
-both registered in `app/cmd/server.go`): tempo runs at most one task from the
-group at a time, so an edit-triggered re-index can never run while a
-full/incremental scan is in progress, and vice versa — the two no longer
-contend for SQLite's single write lock. `scan` also keeps its own
-`Singleton()` (duplicate triggers coalesce onto the in-flight run); `reindex`
-does not — unlike `scan`'s mode flag, every enqueue carries a different path
-list, so coalescing two edits' re-indexes would silently drop one of them.
+**`scan`, `scan-full` and `reindex` share tempo's `library-writes` exclusion
+group** (`tasks.LibraryWriteExclusionGroup`, joined via
+`taskrunner.ExclusionGroup`, all registered in `app/cmd/server.go`): tempo runs
+at most one task from the group at a time, so an edit-triggered re-index can
+never run while a scan of either kind is in progress, and vice versa — they no
+longer contend for SQLite's single write lock. `scan` and `scan-full` each keep
+their own `Singleton()` (duplicate triggers coalesce onto that task's in-flight
+run). They are two separate tasks rather than one task with a `full` flag
+precisely because tempo coalesces by **task name**, ignoring params: a single
+`scan` task would let a full run fold onto an in-flight incremental one and be
+silently dropped. `reindex` is not a singleton — every enqueue carries a
+different path list, so coalescing two edits' re-indexes would silently drop one
+of them.
 
 The SPA polls the enqueued job instead of trusting the write to mean "the
 index is current" — a guarantee the old synchronous call gave for free and
 this design deliberately gives up. `useReindexPolling.ts`'s `pollReindex`
 polls `listTaskExecutions` until every collected id reaches one of tempo's
 terminal statuses (`complete`, `failed`, `panicked`, `canceled`,
-`cancel_error`, `unknown`; an id already rolled out of the runner's bounded
-execution history counts as complete). Every write mutation in
+`cancel_error`, `unknown`; an id **seen running and then** rolled out of the
+runner's bounded execution history counts as complete, but an id never seen
+stays pending). It reports `{ failed, pending }` — `pending` covering ids left
+unconfirmed by the timeout, an aborted poll (it takes an `AbortSignal`,
+cancelled on scope teardown), or a persistent poll error — so a write never
+claims a clean success it could not confirm. Every write mutation in
 `useMetadataEditor.ts` (`useUpdateTracks`, `useApplyPicture`,
 `useDeletePicture`) awaits that before invalidating the music-UI caches
 (`invalidateAfterMetadataWrite`: the `metadata/tracks`, `metadata/raw` and

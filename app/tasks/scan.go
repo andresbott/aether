@@ -10,28 +10,39 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 )
 
-const ScanTaskName = "scan"
+const (
+	ScanTaskName     = "scan"
+	ScanFullTaskName = "scan-full"
+)
 
-type ScanParams struct {
-	Full bool `json:"full"`
-}
-
+// scan and scan-full are two distinct tasks rather than one task with a `full`
+// parameter: the task runner coalesces duplicate triggers by task name alone
+// (ignoring params), so a single "scan" task would let a full run fold onto an
+// in-flight incremental one and be silently dropped. Splitting the mode into the
+// task identity gives each its own coalescing bucket; both share the
+// library-writes exclusion group, so they still never scan concurrently.
 var ScanTaskDef = TaskDef{
 	ID:          ScanTaskName,
 	Name:        "Library Scan",
-	Description: "Scan the music library. Pass full to re-read every track regardless of modification time; otherwise only tracks modified since the last scan are re-read.",
+	Description: "Scan the music library incrementally: only tracks modified since the last scan are re-read. Runs coalesce, so triggering it again while one is in flight joins the running scan.",
 }
 
-func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader) func(ctx context.Context, log *slog.Logger, p ScanParams) error {
+var ScanFullTaskDef = TaskDef{
+	ID:          ScanFullTaskName,
+	Name:        "Full Library Scan",
+	Description: "Scan the music library in full: every track is re-read regardless of modification time, picking up re-derivations an incremental scan would skip. Distinct from the incremental scan so a full run is never dropped in favour of one.",
+}
+
+func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, full bool) func(ctx context.Context, log *slog.Logger) error {
 	sc := scanner.New(cfg, s, tagReader)
-	return func(ctx context.Context, log *slog.Logger, p ScanParams) error {
+	return func(ctx context.Context, log *slog.Logger) error {
 		mode := "incremental"
-		if p.Full {
+		if full {
 			mode = "full"
 		}
 		log.Info("starting library scan", slog.String("mode", mode))
 
-		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: p.Full, Log: log})
+		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: full, Log: log})
 		if err != nil {
 			log.Error("scan failed", slog.String("error", err.Error()))
 			return err

@@ -227,7 +227,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 				// paths, IsAudioFile is tags.Supported, and every supported format is
 				// readable by some reader (enforced by tags.TestSupportedIsReadable),
 				// so admission asks one question, not two — the same reasoning as
-				// RescanPaths' admitPath.
+				// WalkWouldEmit.
 				meta, err := s.tagReader.Read(ctx, wr.FilePath)
 				if err != nil {
 					mu.Lock()

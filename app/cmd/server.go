@@ -183,13 +183,17 @@ func runServer(configFile string) error {
 		identifier.Cache = identify.NewCache(identify.DefaultCacheSize)
 	}
 
-	// Register tasks — scan (incremental or full via ScanParams.Full) and the
-	// metadata fetch are independent, user-triggered tasks; a scan does NOT
-	// auto-trigger the artist-image fetch. Reindex is the metadata editor's
-	// targeted re-index, enqueued by its write handlers rather than run on
-	// demand; it shares the scan's exclusion group so the two never touch the
-	// library index at the same time.
-	taskrunner.Register[tasks.ScanParams](runner, tasks.NewScanTaskFn(scanCfg, dataStore, tagReader), tasks.ScanTaskName, 1,
+	// Register tasks — the incremental scan, the full scan, and the metadata
+	// fetch are independent, user-triggered tasks; a scan does NOT auto-trigger
+	// the artist-image fetch. scan and scan-full are separate singleton tasks so
+	// a full run never coalesces onto an in-flight incremental one (the runner
+	// dedupes by task name); both share the library-writes exclusion group, so
+	// they — and the reindex below — never touch the library index at once.
+	// Reindex is the metadata editor's targeted re-index, enqueued by its write
+	// handlers rather than run on demand.
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,
+		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, true), tasks.ScanFullTaskName, 1,
 		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
 	taskrunner.Register[tasks.ReindexParams](runner, tasks.NewReindexTaskFn(scanCfg, dataStore, tagReader), tasks.ReindexTaskName, 1,
 		taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))

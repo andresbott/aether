@@ -483,6 +483,13 @@ func TestContractTasksListCreateGetTriggerAndExecutions(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "createTaskSchedule", http.StatusCreated, w)
 
+	var createdSchedule struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &createdSchedule); err != nil || createdSchedule.ID == "" {
+		t.Fatalf("createTaskSchedule: missing schedule id: %v (%s)", err, w.Body.String())
+	}
+
 	// getTask: bare Task, reading the schedule just created back in its
 	// schedules array.
 	req = httptest.NewRequest(http.MethodGet, "/api/v0/tasks/scan", nil)
@@ -503,6 +510,30 @@ func TestContractTasksListCreateGetTriggerAndExecutions(t *testing.T) {
 		t.Fatalf("POST /tasks/scan/trigger = %d, want 202: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "triggerTask", http.StatusAccepted, w)
+
+	// patchTaskSchedule: 200 + the updated TaskSchedule (the {name} in the
+	// path is enforced against the schedule's owner — a mismatch 404s).
+	req = httptest.NewRequest(http.MethodPatch, "/api/v0/tasks/scan/schedules/"+createdSchedule.ID,
+		strings.NewReader(`{"enabled":false}`))
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH /tasks/scan/schedules/{id} = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "patchTaskSchedule", http.StatusOK, w)
+
+	// deleteTaskSchedule: 204 with an empty body.
+	req = httptest.NewRequest(http.MethodDelete, "/api/v0/tasks/scan/schedules/"+createdSchedule.ID, nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE /tasks/scan/schedules/{id} = %d, want 204: %s", w.Code, w.Body.String())
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("deleteTaskSchedule 204 must have an empty body, got: %s", w.Body.String())
+	}
 
 	// listTaskExecutions again: now populated by the triggered run, and
 	// TaskExecution's ended_at is still its Go zero-time value (the run was

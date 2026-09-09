@@ -76,18 +76,7 @@ describe('useTasks trigger coalescing feedback', () => {
         expect(toastAdd).not.toHaveBeenCalled()
     })
 
-    it('forwards a params body (full scan) to the API keyed by task id', async () => {
-        triggerTask.mockResolvedValue({ execution_id: 'x', reused: false })
-        const { captured } = withTasks()
-
-        captured.api!.triggerTask(scanTask, { full: true })
-        await flushPromises()
-        await flushPromises()
-
-        expect(triggerTask).toHaveBeenCalledWith('scan', { full: true })
-    })
-
-    it('calls the API with no body for a plain trigger', async () => {
+    it('calls the API by task name for a plain trigger', async () => {
         triggerTask.mockResolvedValue({ execution_id: 'x', reused: false })
         const { captured } = withTasks()
 
@@ -95,7 +84,7 @@ describe('useTasks trigger coalescing feedback', () => {
         await flushPromises()
         await flushPromises()
 
-        expect(triggerTask).toHaveBeenCalledWith('scan', undefined)
+        expect(triggerTask).toHaveBeenCalledWith('scan')
     })
 })
 

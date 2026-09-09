@@ -328,7 +328,7 @@ describe('picture staging', () => {
         invalidateSpy.mockReset()
         toastAddSpy.mockReset()
         pollReindexSpy.mockReset()
-        pollReindexSpy.mockResolvedValue({ failed: 0 })
+        pollReindexSpy.mockResolvedValue({ failed: 0, pending: 0 })
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: vi.fn(() => 'blob:preview'),
@@ -460,7 +460,7 @@ describe('picture staging', () => {
     const reindexWarnings = () =>
         toastAddSpy.mock.calls
             .map((c) => c[0])
-            .filter((t) => t.summary === 'Saved, but the library index was not fully updated')
+            .filter((t) => t.summary === 'Saved, but the library index was not confirmed updated')
 
     // The flagship contract this task adds: save() does not poll per-write. It
     // collects every write's execution id — pictures AND tag batches — and
@@ -478,7 +478,7 @@ describe('picture staging', () => {
             results: [{ path: 'album/a.mp3', ok: true }],
             reindex: { execution_id: 'tag-1' }
         })
-        let resolvePoll!: (v: { failed: number }) => void
+        let resolvePoll!: (v: { failed: number; pending: number }) => void
         pollReindexSpy.mockReturnValue(
             new Promise((resolve) => {
                 resolvePoll = resolve
@@ -496,13 +496,13 @@ describe('picture staging', () => {
 
         await vi.waitFor(() => expect(updateTracksSpy).toHaveBeenCalledTimes(1))
         await vi.waitFor(() => expect(pollReindexSpy).toHaveBeenCalledTimes(1))
-        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1', 'tag-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1', 'tag-1'], { signal: expect.any(AbortSignal) })
         // Still pending: the poll has not resolved yet.
         expect(resolved).toBe(false)
         expect(invalidateSpy).not.toHaveBeenCalled()
         expect(session.isSaving.value).toBe(true)
 
-        resolvePoll({ failed: 1 })
+        resolvePoll({ failed: 1, pending: 0 })
         await done
         expect(resolved).toBe(true)
         expect(invalidateSpy).toHaveBeenCalled()
@@ -510,7 +510,7 @@ describe('picture staging', () => {
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not complete for 1 item; a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
                 life: 8000
             })
         ])
@@ -524,16 +524,16 @@ describe('picture staging', () => {
             type: 'Back Cover',
             reindex: { execution_id: 'pic-1' }
         })
-        pollReindexSpy.mockResolvedValue({ failed: 1 })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stagePictureSet('album', 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
         await session.save()
-        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not complete for 1 item; a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
                 life: 8000
             })
         ])
@@ -542,13 +542,13 @@ describe('picture staging', () => {
     it('warns when a picture removal\'s polled re-index fails', async () => {
         const session = mkSession()
         deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
-        pollReindexSpy.mockResolvedValue({ failed: 1 })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
         await session.save()
-        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not complete for 1 item; a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
             })
         ])
     })
@@ -594,16 +594,16 @@ describe('picture staging', () => {
         const session = mkSession()
         deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
         applyPictureSpy.mockRejectedValue(new Error('boom'))
-        pollReindexSpy.mockResolvedValue({ failed: 1 })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
         session.stagePictureSet('album', 'Front Cover', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
         await session.save()
-        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not complete for 1 item; a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
             })
         ])
     })
@@ -613,7 +613,7 @@ describe('picture staging', () => {
         deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
         await session.save()
-        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([])
     })
 
@@ -1128,7 +1128,7 @@ describe('useEditSession artist image', () => {
         updateTracksSpy.mockResolvedValue({ results: [] })
         toastAddSpy.mockReset()
         pollReindexSpy.mockReset()
-        pollReindexSpy.mockResolvedValue({ failed: 0 })
+        pollReindexSpy.mockResolvedValue({ failed: 0, pending: 0 })
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: vi.fn(() => 'blob:preview'),
@@ -1207,15 +1207,15 @@ describe('useEditSession artist image', () => {
             path: 'Radiohead/artist.jpg',
             reindex: { execution_id: 'art-1' }
         })
-        pollReindexSpy.mockResolvedValue({ failed: 1 })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb-1', url: 'http://p/x.jpg' })
         await session.save()
-        expect(pollReindexSpy).toHaveBeenCalledWith(['art-1'])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['art-1'], { signal: expect.any(AbortSignal) })
         expect(toastAddSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 severity: 'warn',
-                summary: 'Saved, but the library index was not fully updated',
-                detail: 'The re-index did not complete for 1 item; a library scan will fix it.'
+                summary: 'Saved, but the library index was not confirmed updated',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
             })
         )
     })

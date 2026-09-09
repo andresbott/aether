@@ -679,6 +679,11 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // rather than have every bare-composable test log it.
     onScopeDispose(() => discardAll(), true)
 
+    // Cancel any in-flight re-index poll when the editor's scope tears down, so
+    // navigating away mid-save stops hammering the executions endpoint.
+    const saveAbort = new AbortController()
+    onScopeDispose(() => saveAbort.abort())
+
     // ----- Save -----
 
     // One savePictures run: whether every staged op was written, plus every
@@ -808,12 +813,13 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // library re-index did not complete (as polled, in one batch, from every
     // execution id the save collected — pictures, artist images and tag
     // batches alike).
-    function reportReindexFailure(failed: number) {
-        if (failed === 0) return
+    function reportReindexFailure(result: { failed: number; pending: number }) {
+        const unconfirmed = result.failed + result.pending
+        if (unconfirmed === 0) return
         toast.add({
             severity: 'warn',
-            summary: 'Saved, but the library index was not fully updated',
-            detail: `The re-index did not complete for ${failed} item${failed === 1 ? '' : 's'}; a library scan will fix it.`,
+            summary: 'Saved, but the library index was not confirmed updated',
+            detail: `The re-index did not confirm completion for ${unconfirmed} item${unconfirmed === 1 ? '' : 's'}; if the change does not appear, a library scan will fix it.`,
             life: 8000
         })
     }
@@ -858,8 +864,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 // The images collected so far are on disk regardless of the
                 // abort; settle their re-index before reporting so the warning
                 // (if any) reflects a terminal status, not a job still running.
-                const { failed } = await pollReindex(executionIds)
-                reportReindexFailure(failed)
+                const result = await pollReindex(executionIds, { signal: saveAbort.signal })
+                reportReindexFailure(result)
                 reportSkippedTagEdits()
                 return
             }
@@ -868,8 +874,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             wrote = wrote || arts.wrote
             executionIds.push(...arts.executionIds)
             if (!arts.ok) {
-                const { failed } = await pollReindex(executionIds)
-                reportReindexFailure(failed)
+                const result = await pollReindex(executionIds, { signal: saveAbort.signal })
+                reportReindexFailure(result)
                 reportSkippedTagEdits()
                 return
             }
@@ -878,8 +884,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             if (batches.length === 0) {
                 // Overlays may exist whose patch is a no-op; nothing to write.
                 overlays.value.clear()
-                const { failed } = await pollReindex(executionIds)
-                reportReindexFailure(failed)
+                const result = await pollReindex(executionIds, { signal: saveAbort.signal })
+                reportReindexFailure(result)
                 return
             }
             const results: UpdateResult[] = []
@@ -916,8 +922,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
             // images and tag writes alike — now that the whole save has run.
             // isSaving stays true through this await, which is the
             // "re-indexing…" state the Save button reflects.
-            const { failed: reindexFailed } = await pollReindex(executionIds)
-            reportReindexFailure(reindexFailed)
+            const result = await pollReindex(executionIds, { signal: saveAbort.signal })
+            reportReindexFailure(result)
             if (albumMoved !== null) {
                 toast.add({
                     severity: 'warn',

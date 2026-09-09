@@ -1,31 +1,30 @@
 package tasks
 
-import (
-	"encoding/json"
-	"testing"
-)
+import "testing"
 
-func TestScanParamsJSONShape(t *testing.T) {
-	b, err := json.Marshal(ScanParams{Full: true})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	if string(b) != `{"full":true}` {
-		t.Fatalf("ScanParams JSON = %s, want {\"full\":true}", b)
-	}
-}
-
-func TestAvailableTasksHasSingleScan(t *testing.T) {
+// scan and scan-full are registered as two distinct tasks (each its own
+// coalescing bucket) so a full scan is never dropped in favour of an in-flight
+// incremental one.
+func TestAvailableTasksHasScanAndScanFull(t *testing.T) {
 	scan, full := 0, 0
 	for _, d := range AvailableTasks {
 		switch d.ID {
-		case "scan":
+		case ScanTaskName:
 			scan++
-		case "scan-full":
+		case ScanFullTaskName:
 			full++
 		}
 	}
-	if scan != 1 || full != 0 {
-		t.Fatalf("scan=%d scan-full=%d, want 1 and 0", scan, full)
+	if scan != 1 || full != 1 {
+		t.Fatalf("scan=%d scan-full=%d, want 1 and 1", scan, full)
+	}
+}
+
+// reindex is enqueued by the metadata editor's write handlers, not run on
+// demand, so it must not appear in the user-facing task catalogue (no trigger,
+// no schedule). It stays registered on the runner independently.
+func TestReindexIsNotUserExposed(t *testing.T) {
+	if TaskNameExists(ReindexTaskName) {
+		t.Fatalf("reindex must not be user-triggerable/schedulable")
 	}
 }

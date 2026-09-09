@@ -4,14 +4,17 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Checkbox from 'primevue/checkbox'
-import Tag from 'primevue/tag'
 import { SCHEDULE_PRESETS, type Task } from '@/composables/useTasks'
 import type { CreateScheduleBody, PatchScheduleBody, TaskSchedule } from '@/types/tasks'
 
 const props = defineProps<{
     visible: boolean
     task: Task | null
+    // saving covers create/patch (drives the Add/Save button); removingId marks
+    // the specific row whose delete is in flight, so a remove never spins the
+    // Add button or reads as a create/patch.
     saving?: boolean
+    removingId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -21,8 +24,6 @@ const emit = defineEmits<{
     remove: [id: string]
 }>()
 
-const isScan = computed(() => props.task?.id === 'scan')
-
 const schedules = computed<TaskSchedule[]>(() => props.task?.schedules ?? [])
 
 // Edit buffer: null = the "add new" form; otherwise the id of the schedule
@@ -30,14 +31,12 @@ const schedules = computed<TaskSchedule[]>(() => props.task?.schedules ?? [])
 const editingId = ref<string | null>(null)
 const cronExpression = ref('')
 const enabled = ref(true)
-const full = ref(false)
 const error = ref('')
 
 const resetForm = () => {
     editingId.value = null
     cronExpression.value = ''
     enabled.value = true
-    full.value = false
     error.value = ''
 }
 
@@ -49,24 +48,10 @@ watch(
     { immediate: true }
 )
 
-// The dialog stays open after a save (it's a manager, not a one-shot form),
-// so once the parent's create mutation succeeds and the task's `schedules`
-// list grows, clear the add form as the only feedback the user gets that it
-// worked. Only for the add form (not while editing an existing row) and only
-// on growth, so removing a row elsewhere never disturbs in-progress input.
-watch(
-    () => schedules.value.length,
-    (count, previousCount) => {
-        if (editingId.value === null && count > previousCount) resetForm()
-    }
-)
-
 const scheduleLabel = (s: TaskSchedule): string => {
     const preset = SCHEDULE_PRESETS.find((p) => p.cron === s.cron_expression)
     return preset ? preset.label : s.cron_expression
 }
-
-const isFullSchedule = (s: TaskSchedule): boolean => Boolean((s.params as { full?: boolean } | undefined)?.full)
 
 const setPreset = (cron: string) => {
     cronExpression.value = cron
@@ -77,7 +62,6 @@ const editRow = (s: TaskSchedule) => {
     editingId.value = s.id
     cronExpression.value = s.cron_expression
     enabled.value = s.enabled
-    full.value = isFullSchedule(s)
     error.value = ''
 }
 
@@ -91,13 +75,18 @@ const onSave = () => {
         error.value = 'Cron expression is required'
         return
     }
-    const params = isScan.value ? { full: full.value } : undefined
     if (editingId.value) {
-        emit('patch', { id: editingId.value, body: { cron_expression: cron, enabled: enabled.value, params } })
+        emit('patch', { id: editingId.value, body: { cron_expression: cron, enabled: enabled.value } })
     } else {
-        emit('create', { cron_expression: cron, enabled: enabled.value, params })
+        emit('create', { cron_expression: cron, enabled: enabled.value })
     }
 }
+
+// The dialog stays open after a save (it's a manager, not a one-shot form). The
+// parent awaits its create mutation and, on success, calls resetAddForm to clear
+// the add form — deterministic feedback that does not depend on the tasks query
+// refetching (which may be slow, or fail after a write that did land).
+defineExpose({ resetAddForm: resetForm })
 </script>
 
 <template>
@@ -113,11 +102,10 @@ const onSave = () => {
                 <div v-for="s in schedules" :key="s.id" class="schedule-row">
                     <div class="schedule-row-info">
                         <span class="schedule-row-label">{{ scheduleLabel(s) }}</span>
-                        <Tag v-if="isScan" :severity="isFullSchedule(s) ? 'warn' : 'secondary'" :value="isFullSchedule(s) ? 'Full' : 'Incremental'" />
                         <span v-if="!s.enabled" class="schedule-row-paused">(paused)</span>
                     </div>
                     <div class="schedule-row-actions">
-                        <Button icon="pi pi-pencil" text rounded size="small" aria-label="Edit schedule" @click="editRow(s)" />
+                        <Button icon="pi pi-pencil" text rounded size="small" aria-label="Edit schedule" :disabled="saving || removingId != null" @click="editRow(s)" />
                         <Button
                             icon="pi pi-trash"
                             text
@@ -125,7 +113,8 @@ const onSave = () => {
                             size="small"
                             severity="danger"
                             aria-label="Remove schedule"
-                            :disabled="saving"
+                            :loading="removingId === s.id"
+                            :disabled="saving || removingId != null"
                             @click="emit('remove', s.id)"
                         />
                     </div>
@@ -160,14 +149,10 @@ const onSave = () => {
                     <Checkbox v-model="enabled" :binary="true" inputId="schedule-enabled" />
                     <label for="schedule-enabled">Enabled</label>
                 </div>
-                <div v-if="isScan" class="field-inline">
-                    <Checkbox v-model="full" :binary="true" inputId="schedule-full" />
-                    <label for="schedule-full">Full scan</label>
-                </div>
                 <p v-if="error" class="error">{{ error }}</p>
                 <div class="form-actions">
-                    <Button v-if="editingId" label="Cancel edit" text severity="secondary" :disabled="saving" @click="cancelEdit" />
-                    <Button :label="editingId ? 'Save changes' : 'Add schedule'" icon="pi pi-check" :loading="saving" @click="onSave" />
+                    <Button v-if="editingId" label="Cancel edit" text severity="secondary" :disabled="saving || removingId != null" @click="cancelEdit" />
+                    <Button :label="editingId ? 'Save changes' : 'Add schedule'" icon="pi pi-check" :loading="saving" :disabled="removingId != null" @click="onSave" />
                 </div>
             </div>
         </div>
