@@ -36,7 +36,7 @@ Notes for editors:
 
 ### Backend — Task runner (job engine)
 
-- [/] Update the job engine (`go-bumbu/tempo`) to the latest version
+- [x] Update the job engine (`go-bumbu/tempo`) to the latest version
   Done in code on branch `chore/upgrade-tempo-v0.4` (v0.2.0 → v0.4.0): wrapper adapted to
   `RegisterRaw`/`WithMaxParallelism`/`AddRaw`, task fns now receive tempo's per-task `*slog.Logger`
   (replacing the removed `tempo.Info/Error` package helpers). Left open pending commit/merge; the

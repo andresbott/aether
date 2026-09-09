@@ -682,7 +682,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // Cancel any in-flight re-index poll when the editor's scope tears down, so
     // navigating away mid-save stops hammering the executions endpoint.
     const saveAbort = new AbortController()
-    onScopeDispose(() => saveAbort.abort())
+    onScopeDispose(() => saveAbort.abort(), true)
 
     // ----- Save -----
 

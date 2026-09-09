@@ -131,7 +131,10 @@ export function useUpdateTracks() {
     const qc = useQueryClient()
     const toast = useToast()
     const abort = new AbortController()
-    onScopeDispose(() => abort.abort())
+    // failSilently (2nd arg): no-op without a warning when the mutation is
+    // built bare in a unit test (no active effect scope); in the app it aborts
+    // the poll when the owning component's scope tears down.
+    onScopeDispose(() => abort.abort(), true)
     return useMutation({
         mutationFn: async (body: UpdateTracksRequest) => {
             const out = await updateTracksPartitioned(body)
@@ -282,7 +285,10 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     const abort = new AbortController()
-    onScopeDispose(() => abort.abort())
+    // failSilently (2nd arg): no-op without a warning when the mutation is
+    // built bare in a unit test (no active effect scope); in the app it aborts
+    // the poll when the owning component's scope tears down.
+    onScopeDispose(() => abort.abort(), true)
     return useMutation({
         mutationFn: async (form: FormData) => {
             const out = await MetadataApi.applyPicture(form)
@@ -330,7 +336,10 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     const abort = new AbortController()
-    onScopeDispose(() => abort.abort())
+    // failSilently (2nd arg): no-op without a warning when the mutation is
+    // built bare in a unit test (no active effect scope); in the app it aborts
+    // the poll when the owning component's scope tears down.
+    onScopeDispose(() => abort.abort(), true)
     return useMutation({
         mutationFn: async (v: {
             libraryId: number
