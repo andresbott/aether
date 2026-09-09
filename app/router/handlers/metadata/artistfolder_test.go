@@ -354,25 +354,25 @@ func TestSetArtistImage_OnlinePickRequiresFetcher(t *testing.T) {
 	}
 }
 
-// TestSetArtistImage_RescansRepresentativeTrack: the write re-indexes one track
-// under the folder so the scanner re-detects the image.
-func TestSetArtistImage_RescansRepresentativeTrack(t *testing.T) {
+// TestSetArtistImage_EnqueuesReindexOfRepresentativeTrack: the write enqueues a
+// re-index of one track under the folder so the scanner re-detects the image.
+func TestSetArtistImage_EnqueuesReindexOfRepresentativeTrack(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	rs := &fakeRescanner{}
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rs)
+	rx := &fakeReindexer{}
+	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
 
 	body, ct := buildArtistImageForm(t, lib.ID, "Radiohead", "x.png", pngBytes)
 	if w := postArtistImage(t, r, body, ct); w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
-	if len(rs.calls) != 1 || len(rs.calls[0]) != 1 {
-		t.Fatalf("rescan calls = %v, want one call with one path", rs.calls)
+	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 {
+		t.Fatalf("reindex calls = %v, want one call with one path", rx.calls)
 	}
 	want := filepath.Join(root, "Radiohead", "OK Computer", "a.flac")
-	if rs.calls[0][0] != want {
-		t.Errorf("rescan path = %q, want %q", rs.calls[0][0], want)
+	if rx.calls[0][0] != want {
+		t.Errorf("reindex path = %q, want %q", rx.calls[0][0], want)
 	}
 }
 

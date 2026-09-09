@@ -35,15 +35,14 @@ type CoverArtClient interface {
 // ImagesHandler serves the picture endpoints of the metadata editor: the
 // embedded and folder cover-art cells of a track selection, the artist-folder
 // image, and the online candidate proxies (Cover Art Archive, artist image
-// providers). Every write lands on disk and is followed by a rescan of the
-// touched files; the library index is never written directly.
+// providers). Every write lands on disk and enqueues a background re-index of
+// the touched files; the library index is never written directly.
 type ImagesHandler struct {
 	Store  *store.Store
 	Reader tags.Reader
-	// Rescan re-indexes the files a write touched so the edit shows up in the
-	// music UI without waiting for a scan task. nil disables re-indexing; the
-	// file write still succeeds and the index catches up on the next scan.
-	Rescan TrackRescanner
+	// Reindex enqueues a background re-index of the files a write touched; nil
+	// disables it.
+	Reindex Reindexer
 	// CoverArt backs the album-cover candidate list and image_url downloads.
 	// Optional: nil answers the candidate endpoints with an empty list / 503.
 	CoverArt CoverArtClient
@@ -417,10 +416,10 @@ func validSlot(slot string) bool {
 }
 
 type applyPictureResult struct {
-	OK     bool          `json:"ok"`
-	Slot   string        `json:"slot"`
-	Type   string        `json:"type"`
-	Rescan *rescanStatus `json:"rescan,omitempty"`
+	OK      bool        `json:"ok"`
+	Slot    string      `json:"slot"`
+	Type    string      `json:"type"`
+	Reindex *reindexRef `json:"reindex,omitempty"`
 }
 
 // applyPicture saves an image of one picture type to one slot: an art file in
@@ -497,19 +496,19 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-index the folder's tracks: the embedded slot changed their tags, and
-	// folder writes change which image the album should serve (reconcile
-	// redetects album.CoverPath). A folder write touches no audio mtime, so a
-	// failed re-index needs a full scan to recover (rescanFolderArt); an
-	// embedded write changed the tags, so the next incremental scan catches up.
-	rs := h.rescanForSlot(r.Context(), slot, libModel.ID, al.Tracks())
-	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Rescan: rs})
+	// Enqueue a re-index of the folder's tracks: a folder write changes which
+	// image the album should serve (reconcile redetects album.CoverPath), and
+	// an embedded write changed the tracks' tags directly. Both go through the
+	// same background job now — the folder/embedded distinction no longer
+	// matters for how re-indexing runs.
+	rx := enqueueReindex(r.Context(), h.Reindex, libModel.ID, al.Tracks())
+	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Reindex: rx})
 }
 
 // savePictureToSlot writes the image bytes to the requested slot, returning
 // an HTTP status + error on failure (0, nil on success). Both slots are on
-// disk; the DB catches up through the caller's rescan, which re-reads the tags
-// and re-detects the album's cover file.
+// disk; the DB catches up through the caller's re-index, which re-reads the
+// tags and re-detects the album's cover file.
 func (h *ImagesHandler) savePictureToSlot(slot string, pt metadataedit.PictureType, al metadataedit.Album, ext string, data []byte) (int, error) {
 	switch slot {
 	case "folder":
@@ -580,21 +579,10 @@ func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{"ok": true}
-	if rs := h.rescanForSlot(r.Context(), sel.Slot, lib.ID, al.Tracks()); rs != nil {
-		out["rescan"] = rs
+	if rx := enqueueReindex(r.Context(), h.Reindex, lib.ID, al.Tracks()); rx != nil {
+		out["reindex"] = rx
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-// rescanForSlot picks the re-index helper for a picture slot: the "folder" slot
-// is an on-disk sidecar whose failed re-index needs a full scan to recover
-// (rescanFolderArt), while the "embedded" slot rewrote the audio files' tags, so
-// the next incremental scan catches up on its own (rescanSaved).
-func (h *ImagesHandler) rescanForSlot(ctx context.Context, slot string, libraryID uint, absPaths []string) *rescanStatus {
-	if slot == "folder" {
-		return rescanFolderArt(ctx, h.Rescan, libraryID, absPaths)
-	}
-	return rescanSaved(ctx, h.Rescan, libraryID, absPaths)
 }
 
 // writeImage writes raw image bytes with a sniffed image content-type.

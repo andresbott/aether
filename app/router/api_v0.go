@@ -219,19 +219,20 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		if h.tagReader != nil {
 			// The metadata editor's endpoints are split across three handlers by
 			// concern — tag edits, on-disk pictures, and acoustic identify — that
-			// share only the library store and the post-write rescanner. Mounting
+			// share only the library store and the post-write reindexer. Mounting
 			// them separately keeps each handler's dependency set to exactly what it
 			// uses.
+			reindexer := h.metadataReindexer()
 			(&metadataHandler.TagsHandler{
-				Store:  h.store,
-				Reader: h.tagReader,
-				Rescan: h.rescanner,
+				Store:   h.store,
+				Reader:  h.tagReader,
+				Reindex: reindexer,
 			}).Routes(r)
 
 			(&metadataHandler.ImagesHandler{
 				Store:    h.store,
 				Reader:   h.tagReader,
-				Rescan:   h.rescanner,
+				Reindex:  reindexer,
 				CoverArt: coverart.New(userAgent),
 				Images:   h.images,
 				// Memoize provider image bytes so a repeated pre-save probe and the

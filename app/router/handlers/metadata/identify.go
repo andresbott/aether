@@ -29,7 +29,7 @@ const defaultIdentifyUnavailableReason = "audio identification is not available 
 // editor: per-file identify, album identify, and the capabilities probe that
 // reports whether identification is available. It reads files (Reader, for the
 // album-identify ranking hints) and resolves selections against the library
-// store, but never writes — so it carries no rescanner.
+// store, but never writes — so it carries no reindexer.
 type IdentifyHandler struct {
 	Store  *store.Store
 	Reader tags.Reader

@@ -157,10 +157,6 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
-	// Scanner for the metadata editor's post-write re-index. The scheduled
-	// scan tasks build their own scanner instances (via NewScanTaskFn).
-	libScanner := scanner.New(scanCfg, dataStore, tagReader)
-
 	// Audio identification is optional: it needs the fpcalc binary
 	// (Chromaprint) on the host and an AcoustID application key.
 	// identifyOff is the user-facing reason shown by the metadata editor when
@@ -188,9 +184,15 @@ func runServer(configFile string) error {
 	}
 
 	// Register tasks — scan (incremental or full via ScanParams.Full) and the
-	// metadata fetch are independent tasks; a scan does NOT auto-trigger the
-	// artist-image fetch. Run each on demand.
-	taskrunner.Register[tasks.ScanParams](runner, tasks.NewScanTaskFn(scanCfg, dataStore, tagReader), tasks.ScanTaskName, 1, taskrunner.Singleton())
+	// metadata fetch are independent, user-triggered tasks; a scan does NOT
+	// auto-trigger the artist-image fetch. Reindex is the metadata editor's
+	// targeted re-index, enqueued by its write handlers rather than run on
+	// demand; it shares the scan's exclusion group so the two never touch the
+	// library index at the same time.
+	taskrunner.Register[tasks.ScanParams](runner, tasks.NewScanTaskFn(scanCfg, dataStore, tagReader), tasks.ScanTaskName, 1,
+		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
+	taskrunner.Register[tasks.ReindexParams](runner, tasks.NewReindexTaskFn(scanCfg, dataStore, tagReader), tasks.ReindexTaskName, 1,
+		taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
 	runner.RegisterTask(
 		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, 24*time.Hour),
 		tasks.FetchArtistImagesTaskName, 1,
@@ -215,7 +217,6 @@ func runServer(configFile string) error {
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
-		Rescanner:     libScanner,
 		AuthMethod:    cfg.Auth.Method,
 		Users:         auth.Users,
 		Passwords:     auth.Passwords,

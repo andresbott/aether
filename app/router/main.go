@@ -14,7 +14,6 @@ import (
 	"strings"
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
-	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/app/spa"
@@ -57,9 +56,6 @@ type Cfg struct {
 	// IdentifyUnavailableReason is the user-facing explanation shown by the
 	// editor when Identifier is nil (e.g. fpcalc missing). Ignored otherwise.
 	IdentifyUnavailableReason string
-	// Rescanner re-indexes files the metadata editor writes, so an edit shows
-	// up in the music UI without a scan task. Optional: nil disables it.
-	Rescanner metadataHandler.TrackRescanner
 	// AuthMethod is the configured authentication method
 	// ("none"/"native"/"proxy-header"), reported to the SPA via GET /api/v0/me.
 	AuthMethod string
@@ -109,7 +105,6 @@ type MainAppHandler struct {
 	images        *imagecache.Cache
 	identifier    *identify.Identifier
 	identifyOff   string
-	rescanner     metadataHandler.TrackRescanner
 	authMethod    string
 	users         *user.Service
 	passwords     *password.Service
@@ -262,7 +257,6 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		images:        imagecache.New(filepath.Join(cfg.DataDir, imageCacheDir)),
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
-		rescanner:     cfg.Rescanner,
 		authMethod:    cfg.AuthMethod,
 		users:         cfg.Users,
 		passwords:     cfg.Passwords,

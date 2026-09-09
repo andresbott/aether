@@ -14,17 +14,16 @@ import (
 
 // TagsHandler serves the structured and raw tag-editing endpoints of the
 // metadata editor: browsing folders, reading a selection's tracks, writing a
-// structured patch, and the raw tag map. Every write is followed by a rescan of
-// the touched files so the edit is visible in the music UI without waiting for a
-// scan task; it never writes to the library index directly.
+// structured patch, and the raw tag map. Every write enqueues a background
+// re-index of the touched files so the edit becomes visible in the music UI
+// without the request blocking on it; it never writes to the library index
+// directly.
 type TagsHandler struct {
 	Store  *store.Store
 	Reader tags.Reader
-	// Rescan re-indexes the files a write touched, synchronously, before the
-	// response is sent — so a 200 means the library index is current and the
-	// UI can drop its caches without polling. nil disables re-indexing; the
-	// file write still succeeds and the index catches up on the next scan.
-	Rescan TrackRescanner
+	// Reindex enqueues a background re-index of the files a write touched; nil
+	// disables it.
+	Reindex Reindexer
 	// RawTagReader reads a file's complete tag map; nil defaults to
 	// taglib.ReadTags. Overridable for tests.
 	RawTagReader func(absPath string) (map[string][]string, error)
@@ -315,10 +314,10 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		written = append(written, abs)
 	}
 	out := map[string]any{"results": results}
-	// Only the files that were actually written need re-indexing; rescanSaved
-	// returns nil for an empty list, so an all-failed batch carries no rescan.
-	if rs := rescanSaved(r.Context(), h.Rescan, libModel.ID, written); rs != nil {
-		out["rescan"] = rs
+	// Only the files that were actually written need re-indexing; enqueueReindex
+	// returns nil for an empty list, so an all-failed batch carries no reindex.
+	if rx := enqueueReindex(r.Context(), h.Reindex, libModel.ID, written); rx != nil {
+		out["reindex"] = rx
 	}
 	// A partial write of an album-identity edit leaves the album inconsistent on
 	// disk: the files that wrote carry the new identity, the ones that failed
