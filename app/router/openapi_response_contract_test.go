@@ -32,8 +32,8 @@ import (
 // feasibility spike to load and correctly VALIDATE this spec's OpenAPI
 // 3.1-only constructs — `type: [string, 'null']` (TokenInfo.lastUsedAt/
 // expiresAt, Library.last_scan_started_at, ...), `oneOf: [$ref, {type:
-// 'null'}]` (MeResponse.user) and `allOf` composition (ValidationProblem,
-// Task.schedule) — accepting a valid body under each shape and REJECTING an
+// 'null'}]` (MeResponse.user) and `allOf` composition (ValidationProblem)
+// — accepting a valid body under each shape and REJECTING an
 // invalid one (wrong type, missing required field, a oneOf value matching
 // neither branch). EnableJSONSchema2020() is passed to VisitJSON per
 // kin-openapi's own guidance for 3.1+ documents.
@@ -445,12 +445,13 @@ func TestCreateTokenResultRejectsCredentialTypeMismatch(t *testing.T) {
 // --- Tasks: the flattened-embed + wrapped-vs-bare Task shapes, an empty
 // envelope before any run, and the populated one after ---
 
-func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
+func TestContractTasksListCreateGetTriggerAndExecutions(t *testing.T) {
 	doc := specDoc(t)
 	h, attach := newContractTaskRouter(t)
 
-	// listTasks: the TaskList envelope, entries with no schedule configured
-	// yet (Task.schedule entirely absent, per its omitempty allOf).
+	// listTasks: the TaskList envelope, entries with no schedules configured
+	// yet (Task.schedules present but empty, per its required, non-nullable
+	// array shape).
 	req := httptest.NewRequest(http.MethodGet, "/api/v0/tasks", nil)
 	attach(req)
 	w := httptest.NewRecorder()
@@ -470,18 +471,27 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "listTaskExecutions", http.StatusOK, w)
 
-	// upsertTaskSchedule: bare Task, now WITH its schedule (TaskSchedule via
-	// allOf) — the trickiest shape in this group.
-	req = httptest.NewRequest(http.MethodPut, "/api/v0/tasks/scan", strings.NewReader(`{"cron_expression":"0 0 3 * * *"}`))
+	// createTaskSchedule: the bare TaskSchedule, now carrying params — the
+	// trickiest shape in this group.
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/tasks/scan/schedules",
+		strings.NewReader(`{"cron_expression":"0 0 0 * * *","params":{"full":true}}`))
 	attach(req)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("PUT /tasks/scan = %d, want 200: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("POST /tasks/scan/schedules = %d, want 201: %s", w.Code, w.Body.String())
 	}
-	assertJSONResponse(t, doc, "upsertTaskSchedule", http.StatusOK, w)
+	assertJSONResponse(t, doc, "createTaskSchedule", http.StatusCreated, w)
 
-	// getTask: bare Task, reading the schedule just saved back.
+	var createdSchedule struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &createdSchedule); err != nil || createdSchedule.ID == "" {
+		t.Fatalf("createTaskSchedule: missing schedule id: %v (%s)", err, w.Body.String())
+	}
+
+	// getTask: bare Task, reading the schedule just created back in its
+	// schedules array.
 	req = httptest.NewRequest(http.MethodGet, "/api/v0/tasks/scan", nil)
 	attach(req)
 	w = httptest.NewRecorder()
@@ -500,6 +510,30 @@ func TestContractTasksListUpsertGetTriggerAndExecutions(t *testing.T) {
 		t.Fatalf("POST /tasks/scan/trigger = %d, want 202: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "triggerTask", http.StatusAccepted, w)
+
+	// patchTaskSchedule: 200 + the updated TaskSchedule (the {name} in the
+	// path is enforced against the schedule's owner — a mismatch 404s).
+	req = httptest.NewRequest(http.MethodPatch, "/api/v0/tasks/scan/schedules/"+createdSchedule.ID,
+		strings.NewReader(`{"enabled":false}`))
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PATCH /tasks/scan/schedules/{id} = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "patchTaskSchedule", http.StatusOK, w)
+
+	// deleteTaskSchedule: 204 with an empty body.
+	req = httptest.NewRequest(http.MethodDelete, "/api/v0/tasks/scan/schedules/"+createdSchedule.ID, nil)
+	attach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("DELETE /tasks/scan/schedules/{id} = %d, want 204: %s", w.Code, w.Body.String())
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("deleteTaskSchedule 204 must have an empty body, got: %s", w.Body.String())
+	}
 
 	// listTaskExecutions again: now populated by the triggered run, and
 	// TaskExecution's ended_at is still its Go zero-time value (the run was

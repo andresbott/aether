@@ -40,6 +40,13 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: deletePictureSpy })
     }
 })
+// save() polls every write's reindex job in one batch at the end; the
+// mutations/raw API calls above are mocked separately and only ever hand back
+// the write result (with its `reindex` ref) for save() to collect.
+const pollReindexSpy = vi.hoisted(() => vi.fn())
+vi.mock('@/composables/useReindexPolling', () => ({
+    pollReindex: (...args: unknown[]) => pollReindexSpy(...args)
+}))
 const invalidateSpy = vi.hoisted(() => vi.fn())
 vi.mock('@tanstack/vue-query', async (importActual) => {
     const actual = await importActual<typeof import('@tanstack/vue-query')>()
@@ -320,6 +327,8 @@ describe('picture staging', () => {
         deletePictureSpy.mockResolvedValue({ ok: true })
         invalidateSpy.mockReset()
         toastAddSpy.mockReset()
+        pollReindexSpy.mockReset()
+        pollReindexSpy.mockResolvedValue({ failed: 0, pending: 0 })
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: vi.fn(() => 'blob:preview'),
@@ -448,61 +457,99 @@ describe('picture staging', () => {
 
     // The image is on disk either way, so a failed re-index must not be silent:
     // otherwise the album keeps serving the old cover with a green toast.
-    const rescanWarnings = () =>
+    const reindexWarnings = () =>
         toastAddSpy.mock.calls
             .map((c) => c[0])
-            .filter((t) => t.summary === 'Saved, but the library index was not updated')
+            .filter((t) => t.summary === 'Saved, but the library index was not confirmed updated')
 
-    it('warns when a picture write reports a failed re-index', async () => {
+    // The flagship contract this task adds: save() does not poll per-write. It
+    // collects every write's execution id — pictures AND tag batches — and
+    // polls them all in ONE call at the end, only invalidating caches (and
+    // resolving) once that poll settles.
+    it('collects every write\'s execution id and polls them once at the end', async () => {
         const session = mkSession()
         applyPictureSpy.mockResolvedValue({
             ok: true,
             slot: 'folder',
             type: 'Back Cover',
-            rescan: { ok: false, error: 'db is locked' }
+            reindex: { execution_id: 'pic-1' }
         })
-        session.stagePictureSet('album', 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+        updateTracksSpy.mockResolvedValue({
+            results: [{ path: 'album/a.mp3', ok: true }],
+            reindex: { execution_id: 'tag-1' }
+        })
+        let resolvePoll!: (v: { failed: number; pending: number }) => void
+        pollReindexSpy.mockReturnValue(
+            new Promise((resolve) => {
+                resolvePoll = resolve
+            })
+        )
+        session.stagePictureSet(ALBUM, 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
-        await session.save()
-        expect(rescanWarnings()).toEqual([
+        session.stageField(['album/a.mp3'], 'title', 'New')
+
+        let resolved = false
+        const done = session.save().then(() => {
+            resolved = true
+        })
+
+        await vi.waitFor(() => expect(updateTracksSpy).toHaveBeenCalledTimes(1))
+        await vi.waitFor(() => expect(pollReindexSpy).toHaveBeenCalledTimes(1))
+        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1', 'tag-1'], { signal: expect.any(AbortSignal) })
+        // Still pending: the poll has not resolved yet.
+        expect(resolved).toBe(false)
+        expect(invalidateSpy).not.toHaveBeenCalled()
+        expect(session.isSaving.value).toBe(true)
+
+        resolvePoll({ failed: 1, pending: 0 })
+        await done
+        expect(resolved).toBe(true)
+        expect(invalidateSpy).toHaveBeenCalled()
+        expect(session.isSaving.value).toBe(false)
+        expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'db is locked',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
                 life: 8000
             })
         ])
     })
 
-    it('warns when a picture removal reports a failed re-index', async () => {
+    it('warns when a picture write\'s polled re-index fails', async () => {
         const session = mkSession()
-        deletePictureSpy.mockResolvedValue({ ok: true, rescan: { ok: false } })
-        session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
+        applyPictureSpy.mockResolvedValue({
+            ok: true,
+            slot: 'folder',
+            type: 'Back Cover',
+            reindex: { execution_id: 'pic-1' }
+        })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
+        session.stagePictureSet('album', 'Back Cover', 'folder', { file: null, imageUrl: 'u' }, [
+            'album/a.mp3'
+        ])
         await session.save()
-        expect(rescanWarnings()).toEqual([
-            expect.objectContaining({ severity: 'warn', detail: 'unknown error' })
+        expect(pollReindexSpy).toHaveBeenCalledWith(['pic-1'], { signal: expect.any(AbortSignal) })
+        expect(reindexWarnings()).toEqual([
+            expect.objectContaining({
+                severity: 'warn',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
+                life: 8000
+            })
         ])
     })
 
-    // Deliberate: the session reports the LAST failure and does not clear it
-    // when a later batch succeeds — a partly stale index is still stale. Only
-    // one warning is raised no matter how many ops failed.
-    it('keeps a picture rescan failure even when a later tag write succeeds', async () => {
+    it('warns when a picture removal\'s polled re-index fails', async () => {
         const session = mkSession()
-        deletePictureSpy.mockResolvedValue({
-            ok: true,
-            rescan: { ok: false, error: 'picture reindex failed' }
-        })
-        updateTracksSpy.mockResolvedValue({
-            results: [{ path: 'album/a.mp3', ok: true }],
-            rescan: { ok: true }
-        })
+        deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
-        session.stageField(['album/a.mp3'], 'title', 'New')
         await session.save()
-        expect(updateTracksSpy).toHaveBeenCalledTimes(1)
-        expect(rescanWarnings()).toEqual([
-            expect.objectContaining({ detail: 'picture reindex failed' })
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
+        expect(reindexWarnings()).toEqual([
+            expect.objectContaining({
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+            })
         ])
     })
 
@@ -540,29 +587,34 @@ describe('picture staging', () => {
         expect(albumSplitWarnings()).toEqual([])
     })
 
-    it('reports a picture rescan failure even when the save then aborts', async () => {
+    // On an abort partway through pictures, the ids collected BEFORE the
+    // failure are still on disk and must still be polled — a partial batch's
+    // index still has to settle even though the save is bailing out.
+    it('polls the ids collected so far when the save aborts partway through pictures', async () => {
         const session = mkSession()
-        deletePictureSpy.mockResolvedValue({
-            ok: true,
-            rescan: { ok: false, error: 'picture reindex failed' }
-        })
+        deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
         applyPictureSpy.mockRejectedValue(new Error('boom'))
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
         session.stagePictureSet('album', 'Front Cover', 'folder', { file: null, imageUrl: 'u' }, [
             'album/a.mp3'
         ])
         await session.save()
-        expect(rescanWarnings()).toEqual([
-            expect.objectContaining({ detail: 'picture reindex failed' })
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
+        expect(reindexWarnings()).toEqual([
+            expect.objectContaining({
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+            })
         ])
     })
 
-    it('stays silent when every picture write re-indexed cleanly', async () => {
+    it('stays silent when every collected write re-indexed cleanly', async () => {
         const session = mkSession()
-        deletePictureSpy.mockResolvedValue({ ok: true, rescan: { ok: true } })
+        deletePictureSpy.mockResolvedValue({ ok: true, reindex: { execution_id: 'del-1' } })
         session.stagePictureRemoval('album', 'Back Cover', 'folder', ['album/a.mp3'])
         await session.save()
-        expect(rescanWarnings()).toEqual([])
+        expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
+        expect(reindexWarnings()).toEqual([])
     })
 
     it('aborts the save on the first failure, keeping the failed op staged', async () => {
@@ -1075,6 +1127,8 @@ describe('useEditSession artist image', () => {
         updateTracksSpy.mockReset()
         updateTracksSpy.mockResolvedValue({ results: [] })
         toastAddSpy.mockReset()
+        pollReindexSpy.mockReset()
+        pollReindexSpy.mockResolvedValue({ failed: 0, pending: 0 })
         vi.stubGlobal('URL', {
             ...URL,
             createObjectURL: vi.fn(() => 'blob:preview'),
@@ -1142,6 +1196,28 @@ describe('useEditSession artist image', () => {
         await session.save()
         expect(deleteArtistImageSpy).toHaveBeenCalledWith(3, FOLDER)
         expect(session.hasStagedChanges.value).toBe(false)
+    })
+
+    // The artist-image APIs are called raw, not through a mutation, so save()
+    // must collect their execution id itself, exactly like the picture path.
+    it('collects the artist-image write\'s execution id and polls it', async () => {
+        const session = mkSession()
+        applyArtistImageSpy.mockResolvedValue({
+            ok: true,
+            path: 'Radiohead/artist.jpg',
+            reindex: { execution_id: 'art-1' }
+        })
+        pollReindexSpy.mockResolvedValue({ failed: 1, pending: 0 })
+        session.stageArtistImageSet(FOLDER, { file: null, mbid: 'mb-1', url: 'http://p/x.jpg' })
+        await session.save()
+        expect(pollReindexSpy).toHaveBeenCalledWith(['art-1'], { signal: expect.any(AbortSignal) })
+        expect(toastAddSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                severity: 'warn',
+                summary: 'Saved, but the library index was not confirmed updated',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+            })
+        )
     })
 
     it('surfaces an error toast when an artist-image write fails', async () => {

@@ -441,7 +441,12 @@ paths:
           description: >
             The batch was processed; each row reports its own outcome (`ok`,
             or `error`). This is also the response when every row failed.
-            `rescan` is present only when at least one file was written.
+            `reindex` references the background re-index job enqueued for the
+            written files; poll it via `listTaskExecutions` to know when the
+            library index reflects the edit. It is absent when nothing was
+            written, and also when the re-index could not be enqueued (task
+            runner disabled or queue full) — the writes still landed on disk
+            and the next scheduled scan reconciles them.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/UpdateTracksResponse' }
@@ -632,10 +637,11 @@ paths:
         removing any other-format `artist.*` sibling — from either an
         uploaded file or an online pick downloaded through the
         SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
-        Nothing is written to the library index directly: one
-        representative track under the folder is rescanned synchronously so
-        the scanner's reconcile re-detects the artist's image (`rescan`
-        reports the outcome; a rescan failure is never a write failure —
+        Nothing is written to the library index directly: a re-index of one
+        representative track under the folder is enqueued so the scanner's
+        reconcile re-detects the artist's image asynchronously (`reindex`
+        carries the enqueued job's `execution_id` — poll it via
+        `listTaskExecutions`; a failure to enqueue is never a write failure —
         the file is already on disk).
       tags: [metadata-artist-image]
       requestBody:
@@ -662,11 +668,11 @@ paths:
       operationId: deleteArtistImage
       summary: Remove the selected artist folder's current portrait image.
       description: >
-        Removes the same file `getArtistImage` serves, then re-indexes one
-        representative track so the scanner's reconcile clears (or
-        re-detects a fallback) artist image. `MutationResult` here only
-        ever sets `ok`/`rescan` — `slot`/`type` are absent entirely,
-        meaningless for an artist-folder image.
+        Removes the same file `getArtistImage` serves, then enqueues a
+        re-index of one representative track so the scanner's reconcile
+        clears (or re-detects a fallback) artist image. `MutationResult`
+        here only ever sets `ok`/`reindex` — `slot`/`type` are absent
+        entirely, meaningless for an artist-folder image.
       tags: [metadata-artist-image]
       parameters:
         - $ref: '#/components/parameters/LibraryId'
@@ -1722,17 +1728,24 @@ paths:
   /tasks:
     get:
       operationId: listTasks
-      summary: List every registered task, with its schedule if one is configured.
+      summary: List every registered task, with its schedules.
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
-        fixed set of tasks aether ships today (scan, scan-full,
-        fetch-artist-images) — not a user-extensible registry, so there is
-        no create/delete for the task definitions themselves, only for their
-        schedules.
+        fixed set of user-facing tasks aether ships today (scan, scan-full,
+        fetch-artist-images) — not a user-extensible registry, so there is no
+        create/delete for the task definitions themselves, only for their
+        schedules. Incremental and full scans are two distinct tasks (`scan` and
+        `scan-full`) rather than one task with a flag, so a full run is never
+        coalesced onto an in-flight incremental one; both share the
+        `library-writes` exclusion group so they never scan concurrently. The
+        `reindex` job the metadata editor enqueues after a write shares that same
+        group but is deliberately absent from this list — it is enqueued
+        internally, never triggered or scheduled by hand. A task may carry any
+        number of schedules (possibly zero), each with its own cron.
       tags: [tasks]
       responses:
         '200':
-          description: Every task definition, joined with its schedule where one exists.
+          description: Every task definition, joined with its configured schedules.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TaskList' }
@@ -1743,12 +1756,15 @@ paths:
   /tasks/{name}:
     get:
       operationId: getTask
-      summary: Fetch one task definition and its schedule, if any.
+      summary: Fetch one task definition and every schedule configured for it.
       description: >
         Admin. Bare `Task` — unlike `listTasks`, the response is not wrapped
         in an envelope object. See the `Task` schema for the anonymous-embed
         flattening (`TaskWithSchedule` embeds `apptasks.TaskDef`) this
-        response relies on.
+        response relies on. `schedules` may hold several entries (e.g. an
+        hourly incremental scan and a nightly full scan) — manage them
+        individually via `createTaskSchedule`/`patchTaskSchedule`/
+        `deleteTaskSchedule`.
       tags: [tasks]
       parameters:
         - name: name
@@ -1761,67 +1777,60 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: The task and its schedule, if one is configured.
+          description: The task and every schedule configured for it (possibly none).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Task' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-    put:
-      operationId: upsertTaskSchedule
-      summary: Create or fully replace a task's schedule.
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /tasks/{name}/schedules:
+    post:
+      operationId: createTaskSchedule
+      summary: Add a cron schedule to a task.
       description: >
-        Admin. Bare `Task`, like `getTask` — not wrapped. Creates the
-        schedule when the task has none yet, otherwise replaces it outright.
-        `cron_expression` is required (blank answers 400); a 5-field value
-        is normalized by prepending a "0" seconds field. `enabled` omitted
-        defaults to true — a plain default, not "leave unchanged" (contrast
-        `patchTaskSchedule`, which is genuinely tri-state). Answers 404 for
-        an unknown task id, and 503 when the schedule store is unavailable.
+        Admin. A task may have many schedules, each with its own cron (e.g. an
+        hourly and a nightly cadence). `cron_expression` is required (blank ⇒
+        400); a 5-field value is normalized to 6-field Quartz. `enabled` omitted
+        defaults to true. `params` is forwarded to the task verbatim on every
+        fire; the tasks aether ships today take no parameters, so it is normally
+        omitted. 404 for an unknown task, 503 when the schedule store is
+        unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpsertTaskScheduleRequest' }
+            schema: { $ref: '#/components/schemas/CreateTaskScheduleRequest' }
       responses:
-        '200':
-          description: The task with its newly-saved schedule.
+        '201':
+          description: The created schedule.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Task' }
+              schema: { $ref: '#/components/schemas/TaskSchedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /tasks/{name}/schedules/{id}:
     patch:
       operationId: patchTaskSchedule
-      summary: Partially update an existing task's schedule.
+      summary: Partially update one of a task's schedules.
       description: >
-        Admin. Bare `Task`, like `getTask`. Genuinely tri-state: both
-        `cron_expression` and `enabled` are optional, and omitting either
-        (or sending it explicit null) leaves that attribute unchanged — see
-        `PatchTaskScheduleRequest`. Requires a schedule to already exist:
-        answers 404 both for an unknown task id and for a known task with no
-        schedule yet (create one first with `upsertTaskSchedule`); the two
-        causes are not distinguished. Answers 503 when the schedule store is
-        unavailable.
+        Admin. Tri-state: `cron_expression`, `enabled`, and `params` are all
+        optional; an omitted field is left unchanged. 404 for an unknown
+        schedule id, 503 when the schedule store is unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       requestBody:
         required: true
         content:
@@ -1829,10 +1838,10 @@ paths:
             schema: { $ref: '#/components/schemas/PatchTaskScheduleRequest' }
       responses:
         '200':
-          description: The task with its updated schedule.
+          description: The updated schedule.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Task' }
+              schema: { $ref: '#/components/schemas/TaskSchedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1841,22 +1850,16 @@ paths:
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
     delete:
       operationId: deleteTaskSchedule
-      summary: Remove a task's schedule (the task definition itself is never deletable).
+      summary: Remove one of a task's schedules.
       description: >
-        Admin. Answers 404 both for an unknown task id and for a known task
-        with no schedule to delete — the two causes are not distinguished,
-        like `patchTaskSchedule`. Answers 503 when the schedule store is
+        Admin. 404 for an unknown schedule id, 503 when the schedule store is
         unavailable.
       tags: [tasks]
       parameters:
-        - name: name
-          in: path
-          required: true
-          description: The task's stable id. See `getTask`.
-          schema: { type: string }
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        '204':
-          description: Schedule deleted. No body.
+        '204': { description: Schedule deleted. No body. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1868,8 +1871,8 @@ paths:
       operationId: triggerTask
       summary: Enqueue an ad hoc run of a task, independent of its schedule.
       description: >
-        Admin. Works whether or not the task has a schedule configured — a
-        manual "run now", unrelated to `upsertTaskSchedule`. Answers 404 for
+        Admin. Works whether or not the task has any schedules configured —
+        a manual "run now", unrelated to `createTaskSchedule`. Answers 404 for
         an unknown task id. Answers 429 when the run queue is full
         (`taskrunner.ErrQueueFull`): this is the one operation on this
         surface where the handler calls `httperr.Write` directly instead of
@@ -1886,7 +1889,11 @@ paths:
           schema: { type: string }
       responses:
         '202':
-          description: Enqueued; the run has not necessarily started yet.
+          description: >
+            Enqueued; the run has not necessarily started yet. Triggering a
+            singleton task (`scan`, `scan-full`) already waiting or running
+            coalesces instead: the response carries that in-flight run's id with
+            `reused: true` and nothing new is enqueued.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TriggerTaskResult' }
@@ -2291,29 +2298,34 @@ components:
           description: A Cover Art Archive image URL to download instead of an upload.
       required: [library_id, paths, slot]
 
-    RescanStatus:
+    ReindexRef:
       type: object
       description: >
-        Post-write re-index outcome. Never fatal — the tags/art are already
-        on disk; a failure only means the library index lags until the next
-        scan.
+        Reference to the background re-index job enqueued after a metadata
+        write. Poll the execution (listTaskExecutions, match this
+        `execution_id` against each entry's `id`) to terminal status to know
+        when the music-UI index reflects the edit; `complete` = current, any
+        other terminal status = the write landed on disk but the index did not
+        catch up and a scan is required. Absent when nothing needed
+        re-indexing, or when the re-index could not be enqueued (task runner
+        disabled or queue full) — the write still landed on disk and the next
+        scheduled scan reconciles it.
       properties:
-        ok: { type: boolean }
-        error: { type: string }
-      required: [ok]
+        execution_id: { type: string, format: uuid }
+      required: [execution_id]
 
     MutationResult:
       type: object
       description: >
         Shared response shape: applyPicture always sets `ok`/`slot`/`type`
-        (plus `rescan` when re-indexing ran); clearPictureSelection sets only
-        `ok` (plus `rescan`) — `slot`/`type` are absent from that response
-        entirely, not merely empty.
+        (plus `reindex` when a re-index was enqueued); clearPictureSelection
+        sets only `ok` (plus `reindex`) — `slot`/`type` are absent from that
+        response entirely, not merely empty.
       properties:
         ok: { type: boolean }
         slot: { $ref: '#/components/schemas/PictureSlot' }
         type: { $ref: '#/components/schemas/PictureType' }
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok]
 
     PictureCandidate:
@@ -2491,15 +2503,15 @@ components:
     UpdateTracksResponse:
       type: object
       description: >
-        One row per requested path, in request order, plus the post-write
-        re-index report. Returned on `updateTracks`' only success status,
-        `200` — including when every row failed; see the operation's
-        description for the status rule.
+        One row per requested path, in request order, plus a reference to
+        the re-index job enqueued for the written files. Returned on
+        `updateTracks`' only success status, `200` — including when every
+        row failed; see the operation's description for the status rule.
       properties:
         results:
           type: array
           items: { $ref: '#/components/schemas/UpdateTracksResult' }
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [results]
 
     MetadataCapabilities:
@@ -2837,7 +2849,7 @@ components:
         path:
           type: string
           description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
-        rescan: { $ref: '#/components/schemas/RescanStatus' }
+        reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok, path]
 
     HealthStatus:
@@ -3665,15 +3677,14 @@ components:
     TaskSchedule:
       type: object
       description: >
-        A task's stored schedule — `taskrunner.Schedule`
-        (internal/taskrunner/schedule.go:11-18), an external type embedded
-        by reference (not flattened) as `Task.schedule`.
+        One of a task's stored schedules — aether's `taskrunner.Schedule`
+        (internal/taskrunner/scheduler.go). Id-addressable: a task may have
+        any number of these (e.g. an hourly incremental scan and a nightly
+        full scan), embedded by reference (not flattened) in `Task.schedules`.
       properties:
         id:
-          type: integer
-          format: int64
-          minimum: 0
-          description: The schedule row's own id — distinct from the owning task's `id` (a string).
+          type: string
+          description: The schedule's own id — a uuid, distinct from the owning task's `id`.
         task_name:
           type: string
           description: The owning task's stable id (matches `Task.id`).
@@ -3681,9 +3692,18 @@ components:
           type: string
           description: >
             A 5 or 6-field cron expression. A submitted 5-field value is
-            normalized by prepending a "0" seconds field before storage, so
-            a read-back value is always 6-field.
+            normalized to the 6-field Quartz form before storage — a "0"
+            seconds field is prepended and the day-of-week is translated from
+            Unix (0-6) to Quartz (1-7) numbering — so a read-back value is
+            always 6-field.
           example: "0 0 0 * * *"
+        params:
+          type: object
+          additionalProperties: true
+          description: >
+            Parameters handed to the task verbatim on every fire. Absent when
+            the schedule carries none; the tasks aether ships today take no
+            parameters, so it is normally absent.
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -3692,13 +3712,13 @@ components:
     Task:
       type: object
       description: >
-        A task definition combined with its schedule, if configured
-        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:24-27).
+        A task definition combined with every schedule configured for it
+        (`TaskWithSchedule`, app/router/handlers/tasks/tasks.go:26-29).
         `id`/`name`/`description` are not nested fields on the handler
         struct — they come from `apptasks.TaskDef` (app/tasks/tasks.go:4-8),
         anonymously embedded, so Go's `encoding/json` flattens them directly
-        onto this object. Returned bare by `getTask`/`upsertTaskSchedule`/
-        `patchTaskSchedule`; wrapped in `TaskList` by `listTasks`.
+        onto this object. Returned bare by `getTask`; wrapped in `TaskList`
+        by `listTasks`.
       properties:
         id:
           type: string
@@ -3711,15 +3731,11 @@ components:
         description:
           type: string
           example: "Incremental scan -- only re-reads tracks modified since last scan"
-        schedule:
-          description: >
-            Present only when a schedule has been configured for this task
-            (via `upsertTaskSchedule`); entirely absent — not null — for a
-            task with none, since the Go field is `*taskrunner.Schedule`
-            with `omitempty`.
-          allOf:
-            - $ref: '#/components/schemas/TaskSchedule'
-      required: [id, name, description]
+        schedules:
+          type: array
+          description: Every cron schedule configured for this task (possibly empty).
+          items: { $ref: '#/components/schemas/TaskSchedule' }
+      required: [id, name, description, schedules]
 
     TaskList:
       type: object
@@ -3729,12 +3745,12 @@ components:
           items: { $ref: '#/components/schemas/Task' }
       required: [tasks]
 
-    UpsertTaskScheduleRequest:
+    CreateTaskScheduleRequest:
       type: object
       description: >
-        Full create-or-replace body for `upsertTaskSchedule`. `enabled`
-        omitted defaults to true — a plain default, not "leave unchanged";
-        contrast `PatchTaskScheduleRequest`.
+        Create body for `createTaskSchedule`. `enabled` omitted defaults to
+        true. A task may hold several of these at once — creating one never
+        replaces another.
       properties:
         cron_expression:
           type: string
@@ -3746,18 +3762,25 @@ components:
           type: boolean
           default: true
           description: Omitted defaults to true.
+        params:
+          type: object
+          additionalProperties: true
+          description: >
+            Forwarded to the task verbatim on every fire. Omitted stores no
+            params; the tasks aether ships today take no parameters.
       required: [cron_expression]
 
     PatchTaskScheduleRequest:
       type: object
       description: >
-        Tri-state partial update for `patchTaskSchedule`: both properties
-        are optional, backing pointer fields
-        (`PatchTaskRequest.CronExpression *string`, `.Enabled *bool` —
-        app/router/handlers/tasks/tasks.go:200-203). Omitting a field, or
-        sending it explicit null, leaves that attribute unchanged — unlike
-        `UpsertTaskScheduleRequest.enabled`, which defaults rather than
-        preserves. Requires an existing schedule; see `patchTaskSchedule`.
+        Tri-state partial update for `patchTaskSchedule`: all three
+        properties are optional, backing pointer fields
+        (`PatchScheduleRequest.CronExpression *string`, `.Enabled *bool`,
+        `.Params json.RawMessage` — app/router/handlers/tasks/tasks.go).
+        Omitting a field, or sending it explicit null, leaves that attribute
+        unchanged — unlike `CreateTaskScheduleRequest.enabled`, which
+        defaults rather than preserves. Requires the schedule id to already
+        exist; see `patchTaskSchedule`.
       properties:
         cron_expression:
           type: string
@@ -3766,6 +3789,10 @@ components:
         enabled:
           type: boolean
           description: Omitted (or explicit null) leaves the current enabled state unchanged.
+        params:
+          type: object
+          additionalProperties: true
+          description: Omitted (or explicit null) leaves the current params unchanged.
 
     TriggerTaskResult:
       type: object
@@ -3773,8 +3800,18 @@ components:
         execution_id:
           type: string
           format: uuid
-          description: The newly-queued execution's id — pass to `cancelTaskExecution`/`getTaskExecutionLog`.
-      required: [execution_id]
+          description: >
+            The execution's id — pass to
+            `cancelTaskExecution`/`getTaskExecutionLog`. When `reused` is true
+            this is the already in-flight run's id, not a newly-queued one.
+        reused:
+          type: boolean
+          description: >
+            True when the trigger coalesced onto an instance of the singleton
+            `scan` task that was already waiting or running:
+            nothing new was enqueued and `execution_id` points at that in-flight
+            run. Always false for non-singleton tasks.
+      required: [execution_id, reused]
 
     TaskExecution:
       type: object

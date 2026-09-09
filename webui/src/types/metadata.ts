@@ -292,16 +292,14 @@ export interface UpdateResult {
     error?: string
 }
 
-// The outcome of the server-side re-index that runs after a write. A failure is
-// not a write failure: the tags are on disk, the library index just lags.
-export interface RescanStatus {
-    ok: boolean
-    error?: string
+// A reference to a reindex execution that the server is running after a write.
+export interface ReindexRef {
+    execution_id: string
 }
 
 export interface UpdateTracksResponse {
     results: UpdateResult[]
-    rescan?: RescanStatus
+    reindex?: ReindexRef
     // Set when a partial write of an album-identity edit may have split the
     // album, stranding its manual cover, stars and created_at. Human-readable.
     warning?: string
@@ -382,12 +380,12 @@ export interface ApplyPictureResult {
     ok: boolean
     slot: PictureSlot
     type: string
-    rescan?: RescanStatus
+    reindex?: ReindexRef
 }
 
 export interface DeletePictureResult {
     ok: boolean
-    rescan?: RescanStatus
+    reindex?: ReindexRef
 }
 
 // Whether the SELECTED folder is an artist folder, and the artist image it
@@ -411,12 +409,12 @@ export interface ApplyArtistImageResult {
     ok: boolean
     // Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
     path: string
-    rescan?: RescanStatus
+    reindex?: ReindexRef
 }
 
 export interface DeleteArtistImageResult {
     ok: boolean
-    rescan?: RescanStatus
+    reindex?: ReindexRef
 }
 
 // An image chosen in the picker but not yet persisted: it previews in the

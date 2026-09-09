@@ -14,11 +14,13 @@ import (
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/go-bumbu/tempo"
 )
 
 type ScanOptions struct {
 	IsFull bool
+	// Log receives task-scoped log lines (e.g. into the per-execution log). A nil
+	// Log discards them, so callers outside the task runner can omit it.
+	Log *slog.Logger
 }
 
 type ScanStats struct {
@@ -33,7 +35,14 @@ type ScanStats struct {
 	// caller can tell "skipped by design" from "reconcile failed" instead of
 	// inferring a shortfall from TracksProcessed.
 	TracksSkipped int
-	Errors        []error
+	// TracksFailed counts tracks whose per-track reconcile transaction still
+	// failed after its one retry (a lost write lock, a constraint violation, an
+	// association-replace error). They are skipped so one bad file does not fail
+	// the whole scan — but, unlike TracksSkipped (skipped by design) and Errors
+	// (tag-read failures), these are tracks the scan meant to index and could
+	// not, so a non-zero count is a real shortfall a caller should surface.
+	TracksFailed int
+	Errors       []error
 }
 
 type Scanner struct {
@@ -67,12 +76,17 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	scanStart := time.Now()
 	stats := ScanStats{}
 
+	log := opts.Log
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+
 	libs, err := s.store.ListLibraries()
 	if err != nil {
 		return stats, fmt.Errorf("list libraries: %w", err)
 	}
 	if len(libs) == 0 {
-		tempo.Info(ctx, "no libraries configured; nothing to scan")
+		log.Info("no libraries configured; nothing to scan")
 		return stats, nil
 	}
 
@@ -213,7 +227,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 				// paths, IsAudioFile is tags.Supported, and every supported format is
 				// readable by some reader (enforced by tags.TestSupportedIsReadable),
 				// so admission asks one question, not two — the same reasoning as
-				// RescanPaths' admitPath.
+				// WalkWouldEmit.
 				meta, err := s.tagReader.Read(ctx, wr.FilePath)
 				if err != nil {
 					mu.Lock()
@@ -255,6 +269,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
 	stats.TracksUpdated += rec.Updated
+	stats.TracksFailed += rec.Failed
 
 	return nil
 }

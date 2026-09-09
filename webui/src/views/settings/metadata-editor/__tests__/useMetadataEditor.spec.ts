@@ -186,10 +186,10 @@ describe('updateTracksPartitioned', () => {
         updateTracksMock.mockReset()
     })
 
-    it('passes the rescan status through for a single write', async () => {
+    it('passes the reindex ref through for a single write', async () => {
         updateTracksMock.mockResolvedValue({
             results: [{ path: 'a.mp3', ok: true }],
-            rescan: { ok: true }
+            reindex: { execution_id: 'x' }
         })
         const out = await updateTracksPartitioned({
             library_id: 1,
@@ -197,18 +197,18 @@ describe('updateTracksPartitioned', () => {
             fields: { title: 'T' }
         })
         expect(out.results).toEqual([{ path: 'a.mp3', ok: true }])
-        expect(out.rescan).toEqual({ ok: true })
+        expect(out.reindex).toEqual({ execution_id: 'x' })
     })
 
-    it('reports the second write rescan status when the patch is split', async () => {
+    it('reports the second write reindex ref when the patch is split', async () => {
         updateTracksMock
             .mockResolvedValueOnce({
                 results: [{ path: 'a.mp3', ok: true }],
-                rescan: { ok: true }
+                reindex: { execution_id: 'first' }
             })
             .mockResolvedValueOnce({
                 results: [{ path: 'a.mp3', ok: true }],
-                rescan: { ok: false, error: 'boom' }
+                reindex: { execution_id: 'second' }
             })
         const out = await updateTracksPartitioned({
             library_id: 1,
@@ -216,13 +216,13 @@ describe('updateTracksPartitioned', () => {
             fields: { artists: ['New'], artist_mbids: { New: 'id' } }
         })
         expect(updateTracksMock).toHaveBeenCalledTimes(2)
-        expect(out.rescan).toEqual({ ok: false, error: 'boom' })
+        expect(out.reindex).toEqual({ execution_id: 'second' })
     })
 
-    it('keeps the first rescan status when the split short-circuits', async () => {
+    it('keeps the first reindex ref when the split short-circuits', async () => {
         updateTracksMock.mockResolvedValueOnce({
             results: [{ path: 'a.mp3', ok: false, error: 'nope' }],
-            rescan: { ok: true }
+            reindex: { execution_id: 'first' }
         })
         const out = await updateTracksPartitioned({
             library_id: 1,
@@ -230,7 +230,7 @@ describe('updateTracksPartitioned', () => {
             fields: { artists: ['New'], artist_mbids: { New: 'id' } }
         })
         expect(updateTracksMock).toHaveBeenCalledTimes(1)
-        expect(out.rescan).toEqual({ ok: true })
+        expect(out.reindex).toEqual({ execution_id: 'first' })
     })
 })
 

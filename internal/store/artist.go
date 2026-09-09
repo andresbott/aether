@@ -61,12 +61,13 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 	return artists, gained, nil
 }
 
-// createArtist inserts a new artist row, recovering from the unique-index race
-// an overlapping scan can trigger: a targeted RescanPaths and a scheduled scan
-// can both First-miss and Create the same brand-new artist, and the loser hits
-// the name_norm unique index. On that collision it re-reads and returns the
-// winner's row rather than failing the whole track; any MBID divergence is
-// transient and the next scan reconciles it.
+// createArtist inserts a new artist row, recovering from the unique-index
+// race a First-miss-then-Create by both a targeted RescanPaths and a
+// scheduled scan could trigger. Kept as a cheap safety net: scan and reindex
+// are serialized by the `library-writes` exclusion group, so they don't
+// actually overlap. On that collision it re-reads and returns the winner's
+// row rather than failing the whole track; any MBID divergence is transient
+// and the next scan reconciles it.
 func (s *Store) createArtist(name, norm, mbid string) (*model.Artist, error) {
 	artist := model.Artist{Name: name, NameNorm: norm, MBArtistID: mbid}
 	createErr := s.db.Create(&artist).Error

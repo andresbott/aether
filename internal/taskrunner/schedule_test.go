@@ -2,77 +2,109 @@ package taskrunner_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/taskrunner"
+	"github.com/google/uuid"
 )
 
-func TestScheduleStoreCRUD(t *testing.T) {
-	db := testDB(t)
-	store, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
+// fakeEnqueuer satisfies schedule.Enqueuer for scheduler tests that never fire.
+type fakeEnqueuer struct{}
 
-	sch, err := store.Create(ctx, taskrunner.Schedule{
-		TaskName:       "scan",
-		CronExpression: "0 * * * *",
-		Enabled:        true,
+func (fakeEnqueuer) AddRaw(string, []byte) (uuid.UUID, bool, error) {
+	return uuid.New(), false, nil
+}
+
+// newTestScheduler builds a started scheduler on an in-memory DB, stopped on
+// cleanup. testDB and discardLogger are defined elsewhere in this test package.
+func newTestScheduler(t *testing.T) *taskrunner.Scheduler {
+	t.Helper()
+	sched, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
+		DB:       testDB(t),
+		Enqueuer: fakeEnqueuer{},
+		Logger:   discardLogger(),
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("new scheduler: %v", err)
 	}
-	if sch.ID == 0 {
-		t.Fatal("expected non-zero ID")
+	if err := sched.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
 	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sched.Stop(ctx)
+	})
+	return sched
+}
 
-	got, err := store.GetByTaskName(ctx, "scan")
+func TestSchedulerCreateListByTaskName(t *testing.T) {
+	s := newTestScheduler(t)
+	ctx := context.Background()
+
+	fast, err := s.Create(ctx, "scan", "0 0 * * * *", true, []byte(`{"full":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CronExpression != "0 * * * *" {
-		t.Fatalf("unexpected cron: %s", got.CronExpression)
-	}
-
-	list, err := store.List(ctx)
+	full, err := s.Create(ctx, "scan", "0 0 3 * * *", true, []byte(`{"full":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 {
-		t.Fatalf("expected 1, got %d", len(list))
+	if fast.ID == full.ID || fast.ID == "" {
+		t.Fatalf("expected two distinct non-empty ids, got %q and %q", fast.ID, full.ID)
 	}
 
-	if err := store.Delete(ctx, sch.ID); err != nil {
+	list, err := s.ListByTaskName(ctx, "scan")
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.GetByTaskName(ctx, "scan")
-	if err == nil {
-		t.Fatal("expected not found after delete")
+	if len(list) != 2 {
+		t.Fatalf("expected 2 schedules for scan, got %d", len(list))
+	}
+	if none, _ := s.ListByTaskName(ctx, "other"); len(none) != 0 {
+		t.Fatalf("expected 0 schedules for other task, got %d", len(none))
 	}
 }
 
-func TestScheduleStoreUpsert(t *testing.T) {
-	db := testDB(t)
-	store, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestSchedulerUpdatePartial(t *testing.T) {
+	s := newTestScheduler(t)
 	ctx := context.Background()
-
-	s1, err := store.UpsertByTaskName(ctx, "scan", "0 * * * *", true)
+	sc, err := s.Create(ctx, "scan", "0 0 3 * * *", true, []byte(`{"full":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	s2, err := store.UpsertByTaskName(ctx, "scan", "0 0 * * *", false)
+	off := false
+	upd, err := s.Update(ctx, sc.ID, nil, &off, []byte(`{"full":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s2.ID != s1.ID {
-		t.Fatal("expected same ID on upsert")
+	if upd.Enabled {
+		t.Fatal("expected Enabled=false")
 	}
-	if s2.CronExpression != "0 0 * * *" || s2.Enabled {
-		t.Fatalf("unexpected after upsert: %+v", s2)
+	if upd.CronExpression != sc.CronExpression {
+		t.Fatalf("cron changed: %q -> %q", sc.CronExpression, upd.CronExpression)
+	}
+	if string(upd.Params) != `{"full":true}` {
+		t.Fatalf("params = %q, want {\"full\":true}", upd.Params)
+	}
+}
+
+func TestSchedulerDeleteByID(t *testing.T) {
+	s := newTestScheduler(t)
+	ctx := context.Background()
+	sc, err := s.Create(ctx, "scan", "0 0 3 * * *", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(ctx, sc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(ctx, sc.ID); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
+		t.Fatalf("expected ErrScheduleNotFound after delete, got %v", err)
+	}
+	if err := s.Delete(ctx, uuid.NewString()); !errors.Is(err, taskrunner.ErrScheduleNotFound) {
+		t.Fatalf("delete missing: expected ErrScheduleNotFound, got %v", err)
 	}
 }

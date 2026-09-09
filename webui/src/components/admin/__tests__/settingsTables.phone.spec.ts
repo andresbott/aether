@@ -55,7 +55,7 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
         ...actual,
         useTasks: () => ({
             tasks: computed(() => [
-                { id: 'scan', name: 'Library Scan', description: 'desc', schedule: null, lastExecution: null, lastExecutionStatus: 'complete' }
+                { id: 'scan', name: 'Library Scan', description: 'desc', schedules: [], lastExecution: null, lastExecutionStatus: 'complete' }
             ]),
             executions: computed(() => [
                 { id: 'a', task_name: 'scan', status: 'complete', queued_at: '2026-01-01T09:00:00Z', ended_at: '2026-01-01T09:00:02Z' }
@@ -66,9 +66,9 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
             triggerTask: vi.fn(),
             cancelTaskExecution: vi.fn(),
             cancelMutation: { isPending: vueRef(false) },
-            upsertTask: vi.fn(),
-            patchTask: vi.fn(),
-            deleteTaskSchedule: vi.fn(),
+            createSchedule: vi.fn(),
+            patchSchedule: vi.fn(),
+            deleteSchedule: vi.fn(),
             getStatusSeverity: actual.getStatusSeverity,
             getStatusLabel: actual.getStatusLabel,
             getExecutionLog: vi.fn()
@@ -109,6 +109,22 @@ function user(over: Partial<User>): User {
         enabled: true,
         ...over
     }
+}
+
+// The scan row now renders a real PrimeVue SplitButton (Run + "Full scan"
+// menu item); stub it the same way TasksView.spec.ts does so these
+// column-visibility tests don't depend on its overlay/menu internals.
+const splitButtonStub = {
+    props: ['label', 'icon', 'model', 'loading', 'disabled'],
+    template: `<div class="split-button-stub">
+        <button type="button" :disabled="disabled" @click="$emit('click', $event)">{{ label }}</button>
+        <button
+            v-for="item in model"
+            :key="item.label"
+            type="button"
+            @click="item.command && item.command()"
+        >{{ item.label }}</button>
+    </div>`
 }
 
 const execution: ExecutionInfo = {
@@ -232,7 +248,7 @@ describe('Settings tables hide low-value columns on phones', () => {
                 global: {
                     plugins: [PrimeVue],
                     directives: { tooltip: {} },
-                    stubs: { ExecutionHistory: true, LogViewer: true, ScheduleDialog: true }
+                    stubs: { ExecutionHistory: true, LogViewer: true, ScheduleDialog: true, SplitButton: splitButtonStub }
                 }
             })
             expect(w.text()).toContain('Schedule')
@@ -245,7 +261,7 @@ describe('Settings tables hide low-value columns on phones', () => {
                 global: {
                     plugins: [PrimeVue],
                     directives: { tooltip: {} },
-                    stubs: { ExecutionHistory: true, LogViewer: true, ScheduleDialog: true }
+                    stubs: { ExecutionHistory: true, LogViewer: true, ScheduleDialog: true, SplitButton: splitButtonStub }
                 }
             })
             expect(w.text()).not.toContain('Schedule')

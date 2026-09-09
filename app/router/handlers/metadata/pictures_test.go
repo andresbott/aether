@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -24,7 +23,6 @@ import (
 	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/upstream"
@@ -63,11 +61,11 @@ func (s stubCoverArt) DownloadImage(context.Context, string) ([]byte, string, er
 
 func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClient) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
-	return newPictureHandlerWithRescan(t, libRoot, ca, nil)
+	return newPictureHandlerWithReindex(t, libRoot, ca, nil)
 }
 
-func newPictureHandlerWithRescan(
-	t *testing.T, libRoot string, ca metaHandler.CoverArtClient, rs metaHandler.TrackRescanner,
+func newPictureHandlerWithReindex(
+	t *testing.T, libRoot string, ca metaHandler.CoverArtClient, rx metaHandler.Reindexer,
 ) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -83,7 +81,7 @@ func newPictureHandlerWithRescan(
 		t.Fatal(err)
 	}
 	h := &metaHandler.ImagesHandler{
-		Store: s, Reader: nullReader{}, CoverArt: ca, Rescan: rs,
+		Store: s, Reader: nullReader{}, CoverArt: ca, Reindex: rx,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
 	r := mux.NewRouter()
@@ -109,11 +107,11 @@ func (s stubArtistFetcher) Download(context.Context, string, string) ([]byte, st
 }
 
 // newArtistImageHandler builds a metadata handler wired with an online
-// artist-image fetcher (and optional rescanner), for the artist-folder image
+// artist-image fetcher (and optional reindexer), for the artist-folder image
 // tests.
 func newArtistImageHandler(
 	t *testing.T, libRoot string, reader tags.Reader,
-	fetcher metaHandler.ArtistImageFetcher, rs metaHandler.TrackRescanner,
+	fetcher metaHandler.ArtistImageFetcher, rx metaHandler.Reindexer,
 ) (*store.Store, *mux.Router, *model.Library) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -129,7 +127,7 @@ func newArtistImageHandler(
 		t.Fatal(err)
 	}
 	h := &metaHandler.ImagesHandler{
-		Store: s, Reader: reader, ArtistImages: fetcher, Rescan: rs,
+		Store: s, Reader: reader, ArtistImages: fetcher, Reindex: rx,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
 	}
 	r := mux.NewRouter()
@@ -861,7 +859,10 @@ func TestRemovals_FolderByType(t *testing.T) {
 }
 
 // Removing folder art for a multi-disc album deletes it from every directory
-// the selection spans, mirroring the fan-out on save.
+// the selection spans, mirroring the fan-out on save, and enqueues a reindex
+// of the selection's tracks — removals enqueues off al.Tracks() regardless of
+// which slot was cleared (see removals in pictures.go), so a folder-slot
+// removal reindexes the same tracks an embedded one would.
 func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	root := t.TempDir()
 	one, two := mkDiscDirs(t, root)
@@ -873,7 +874,8 @@ func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, r, lib := newPictureHandler(t, root, nil)
+	rx := &fakeReindexer{}
+	_, r, lib := newPictureHandlerWithReindex(t, root, nil, rx)
 
 	w := postRemovals(t, r, lib.ID,
 		[]string{"album/CD 1/01.flac", "album/CD 2/01.flac"}, "Back Cover", "folder")
@@ -887,6 +889,25 @@ func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "cover.png")); err != nil {
 			t.Errorf("cover.png must survive in %s: %v", dir, err)
 		}
+	}
+
+	wantOne, wantTwo := filepath.Join(one, "01.flac"), filepath.Join(two, "01.flac")
+	if len(rx.calls) != 1 || len(rx.calls[0]) != 2 || rx.calls[0][0] != wantOne || rx.calls[0][1] != wantTwo {
+		t.Fatalf("unexpected reindex paths: %v, want [[%s %s]]", rx.calls, wantOne, wantTwo)
+	}
+	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	}
+	var resp struct {
+		Reindex *struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"reindex"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Reindex == nil || resp.Reindex.ExecutionID != "exec-1" {
+		t.Fatalf("expected a reindex execution id, got %+v", resp.Reindex)
 	}
 }
 
@@ -1152,7 +1173,7 @@ func copyFixture(t *testing.T, src, dst string) {
 	}
 }
 
-func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
+func TestApplyPicture_EnqueuesReindexOfFolderTracks(t *testing.T) {
 	src := "../../../../internal/metadataedit/testdata/empty.flac"
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("no fixture: %v", err)
@@ -1165,8 +1186,8 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 	trackAbs := filepath.Join(albumDir, "01.flac")
 	copyFixture(t, src, trackAbs)
 
-	rs := &fakeRescanner{}
-	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
+	rx := &fakeReindexer{}
+	_, r, lib := newPictureHandlerWithReindex(t, root, stubCoverArt{}, rx)
 
 	body := &bytes.Buffer{}
 	mw := multipart.NewWriter(body)
@@ -1186,176 +1207,22 @@ func TestApplyPicture_RescansTheFolderTracks(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if len(rs.calls) != 1 || len(rs.calls[0]) != 1 || rs.calls[0][0] != trackAbs {
-		t.Fatalf("unexpected rescan paths: %v", rs.calls)
+	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != trackAbs {
+		t.Fatalf("unexpected reindex paths: %v", rx.calls)
+	}
+	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
 	}
 	var resp struct {
-		Rescan *struct {
-			OK bool `json:"ok"`
-		} `json:"rescan"`
+		Reindex *struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"reindex"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Rescan == nil || !resp.Rescan.OK {
-		t.Fatalf("expected rescan ok, got %+v", resp.Rescan)
-	}
-}
-
-// The picture endpoints never let the user pick the rescan path list: paths[]
-// IS the selection now (mandatory, non-empty — there is no more "browse this
-// folder with nothing selected" fallback to enumerate it server-side), and the
-// frontend's selection comes straight from the editor's own track listing,
-// which is wider than the scanner's admission on purpose (extra extensions,
-// excludes ignored). This is THE normal path — one .oga sibling or one
-// excluded subfolder among the selected paths must not make a correct cover
-// removal warn about the index.
-func TestRemovals_InadmissibleFolderSiblingsDoNotFailTheRescan(t *testing.T) {
-	fx := "../../../../internal/metadataedit/testdata/empty.flac"
-	if _, err := os.Stat(fx); err != nil {
-		t.Skipf("no fixture: %v", err)
-	}
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.MkdirAll(filepath.Join(albumDir, "Live"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	copyFixture(t, fx, filepath.Join(albumDir, "01.flac"))
-	copyFixture(t, fx, filepath.Join(albumDir, "02.oga"))       // reader-only extension
-	copyFixture(t, fx, filepath.Join(albumDir, "Live/01.flac")) // excluded ancestor dir
-	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), pngBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root, ExcludePatterns: `["^Live$"]`}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
-	h := &metaHandler.ImagesHandler{
-		Store:  s,
-		Reader: wideReader{},
-		Rescan: scanner.New(scanner.Config{}, s, wideReader{}),
-	}
-	r := mux.NewRouter()
-	h.Routes(r)
-
-	// The full editor-visible selection for this folder — exactly what the
-	// frontend sends (it has no separate "browse this folder" fallback to
-	// lean on any more): the admissible track plus the two the scanner will
-	// skip.
-	w := postRemovals(t, r, lib.ID,
-		[]string{"album/01.flac", "album/02.oga", "album/Live/01.flac"}, "Back Cover", "folder")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp struct {
-		OK     bool `json:"ok"`
-		Rescan *struct {
-			OK    bool   `json:"ok"`
-			Error string `json:"error"`
-		} `json:"rescan"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Rescan == nil || !resp.Rescan.OK {
-		t.Fatalf("a correct cover removal must not warn about the index: %+v", resp.Rescan)
-	}
-}
-
-// A picture delete whose re-index indexed nothing must report ok:false, while
-// still answering 200 — the file is already gone from disk.
-func TestRemovals_PartialRescanReportsNotOK(t *testing.T) {
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.MkdirAll(albumDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(albumDir, "back.jpg"), pngBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(albumDir, "01.flac"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rs := &fakeRescanner{stats: &scanner.ScanStats{
-		TracksProcessed: 0,
-		Errors:          []error{errors.New(`read tags "01.flac": broken`)},
-	}}
-	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
-
-	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Back Cover", "folder")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp struct {
-		OK     bool `json:"ok"`
-		Rescan *struct {
-			OK    bool   `json:"ok"`
-			Error string `json:"error"`
-		} `json:"rescan"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if !resp.OK {
-		t.Fatalf("the delete itself must still report ok: %s", w.Body.String())
-	}
-	if resp.Rescan == nil || resp.Rescan.OK {
-		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
-	}
-	if !strings.Contains(resp.Rescan.Error, "read tags") {
-		t.Fatalf("expected the tag-read error, got %q", resp.Rescan.Error)
-	}
-	// A folder-cover write touches no audio mtime, so an incremental scan will
-	// never re-detect the cover: the message must tell the user a full scan is
-	// required instead of implying the index self-heals on the next scan.
-	if !strings.Contains(resp.Rescan.Error, "full library scan is required") {
-		t.Fatalf("folder-art rescan failure must warn that a full scan is required, got %q", resp.Rescan.Error)
-	}
-}
-
-// TestRemovals_EmbeddedRescanFailureOmitsFullScanNote is the counterpart to the
-// folder case: an embedded-picture write changes the audio file's mtime, so the
-// next incremental scan catches up on its own and the "full scan required" note
-// must NOT be appended.
-func TestRemovals_EmbeddedRescanFailureOmitsFullScanNote(t *testing.T) {
-	root := t.TempDir()
-	albumDir := filepath.Join(root, "album")
-	if err := os.MkdirAll(albumDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(albumDir, "01.flac"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	rs := &fakeRescanner{stats: &scanner.ScanStats{
-		TracksProcessed: 0,
-		Errors:          []error{errors.New(`read tags "01.flac": broken`)},
-	}}
-	_, r, lib := newPictureHandlerWithRescan(t, root, stubCoverArt{}, rs)
-
-	w := postRemovals(t, r, lib.ID, []string{"album/01.flac"}, "Front Cover", "embedded")
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var resp struct {
-		Rescan *struct {
-			OK    bool   `json:"ok"`
-			Error string `json:"error"`
-		} `json:"rescan"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.Rescan == nil || resp.Rescan.OK {
-		t.Fatalf("expected rescan not ok, got %+v", resp.Rescan)
-	}
-	if strings.Contains(resp.Rescan.Error, "full library scan is required") {
-		t.Fatalf("embedded-picture rescan failure must not claim a full scan is required, got %q", resp.Rescan.Error)
+	if resp.Reindex == nil || resp.Reindex.ExecutionID != "exec-1" {
+		t.Fatalf("expected a reindex execution id, got %+v", resp.Reindex)
 	}
 }
 

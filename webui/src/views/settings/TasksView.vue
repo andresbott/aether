@@ -15,7 +15,7 @@ import LogViewer from '@/components/admin/LogViewer.vue'
 import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
 import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS } from '@/composables/useTasks'
 import type { Task } from '@/composables/useTasks'
-import type { ExecutionInfo } from '@/types/tasks'
+import type { ExecutionInfo, CreateScheduleBody, PatchScheduleBody } from '@/types/tasks'
 import { useViewport } from '@/composables/useViewport'
 
 const toast = useToast()
@@ -30,9 +30,9 @@ const {
     triggerTask,
     cancelTaskExecution,
     cancelMutation,
-    upsertTask,
-    patchTask,
-    deleteTaskSchedule
+    createSchedule,
+    patchSchedule,
+    deleteSchedule
 } = useTasks()
 
 const isTaskRunning = (task: Task): boolean =>
@@ -40,31 +40,46 @@ const isTaskRunning = (task: Task): boolean =>
     task.lastExecutionStatus === EXECUTION_STATUS.running
 
 const scheduleSummary = (task: Task): string => {
-    if (!task.schedule) return 'Not scheduled'
-    const cron = task.schedule.cron_expression
-    const preset = SCHEDULE_PRESETS.find((p) => p.cron === cron)
-    const label = preset ? preset.label : cron
-    return task.schedule.enabled ? label : `${label} (paused)`
+    const list = task.schedules ?? []
+    if (list.length === 0) return 'Not scheduled'
+    if (list.length === 1) {
+        const s = list[0]
+        const label = SCHEDULE_PRESETS.find((p) => p.cron === s.cron_expression)?.label ?? s.cron_expression
+        return s.enabled ? label : `${label} (paused)`
+    }
+    return `${list.length} schedules`
 }
 
 // Schedule dialog
+// `tasks` is rebuilt into brand-new objects on every refetch
+// (deriveTasksWithLastExecution maps to fresh Task instances), so holding a
+// snapshot Task ref here would freeze the dialog on stale `schedules` after a
+// create/patch/remove invalidates the query. Track only the id and look the
+// current task back up reactively, so the open dialog re-renders with the
+// live schedules list.
 const scheduleDialogVisible = ref(false)
-const scheduleDialogTask = ref<Task | null>(null)
+const scheduleDialogTaskId = ref<string | null>(null)
+const scheduleDialogTask = computed<Task | null>(
+    () => tasks.value.find((t) => t.id === scheduleDialogTaskId.value) ?? null
+)
 const scheduleSaving = ref(false)
+const scheduleRemovingId = ref<string | null>(null)
+const scheduleDialogRef = ref<InstanceType<typeof ScheduleDialog> | null>(null)
 
 const openSchedule = (task: Task) => {
-    scheduleDialogTask.value = task
+    scheduleDialogTaskId.value = task.id
     scheduleDialogVisible.value = true
 }
 
-const onScheduleSave = async (payload: { cron_expression: string; enabled: boolean }) => {
-    const task = scheduleDialogTask.value
-    if (!task) return
+const onScheduleCreate = async (body: CreateScheduleBody) => {
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
     scheduleSaving.value = true
     try {
-        if (task.schedule) await patchTask(task.id, payload)
-        else await upsertTask(task.id, payload)
-        scheduleDialogVisible.value = false
+        await createSchedule(taskId, body)
+        // Reset the add form on confirmed success, not by inferring it from the
+        // schedules list growing after a refetch (which may be slow or fail).
+        scheduleDialogRef.value?.resetAddForm()
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
     } finally {
@@ -72,17 +87,29 @@ const onScheduleSave = async (payload: { cron_expression: string; enabled: boole
     }
 }
 
-const onScheduleRemove = async () => {
-    const task = scheduleDialogTask.value
-    if (!task?.schedule) return
+const onSchedulePatch = async (payload: { id: string; body: PatchScheduleBody }) => {
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
     scheduleSaving.value = true
     try {
-        await deleteTaskSchedule(task.id)
-        scheduleDialogVisible.value = false
+        await patchSchedule(taskId, payload.id, payload.body)
+    } catch (e) {
+        toast.add({ severity: 'error', summary: 'Failed to save schedule', detail: (e as Error).message, life: 5000 })
+    } finally {
+        scheduleSaving.value = false
+    }
+}
+
+const onScheduleRemove = async (id: string) => {
+    const taskId = scheduleDialogTaskId.value
+    if (!taskId) return
+    scheduleRemovingId.value = id
+    try {
+        await deleteSchedule(taskId, id)
     } catch (e) {
         toast.add({ severity: 'error', summary: 'Failed to remove schedule', detail: (e as Error).message, life: 5000 })
     } finally {
-        scheduleSaving.value = false
+        scheduleRemovingId.value = null
     }
 }
 
@@ -153,7 +180,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                                         text
                                         rounded
                                         size="small"
-                                        :aria-label="data.schedule ? 'Edit schedule' : 'Schedule'"
+                                        :aria-label="data.schedules?.length ? 'Edit schedules' : 'Schedule'"
                                         @click.stop="openSchedule(data)"
                                     />
                                 </template>
@@ -187,10 +214,13 @@ const phoneCols = computed(() => tier.value === 'phone')
         </Tabs>
 
         <ScheduleDialog
+            ref="scheduleDialogRef"
             v-model:visible="scheduleDialogVisible"
             :task="scheduleDialogTask"
             :saving="scheduleSaving"
-            @save="onScheduleSave"
+            :removingId="scheduleRemovingId"
+            @create="onScheduleCreate"
+            @patch="onSchedulePatch"
             @remove="onScheduleRemove"
         />
 

@@ -1,9 +1,17 @@
 # Scanning — pipeline, identity rules, cleanup invariants
 
-`internal/scanner` turns files on disk into `internal/model` rows. It runs as
-the `scan` / `scan-full` tasks (registered in `app/cmd/server.go`, defined in
-`app/tasks/scan.go`). Task progress/log lines go through `tempo`'s
-context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
+`internal/scanner` turns files on disk into `internal/model` rows. It backs
+three registered tasks: the incremental `scan` and the full `scan-full` — two
+distinct, parameterless tasks (`app/tasks/scan.go`, registered in
+`app/cmd/server.go`), each pinned to a `ScanOptions.IsFull` mode rather than one
+task carrying a `full` flag — and the metadata editor's targeted `reindex`
+(`ReindexParams{LibraryID, Paths}`, `app/tasks/reindex.go` — see "Targeted
+re-index" below). `scan` and `scan-full` are user-triggerable and schedulable
+(they are in `apptasks.AvailableTasks`); `reindex` is deliberately absent from
+that catalog — enqueued only by the editor's write handlers, never triggered or
+scheduled by hand. All hand their progress/log lines to the `*slog.Logger` tempo
+passes into the task function, which lands in the per-execution log
+(`internal/taskrunner`'s `filelog.Store`; see architecture.md).
 
 ## Pipeline (per library, `scanner.go`)
 
@@ -65,12 +73,16 @@ context logger (`tempo.Info(ctx, ...)`) so they land in the per-execution log.
 during a scan must set it to the scan's start time, or cleanup will delete
 live tracks. It is **monotonic in both writers**: `reconcileTrack` guards its
 assignment, and `store.BulkUpdateLastSeen` carries `last_seen_at < scanTime`
-in its WHERE clause. Concurrent runs with different `scanStart` values are
-normal — a targeted rescan (below) uses its own, and `scan` / `scan-full` are
-separately registered tasks so `MaxParallelism: 1` does not stop them
-overlapping. Writing an older timestamp over a newer one would make a live
-track look stale to the other run's `Cleanup` and delete it, taking its
-playlist memberships, play history and stars with it. Within a single scan
+in its WHERE clause. Concurrent runs with different `scanStart` values used
+to be normal — before the `reindex` task existed, the metadata editor's
+targeted rescan ran off the request path and could overlap a scheduled scan
+freely. `scan`/`scan-full` and `reindex` (below) are now the writers, each a
+singly-parallel task in the same `library-writes` exclusion group, so tempo
+never runs one of them while the other (or another instance of the same one)
+is in flight — there is only ever one `scanStart` live at a time between
+them. The guard stays in place regardless: it is what would keep a live track
+safe if that ever stopped being true, and it costs nothing to leave it. Within
+a single scan
 every row is either already at `scanStart` or older, so the guards never skip
 a bump that was needed.
 
@@ -84,17 +96,71 @@ in `RelinkTrack` would instead invent a new way to keep a row alive that no
 reconcile ever confirmed. Anything else that starts touching tracks mid-scan
 still has to advance it.
 
-## Targeted rescan (`rescan.go`)
+## Targeted re-index (`internal/scanner/rescan.go`, `app/tasks/reindex.go`)
 
 `Scanner.RescanPaths(ctx, libraryID, absPaths)` re-indexes an explicit list of
 files: it admits each path (inside the library root, audio extension, not
-excluded, stat-able, `tagReader.CanRead`), reads its tags serially, and hands
-the results to the same `reconcile` step 4 uses. The metadata editor calls it
-synchronously after writing tags or pictures
-(`app/router/handlers/metadata`), so a save is visible in the music UI
-without a scan task. Inadmissible paths are silently skipped and counted in
-`ScanStats.TracksSkipped`; only real tag-read failures land in
+excluded, stat-able, `tagReader.CanRead`), reads its tags serially — always
+fresh, with no `filterChanged` mtime gate — and hands the results to the same
+`reconcile` step 4 uses. Inadmissible paths are silently skipped and counted
+in `ScanStats.TracksSkipped`; only real tag-read failures land in
 `ScanStats.Errors`.
+
+The metadata editor never calls `RescanPaths` directly. Every write handler
+(`app/router/handlers/metadata`: `updateTracks`, `applyPicture`, `removals`,
+and the artist-folder `setArtistImage`/`deleteArtistImage`) writes to disk
+first, then enqueues a `reindex` task (`app/tasks/reindex.go`,
+`ReindexParams{LibraryID, Paths}`; `NewReindexTaskFn` reuses one `Scanner`,
+like `NewScanTaskFn` does, and just calls `RescanPaths`) through the
+`metadata.Reindexer` interface — implemented by the router's `reindexEnqueuer`
+over `*taskrunner.Runner` — and reports it as `reindex: {execution_id}` in the
+response (`enqueueReindex`; omitted when nothing was written, or re-indexing
+is disabled because no task runner is configured). The artist-folder handlers
+re-index only one representative track under the folder
+(`metadataedit.FirstAudioPath`) — enough for the per-artist reconcile pass to
+re-probe the image, not the whole discography.
+
+**`scan`, `scan-full` and `reindex` share tempo's `library-writes` exclusion
+group** (`tasks.LibraryWriteExclusionGroup`, joined via
+`taskrunner.ExclusionGroup`, all registered in `app/cmd/server.go`): tempo runs
+at most one task from the group at a time, so an edit-triggered re-index can
+never run while a scan of either kind is in progress, and vice versa — they no
+longer contend for SQLite's single write lock. `scan` and `scan-full` each keep
+their own `Singleton()` (duplicate triggers coalesce onto that task's in-flight
+run). They are two separate tasks rather than one task with a `full` flag
+precisely because tempo coalesces by **task name**, ignoring params: a single
+`scan` task would let a full run fold onto an in-flight incremental one and be
+silently dropped. `reindex` is not a singleton — every enqueue carries a
+different path list, so coalescing two edits' re-indexes would silently drop one
+of them.
+
+The SPA polls the enqueued job instead of trusting the write to mean "the
+index is current" — a guarantee the old synchronous call gave for free and
+this design deliberately gives up. `useReindexPolling.ts`'s `pollReindex`
+polls `listTaskExecutions` until every collected id reaches one of tempo's
+terminal statuses (`complete`, `failed`, `panicked`, `canceled`,
+`cancel_error`, `unknown`; an id **seen running and then** rolled out of the
+runner's bounded execution history counts as complete, but an id never seen
+stays pending). It reports `{ failed, pending }` — `pending` covering ids left
+unconfirmed by the timeout, an aborted poll (it takes an `AbortSignal`,
+cancelled on scope teardown), or a persistent poll error — so a write never
+claims a clean success it could not confirm. Every write mutation in
+`useMetadataEditor.ts` (`useUpdateTracks`, `useApplyPicture`,
+`useDeletePicture`) awaits that before invalidating the music-UI caches
+(`invalidateAfterMetadataWrite`: the `metadata/tracks`, `metadata/raw` and
+`subsonic` query keys); `useEditSession.save`, which can fire several picture
+and tag writes in one session save, collects every one's execution id and
+polls them all together exactly once at the end instead of per write.
+
+**Only the music UI waits on that poll — the editor itself does not.**
+`metadataedit.ListTracks` (the `tracks` handler) reads tags straight from disk
+on every call, never from the DB, so the editor's own track list already
+reflects a save the instant the file write lands, whether or not its reindex
+job has finished. It is the `subsonic`-backed views — everything served
+through `/rest`, reading the DB — that would show stale data if refetched
+before the job catches up; that asymmetry is the entire reason
+`invalidateAfterMetadataWrite` waits on the poll instead of firing right after
+the write.
 
 `reconcile` owns `album.CoverPath` outright: it re-detects the best cover file in
 the track's directory on every pass, but never lets a disc folder with no art
@@ -105,7 +171,7 @@ cover is updated when (a) art appears in THIS directory, (b) the stored path is
 unusable (`IsUsableCoverPath` rejects a missing or disqualified file), or (c)
 the stored path belongs to this directory and art here has since vanished.
 Nothing else writes the field — the metadata editor writes art files on disk and
-relies on its post-write rescan to repoint the album. A cover uploaded through
+relies on its post-write reindex job to repoint the album. A cover uploaded through
 the `updateAlbum` extension lives in the asset store, not in `CoverPath`, and
 wins at serve time (`subsonic/media.go`, `albumCoverMeta`).
 
@@ -133,33 +199,48 @@ Two invariants:
 - **It must never call `store.Cleanup` / `DeleteTracksNotSeenSince`.** Those
   delete every track whose `last_seen_at` predates the run — with only N
   paths reconciled that is the whole library.
-- **It does call `DeleteOrphanedAggregates`.** An edit can empty an
-  album/artist/genre (renaming the last track by an artist), and that prune
-  is keyed on "has no tracks" rather than a timestamp, so it is safe
-  standalone.
+- **It calls `store.PruneOrphanedAggregates`, not `DeleteOrphanedAggregates`.**
+  Only on the aggregates the touched tracks belonged to before reconcile
+  (`store.TouchedAggregatesForPaths`, snapshotted first), not the exhaustive
+  whole-library sweep the scheduled scan's `Cleanup` runs. An edit can empty
+  an album/artist/genre (renaming the last track by an artist), and pruning
+  by "has no tracks" rather than a timestamp is safe standalone; anything a
+  narrower snapshot misses (a moved-and-retagged row, say) is still swept by
+  the scheduled scan's exhaustive pass.
 
-A rescan failure is reported in the response's `rescan: {ok, error}` field
-and never fails the write: the bytes are already on disk. What a failure costs
-depends on the write, and **"the next scan catches up" is only true for
-audio-file writes.** A tag or embedded-picture write changes the file's mtime,
-so `filterChanged` admits it and the next *incremental* scan re-indexes it. A
-**folder-cover or artist-image write touches no audio mtime**: `filterChanged`
-sees nothing changed in that directory, so an incremental scan reconciles zero
-tracks there and never re-runs `detectCoverInDir` — the stale cover persists
-indefinitely under the normal incremental cadence. Only a **full scan**
+**A successful `reindex` job does not mean every touched track reconciled.**
+`NewReindexTaskFn` fails the job only when `RescanPaths` itself returns an
+error (a bad library id, unparsable exclude patterns, a canceled context, or a
+DB error snapshotting/pruning aggregates); a non-empty `ScanStats.Errors`
+(tag-read failures) or a `TracksProcessed` shortfall against
+`len(paths)-TracksSkipped` is only logged, exactly like the scheduled `scan`
+task, and never fails it. The synchronous handler this replaced (`rescanSaved`,
+now removed) used to treat that shortfall as a failure and report it in the
+response's `rescan.ok`/`rescan.error` fields — visibility the edit path had
+that the scheduled scan never did. Moving to the job engine traded that away:
+`reconcile`'s per-track transaction failures are now swallowed identically on
+both entry points, and the SPA's poll only ever sees the job's terminal
+status, never a processed-count shortfall. Surfacing those failures is the
+separate "reconcile swallows failures" item in TODO.md, untouched by this
+change.
+
+What a re-index failure costs still depends on the write, and **"the next
+scan catches up" is only true for audio-file writes.** A tag or
+embedded-picture write changes the file's mtime, so `filterChanged` admits it
+and the next *incremental* scan re-indexes it. A **folder-cover or
+artist-image write touches no audio mtime**: `filterChanged` sees nothing
+changed in that directory, so an incremental scan reconciles zero tracks
+there and never re-runs `detectCoverInDir` — the stale cover persists
+indefinitely under the normal incremental cadence, and only a **full scan**
 (`opts.IsFull` bypasses `filterChanged`) — or an unrelated tag edit to a track
-in the same folder — repoints it. So the editor's cover-art paths
-(`rescanFolderArt` in `app/router/handlers/metadata`) append a note to the
-`rescan.error` on failure telling the user a full scan is required, rather than
-implying the index will self-heal.
-
-`ok: true` means every
-written path the library *covers* was re-indexed — the handler (`rescanSaved`)
-also treats a non-empty `ScanStats.Errors` or a shortfall against
-`len(paths) - TracksSkipped` as a failure, because `reconcile` swallows
-per-track transaction errors and still returns `nil`. Deliberately skipped
-paths are not a failure (see above). The frontend warns on `ok: false` for both
-tag and picture writes.
+in the same folder — repoints it from there. That gap only matters when the
+reindex job itself never runs to completion: a *successful* job always
+repoints it immediately regardless of mtime, since `RescanPaths` re-reads
+unconditionally. The frontend's warning on a failed poll ("the re-index did
+not complete; a library scan will fix it") is now one generic message for
+every write kind — unlike the old `rescan.error` note, it no longer spells out
+that a folder-cover or artist-image write specifically needs a *full* scan,
+not just any scan, to self-heal.
 
 ## Identity & normalization rules
 

@@ -5,8 +5,9 @@ import type {
     TriggerTaskResponse,
     TaskWithSchedule,
     ExecutionInfo,
-    UpsertTaskBody,
-    PatchTaskBody
+    TaskSchedule,
+    CreateScheduleBody,
+    PatchScheduleBody
 } from '@/types/tasks'
 
 const TASKS_PATH = '/tasks'
@@ -21,16 +22,16 @@ export async function getTask(name: string): Promise<TaskWithSchedule> {
     return data
 }
 
-export async function listExecutions(): Promise<ExecutionInfo[]> {
-    const { data } = await apiClient.get<ListExecutionsResponse>(`${TASKS_PATH}/executions`)
+export async function listExecutions(signal?: AbortSignal): Promise<ExecutionInfo[]> {
+    const { data } = await apiClient.get<ListExecutionsResponse>(`${TASKS_PATH}/executions`, { signal })
     return data.executions ?? []
 }
 
-export async function triggerTask(name: string): Promise<string> {
+export async function triggerTask(name: string): Promise<TriggerTaskResponse> {
     const { data } = await apiClient.post<TriggerTaskResponse>(
         `${TASKS_PATH}/${encodeURIComponent(name)}/trigger`
     )
-    return data.execution_id
+    return data
 }
 
 export async function cancelExecution(executionId: string): Promise<void> {
@@ -45,16 +46,22 @@ export async function getExecutionLog(executionId: string): Promise<string> {
     return data ?? ''
 }
 
-export async function upsertTask(name: string, body: UpsertTaskBody): Promise<TaskWithSchedule> {
-    const { data } = await apiClient.put<TaskWithSchedule>(`${TASKS_PATH}/${encodeURIComponent(name)}`, body)
+export async function createSchedule(name: string, body: CreateScheduleBody): Promise<TaskSchedule> {
+    const { data } = await apiClient.post<TaskSchedule>(
+        `${TASKS_PATH}/${encodeURIComponent(name)}/schedules`,
+        body
+    )
     return data
 }
 
-export async function patchTask(name: string, body: PatchTaskBody): Promise<TaskWithSchedule> {
-    const { data } = await apiClient.patch<TaskWithSchedule>(`${TASKS_PATH}/${encodeURIComponent(name)}`, body)
+export async function patchSchedule(name: string, id: string, body: PatchScheduleBody): Promise<TaskSchedule> {
+    const { data } = await apiClient.patch<TaskSchedule>(
+        `${TASKS_PATH}/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`,
+        body
+    )
     return data
 }
 
-export async function deleteTaskSchedule(name: string): Promise<void> {
-    await apiClient.delete(`${TASKS_PATH}/${encodeURIComponent(name)}`)
+export async function deleteSchedule(name: string, id: string): Promise<void> {
+    await apiClient.delete(`${TASKS_PATH}/${encodeURIComponent(name)}/schedules/${encodeURIComponent(id)}`)
 }

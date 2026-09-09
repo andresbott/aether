@@ -157,10 +157,6 @@ func runServer(configFile string) error {
 	// Tag reader
 	tagReader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
 
-	// Scanner for the metadata editor's post-write re-index. The scheduled
-	// scan tasks build their own scanner instances (via NewScanTaskFn).
-	libScanner := scanner.New(scanCfg, dataStore, tagReader)
-
 	// Audio identification is optional: it needs the fpcalc binary
 	// (Chromaprint) on the host and an AcoustID application key.
 	// identifyOff is the user-facing reason shown by the metadata editor when
@@ -187,45 +183,44 @@ func runServer(configFile string) error {
 		identifier.Cache = identify.NewCache(identify.DefaultCacheSize)
 	}
 
-	// Register tasks — scan and metadata fetch are independent tasks; a scan
-	// does NOT auto-trigger the artist-image fetch. Run each on demand.
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, false), tasks.ScanTaskName, 1)
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, l, true), tasks.ScanFullTaskName, 1)
+	// Register tasks — the incremental scan, the full scan, and the metadata
+	// fetch are independent, user-triggered tasks; a scan does NOT auto-trigger
+	// the artist-image fetch. scan and scan-full are separate singleton tasks so
+	// a full run never coalesces onto an in-flight incremental one (the runner
+	// dedupes by task name); both share the library-writes exclusion group, so
+	// they — and the reindex below — never touch the library index at once.
+	// Reindex is the metadata editor's targeted re-index, enqueued by its write
+	// handlers rather than run on demand.
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,
+		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
+	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, true), tasks.ScanFullTaskName, 1,
+		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
+	taskrunner.Register[tasks.ReindexParams](runner, tasks.NewReindexTaskFn(scanCfg, dataStore, tagReader), tasks.ReindexTaskName, 1,
+		taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
 	runner.RegisterTask(
-		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, l, 24*time.Hour),
+		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, 24*time.Hour),
 		tasks.FetchArtistImagesTaskName, 1,
 	)
 	runner.Start()
 
-	scheduleStore, err := taskrunner.NewScheduleStore(db)
-	if err != nil {
-		return fmt.Errorf("schedule store: %w", err)
-	}
 	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{
-		ScheduleStore: scheduleStore,
-		Enqueuer: taskrunner.FuncEnqueuer(func(_ context.Context, name string) error {
-			_, addErr := runner.AddRun(name)
-			return addErr
-		}),
-		Logger: l,
+		DB:       db,
+		Enqueuer: runner,
+		Logger:   l,
 	})
 	if err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
 
-	taskLogReader := taskrunner.NewFileTaskLogReader(logDir)
-
 	routerCfg := router.Cfg{
 		Logger:        l,
 		TaskRunner:    runner,
-		TaskLogGetter: taskLogReader,
-		ScheduleStore: scheduleStore,
+		TaskLogGetter: runner,
 		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
 		ArtistFetcher: fetcher,
-		Rescanner:     libScanner,
 		AuthMethod:    cfg.Auth.Method,
 		Users:         auth.Users,
 		Passwords:     auth.Passwords,
@@ -252,17 +247,26 @@ func runServer(configFile string) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	return serveWithGracefulShutdown(l, cfg.Obs, mainSrv, scheduler, runner)
+}
+
+// serveWithGracefulShutdown runs the main HTTP server (and the optional
+// observability server) until a signal or a server error, then stops the
+// scheduler and drains the task runner within a bounded shutdown window.
+func serveWithGracefulShutdown(l *slog.Logger, obs obsCfg, mainSrv *http.Server, scheduler *taskrunner.Scheduler, runner *taskrunner.Runner) error {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
-	scheduler.Start(rootCtx)
+	if err := scheduler.Start(rootCtx); err != nil {
+		return fmt.Errorf("start scheduler: %w", err)
+	}
 
 	g, gctx := errgroup.WithContext(rootCtx)
 	g.Go(func() error { return serveHTTP(gctx, mainSrv, l, "server") })
 	// The observability server (health, Prometheus metrics) is opt-in.
-	if cfg.Obs.Enabled {
+	if obs.Enabled {
 		obsSrv := &http.Server{
-			Addr:              cfg.Obs.Addr(),
+			Addr:              obs.Addr(),
 			Handler:           handlers.Admin(),
 			ReadHeaderTimeout: 5 * time.Second,
 		}
@@ -272,9 +276,11 @@ func runServer(configFile string) error {
 	}
 	g.Go(func() error {
 		<-gctx.Done()
-		scheduler.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
+		if err := scheduler.Stop(shutdownCtx); err != nil {
+			l.Error("scheduler shutdown", slog.String("component", "taskrunner"), slog.String("error", err.Error()))
+		}
 		return runner.Shutdown(shutdownCtx)
 	})
 

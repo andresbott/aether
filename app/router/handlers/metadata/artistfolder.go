@@ -120,17 +120,17 @@ func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
 
 // artistImageResult is the response of a successful artist-image write.
 type artistImageResult struct {
-	OK     bool          `json:"ok"`
-	Path   string        `json:"path"` // library-relative path of the written file
-	Rescan *rescanStatus `json:"rescan,omitempty"`
+	OK      bool        `json:"ok"`
+	Path    string      `json:"path"` // library-relative path of the written file
+	Reindex *reindexRef `json:"reindex,omitempty"`
 }
 
 // setArtistImage writes an artist portrait as artist.<ext> into the SELECTED
 // folder. The image is either an uploaded file ("image") or an online pick
 // ("mbid" + "url") downloaded from the providers. Nothing is written to the
-// library index: the DB catches up through a targeted rescan of one track under
-// the folder, whose reconcile pass detects the file as the artist's image (a soft
-// fallback — a managed/DB image still wins).
+// library index: the DB catches up through a targeted re-index of one track
+// under the folder, whose reconcile pass detects the file as the artist's
+// image (a soft fallback — a managed/DB image still wins).
 func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
@@ -185,15 +185,15 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	rel, _ := filepath.Rel(libModel.Path, written)
 
 	writeJSON(w, http.StatusOK, artistImageResult{
-		OK:     true,
-		Path:   filepath.ToSlash(rel),
-		Rescan: h.rescanArtistFolder(r, libModel.ID, abs),
+		OK:      true,
+		Path:    filepath.ToSlash(rel),
+		Reindex: h.reindexArtistFolder(r, libModel.ID, abs),
 	})
 }
 
 // deleteArtistImage removes the selected folder's current artist image (the file
-// the serve endpoint returns), 404 when there is none, then rescans so the
-// scanner's reconcile clears (or re-detects) artist.ImagePath.
+// the serve endpoint returns), 404 when there is none, then enqueues a re-index
+// so the scanner's reconcile clears (or re-detects) artist.ImagePath.
 func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
@@ -210,24 +210,23 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	out := map[string]any{"ok": true}
-	if rs := h.rescanArtistFolder(r, lib.ID, abs); rs != nil {
-		out["rescan"] = rs
+	if rx := h.reindexArtistFolder(r, lib.ID, abs); rx != nil {
+		out["reindex"] = rx
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// rescanArtistFolder re-indexes one representative track under the artist folder,
-// which is enough for the scanner's reconcile to re-probe the artist and pick up
-// (or drop) the folder image — without re-indexing the whole discography. Returns
-// nil when re-indexing is disabled or the folder has no readable track.
-func (h *ImagesHandler) rescanArtistFolder(r *http.Request, libraryID uint, absDir string) *rescanStatus {
+// reindexArtistFolder enqueues a re-index of one representative track under
+// the artist folder, which is enough for the scanner's reconcile to re-probe
+// the artist and pick up (or drop) the folder image — without re-indexing the
+// whole discography. Returns nil when re-indexing is disabled or the folder
+// has no readable track.
+func (h *ImagesHandler) reindexArtistFolder(r *http.Request, libraryID uint, absDir string) *reindexRef {
 	p, ok := metadataedit.FirstAudioPath(absDir, h.Reader)
 	if !ok {
 		return nil
 	}
-	// Artist images are on-disk sidecar files, never audio tags, so a failed
-	// re-index needs a full scan to recover — rescanFolderArt says so.
-	return rescanFolderArt(r.Context(), h.Rescan, libraryID, []string{p})
+	return enqueueReindex(r.Context(), h.Reindex, libraryID, []string{p})
 }
 
 // artistImageSource returns the image bytes and normalized extension from either

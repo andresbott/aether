@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func withLoginThrottle(t *testing.T, cfg *Cfg, _ *gorm.DB) {
 // withTaskRunner).
 type routerOpt func(t *testing.T, cfg *Cfg, db *gorm.DB)
 
-// withTaskRunner wires a task runner and schedule store into Cfg — the one
+// withTaskRunner wires a task runner and scheduler into Cfg — the one
 // piece newNativeAuthRouter otherwise leaves unset, and attachApiV0
 // (api_v0.go) gates the entire /tasks group on a non-nil task runner. Runner
 // tasks are never actually started (no Runner.Start()/RegisterTask call):
@@ -48,12 +49,22 @@ func withTaskRunner(t *testing.T, cfg *Cfg, db *gorm.DB) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scheduleStore, err := taskrunner.NewScheduleStore(db)
+	scheduler, err := taskrunner.NewScheduler(taskrunner.SchedulerCfg{DB: db, Enqueuer: runner})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// tempo rejects writes on an unstarted scheduler, and the contract test upserts
+	// a schedule, so start it here and stop it on cleanup.
+	if err := scheduler.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = scheduler.Stop(ctx)
+	})
 	cfg.TaskRunner = runner
-	cfg.ScheduleStore = scheduleStore
+	cfg.Scheduler = scheduler
 }
 
 // newNativeAuthRouter builds a router in the shape native mode always has in

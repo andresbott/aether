@@ -20,6 +20,10 @@ type reconcileStats struct {
 	Processed int
 	New       int
 	Updated   int
+	// Failed counts tracks whose per-track transaction still failed after its
+	// one retry and were therefore skipped. Surfaced so a caller can tell a
+	// silently under-indexed scan from a clean one.
+	Failed int
 }
 
 type artistRekey struct {
@@ -65,17 +69,28 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			return stats, ctx.Err()
 		}
 
-		pendingArtistRekeys = pendingArtistRekeys[:0]
-		if err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
-			return s.reconcileTrack(tx, probes, tr, scanStart, &stats, &pendingArtistRekeys)
-		}); err != nil {
-			slog.Warn("reconcile track failed, skipping", "path", tr.walk.FilePath, "err", err)
-			continue
-		}
-		for _, rk := range pendingArtistRekeys {
-			s.rekeyArtistImages(rk)
-		}
-		stats.Processed++
+		// A per-track transaction that fails is retried once before being given
+		// up on. The likeliest cause is a lost SQLite write lock under
+		// contention — busy_timeout has already waited its full window, and by
+		// the retry the competing writer has almost certainly finished — so a
+		// second attempt recovers it. A deterministic failure just costs one
+		// more cheap attempt on a rare path. Rekeys are reset before each
+		// attempt so a rolled-back attempt leaves none behind.
+		reconcileOne(ctx, &stats, tr.walk.FilePath, func() (bool, error) {
+			pendingArtistRekeys = pendingArtistRekeys[:0]
+			var isNew bool
+			err := s.store.TransactionContext(ctx, func(tx *store.Store) error {
+				var e error
+				isNew, e = s.reconcileTrack(tx, probes, tr, scanStart, &pendingArtistRekeys)
+				return e
+			})
+			if err == nil {
+				for _, rk := range pendingArtistRekeys {
+					s.rekeyArtistImages(rk)
+				}
+			}
+			return isNew, err
+		})
 	}
 
 	// Every artist folder is listed at most once per run here, instead of once
@@ -85,7 +100,38 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 	return stats, nil
 }
 
-func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImageProbe, tr tagResult, scanStart time.Time, stats *reconcileStats, pendingArtistRekeys *[]artistRekey) error {
+// reconcileOne runs one track's reconcile with a single retry, folding the
+// outcome into stats. run performs one attempt and reports whether the track
+// was new; reconcileOne retries it once on error (unless the context is done).
+// New/Updated + Processed are counted only after an attempt succeeds, so a
+// commit-phase failure that recovers on retry is counted once, not per attempt.
+// A run still failing after the retry is counted in Failed (a cancelled scan is
+// reported elsewhere, so it is not).
+func reconcileOne(ctx context.Context, stats *reconcileStats, path string, run func() (isNew bool, err error)) {
+	var isNew bool
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		isNew, err = run()
+		if err == nil || ctx.Err() != nil {
+			break
+		}
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			stats.Failed++
+			slog.Warn("reconcile track failed after retry, skipping", "path", path, "err", err)
+		}
+		return
+	}
+	if isNew {
+		stats.New++
+	} else {
+		stats.Updated++
+	}
+	stats.Processed++
+}
+
+func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImageProbe, tr tagResult, scanStart time.Time, pendingArtistRekeys *[]artistRekey) (bool, error) {
 	meta := tr.meta
 
 	// Resolve artists — tag values are taken as-is; multi-value frames come
@@ -93,7 +139,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	artistNames := TrackArtistNames(meta)
 	artists, gainedTrackArtists, err := tx.FindOrCreateArtists(artistNames, alignMBIDs(artistNames, meta.MBArtistID))
 	if err != nil {
-		return fmt.Errorf("find/create track artists: %w", err)
+		return false, fmt.Errorf("find/create track artists: %w", err)
 	}
 	for _, a := range gainedTrackArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -103,7 +149,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	albumArtistNames := AlbumArtistNames(meta)
 	albumArtists, gainedAlbumArtists, err := tx.FindOrCreateArtists(albumArtistNames, alignMBIDs(albumArtistNames, meta.MBAlbumArtistID))
 	if err != nil {
-		return fmt.Errorf("find/create album artists: %w", err)
+		return false, fmt.Errorf("find/create album artists: %w", err)
 	}
 	for _, a := range gainedAlbumArtists {
 		*pendingArtistRekeys = append(*pendingArtistRekeys, artistRekey{nameNorm: a.NameNorm, mbid: a.MBArtistID})
@@ -116,7 +162,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	genreNames := nonEmpty(meta.Genre)
 	genres, err := tx.FindOrCreateGenres(genreNames)
 	if err != nil {
-		return fmt.Errorf("find/create genres: %w", err)
+		return false, fmt.Errorf("find/create genres: %w", err)
 	}
 
 	// Resolve album. AlbumIdentityOf is the same function planAlbumContinuity
@@ -125,7 +171,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	ident := AlbumIdentityOf(meta)
 	album, err := tx.FindOrCreateAlbum(ident)
 	if err != nil {
-		return fmt.Errorf("find/create album: %w", err)
+		return false, fmt.Errorf("find/create album: %w", err)
 	}
 
 	// Update album metadata
@@ -148,17 +194,17 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 
 	db := tx.DB()
 	if err := db.Save(album).Error; err != nil {
-		return fmt.Errorf("save album: %w", err)
+		return false, fmt.Errorf("save album: %w", err)
 	}
 
 	// Update album artists association
 	if err := db.Model(album).Association("Artists").Replace(albumArtists); err != nil {
-		return fmt.Errorf("replace album artists: %w", err)
+		return false, fmt.Errorf("replace album artists: %w", err)
 	}
 
 	// Update album genres association
 	if err := db.Model(album).Association("Genres").Replace(genres); err != nil {
-		return fmt.Errorf("replace album genres: %w", err)
+		return false, fmt.Errorf("replace album genres: %w", err)
 	}
 
 	// Upsert track
@@ -174,13 +220,13 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	track.FileModTime = tr.walk.ModTime
 	// LastSeenAt is monotonic: only ever advanced, never moved backwards.
 	// It is the liveness marker store.Cleanup uses to delete "tracks nobody
-	// saw this run" (last_seen_at < scanStart), and a targeted rescan
-	// (RescanPaths) runs concurrently with scheduled scans using its own,
-	// possibly older, scanStart. Overwriting a newer marker with an older one
-	// would make a live track look stale to a scan that is already in flight
-	// and get it deleted — taking its playlist memberships, play history and
-	// stars with it. A brand-new track has the zero time, so it still gets its
-	// marker set here.
+	// saw this run" (last_seen_at < scanStart). Kept as a cheap safety net:
+	// scan and reindex are serialized by the `library-writes` exclusion group
+	// so a targeted rescan (RescanPaths) and a scheduled scan don't actually
+	// overlap. Overwriting a newer marker with an older one would make a live
+	// track look stale to a scan that is already in flight and get it deleted
+	// — taking its playlist memberships, play history and stars with it. A
+	// brand-new track has the zero time, so it still gets its marker set here.
 	if scanStart.After(track.LastSeenAt) {
 		track.LastSeenAt = scanStart
 	}
@@ -207,16 +253,10 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	track.HasEmbeddedCover = meta.HasCover
 
 	if err := tx.UpsertTrack(&track, artists, genres); err != nil {
-		return fmt.Errorf("upsert track: %w", err)
+		return false, fmt.Errorf("upsert track: %w", err)
 	}
 
-	if isNew {
-		stats.New++
-	} else {
-		stats.Updated++
-	}
-
-	return nil
+	return isNew, nil
 }
 
 // artistImageProbe holds what the post-loop artist-image pass needs for one

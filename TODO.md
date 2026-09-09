@@ -36,13 +36,23 @@ Notes for editors:
 
 ### Backend — Task runner (job engine)
 
-- [ ] Update the job engine (`go-bumbu/tempo`) to the latest version
+- [x] Update the job engine (`go-bumbu/tempo`) to the latest version
+  Done in code on branch `chore/upgrade-tempo-v0.4` (v0.2.0 → v0.4.0): wrapper adapted to
+  `RegisterRaw`/`WithMaxParallelism`/`AddRaw`, task fns now receive tempo's per-task `*slog.Logger`
+  (replacing the removed `tempo.Info/Error` package helpers). Left open pending commit/merge; the
+  adopt-later items below track what v0.4.0 newly enables.
   The task runner is `internal/taskrunner`, a thin wrapper over `github.com/go-bumbu/tempo`'s
   `QueueRunner` (`internal/taskrunner/runner.go:12,20`), pinned at **v0.2.0** in `go.mod`. Bump it to
   the latest release and adapt the wrapper to any API changes (`Cfg` / `QueueRunner` / `TaskLogSink` /
   `TaskStatePersistence`). Prerequisite for moving the metadata editor's synchronous re-index onto
   the job engine — see "[MEDIUM] Metadata edits re-index files inline…" under
   `### 26-09-04-big-import-review`; that refactor should build on the current engine, not the old one.
+- [ ] Adopt tempo's task progress reporting for long scans
+  v0.4.0 hands each task a `tempo.Progress` reporter (`SetTotal` / `Inc` / `SetStage`) and the runner takes
+  a `RunnerCfg.ProgressSink` (built-in `tempo.MemTaskProgressSink`, or a gorm-backed sink). Wire a progress
+  sink into `internal/taskrunner`, widen `Runner.RegisterTask`'s task-fn signature to pass the reporter
+  (it is currently dropped as `_ tempo.Progress` in `runner.go`), thread it into `scanner.Scan`'s phase-2
+  reconcile loop, and surface percent/ETA in the tasks UI (`ProgressState.Percent()` / `ETA(startedAt)`).
 
 ### Backend — API Surface
 
@@ -59,94 +69,6 @@ Notes for editors:
 - [ ] Document the audio-hash format limit in the user-facing docs
   The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
   Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
-- [/] Big review of the whole import task
-  Done 2026-09-04: six-agent review (Pike, go-architect-reviewer, go-code-reviewer,
-  Tony, Natalia, vue-code-reviewer) of the metadata-editing flow, the song-import/scan
-  flow, and the two combined (an edit writes tags/pictures to disk then triggers a
-  synchronous RescanPaths that reconciles; scheduled scan/scan-full index whole
-  libraries, both freshly-imported and pre-existing). Findings catalogued under
-  "26-09-04-big-import-review" below. Task stays open until those are triaged/fixed.
-
-### 26-09-04-big-import-review
-
-#### Backend — scan/import correctness & architecture
-
-- [ ] [MEDIUM] Metadata edits re-index files inline in the web request instead of using the background job engine
-  Plain version: when you edit metadata in the editor (apply a cover, update tracks, delete
-  pictures, save an artist folder), the server re-scans the touched files right inside the browser's
-  request instead of handing the work to the background job engine that scheduled scans use. Three
-  consequences: (1) nothing bounds how many of these run at once or coordinates them with an
-  in-flight full scan; (2) the re-index dies half-done if the user navigates away mid-save — files
-  written, index partial, repaired only by the next full scan; (3) under load it competes with the
-  scheduled scan for SQLite's single write lock, so per-track writes can wait 5s, fail, and get
-  swallowed, leaving `rescan.ok:false` as the only trace. Fix: make edit-triggered re-indexing a
-  first-class job-engine task (enqueued, bounded, observable, decoupled from the request), accepting
-  that the editor then polls or gives up its synchronous "index is current" guarantee.
-  Technical (original finding) — [MEDIUM] Editor's synchronous RescanPaths bypasses the task runner
-  entirely — no governance, request-coupled durability, write-lock contention:
-  Scheduled `scan`/`scan-full` run through the task runner (queue, history, `MaxParallelism`); the
-  editor's rescan does not — `applyPicture`/`updateTracks`/`removals`/artist-folder save call
-  `h.Rescan.RescanPaths(...)` directly on the request goroutine, on a shared `libScanner`, tied to
-  `r.Context()` (`app/router/handlers/metadata/metadata.go:113-125`; three `scanner.New` over one
-  `*store.Store` at `app/cmd/server.go:162,192-193`). Correctness under overlap rests only on
-  hand-maintained invariants; there is no bound on concurrent rescans, no coordination with an
-  in-flight full scan, and the reindex's durability is coupled to the browser request. At scale this
-  is a write-lock contention hotspot on single-writer SQLite (`busy_timeout=5000`): a 50-track folder
-  picture-apply reconciles serially in the request while a full scan holds the lock; each per-track
-  txn can wait 5s then fail, and `reconcile` swallows it (see below), so `rescan.ok:false` is the only
-  trace. Navigating away mid-save cancels the context and aborts the reindex partway (files written,
-  index partial), self-healing only on the next scan. Direction: consider making edit-triggered
-  reindex a first-class task-runner job (enqueued, bounded, observable, request-decoupled), accepting
-  the editor would then poll or lose its synchronous "index is current" guarantee.
-  Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (new item under
-  `## Backend`): the first-class-task refactor should land on the current engine, so bump tempo
-  (v0.2.0 → latest) first.
-  - [ ] [MEDIUM] admitPath vs Walk is a fragile hand-maintained mirror; symlink semantics are not mirrored at all
-    Same code path as the parent — the editor's synchronous `RescanPaths` → `admitPath` — but a distinct
-    correctness gap within it, and independent of the tempo bump: a shared-predicate + test fix that can
-    land before or after the job-engine move.
-    The invariant "admission must be a superset-free mirror of Walk" is enforced only by two shared
-    helpers (`matchesExclude`, `IsAudioFile`) plus prose — no test runs the same paths through both and
-    asserts agreement. It is already incomplete for symlinks: `Walk` honors `Library.FollowSymlinks`
-    (descends symlinked dirs, resolves to canonical paths in `symWalk`/`walkSymlinkEntry`, stats the
-    target for `FileSize`) while `admitPath` (`internal/scanner/rescan.go`) ignores `FollowSymlinks` and
-    just `os.Stat`s the given path. A path through a symlinked dir is admitted by the rescan when
-    `FollowSymlinks` is false (the walk would never reach it), and the two can disagree on the canonical
-    form of a followed-symlink file — colliding with `planTrackContinuity`'s path-identity assumptions.
-    An edit under a symlinked layout can index a row a scheduled scan then deletes (id churn, dropping
-    stars/playlists/history), or index one file under two path spellings. Narrow blast radius today, but
-    the invariant is load-bearing and unguarded. Direction: a single exported per-entry admission
-    predicate both `Walk` and `admitPath` call, plus a table-driven test asserting `admitPath(p) ⟺
-    Walk-would-emit(p)` over a fixture tree with excludes, ancestor pruning and symlinks.
-- [ ] [MEDIUM] Scheduled scans can silently drop songs and still report success
-  Plain version: when the library scanner saves songs to the database it saves them one at a time; if
-  one song fails to save, it just notes it in the log and moves on — it never counts that failure.
-  There are two ways a scan runs and they behave differently: the manual/editor rescan happens to
-  catch it (it notices the final song count doesn't add up), but the scheduled/automatic scan does not
-  — it only reports a different kind of problem (songs it couldn't read). So an automatic scan can
-  quietly lose an unknown number of songs from the library and still report "success": no error, no
-  count, no signal. Same failure, two scans, opposite outcomes — whether anyone finds out depends
-  entirely on which one ran. It's medium because nothing crashes and no data is corrupted; the risk is
-  silent under-reporting — you trust a scan that quietly did less than it claimed. Fix: have the save
-  step keep a running count of failures and report it, so every scan can say clearly "X saved, Y
-  unreadable, Z failed to save." Skipping a bad song and continuing is the right behavior; the gap is
-  that nobody's told it happened.
-  Technical (original finding) — [MEDIUM] reconcile swallows per-track transaction failures and the
-  scheduled scan surfaces them nowhere:
-  `reconcile` runs one txn per track and on failure logs at Warn + `continue` — it never returns the
-  error and never records it in `ScanStats.Errors` (which only collects tag-READ failures, `scanner.go:216-220`).
-  The rescan path compensates (`rescanSaved` treats `TracksProcessed < indexable` as `ok:false`), but
-  `NewScanTaskFn` (`app/tasks/scan.go:45-50`) only logs `len(stats.Errors)`. So a reconcile txn failure
-  — lost write lock (likely under the contention above), constraint violation, association-replace
-  error — is counted in neither `Processed` nor `Errors`: a scheduled scan can silently under-index an
-  arbitrary number of tracks and report success. The two entry points sharing `reconcile` give the
-  operator opposite visibility into the same failure. Direction: have `reconcile` return a per-track
-  failure count (or append to `ScanStats.Errors` with a distinct category) so the task log / a future
-  metric can distinguish processed / tag-read-failed / reconcile-failed. Swallow-and-continue itself
-  is correct; the invisibility on the scan path is the gap.
-  Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (under `## Backend`):
-  surfacing these failures through the task log / a future metric rides on the job engine, so bump
-  tempo (v0.2.0 → latest) first.
 
 ### Backend — Resource Leaks
 

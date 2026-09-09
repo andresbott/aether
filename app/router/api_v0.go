@@ -195,8 +195,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		th := taskHandler.Handler{
 			Runner:        h.taskRunner,
 			TaskLogGetter: h.taskLogGetter,
-			ScheduleStore: h.scheduleStore,
-			Scheduler:     h.scheduler,
+			Schedules:     h.scheduler,
 			Logger:        h.logger,
 		}
 		// Executions are global. Register these before /tasks/{name} so the
@@ -208,9 +207,9 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		r.Path("/tasks").Methods(http.MethodGet).Handler(th.ListTasks())
 		r.Path("/tasks/{name}/trigger").Methods(http.MethodPost).Handler(th.TriggerTask())
 		r.Path("/tasks/{name}").Methods(http.MethodGet).Handler(th.GetTask())
-		r.Path("/tasks/{name}").Methods(http.MethodPut).Handler(th.UpsertTask())
-		r.Path("/tasks/{name}").Methods(http.MethodPatch).Handler(th.PatchTask())
-		r.Path("/tasks/{name}").Methods(http.MethodDelete).Handler(th.DeleteTaskSchedule())
+		r.Path("/tasks/{name}/schedules").Methods(http.MethodPost).Handler(th.CreateSchedule())
+		r.Path("/tasks/{name}/schedules/{id}").Methods(http.MethodPatch).Handler(th.PatchSchedule())
+		r.Path("/tasks/{name}/schedules/{id}").Methods(http.MethodDelete).Handler(th.DeleteSchedule())
 	}
 
 	if h.store != nil {
@@ -220,19 +219,20 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		if h.tagReader != nil {
 			// The metadata editor's endpoints are split across three handlers by
 			// concern — tag edits, on-disk pictures, and acoustic identify — that
-			// share only the library store and the post-write rescanner. Mounting
+			// share only the library store and the post-write reindexer. Mounting
 			// them separately keeps each handler's dependency set to exactly what it
 			// uses.
+			reindexer := h.metadataReindexer()
 			(&metadataHandler.TagsHandler{
-				Store:  h.store,
-				Reader: h.tagReader,
-				Rescan: h.rescanner,
+				Store:   h.store,
+				Reader:  h.tagReader,
+				Reindex: reindexer,
 			}).Routes(r)
 
 			(&metadataHandler.ImagesHandler{
 				Store:    h.store,
 				Reader:   h.tagReader,
-				Rescan:   h.rescanner,
+				Reindex:  reindexer,
 				CoverArt: coverart.New(userAgent),
 				Images:   h.images,
 				// Memoize provider image bytes so a repeated pre-save probe and the

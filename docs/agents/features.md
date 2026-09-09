@@ -45,12 +45,12 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 |---|---|---|
 | Libraries CRUD + folder browse | Implemented | `handlers/libraries` (path change wipes the library's tracks) |
 | Config-provisioned libraries | Implemented | A `Libraries:` list in `config.yaml` is materialized into `libraries` rows at startup (`app/cmd/libraries.go`), additive with UI-created ones and marked `Source: "config"`. Read-only over the API (409 `config_managed`) and badged without edit/delete in `LibrariesPanel.vue`; dropping an entry releases the row to the UI rather than deleting it. Semantics and rationale in [architecture.md](architecture.md#config-provisioned-libraries) |
-| Scanning (incremental + full) | Implemented | tasks `scan` / `scan-full` → `internal/scanner`; see [scanning.md](scanning.md) |
+| Scanning (incremental + full) | Implemented | two parameterless tasks, `scan` (incremental) and `scan-full` (full re-read), each a distinct singleton sharing the `library-writes` group → `internal/scanner`; see [scanning.md](scanning.md) |
 | Task runner, schedules, execution history + logs + cancel | Implemented | `handlers/tasks`, `internal/taskrunner` |
 | Artist image fetching | Implemented, key-gated | task `fetch-artist-images`, `internal/artistimage` (fanart.tv → TheAudioDB chain) |
 | Artist image from disk (`<collection>/<artist>/artist.jpg`) | Implemented | `scanner/artistimage.go` → `artist.ImagePath`, last fallback in `artistCoverMeta` ([scanning.md](scanning.md)) |
 | Manual artist image search (same providers, user-picked MusicBrainz match) | Implemented, key-gated | `ArtistImageSearchDialog` (grid picks one of several provider portraits), `/artists/image-candidates` + `/artists/{id}/image-from-search` (URL-validated) ([scanning.md](scanning.md)) |
-| Metadata editor (on-disk tags + folder art, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` — file-only by design: no DB writes beyond the post-write rescan |
+| Metadata editor (on-disk tags + folder art, MusicBrainz identify) | Implemented | `handlers/metadata`, `internal/metadataedit`, `internal/identify` — file-only by design: no DB writes beyond the post-write `reindex` job |
 | Manual album cover (aether's managed store) | Implemented | `updateAlbum` / `albumCoverArt` extension in `handlers/subsonic/albums.go`, set from `AlbumView` |
 | Album identify (map a multi-file selection onto one release) | Implemented, key-gated | `POST /metadata/identify-album` → `internal/albumidentify`; `IdentifyAlbumDialog.vue` ([architecture.md](architecture.md)) |
 | Shared per-file fingerprint cache (both identify flows) | Implemented | `identify.Cache` on the one `*identify.Identifier` both endpoints resolve through (`app/router/api_v0.go`); keyed path+size+mtime, LRU. Per-track and album identify reuse each other's fpcalc/AcoustID pass |

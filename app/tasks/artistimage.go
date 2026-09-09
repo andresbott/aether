@@ -10,7 +10,6 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
-	"github.com/go-bumbu/tempo"
 )
 
 const FetchArtistImagesTaskName = "fetch-artist-images"
@@ -58,8 +57,8 @@ func FetchAndStoreArtistImage(ctx context.Context, s *store.Store, as *assetstor
 
 // NewFetchArtistImagesTaskFn iterates artists with a MusicBrainz ID and
 // fetches a missing image for each, applying skip/backoff before attempting.
-func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher, logger *slog.Logger, backoff time.Duration) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
+func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher, backoff time.Duration) func(ctx context.Context, log *slog.Logger) error {
+	return func(ctx context.Context, log *slog.Logger) error {
 		// No provider configured: report a clear, actionable message. The
 		// runner writes a returned error to the task's log at ERROR level, so
 		// this shows up in the execution log instead of failing silently.
@@ -87,14 +86,19 @@ func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher,
 			if ferr != nil {
 				// Surface fetch failures in the task log instead of swallowing
 				// them — otherwise the task looks like it did nothing.
-				tempo.Error(ctx, fmt.Sprintf("fetch image for %q (%s): %v", a.Name, a.MBArtistID, ferr))
+				log.Error("fetch artist image failed",
+					slog.String("artist", a.Name),
+					slog.String("mbid", a.MBArtistID),
+					slog.String("error", ferr.Error()))
 				failed++
 			} else if ok {
 				stored++
 			}
 		}
-		_ = logger
-		tempo.Info(ctx, fmt.Sprintf("artist images: %d stored, %d failed, %d skipped", stored, failed, skipped))
+		log.Info("artist image fetch complete",
+			slog.Int("stored", stored),
+			slog.Int("failed", failed),
+			slog.Int("skipped", skipped))
 		return nil
 	}
 }

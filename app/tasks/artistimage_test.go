@@ -50,8 +50,8 @@ func TestFetchTaskNotConfigured(t *testing.T) {
 	as := assetstore.New(t.TempDir())
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	fn := NewFetchArtistImagesTaskFn(st, as, nil, logger, time.Hour)
-	err := fn(context.Background())
+	fn := NewFetchArtistImagesTaskFn(st, as, nil, time.Hour)
+	err := fn(context.Background(), logger)
 	if err == nil {
 		t.Fatal("expected a 'not configured' error, got nil")
 	}
@@ -77,24 +77,26 @@ func TestFetchTaskLogsFetchErrors(t *testing.T) {
 	})
 	as := assetstore.New(t.TempDir())
 	f := &errFetcher{err: errors.New("provider down")}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	sink := tempo.NewMemTaskLogSink()
 	runner, err := taskrunner.NewRunner(taskrunner.Cfg{Parallelism: 1, QueueSize: 5, LogSink: sink})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner.RegisterTask(NewFetchArtistImagesTaskFn(st, as, f, logger, time.Hour), "fetch", 1)
+	runner.RegisterTask(NewFetchArtistImagesTaskFn(st, as, f, time.Hour), "fetch", 1)
 	runner.Start()
 	defer func() { _ = runner.Shutdown(context.Background()) }()
 
-	id, err := runner.AddRun("fetch")
+	id, _, err := runner.AddRun("fetch")
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(200 * time.Millisecond)
 
-	entries := sink.Logs(id)
+	entries, err := sink.Logs(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, e := range entries {
 		if strings.Contains(e.Message, "provider down") {
@@ -117,8 +119,8 @@ func TestFetchTaskStoresImageAndSkipsExisting(t *testing.T) {
 	f := &fakeFetcher{data: []byte("IMG"), ext: "jpg"}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	fn := NewFetchArtistImagesTaskFn(st, as, f, logger, time.Hour)
-	if err := fn(context.Background()); err != nil {
+	fn := NewFetchArtistImagesTaskFn(st, as, f, time.Hour)
+	if err := fn(context.Background(), logger); err != nil {
 		t.Fatalf("run 1: %v", err)
 	}
 	if _, ok := as.Get(assetstore.KindArtist, "mbid-a"); !ok {
@@ -128,7 +130,7 @@ func TestFetchTaskStoresImageAndSkipsExisting(t *testing.T) {
 		t.Fatalf("expected 1 fetch, got %d", f.calls)
 	}
 	// Second run: image exists, must skip the fetcher.
-	if err := fn(context.Background()); err != nil {
+	if err := fn(context.Background(), logger); err != nil {
 		t.Fatalf("run 2: %v", err)
 	}
 	if f.calls != 1 {
