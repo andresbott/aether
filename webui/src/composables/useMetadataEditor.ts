@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import type { QueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as MetadataApi from '@/lib/api/Metadata'
+import { pollReindex } from '@/composables/useReindexPolling'
 import { apiErrorMessage, isCanceledError } from '@/lib/apiError'
 import type {
     Folder,
@@ -10,7 +11,7 @@ import type {
     MetadataCapabilities,
     PatchFields,
     PictureSlot,
-    RescanStatus,
+    ReindexRef,
     Track,
     UpdateResult,
     UpdateTracksRequest
@@ -27,8 +28,9 @@ export const metadataQueryKeys = {
 // artist or release MBID moves the tracks to a *new* album row — the editor
 // works in file paths and cannot know which ids changed, so there is no precise
 // key set to target. Same precedent as the library mutations. Call it only
-// after the response resolves: the server re-indexes synchronously, so a
-// resolved write means the DB is current.
+// after the write's re-index job has been polled to a terminal status (see
+// pollReindex, which every write mutation awaits before resolving) — a
+// resolved write means the DB has caught up as far as this save will make it.
 export function invalidateAfterMetadataWrite(qc: QueryClient) {
     qc.invalidateQueries({ queryKey: ['metadata', 'tracks'] })
     qc.invalidateQueries({ queryKey: ['metadata', 'raw'] })
@@ -90,11 +92,12 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
     return [...byPath.values()]
 }
 
-// One logical tracks update: per-path write results plus the server's report on
-// the re-index that followed them.
+// One logical tracks update: per-path write results plus a reference to the
+// re-index job the write enqueued (poll it with pollReindex to learn whether
+// it actually caught the library index up).
 export interface UpdateTracksResult {
     results: UpdateResult[]
-    rescan?: RescanStatus
+    reindex?: ReindexRef
     // A partial album-identity edit may have split the album; see the server's
     // updateTracks handler. Human-readable, surfaced once per save.
     warning?: string
@@ -104,7 +107,7 @@ export interface UpdateTracksResult {
 // splitting it into the two sequential PUTs the server requires when a patch
 // both renames artists and sets their MB IDs. Shared by useUpdateTracks and
 // the edit-session save (which needs the raw call without per-batch toasts).
-// When the patch is split, the second write's rescan status is the current one;
+// When the patch is split, the second write's reindex ref is the one reported;
 // the first is only reported when the split short-circuits.
 export async function updateTracksPartitioned(
     body: UpdateTracksRequest
@@ -116,27 +119,10 @@ export async function updateTracksPartitioned(
     const second = await MetadataApi.updateTracks({ ...body, fields: parts.mbids })
     return {
         results: mergeUpdateResults(first.results, second.results),
-        rescan: second.rescan ?? first.rescan,
+        reindex: second.reindex ?? first.reindex,
         // The identity fields ride in the names batch (first), so its warning
         // is the one that matters; fall back either way since it is one message.
         warning: first.warning ?? second.warning
-    }
-}
-
-// rescanWarning is the toast a failed post-write re-index produces: the write
-// itself landed on disk; the library index did not catch up. The detail comes
-// verbatim from the server's `rescan.error`, which already says whether a full
-// scan is required (folder-cover / artist-image writes) or the next incremental
-// scan recovers on its own (tag / embedded-picture writes) — so this wording
-// stays generic. Shared by every write path. Returns null when the re-index
-// succeeded or the server did not report one.
-export function rescanWarning(rescan: RescanStatus | undefined) {
-    if (!rescan || rescan.ok) return null
-    return {
-        severity: 'warn' as const,
-        summary: 'Saved, but the library index was not updated',
-        detail: rescan.error ?? 'unknown error',
-        life: 8000
     }
 }
 
@@ -144,15 +130,23 @@ export function useUpdateTracks() {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: updateTracksPartitioned,
+        mutationFn: async (body: UpdateTracksRequest) => {
+            const out = await updateTracksPartitioned(body)
+            const { failed } = await pollReindex(out.reindex ? [out.reindex.execution_id] : [])
+            return { ...out, reindexFailed: failed > 0 }
+        },
         onSuccess: (out) => {
             invalidateAfterMetadataWrite(qc)
             const results = out.results
             const ok = results.filter((r) => r.ok).length
             const failed = results.length - ok
-            const warning = rescanWarning(out.rescan)
-            if (warning) {
-                toast.add(warning)
+            if (out.reindexFailed) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Saved, but the library index was not updated',
+                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    life: 8000
+                })
             }
             if (failed === 0) {
                 toast.add({
@@ -266,7 +260,7 @@ export function useIdentifyAlbum() {
 
 // PictureMutationOptions tunes the shared picture mutations for a caller that
 // drives many of them in one logical save. `quiet` hands ALL per-op reporting to
-// that caller: the success toast, the "index not updated" rescan warning, and
+// that caller: the success toast, the "index not updated" reindex warning, and
 // the cache invalidation are suppressed, so an N-cell save raises one aggregate
 // report and invalidates the caches once at the end of the loop instead of N
 // times mid-save — each mid-loop invalidation would otherwise refetch the
@@ -280,7 +274,11 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: (form: FormData) => MetadataApi.applyPicture(form),
+        mutationFn: async (form: FormData) => {
+            const out = await MetadataApi.applyPicture(form)
+            const { failed } = await pollReindex(out.reindex ? [out.reindex.execution_id] : [])
+            return { ...out, reindexFailed: failed > 0 }
+        },
         onSuccess: (out) => {
             // A quiet caller (batch/session save) owns invalidation and the
             // aggregate report; stay out of its way so it fires exactly once.
@@ -288,9 +286,13 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
             invalidateAfterMetadataWrite(qc)
             // The image is written either way; warn when the index did not catch
             // up, or the album keeps serving the old cover with no explanation.
-            const warning = rescanWarning(out.rescan)
-            if (warning) {
-                toast.add(warning)
+            if (out.reindexFailed) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Saved, but the library index was not updated',
+                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    life: 8000
+                })
             }
             toast.add({ severity: 'success', summary: 'Picture saved', life: 3000 })
         },
@@ -309,20 +311,28 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
     const qc = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: (v: {
+        mutationFn: async (v: {
             libraryId: number
             type: string
             slot: PictureSlot
             paths: string[]
-        }) => MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot),
+        }) => {
+            const out = await MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot)
+            const { failed } = await pollReindex(out?.reindex ? [out.reindex.execution_id] : [])
+            return { ...out, reindexFailed: failed > 0 }
+        },
         onSuccess: (out) => {
             // A quiet caller (batch/session save) owns invalidation and the
             // aggregate report; stay out of its way so it fires exactly once.
             if (opts.quiet) return
             invalidateAfterMetadataWrite(qc)
-            const warning = rescanWarning(out?.rescan)
-            if (warning) {
-                toast.add(warning)
+            if (out.reindexFailed) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Saved, but the library index was not updated',
+                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    life: 8000
+                })
             }
             toast.add({ severity: 'success', summary: 'Picture removed', life: 3000 })
         },
