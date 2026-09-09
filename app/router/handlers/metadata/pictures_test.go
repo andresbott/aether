@@ -859,7 +859,10 @@ func TestRemovals_FolderByType(t *testing.T) {
 }
 
 // Removing folder art for a multi-disc album deletes it from every directory
-// the selection spans, mirroring the fan-out on save.
+// the selection spans, mirroring the fan-out on save, and enqueues a reindex
+// of the selection's tracks — removals enqueues off al.Tracks() regardless of
+// which slot was cleared (see removals in pictures.go), so a folder-slot
+// removal reindexes the same tracks an embedded one would.
 func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	root := t.TempDir()
 	one, two := mkDiscDirs(t, root)
@@ -871,7 +874,8 @@ func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, r, lib := newPictureHandler(t, root, nil)
+	rx := &fakeReindexer{}
+	_, r, lib := newPictureHandlerWithReindex(t, root, nil, rx)
 
 	w := postRemovals(t, r, lib.ID,
 		[]string{"album/CD 1/01.flac", "album/CD 2/01.flac"}, "Back Cover", "folder")
@@ -885,6 +889,25 @@ func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "cover.png")); err != nil {
 			t.Errorf("cover.png must survive in %s: %v", dir, err)
 		}
+	}
+
+	wantOne, wantTwo := filepath.Join(one, "01.flac"), filepath.Join(two, "01.flac")
+	if len(rx.calls) != 1 || len(rx.calls[0]) != 2 || rx.calls[0][0] != wantOne || rx.calls[0][1] != wantTwo {
+		t.Fatalf("unexpected reindex paths: %v, want [[%s %s]]", rx.calls, wantOne, wantTwo)
+	}
+	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	}
+	var resp struct {
+		Reindex *struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"reindex"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Reindex == nil || resp.Reindex.ExecutionID != "exec-1" {
+		t.Fatalf("expected a reindex execution id, got %+v", resp.Reindex)
 	}
 }
 
@@ -1186,6 +1209,9 @@ func TestApplyPicture_EnqueuesReindexOfFolderTracks(t *testing.T) {
 
 	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != trackAbs {
 		t.Fatalf("unexpected reindex paths: %v", rx.calls)
+	}
+	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
 	}
 	var resp struct {
 		Reindex *struct {

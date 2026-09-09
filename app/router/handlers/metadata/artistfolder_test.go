@@ -482,7 +482,10 @@ func TestArtistImageServe_NotFoundWhenNoImage(t *testing.T) {
 	}
 }
 
-// TestArtistImageDelete_RemovesFile: DELETE removes the folder's current image.
+// TestArtistImageDelete_RemovesFile: DELETE removes the folder's current image
+// and enqueues a reindex of one representative track under the folder, so the
+// scanner's reconcile re-probes the artist (mirrors
+// TestSetArtistImage_EnqueuesReindexOfRepresentativeTrack for the write side).
 func TestArtistImageDelete_RemovesFile(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
@@ -491,7 +494,8 @@ func TestArtistImageDelete_RemovesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	rx := &fakeReindexer{}
+	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
 
 	w := reqArtistImage(t, r, "DELETE", libIDStr(lib), "Radiohead")
 	if w.Code != http.StatusOK {
@@ -499,6 +503,25 @@ func TestArtistImageDelete_RemovesFile(t *testing.T) {
 	}
 	if _, err := os.Stat(imgPath); !os.IsNotExist(err) {
 		t.Errorf("artist.jpg still present after delete")
+	}
+
+	want := filepath.Join(root, "Radiohead", "OK Computer", "a.flac")
+	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != want {
+		t.Fatalf("unexpected reindex paths: %v, want [[%s]]", rx.calls, want)
+	}
+	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
+		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	}
+	var resp struct {
+		Reindex *struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"reindex"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Reindex == nil || resp.Reindex.ExecutionID != "exec-1" {
+		t.Fatalf("expected a reindex execution id, got %+v", resp.Reindex)
 	}
 }
 
