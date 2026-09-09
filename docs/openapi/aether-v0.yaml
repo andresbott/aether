@@ -2314,7 +2314,7 @@ components:
         disk but the index did not catch up and a scan is required. Absent when
         nothing needed re-indexing.
       properties:
-        execution_id: { type: string }
+        execution_id: { type: string, format: uuid }
       required: [execution_id]
 
     MutationResult:
@@ -3810,7 +3810,7 @@ components:
         library_id:
           type: integer
           format: int64
-          minimum: 0
+          minimum: 1
           description: "`reindex` only: the library the paths belong to."
         paths:
           type: array

@@ -31,10 +31,11 @@ func (s *Store) FindOrCreateAlbum(ident AlbumIdentity) (*model.Album, error) {
 	if createErr == nil {
 		return &album, nil
 	}
-	// An overlapping run (a targeted RescanPaths racing a scheduled scan) can
-	// First-miss and Create the same brand-new album concurrently; the loser hits
-	// the identity unique index. Re-read by the same key and use the winner's row
-	// instead of failing — and with it the whole track.
+	// Kept as a cheap safety net: scan and reindex are serialized by the
+	// `library-writes` exclusion group, so a targeted RescanPaths and a
+	// scheduled scan don't actually race, but a First-miss-then-Create here
+	// would hit the identity unique index. Re-read by the same key and use the
+	// winner's row instead of failing — and with it the whole track.
 	if IsUniqueViolation(createErr) {
 		var winner model.Album
 		if reErr := s.db.Where("name_norm = ? AND album_artist_norm = ? AND mb_release_id = ?", ident.NameNorm, ident.AlbumArtistNorm, ident.MBReleaseID).First(&winner).Error; reErr == nil {

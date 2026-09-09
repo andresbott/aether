@@ -21,8 +21,10 @@ type reindexRef struct {
 // enqueueReindex enqueues a re-index of absPaths, returning nil when
 // re-indexing is disabled (reindexer nil) or there is nothing to do (empty
 // list), in which case the response carries no "reindex" field. A failure to
-// enqueue is logged as the ref's absence — the file write already landed; the
-// next scheduled scan reconciles it — so callers never fail the write on it.
+// enqueue is logged by the reindexer (the router's adapter over the task
+// runner) — this handler has no logger of its own. Either way the response
+// just omits "reindex": the file write already landed, and the next
+// scheduled scan reconciles it, so callers never fail the write on it.
 func enqueueReindex(ctx context.Context, reindexer Reindexer, libraryID uint, absPaths []string) *reindexRef {
 	if reindexer == nil || len(absPaths) == 0 {
 		return nil
