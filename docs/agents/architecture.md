@@ -103,8 +103,13 @@ an hourly incremental scan and a nightly full scan are two schedules on the
 one `scan` task.
 Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan` (typed
 `ScanParams{Full bool}` via `taskrunner.Register[tasks.ScanParams]`, still
-`Singleton()` — at most one scan in flight) and `fetch-artist-images`. **A
-scan does not auto-trigger the artist-image fetch** — they are deliberately independent.
+`Singleton()` — at most one scan in flight), `reindex` (typed
+`ReindexParams{LibraryID, Paths}` — the metadata editor's targeted re-index,
+enqueued by its write handlers rather than user-triggered; see
+[scanning.md](scanning.md)), and `fetch-artist-images`. `scan` and `reindex`
+share a `library-writes` `taskrunner.ExclusionGroup` so tempo never runs one
+while the other is in flight; otherwise task registration is independent, and
+**a scan does not auto-trigger the artist-image fetch**.
 
 ## Data directory layout
 

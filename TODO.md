@@ -59,13 +59,13 @@ Notes for editors:
   scan is waiting or running returns the in-flight id (the new `coalesced` bool from `AddRaw` / `Enqueue`)
   instead of enqueuing another. Thread a per-task option through `Runner.RegisterTask` and set it for the
   scan tasks; decide what the enqueue endpoint reports when a trigger coalesces.
-- [ ] Adopt typed task params instead of name-only enqueue
+- [x] Adopt typed task params instead of name-only enqueue — DONE (branch `chore/upgrade-tempo-v0.4`): added `taskrunner.Register[T]`/`Enqueue[T]`; collapsed `scan`/`scan-full` into one `scan` task taking `ScanParams{Full bool}`; the trigger endpoint forwards a `{"full":true}` body; task schedules now carry per-schedule params. This is what unblocks the edit-triggered re-index (it can now pass a path list via a typed task).
   v0.4.0 tasks can carry a JSON payload: `tempo.Register[T]` / `Enqueue[T]` (typed) or `RegisterRaw` /
   `AddRaw(name, []byte)` (raw). The wrapper now enqueues by name only (`AddRaw(name, nil)`) and encodes scan
   mode as two task names (`scan` / `scan-full`). Params would collapse that into one task taking
   `{full: bool}` and, more importantly, let an edit-triggered re-index pass its path list — a prerequisite
   for "[MEDIUM] Metadata edits re-index files inline…".
-  - [ ] Persist `TaskInfo.Params` in the task-execution store
+  - [x] Persist `TaskInfo.Params` in the task-execution store — DONE: added a `params` column to `dbTaskExecution`, round-tripped in `SaveTask`/`List` (recovery-tested).
     v0.4.0 added `Params []byte` to `tempo.TaskInfo`; `internal/taskrunner/persistence.go` neither stores
     nor restores it, so a task recovered after a restart comes back with nil params. Harmless today (every
     enqueue is param-less) but must land before typed params, or a crash mid-queue silently drops a
@@ -77,37 +77,39 @@ Notes for editors:
   orphan sweep (`RetainOnly`) and on-trim reap (`RemoveTasks`); `TaskExecutionStore` no longer cleans
   log files. Logs are read back via `Runner.GetTaskLog`, which formats `[]tempo.LogEntry` to the prior
   text/plain lines. One-time: wipe `<DataDir>/task-logs` — format changed `.log` → `.jsonl`.
-- [ ] verify impl
+- [x] verify impl — RESOLVED
   ask: are we using the same scan with parameters for short and long scan
+  → Yes. One `scan` task now takes `ScanParams{Full bool}` (`full:true` = full re-read, else incremental), used for both ad-hoc triggers and cron schedules. Backend is tested (make verify green); a manual real-app smoke of the full/fast toggle is still worth doing.
+- [ ] verify singleton
+  ask: is singleton an aether specific concept or an librayr concept
 
-### Backend — API Surface
+#### 26-09-04-big-import-review
 
-- [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints
-  `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v0.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
+##### Backend — scan/import correctness & architecture
 
-### Backend — OpenSubsonic Compliance
-
-- [ ] XML response format for third-party clients
-  Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
-
-### Backend — Data Integrity & Scanning
-
-- [ ] Document the audio-hash format limit in the user-facing docs
-  The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
-  Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
-- [/] Big review of the whole import task
-  Done 2026-09-04: six-agent review (Pike, go-architect-reviewer, go-code-reviewer,
-  Tony, Natalia, vue-code-reviewer) of the metadata-editing flow, the song-import/scan
-  flow, and the two combined (an edit writes tags/pictures to disk then triggers a
-  synchronous RescanPaths that reconciles; scheduled scan/scan-full index whole
-  libraries, both freshly-imported and pre-existing). Findings catalogued under
-  "26-09-04-big-import-review" below. Task stays open until those are triaged/fixed.
-
-### 26-09-04-big-import-review
-
-#### Backend — scan/import correctness & architecture
-
-- [ ] [MEDIUM] Metadata edits re-index files inline in the web request instead of using the background job engine
+- [/] [MEDIUM] Metadata edits re-index files inline in the web request instead of using the background job engine
+  Done in code on branch `chore/upgrade-tempo-v0.4`, left open pending commit/merge: replaced the
+  single inline `RescanPaths` call with two job-engine tasks. The existing `scan` and a new `reindex`
+  (`app/tasks/reindex.go`, `ReindexParams{LibraryID, Paths}`, wraps the same `RescanPaths`) both
+  register with `taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup)` — a `library-writes`
+  group over tempo v0.4.2's `WithExclusionGroup` — so tempo runs at most one of the two at a time;
+  `scan` also keeps its own `Singleton()`. The `/api/v0` metadata write handlers (`updateTracks`,
+  `applyPicture`, `removals`, `setArtistImage`/`deleteArtistImage`) no longer call `RescanPaths`
+  inline: they write to disk, enqueue `reindex`, and return `reindex: {execution_id}`; the SPA polls
+  that execution to a terminal status before refreshing the music-UI (`subsonic`) caches. Consequence
+  (1) is now bounded/coordinated by the exclusion group; (2) request-coupled durability is resolved —
+  the job runs on the runner, not `r.Context()`; (3) write-lock contention is resolved by the same
+  shared group (an edit-triggered reindex can no longer run while a scan holds the write lock). The
+  editor's own track list reads tags from disk on every request, so it stays current immediately
+  regardless of the job; only the subsonic-backed music UI waits on the poll. Documented in
+  `docs/agents/scanning.md`. NOT resolved by this change: per-track reconcile failures are still
+  swallowed and still not counted — if anything the edit path lost ground here, since the old
+  synchronous handler's `rescan.ok`/`rescan.error` shortfall check (comparing `TracksProcessed`
+  against `len(paths)-TracksSkipped`) gave it visibility the scheduled scan never had, and the
+  `reindex` task drops that check (a job fails only on a hard `RescanPaths` error, exactly like
+  `scan`). Both entry points now share one blind spot instead of two different ones; surfacing it is
+  the separate item below, "[MEDIUM] Scheduled scans can silently drop songs and still report
+  success" (reconcile swallows failures) — untouched by this task.
   Plain version: when you edit metadata in the editor (apply a cover, update tracks, delete
   pictures, save an artist folder), the server re-scans the touched files right inside the browser's
   request instead of handing the work to the background job engine that scheduled scans use. Three
@@ -136,7 +138,8 @@ Notes for editors:
   the editor would then poll or lose its synchronous "index is current" guarantee.
   Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (new item under
   `## Backend`): the first-class-task refactor should land on the current engine, so bump tempo
-  (v0.2.0 → latest) first.
+  (v0.2.0 → latest) first. Resolved: the tempo bump landed in code on the same branch, and this
+  item's own fix builds on it (v0.4.2, for `WithExclusionGroup`).
   - [ ] [MEDIUM] admitPath vs Walk is a fragile hand-maintained mirror; symlink semantics are not mirrored at all
     Same code path as the parent — the editor's synchronous `RescanPaths` → `admitPath` — but a distinct
     correctness gap within it, and independent of the tempo bump: a shared-predicate + test fix that can
@@ -183,6 +186,29 @@ Notes for editors:
   Blocked by → "Update the job engine (`go-bumbu/tempo`) to the latest version" (under `## Backend`):
   surfacing these failures through the task log / a future metric rides on the job engine, so bump
   tempo (v0.2.0 → latest) first.
+
+### Backend — API Surface
+
+- [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints
+  `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v0.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
+
+### Backend — OpenSubsonic Compliance
+
+- [ ] XML response format for third-party clients
+  Check compatibility with third-party Subsonic clients (DSub, Ultrasonic, Symfonium, etc.). XML is what several clients default to, so this gates the "third-party clients work" promise. Today `f=xml` is explicitly rejected with an error (`subsonic/subsonic.go:66-67`), so those clients fail at the first request. Note the handlers build `map[string]any` throughout (`albumToMap`, `trackToChild`, …), which does not marshal to spec-shaped XML — this needs a serialization layer, not a flag.
+
+### Backend — Data Integrity & Scanning
+
+- [ ] Document the audio-hash format limit in the user-facing docs
+  The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
+  Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
+- [/] Big review of the whole import task
+  Done 2026-09-04: six-agent review (Pike, go-architect-reviewer, go-code-reviewer,
+  Tony, Natalia, vue-code-reviewer) of the metadata-editing flow, the song-import/scan
+  flow, and the two combined (an edit writes tags/pictures to disk then triggers a
+  synchronous RescanPaths that reconciles; scheduled scan/scan-full index whole
+  libraries, both freshly-imported and pre-existing). Findings catalogued under
+  "26-09-04-big-import-review" below. Task stays open until those are triaged/fixed.
 
 ### Backend — Resource Leaks
 
