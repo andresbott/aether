@@ -32,9 +32,9 @@ const apiV0MountPrefix = "/api/v0"
 // shape the migrated handler packages (metadata, tokens, libraries, artists,
 // radiobrowser, users, tasks) write directly via httperr — so that surface is
 // uniform even for a bare http.Error/http.NotFound (the /api/v0 catch-all's
-// 400, a stray http.NotFound inside an otherwise-migrated handler; the tasks
-// package and the sessionGuard/headerGuard auth gate now build their
-// Details directly via h.problems too and no longer reach this fallback).
+// 400, a stray http.NotFound inside an otherwise-migrated handler; the
+// sessionGuard/headerGuard auth gate now build their Details directly via
+// h.problems too and no longer reach this fallback).
 //
 // Every OTHER path — chiefly /rest, which must stay byte-identical to
 // Subsonic's own error shapes, and never RFC 9457 — keeps the original,
@@ -181,12 +181,11 @@ func (w *errorEnvelopeWriter) finish() {
 
 // writeProblemFallback answers a bare plain-text admin-API error (a route
 // that never called h.problems directly: the /api/v0 catch-all, a stray
-// http.NotFound inside an otherwise-migrated handler — the tasks package and
-// the sessionGuard/headerGuard auth gate build their Details directly via
-// h.problems now and no longer reach this path) with the same
-// problemjson.Details shape every migrated handler package builds directly
-// (via httperr, for now), so the client sees one uniform shape regardless of
-// which path produced it.
+// http.NotFound inside an otherwise-migrated handler — the sessionGuard/
+// headerGuard auth gate build their Details directly via h.problems now and
+// no longer reach this path) with the same problemjson.Details shape every
+// migrated handler package builds directly (via httperr, for now), so the
+// client sees one uniform shape regardless of which path produced it.
 func (w *errorEnvelopeWriter) writeProblemFallback(msg, path string) {
 	slug := errorCodeFor(w.status)
 	payload, err := json.Marshal(problemjson.Details{
