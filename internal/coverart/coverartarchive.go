@@ -13,14 +13,13 @@ import (
 	"path"
 	"strings"
 
-	"github.com/andresbott/aether/internal/upstream"
-	"golang.org/x/time/rate"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // requestsPerSecond is the fair-use rate limit applied to outbound Cover Art
 // Archive API and image-download requests (burst 1). The archive is backed by
 // archive.org, so we stay polite.
-const requestsPerSecond rate.Limit = 1
+const requestsPerSecond = 1.0
 
 // serviceName is what the user sees when the archive misbehaves.
 const serviceName = "Cover Art Archive"
@@ -41,13 +40,17 @@ type CoverImage struct {
 // Retries, throttling and error classification live in the shared Doer.
 type Client struct {
 	BaseURL string
-	Doer    *upstream.Doer
+	Doer    *outbound.Client
 }
 
 func New(userAgent string) *Client {
 	return &Client{
 		BaseURL: "https://coverartarchive.org",
-		Doer:    upstream.New(serviceName, userAgent, requestsPerSecond),
+		Doer: outbound.New(outbound.Cfg{
+			Service:   serviceName,
+			UserAgent: userAgent,
+			RPS:       float64(requestsPerSecond),
+		}),
 	}
 }
 
