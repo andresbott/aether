@@ -230,6 +230,7 @@ func runServer(configFile string) error {
 		Tokens:        auth.Tokens,
 		HeaderAuth:    auth.HeaderAuth,
 		AdminGroup:    cfg.Auth.ProxyHeader.AdminGroup,
+		Production:    cfg.Env.Production,
 	}
 	if identifier != nil {
 		routerCfg.Identifier = identifier

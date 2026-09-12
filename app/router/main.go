@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/app/spa"
@@ -25,6 +26,7 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
 	"github.com/go-bumbu/http/middleware/metrics"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
@@ -90,6 +92,10 @@ type Cfg struct {
 	// AdminGroup is the proxy-asserted group that grants the admin role;
 	// only meaningful with HeaderAuth.
 	AdminGroup string
+	// Production, when true, makes /api/v0 error bodies masked (ModeMasked):
+	// status + instance + reference only, no internal detail/title/type. Sourced
+	// from Env.Production; default false → verbose (ModeDev).
+	Production bool
 }
 
 type MainAppHandler struct {
@@ -115,6 +121,7 @@ type MainAppHandler struct {
 	tokens        *pat.Service
 	headerAuth    *headerauth.HeaderHandler
 	adminGroup    string
+	problems      *problemjson.Writer
 }
 
 func (h *MainAppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +274,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		tokens:        cfg.Tokens,
 		headerAuth:    cfg.HeaderAuth,
 		adminGroup:    cfg.AdminGroup,
+		problems:      problems.New(cfg.Production),
 	}
 	if app.authMethod == "" {
 		app.authMethod = "none"
@@ -292,6 +300,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		Metrics:      obs,
 		PanicRecover: true,
 	})
+	r.Use(requestID)
 	// Mask credential values in request logs (go-bumbu middleware logs
 	// RequestURI). Mutate only RequestURI — handlers parse r.URL, which must
 	// stay intact. u stays visible: it is an identifier, not a secret.
