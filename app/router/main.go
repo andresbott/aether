@@ -24,6 +24,7 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/go-bumbu/http/middleware"
+	"github.com/go-bumbu/http/middleware/metrics"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
@@ -278,16 +279,18 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		return nil, fmt.Errorf("auth method proxy-header requires HeaderAuth, Tokens, Users and AdminGroup")
 	}
 
-	hist, _ := middleware.NewPromHistogram("", nil, nil)
-	// JsonErrors stays off: it wraps *every* error body, which escapes the JSON
-	// our handlers already write into a string field and shows the user a raw
-	// document. jsonErrorEnvelope does the same job JSON-aware — see errors.go.
-	// The middleware keeps logging + metrics.
+	obs, err := metrics.NewObserver(metrics.Cfg{})
+	if err != nil {
+		// Duplicate registration (many routers in one test binary) or bad
+		// buckets: fall back to a no-op, mirroring the previous _-ignored error.
+		obs = metrics.NopObserver()
+	}
+	// jsonErrorEnvelope does the same job JSON-aware — see errors.go. The
+	// middleware keeps logging + metrics.
 	prodMid := middleware.New(middleware.Cfg{
-		JsonErrors:  false,
-		GenericErrs: false,
-		Logger:      cfg.Logger,
-		PromHisto:   hist,
+		Logger:       logger,
+		Metrics:      obs,
+		PanicRecover: true,
 	})
 	// Mask credential values in request logs (go-bumbu middleware logs
 	// RequestURI). Mutate only RequestURI — handlers parse r.URL, which must
@@ -319,7 +322,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	r.Use(prodMid.Middleware)
+	r.Use(prodMid.Wrap)
 	r.Use(jsonErrorEnvelope)
 
 	app.attachApiV0(app.router.PathPrefix(apiV0MountPrefix).Subrouter())
