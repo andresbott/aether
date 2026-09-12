@@ -196,11 +196,19 @@ func colorDist(a, b interface{ RGBA() (r, g, b, a uint32) }) int {
 
 var updateGolden = flag.Bool("update", false, "write golden sample PNGs to testdata/")
 
+// TestGolden guards the default appearance of every style. With -update it
+// (re)writes local golden PNGs under testdata/ (which is gitignored). Without
+// it, if those goldens exist it re-renders each sample and asserts byte
+// identity — so a refactor that unintentionally moves default output, or a
+// shared-helper edit whose blast radius reaches other styles, fails here. When
+// the goldens are absent (fresh checkout / CI) it skips: this is a local tool,
+// not a committed suite. The "knobs are inert at default" invariant is covered
+// separately by TestGenerateStyleWithKnobsDefaultsMatchGenerateStyle.
 func TestGolden(t *testing.T) {
-	if !*updateGolden {
-		t.Skip("run with -update to regenerate golden samples in testdata/")
-	}
-	seeds := []string{
+	// genSeeds exercise Generate's hash-picked style across a spread of real
+	// album seeds. styleSeeds are rendered in every style so each style's
+	// default look is locked explicitly (Generate alone need not hit them all).
+	genSeeds := []string{
 		"adele|19",
 		"various artists|coyote ugly",
 		"miles davis|kind of blue",
@@ -214,14 +222,52 @@ func TestGolden(t *testing.T) {
 		"air|la femme d'argent",
 		"raised fist|get this right",
 	}
-	for _, seed := range seeds {
-		data, err := covergen.Generate(seed, 512)
-		if err != nil {
-			t.Fatalf("Generate(%q): %v", seed, err)
+	styleSeeds := []string{
+		"adele|19",
+		"daft punk|one more time",
+		"miles davis|kind of blue",
+	}
+
+	type sample struct {
+		filename string
+		gen      func() ([]byte, error)
+	}
+	var samples []sample
+	for _, seed := range genSeeds {
+		samples = append(samples, sample{
+			filename: "testdata/gen_" + sanitize(seed) + ".png",
+			gen:      func() ([]byte, error) { return covergen.Generate(seed, 512) },
+		})
+	}
+	for _, style := range covergen.Styles() {
+		for _, seed := range styleSeeds {
+			samples = append(samples, sample{
+				filename: "testdata/style_" + style.String() + "_" + sanitize(seed) + ".png",
+				gen:      func() ([]byte, error) { return covergen.GenerateStyle(seed, 512, style) },
+			})
 		}
-		filename := "testdata/" + sanitize(seed) + ".png"
-		if err := os.WriteFile(filename, data, 0644); err != nil {
-			t.Fatalf("write %s: %v", filename, err)
+	}
+
+	for _, s := range samples {
+		data, err := s.gen()
+		if err != nil {
+			t.Fatalf("%s: %v", s.filename, err)
+		}
+		if *updateGolden {
+			if err := os.WriteFile(s.filename, data, 0644); err != nil {
+				t.Fatalf("write %s: %v", s.filename, err)
+			}
+			continue
+		}
+		want, err := os.ReadFile(s.filename)
+		if os.IsNotExist(err) {
+			t.Skipf("golden %s absent (testdata/*.png is gitignored, so this guard is local-only); run `go test ./internal/covergen -run TestGolden -update` to generate the baseline", s.filename)
+		}
+		if err != nil {
+			t.Fatalf("read golden %s: %v", s.filename, err)
+		}
+		if !bytes.Equal(data, want) {
+			t.Errorf("%s: output changed from golden (got %d bytes, want %d) — a code change moved default appearance; only regenerate with -update if that change is intentional", s.filename, len(data), len(want))
 		}
 	}
 }

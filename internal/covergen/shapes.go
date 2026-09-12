@@ -59,29 +59,70 @@ const (
 	compStacked                    // shapes cascade along one axis
 )
 
+// classicKnobs tune the original gradient+shapes look (consumed by
+// drawForeground). Applied after the per-seed random draws (Default 1.0 =
+// shipped look).
+var classicKnobs = []Knob{
+	{Name: "classic.shapes", Label: "Shape count", Min: 0, Max: 3, Step: 0.05, Default: 1},
+	{Name: "classic.shapesSpread", Label: "Shape count spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "classic.position", Label: "Shape position", Min: 0, Max: 6, Step: 0.05, Default: 1},
+	{Name: "classic.size", Label: "Shape size", Min: 0.3, Max: 2, Step: 0.05, Default: 1},
+	{Name: "classic.sizeSpread", Label: "Shape size spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "classic.opacityCenter", Label: "Opacity center", Min: 0, Max: 1, Step: 0.05, Default: 0.6},
+	{Name: "classic.opacityWidth", Label: "Opacity spread", Min: 0, Max: 0.5, Step: 0.02, Default: 0.15},
+	{Name: "classic.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 1},
+	{Name: "classic.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "classic.hue", Label: "Hue", Min: 0, Max: 3, Step: 0.05, Default: 1.6},
+	{Name: "classic.hueSpread", Label: "Hue spread", Min: 0, Max: 10, Step: 0.05, Default: 0},
+}
+
 // drawForeground paints 2..4 white translucent shapes of the same kind over
 // img. Each shape is filled with a linear alpha gradient from fully
 // transparent to opaque-ish white, in a seeded direction, so the shape
 // fades across its body. Composition is one of scatter / nested / stacked,
 // giving distinctive layouts reminiscent of Apple Music genre tiles.
-func drawForeground(img *image.RGBA, rng *rand.Rand) {
+func drawForeground(img *image.RGBA, rng *rand.Rand, ks knobSet) {
 	kind := shapeKind(rng.IntN(14))
 	size := img.Bounds().Dx()
+	shapesMul := ks.Float("classic.shapes")
+	shapesSpread := ks.Float("classic.shapesSpread")
+	positionMul := ks.Float("classic.position")
+	sizeMul := ks.Float("classic.size")
+	sizeSpread := ks.Float("classic.sizeSpread")
+	ocenter := ks.Float("classic.opacityCenter")
+	owidth := ks.Float("classic.opacityWidth")
+	randAlpha := func() uint8 {
+		return clampU8(int(math.Round(clampFloat(sampleAround(rng, ocenter, owidth), 0, 1) * 255)))
+	}
+	// posShift displaces a shape from its anchor by an amount that grows with
+	// the position knob and is zero at the default, so corner/edge-anchored
+	// shapes stay put until position is cranked.
+	posShift := func() int {
+		if positionMul == 1 {
+			return 0
+		}
+		return int(float64(rng.IntN(size/6)-size/12) * (positionMul*positionMul - 1))
+	}
 
 	var cx, cy, primRadius int
 	switch {
 	case isCornerShape(kind):
-		primRadius = int(float64(size) * (0.70 + rng.Float64()*0.20))
+		rc := rng.Float64()
+		primRadius = int(float64(size) * (sizeMul*(0.70+rc*0.20) + (sizeSpread-1)*0.20*(rc-0.5)))
 		cx, cy = cornerPos(kind, size)
+		cx += posShift()
+		cy += posShift()
 	case isRightTriShape(kind):
-		primRadius = int(float64(size) * (0.70 + rng.Float64()*0.20))
+		rc := rng.Float64()
+		primRadius = int(float64(size) * (sizeMul*(0.70+rc*0.20) + (sizeSpread-1)*0.20*(rc-0.5)))
 		ox, oy := rightTriOffset(kind, primRadius)
-		cx = size/2 + ox
-		cy = size/2 + oy
+		cx = size/2 + ox + posShift()
+		cy = size/2 + oy + posShift()
 	default:
-		primRadius = int(float64(size) * (0.28 + rng.Float64()*0.10))
-		cx = size/2 + rng.IntN(size/10) - size/20
-		cy = size/2 + rng.IntN(size/10) - size/20
+		rd := rng.Float64()
+		primRadius = int(float64(size) * (sizeMul*(0.28+rd*0.10) + (sizeSpread-1)*0.10*(rd-0.5)))
+		cx = size/2 + int(float64(rng.IntN(size/10)-size/20)*positionMul*positionMul)
+		cy = size/2 + int(float64(rng.IntN(size/10)-size/20)*positionMul*positionMul)
 		// Half circle's body only extends above its anchor (fy <= 0), so
 		// shift the anchor down by half the radius to centre the visible
 		// shape on the canvas.
@@ -97,10 +138,13 @@ func drawForeground(img *image.RGBA, rng *rand.Rand) {
 		comp = composition(rng.IntN(3))
 	}
 
-	drawShape(img, kind, cx, cy, primRadius, 200, rng.Float64()*2*math.Pi)
+	drawShape(img, kind, cx, cy, primRadius, randAlpha(), rng.Float64()*2*math.Pi)
 
-	extra := 1 + rng.IntN(3) // 1..3 additional → 2..4 total
-	alphas := []uint8{140, 100, 75}
+	ri := rng.IntN(3)
+	extra := int(shapesMul*float64(1+ri) + (shapesSpread-1)*float64(ri-1)) // scaled 1..3 additional
+	if extra < 0 {
+		extra = 0
+	}
 
 	// Stacked composition needs a shared offset vector so every subsequent
 	// shape drifts in the same direction (like Spa's rising circles).
@@ -123,21 +167,21 @@ func drawForeground(img *image.RGBA, rng *rand.Rand) {
 		switch {
 		case isRightTriShape(kind):
 			ox, oy := rightTriOffset(kind, r)
-			ecx = size/2 + ox
-			ecy = size/2 + oy
+			ecx = size/2 + ox + posShift()
+			ecy = size/2 + oy + posShift()
 		case kind == shapeHalfCircle:
-			ecx = size / 2
-			ecy = size/2 + r/2
+			ecx = size/2 + posShift()
+			ecy = size/2 + r/2 + posShift()
 		}
 		switch comp {
 		case compScatter:
-			ecx += rng.IntN(size/4) - size/8
-			ecy += rng.IntN(size/4) - size/8
+			ecx += int(float64(rng.IntN(size/4)-size/8) * positionMul * positionMul)
+			ecy += int(float64(rng.IntN(size/4)-size/8) * positionMul * positionMul)
 		case compStacked:
 			ecx += stackDX * (i + 1)
 			ecy += stackDY * (i + 1)
 		}
-		drawShape(img, kind, ecx, ecy, r, alphas[i%len(alphas)], rng.Float64()*2*math.Pi)
+		drawShape(img, kind, ecx, ecy, r, randAlpha(), rng.Float64()*2*math.Pi)
 	}
 }
 

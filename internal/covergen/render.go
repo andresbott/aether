@@ -15,7 +15,7 @@ func hsl(h, s, l float64) color.RGBA {
 
 // vivid returns n saturated colours built from a random harmony scheme
 // (complementary, triadic, analogous, split-complementary).
-func vivid(rng *rand.Rand, n int) []color.RGBA {
+func vivid(rng *rand.Rand, n int, satMul, hueMul, satSpread float64) []color.RGBA {
 	base := rng.Float64() * 360
 	schemes := [][]float64{
 		{0, 180, 30, 210, 60},
@@ -26,8 +26,9 @@ func vivid(rng *rand.Rand, n int) []color.RGBA {
 	offs := schemes[rng.IntN(len(schemes))]
 	out := make([]color.RGBA, n)
 	for i := range out {
-		h := base + offs[i%len(offs)]
-		s := 0.65 + rng.Float64()*0.30
+		h := base + offs[i%len(offs)]*hueMul
+		rs := rng.Float64()
+		s := clampFloat(satMul*(0.65+rs*0.30)+(satSpread-1)*0.30*(rs-0.5), 0, 1)
 		l := 0.40 + rng.Float64()*0.25
 		out[i] = hsl(h, s, l)
 	}
@@ -83,4 +84,28 @@ func sign(v float64) float64 {
 		return -1
 	}
 	return 1
+}
+
+// sampleAround draws a value from a normal distribution centred on center with
+// standard deviation width: width is "how far samples typically stray" — 0
+// always returns center, larger values make far-from-center draws more likely.
+// It always consumes exactly one rng sample, so changing center/width shifts
+// the value without reshuffling later draws. Callers clamp to their valid range.
+func sampleAround(rng *rand.Rand, center, width float64) float64 {
+	return center + width*rng.NormFloat64()
+}
+
+// hueMultiplier draws the per-cover hue-spread multiplier from a normal
+// distribution centred on center with standard deviation spread. spread 0
+// returns center deterministically with no draw (so it is identity at default);
+// larger spread widens the bell curve, making lower/higher deltas more likely.
+// Clamped to >= 0.
+func hueMultiplier(rng *rand.Rand, center, spread float64) float64 {
+	if spread <= 0 {
+		return center
+	}
+	if v := center + spread*rng.NormFloat64(); v > 0 {
+		return v
+	}
+	return 0
 }

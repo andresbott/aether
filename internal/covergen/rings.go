@@ -7,15 +7,39 @@ import (
 	"math/rand/v2"
 )
 
+// ringsKnobs are the tunable parameters of the rings style. Each is a
+// multiplier applied after its per-seed random draw, so Default 1.0 leaves the
+// shipped look byte-identical.
+var ringsKnobs = []Knob{
+	{Name: "rings.spacing", Label: "Ring spacing", Min: 0.3, Max: 3.0, Step: 0.05, Default: 1.0},
+	{Name: "rings.spacingSpread", Label: "Ring spacing spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "rings.wobble", Label: "Wobble", Min: 0, Max: 3, Step: 0.05, Default: 1},
+	{Name: "rings.wobbleSpread", Label: "Wobble spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "rings.corners", Label: "Corners", Min: 0.2, Max: 4, Step: 0.05, Default: 1},
+	{Name: "rings.cornersSpread", Label: "Corners spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "rings.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 1},
+	{Name: "rings.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "rings.hue", Label: "Hue", Min: 0, Max: 3, Step: 0.05, Default: 1},
+	{Name: "rings.hueSpread", Label: "Hue spread", Min: 0, Max: 10, Step: 0.05, Default: 0},
+}
+
 // drawRings has three per-seed variants: classic eccentric rings, wobbly
 // rings whose radius oscillates around the angle, and a two-centre
 // interference pattern (moiré hyperbolas). Palettes mix a deep background
 // with four vivid accents.
-func drawRings(img *image.RGBA, rng *rand.Rand) {
+func drawRings(img *image.RGBA, rng *rand.Rand, ks knobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)
+	// spacing scales the radial band pitch in every variant; 1.0 is the
+	// shipped look. Applied after each rng draw so defaults stay identical.
+	spacing := ks.Float("rings.spacing")
+	spacingSpread := ks.Float("rings.spacingSpread")
+	wobble := ks.Float("rings.wobble")
+	wobbleSpread := ks.Float("rings.wobbleSpread")
+	corners := ks.Float("rings.corners")
+	cornersSpread := ks.Float("rings.cornersSpread")
 
-	accents := vivid(rng, 4)
+	accents := vivid(rng, 4, ks.Float("rings.saturation"), hueMultiplier(rng, ks.Float("rings.hue"), ks.Float("rings.hueSpread")), ks.Float("rings.saturationSpread"))
 	bg := hsl(rng.Float64()*360, 0.45+rng.Float64()*0.25, 0.08+rng.Float64()*0.10)
 	var pal []color.RGBA
 	if rng.IntN(2) == 0 {
@@ -48,7 +72,8 @@ func drawRings(img *image.RGBA, rng *rand.Rand) {
 			cx2 = cx + fs*0.45*sign(cx2-cx)
 			cy2 = cy + fs*0.45*sign(cy2-cy)
 		}
-		step := fs * (0.05 + rng.Float64()*0.06)
+		rs := rng.Float64()
+		step := fs * (spacing*(0.05+rs*0.06) + (spacingSpread-1)*0.06*(rs-0.5))
 		for y := 0; y < sz; y++ {
 			for x := 0; x < sz; x++ {
 				d1 := math.Hypot(float64(x)-cx, float64(y)-cy)
@@ -65,16 +90,19 @@ func drawRings(img *image.RGBA, rng *rand.Rand) {
 	e := fs * (0.04 + rng.Float64()*0.10) // inner disc radius
 	for e < maxD+fs*0.1 {
 		edges = append(edges, e)
-		e += fs * (0.035 + rng.Float64()*0.085)
+		r := rng.Float64()
+		e += fs * (spacing*(0.035+r*0.085) + (spacingSpread-1)*0.085*(r-0.5))
 	}
 	edges = append(edges, maxD+fs*0.2)
 
-	wobAmp, wobFreq, wobPh := 0.0, 0.0, 0.0
-	if variant == 1 {
-		wobAmp = fs * (0.012 + rng.Float64()*0.030)
-		wobFreq = float64(3 + rng.IntN(7)) // 3..9 lobes
-		wobPh = rng.Float64() * 2 * math.Pi
-	}
+	// Wobble applies to both concentric-ring variants (variant 2 is the separate
+	// interference pattern), so the knob affects most covers. corners scales the
+	// lobe count; wobble=0 gives perfectly circular rings.
+	rw := rng.Float64()
+	wobAmp := fs * (wobble*(0.012+rw*0.030) + (wobbleSpread-1)*0.030*(rw-0.5))
+	rf := rng.IntN(7)
+	wobFreq := math.Round(corners*float64(3+rf) + (cornersSpread-1)*float64(rf-3)) // lobes / corners
+	wobPh := rng.Float64() * 2 * math.Pi
 
 	for y := 0; y < sz; y++ {
 		for x := 0; x < sz; x++ {

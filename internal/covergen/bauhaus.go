@@ -6,21 +6,44 @@ import (
 	"math/rand/v2"
 )
 
+// bauhausKnobs tune the poster grid. Applied after the per-seed random draws
+// (Default 1.0 = shipped look).
+var bauhausKnobs = []Knob{
+	{Name: "bauhaus.cells", Label: "Grid density", Min: 0.5, Max: 3, Step: 0.25, Default: 1},
+	{Name: "bauhaus.cellsSpread", Label: "Grid density spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "bauhaus.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 1},
+	{Name: "bauhaus.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "bauhaus.hue", Label: "Hue", Min: 0, Max: 3, Step: 0.05, Default: 1},
+	{Name: "bauhaus.hueSpread", Label: "Hue spread", Min: 0, Max: 10, Step: 0.05, Default: 0},
+}
+
 // drawBauhaus tiles the canvas 2x2 or 3x3 and fills each cell with a bold
 // geometric motif (quarter disc, half disc, disc, bullseye, diagonal) using a
 // cream / ink / two-accent poster palette.
-func drawBauhaus(img *image.RGBA, rng *rand.Rand) {
+func drawBauhaus(img *image.RGBA, rng *rand.Rand, ks knobSet) {
 	sz := img.Bounds().Dx()
 	baseHue := rng.Float64() * 360
+	cellMul := ks.Float("bauhaus.cells")
+	cellsSpread := ks.Float("bauhaus.cellsSpread")
+	sat := ks.Float("bauhaus.saturation")
+	satSpread := ks.Float("bauhaus.saturationSpread")
+	hueMul := hueMultiplier(rng, ks.Float("bauhaus.hue"), ks.Float("bauhaus.hueSpread"))
 
-	cream := hsl(baseHue, 0.25+rng.Float64()*0.15, 0.90)
+	rc := rng.Float64()
+	cream := hsl(baseHue, clampFloat(sat*(0.25+rc*0.15)+(satSpread-1)*0.15*(rc-0.5), 0, 1), 0.90)
 	ink := hsl(baseHue+rng.Float64()*40-20, 0.30, 0.13)
-	acc1 := hsl(baseHue, 0.75+rng.Float64()*0.2, 0.50)
+	ra := rng.Float64()
+	acc1 := hsl(baseHue, clampFloat(sat*(0.75+ra*0.2)+(satSpread-1)*0.2*(ra-0.5), 0, 1), 0.50)
 	off := []float64{150, 180, 210, 120}[rng.IntN(4)]
-	acc2 := hsl(baseHue+off, 0.70+rng.Float64()*0.2, 0.55)
+	ra2 := rng.Float64()
+	acc2 := hsl(baseHue+off*hueMul, clampFloat(sat*(0.70+ra2*0.2)+(satSpread-1)*0.2*(ra2-0.5), 0, 1), 0.55)
 	pal := []color.RGBA{cream, ink, acc1, acc2}
 
-	cells := 2 + rng.IntN(2)
+	rcell := rng.IntN(2)
+	cells := int(cellMul*float64(2+rcell) + (cellsSpread-1)*(float64(rcell)-0.5))
+	if cells < 1 {
+		cells = 1
+	}
 	cs := sz / cells
 
 	for cy := 0; cy < cells; cy++ {

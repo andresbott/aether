@@ -18,14 +18,33 @@ const (
 	rsHalfCircle
 )
 
+// remixKnobs tune the duotone-remix composition. Applied after the per-seed
+// random draws (Default 1.0 = shipped look).
+var remixKnobs = []Knob{
+	{Name: "remix.size", Label: "Shape size", Min: 0.4, Max: 1.8, Step: 0.05, Default: 1},
+	{Name: "remix.sizeSpread", Label: "Shape size spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "remix.position", Label: "Shape position", Min: 0, Max: 6, Step: 0.05, Default: 1},
+	{Name: "remix.shapes", Label: "Shape count", Min: 0, Max: 2.5, Step: 0.05, Default: 1},
+	{Name: "remix.shapesSpread", Label: "Shape count spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "remix.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 1},
+	{Name: "remix.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "remix.hue", Label: "Hue", Min: 0, Max: 3, Step: 0.05, Default: 1},
+	{Name: "remix.hueSpread", Label: "Hue spread", Min: 0, Max: 10, Step: 0.05, Default: 0},
+}
+
 // drawRemix keeps the classic covergen architecture — gradient background,
 // 3..4 nested/stacked/scattered translucent shapes with alpha gradients —
 // but swaps in vivid duotone backgrounds (diagonal, vertical, horizontal or
 // radial) and tints the shapes with accent colours instead of white-only.
-func drawRemix(img *image.RGBA, rng *rand.Rand) {
+func drawRemix(img *image.RGBA, rng *rand.Rand, ks knobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)
-	cols := vivid(rng, 4)
+	shapesMul := ks.Float("remix.shapes")
+	shapesSpread := ks.Float("remix.shapesSpread")
+	sizeMul := ks.Float("remix.size")
+	sizeSpread := ks.Float("remix.sizeSpread")
+	positionMul := ks.Float("remix.position")
+	cols := vivid(rng, 4, ks.Float("remix.saturation"), hueMultiplier(rng, ks.Float("remix.hue"), ks.Float("remix.hueSpread")), ks.Float("remix.saturationSpread"))
 	c1, c2 := cols[0], cols[1]
 
 	// Background gradient.
@@ -65,9 +84,10 @@ func drawRemix(img *image.RGBA, rng *rand.Rand) {
 		altCol = cols[3]
 	}
 
-	primR := int(fs * (0.30 + rng.Float64()*0.14))
-	cx := sz/2 + rng.IntN(sz/8) - sz/16
-	cy := sz/2 + rng.IntN(sz/8) - sz/16
+	rsize := rng.Float64()
+	primR := int(fs * (sizeMul*(0.30+rsize*0.14) + (sizeSpread-1)*0.14*(rsize-0.5)))
+	cx := sz/2 + int(float64(rng.IntN(sz/8)-sz/16)*positionMul*positionMul)
+	cy := sz/2 + int(float64(rng.IntN(sz/8)-sz/16)*positionMul*positionMul)
 	if kind == rsHalfCircle {
 		cy += primR / 2
 	}
@@ -82,7 +102,11 @@ func drawRemix(img *image.RGBA, rng *rand.Rand) {
 		stackDY = int(math.Round(math.Sin(a) * float64(step)))
 	}
 
-	extra := 2 + rng.IntN(2) // 2..3 additional → 3..4 total
+	rsh := rng.IntN(2)
+	extra := int(shapesMul*float64(2+rsh) + (shapesSpread-1)*(float64(rsh)-0.5)) // scaled 2..3 additional
+	if extra < 0 {
+		extra = 0
+	}
 	alphas := []uint8{180, 140, 110}
 	for i := 0; i < extra; i++ {
 		shrink := 0.55 + rng.Float64()*0.15
@@ -94,8 +118,8 @@ func drawRemix(img *image.RGBA, rng *rand.Rand) {
 		}
 		switch comp {
 		case 0:
-			ecx += rng.IntN(sz/3) - sz/6
-			ecy += rng.IntN(sz/3) - sz/6
+			ecx += int(float64(rng.IntN(sz/3)-sz/6) * positionMul * positionMul)
+			ecy += int(float64(rng.IntN(sz/3)-sz/6) * positionMul * positionMul)
 		case 2:
 			ecx += stackDX * (i + 1)
 			ecy += stackDY * (i + 1)

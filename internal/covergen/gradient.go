@@ -9,8 +9,8 @@ import (
 
 // drawGradient fills img with a two-colour diagonal gradient. Both colours
 // are HSL-derived from rng so the palette is always harmonious.
-func drawGradient(img *image.RGBA, rng *rand.Rand) {
-	c1, c2 := palette(rng)
+func drawGradient(img *image.RGBA, rng *rand.Rand, ks knobSet) {
+	c1, c2 := palette(rng, ks.Float("classic.saturation"), hueMultiplier(rng, ks.Float("classic.hue"), ks.Float("classic.hueSpread")), ks.Float("classic.saturationSpread"))
 	size := img.Bounds().Dx()
 	// Gradient runs from top-left (c1) to bottom-right (c2).
 	maxD := float64(size-1) * 2
@@ -26,9 +26,9 @@ func drawGradient(img *image.RGBA, rng *rand.Rand) {
 // is shifted 20..60 degrees either way. Overall brightness varies widely
 // across seeds so different albums land in distinctly dark, muted, or
 // pastel palettes.
-func palette(rng *rand.Rand) (color.RGBA, color.RGBA) {
+func palette(rng *rand.Rand, satMul, hueMul, satSpread float64) (color.RGBA, color.RGBA) {
 	hue1 := rng.Float64() * 360
-	shift := 20 + rng.Float64()*40
+	shift := (20 + rng.Float64()*40) * hueMul
 	if rng.IntN(2) == 0 {
 		shift = -shift
 	}
@@ -40,7 +40,8 @@ func palette(rng *rand.Rand) (color.RGBA, color.RGBA) {
 	// Saturation tapers toward the extremes: pastels stay soft, very dark
 	// palettes don't turn cartoonish.
 	dist := math.Abs(base-0.49) / 0.31 // 0 at middle, 1 at extremes
-	sat := 0.55 - 0.28*dist + rng.Float64()*0.08
+	rsat := rng.Float64()
+	sat := clampFloat(satMul*(0.55-0.28*dist+rsat*0.08)+(satSpread-1)*0.08*(rsat-0.5), 0, 1)
 
 	// Two gradient endpoints spread around the brightness centre.
 	delta := 0.10 + rng.Float64()*0.08

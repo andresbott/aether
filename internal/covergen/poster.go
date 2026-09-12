@@ -7,15 +7,28 @@ import (
 	"math/rand/v2"
 )
 
+// posterKnobs tune the duotone poster. Applied after the per-seed random draws.
+// Defaults below are a hand-tuned shipped look (not all identity).
+var posterKnobs = []Knob{
+	{Name: "poster.disc", Label: "Disc size", Min: 0.3, Max: 2, Step: 0.05, Default: 0.8},
+	{Name: "poster.discSpread", Label: "Disc size spread", Min: 0, Max: 10, Step: 0.05, Default: 3},
+	{Name: "poster.stripes", Label: "Stripe count", Min: 0, Max: 3, Step: 0.5, Default: 1},
+	{Name: "poster.stripesSpread", Label: "Stripe count spread", Min: 0, Max: 10, Step: 0.05, Default: 3},
+	{Name: "poster.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 0.5},
+	{Name: "poster.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 0.2},
+	{Name: "poster.hue", Label: "Hue", Min: 0, Max: 3, Step: 0.05, Default: 0.1},
+	{Name: "poster.hueSpread", Label: "Hue spread", Min: 0, Max: 10, Step: 0.05, Default: 0},
+}
+
 // drawPoster splits the canvas with a bold duotone divide, then composes a
 // varying motif over it: solid disc, donut, disc two-toned by the divide, an
 // edge half-disc, or a disc with a satellite dot — plus 1..3 accent stripes
 // parallel to the split and an occasional small punctuation dot.
-func drawPoster(img *image.RGBA, rng *rand.Rand) {
+func drawPoster(img *image.RGBA, rng *rand.Rand, ks knobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)
 
-	cols := vivid(rng, 3)
+	cols := vivid(rng, 3, ks.Float("poster.saturation"), hueMultiplier(rng, ks.Float("poster.hue"), ks.Float("poster.hueSpread")), ks.Float("poster.saturationSpread"))
 	c1 := cols[0]
 	// Half the time the second field is near-ink or near-paper for contrast.
 	c2 := cols[1]
@@ -46,8 +59,8 @@ func drawPoster(img *image.RGBA, rng *rand.Rand) {
 		}
 	}
 
-	drawPosterMotif(img, rng, div, theta, c3, white, ink)
-	drawPosterStripes(img, rng, div, c3, white)
+	drawPosterMotif(img, rng, div, theta, c3, white, ink, ks)
+	drawPosterStripes(img, rng, div, c3, white, ks)
 
 	// Occasional small punctuation dot in a quiet corner.
 	if rng.IntN(10) < 3 {
@@ -78,14 +91,15 @@ func inCircle(x, y, cx, cy, r float64) bool {
 
 // drawPosterMotif paints the main disc motif over the duotone base: solid
 // disc, donut, divide-split disc, edge half-disc, or disc with satellite.
-func drawPosterMotif(img *image.RGBA, rng *rand.Rand, div func(x, y float64) float64, theta float64, c3, white, ink color.RGBA) {
+func drawPosterMotif(img *image.RGBA, rng *rand.Rand, div func(x, y float64) float64, theta float64, c3, white, ink color.RGBA, ks knobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)
 
 	motif := rng.IntN(5)
 	ccx := fs * (0.25 + rng.Float64()*0.50)
 	ccy := fs * (0.25 + rng.Float64()*0.50)
-	cr := fs * (0.20 + rng.Float64()*0.18)
+	rdisc := rng.Float64()
+	cr := fs * (ks.Float("poster.disc")*(0.20+rdisc*0.18) + (ks.Float("poster.discSpread")-1)*0.18*(rdisc-0.5))
 	discAlt := white
 	if rng.IntN(2) == 0 {
 		discAlt = ink
@@ -141,11 +155,15 @@ func drawPosterMotif(img *image.RGBA, rng *rand.Rand, div func(x, y float64) flo
 }
 
 // drawPosterStripes rules 1..3 thin accent stripes parallel to the divide.
-func drawPosterStripes(img *image.RGBA, rng *rand.Rand, div func(x, y float64) float64, c3, white color.RGBA) {
+func drawPosterStripes(img *image.RGBA, rng *rand.Rand, div func(x, y float64) float64, c3, white color.RGBA, ks knobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)
 
-	nStripes := 1 + rng.IntN(3)
+	rstripe := rng.IntN(3)
+	nStripes := int(ks.Float("poster.stripes")*float64(1+rstripe) + (ks.Float("poster.stripesSpread")-1)*float64(rstripe-1))
+	if nStripes < 0 {
+		nStripes = 0
+	}
 	stripeC := white
 	if rng.IntN(3) == 0 {
 		stripeC = c3

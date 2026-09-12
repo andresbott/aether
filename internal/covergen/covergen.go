@@ -79,7 +79,7 @@ func ParseStyle(name string) (Style, bool) {
 
 // styleSpec couples a style's draw function with its post-processing.
 type styleSpec struct {
-	draw  func(img *image.RGBA, rng *rand.Rand)
+	draw  func(img *image.RGBA, rng *rand.Rand, ks knobSet)
 	grain int // film-grain amplitude; 0 disables
 }
 
@@ -98,7 +98,8 @@ var styleSpecs = [numStyles]styleSpec{
 // output width and height in pixels.
 func Generate(seed string, size int) ([]byte, error) {
 	h := sha256.Sum256([]byte(seed))
-	return render(h, styleFromHash(h), size)
+	style := styleFromHash(h)
+	return render(h, style, size, newKnobSet(style, nil))
 }
 
 // GenerateStyle produces a deterministic cover in the given style.
@@ -107,7 +108,20 @@ func GenerateStyle(seed string, size int, style Style) ([]byte, error) {
 		return nil, fmt.Errorf("covergen: unknown style %d", int(style))
 	}
 	h := sha256.Sum256([]byte(seed))
-	return render(h, style, size)
+	return render(h, style, size, newKnobSet(style, nil))
+}
+
+// GenerateStyleWithKnobs is GenerateStyle with per-style knob overrides applied
+// (see Style.Knobs). Overrides for keys the style does not declare are ignored,
+// and nil overrides reproduce GenerateStyle exactly. It exists for the covergen
+// tuning lab; the shipped server renders the default look via Generate /
+// GenerateStyle.
+func GenerateStyleWithKnobs(seed string, size int, style Style, overrides map[string]float64) ([]byte, error) {
+	if style < 0 || style >= numStyles {
+		return nil, fmt.Errorf("covergen: unknown style %d", int(style))
+	}
+	h := sha256.Sum256([]byte(seed))
+	return render(h, style, size, newKnobSet(style, overrides))
 }
 
 // StyleFor reports which style Generate will pick for seed.
@@ -124,7 +138,7 @@ func styleFromHash(h [32]byte) Style {
 
 // render draws the image at double resolution, downsamples 2x for
 // anti-aliasing, applies the style's grain, and encodes PNG.
-func render(h [32]byte, style Style, size int) ([]byte, error) {
+func render(h [32]byte, style Style, size int, ks knobSet) ([]byte, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("covergen: size must be > 0, got %d", size)
 	}
@@ -133,7 +147,7 @@ func render(h [32]byte, style Style, size int) ([]byte, error) {
 	spec := styleSpecs[style]
 
 	big := image.NewRGBA(image.Rect(0, 0, size*2, size*2))
-	spec.draw(big, rng)
+	spec.draw(big, rng, ks)
 	img := downsample2x(big)
 	if spec.grain > 0 {
 		addGrain(img, rng, spec.grain)
@@ -156,7 +170,7 @@ func rngFromHash(h [32]byte) *rand.Rand {
 
 // drawClassic is the original covergen look: two-colour diagonal gradient
 // background with 2..4 translucent white shapes.
-func drawClassic(img *image.RGBA, rng *rand.Rand) {
-	drawGradient(img, rng)
-	drawForeground(img, rng)
+func drawClassic(img *image.RGBA, rng *rand.Rand, ks knobSet) {
+	drawGradient(img, rng, ks)
+	drawForeground(img, rng, ks)
 }
