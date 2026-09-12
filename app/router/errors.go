@@ -71,8 +71,9 @@ type errorEnvelopeWriter struct {
 	// req is the request being served; finish() needs only its URL path, to
 	// fill a fallback Details' Instance the same way problems.Write does.
 	req *http.Request
-	// problems builds the fallback's Type/Title (writeProblemFallback) so its
-	// slugs and base URI stay identical to every direct h.problems.Write call.
+	// problems answers the fallback via the exact same Write call every
+	// migrated handler package makes directly (writeProblemFallback), so
+	// masking, slugs, and base URI all stay identical to a direct call.
 	problems *problemjson.Writer
 	status   int
 	// buffering is set once we know the response is an error and the body is
@@ -173,7 +174,7 @@ func (w *errorEnvelopeWriter) finish() {
 		path = w.req.URL.Path
 	}
 	if strings.HasPrefix(path, apiV0MountPrefix) {
-		w.writeProblemFallback(msg, path)
+		w.writeProblemFallback(msg)
 		return
 	}
 	w.writeLegacyFallback(msg)
@@ -183,25 +184,16 @@ func (w *errorEnvelopeWriter) finish() {
 // that never called h.problems directly: the /api/v0 catch-all, a stray
 // http.NotFound inside an otherwise-migrated handler — the sessionGuard/
 // headerGuard auth gate build their Details directly via h.problems now and
-// no longer reach this path) with the same problemjson.Details shape every
-// migrated handler package builds directly via h.problems, so the client sees
-// one uniform shape regardless of which path produced it.
-func (w *errorEnvelopeWriter) writeProblemFallback(msg, path string) {
-	slug := errorCodeFor(w.status)
-	payload, err := json.Marshal(problemjson.Details{
-		Type:     w.problems.TypeURI(slug),
-		Title:    w.problems.TitleFor(slug),
-		Status:   w.status,
-		Detail:   msg,
-		Instance: path,
-	})
-	if err != nil { // unreachable: every field is a plain string or int
-		payload = []byte(`{"type":"` + w.problems.TypeURI("internal") + `","title":"Internal error","status":500,"detail":"internal error"}`)
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
-	w.commitHeader()
-	_, _ = w.ResponseWriter.Write(payload)
+// no longer reach this path) by calling h.problems.Write itself — the exact
+// call every migrated handler package makes directly — so the client sees one
+// uniform shape regardless of which path produced it, in dev mode as well as
+// under ModeMasked (production): masked, with a reference. This used to build
+// its own problemjson.Details literal via the mode-agnostic TypeURI/TitleFor
+// helpers, which meant it always answered unmasked and without a reference
+// even in production — a masking-consistency gap Write closes by construction.
+func (w *errorEnvelopeWriter) writeProblemFallback(msg string) {
+	w.problems.Write(w.ResponseWriter, w.req, w.status, errorCodeFor(w.status), msg)
+	w.wroteHeader = true
 }
 
 // writeLegacyFallback answers a bare plain-text error OUTSIDE the admin API

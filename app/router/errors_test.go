@@ -35,6 +35,17 @@ func newTestRouter(t *testing.T) *MainAppHandler {
 	return h
 }
 
+// newMaskedTestRouter is newTestRouter's ModeMasked (production) variant, for
+// tests asserting the masked shape of an /api/v0 error body.
+func newMaskedTestRouter(t *testing.T) *MainAppHandler {
+	t.Helper()
+	h, err := New(Cfg{Production: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return h
+}
+
 func TestApiErrorBodyIsNotDoubleWrapped(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
@@ -170,6 +181,53 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	}
 	if body.Instance != "/api/v0/nope" {
 		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+}
+
+// Under ModeMasked (production, Cfg.Production=true) the same bare
+// plain-text /api/v0 error must mask exactly like a direct h.problems.Write
+// call: detail/type/title collapse to the generic SlugMasked identity, but
+// status and instance survive, and a non-empty reference (the request's
+// correlation id) is included. Before writeProblemFallback routed through
+// h.problems.Write, this fallback built its own problemjson.Details literal
+// via the mode-agnostic TypeURI/TitleFor helpers and so always answered
+// unmasked and reference-less — even in production; this is the masked
+// counterpart to TestPlainTextHandlerErrorsGetProblemJSON above.
+func TestBareErrorFallbackIsMaskedInProduction(t *testing.T) {
+	h := newMaskedTestRouter(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v0/does-not-exist", nil)
+	r.Header.Set(requestIDHeader, "test-request-id")
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+
+	var body problemjson.Details
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("masked fallback body is not JSON: %s", w.Body.String())
+	}
+	if body.Status != http.StatusBadRequest {
+		t.Errorf("Status = %d, want 400", body.Status)
+	}
+	if body.Instance != "/api/v0/does-not-exist" {
+		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+	if body.Reference != "test-request-id" {
+		t.Errorf("reference = %q, want the Request-Id header echoed back", body.Reference)
+	}
+	if body.Detail != "" {
+		t.Errorf(`detail = %q, want empty under ModeMasked (must not leak "wrong api call")`, body.Detail)
+	}
+	if got := problemjson.Slug(body.Type); got != problemjson.SlugMasked {
+		t.Errorf("type slug = %q, want the generic masked identity %q", got, problemjson.SlugMasked)
+	}
+	if body.Title != "An error occurred" {
+		t.Errorf("title = %q, want the generic masked title", body.Title)
 	}
 }
 
