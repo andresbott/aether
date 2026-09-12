@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"github.com/andresbott/aether/internal/artistimage"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // Assignment sources: how a file ended up on a track position.
@@ -164,7 +164,7 @@ func failureReason(err error) string {
 	if err == nil {
 		return ""
 	}
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if errors.As(err, &uerr) {
 		return ReasonLookupFailed
 	}
@@ -245,7 +245,7 @@ func (r *Resolver) Resolve(ctx context.Context, inputs []Input) ([]AlbumOption, 
 // (fpcalc missing, unsupported codec, truncated file): those are genuinely about
 // the files, so 200 with per-file errors is the honest answer for them.
 //
-// The discriminator is *upstream.Error via errors.As, never error text.
+// The discriminator is *outbound.Error via errors.As, never error text.
 // internal/identify wraps every AcoustID failure into that type (see
 // identify.asUpstream), so a rate limit, a timeout, an unreachable host and a
 // provider refusal all arrive typed and the handler's writeUpstreamErr maps them
@@ -267,7 +267,7 @@ func upstreamFailure(results []fileResult) error {
 			// Something worked, so the service is reachable: not an outage.
 			return nil
 		}
-		var uerr *upstream.Error
+		var uerr *outbound.Error
 		if firstUpstream == nil && errors.As(res.err, &uerr) {
 			firstUpstream = res.err
 		}

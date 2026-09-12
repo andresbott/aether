@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // problemBaseURI is the stable, opaque base for every problem's Type. It is
@@ -82,18 +82,18 @@ func WriteValidation(w http.ResponseWriter, r *http.Request, detail string, fiel
 }
 
 // WriteUpstream reports a failed call to an external service, reusing
-// internal/upstream's classification: 429 when the provider is rate-limiting
-// us, otherwise 502/504 depending on the failure kind (see
-// upstream.HTTPStatus). Detail is the upstream package's human-readable
+// go-bumbu/http/outbound's classification: 429 when the provider is
+// rate-limiting us, otherwise 502/504 depending on the failure kind (see
+// outbound.HTTPStatus). Detail is the outbound package's human-readable
 // sentence, or fallback for an error that isn't upstream-typed — never a raw
 // Go error.
 func WriteUpstream(w http.ResponseWriter, r *http.Request, err error, fallback string) {
-	status := upstream.HTTPStatus(err)
+	status := outbound.HTTPStatus(err)
 	slug := "upstream_error"
 	if status == http.StatusTooManyRequests {
 		slug = "upstream_rate_limited"
 	}
-	Write(w, r, status, slug, upstream.UserMessage(err, fallback))
+	Write(w, r, status, slug, outbound.UserMessage(err, fallback))
 }
 
 // Slug returns the last path segment of a problem's Type URI — the old "code"
