@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // The production middleware wraps any >=400 body in an envelope, shaped by
@@ -46,7 +46,7 @@ func TestApiErrorBodyIsNotDoubleWrapped(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("error body is not JSON: %s", w.Body.String())
 	}
@@ -65,11 +65,11 @@ func TestApiErrorKeepsHandlerCode(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, jsonErrPath, nil))
 
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not the expected envelope: %s", w.Body.String())
 	}
-	if got := httperr.Slug(body.Type); got != "validation_error" {
+	if got := problemjson.Slug(body.Type); got != "validation_error" {
 		t.Errorf("code = %q, want the handler's own code to survive", got)
 	}
 	if body.Detail != "q is required" {
@@ -125,14 +125,14 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("plain-text handler error was not wrapped as problem+json: %s", w.Body.String())
 	}
 	if !strings.Contains(body.Detail, "wrong api call") {
 		t.Errorf("detail = %q, want the handler's message", body.Detail)
 	}
-	if got := httperr.Slug(body.Type); got != "validation_error" {
+	if got := problemjson.Slug(body.Type); got != "validation_error" {
 		t.Errorf("slug = %q, want validation_error (400)", got)
 	}
 	if body.Instance != "/api/v0/does-not-exist" {
@@ -145,9 +145,10 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 // problem+json too, exercised directly against the middleware rather than a
 // specific registered route.
 func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
+	h := newTestRouter(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v0/nope", nil)
-	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})).ServeHTTP(w, r)
 
@@ -157,14 +158,14 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("http.NotFound body was not wrapped as problem+json: %s", w.Body.String())
 	}
 	if body.Status != http.StatusNotFound {
 		t.Errorf("Status = %d, want 404", body.Status)
 	}
-	if got := httperr.Slug(body.Type); got != "not_found" {
+	if got := problemjson.Slug(body.Type); got != "not_found" {
 		t.Errorf("slug = %q, want not_found", got)
 	}
 	if body.Instance != "/api/v0/nope" {
@@ -179,9 +180,10 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 // client received before this middleware ever learned about problem+json:
 // /rest must never answer application/problem+json.
 func TestBareErrorOutsideApiV1KeepsLegacyShape(t *testing.T) {
+	h := newTestRouter(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/rest/getCoverArt.view", nil)
-	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})).ServeHTTP(w, r)
 

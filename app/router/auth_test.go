@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	loginflow "github.com/go-bumbu/userauth/flow/login"
 	"github.com/go-bumbu/userauth/service/pat"
@@ -174,7 +174,7 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 
 	// Without a session, a protected route answers 401 as a problem+json
-	// envelope — sessionGuard builds it directly via httperr.Write.
+	// envelope — sessionGuard builds it directly via h.problems.Write.
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v0/users", nil))
 	if w.Code != http.StatusUnauthorized {
@@ -183,8 +183,8 @@ func TestSessionGuardBlocksApiV1(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Errorf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var envelope httperr.Problem
-	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || httperr.Slug(envelope.Type) != "unauthorized" {
+	var envelope problemjson.Details
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil || problemjson.Slug(envelope.Type) != "unauthorized" {
 		t.Errorf("401 body = %s, want a Problem with slug unauthorized", w.Body.String())
 	}
 

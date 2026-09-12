@@ -10,7 +10,6 @@ import (
 	"github.com/andresbott/aether/app/router/handlers"
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	authHandler "github.com/andresbott/aether/app/router/handlers/auth"
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
@@ -67,12 +66,12 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		// context and renews the rolling expiry ("remember me" sessions).
 		ok, _ := h.sessions.HandleAuth(w, r)
 		if !ok {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		data, err := cookieauth.CtxGetUserData(r)
 		if err != nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		// The DB Enabled flag is aether's kill-switch and it must close sessions
@@ -83,11 +82,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		usr, err := h.users.GetUser(data.UserId)
 		if err != nil {
 			// A session pointing at a deleted user authenticates nothing.
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		if !usr.Enabled {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
 			return
 		}
 		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
@@ -98,11 +97,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		}
 		role, err := usersHandler.RoleOf(h.users, data.UserId)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
+			h.problems.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}
 		if role != usersHandler.RoleAdmin {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
 			return
 		}
 		next.ServeHTTP(w, r)

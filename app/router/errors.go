@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // maxErrorBodyBytes bounds the error body we buffer before deciding whether it
@@ -28,13 +28,13 @@ const apiV0MountPrefix = "/api/v0"
 
 // jsonErrorEnvelope guarantees every internal admin API (apiV0MountPrefix)
 // error response (>= 400) leaves the server as an RFC 9457 "Problem Details
-// for HTTP APIs" application/problem+json object — the same httperr.Problem
+// for HTTP APIs" application/problem+json object — the same problemjson.Details
 // shape the migrated handler packages (metadata, tokens, libraries, artists,
-// radiobrowser, users, tasks) write directly — so that surface is uniform
-// even for a bare http.Error/http.NotFound (the /api/v0 catch-all's 400, a
-// stray http.NotFound inside an otherwise-migrated handler; the tasks
+// radiobrowser, users, tasks) write directly via httperr — so that surface is
+// uniform even for a bare http.Error/http.NotFound (the /api/v0 catch-all's
+// 400, a stray http.NotFound inside an otherwise-migrated handler; the tasks
 // package and the sessionGuard/headerGuard auth gate now build their
-// Problem directly via httperr too and no longer reach this fallback).
+// Details directly via h.problems too and no longer reach this fallback).
 //
 // Every OTHER path — chiefly /rest, which must stay byte-identical to
 // Subsonic's own error shapes, and never RFC 9457 — keeps the original,
@@ -58,9 +58,9 @@ const apiV0MountPrefix = "/api/v0"
 //
 // Non-error responses are passed straight through unbuffered, so streaming
 // (audio, task logs) is unaffected.
-func jsonErrorEnvelope(next http.Handler) http.Handler {
+func (h *MainAppHandler) jsonErrorEnvelope(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ew := &errorEnvelopeWriter{ResponseWriter: w, req: r}
+		ew := &errorEnvelopeWriter{ResponseWriter: w, req: r, problems: h.problems}
 		next.ServeHTTP(ew, r)
 		ew.finish()
 	})
@@ -69,9 +69,12 @@ func jsonErrorEnvelope(next http.Handler) http.Handler {
 type errorEnvelopeWriter struct {
 	http.ResponseWriter
 	// req is the request being served; finish() needs only its URL path, to
-	// fill a fallback Problem's Instance the same way httperr.Write does.
-	req    *http.Request
-	status int
+	// fill a fallback Details' Instance the same way problems.Write does.
+	req *http.Request
+	// problems builds the fallback's Type/Title (writeProblemFallback) so its
+	// slugs and base URI stay identical to every direct h.problems.Write call.
+	problems *problemjson.Writer
+	status   int
 	// buffering is set once we know the response is an error and the body is
 	// small enough to inspect; buf then holds it until finish().
 	buffering bool
@@ -138,8 +141,8 @@ func (w *errorEnvelopeWriter) commitHeader() {
 
 // finish writes the buffered error body, wrapping it only when it is not
 // already a JSON object. Which shape it wraps into depends on the mount: the
-// internal admin API gets httperr.Problem; everything else keeps the legacy
-// apiError envelope (see jsonErrorEnvelope's doc comment).
+// internal admin API gets problemjson.Details; everything else keeps the
+// legacy apiError envelope (see jsonErrorEnvelope's doc comment).
 func (w *errorEnvelopeWriter) finish() {
 	if w.overflowed || !w.buffering {
 		w.commitHeader()
@@ -177,23 +180,24 @@ func (w *errorEnvelopeWriter) finish() {
 }
 
 // writeProblemFallback answers a bare plain-text admin-API error (a route
-// that never called httperr directly: the /api/v0 catch-all, a stray
+// that never called h.problems directly: the /api/v0 catch-all, a stray
 // http.NotFound inside an otherwise-migrated handler — the tasks package and
-// the sessionGuard/headerGuard auth gate build their Problem directly via
-// httperr now and no longer reach this path) with the same httperr.Problem
-// shape every migrated handler package builds directly, so the client sees
-// one uniform shape regardless of which path produced it.
+// the sessionGuard/headerGuard auth gate build their Details directly via
+// h.problems now and no longer reach this path) with the same
+// problemjson.Details shape every migrated handler package builds directly
+// (via httperr, for now), so the client sees one uniform shape regardless of
+// which path produced it.
 func (w *errorEnvelopeWriter) writeProblemFallback(msg, path string) {
 	slug := errorCodeFor(w.status)
-	payload, err := json.Marshal(httperr.Problem{
-		Type:     httperr.TypeURI(slug),
-		Title:    httperr.TitleFor(slug),
+	payload, err := json.Marshal(problemjson.Details{
+		Type:     w.problems.TypeURI(slug),
+		Title:    w.problems.TitleFor(slug),
 		Status:   w.status,
 		Detail:   msg,
 		Instance: path,
 	})
 	if err != nil { // unreachable: every field is a plain string or int
-		payload = []byte(`{"type":"` + httperr.TypeURI("internal") + `","title":"Internal error","status":500,"detail":"internal error"}`)
+		payload = []byte(`{"type":"` + w.problems.TypeURI("internal") + `","title":"Internal error","status":500,"detail":"internal error"}`)
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.Header().Set("Content-Length", strconv.Itoa(len(payload)))

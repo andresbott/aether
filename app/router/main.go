@@ -332,7 +332,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		})
 	})
 	r.Use(prodMid.Wrap)
-	r.Use(jsonErrorEnvelope)
+	r.Use(app.jsonErrorEnvelope)
 
 	app.attachApiV0(app.router.PathPrefix(apiV0MountPrefix).Subrouter())
 
