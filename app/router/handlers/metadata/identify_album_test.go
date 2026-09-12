@@ -13,13 +13,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/outbound"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -61,6 +62,7 @@ func newAlbumIdentifyHandler(
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
 		AlbumIdentifier: svc,
+		Problems:        problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
@@ -132,7 +134,7 @@ func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var validation httperr.ValidationProblem
+	var validation problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
 		t.Fatal(err)
 	}
@@ -352,14 +354,14 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		kind       upstream.Kind
+		kind       outbound.Kind
 		status     int
 		wantStatus int
 		wantCode   string
 	}{
-		{"rate limited", upstream.KindRateLimited, 429, http.StatusTooManyRequests, "upstream_rate_limited"},
-		{"timeout", upstream.KindTimeout, 0, http.StatusGatewayTimeout, "upstream_error"},
-		{"unreachable", upstream.KindUnreachable, 0, http.StatusBadGateway, "upstream_error"},
+		{"rate limited", outbound.KindRateLimited, 429, http.StatusTooManyRequests, "upstream_rate_limited"},
+		{"timeout", outbound.KindTimeout, 0, http.StatusGatewayTimeout, "upstream_timeout"},
+		{"unreachable", outbound.KindUnreachable, 0, http.StatusBadGateway, "upstream_error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -369,7 +371,7 @@ func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
 				}
 			}
 			svc := &fakeAlbumIdentifier{
-				err: fmt.Errorf("acoustid: %w", upstream.WrapError(
+				err: fmt.Errorf("acoustid: %w", outbound.WrapError(
 					"AcoustID", tc.kind, tc.status, errors.New("dial tcp: connection refused"))),
 			}
 			r, lib := newAlbumIdentifyHandler(t, root, svc)
@@ -383,11 +385,11 @@ func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
 			if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 				t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 			}
-			var body httperr.Problem
+			var body problemjson.Details
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
-			if got := httperr.Slug(body.Type); got != tc.wantCode {
+			if got := problemjson.Slug(body.Type); got != tc.wantCode {
 				t.Fatalf("expected code %q, got %q", tc.wantCode, got)
 			}
 			if !strings.Contains(body.Detail, "AcoustID") {

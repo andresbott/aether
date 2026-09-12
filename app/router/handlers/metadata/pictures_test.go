@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/dlcache"
@@ -25,8 +25,9 @@ import (
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/outbound"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"go.senan.xyz/taglib"
 	"gorm.io/gorm"
@@ -83,6 +84,7 @@ func newPictureHandlerWithReindex(
 	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: nullReader{}, CoverArt: ca, Reindex: rx,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
+		Problems:  problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
@@ -129,6 +131,7 @@ func newArtistImageHandler(
 	h := &metaHandler.ImagesHandler{
 		Store: s, Reader: reader, ArtistImages: fetcher, Reindex: rx,
 		Downloads: dlcache.New(10*time.Minute, 64<<20),
+		Problems:  problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
@@ -570,7 +573,7 @@ func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("unknown type: want 422, got %d", w.Code)
 	}
-	var typeProblem httperr.ValidationProblem
+	var typeProblem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &typeProblem); err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +593,7 @@ func TestPictureImage_InvalidTypeAndSlot(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db slot error message: %s", w.Body.String())
 	}
-	var slotProblem httperr.ValidationProblem
+	var slotProblem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &slotProblem); err != nil {
 		t.Fatal(err)
 	}
@@ -756,7 +759,7 @@ func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db target error message: %s", w.Body.String())
 	}
-	var slotProblem httperr.ValidationProblem
+	var slotProblem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &slotProblem); err != nil {
 		t.Fatal(err)
 	}
@@ -768,7 +771,7 @@ func TestApplyPicture_InvalidTargetAndType(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("bad type: want 422, got %d", w.Code)
 	}
-	var typeProblem httperr.ValidationProblem
+	var typeProblem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &typeProblem); err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +821,7 @@ func TestApplyPicture_RejectsTooManyPaths(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for 51 paths, got %d: %s", w.Code, w.Body.String())
 	}
-	var problem httperr.ValidationProblem
+	var problem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 		t.Fatal(err)
 	}
@@ -965,7 +968,7 @@ func TestRemovals_InvalidSlot(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "slot must be one of embedded, folder") {
 		t.Fatalf("db slot error message: %s", w.Body.String())
 	}
-	var problem httperr.ValidationProblem
+	var problem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 		t.Fatal(err)
 	}
@@ -1026,9 +1029,9 @@ func TestPictureCandidates(t *testing.T) {
 // An upstream failure must reach the UI as a readable sentence naming the
 // service — never a Go error string with "status 500" in it.
 func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
-	ca := stubCoverArt{err: &upstream.Error{
+	ca := stubCoverArt{err: &outbound.Error{
 		Service: "Cover Art Archive",
-		Kind:    upstream.KindUnavailable,
+		Kind:    outbound.KindUnavailable,
 		Status:  http.StatusInternalServerError,
 	}}
 	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
@@ -1041,11 +1044,11 @@ func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if got := httperr.Slug(body.Type); got != "upstream_error" {
+	if got := problemjson.Slug(body.Type); got != "upstream_error" {
 		t.Errorf("code = %q, want upstream_error", got)
 	}
 	if !strings.Contains(body.Detail, "Cover Art Archive") ||
@@ -1059,9 +1062,9 @@ func TestPictureCandidates_UpstreamErrorIsHumanReadable(t *testing.T) {
 
 // A rate-limited provider answers 429 so the UI can say "wait and retry".
 func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
-	ca := stubCoverArt{err: &upstream.Error{
+	ca := stubCoverArt{err: &outbound.Error{
 		Service: "Cover Art Archive",
-		Kind:    upstream.KindRateLimited,
+		Kind:    outbound.KindRateLimited,
 		Status:  http.StatusTooManyRequests,
 	}}
 	_, r, _ := newPictureHandler(t, t.TempDir(), ca)
@@ -1074,9 +1077,9 @@ func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if got := httperr.Slug(body.Type); got != "upstream_rate_limited" {
+	if got := problemjson.Slug(body.Type); got != "upstream_rate_limited" {
 		t.Errorf("code = %q, want upstream_rate_limited", got)
 	}
 	if !strings.Contains(body.Detail, "too many requests") {
@@ -1088,9 +1091,9 @@ func TestPictureCandidates_RateLimitedReturns429(t *testing.T) {
 // the archive then refuses must not answer with a raw Go error either.
 func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 	root := t.TempDir()
-	ca := stubCoverArt{err: &upstream.Error{
+	ca := stubCoverArt{err: &outbound.Error{
 		Service: "Cover Art Archive",
-		Kind:    upstream.KindUnavailable,
+		Kind:    outbound.KindUnavailable,
 		Status:  http.StatusBadGateway,
 	}}
 	_, r, lib := newPictureHandler(t, root, ca)
@@ -1114,9 +1117,9 @@ func TestApplyPicture_DownloadUpstreamErrorIsHumanReadable(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if !strings.Contains(body.Detail, "Cover Art Archive") || httperr.Slug(body.Type) != "upstream_error" {
+	if !strings.Contains(body.Detail, "Cover Art Archive") || problemjson.Slug(body.Type) != "upstream_error" {
 		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }
@@ -1382,7 +1385,7 @@ func TestInventory_RequiresNonEmptyPaths(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var problem httperr.ValidationProblem
+	var problem problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 		t.Fatal(err)
 	}

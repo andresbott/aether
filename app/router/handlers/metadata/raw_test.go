@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
@@ -44,7 +45,10 @@ func newRawHandlerUnsupported(
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported}
+	h := &metaHandler.TagsHandler{
+		Store: s, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported,
+		Problems: problems.New(false),
+	}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib

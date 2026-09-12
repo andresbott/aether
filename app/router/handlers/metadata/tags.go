@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 )
 
@@ -30,6 +30,8 @@ type TagsHandler struct {
 	// UnsupportedReader lists a file's hidden-frame descriptors; nil defaults
 	// to taglib.ReadUnsupported. Overridable for tests.
 	UnsupportedReader func(absPath string) ([]string, error)
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 // Routes mounts the tag-editing endpoints under an already-subrouted
@@ -55,7 +57,7 @@ const maxFolderSearchResults = 500
 func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// A `q` turns the endpoint into a filter: instead of one directory level it
@@ -66,7 +68,7 @@ func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
 		matches, truncated, err := metadataedit.SearchFolders(
 			abs, q, metadataedit.ListFoldersOptions{}, maxFolderSearchResults)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out := make([]folderDTO, 0, len(matches))
@@ -81,7 +83,7 @@ func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
 	// followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]folderDTO, 0, len(folders))
@@ -115,12 +117,12 @@ type trackDTO struct {
 func (h *TagsHandler) tracks(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]trackDTO, 0, len(rows))
@@ -245,14 +247,14 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body updateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
 	if msg := validateUpdateFields(body.Fields); msg != "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", msg)
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1)
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1, h.Problems)
 	if !ok {
 		return
 	}
@@ -283,7 +285,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	for _, p := range body.Paths {
 		abs, err := metadataedit.ResolveInLibrary(libModel.Path, p)
 		if err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
 		resolved = append(resolved, abs)

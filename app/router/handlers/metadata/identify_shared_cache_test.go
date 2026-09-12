@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/identify"
@@ -120,6 +121,7 @@ func newSharedIdentifyHandlerWithReleases(
 			ident,
 			albumidentify.NewCachingReleaseLookup(releases, releaseCacheSize),
 		),
+		Problems: problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)

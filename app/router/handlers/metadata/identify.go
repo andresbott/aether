@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 )
 
@@ -45,6 +45,8 @@ type IdentifyHandler struct {
 	// nil makes /metadata/identify-album answer 503, exactly as a nil
 	// Identifier does for /metadata/identify.
 	AlbumIdentifier AlbumIdentifyService
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 // Routes mounts the identify endpoints under an already-subrouted mux.Router.
@@ -106,16 +108,16 @@ func (h *IdentifyHandler) identify(w http.ResponseWriter, r *http.Request) {
 		if reason == "" {
 			reason = defaultIdentifyUnavailableReason
 		}
-		httperr.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
+		h.Problems.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body identifyRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1)
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1, h.Problems)
 	if !ok {
 		return
 	}

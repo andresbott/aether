@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -70,9 +71,10 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	key := seedAlbum(t, s, lib, trackAbs)
 
 	h := &metaHandler.ImagesHandler{
-		Store:  s,
-		Reader: nullReader{},
-		Images: imagecache.New(t.TempDir()),
+		Store:    s,
+		Reader:   nullReader{},
+		Images:   imagecache.New(t.TempDir()),
+		Problems: problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)

@@ -8,11 +8,12 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -42,9 +43,10 @@ func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
 		AlbumIdentifier: &fakeAlbumIdentifier{},
+		Problems:        problems.New(false),
 	}).Routes(r)
-	(&metaHandler.TagsHandler{Store: s, Reader: nullReader{}}).Routes(r)
-	(&metaHandler.ImagesHandler{Store: s, Reader: nullReader{}}).Routes(r)
+	(&metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
+	(&metaHandler.ImagesHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
 	return r, lib
 }
 
@@ -99,7 +101,7 @@ func TestCapAppliesUniformly(t *testing.T) {
 			if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 				t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 			}
-			var got httperr.ValidationProblem
+			var got problemjson.ValidationDetails
 			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 				t.Fatal(err)
 			}

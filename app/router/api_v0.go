@@ -223,9 +223,10 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			// uses.
 			reindexer := h.metadataReindexer()
 			(&metadataHandler.TagsHandler{
-				Store:   h.store,
-				Reader:  h.tagReader,
-				Reindex: reindexer,
+				Store:    h.store,
+				Reader:   h.tagReader,
+				Reindex:  reindexer,
+				Problems: h.problems,
 			}).Routes(r)
 
 			(&metadataHandler.ImagesHandler{
@@ -244,12 +245,14 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 				// rather than wrapping a nil pointer — upload still works, online
 				// picks answer 503.
 				ArtistImages: h.artistFetcher,
+				Problems:     h.problems,
 			}).Routes(r)
 
 			ih := &metadataHandler.IdentifyHandler{
 				Store:                     h.store,
 				Reader:                    h.tagReader,
 				IdentifyUnavailableReason: h.identifyOff,
+				Problems:                  h.problems,
 			}
 			if h.identifier != nil {
 				// Guard both assignments: a nil *identify.Identifier assigned

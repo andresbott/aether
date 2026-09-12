@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -22,6 +21,7 @@ import (
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 )
 
@@ -59,6 +59,8 @@ type ImagesHandler struct {
 	// grid of thumbnails does not download full-resolution scans. Optional: nil
 	// makes every cell serve its original.
 	Images *imagecache.Cache
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 // Routes mounts the picture endpoints under an already-subrouted mux.Router.
@@ -192,7 +194,7 @@ func pictureImageRef(libID uint, src metadataedit.Source) pictureImageDTO {
 // proxy's header buffer). Embedded presence is counted over paths[]; folder
 // art is resolved across the distinct directories paths[] spans.
 func (h *ImagesHandler) inventory(w http.ResponseWriter, r *http.Request) {
-	lib, sel, ok := decodeSelection(h.Store, w, r)
+	lib, sel, ok := decodeSelection(h.Store, w, r, h.Problems)
 	if !ok {
 		return
 	}
@@ -255,28 +257,28 @@ func (h *ImagesHandler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	// root itself), so it is reused here purely for the library_id lookup.
 	lib, _, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
+		h.Problems.WriteValidation(w, r, terr.Error(), problemjson.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	slot := r.URL.Query().Get("slot")
 	if slot == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(slot) {
-		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
+		h.Problems.WriteValidation(w, r, errUnknownSlot.Error(), problemjson.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	w.Header().Set("Cache-Control", "no-cache")
 
 	_, src, derr := metadataedit.DecodeSource(lib.Path, r.URL.Query())
 	if derr != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", derr.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", derr.Error())
 		return
 	}
 	// type/slot go through the registry validation above (which, unlike
@@ -429,36 +431,36 @@ type applyPictureResult struct {
 func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
 	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
 	if perr != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
 		return
 	}
 	slot := r.FormValue("slot")
 	if slot == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(slot) {
-		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
+		h.Problems.WriteValidation(w, r, errUnknownSlot.Error(), problemjson.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	pt, terr := requestedType(r)
 	if terr != nil {
-		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
+		h.Problems.WriteValidation(w, r, terr.Error(), problemjson.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	// applyPicture reads paths[] from a multipart form rather than a JSON body,
 	// but the bound and the library lookup are the shared ones (checkPaths /
 	// resolveLibrary) so they can never drift from the JSON-body endpoints.
 	paths := r.Form["paths"]
-	if !checkPaths(w, r, paths, 1) {
+	if !checkPaths(w, r, paths, 1, h.Problems) {
 		return
 	}
-	libModel, ok := resolveLibrary(h.Store, w, r, uint(libID))
+	libModel, ok := resolveLibrary(h.Store, w, r, uint(libID), h.Problems)
 	if !ok {
 		return
 	}
@@ -468,10 +470,10 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 		// status 0 marks an upstream download failure: let the upstream mapping
 		// pick the status and the human message.
 		if status == 0 {
-			httperr.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
+			h.Problems.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
 			return
 		}
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 
@@ -482,7 +484,7 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	// the whole call — so that leniency is not relied on here.
 	for _, p := range paths {
 		if _, rerr := metadataedit.ResolveInLibrary(libModel.Path, p); rerr != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 			return
 		}
 	}
@@ -492,7 +494,7 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	al, _ := metadataedit.ResolveAlbum(libModel.Path, paths)
 
 	if status, serr := h.savePictureToSlot(slot, pt, al, ext, data); serr != nil {
-		httperr.Write(w, r, status, codeFor(status), serr.Error())
+		h.Problems.Write(w, r, status, codeFor(status), serr.Error())
 		return
 	}
 
@@ -539,21 +541,21 @@ func (h *ImagesHandler) savePictureToSlot(slot string, pt metadataedit.PictureTy
 // answers {ok:true} — removing a file that is not there, or a picture a
 // track never had, is a no-op, not an error.
 func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
-	lib, sel, ok := decodeSelection(h.Store, w, r)
+	lib, sel, ok := decodeSelection(h.Store, w, r, h.Problems)
 	if !ok {
 		return
 	}
 	pt, terr := pictureTypeByIDOrDefault(sel.Type)
 	if terr != nil {
-		httperr.WriteValidation(w, r, terr.Error(), httperr.FieldError{Pointer: "/type", Detail: terr.Error()})
+		h.Problems.WriteValidation(w, r, terr.Error(), problemjson.FieldError{Pointer: "/type", Detail: terr.Error()})
 		return
 	}
 	if sel.Slot == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "slot is required")
 		return
 	}
 	if !validSlot(sel.Slot) {
-		httperr.WriteValidation(w, r, errUnknownSlot.Error(), httperr.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
+		h.Problems.WriteValidation(w, r, errUnknownSlot.Error(), problemjson.FieldError{Pointer: "/slot", Detail: errUnknownSlot.Error()})
 		return
 	}
 	// Resolved once: this is both the selection the removal acts on and the
@@ -567,13 +569,13 @@ func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
 		// Mirrors the save fan-out: the art was written into every directory the
 		// album spans, so remove it from each of them.
 		if derr := al.DeleteFolderPicture(pt); derr != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", derr.Error())
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", derr.Error())
 			return
 		}
 	case "embedded":
 		for _, trackAbs := range al.Tracks() {
 			if werr := metadataedit.DeleteEmbeddedPicture(trackAbs, pt.ID); werr != nil {
-				httperr.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
+				h.Problems.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
 				return
 			}
 		}
@@ -606,7 +608,7 @@ func (h *ImagesHandler) pictureCandidates(w http.ResponseWriter, r *http.Request
 	mbid := r.URL.Query().Get("mbid")
 	releaseGroup := r.URL.Query().Get("release_group")
 	if mbid == "" && releaseGroup == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "mbid or release_group is required")
 		return
 	}
 	if h.CoverArt == nil {
@@ -615,7 +617,7 @@ func (h *ImagesHandler) pictureCandidates(w http.ResponseWriter, r *http.Request
 	}
 	imgs, err := h.CoverArt.List(r.Context(), mbid, releaseGroup)
 	if err != nil {
-		httperr.WriteUpstream(w, r, err, "Cover art could not be loaded right now. Try again in a moment.")
+		h.Problems.WriteUpstream(w, r, err, "Cover art could not be loaded right now. Try again in a moment.")
 		return
 	}
 	out := make([]pictureCandidateDTO, 0, len(imgs))
@@ -639,22 +641,22 @@ func (h *ImagesHandler) pictureCandidates(w http.ResponseWriter, r *http.Request
 func (h *ImagesHandler) pictureCandidateInfo(w http.ResponseWriter, r *http.Request) {
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if imgURL == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
 		return
 	}
 	if h.CoverArt == nil {
-		httperr.Write(w, r, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
+		h.Problems.Write(w, r, http.StatusServiceUnavailable, "not_configured", "cover art search is not configured")
 		return
 	}
 	data, _, derr := h.Downloads.GetOrLoad(imgURL, func() ([]byte, string, error) {
 		return h.CoverArt.DownloadImage(r.Context(), imgURL)
 	})
 	if derr != nil {
-		httperr.WriteUpstream(w, r, derr, "Cover art could not be loaded right now. Try again in a moment.")
+		h.Problems.WriteUpstream(w, r, derr, "Cover art could not be loaded right now. Try again in a moment.")
 		return
 	}
 	if len(data) == 0 {
-		httperr.Write(w, r, http.StatusNotFound, "not_found", "no image found")
+		h.Problems.Write(w, r, http.StatusNotFound, "not_found", "no image found")
 		return
 	}
 	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))
@@ -665,7 +667,7 @@ func (h *ImagesHandler) pictureCandidateInfo(w http.ResponseWriter, r *http.Requ
 //
 // status is the HTTP status to answer with on failure; a zero status alongside
 // a non-nil err means the failure came from the external image host, which the
-// caller maps through httperr.WriteUpstream.
+// caller maps through problemjson.Writer.WriteUpstream.
 func (h *ImagesHandler) pictureImageSource(r *http.Request) (data []byte, ext string, status int, err error) {
 	if file, header, ferr := r.FormFile("image"); ferr == nil {
 		defer func() { _ = file.Close() }()

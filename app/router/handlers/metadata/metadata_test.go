@@ -13,12 +13,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	_taglib "go.senan.xyz/taglib"
 	"gorm.io/gorm"
@@ -58,7 +59,7 @@ func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *m
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r, lib
@@ -173,7 +174,7 @@ func TestTracks_ListsFilesWithTags(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: stubTagReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: stubTagReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -238,7 +239,7 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -294,7 +295,7 @@ func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -446,7 +447,7 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -490,7 +491,7 @@ func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -537,7 +538,7 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -588,7 +589,7 @@ func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: tags.TaglibReader{}}
+	h := &metaHandler.TagsHandler{Store: s, Reader: tags.TaglibReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -651,7 +652,7 @@ func TestUpdateTracks_EmptySelectionIs422(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for empty paths, got %d: %s", w.Code, w.Body.String())
 	}
-	var validation httperr.ValidationProblem
+	var validation problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +732,7 @@ func reindexTestHandler(t *testing.T, rx *fakeReindexer) (*mux.Router, *model.Li
 	s := store.New(db)
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r, lib
@@ -787,7 +788,7 @@ func TestUpdateTracks_ReindexesWrittenPaths(t *testing.T) {
 	lib := &model.Library{Name: "Main", Path: root}
 	_ = s.CreateLibrary(lib)
 	rx := &fakeReindexer{}
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx}
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 

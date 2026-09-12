@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/metadataedit"
 )
@@ -45,16 +44,16 @@ func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) 
 		if reason == "" {
 			reason = defaultIdentifyUnavailableReason
 		}
-		httperr.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
+		h.Problems.Write(w, r, http.StatusServiceUnavailable, "identify_unavailable", reason)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body identifyAlbumRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths)
+	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths, h.Problems)
 	if !ok {
 		return
 	}
@@ -93,7 +92,7 @@ func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		// The resolver only fails when the outbound lookups do; that is an
 		// upstream problem, not a bad request.
-		httperr.WriteUpstream(w, r, err, "album identification is temporarily unavailable")
+		h.Problems.WriteUpstream(w, r, err, "album identification is temporarily unavailable")
 		return
 	}
 	if options == nil {
