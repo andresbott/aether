@@ -14,7 +14,7 @@ import (
 // mount: the internal admin API (apiV0MountPrefix, "/api/v0") gets a
 // problem+json Problem; everything else (chiefly /rest) keeps the legacy
 // apiError{error,code} shape unchanged. Our /api/v0 handlers already answer
-// JSON (most already problem+json via httperr), so without care the client
+// JSON (most already problem+json via h.problems), so without care the client
 // receives an envelope whose "detail" is an escaped JSON *document* — which
 // the UI then shows verbatim (the {"error":...,"code":"upstream_error"}
 // string users saw on a failed cover search, back when the envelope's own
@@ -111,7 +111,7 @@ func TestSubsonicErrorEnvelopeIsUntouched(t *testing.T) {
 
 // Handlers that answer plain text (http.Error) still need an envelope — the
 // SPA parses every /api/v0 failure as problem+json, not just the ones a
-// handler builds itself via httperr. This exercises the real /api/v0
+// handler builds itself via h.problems. This exercises the real /api/v0
 // catch-all (api_v0.go), which answers unmatched paths with a bare
 // http.Error.
 func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
@@ -141,7 +141,7 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 }
 
 // A bare http.NotFound (the pictureImage "cell not found" case, or any other
-// handler that answers 404 without going through httperr) must come out as
+// handler that answers 404 without going through h.problems) must come out as
 // problem+json too, exercised directly against the middleware rather than a
 // specific registered route.
 func TestBareNotFoundBecomesProblemJSON(t *testing.T) {

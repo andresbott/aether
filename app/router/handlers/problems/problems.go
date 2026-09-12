@@ -13,8 +13,9 @@ import (
 )
 
 // baseURI is the stable, opaque base for every problem's Type. Never fetched by
-// clients; only its last path segment (the slug) is read. Unchanged from the
-// former httperr package so problem `type` URIs stay byte-identical.
+// clients; only its last path segment (the slug) is read. Unchanged from
+// aether's original ad hoc /api/v0 error package so problem `type` URIs stay
+// byte-identical.
 const baseURI = "https://aether.local/probs"
 
 // titles maps aether-specific slugs to their human titles. The generic slugs

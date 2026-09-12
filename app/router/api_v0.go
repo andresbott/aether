@@ -187,7 +187,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 
 	// Radio-browser proxy endpoints (station search + favicon fetch) are an
 	// admin import tool with no store dependency, so register them up front.
-	rbh := &radiobrowserHandler.Handler{Client: radiobrowser.New(userAgent)}
+	rbh := &radiobrowserHandler.Handler{Client: radiobrowser.New(userAgent), Problems: h.problems}
 	rbh.Routes(r)
 
 	if h.taskRunner != nil {
@@ -196,6 +196,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			TaskLogGetter: h.taskLogGetter,
 			Schedules:     h.scheduler,
 			Logger:        h.logger,
+			Problems:      h.problems,
 		}
 		// Executions are global. Register these before /tasks/{name} so the
 		// {name} var does not capture the literal "executions".

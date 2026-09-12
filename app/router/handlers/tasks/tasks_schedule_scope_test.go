@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/gorilla/mux"
 )
 
@@ -14,7 +15,7 @@ import (
 // (/tasks/{name}/schedules/{id}); patching it under a different task's name must
 // not edit it — it does not belong to that task, so the answer is 404.
 func TestPatchScheduleUnderWrongTaskIs404(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	sc := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
 	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan-full/schedules/"+sc.ID, strings.NewReader(`{"enabled":false}`))
@@ -28,7 +29,7 @@ func TestPatchScheduleUnderWrongTaskIs404(t *testing.T) {
 
 // Likewise a delete under the wrong task must 404 and leave the schedule intact.
 func TestDeleteScheduleUnderWrongTaskIs404(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	sc := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
 	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan-full/schedules/"+sc.ID, nil)
@@ -47,7 +48,7 @@ func TestDeleteScheduleUnderWrongTaskIs404(t *testing.T) {
 // field (nil), exactly as PatchSchedule does, so a created schedule never
 // round-trips a bare `null` for its params object.
 func TestCreateScheduleNormalizesNullParams(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","params":null}`)
 	if len(created.Params) != 0 {
 		t.Fatalf("explicit params:null should store no params, got %q", created.Params)
