@@ -95,6 +95,13 @@ const mountView = () =>
                     name: 'TrackActionSheet',
                     props: ['song', 'visible'],
                     template: '<div />'
+                },
+                // Owns its own PrimeVue Toast + playlist queries; stubbed here so
+                // selecting a row doesn't drag those into this view's harness.
+                HeroSelectionBar: {
+                    name: 'HeroSelectionBar',
+                    props: ['count', 'songs'],
+                    template: '<div class="hero-selection-bar-stub" />'
                 }
             }
         }
@@ -119,16 +126,16 @@ beforeEach(() => {
 })
 
 describe('AlbumView album drag', () => {
-    it('renders a draggable handle in the album actions', () => {
+    it('makes the hero cover a drag source', () => {
         const w = mountView()
-        const handle = w.find('.album-drag-handle')
-        expect(handle.exists()).toBe(true)
-        expect(handle.attributes('draggable')).toBe('true')
+        const cover = w.find('.flip-front')
+        expect(cover.exists()).toBe(true)
+        expect(cover.attributes('draggable')).toBe('true')
     })
 
-    it('starts the album drag with the album and cover URL on dragstart', async () => {
+    it('starts the album drag with the album and cover URL when the cover is dragged', async () => {
         const w = mountView()
-        await w.find('.album-drag-handle').trigger('dragstart')
+        await w.find('.flip-front').trigger('dragstart')
         expect(start).toHaveBeenCalledTimes(1)
         const call = start.mock.calls[0]
         expect(call[1]).toBe(album)
@@ -237,9 +244,10 @@ describe('AlbumView hero actions', () => {
         expect(toggleStarMutate).toHaveBeenCalledWith({ id: 'al1', starred: false })
     })
 
-    it('keeps only the drag handle in the scaffold actions', () => {
+    it('leaves the top bar Back-only; play lives in the hero', () => {
         const w = mountView()
-        expect(w.find('.album-drag-handle').exists()).toBe(true)
+        // The album drag moved onto the cover, so the top bar has no drag handle.
+        expect(w.find('.album-drag-handle').exists()).toBe(false)
         // Hero owns play/queue/star now; they render inside the HeroHeader.
         expect(w.find('.hero-header .hero-action-play').exists()).toBe(true)
     })

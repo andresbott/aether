@@ -53,17 +53,32 @@ const favoritesOnly = computed<boolean>({
     }
 })
 
+// Public filter, URL state (?public=1) like favorites. Another client-side
+// predicate — getPlaylists already carries each playlist's `public` flag.
+const publicOnly = computed<boolean>({
+    get: () => route.query.public === '1',
+    set: (v) => {
+        const query = { ...route.query }
+        if (v) query.public = '1'
+        else delete query.public
+        router.replace({ query })
+    }
+})
+
 const visiblePlaylists = computed(() => {
-    const all = playlists.value ?? []
-    return favoritesOnly.value ? all.filter((pl) => !!pl.starred) : all
+    let list = playlists.value ?? []
+    if (favoritesOnly.value) list = list.filter((pl) => !!pl.starred)
+    if (publicOnly.value) list = list.filter((pl) => !!pl.public)
+    return list
 })
 
 const summary = computed(() => {
     const count = visiblePlaylists.value.length
     if (count === 0) return ''
-    // Filtered, the count is of favorites — a bare "3 playlists" would read as
-    // the whole set. Matches LibraryView's wording.
+    // Filtered, the count is of the active filter — a bare "3 playlists" would
+    // read as the whole set. Matches LibraryView's wording.
     if (favoritesOnly.value) return `${count} favorite${count === 1 ? '' : 's'}`
+    if (publicOnly.value) return `${count} public`
     return `${count} ${count === 1 ? 'playlist' : 'playlists'}`
 })
 
@@ -89,13 +104,26 @@ const handleCreate = () => {
                  and wording as LibraryView's — see unified-play-experience.md. -->
             <ToggleButton
                 v-model="favoritesOnly"
-                class="playlists-favorites-filter"
+                class="playlists-favorites-filter as-button-group"
                 onIcon="pi pi-heart-fill"
                 offIcon="pi pi-heart"
                 onLabel=""
                 offLabel=""
                 :aria-label="favoritesOnly ? 'Show all' : 'Show favorites only'"
                 v-tooltip.bottom="favoritesOnly ? 'Show all' : 'Show favorites only'"
+            />
+            <!-- Public filter — like favorites, changes WHAT is listed. Globe
+                 matches the playlist editor's Public toggle; the active state
+                 reads from the .as-button-group accent. -->
+            <ToggleButton
+                v-model="publicOnly"
+                class="playlists-public-filter as-button-group"
+                onIcon="pi pi-globe"
+                offIcon="pi pi-globe"
+                onLabel=""
+                offLabel=""
+                :aria-label="publicOnly ? 'Show all' : 'Show public only'"
+                v-tooltip.bottom="publicOnly ? 'Show all' : 'Show public only'"
             />
             <SelectButton
                 v-model="layout"
@@ -105,6 +133,7 @@ const handleCreate = () => {
                 :allowEmpty="false"
                 dataKey="value"
                 aria-label="Layout"
+                class="as-button-group"
             >
                 <template #option="slotProps">
                     <i :class="slotProps.option.icon"></i>
@@ -132,11 +161,15 @@ const handleCreate = () => {
                 </div>
             </template>
 
-            <!-- "No favorites yet" rather than "No playlists": with the filter on,
-                 the latter would claim the user has none at all. -->
+            <!-- Name the active filter rather than "No playlists": with a filter
+                 on, the latter would claim the user has none at all. -->
             <div v-else class="empty-state">
-                <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-list'" style="font-size: 3rem"></i>
+                <i
+                    :class="favoritesOnly ? 'pi pi-heart' : publicOnly ? 'pi pi-globe' : 'pi pi-list'"
+                    style="font-size: 3rem"
+                ></i>
                 <p v-if="favoritesOnly">No favorite playlists yet</p>
+                <p v-else-if="publicOnly">No public playlists</p>
                 <p v-else>No playlists</p>
             </div>
         </div>
@@ -176,24 +209,26 @@ const handleCreate = () => {
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 4rem; gap: 1rem; color: var(--app-text-secondary); }
 .create-form { padding: 1rem 0; }
 
-/* Mirrors LibraryView's .library-favorites-filter exactly — a favorite is grey
-   and signalled by the FILL, never the primary accent PrimeVue gives a checked
-   ToggleButton, and the empty on/offLabel's &nbsp; span is removed so the button
-   is icon-only like the SelectButton beside it. Change one, change both. */
-.playlists-favorites-filter :deep(.p-togglebutton-content) {
-    color: var(--app-text-secondary);
+/* The icon-only filter toggles (favorites + public). The button-group look —
+   bordered, transparent, accent when active — comes from the global
+   .as-button-group treatment in _main.scss; locally they are just icon-only
+   squares matching the add button. The favorites one mirrors LibraryView's
+   .library-favorites-filter (change one, change both). */
+.playlists-favorites-filter,
+.playlists-public-filter {
+    width: 2.125rem;
+    height: 2.125rem;
+    min-width: 0;
+}
+
+.playlists-favorites-filter :deep(.p-togglebutton-content),
+.playlists-public-filter :deep(.p-togglebutton-content) {
+    padding: 0;
     gap: 0;
 }
 
-.playlists-favorites-filter.p-togglebutton-checked :deep(.p-togglebutton-content) {
-    color: var(--app-text-primary);
-}
-
-.playlists-favorites-filter :deep(.p-togglebutton-label) {
+.playlists-favorites-filter :deep(.p-togglebutton-label),
+.playlists-public-filter :deep(.p-togglebutton-label) {
     display: none;
-}
-
-.playlists-favorites-filter {
-    min-width: 0;
 }
 </style>

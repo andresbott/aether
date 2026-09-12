@@ -213,6 +213,7 @@ export function useUpdatePlaylist() {
             playlistId: string
             name?: string
             comment?: string
+            public?: boolean
             songIdsToAdd?: string[]
             songIndexesToRemove?: number[]
         }) => subsonicClient.updatePlaylist(params.playlistId, params),
@@ -314,6 +315,20 @@ export function useToggleStar() {
     return useMutation({
         mutationFn: (params: { id: string; starred: boolean }) =>
             params.starred ? subsonicClient.unstar(params.id) : subsonicClient.star(params.id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['subsonic'] })
+        }
+    })
+}
+
+// Add several songs to favorites at once — the hero's bulk-selection "Add to
+// favorites". Always stars (never toggles): the action names one direction, so a
+// mixed selection ends up fully starred. Subsonic has no batch star, so the ids
+// are starred in parallel and the caches invalidated once at the end.
+export function useStarSongs() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (ids: string[]) => Promise.all(ids.map((id) => subsonicClient.star(id))),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['subsonic'] })
         }

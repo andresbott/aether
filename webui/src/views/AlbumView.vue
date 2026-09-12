@@ -4,6 +4,7 @@ import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
+import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
@@ -23,7 +24,8 @@ const player = usePlayer()
 const toggleStar = useToggleStar()
 const albumDrag = useAlbumDrag()
 const songsDrag = useSongsDrag()
-const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+const { isSelected, onRowClick, selectionForDrag, clearSelection, selectedCount, selectedIndices } =
+    useRowSelection()
 
 const actionSong = ref<Song | null>(null)
 const actionIndex = ref(0)
@@ -46,7 +48,8 @@ const openTrackMenu = (index: number): void => {
     actionSheetOpen.value = true
 }
 
-const onAlbumDragStart = (event: DragEvent): void => {
+// The hero cover is the drag source: grabbing it drags the album into the queue.
+const onCoverDragStart = (event: DragEvent): void => {
     if (album.value) albumDrag.start(event, album.value, coverUrl.value)
 }
 
@@ -207,6 +210,21 @@ const hasMultipleDiscs = computed(() => discs.value.length > 1)
 // Flat track list ordered by disc; selection indices refer to positions in it.
 const orderedSongs = computed(() => discs.value.flatMap((disc) => disc.songs))
 
+// The selected songs in list order, fed to the in-hero selection action row.
+const selectedSongs = computed(() =>
+    [...selectedIndices.value]
+        .sort((a, b) => a - b)
+        .map((i) => orderedSongs.value[i])
+        .filter((s): s is Song => s !== undefined)
+)
+
+const playSelection = (): void => {
+    if (selectedSongs.value.length) player.playAlbum(selectedSongs.value)
+}
+const queueSelection = (): void => {
+    if (selectedSongs.value.length) player.addMultipleToQueue(selectedSongs.value)
+}
+
 // Disc groups carrying each row's flat index, so the template can render disc
 // headers while every row keeps its position in `orderedSongs`.
 const discGroups = computed(() => {
@@ -235,6 +253,12 @@ watch(
         editing.value = false
     }
 )
+
+// Entering edit mode gives the hero's action row over to Save/Cancel, so a stray
+// selection would have nowhere to act — drop it.
+watch(editing, (isEditing) => {
+    if (isEditing) clearSelection()
+})
 </script>
 
 <template>
@@ -249,109 +273,113 @@ watch(
         </div>
 
         <ContentScaffold v-else-if="album" title="" show-back @back="router.back()">
-            <template #actions>
-                <EditActionBar
-                    v-if="isAdmin"
-                    v-model:editing="editing"
-                    :can-delete="false"
-                    :save-disabled="!dirty"
-                    :saving="updateCover.isPending.value"
-                    :dirty="dirty"
-                    @save="saveEdit"
-                    @cancel="cancelEdit"
-                />
-                <span
-                    class="album-drag-handle"
-                    draggable="true"
-                    v-tooltip.bottom="'Drag album to queue'"
-                    @dragstart="onAlbumDragStart"
-                    @dragend="albumDrag.end"
-                >
-                    <i class="pi pi-bars"></i>
-                </span>
-            </template>
-
             <div class="album-scroll">
-                <div class="album-body content-col">
-                    <HeroHeader
-                        eyebrow="Album"
-                        cover-placeholder-icon="pi pi-music"
-                        cover-back-label="Album cover"
-                        :cover-url="coverUrl"
-                        :cover-size-error="coverSizeError"
-                        v-model:editing="editing"
-                        @cover-select="onCoverSelect"
-                        @cover-remove="onRemoveCover"
-                    >
-                        <template #cover-note>
-                            <div class="cover-help">
-                                Remove clears aether's managed cover and reverts to the folder or
-                                embedded artwork.
-                            </div>
-                        </template>
-                        <template #read>
-                            <h2 class="hero-name">{{ album.name }}</h2>
-                            <router-link
-                                v-if="album.artistId"
-                                :to="{ name: 'artist', params: { id: album.artistId } }"
-                                class="artist-link"
-                            >
-                                {{ album.artist }}
-                            </router-link>
-                            <p v-else class="artist-name">{{ album.artist }}</p>
-                            <div class="meta-row">
-                                <span v-if="album.year">{{ album.year }}</span>
-                                <span v-if="summary" :class="{ dot: !!album.year }">{{
-                                    summary
-                                }}</span>
-                            </div>
-                        </template>
-                        <template #actions>
-                            <HeroActions
-                                :play-disabled="!album.song?.length"
-                                can-queue
-                                can-star
-                                :starred="!!album.starred"
-                                @play="playAlbum"
-                                @queue="addToQueue"
-                                @star="handleStar"
-                            />
-                        </template>
-                    </HeroHeader>
-
-                    <div v-if="orderedSongs.length > 0" class="track-list">
-                        <div class="track-list-header">
-                            <span class="col-index">#</span>
-                            <span class="col-title">Title</span>
-                            <span class="col-artist">Artist</span>
-                            <!-- The select and favorite columns are hover-revealed
-                                 per row, so their headers stay blank rather than
-                                 labelling controls that are usually invisible. -->
-                            <span class="col-select"></span>
-                            <span class="col-star"></span>
-                            <span class="col-duration" aria-label="Duration">
-                                <i class="pi pi-clock"></i>
-                            </span>
+                <HeroHeader
+                    class="detail-hero"
+                    eyebrow="Album"
+                    cover-placeholder-icon="pi pi-music"
+                    cover-back-label="Album cover"
+                    :cover-url="coverUrl"
+                    :cover-size-error="coverSizeError"
+                    cover-draggable
+                    cover-drag-title="Drag to the play queue"
+                    v-model:editing="editing"
+                    @cover-select="onCoverSelect"
+                    @cover-remove="onRemoveCover"
+                    @cover-dragstart="onCoverDragStart"
+                    @cover-dragend="albumDrag.end"
+                >
+                    <template v-if="isAdmin" #edit-actions>
+                        <EditActionBar
+                            v-model:editing="editing"
+                            :can-delete="false"
+                            :save-disabled="!dirty"
+                            :saving="updateCover.isPending.value"
+                            :dirty="dirty"
+                            @save="saveEdit"
+                            @cancel="cancelEdit"
+                        />
+                    </template>
+                    <template #cover-note>
+                        <div class="cover-help">
+                            Remove clears aether's managed cover and reverts to the folder or
+                            embedded artwork.
                         </div>
-                        <template v-for="group in discGroups" :key="group.discNumber">
-                            <div v-if="hasMultipleDiscs" class="disc-header">
-                                Disc {{ group.discNumber }}
+                    </template>
+                    <template #read>
+                        <h2 class="hero-name">{{ album.name }}</h2>
+                        <router-link
+                            v-if="album.artistId"
+                            :to="{ name: 'artist', params: { id: album.artistId } }"
+                            class="artist-link"
+                        >
+                            {{ album.artist }}
+                        </router-link>
+                        <p v-else class="artist-name">{{ album.artist }}</p>
+                        <div class="meta-row">
+                            <span v-if="album.year">{{ album.year }}</span>
+                            <span v-if="summary" :class="{ dot: !!album.year }">{{ summary }}</span>
+                        </div>
+                    </template>
+                    <template #actions>
+                        <HeroSelectionBar
+                            v-if="selectedCount > 0"
+                            :count="selectedCount"
+                            :songs="selectedSongs"
+                            @play="playSelection"
+                            @queue="queueSelection"
+                            @clear="clearSelection"
+                        />
+                        <HeroActions
+                            v-else
+                            :play-disabled="!album.song?.length"
+                            can-queue
+                            can-star
+                            :starred="!!album.starred"
+                            @play="playAlbum"
+                            @queue="addToQueue"
+                            @star="handleStar"
+                        />
+                    </template>
+                </HeroHeader>
+
+                <div class="album-below">
+                    <div class="album-body content-col">
+                        <div v-if="orderedSongs.length > 0" class="track-list">
+                            <div class="track-list-header">
+                                <span class="col-index">#</span>
+                                <span class="col-title">Title</span>
+                                <span class="col-artist">Artist</span>
+                                <!-- The select and favorite columns are hover-revealed
+                                     per row, so their headers stay blank rather than
+                                     labelling controls that are usually invisible. -->
+                                <span class="col-select"></span>
+                                <span class="col-star"></span>
+                                <span class="col-duration" aria-label="Duration">
+                                    <i class="pi pi-clock"></i>
+                                </span>
                             </div>
-                            <AlbumTrackRow
-                                v-for="row in group.rows"
-                                :key="row.song.id"
-                                :song="row.song"
-                                :index="row.index"
-                                :selected="isSelected(row.index)"
-                                :playing="row.song.id === currentTrackId"
-                                @select="(p) => onRowClick(row.index, p)"
-                                @enqueue="enqueueTrack(row.index)"
-                                @play="playTrack(row.index)"
-                                @menu="openTrackMenu(row.index)"
-                                @dragstart="(e) => onRowDragStart(e, row.index)"
-                                @dragend="songsDrag.end"
-                            />
-                        </template>
+                            <template v-for="group in discGroups" :key="group.discNumber">
+                                <div v-if="hasMultipleDiscs" class="disc-header">
+                                    Disc {{ group.discNumber }}
+                                </div>
+                                <AlbumTrackRow
+                                    v-for="row in group.rows"
+                                    :key="row.song.id"
+                                    :song="row.song"
+                                    :index="row.index"
+                                    :selected="isSelected(row.index)"
+                                    :selecting="selectedCount > 0"
+                                    :playing="row.song.id === currentTrackId"
+                                    @select="(p) => onRowClick(row.index, p)"
+                                    @enqueue="enqueueTrack(row.index)"
+                                    @play="playTrack(row.index)"
+                                    @menu="openTrackMenu(row.index)"
+                                    @dragstart="(e) => onRowDragStart(e, row.index)"
+                                    @dragend="songsDrag.end"
+                                />
+                            </template>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -386,13 +414,21 @@ watch(
     color: #ef4444;
 }
 
+/* Recipe B, but with the hero pulled OUT of the centered column so the duotone
+   band bleeds edge to edge: the scroll container no longer reserves the rail
+   clearance itself (the band spans its full content box), and each part reserves
+   it instead — the hero internally (HeroHeader's .hero-pad) and the body via
+   .album-below — so both columns still line up. */
 .album-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    /* Recipe B: uniform rail clearance so the column matches the list views. */
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
+}
+
+.album-below {
+    box-sizing: border-box;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 
 .album-body {
@@ -400,14 +436,16 @@ watch(
     padding-bottom: 1rem;
 }
 
+/* The identity links sit on the dark duotone band, so they take a light cyan
+   rather than the app accent (too dark on the band in light mode). */
 .artist-link {
     font-size: 1.25rem;
-    color: var(--app-accent);
+    color: #8fecff;
 }
 
 .artist-name {
     font-size: 1.25rem;
-    color: var(--app-text-secondary);
+    color: #cdd7df;
     margin: 0;
 }
 
@@ -461,20 +499,6 @@ watch(
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-}
-
-.album-drag-handle {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
-    color: var(--app-text-secondary);
-    cursor: grab;
-}
-
-.album-drag-handle:active {
-    cursor: grabbing;
 }
 
 .cover-help {

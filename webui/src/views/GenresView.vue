@@ -47,6 +47,7 @@ const summary = computed(() => {
                 :allowEmpty="false"
                 dataKey="value"
                 aria-label="Layout"
+                class="as-button-group"
             >
                 <template #option="slotProps">
                     <i :class="slotProps.option.icon"></i>

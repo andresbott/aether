@@ -6,6 +6,7 @@ import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
+import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
@@ -27,7 +28,8 @@ const router = useRouter()
 const player = usePlayer()
 const updateCover = useUpdateGenreCover()
 const songsDrag = useSongsDrag()
-const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+const { isSelected, onRowClick, selectionForDrag, clearSelection, selectedCount, selectedIndices } =
+    useRowSelection()
 
 // Genre cover art is global catalog data, so editing it is admin-only — the
 // backend gates updateGenre on error 50. Match ArtistView/AlbumView and hide the
@@ -212,6 +214,22 @@ const onQueue = async (): Promise<void> => {
     }
 }
 
+// The loaded selected songs in list order, fed to the in-hero selection row. Only
+// pages scrolled into view are present, so selection acts on what is loaded.
+const selectedSongs = computed(() =>
+    [...selectedIndices.value]
+        .sort((a, b) => a - b)
+        .map((i) => items.value[i])
+        .filter((s): s is Song => s !== undefined)
+)
+
+const playSelection = (): void => {
+    if (selectedSongs.value.length) player.playAlbum(selectedSongs.value)
+}
+const queueSelection = (): void => {
+    if (selectedSongs.value.length) player.addMultipleToQueue(selectedSongs.value)
+}
+
 // --- Song list interactions ---
 function onLazyLoad(event: VirtualScrollerLazyEvent): void {
     void ensureRange(event.first, event.last)
@@ -239,6 +257,11 @@ watch(
     () => props.name,
     () => clearSelection()
 )
+
+// Entering edit mode gives the hero's action row over to Save/Cancel.
+watch(editing, (isEditing) => {
+    if (isEditing) clearSelection()
+})
 </script>
 
 <template>
@@ -258,55 +281,56 @@ watch(
         </div>
 
         <ContentScaffold v-else title="" show-back @back="router.back()">
-            <template #actions>
-                <EditActionBar
-                    v-if="isAdmin"
-                    v-model:editing="editing"
-                    :can-delete="false"
-                    :save-disabled="!dirty"
-                    :saving="updateCover.isPending.value"
-                    :dirty="dirty"
-                    @save="saveEdit"
-                    @cancel="cancelEdit"
-                />
-            </template>
-
             <div class="genre-body">
-                <div class="genre-hero">
-                    <div class="genre-hero-inner content-col">
-                        <HeroHeader
-                            eyebrow="Genre"
-                            cover-placeholder-icon="pi pi-tags"
-                            cover-back-label="Genre image"
-                            :cover-url="coverUrl"
-                            :cover-size-error="coverSizeError"
+                <HeroHeader
+                    class="detail-hero genre-hero"
+                    eyebrow="Genre"
+                    cover-placeholder-icon="pi pi-tags"
+                    cover-back-label="Genre image"
+                    :cover-url="coverUrl"
+                    :cover-size-error="coverSizeError"
+                    v-model:editing="editing"
+                    @cover-select="onCoverSelect"
+                    @cover-remove="onRemoveCover"
+                >
+                    <template v-if="isAdmin" #edit-actions>
+                        <EditActionBar
                             v-model:editing="editing"
-                            @cover-select="onCoverSelect"
-                            @cover-remove="onRemoveCover"
-                        >
-                            <template #read>
-                                <h2 class="hero-name">{{ genre.value }}</h2>
-                                <div v-if="heroMeta.length" class="meta-row">
-                                    <span
-                                        v-for="(part, i) in heroMeta"
-                                        :key="part"
-                                        :class="{ dot: i > 0 }"
-                                        >{{ part }}</span
-                                    >
-                                </div>
-                            </template>
-                            <template #actions>
-                                <HeroActions
-                                    :play-disabled="songTotal === 0"
-                                    can-queue
-                                    :busy="gathering"
-                                    @play="onPlay"
-                                    @queue="onQueue"
-                                />
-                            </template>
-                        </HeroHeader>
-                    </div>
-                </div>
+                            :can-delete="false"
+                            :save-disabled="!dirty"
+                            :saving="updateCover.isPending.value"
+                            :dirty="dirty"
+                            @save="saveEdit"
+                            @cancel="cancelEdit"
+                        />
+                    </template>
+                    <template #read>
+                        <h2 class="hero-name">{{ genre.value }}</h2>
+                        <div v-if="heroMeta.length" class="meta-row">
+                            <span v-for="(part, i) in heroMeta" :key="part" :class="{ dot: i > 0 }">{{
+                                part
+                            }}</span>
+                        </div>
+                    </template>
+                    <template #actions>
+                        <HeroSelectionBar
+                            v-if="selectedCount > 0"
+                            :count="selectedCount"
+                            :songs="selectedSongs"
+                            @play="playSelection"
+                            @queue="queueSelection"
+                            @clear="clearSelection"
+                        />
+                        <HeroActions
+                            v-else
+                            :play-disabled="songTotal === 0"
+                            can-queue
+                            :busy="gathering"
+                            @play="onPlay"
+                            @queue="onQueue"
+                        />
+                    </template>
+                </HeroHeader>
 
                 <div v-if="songTotal > 0" class="track-list">
                     <div class="track-list-header">
@@ -338,6 +362,7 @@ watch(
                                 :song="item"
                                 :index="options.index"
                                 :selected="isSelected(options.index)"
+                                :selecting="selectedCount > 0"
                                 :playing="item?.id === currentTrackId"
                                 @select="(p) => onRowClick(options.index, p)"
                                 @enqueue="enqueueTrack(options.index)"
@@ -389,15 +414,12 @@ watch(
     min-height: 0;
 }
 
-/* Recipe A: the hero is a fixed frame above the scrolling track list. */
+/* Recipe A: the hero is a fixed full-bleed band above the scrolling track list.
+   It compensates for the list's scrollbar twice, handed to HeroHeader's inner
+   column via --hero-rail-clearance so the hero content lines up with the rows. */
 .genre-hero {
     flex-shrink: 0;
-    box-sizing: border-box;
-    padding-right: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
-}
-
-.genre-hero-inner {
-    padding-top: 1rem;
+    --hero-rail-clearance: calc(var(--app-rail-clearance) + 2 * var(--sb-w, 0px));
 }
 
 .track-list {

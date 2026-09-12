@@ -1,0 +1,459 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/* ============================================================
+   Aether — hero-redesign mockups · shared foundation
+   ------------------------------------------------------------
+   Tokens mirror webui/src/assets/scss/_variables.scss. Dark is the
+   default here (music apps skew dark); [data-theme="light"] flips to
+   Aether's light palette. Only the .hero differs per file — the
+   back-only topbar, the track-list body and the player bar are shared,
+   so the hero is the one thing under comparison.
+   ============================================================ */
+
+:root,
+[data-theme='dark'] {
+    --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+    --app-background: #0d1117;
+    --app-surface: #141b24;
+    --app-surface-2: #1a222e;
+    --app-bg-subtle: #1c2632;
+    --app-border: #232d3a;
+    --app-text-primary: #d7dee6;
+    --app-text-secondary: #7b8794;
+    --app-accent: #2fd3ef;
+    --app-accent-hover: #57e0f7;
+    --app-accent-contrast: #06222a;
+    --app-accent-soft: rgba(47, 211, 239, 0.16);
+    --app-hover: rgba(47, 211, 239, 0.09);
+    --app-magenta: #ff4d8d; /* nav-brand-alt, lifted for dark */
+    --app-magenta-soft: rgba(255, 77, 141, 0.16);
+    --app-nav-bg: #0a0e13;
+    --app-player-bg: #080b10;
+
+    --app-radius: 8px;
+    --app-content-max-width: 1100px;
+    --app-content-gutter: 1.5rem;
+    --shadow-card: 0 10px 34px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+}
+
+[data-theme='light'] {
+    --app-background: #e7eaee;
+    --app-surface: #f4f6f8;
+    --app-surface-2: #ffffff;
+    --app-bg-subtle: #e9ecf0;
+    --app-border: #dde2e8;
+    --app-text-primary: #1b2430;
+    --app-text-secondary: #67727f;
+    --app-accent: #0e9bb5;
+    --app-accent-hover: #0b8299;
+    --app-accent-contrast: #ffffff;
+    --app-accent-soft: rgba(14, 155, 181, 0.12);
+    --app-hover: rgba(20, 120, 150, 0.07);
+    --app-magenta: #d81b60;
+    --app-magenta-soft: rgba(216, 27, 96, 0.1);
+    --app-nav-bg: #1b2430;
+    --app-player-bg: #141b24;
+    --shadow-card: 0 10px 30px rgba(20, 30, 45, 0.16);
+    color-scheme: light;
+}
+
+* {
+    box-sizing: border-box;
+}
+html,
+body {
+    height: 100%;
+}
+body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--app-text-primary);
+    background: var(--app-background);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* Content pane — stands in for Aether's main area beside the sidebar. */
+.app-frame {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* --- Topbar: BACK ONLY. Edit has moved into the hero. --- */
+.topbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 56px;
+    padding: 0 1.1rem;
+    border-bottom: 1px solid var(--app-border);
+    background: var(--app-surface);
+}
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    font-size: 1.05rem;
+    transition:
+        background 0.15s,
+        color 0.15s;
+}
+.icon-btn:hover {
+    background: var(--app-hover);
+    color: var(--app-text-primary);
+}
+.topbar .crumb {
+    font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+
+/* --- Scroll area + centered column --- */
+.scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+.content-col {
+    width: 100%;
+    max-width: calc(var(--app-content-max-width) + 2 * var(--app-content-gutter));
+    margin: 0 auto;
+    padding-left: var(--app-content-gutter);
+    padding-right: var(--app-content-gutter);
+}
+
+/* --- Shared hero primitives (each variant arranges these) --- */
+.eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--app-accent);
+}
+.hero-name {
+    margin: 0;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.03;
+    font-size: clamp(2rem, 3.4vw, 2.9rem);
+}
+.hero-sub {
+    margin: 0;
+    font-size: 1.12rem;
+    color: var(--app-text-secondary);
+}
+.hero-sub a,
+a.hero-sub {
+    color: var(--app-accent);
+    text-decoration: none;
+}
+.hero-sub a:hover {
+    text-decoration: underline;
+}
+.meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.75rem;
+    color: var(--app-text-secondary);
+    font-size: 0.9rem;
+}
+.meta .dot::before {
+    content: '•';
+    margin-right: 0.75rem;
+    opacity: 0.5;
+}
+
+.cover {
+    display: block;
+    border-radius: var(--app-radius);
+    overflow: hidden;
+    background: var(--app-bg-subtle);
+    flex-shrink: 0;
+    box-shadow: var(--shadow-card);
+}
+.cover img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* --- Buttons --- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 0;
+    border-radius: var(--app-radius);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding: 0.62rem 1.15rem;
+    color: var(--app-text-primary);
+    background: transparent;
+    transition:
+        background 0.15s,
+        color 0.15s,
+        transform 0.08s;
+    white-space: nowrap;
+}
+.btn-primary {
+    background: var(--app-accent);
+    color: var(--app-accent-contrast);
+}
+.btn-primary:hover {
+    background: var(--app-accent-hover);
+}
+.btn-primary:active {
+    transform: translateY(1px);
+}
+.btn-ghost {
+    color: var(--app-text-secondary);
+}
+.btn-ghost:hover {
+    background: var(--app-hover);
+    color: var(--app-text-primary);
+}
+.btn-outline {
+    border: 1px solid var(--app-border);
+    color: var(--app-text-primary);
+}
+.btn-outline:hover {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+}
+.btn-icon {
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    border-radius: 999px;
+}
+.fav.on,
+.fav:hover {
+    color: var(--app-magenta);
+}
+
+/* Glyphs as pure CSS / unicode so no icon font is needed offline. */
+.i-play {
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 6px 0 6px 11px;
+    border-color: transparent transparent transparent currentColor;
+    display: inline-block;
+    margin-left: 2px;
+}
+.i-plus::before {
+    content: '+';
+    font-size: 1.15em;
+    font-weight: 700;
+    line-height: 0.5;
+}
+.i-heart::before {
+    content: '\2665';
+}
+.i-edit::before {
+    content: '\270E';
+    font-size: 1.05em;
+}
+.i-back::before {
+    content: '\2190';
+    font-size: 1.25rem;
+}
+.i-more::before {
+    content: '\22EF';
+    font-weight: 700;
+    font-size: 1.2rem;
+}
+.i-shuffle::before {
+    content: '\21C4';
+    font-weight: 700;
+    font-size: 1.05em;
+}
+
+/* --- Body: shared track list --- */
+.body {
+    padding: 1.6rem 0 3rem;
+}
+.tl-head,
+.tl-row {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 2.2fr) minmax(0, 1.3fr) 64px;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 0.6rem;
+}
+.tl-head {
+    height: 34px;
+    border-bottom: 1px solid var(--app-border);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--app-text-secondary);
+    margin-bottom: 0.3rem;
+}
+.tl-head .num,
+.tl-head .dur,
+.tl-row .num,
+.tl-row .dur {
+    text-align: right;
+}
+.tl-row {
+    height: 46px;
+    border-radius: 6px;
+    color: var(--app-text-primary);
+    font-size: 0.92rem;
+    cursor: default;
+}
+.tl-row:hover {
+    background: var(--app-hover);
+}
+.tl-row .num {
+    color: var(--app-text-secondary);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+}
+.tl-row .t-artist,
+.tl-row .dur {
+    color: var(--app-text-secondary);
+}
+.tl-row .dur {
+    font-variant-numeric: tabular-nums;
+}
+.tl-row.playing {
+    background: var(--app-accent-soft);
+}
+.tl-row.playing .num,
+.tl-row.playing .t-title {
+    color: var(--app-accent);
+}
+.tl-row.playing .t-title {
+    font-weight: 600;
+}
+.t-title,
+.t-artist {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* --- Slim static player bar (completes the "inside Aether" illusion) --- */
+.playerbar {
+    flex-shrink: 0;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    padding: 0 1.25rem;
+    background: var(--app-player-bg);
+    color: #d7dee6;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.playerbar .pb-cover {
+    width: 42px;
+    height: 42px;
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.playerbar .pb-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.playerbar .pb-meta {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.25;
+    min-width: 0;
+}
+.playerbar .pb-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #eaf0f6;
+}
+.playerbar .pb-artist {
+    font-size: 0.78rem;
+    color: #8b97a4;
+}
+.playerbar .pb-transport {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+    color: #cfd8e0;
+}
+.playerbar .pb-play {
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    background: #eef3f7;
+    color: #10151c;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- Mock chrome: corner label + theme toggle --- */
+.mock-label {
+    position: fixed;
+    left: 14px;
+    bottom: 78px;
+    z-index: 50;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    color: var(--app-text-secondary);
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    padding: 0.32rem 0.55rem;
+    opacity: 0.92;
+}
+.mock-label b {
+    color: var(--app-text-primary);
+    font-weight: 600;
+}
+.theme-toggle {
+    position: fixed;
+    right: 14px;
+    bottom: 78px;
+    z-index: 50;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    cursor: pointer;
+    color: var(--app-text-secondary);
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+}
+.theme-toggle:hover {
+    color: var(--app-text-primary);
+    border-color: var(--app-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition: none !important;
+        animation: none !important;
+    }
+}

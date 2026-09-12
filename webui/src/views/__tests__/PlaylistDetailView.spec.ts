@@ -49,6 +49,12 @@ vi.mock('@/composables/usePlayer', () => ({
     usePlayer: () => ({ playAlbum, addMultipleToQueue, enqueueAndPlayIfIdle })
 }))
 
+// null = auth "none" (no per-user identity); the view treats that as owner.
+const currentUser = ref<{ login: string; role: string } | null>(null)
+vi.mock('@/composables/useAuth', () => ({
+    useAuth: () => ({ currentUser })
+}))
+
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
@@ -107,6 +113,7 @@ beforeEach(() => {
         songCount: 3,
         entry: [song('1'), song('2'), song('3')]
     }
+    currentUser.value = null
     updateMutate.mockReset()
     replaceMutate.mockClear()
     coverMutate.mockClear()
@@ -336,5 +343,204 @@ describe('PlaylistDetailView', () => {
         expect(updateMutate).not.toHaveBeenCalled()
         await enterEdit(w)
         expect((nameInput(w).element as HTMLInputElement).value).toBe('Other Mix')
+    })
+})
+
+describe('PlaylistDetailView edit-mode selection bubble', () => {
+    const selectRow = (w: ReturnType<typeof mountView>, index: number, ctrl = false) =>
+        w
+            .find(`.queue-edit-list [data-queue-index="${index}"]`)
+            .trigger('click', ctrl ? { ctrlKey: true } : {})
+
+    it('hides the "Playlist" eyebrow while editing', async () => {
+        const w = mountView()
+        expect(w.find('.eyebrow').text()).toBe('Playlist')
+        await enterEdit(w)
+        expect(w.find('.eyebrow').exists()).toBe(false)
+    })
+
+    it('reveals the bubble only once a track is selected in edit mode', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        expect(w.find('.edit-select').exists()).toBe(false)
+        await selectRow(w, 0)
+        expect(w.find('.edit-select').exists()).toBe(true)
+        expect(w.find('.edit-select .es-count').text()).toContain('1 selected')
+    })
+
+    it('Move to top sends the selection to the front and Save persists the order', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 2)
+        await w.find('.edit-select .es-top').trigger('click')
+        // Selection is cleared after the move, so the bubble goes away.
+        expect(w.find('.edit-select').exists()).toBe(false)
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(replaceAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', songIds: ['3', '1', '2'] })
+        )
+    })
+
+    it('Move to bottom sends the selection to the end', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 0)
+        await w.find('.edit-select .es-bottom').trigger('click')
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(replaceAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', songIds: ['2', '3', '1'] })
+        )
+    })
+
+    it('Delete removes the selected tracks from the working list', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 0)
+        await selectRow(w, 2, true)
+        await w.find('.edit-select .es-delete').trigger('click')
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(1)
+        expect(w.find('.edit-select').exists()).toBe(false)
+    })
+
+    it('Clear dismisses the bubble without changing the list', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 0)
+        await w.find('.edit-select .es-clear').trigger('click')
+        expect(w.find('.edit-select').exists()).toBe(false)
+        expect(w.findAll('.queue-edit-list .queue-row')).toHaveLength(3)
+    })
+
+    it('leaving edit mode via Esc resets the selection (no lingering bubble)', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 0)
+        expect(w.find('.edit-select').exists()).toBe(true)
+
+        // Esc while editing exits edit mode (EditActionBar listens on document).
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+        await flushPromises()
+
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
+        // The selection is cleared, so neither the edit bubble nor the view-mode
+        // selection bar lingers; the item actions come back instead.
+        expect(w.find('.edit-select').exists()).toBe(false)
+        expect(w.find('.hero-select').exists()).toBe(false)
+        expect(w.find('.hero-actions').exists()).toBe(true)
+    })
+
+    it('Cancel also resets the selection when leaving edit mode', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await selectRow(w, 0)
+        await w.find('.edit-action-cancel').trigger('click')
+        expect(w.find('.hero-header').classes()).not.toContain('editing')
+        expect(w.find('.edit-select').exists()).toBe(false)
+        expect(w.find('.hero-select').exists()).toBe(false)
+    })
+})
+
+describe('PlaylistDetailView visibility toggle', () => {
+    const selectRow = (w: ReturnType<typeof mountView>, index: number) =>
+        w.find(`.queue-edit-list [data-queue-index="${index}"]`).trigger('click')
+
+    it('offers the visibility toggle inside the edit form', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        // It belongs to the hero's edit slot (alongside name/description), shown
+        // while editing — not a view-mode action. HeroHeader keeps both slots in
+        // the DOM and swaps them by CSS, so this asserts placement, not visibility.
+        expect(w.find('.edit-only .edit-visibility').exists()).toBe(true)
+    })
+
+    it('swaps the visibility toggle for the selection bubble once a track is selected', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        expect(w.find('.edit-visibility').exists()).toBe(true)
+        expect(w.find('.edit-select').exists()).toBe(false)
+        await selectRow(w, 0)
+        expect(w.find('.edit-visibility').exists()).toBe(false)
+        expect(w.find('.edit-select').exists()).toBe(true)
+    })
+
+    it('seeds the toggle from the playlist and labels a public playlist "Public"', async () => {
+        playlist.value = {
+            id: 'pl1',
+            name: 'My Mix',
+            public: true,
+            songCount: 3,
+            entry: [song('1'), song('2'), song('3')]
+        }
+        const w = mountView()
+        await enterEdit(w)
+        expect(w.find('.edit-visibility .ev-toggle').text()).toContain('Public')
+    })
+
+    it('toggling the visibility and saving persists the public flag', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        await w.find('.edit-visibility .ev-toggle').trigger('click')
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(updateAsync).toHaveBeenCalledWith(
+            expect.objectContaining({ playlistId: 'pl1', public: true })
+        )
+    })
+
+    it('does not call updatePlaylist when the visibility is left unchanged', async () => {
+        const w = mountView()
+        await enterEdit(w)
+        // Reorder a track so there IS something to save, but never touch visibility.
+        await w.find('[data-queue-index="0"] .delete-button').trigger('click')
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(updateAsync).not.toHaveBeenCalled()
+    })
+})
+
+describe('PlaylistDetailView ownership gating', () => {
+    it('marks a playlist owned by someone else read-only: not-mine icon, no edit button', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        playlist.value = {
+            id: 'pl1',
+            name: 'Bob Mix',
+            owner: 'bob',
+            public: true,
+            songCount: 1,
+            entry: [song('1')]
+        }
+        const w = mountView()
+        expect(w.find('.not-mine-icon').exists()).toBe(true)
+        expect(w.find('.edit-action-edit').exists()).toBe(false)
+    })
+
+    it('lets the owner edit: edit button present, no not-mine icon', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        playlist.value = {
+            id: 'pl1',
+            name: 'My Mix',
+            owner: 'alice',
+            songCount: 1,
+            entry: [song('1')]
+        }
+        const w = mountView()
+        expect(w.find('.not-mine-icon').exists()).toBe(false)
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+    })
+
+    it('treats the lone visitor (auth "none") as owner — edit stays available', () => {
+        currentUser.value = null
+        playlist.value = {
+            id: 'pl1',
+            name: 'Mix',
+            owner: 'admin',
+            songCount: 1,
+            entry: [song('1')]
+        }
+        const w = mountView()
+        expect(w.find('.edit-action-edit').exists()).toBe(true)
+        expect(w.find('.not-mine-icon').exists()).toBe(false)
     })
 })

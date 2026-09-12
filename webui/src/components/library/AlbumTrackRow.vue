@@ -10,6 +10,10 @@ const props = defineProps<{
     index: number
     selected?: boolean
     playing?: boolean
+    // True while a multi-selection is active anywhere in the list: every row
+    // reveals its checkbox (not just the hovered/selected ones) so more tracks
+    // can be added at a glance.
+    selecting?: boolean
 }>()
 
 const { isTouch } = useViewport()
@@ -50,7 +54,7 @@ const onClick = (event: MouseEvent): void => {
 <template>
     <div
         class="album-track-row"
-        :class="{ selected, playing, striped: index % 2 === 1 }"
+        :class="{ selected, playing, selecting, striped: index % 2 === 1 }"
         role="option"
         :aria-selected="selected"
         :data-track-index="index"
@@ -161,6 +165,11 @@ const onClick = (event: MouseEvent): void => {
 
 .album-track-row:hover .col-select :deep(.row-select),
 .album-track-row:hover .col-star :deep(.row-star) {
+    opacity: 1;
+}
+
+/* While selecting, every row shows its checkbox so the set is easy to extend. */
+.album-track-row.selecting .col-select :deep(.row-select) {
     opacity: 1;
 }
 

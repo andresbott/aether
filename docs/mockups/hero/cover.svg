@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600" role="img" aria-label="Neon Meridian album cover">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241a4d"/>
+      <stop offset="0.42" stop-color="#5b1f6e"/>
+      <stop offset="0.60" stop-color="#d81b60"/>
+      <stop offset="0.70" stop-color="#ff7eb3"/>
+      <stop offset="0.712" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#05070f"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe259"/>
+      <stop offset="0.5" stop-color="#ff7eb3"/>
+      <stop offset="1" stop-color="#d81b60"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2fd3ef" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#2fd3ef" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="sunclip"><circle cx="300" cy="290" r="150"/></clipPath>
+  </defs>
+
+  <rect width="600" height="600" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#ffffff">
+    <circle cx="80" cy="70" r="1.7" opacity="0.9"/>
+    <circle cx="150" cy="120" r="1" opacity="0.7"/>
+    <circle cx="505" cy="58" r="1.9" opacity="0.9"/>
+    <circle cx="432" cy="132" r="1.2" opacity="0.7"/>
+    <circle cx="250" cy="48" r="1" opacity="0.6"/>
+    <circle cx="545" cy="182" r="1.3" opacity="0.8"/>
+    <circle cx="58" cy="205" r="1" opacity="0.6"/>
+    <circle cx="360" cy="92" r="1.2" opacity="0.7"/>
+  </g>
+
+  <!-- soft cyan glow around the sun -->
+  <circle cx="300" cy="300" r="260" fill="url(#glow)"/>
+
+  <!-- sun with horizontal slats -->
+  <g clip-path="url(#sunclip)">
+    <circle cx="300" cy="290" r="150" fill="url(#sun)"/>
+    <g fill="#0b1020">
+      <rect x="150" y="352" width="300" height="7"/>
+      <rect x="150" y="369" width="300" height="9"/>
+      <rect x="150" y="390" width="300" height="12"/>
+      <rect x="150" y="416" width="300" height="17"/>
+    </g>
+  </g>
+
+  <!-- horizon -->
+  <rect x="0" y="427" width="600" height="3" fill="#ff7eb3" opacity="0.7"/>
+
+  <!-- perspective grid floor -->
+  <g stroke="#2fd3ef" stroke-width="1.4" opacity="0.55" fill="none">
+    <line x1="0" y1="452" x2="600" y2="452"/>
+    <line x1="0" y1="482" x2="600" y2="482"/>
+    <line x1="0" y1="520" x2="600" y2="520"/>
+    <line x1="0" y1="566" x2="600" y2="566"/>
+    <line x1="300" y1="430" x2="-160" y2="600"/>
+    <line x1="300" y1="430" x2="-40" y2="600"/>
+    <line x1="300" y1="430" x2="55" y2="600"/>
+    <line x1="300" y1="430" x2="130" y2="600"/>
+    <line x1="300" y1="430" x2="192" y2="600"/>
+    <line x1="300" y1="430" x2="248" y2="600"/>
+    <line x1="300" y1="430" x2="300" y2="600"/>
+    <line x1="300" y1="430" x2="352" y2="600"/>
+    <line x1="300" y1="430" x2="408" y2="600"/>
+    <line x1="300" y1="430" x2="470" y2="600"/>
+    <line x1="300" y1="430" x2="545" y2="600"/>
+    <line x1="300" y1="430" x2="640" y2="600"/>
+    <line x1="300" y1="430" x2="760" y2="600"/>
+  </g>
+</svg>

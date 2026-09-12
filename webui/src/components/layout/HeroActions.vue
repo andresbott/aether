@@ -76,6 +76,9 @@ const emit = defineEmits<{
 .hero-actions {
     display: flex;
     align-items: center;
+    /* Wrap rather than let a narrow column (e.g. with the queue panel open)
+       shrink the buttons until their labels clip — matches HeroSelectionBar. */
+    flex-wrap: wrap;
     gap: 0.5rem;
     margin-top: 0.4rem;
 }

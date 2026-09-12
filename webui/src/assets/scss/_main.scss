@@ -155,13 +155,14 @@ a:hover {
 }
 
 // Full-bleed routes (those with `meta: { flush: true }`) manage their own
-// horizontal gutter on their header/content, so drop the side padding here and
-// let their internal scroll area reach the content-area edge — putting the
-// scroll bar flush right. Declared last so it also wins inside the media query
-// above.
+// horizontal gutter (header + body) and self-scroll, so drop the side and bottom
+// padding here and let the scroll area reach the content-area edges (scroll bar
+// flush right). Keep a small TOP padding for a bit of breathing room above the
+// header — enough to lift it off the edge, but far less than the default 1rem
+// that used to push the header (and its back button) down.
+// Declared last so it also wins inside the media query above.
 .main-content--flush {
-    padding-left: 0;
-    padding-right: 0;
+    padding: 0.5rem 0 0;
 }
 
 // Bottom sheets (Drawer position="bottom") size to their content instead of the
@@ -207,4 +208,73 @@ a:hover {
         flex: 1;
         overflow-y: auto;
     }
+}
+
+/* Header controls — Library's Discover/Albums/… tabs, the List/Grid layout
+   toggles and Search's scope filter (all SelectButtons), plus the favorites
+   filter (a standalone ToggleButton) — rendered as a compact, bordered segmented
+   control on a light surface: a white/surface control, grey inactive options,
+   and the active one filled with a soft accent tint + accent text/icon. Aura's
+   raised inset pill and grey track are dropped — the tint fills the whole cell
+   and the options stay attached (shared borders), so nothing floats or gaps.
+   color-mix keeps the tints solid over the surface in light and dark, matching
+   the sidebar's active-nav accent.
+
+   Opt-in via the class so per-row and form controls (track selection, the Theme
+   picker) keep the default segmented look. Global, not scoped: on phones
+   ContentScaffold moves #secondary-actions into a body-level Popover, out of
+   reach of a view's scoped styles. See https://primevue.dev/button/#buttongroup. */
+.p-selectbutton.as-button-group .p-togglebutton,
+.p-togglebutton.as-button-group {
+    /* One fixed height across every header control (tabs, layout, heart, add)
+       so the row stays flush no matter the content — an icon otherwise makes a
+       togglebutton taller than the icon-only buttons beside it. */
+    height: 2.125rem;
+    box-sizing: border-box;
+    background: var(--app-surface-2);
+    border-color: var(--app-border);
+    color: var(--app-text-secondary);
+    font-size: 0.875rem;
+}
+
+.p-selectbutton.as-button-group .p-togglebutton:not(.p-togglebutton-checked):not(:disabled):hover,
+.p-togglebutton.as-button-group:not(.p-togglebutton-checked):not(:disabled):hover {
+    background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface-2));
+    color: var(--app-text-primary);
+}
+
+.p-selectbutton.as-button-group .p-togglebutton.p-togglebutton-checked,
+.p-togglebutton.as-button-group.p-togglebutton-checked {
+    background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-2));
+    border-color: var(--app-border);
+    color: var(--app-accent);
+}
+
+.p-selectbutton.as-button-group .p-togglebutton.p-togglebutton-checked:not(:disabled):hover,
+.p-togglebutton.as-button-group.p-togglebutton-checked:not(:disabled):hover {
+    background: color-mix(in srgb, var(--app-accent) 20%, var(--app-surface-2));
+}
+
+/* Drop the raised inner pill (fill + shadow) so the active option sits flush. */
+.p-selectbutton.as-button-group .p-togglebutton.p-togglebutton-checked .p-togglebutton-content,
+.p-togglebutton.as-button-group.p-togglebutton-checked .p-togglebutton-content {
+    background: transparent;
+    box-shadow: none;
+}
+
+/* Icons (List/Grid, the favorites heart) follow their button's colour in every
+   state; the hover/checked selectors out-specify Aura's own icon-colour rules. */
+.p-selectbutton.as-button-group .p-togglebutton-icon,
+.p-togglebutton.as-button-group .p-togglebutton-icon,
+.p-togglebutton.as-button-group:not(:disabled):not(.p-togglebutton-checked):hover .p-togglebutton-icon,
+.p-togglebutton.as-button-group.p-togglebutton-checked .p-togglebutton-icon {
+    color: inherit;
+}
+
+/* Compact icons — sized to sit with the smaller label rather than PrimeIcons'
+   default 1rem. Covers the custom tab/scope glyphs (bare .pi in the #option
+   slot) and the built-in heart/layout icons. */
+.p-selectbutton.as-button-group .pi,
+.p-togglebutton.as-button-group .pi {
+    font-size: 0.95rem;
 }

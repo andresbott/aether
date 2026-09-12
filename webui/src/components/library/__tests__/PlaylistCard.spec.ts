@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { ref } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 
 const { starMutate, scrobbleMock, getPlaylistMock, playAlbumMock } = vi.hoisted(() => ({
@@ -24,6 +25,10 @@ vi.mock('@/lib/api/subsonic', () => ({
 
 vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum: playAlbumMock }) }))
 
+// null = auth "none" (no per-user identity) → treated as owner, no marker.
+const currentUser = ref<{ login: string; role: string } | null>(null)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser }) }))
+
 import PlaylistCard from '@/components/library/PlaylistCard.vue'
 
 const playlist = (over: Partial<Playlist> = {}): Playlist => ({
@@ -43,6 +48,7 @@ beforeEach(() => {
     starMutate.mockReset()
     scrobbleMock.mockClear()
     playAlbumMock.mockReset()
+    currentUser.value = null
 })
 
 describe('PlaylistCard star toggle', () => {
@@ -82,5 +88,24 @@ describe('PlaylistCard star toggle', () => {
         await Promise.resolve()
         expect(scrobbleMock).toHaveBeenCalledWith('pl-1')
         expect(playAlbumMock).toHaveBeenCalled()
+    })
+})
+
+describe('PlaylistCard ownership marker', () => {
+    it('marks a playlist owned by someone else with a read-only icon after the song count', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        expect(
+            mountCard(playlist({ owner: 'bob' })).find('.card-subtitle .not-mine-icon').exists()
+        ).toBe(true)
+    })
+
+    it('shows no marker on your own playlist', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        expect(mountCard(playlist({ owner: 'alice' })).find('.not-mine-icon').exists()).toBe(false)
+    })
+
+    it('shows no marker with no identity (auth "none")', () => {
+        currentUser.value = null
+        expect(mountCard(playlist({ owner: 'admin' })).find('.not-mine-icon').exists()).toBe(false)
     })
 })

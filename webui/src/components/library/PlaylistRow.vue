@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
+import { useIsPlaylistOwner } from '@/composables/usePlaylistOwnership'
 import { formatDuration } from '@/utils/formatDuration'
 
 /**
@@ -17,6 +18,7 @@ import { formatDuration } from '@/utils/formatDuration'
 const props = defineProps<{ playlist?: Playlist }>()
 
 const toggleStar = useTogglePlaylistStar()
+const isOwner = useIsPlaylistOwner(() => props.playlist?.owner)
 
 const coverUrl = computed(() => {
     const art = props.playlist?.coverArt
@@ -67,7 +69,14 @@ const onStar = (event: Event): void => {
                 <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
             </button>
         </div>
-        <div class="col-songs">{{ playlist.songCount }}</div>
+        <div class="col-songs">
+            {{ playlist.songCount }}
+            <i
+                v-if="!isOwner"
+                class="pi pi-lock not-mine-icon"
+                :title="`Shared by ${playlist.owner} — view only`"
+            ></i>
+        </div>
         <div class="col-duration">{{ formatDuration(playlist.duration) }}</div>
     </router-link>
 </template>
@@ -123,6 +132,13 @@ const onStar = (event: Event): void => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Read-only marker for a playlist owned by someone else. */
+.not-mine-icon {
+    color: var(--app-text-secondary);
+    font-size: 0.85em;
+    margin-left: 0.3rem;
 }
 
 /* The heart's column, matching AlbumRow's. */

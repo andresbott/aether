@@ -15,8 +15,10 @@ describe('hero phone stacking', () => {
 
     it('stacks the hero vertically and centers it', () => {
         expect(hero).toBeTruthy()
-        expect(hero).toMatch(/\.hero-header\s*\{[^}]*flex-direction:\s*column/)
-        expect(hero).toMatch(/\.hero-header\s*\{[^}]*align-items:\s*center/)
+        // The duotone hero lays its cover + identity out in a grid; the phone
+        // query collapses it to a single centered column.
+        expect(hero).toMatch(/\.hero-inner\s*\{[^}]*grid-template-columns:\s*1fr/)
+        expect(hero).toMatch(/\.hero-inner\s*\{[^}]*justify-items:\s*center/)
     })
 
     it('shrinks the cover and the name', () => {

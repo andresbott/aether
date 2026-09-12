@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export interface RowClickModifiers {
     additive: boolean
@@ -29,6 +29,11 @@ export function useRowSelection() {
     }
 
     const isSelected = (index: number): boolean => selectedIndices.value.has(index)
+
+    // Reactive size for the hosts' selection-aware UI (the in-hero action row and
+    // the rows' "reveal every checkbox while selecting" state). `.value.size` read
+    // straight in a template would not track Set mutations.
+    const selectedCount = computed(() => selectedIndices.value.size)
 
     const commit = (next: Set<number>, anchor: number): void => {
         selectedIndices.value = next
@@ -75,6 +80,7 @@ export function useRowSelection() {
 
     return {
         selectedIndices,
+        selectedCount,
         anchorIndex,
         isSelected,
         onRowClick,

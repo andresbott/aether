@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { ref } from 'vue'
 
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: { isConfigured: () => false, getCoverArtUrl: () => '' }
@@ -7,6 +8,13 @@ vi.mock('@/lib/api/subsonic', () => ({
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useTogglePlaylistStar: () => ({ mutate: vi.fn() })
 }))
+
+const currentUser = ref<{ login: string; role: string } | null>(null)
+vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser }) }))
+
+beforeEach(() => {
+    currentUser.value = null
+})
 
 import PlaylistListView from '@/components/library/PlaylistListView.vue'
 
@@ -46,5 +54,21 @@ describe('PlaylistListView', () => {
     it('has no per-row play button', () => {
         const w = mount(PlaylistListView, { props: { playlists }, global: { stubs } })
         expect(w.find('.row-play').exists()).toBe(false)
+    })
+
+    it('marks foreign playlists read-only, not your own', () => {
+        currentUser.value = { login: 'alice', role: 'user' }
+        const w = mount(PlaylistListView, {
+            props: {
+                playlists: [
+                    { id: 'pl1', name: 'Mine', owner: 'alice', songCount: 1, duration: 60, created: '2025-01-01T00:00:00Z' },
+                    { id: 'pl2', name: 'Theirs', owner: 'bob', public: true, songCount: 1, duration: 60, created: '2025-01-02T00:00:00Z' }
+                ]
+            },
+            global: { stubs }
+        })
+        const rows = w.findAll('.playlist-row')
+        expect(rows[0].find('.col-songs .not-mine-icon').exists()).toBe(false)
+        expect(rows[1].find('.col-songs .not-mine-icon').exists()).toBe(true)
     })
 })

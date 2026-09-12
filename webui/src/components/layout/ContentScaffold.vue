@@ -37,13 +37,17 @@ const goBrowse = (): void => {
 // #secondary-actions. Inline on desktop/tablet, behind ⋮ on phones.
 const collapseSecondary = computed(() => tier.value === 'phone' && !!slots['secondary-actions'])
 
+// A detail view passes no title (its name lives in the hero below), so the header
+// is just the Back button + any actions: collapse it to a slimmer bar.
+const isNavOnly = computed(() => !props.title && !slots['title-actions'])
+
 const overflowRef = ref<InstanceType<typeof Popover> | null>(null)
 const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
 </script>
 
 <template>
     <div class="content-scaffold">
-        <header class="content-scaffold-header">
+        <header class="content-scaffold-header" :class="{ 'nav-only': isNavOnly }">
             <div class="scaffold-header-inner content-col">
                 <Button
                     v-if="showNavButton"
@@ -116,6 +120,16 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     border-bottom: 1px solid var(--app-border);
 }
 
+/* Detail views pass no title (the name lives in the hero), so the header is just
+   the Back button + actions: slim it down rather than reserving a full title row,
+   and center its controls (the base `baseline` alignment would sit an icon-only
+   Back button low in the slim bar). */
+.content-scaffold-header.nav-only .scaffold-header-inner {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+    align-items: center;
+}
+
 /* .content-col supplies the centering + inline gutter. */
 .scaffold-header-inner {
     display: flex;
@@ -163,6 +177,30 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
     align-items: center;
     gap: 0.5rem;
     flex-shrink: 0;
+}
+
+/* A view's icon-only action button (Playlists/Radio's add) comes in round and
+   borderless — it floats beside the square, bordered SelectButton controls
+   instead of reading as one of the header controls. Square it off with the same
+   height, radius and border as the button groups; the accent colour keeps it
+   legible as the action. The phone overflow ⋮ is excluded — it stays a plain
+   trigger. Direct children only: a button that is part of a deliberate group
+   (a ButtonGroup, nested under .p-buttongroup) owns its own segmented look and
+   must not pick up the lone-button accent. */
+.scaffold-actions > :deep(.p-button-icon-only:not(.scaffold-overflow-btn)) {
+    width: 2.125rem;
+    height: 2.125rem;
+    padding: 0;
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    color: var(--app-accent);
+}
+
+.scaffold-actions > :deep(.p-button-icon-only:not(.scaffold-overflow-btn):hover) {
+    background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-2));
+    border-color: var(--app-border);
+    color: var(--app-accent);
 }
 
 .scaffold-overflow-panel {

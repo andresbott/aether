@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Aether · 07 Duotone — added, confirmed</title>
+        <link rel="stylesheet" href="_shared.css" />
+        <link rel="stylesheet" href="_select.css" />
+        <style>
+            /* Hero: 07 Duotone (see 07-duotone.html). */
+            .hero {
+                position: relative;
+                overflow: hidden;
+                isolation: isolate;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+            .hero-bg {
+                position: absolute;
+                inset: 0;
+                background: url(cover.svg) center / cover;
+                filter: grayscale(1) contrast(1.05) brightness(0.9);
+                transform: scale(1.05);
+                z-index: -3;
+            }
+            .hero-duo {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(115deg, var(--app-accent), var(--app-magenta));
+                mix-blend-mode: overlay;
+                opacity: 0.9;
+                z-index: -2;
+            }
+            .hero-scrim {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(
+                    90deg,
+                    rgba(6, 10, 16, 0.74) 0%,
+                    rgba(6, 10, 16, 0.4) 58%,
+                    rgba(6, 10, 16, 0.24) 100%
+                );
+                z-index: -1;
+            }
+            .hero-inner {
+                position: relative;
+                display: grid;
+                grid-template-columns: auto 1fr;
+                gap: 2rem;
+                padding: 2.6rem 0;
+            }
+            .hero .cover {
+                width: 200px;
+                height: 200px;
+                box-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+            }
+            .hero-id {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 0.7rem;
+                min-width: 0;
+                padding-right: 3.5rem;
+            }
+            .hero .eyebrow {
+                color: #8fecff;
+            }
+            .hero .hero-name {
+                color: #f4f8fb;
+            }
+            .hero .hero-sub,
+            .hero .hero-sub a {
+                color: #e2edf4;
+            }
+            .hero .meta {
+                color: #cdd7df;
+            }
+            .hero-actions {
+                display: flex;
+                align-items: center;
+                gap: 0.55rem;
+                margin-top: 0.5rem;
+            }
+            .hero .btn-ghost {
+                color: #e2edf4;
+            }
+            .hero .btn-ghost:hover {
+                background: rgba(255, 255, 255, 0.14);
+                color: #fff;
+            }
+            .hero-edit {
+                position: absolute;
+                top: 1.5rem;
+                right: 0;
+                background: rgba(255, 255, 255, 0.1);
+                color: #f4f8fb;
+                backdrop-filter: blur(6px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app-frame">
+            <header class="topbar">
+                <button class="icon-btn" aria-label="Back"><span class="i-back"></span></button>
+            </header>
+            <main class="scroll">
+                <section class="hero">
+                    <div class="hero-bg"></div>
+                    <div class="hero-duo"></div>
+                    <div class="hero-scrim"></div>
+                    <div class="hero-inner content-col">
+                        <button class="btn btn-ghost btn-icon hero-edit" aria-label="Edit album">
+                            <span class="i-edit"></span>
+                        </button>
+                        <div class="cover"><img src="cover.svg" alt="Neon Meridian cover" /></div>
+                        <div class="hero-id">
+                            <span class="eyebrow">Album</span>
+                            <h1 class="hero-name">Neon Meridian</h1>
+                            <p class="hero-sub"><a href="#">Aurora Fields</a></p>
+                            <div class="meta">
+                                <span>2024</span>
+                                <span class="dot">12 songs</span>
+                                <span class="dot">48 min</span>
+                                <span class="dot">Synthwave</span>
+                            </div>
+                            <div class="hero-actions">
+                                <button class="btn btn-primary"><span class="i-play"></span> Play</button>
+                                <button class="btn btn-ghost"><span class="i-plus"></span> Add to queue</button>
+                                <button class="btn btn-ghost btn-icon fav" aria-label="Favorite">
+                                    <span class="i-heart"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="body content-col">
+                    <div class="tracklist" data-fill></div>
+                </section>
+            </main>
+            <footer class="playerbar">
+                <div class="pb-cover"><img src="cover.svg" alt="" /></div>
+                <div class="pb-meta">
+                    <span class="pb-title">Coastline (feat. Halogen)</span>
+                    <span class="pb-artist">Aurora Fields</span>
+                </div>
+                <div class="pb-transport">
+                    <span class="i-shuffle"></span>
+                    <span class="pb-play"><span class="i-play"></span></span>
+                    <span>4:05</span>
+                </div>
+            </footer>
+        </div>
+
+        <!-- Confirmation: selection is cleared, the write is toasted (mirrors the
+             real "Added to {playlist}" toast). -->
+        <div class="toast" role="status">
+            <span class="toast-ico"><span class="i-check"></span></span>
+            <div class="toast-txt">
+                <div class="toast-sum">Added 3 songs to Late Night Drive</div>
+                <div class="toast-det">The playlist now has 45 songs.</div>
+            </div>
+            <button class="icon-btn toast-x" aria-label="Dismiss"><span class="i-close"></span></button>
+        </div>
+
+        <div class="mock-label"><b>07</b> · Duotone — added, confirmed</div>
+        <button class="theme-toggle"></button>
+        <script src="_shared.js" defer></script>
+    </body>
+</html>

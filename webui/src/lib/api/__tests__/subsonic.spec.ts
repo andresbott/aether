@@ -119,3 +119,23 @@ describe('subsonicClient.replacePlaylistTracks', () => {
         expect(params.getAll('songId')).toEqual(['s1', 's2', 's3'])
     })
 })
+
+describe('subsonicClient.updatePlaylist', () => {
+    beforeEach(() => subsonicClient.initWithDefaults())
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('sends the public flag when provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updatePlaylist('pl-7', { public: true })
+        const params = new URL(fetchMock.mock.calls[0][0] as string).searchParams
+        expect(params.get('playlistId')).toBe('pl-7')
+        expect(params.get('public')).toBe('true')
+    })
+
+    it('omits the public flag when it is not provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updatePlaylist('pl-7', { name: 'Renamed' })
+        const params = new URL(fetchMock.mock.calls[0][0] as string).searchParams
+        expect(params.has('public')).toBe(false)
+    })
+})

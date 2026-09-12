@@ -11,6 +11,9 @@ const props = defineProps<{
     index: number
     selected?: boolean
     playing?: boolean
+    // True while a multi-selection is active: every row reveals its checkbox so
+    // more tracks can be added at a glance (matches AlbumTrackRow).
+    selecting?: boolean
 }>()
 
 const { isTouch } = useViewport()
@@ -63,7 +66,7 @@ const onAlbumClick = (event: MouseEvent): void => {
     <div
         v-else
         class="genre-track-row"
-        :class="{ selected, playing, striped: index % 2 === 1 }"
+        :class="{ selected, playing, selecting, striped: index % 2 === 1 }"
         role="option"
         :aria-selected="selected"
         :data-track-index="index"
@@ -201,6 +204,11 @@ const onAlbumClick = (event: MouseEvent): void => {
 
 .genre-track-row:hover .col-select :deep(.row-select),
 .genre-track-row:hover .col-star :deep(.row-star) {
+    opacity: 1;
+}
+
+/* While selecting, every row shows its checkbox so the set is easy to extend. */
+.genre-track-row.selecting .col-select :deep(.row-select) {
     opacity: 1;
 }
 
