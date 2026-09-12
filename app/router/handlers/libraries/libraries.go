@@ -8,15 +8,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
 
 type Handler struct {
 	Store *store.Store
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 type libraryDTO struct {
@@ -145,14 +147,14 @@ func (h *Handler) Routes(r *mux.Router) {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	libs, err := h.Store.ListLibraries()
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]libraryDTO, 0, len(libs))
 	for _, lib := range libs {
 		dto, err := h.modelToDTO(lib)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		out = append(out, dto)
@@ -163,18 +165,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	lib, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
 	dto, err := h.modelToDTO(lib)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, dto)
@@ -185,14 +187,14 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 // is done. A missing required field (name/path) is 400; a present-but-invalid
 // value (too long, an unusable path, a bad regex/enum) is well-formed-but-
 // invalid input, answered as a 422 validation problem.
-func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO) (abs string, ok bool) {
+func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO, pw *problemjson.Writer) (abs string, ok bool) {
 	if err := ValidateName(in.Name); err != nil {
-		writeFieldValidationErr(w, r, "/name", err)
+		writeFieldValidationErr(w, r, "/name", err, pw)
 		return "", false
 	}
 	abs, err := ValidatePath(in.Path)
 	if err != nil {
-		writeFieldValidationErr(w, r, "/path", err)
+		writeFieldValidationErr(w, r, "/path", err, pw)
 		return "", false
 	}
 	// Unlike name/path, none of these four ever fail on a missing value (an
@@ -208,7 +210,7 @@ func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO) (abs str
 		{"/cover_style", ValidateCoverStyle(in.CoverStyle)},
 	} {
 		if check.err != nil {
-			httperr.WriteValidation(w, r, check.err.Error(), httperr.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
+			pw.WriteValidation(w, r, check.err.Error(), problemjson.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
 			return "", false
 		}
 	}
@@ -218,30 +220,30 @@ func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO) (abs str
 // writeFieldValidationErr answers a ValidateName/ValidatePath failure: a
 // missing required field stays 400; a present-but-invalid value (too long,
 // not a usable directory, ...) is well-formed-but-invalid (422).
-func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer string, err error) {
+func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer string, err error, pw *problemjson.Writer) {
 	if isValueError(err) {
-		httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: pointer, Detail: err.Error()})
+		pw.WriteValidation(w, r, err.Error(), problemjson.FieldError{Pointer: pointer, Detail: err.Error()})
 		return
 	}
-	httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+	pw.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var in libraryDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	abs, ok := validateDTO(w, r, in)
+	abs, ok := validateDTO(w, r, in, h.Problems)
 	if !ok {
 		return
 	}
-	if refuseIfShadowsConfig(w, r, h.Store, in.Name, abs) {
+	if refuseIfShadowsConfig(w, r, h.Store, in.Name, abs, h.Problems) {
 		return
 	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -275,12 +277,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
 	dto, err := h.modelToDTO(*lib)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, dto)
@@ -289,31 +291,31 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	existing, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
-	if refuseIfConfigManaged(w, r, existing) {
+	if refuseIfConfigManaged(w, r, existing, h.Problems) {
 		return
 	}
 
 	var in libraryDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	abs, ok := validateDTO(w, r, in)
+	abs, ok := validateDTO(w, r, in, h.Problems)
 	if !ok {
 		return
 	}
 	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
@@ -359,13 +361,13 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
 
 	dto, err := h.modelToDTO(existing)
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	dto.PathChanged = pathChanged
@@ -375,21 +377,21 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id, err := parseID(r)
 	if err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
 	existing, err := h.Store.GetLibrary(id)
 	if err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
-	if refuseIfConfigManaged(w, r, existing) {
+	if refuseIfConfigManaged(w, r, existing, h.Problems) {
 		return
 	}
 	if err := h.Store.DeleteLibrary(r.Context(), id); err != nil {
 		status, code := mapStoreError(err)
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -403,11 +405,11 @@ const configManagedMsg = "library %q is provisioned from the server config file;
 
 // refuseIfConfigManaged answers 409 for a config-provisioned library and
 // reports whether the request was refused.
-func refuseIfConfigManaged(w http.ResponseWriter, r *http.Request, lib model.Library) bool {
+func refuseIfConfigManaged(w http.ResponseWriter, r *http.Request, lib model.Library, pw *problemjson.Writer) bool {
 	if !lib.IsConfigManaged() {
 		return false
 	}
-	httperr.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(configManagedMsg, lib.Name))
+	pw.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(configManagedMsg, lib.Name))
 	return true
 }
 
@@ -415,7 +417,7 @@ func refuseIfConfigManaged(w http.ResponseWriter, r *http.Request, lib model.Lib
 // already owned by config. Without this the request would fail anyway on the
 // unique indexes, but as an opaque "conflict" — this says which config entry is
 // in the way. Lookup errors other than "not found" are reported as-is.
-func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Store, name, path string) bool {
+func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Store, name, path string, pw *problemjson.Writer) bool {
 	lookups := []struct {
 		field string
 		find  func() (model.Library, error)
@@ -429,11 +431,11 @@ func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Stor
 			continue
 		}
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+			pw.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return true
 		}
 		if lib.IsConfigManaged() {
-			httperr.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(
+			pw.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(
 				"a library provisioned from the server config file already uses this %s (%q)",
 				lookup.field, lib.Name))
 			return true

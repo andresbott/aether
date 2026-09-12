@@ -212,7 +212,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	}
 
 	if h.store != nil {
-		lh := &libraryHandler.Handler{Store: h.store}
+		lh := &libraryHandler.Handler{Store: h.store, Problems: h.problems}
 		lh.Routes(r)
 
 		if h.tagReader != nil {
@@ -279,10 +279,11 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		}
 
 		ah := &artistsHandler.Handler{
-			Store:   h.store,
-			Assets:  h.assets,
-			Fetcher: h.artistFetcher,
-			Search:  artistimage.NewMusicBrainzSearch(userAgent),
+			Store:    h.store,
+			Assets:   h.assets,
+			Fetcher:  h.artistFetcher,
+			Search:   artistimage.NewMusicBrainzSearch(userAgent),
+			Problems: h.problems,
 		}
 		ah.Routes(r)
 	}

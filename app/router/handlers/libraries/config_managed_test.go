@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // seedConfigLibrary creates a library owned by the config file.
@@ -39,9 +39,9 @@ func TestUpdateConfigManagedLibraryRefused(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var problem httperr.Problem
+	var problem problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &problem)
-	if got := httperr.Slug(problem.Type); got != "config_managed" {
+	if got := problemjson.Slug(problem.Type); got != "config_managed" {
 		t.Fatalf("expected code config_managed, got %q", got)
 	}
 	// The row must be untouched.
