@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 	"golang.org/x/time/rate"
 )
 
@@ -21,9 +21,13 @@ func newTestSearch(t *testing.T, srv *httptest.Server) *MusicBrainzSearch {
 	t.Helper()
 	m := NewMusicBrainzSearch("Aether/test (https://example.com)")
 	m.BaseURL = srv.URL
-	m.Doer.Client = srv.Client()
-	m.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	m.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	m.Doer = outbound.New(outbound.Cfg{
+		Service:   mbServiceName,
+		UserAgent: "Aether/test (https://example.com)",
+		Client:    srv.Client(),
+		Limiter:   rate.NewLimiter(rate.Inf, 1),
+		Wait:      func(context.Context, time.Duration) error { return nil },
+	})
 	return m
 }
 
@@ -262,9 +266,9 @@ func TestMusicBrainzSearchFailureIsTypedUpstreamError(t *testing.T) {
 
 	m := newTestSearch(t, srv)
 	_, err := m.Search(context.Background(), "Nirvana", 10)
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+		t.Fatalf("want *outbound.Error, got %T: %v", err, err)
 	}
 	if uerr.Service != "MusicBrainz" {
 		t.Fatalf("service = %q, want MusicBrainz", uerr.Service)

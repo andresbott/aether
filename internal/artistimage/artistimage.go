@@ -9,13 +9,11 @@ import (
 	"net/url"
 	"path"
 	"strings"
-
-	"golang.org/x/time/rate"
 )
 
 // requestsPerSecond is the fair-use rate limit applied per provider to its
 // outbound API and image-download requests (burst 1).
-const requestsPerSecond rate.Limit = 1
+const requestsPerSecond = 1.0
 
 // ImageCandidate is one portrait a provider offers for an artist. FullURL is the
 // image stored on commit; ThumbURL is a lighter preview variant the grid loads.

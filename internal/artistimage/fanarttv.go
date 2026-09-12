@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 )
 
 type FanartTV struct {
@@ -15,14 +15,17 @@ type FanartTV struct {
 	BaseURL string
 	// Doer carries the throttle, retry policy and error classification shared
 	// by all of aether's outbound clients.
-	Doer *upstream.Doer
+	Doer *outbound.Client
 }
 
 func NewFanartTV(apiKey string) *FanartTV {
 	return &FanartTV{
 		APIKey:  apiKey,
 		BaseURL: "https://webservice.fanart.tv",
-		Doer:    upstream.New("fanart.tv", "", requestsPerSecond),
+		Doer: outbound.New(outbound.Cfg{
+			Service: "fanart.tv",
+			RPS:     float64(requestsPerSecond),
+		}),
 	}
 }
 
@@ -35,7 +38,7 @@ func (p *FanartTV) List(ctx context.Context, mbid string) ([]ImageCandidate, err
 	u := fmt.Sprintf("%s/v3/music/%s?api_key=%s", p.BaseURL, mbid, p.APIKey)
 	resp, err := p.Doer.Get(ctx, u, nil)
 	if err != nil {
-		if upstream.IsRejected(err) {
+		if outbound.IsRejected(err) {
 			return nil, nil // 4xx = "no artwork for this MBID", not an error
 		}
 		return nil, err
@@ -78,7 +81,7 @@ func fanartPreviewURL(full string) string {
 
 // download fetches imageURL through doer, so the image download shares the
 // provider's fair-use throttle and retry policy.
-func download(ctx context.Context, doer *upstream.Doer, imageURL string) ([]byte, string, error) {
+func download(ctx context.Context, doer *outbound.Client, imageURL string) ([]byte, string, error) {
 	resp, err := doer.Get(ctx, imageURL, nil)
 	if err != nil {
 		return nil, "", err

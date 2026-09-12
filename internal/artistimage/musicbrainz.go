@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // mbServiceName is what the user sees when MusicBrainz misbehaves.
@@ -56,13 +56,17 @@ type MusicBrainzSearch struct {
 	BaseURL string
 	// Doer carries the throttle, retry policy and error classification shared
 	// by all of aether's outbound clients.
-	Doer *upstream.Doer
+	Doer *outbound.Client
 }
 
 func NewMusicBrainzSearch(userAgent string) *MusicBrainzSearch {
 	return &MusicBrainzSearch{
 		BaseURL: "https://musicbrainz.org",
-		Doer:    upstream.New(mbServiceName, userAgent, requestsPerSecond),
+		Doer: outbound.New(outbound.Cfg{
+			Service:   mbServiceName,
+			UserAgent: userAgent,
+			RPS:       float64(requestsPerSecond),
+		}),
 	}
 }
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 )
 
 type TheAudioDB struct {
@@ -13,14 +13,17 @@ type TheAudioDB struct {
 	BaseURL string
 	// Doer carries the throttle, retry policy and error classification shared
 	// by all of aether's outbound clients.
-	Doer *upstream.Doer
+	Doer *outbound.Client
 }
 
 func NewTheAudioDB(apiKey string) *TheAudioDB {
 	return &TheAudioDB{
 		APIKey:  apiKey,
 		BaseURL: "https://www.theaudiodb.com",
-		Doer:    upstream.New("TheAudioDB", "", requestsPerSecond),
+		Doer: outbound.New(outbound.Cfg{
+			Service: "TheAudioDB",
+			RPS:     float64(requestsPerSecond),
+		}),
 	}
 }
 
@@ -33,7 +36,7 @@ func (p *TheAudioDB) List(ctx context.Context, mbid string) ([]ImageCandidate, e
 	u := fmt.Sprintf("%s/api/v1/json/%s/artist-mb.php?i=%s", p.BaseURL, p.APIKey, mbid)
 	resp, err := p.Doer.Get(ctx, u, nil)
 	if err != nil {
-		if upstream.IsRejected(err) {
+		if outbound.IsRejected(err) {
 			return nil, nil
 		}
 		return nil, err
