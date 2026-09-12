@@ -461,12 +461,22 @@ class SubsonicClient {
 
     async updatePlaylist(
         playlistId: string,
-        options: { name?: string; comment?: string; songIdsToAdd?: string[]; songIndexesToRemove?: number[] }
+        options: {
+            name?: string
+            comment?: string
+            public?: boolean
+            songIdsToAdd?: string[]
+            songIndexesToRemove?: number[]
+        }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const params: Record<string, string | number | undefined> = { playlistId }
         if (options.name) params.name = options.name
         if (options.comment) params.comment = options.comment
+        // Only send `public` when explicitly set: the server reads it with
+        // paramBoolPtr (nil = unchanged), so a plain track add must not carry a
+        // stray public=false that would reset a shared playlist to private.
+        if (options.public !== undefined) params.public = String(options.public)
         const url = new URL(this.buildUrl('updatePlaylist.view', params))
         if (options.songIdsToAdd) {
             options.songIdsToAdd.forEach(id => url.searchParams.append('songIdToAdd', id))

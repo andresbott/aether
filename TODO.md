@@ -24,13 +24,13 @@ Notes for editors:
 
 ## Features
 
-- [ ] Proper playlist editing
-- [ ] multi user playlists
+- [x] Proper playlist editing
+- [x] multi user playlists
 - [ ] detach scaned folders from libraries
   use metaadata queries insetd of folders for sources of songs
 - [ ] Migrate into own GH org
-
-## Security & Authentication
+- [ ] new icon theme
+- [ ] migrate httperr and upstrem to bunbu http
 
 ## Backend
 
@@ -80,6 +80,9 @@ Notes for editors:
     Editor thumbnails (`kind: "editor"`) can't be swept this way at all — `pictureThumbKey` keys them by a hash of the file path or the image bytes (`metadata/pictures.go:419`), which is not derivable from an entity id. They need either a different key scheme or an age-based sweep, so a periodic prune task in `app/tasks` may be the better shape for the whole problem than per-deletion hooks. The editor-thumbnail half is the 1.0-critical part — those grow on every normal use of the metadata editor, not just on deletion. The per-entity wiring could slip to a later release if needed.
 
 ## Frontend
+
+- [ ] in album when i have some songs selected, esq should de-select
+  applicable to every place where we can select songs
 
 ### Frontend - mobile
 

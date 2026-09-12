@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Aether · 07 Duotone — add to playlist (in-hero)</title>
+        <link rel="stylesheet" href="_shared.css" />
+        <link rel="stylesheet" href="_select.css" />
+        <style>
+            /* Hero: 07 Duotone. Bg layers wrapped in .hero-media (owns clipping);
+               the hero sits above the list (z-index) so the picker can overlap it. */
+            .hero {
+                position: relative;
+                isolation: isolate;
+                z-index: 5;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            }
+            .hero-media {
+                position: absolute;
+                inset: 0;
+                overflow: hidden;
+                z-index: -1;
+            }
+            .hero-bg {
+                position: absolute;
+                inset: 0;
+                background: url(cover.svg) center / cover;
+                filter: grayscale(1) contrast(1.05) brightness(0.9);
+                transform: scale(1.05);
+            }
+            .hero-duo {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(115deg, var(--app-accent), var(--app-magenta));
+                mix-blend-mode: overlay;
+                opacity: 0.9;
+            }
+            .hero-scrim {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(
+                    90deg,
+                    rgba(6, 10, 16, 0.74) 0%,
+                    rgba(6, 10, 16, 0.4) 58%,
+                    rgba(6, 10, 16, 0.24) 100%
+                );
+            }
+            .hero-inner {
+                position: relative;
+                display: grid;
+                grid-template-columns: auto 1fr;
+                gap: 2rem;
+                padding: 2.6rem 0;
+            }
+            .hero .cover {
+                width: 200px;
+                height: 200px;
+                box-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
+            }
+            .hero-id {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 0.7rem;
+                min-width: 0;
+                padding-right: 3.5rem;
+            }
+            .hero .eyebrow {
+                color: #8fecff;
+            }
+            .hero .hero-name {
+                color: #f4f8fb;
+            }
+            .hero .hero-sub,
+            .hero .hero-sub a {
+                color: #e2edf4;
+            }
+            .hero .meta {
+                color: #cdd7df;
+            }
+            .hero .btn-ghost {
+                color: #e2edf4;
+            }
+            .hero .btn-ghost:hover {
+                background: rgba(255, 255, 255, 0.14);
+                color: #fff;
+            }
+            .hero-edit {
+                position: absolute;
+                top: 1.5rem;
+                right: 0;
+                background: rgba(255, 255, 255, 0.1);
+                color: #f4f8fb;
+                backdrop-filter: blur(6px);
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app-frame">
+            <header class="topbar">
+                <button class="icon-btn" aria-label="Back"><span class="i-back"></span></button>
+            </header>
+            <main class="scroll">
+                <section class="hero">
+                    <div class="hero-media">
+                        <div class="hero-bg"></div>
+                        <div class="hero-duo"></div>
+                        <div class="hero-scrim"></div>
+                    </div>
+                    <div class="hero-inner content-col">
+                        <button class="btn btn-ghost btn-icon hero-edit" aria-label="Edit album">
+                            <span class="i-edit"></span>
+                        </button>
+                        <div class="cover"><img src="cover.svg" alt="Neon Meridian cover" /></div>
+                        <div class="hero-id">
+                            <span class="eyebrow">Album</span>
+                            <h1 class="hero-name">Neon Meridian</h1>
+                            <p class="hero-sub"><a href="#">Aurora Fields</a></p>
+                            <div class="meta">
+                                <span>2024</span>
+                                <span class="dot">12 songs</span>
+                                <span class="dot">48 min</span>
+                                <span class="dot">Synthwave</span>
+                            </div>
+                            <div class="hero-select">
+                                <span class="hs-count"><b>3</b> selected</span>
+                                <span class="hs-sep"></span>
+                                <button class="btn btn-primary"><span class="i-play"></span> Play</button>
+                                <button class="btn btn-ghost"><span class="i-plus"></span> Add to queue</button>
+                                <span class="pl-anchor">
+                                    <button class="btn btn-ghost is-open">
+                                        <span class="i-list"></span> Add to playlist
+                                    </button>
+                                    <!-- "which playlist?" — anchored under its button. -->
+                                    <div class="pl-pop in-hero" role="dialog" aria-label="Add to playlist">
+                                        <div class="pl-head">
+                                            <span>Add 3 songs to…</span>
+                                            <button class="icon-btn" aria-label="Close"><span class="i-close"></span></button>
+                                        </div>
+                                        <div class="pl-search"><input type="text" placeholder="Find a playlist" /></div>
+                                        <div class="pl-list">
+                                            <button class="pl-item active">
+                                                <span class="pl-cover" style="background-image: linear-gradient(135deg, #12324f, #0e9bb5)"></span>
+                                                <span class="pl-txt"><span class="pl-name">Late Night Drive</span><span class="pl-sub">42 songs</span></span>
+                                            </button>
+                                            <button class="pl-item">
+                                                <span class="pl-cover" style="background-image: linear-gradient(135deg, #0b8299, #073843)"></span>
+                                                <span class="pl-txt"><span class="pl-name">Focus Deep</span><span class="pl-sub">88 songs</span></span>
+                                                <span class="pl-check" title="Already has 1 of these"><span class="i-check"></span></span>
+                                            </button>
+                                            <button class="pl-item">
+                                                <span class="pl-cover" style="background-image: linear-gradient(135deg, #ff9a3c, #ff5b93)"></span>
+                                                <span class="pl-txt"><span class="pl-name">Summer ’24</span><span class="pl-sub">26 songs</span></span>
+                                            </button>
+                                            <button class="pl-item">
+                                                <span class="pl-cover" style="background-image: linear-gradient(135deg, #d81b60, #5b1f6e)"></span>
+                                                <span class="pl-txt"><span class="pl-name">Workout</span><span class="pl-sub">51 songs</span></span>
+                                            </button>
+                                            <button class="pl-item">
+                                                <span class="pl-cover" style="background-image: url(cover.svg)"></span>
+                                                <span class="pl-txt"><span class="pl-name">Chill Synth</span><span class="pl-sub">33 songs</span></span>
+                                            </button>
+                                        </div>
+                                        <div class="pl-foot">
+                                            <button class="pl-item pl-new">
+                                                <span class="pl-cover"><span class="i-plus"></span></span>
+                                                <span class="pl-txt"><span class="pl-name">New playlist…</span></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </span>
+                                <button class="btn btn-ghost btn-icon fav" aria-label="Add to favorites">
+                                    <span class="i-heart"></span>
+                                </button>
+                                <span class="hs-sep"></span>
+                                <button class="btn btn-ghost btn-icon hs-clear" aria-label="Clear selection">
+                                    <span class="i-close"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="body content-col">
+                    <div class="tracklist" data-fill data-select="4,6,9"></div>
+                </section>
+            </main>
+            <footer class="playerbar">
+                <div class="pb-cover"><img src="cover.svg" alt="" /></div>
+                <div class="pb-meta">
+                    <span class="pb-title">Coastline (feat. Halogen)</span>
+                    <span class="pb-artist">Aurora Fields</span>
+                </div>
+                <div class="pb-transport">
+                    <span class="i-shuffle"></span>
+                    <span class="pb-play"><span class="i-play"></span></span>
+                    <span>4:05</span>
+                </div>
+            </footer>
+        </div>
+
+        <div class="mock-label"><b>07</b> · Duotone — add to playlist (in-hero)</div>
+        <button class="theme-toggle"></button>
+        <script src="_shared.js" defer></script>
+        <script src="_select.js" defer></script>
+    </body>
+</html>

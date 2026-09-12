@@ -286,6 +286,8 @@ onUnmounted(() => {
 
         <ContentScaffold v-else :title="title" show-back @back="router.back()">
             <template #actions>
+                <!-- Create-mode helper (prefills the form from radio-browser.info);
+                     not the Edit control, so it stays in the top bar. -->
                 <Button
                     v-if="create && isAdmin"
                     class="discover-station"
@@ -296,67 +298,65 @@ onUnmounted(() => {
                     aria-label="Discover"
                     @click="searchVisible = true"
                 />
-                <EditActionBar
-                    v-if="isAdmin"
-                    v-model:editing="editing"
-                    :can-delete="!create"
-                    :save-disabled="!valid"
-                    :saving="submitting"
-                    :save-tooltip="create ? 'Create' : 'Save'"
-                    :dirty="dirty"
-                    delete-header="Delete station?"
-                    :delete-message="`Delete station &quot;${station?.name}&quot;? This cannot be undone.`"
-                    @save="onSubmit"
-                    @cancel="onCancel"
-                    @delete="onDelete"
-                />
             </template>
 
             <div class="detail-scroll">
-                <div class="detail-body content-col">
-                    <HeroHeader
-                        eyebrow="Radio Station"
-                        cover-back-label="Station cover"
-                        :cover-url="displayedCoverUrl"
-                        :cover-size-error="sizeError"
-                        v-model:editing="editing"
-                        @cover-select="onCoverSelect"
-                        @cover-remove="onRemoveCover"
-                    >
-                        <template #read>
-                            <h2 class="hero-name">{{ station?.name }}</h2>
-                            <div class="meta-row">
-                                <span v-if="station?.streamUrl">{{ station.streamUrl }}</span>
-                                <span
-                                    v-if="station?.homepageUrl"
-                                    :class="{ dot: !!station?.streamUrl }"
-                                >
-                                    {{ station.homepageUrl }}
-                                </span>
-                            </div>
-                        </template>
-                        <template #edit>
-                            <label class="form-field">
-                                <span class="field-label">Name</span>
-                                <InputText v-model="form.name" placeholder="e.g. BBC Radio 1" />
-                            </label>
-                            <label class="form-field">
-                                <span class="field-label">Stream URL</span>
-                                <InputText
-                                    v-model="form.streamUrl"
-                                    placeholder="http://example.com/stream"
-                                />
-                            </label>
-                            <label class="form-field">
-                                <span class="field-label">Homepage URL</span>
-                                <InputText v-model="form.homepageUrl" placeholder="optional" />
-                            </label>
-                        </template>
-                        <template #actions>
-                            <HeroActions @play="onPlay" />
-                        </template>
-                    </HeroHeader>
-                </div>
+                <HeroHeader
+                    class="detail-hero"
+                    eyebrow="Radio Station"
+                    cover-placeholder-icon="pi pi-wifi"
+                    cover-back-label="Station cover"
+                    :cover-url="displayedCoverUrl"
+                    :cover-size-error="sizeError"
+                    v-model:editing="editing"
+                    @cover-select="onCoverSelect"
+                    @cover-remove="onRemoveCover"
+                >
+                    <template v-if="isAdmin" #edit-actions>
+                        <EditActionBar
+                            v-model:editing="editing"
+                            :can-delete="!create"
+                            :save-disabled="!valid"
+                            :saving="submitting"
+                            :save-tooltip="create ? 'Create' : 'Save'"
+                            :dirty="dirty"
+                            delete-header="Delete station?"
+                            :delete-message="`Delete station &quot;${station?.name}&quot;? This cannot be undone.`"
+                            @save="onSubmit"
+                            @cancel="onCancel"
+                            @delete="onDelete"
+                        />
+                    </template>
+                    <template #read>
+                        <h2 class="hero-name">{{ station?.name }}</h2>
+                        <div class="meta-row">
+                            <span v-if="station?.streamUrl">{{ station.streamUrl }}</span>
+                            <span v-if="station?.homepageUrl" :class="{ dot: !!station?.streamUrl }">
+                                {{ station.homepageUrl }}
+                            </span>
+                        </div>
+                    </template>
+                    <template #edit>
+                        <label class="form-field">
+                            <span class="field-label">Name</span>
+                            <InputText v-model="form.name" placeholder="e.g. BBC Radio 1" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Stream URL</span>
+                            <InputText
+                                v-model="form.streamUrl"
+                                placeholder="http://example.com/stream"
+                            />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Homepage URL</span>
+                            <InputText v-model="form.homepageUrl" placeholder="optional" />
+                        </label>
+                    </template>
+                    <template #actions>
+                        <HeroActions @play="onPlay" />
+                    </template>
+                </HeroHeader>
             </div>
         </ContentScaffold>
 
@@ -385,17 +385,13 @@ onUnmounted(() => {
     gap: 1rem;
     color: var(--app-text-secondary);
 }
+/* The hero is the whole content here (radio detail has no list below), so it
+   bleeds edge to edge like the other detail views. */
 .detail-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    /* Recipe B: uniform rail clearance so the column matches the list views. */
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
-}
-.detail-body {
-    padding-top: 1rem;
-    padding-bottom: 1rem;
 }
 .form-field {
     display: flex;
@@ -405,11 +401,12 @@ onUnmounted(() => {
 .form-field :deep(.p-inputtext) {
     width: 100%;
 }
+/* The edit form sits on the dark duotone band, so its labels take a light ink. */
 .field-label {
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--app-text-secondary);
+    color: #cdd7df;
 }
 </style>

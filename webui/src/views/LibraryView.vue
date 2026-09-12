@@ -56,10 +56,14 @@ const artistsTabVisible = computed(() => {
 })
 
 const viewOptions = computed(() => [
-    ...(discoverTabVisible.value ? [{ label: 'Discover', value: 'discover' }] : []),
-    { label: 'Albums', value: 'albums' },
-    ...(artistsTabVisible.value ? [{ label: 'Artists', value: 'artists' }] : []),
-    { label: 'Songs', value: 'songs' }
+    ...(discoverTabVisible.value
+        ? [{ label: 'Discover', value: 'discover', icon: 'pi pi-compass' }]
+        : []),
+    { label: 'Albums', value: 'albums', icon: 'pi pi-images' },
+    ...(artistsTabVisible.value
+        ? [{ label: 'Artists', value: 'artists', icon: 'pi pi-users' }]
+        : []),
+    { label: 'Songs', value: 'songs', icon: 'pi pi-wave-pulse' }
 ])
 
 // On the root route, Discover is the default; a folder keeps its configured
@@ -178,7 +182,7 @@ const summary = computed(() => {
             <ToggleButton
                 v-if="viewMode !== 'discover' && viewMode !== 'songs'"
                 v-model="favoritesOnly"
-                class="library-favorites-filter"
+                class="library-favorites-filter as-button-group"
                 onIcon="pi pi-heart-fill"
                 offIcon="pi pi-heart"
                 onLabel=""
@@ -194,7 +198,13 @@ const summary = computed(() => {
                 optionLabel="label"
                 optionValue="value"
                 :allowEmpty="false"
-            />
+                class="as-button-group"
+            >
+                <template #option="slotProps">
+                    <i :class="slotProps.option.icon"></i>
+                    <span>{{ slotProps.option.label }}</span>
+                </template>
+            </SelectButton>
         </template>
 
         <template #secondary-actions>
@@ -208,6 +218,7 @@ const summary = computed(() => {
                 :allowEmpty="false"
                 dataKey="value"
                 aria-label="Layout"
+                class="as-button-group"
             >
                 <template #option="slotProps">
                     <i :class="slotProps.option.icon"></i>
@@ -241,33 +252,26 @@ const summary = computed(() => {
 </template>
 
 <style scoped>
-/* The filter is a state toggle, not a destructive action: it reads as one of the
-   header's controls, in the same grey as the unfilled hearts elsewhere, and only
-   the FILL says it is on — the app-wide favorites rule (see
-   docs/architecture/unified-play-experience.md). PrimeVue's checked ToggleButton
-   would otherwise come up in the primary accent, which is reserved for what is
-   playing and what is actionable. */
-.library-favorites-filter :deep(.p-togglebutton-content) {
-    color: var(--app-text-secondary);
-}
-
-.library-favorites-filter.p-togglebutton-checked :deep(.p-togglebutton-content) {
-    color: var(--app-text-primary);
-}
-
-/* An empty on/offLabel still renders a &nbsp; span, which would pad the button
-   wider than the icon-only SelectButtons beside it. Removing it (plus the label
-   gap and the default min-width) is what keeps the four header controls on one
-   line on the root route, which offers three tabs rather than two. */
-.library-favorites-filter :deep(.p-togglebutton-label) {
-    display: none;
-}
-
+/* The favorites filter shares the header's button-group look (bordered,
+   transparent, accent when active) via the global .as-button-group treatment in
+   _main.scss. The app-wide "a favorite is grey, signalled by the FILL" rule (see
+   docs/architecture/unified-play-experience.md) is deliberately relaxed HERE so
+   the header controls read as one cluster; the per-track hearts keep grey.
+   Locally the filter only needs to be an icon-only square that matches the add
+   button: hide the empty on/offLabel's &nbsp; span (otherwise it pads the button
+   wider), drop the content padding, and pin it to the control size. */
 .library-favorites-filter {
+    width: 2.125rem;
+    height: 2.125rem;
     min-width: 0;
 }
 
 .library-favorites-filter :deep(.p-togglebutton-content) {
+    padding: 0;
     gap: 0;
+}
+
+.library-favorites-filter :deep(.p-togglebutton-label) {
+    display: none;
 }
 </style>

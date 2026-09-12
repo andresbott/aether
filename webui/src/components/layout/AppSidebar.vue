@@ -270,7 +270,6 @@ onBeforeUnmount(resetEgg)
         transparent 62%,
         color-mix(in srgb, var(--app-accent) 10%, transparent) 100%
     );
-    border-right: 1px solid var(--app-border);
     display: flex;
     flex-direction: column;
     transition: width 0.3s ease;

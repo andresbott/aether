@@ -5,6 +5,7 @@ import InputText from 'primevue/inputtext'
 import SelectButton from 'primevue/selectbutton'
 import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
+import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import ArtistCard from '@/components/library/ArtistCard.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import GenreCard from '@/components/library/GenreCard.vue'
@@ -20,7 +21,7 @@ import {
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useSongsDrag } from '@/composables/useSongsDrag'
-import { useRowSelection } from '@/composables/useRowSelection'
+import { useRowSelection, type RowClickModifiers } from '@/composables/useRowSelection'
 import type { Album, Artist, Genre, Song } from '@/types/subsonic'
 
 type Layout = 'grid' | 'list'
@@ -30,7 +31,8 @@ const router = useRouter()
 
 const player = usePlayer()
 const songsDrag = useSongsDrag()
-const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+const { isSelected, onRowClick, selectionForDrag, clearSelection, selectedCount, selectedIndices } =
+    useRowSelection()
 
 const actionSong = ref<Song | null>(null)
 const actionIndex = ref(0)
@@ -58,15 +60,27 @@ const query = ref('')
 // checkboxes there is no "nothing selected" state to guard against.
 type Scope = 'all' | 'artists' | 'albums' | 'genres' | 'songs'
 
-const scopeOptions: { label: string; value: Scope }[] = [
-    { label: 'All', value: 'all' },
-    { label: 'Artists', value: 'artists' },
-    { label: 'Albums', value: 'albums' },
-    { label: 'Genres', value: 'genres' },
-    { label: 'Songs', value: 'songs' }
+const scopeOptions: { label: string; value: Scope; icon: string }[] = [
+    { label: 'All', value: 'all', icon: 'pi pi-asterisk' },
+    { label: 'Artists', value: 'artists', icon: 'pi pi-users' },
+    { label: 'Albums', value: 'albums', icon: 'pi pi-images' },
+    { label: 'Genres', value: 'genres', icon: 'pi pi-tags' },
+    { label: 'Songs', value: 'songs', icon: 'pi pi-wave-pulse' }
 ]
 
-const scope = ref<Scope>('all')
+// Backing ref so the All→Songs auto-switch (see onSongSelect) can narrow the
+// scope WITHOUT the selection-clearing the manual setter does — the click that
+// triggers the switch must survive it.
+const scopeRef = ref<Scope>('all')
+const scope = computed<Scope>({
+    get: () => scopeRef.value,
+    set: (v) => {
+        scopeRef.value = v
+        // Changing scope by hand abandons the current result list, so the
+        // index-based selection no longer refers to anything meaningful.
+        clearSelection()
+    }
+})
 
 const shows = (type: Exclude<Scope, 'all'>): boolean =>
     scope.value === 'all' || scope.value === type
@@ -172,6 +186,33 @@ const enqueueTrack = (index: number): void => {
     if (song) player.enqueueAndPlayIfIdle([song])
 }
 
+// The selected songs in list order, fed to the in-header selection bubble (the
+// same HeroSelectionBar the detail-view heroes use).
+const selectedSongs = computed(() =>
+    [...selectedIndices.value]
+        .sort((a, b) => a - b)
+        .map((i) => songs.value[i])
+        .filter((s): s is Song => s !== undefined)
+)
+
+const playSelection = (): void => {
+    if (selectedSongs.value.length) player.playAlbum(selectedSongs.value)
+}
+const queueSelection = (): void => {
+    if (selectedSongs.value.length) player.addMultipleToQueue(selectedSongs.value)
+}
+
+// Picking a song while the results are the mixed "All" list narrows to Songs, so
+// the page becomes a clean track table the bubble can act on. Set the backing ref
+// directly, not `scope`, so its clear-on-change setter doesn't wipe the very
+// selection this click is making. The narrowing refetches a longer song list, but
+// its leading rows are unchanged, so the picked index still points to the same
+// song.
+const onSongSelect = (index: number, modifiers: RowClickModifiers): void => {
+    if (scopeRef.value === 'all') scopeRef.value = 'songs'
+    onRowClick(index, modifiers)
+}
+
 // A drag from a selected row carries the whole selection; from an unselected
 // row it carries just that row.
 const onRowDragStart = (event: DragEvent, index: number): void => {
@@ -181,8 +222,12 @@ const onRowDragStart = (event: DragEvent, index: number): void => {
     songsDrag.start(event, dragSongs, event.currentTarget as HTMLElement)
 }
 
-// Selection indices point into the result list — drop them when it changes.
-watch(songs, () => clearSelection())
+// The selection is indices into the current song list, so it only holds meaning
+// for the current (query, scope). A manual scope change clears it via the scope
+// setter; a new term clears it here. It deliberately survives the All→Songs
+// narrowing in onSongSelect (same query, longer list — the picked rows keep their
+// index).
+watch(query, () => clearSelection())
 </script>
 
 <template>
@@ -196,6 +241,7 @@ watch(songs, () => clearSelection())
                 :allowEmpty="false"
                 dataKey="value"
                 aria-label="Layout"
+                class="as-button-group"
             >
                 <template #option="slotProps">
                     <i :class="slotProps.option.icon"></i>
@@ -241,9 +287,27 @@ watch(songs, () => clearSelection())
                     optionValue="value"
                     :allowEmpty="false"
                     dataKey="value"
-                    class="search-filters"
+                    class="search-filters as-button-group"
                     aria-label="Search in"
-                />
+                >
+                    <template #option="slotProps">
+                        <i :class="slotProps.option.icon"></i>
+                        <span>{{ slotProps.option.label }}</span>
+                    </template>
+                </SelectButton>
+
+                <!-- Selecting song rows swaps in the same action strip the detail
+                     heroes use. It lives in the fixed .search-hero, so it stays
+                     put ("frozen") while the results scroll beneath it. -->
+                <div v-if="selectedCount > 0" class="search-selection-pill">
+                    <HeroSelectionBar
+                        :count="selectedCount"
+                        :songs="selectedSongs"
+                        @play="playSelection"
+                        @queue="queueSelection"
+                        @clear="clearSelection"
+                    />
+                </div>
             </div>
 
             <div class="search-scroll">
@@ -324,7 +388,8 @@ watch(songs, () => clearSelection())
                                 :song="song"
                                 :index="index"
                                 :selected="isSelected(index)"
-                                @select="(p) => onRowClick(index, p)"
+                                :selecting="selectedCount > 0"
+                                @select="(p) => onSongSelect(index, p)"
                                 @enqueue="enqueueTrack(index)"
                                 @play="playTrack(index)"
                                 @menu="openTrackMenu(index)"
@@ -413,6 +478,46 @@ watch(songs, () => clearSelection())
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
+}
+
+/* The selection bubble: the SAME strip as the detail-view hero pill
+   (HeroSelectionBar). The heroes get their frosted pill from HeroHeader's dark
+   band; search has no band, so the chip carries its own dark, frosted background
+   — that keeps the strip's light ink legible in BOTH app themes. Content-width
+   and centered under the search box. */
+.search-selection-pill {
+    align-self: center;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.6rem;
+    background: rgba(17, 23, 31, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+}
+
+/* Compact the buttons to the header-control size and keep the ghost (secondary
+   text) buttons light on the dark chip — mirrors HeroHeader's .hero-actions-slot
+   so the strip reads identically to the way it does in a detail hero. */
+.search-selection-pill :deep(.p-button) {
+    height: 2.125rem;
+    padding-block: 0;
+    padding-inline: 0.7rem;
+    font-size: 0.875rem;
+}
+.search-selection-pill :deep(.p-button-icon-only) {
+    width: 2.125rem;
+    padding: 0;
+}
+.search-selection-pill :deep(.p-button-icon) {
+    font-size: 0.95rem;
+}
+.search-selection-pill :deep(.p-button.p-button-secondary.p-button-text) {
+    color: #e2edf4;
+}
+.search-selection-pill :deep(.p-button.p-button-secondary.p-button-text:hover) {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
 }
 
 .search-scroll {

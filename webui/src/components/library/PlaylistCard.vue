@@ -4,10 +4,12 @@ import type { Playlist } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
+import { useIsPlaylistOwner } from '@/composables/usePlaylistOwnership'
 
 const props = defineProps<{ playlist: Playlist }>()
 const player = usePlayer()
 const toggleStar = useTogglePlaylistStar()
+const isOwner = useIsPlaylistOwner(() => props.playlist.owner)
 
 const coverUrl = computed(() => {
     const art = props.playlist.coverArt
@@ -50,7 +52,14 @@ const onPlay = async (event: Event): Promise<void> => {
         <div class="card-info">
             <div class="card-text">
                 <div class="card-title">{{ playlist.name }}</div>
-                <div class="card-subtitle">{{ playlist.songCount }} songs</div>
+                <div class="card-subtitle">
+                    {{ playlist.songCount }} songs
+                    <i
+                        v-if="!isOwner"
+                        class="pi pi-lock not-mine-icon"
+                        :title="`Shared by ${playlist.owner} — view only`"
+                    ></i>
+                </div>
             </div>
             <button
                 class="card-star"
@@ -78,6 +87,8 @@ const onPlay = async (event: Event): Promise<void> => {
 .card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .card-title { font-size: 0.9rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-subtitle { font-size: 0.8rem; color: var(--app-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Read-only marker for a playlist owned by someone else. */
+.not-mine-icon { color: var(--app-text-secondary); font-size: 0.8em; margin-left: 0.3rem; }
 /* Both controls stay visible, dimmed until hover — a card whose actions only
    appear on hover doesn't advertise that it has any. A favorite is dimmed too:
    the FILL alone tells it apart, at any opacity. */

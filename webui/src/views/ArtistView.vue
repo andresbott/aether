@@ -323,93 +323,93 @@ const onQueue = async (): Promise<void> => {
         </div>
 
         <ContentScaffold v-else-if="artist" title="" show-back @back="router.back()">
-            <template #actions>
-                <EditActionBar
-                    v-if="isAdmin"
-                    v-model:editing="editing"
-                    :can-delete="false"
-                    :save-disabled="!dirty"
-                    :saving="updateCover.isPending.value || setImageFromSearch.isPending.value"
-                    :dirty="dirty"
-                    @save="saveEdit"
-                    @cancel="cancelEdit"
-                />
-            </template>
-
             <div class="artist-scroll">
-                <div class="artist-body content-col">
-                    <HeroHeader
-                        eyebrow="Artist"
-                        cover-placeholder-icon="pi pi-user"
-                        cover-back-label="Artist image"
-                        :cover-url="coverUrl"
-                        :cover-size-error="coverSizeError"
-                        :cover-removable="canRemoveImage"
-                        v-model:editing="editing"
-                        @cover-select="onCoverSelect"
-                        @cover-remove="onRemoveCover"
-                    >
-                        <template #cover-actions>
-                            <Button
-                                data-test="open-image-search"
-                                outlined
-                                severity="secondary"
-                                icon="pi pi-search"
-                                label="Search online"
-                                @click="imageSearchOpen = true"
-                            />
-                        </template>
+                <HeroHeader
+                    class="detail-hero"
+                    eyebrow="Artist"
+                    round-cover
+                    cover-placeholder-icon="pi pi-user"
+                    cover-back-label="Artist image"
+                    :cover-url="coverUrl"
+                    :cover-size-error="coverSizeError"
+                    :cover-removable="canRemoveImage"
+                    v-model:editing="editing"
+                    @cover-select="onCoverSelect"
+                    @cover-remove="onRemoveCover"
+                >
+                    <template v-if="isAdmin" #edit-actions>
+                        <EditActionBar
+                            v-model:editing="editing"
+                            :can-delete="false"
+                            :save-disabled="!dirty"
+                            :saving="updateCover.isPending.value || setImageFromSearch.isPending.value"
+                            :dirty="dirty"
+                            @save="saveEdit"
+                            @cancel="cancelEdit"
+                        />
+                    </template>
 
-                        <template #cover-note>
-                            <span
-                                v-if="imageNote"
-                                class="image-source-note"
-                                :class="{ 'is-pending': imageNote.pending }"
-                            >
-                                <i class="pi pi-image"></i>
-                                <span class="image-source-text">{{ imageNote.text }}</span>
-                                <i
-                                    v-if="imageNote.hint"
-                                    v-tooltip.top="imageNote.hint"
-                                    class="pi pi-question-circle image-source-help"
-                                ></i>
-                            </span>
-                        </template>
+                    <template #cover-actions>
+                        <Button
+                            data-test="open-image-search"
+                            outlined
+                            severity="secondary"
+                            icon="pi pi-search"
+                            label="Search online"
+                            @click="imageSearchOpen = true"
+                        />
+                    </template>
 
-                        <template #read>
-                            <h2 class="hero-name">{{ artist.name }}</h2>
-                            <div v-if="heroMeta.length" class="meta-row">
-                                <span
-                                    v-for="(part, i) in heroMeta"
-                                    :key="part"
-                                    :class="{ dot: i > 0 }"
-                                    >{{ part }}</span
-                                >
-                            </div>
-                        </template>
-                        <template #actions>
-                            <HeroActions
-                                can-queue
-                                can-star
-                                :starred="!!artist.starred"
-                                :busy="gathering"
-                                @play="onPlay"
-                                @queue="onQueue"
-                                @star="handleStar"
-                            />
-                        </template>
-                    </HeroHeader>
+                    <template #cover-note>
+                        <span
+                            v-if="imageNote"
+                            class="image-source-note"
+                            :class="{ 'is-pending': imageNote.pending }"
+                        >
+                            <i class="pi pi-image"></i>
+                            <span class="image-source-text">{{ imageNote.text }}</span>
+                            <i
+                                v-if="imageNote.hint"
+                                v-tooltip.top="imageNote.hint"
+                                class="pi pi-question-circle image-source-help"
+                            ></i>
+                        </span>
+                    </template>
 
-                    <section v-if="sortedAlbums.length > 0" class="discography">
-                        <h2>Albums</h2>
-                        <div class="album-grid">
-                            <AlbumCard
-                                v-for="album in sortedAlbums"
-                                :key="album.id"
-                                :album="album"
-                            />
+                    <template #read>
+                        <h2 class="hero-name">{{ artist.name }}</h2>
+                        <div v-if="heroMeta.length" class="meta-row">
+                            <span v-for="(part, i) in heroMeta" :key="part" :class="{ dot: i > 0 }">{{
+                                part
+                            }}</span>
                         </div>
-                    </section>
+                    </template>
+                    <template #actions>
+                        <HeroActions
+                            can-queue
+                            can-star
+                            :starred="!!artist.starred"
+                            :busy="gathering"
+                            @play="onPlay"
+                            @queue="onQueue"
+                            @star="handleStar"
+                        />
+                    </template>
+                </HeroHeader>
+
+                <div class="artist-below">
+                    <div class="artist-body content-col">
+                        <section v-if="sortedAlbums.length > 0" class="discography">
+                            <h2>Albums</h2>
+                            <div class="album-grid">
+                                <AlbumCard
+                                    v-for="album in sortedAlbums"
+                                    :key="album.id"
+                                    :album="album"
+                                />
+                            </div>
+                        </section>
+                    </div>
                 </div>
             </div>
             <ArtistImageSearchDialog
@@ -443,13 +443,19 @@ const onQueue = async (): Promise<void> => {
     color: #ef4444;
 }
 
+/* Recipe B with the hero pulled out of the column so the duotone band bleeds
+   edge to edge; .artist-below reserves the rail clearance the scroll container
+   used to, so the discography lines up with the hero content. */
 .artist-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    /* Recipe B: uniform rail clearance so the column matches the list views. */
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
+}
+
+.artist-below {
+    box-sizing: border-box;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 
 .artist-body {

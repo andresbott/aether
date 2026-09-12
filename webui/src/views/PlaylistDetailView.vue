@@ -8,6 +8,9 @@ import { useToast } from 'primevue/usetoast'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
+import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
+import HeroEditSelectionBar from '@/components/layout/HeroEditSelectionBar.vue'
+import HeroVisibilityBar from '@/components/layout/HeroVisibilityBar.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
@@ -21,6 +24,7 @@ import {
     useTogglePlaylistStar
 } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
+import { useIsPlaylistOwner } from '@/composables/usePlaylistOwnership'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { useRowSelection } from '@/composables/useRowSelection'
 import { reorderQueue } from '@/utils/queueReorder'
@@ -35,7 +39,12 @@ const router = useRouter()
 const player = usePlayer()
 const toast = useToast()
 const songsDrag = useSongsDrag()
-const { isSelected, onRowClick, selectionForDrag, clearSelection } = useRowSelection()
+// One selection instance, shared with the edit list (via TrackEditList's
+// `selection` prop) so the same clicks drive both the view-mode rows and the
+// in-hero edit bubble.
+const rowSelection = useRowSelection()
+const { isSelected, onRowClick, selectionForDrag, clearSelection, selectedCount, selectedIndices } =
+    rowSelection
 
 const actionSong = ref<Song | null>(null)
 const actionIndex = ref(0)
@@ -59,6 +68,10 @@ const openTrackMenu = (index: number): void => {
 }
 
 const { data: playlist, isLoading, error } = usePlaylist(props.id)
+
+// Only the owner may edit a playlist; the backend rejects a foreign write with
+// Subsonic error 50, so offering the edit UI just fails at save.
+const isOwner = useIsPlaylistOwner(() => playlist.value?.owner)
 const updatePlaylist = useUpdatePlaylist()
 const updateCover = useUpdatePlaylistCover()
 const deletePlaylist = useDeletePlaylist()
@@ -81,6 +94,9 @@ const editName = ref('')
 const editComment = ref('')
 const baseName = ref('')
 const baseComment = ref('')
+// Staged visibility (the `public` shared-read flag), baselined like name/comment.
+const editPublic = ref(false)
+const basePublic = ref(false)
 
 const seed = (): void => {
     const p = playlist.value
@@ -89,6 +105,7 @@ const seed = (): void => {
     savedIds.value = (p.entry ?? []).map((s) => s.id)
     editName.value = baseName.value = p.name
     editComment.value = baseComment.value = p.comment ?? ''
+    editPublic.value = basePublic.value = p.public ?? false
 }
 
 const tracksDirty = computed(() => {
@@ -98,7 +115,10 @@ const tracksDirty = computed(() => {
 })
 
 const metaDirty = computed(
-    () => editName.value !== baseName.value || editComment.value !== baseComment.value
+    () =>
+        editName.value !== baseName.value ||
+        editComment.value !== baseComment.value ||
+        editPublic.value !== basePublic.value
 )
 
 const valid = computed(() => editName.value.trim().length > 0)
@@ -174,6 +194,21 @@ const onStar = (): void => {
     toggleStar.mutate({ id: playlist.value.id, starred: !!playlist.value.starred })
 }
 
+// The selected songs in list order, fed to the in-hero selection action row.
+const selectedSongs = computed(() =>
+    [...selectedIndices.value]
+        .sort((a, b) => a - b)
+        .map((i) => working.value[i])
+        .filter((s): s is Song => s !== undefined)
+)
+
+const playSelection = (): void => {
+    if (selectedSongs.value.length) player.playAlbum(selectedSongs.value)
+}
+const queueSelection = (): void => {
+    if (selectedSongs.value.length) player.addMultipleToQueue(selectedSongs.value)
+}
+
 // --- View-mode song list (album-style rows with a cover column) ---
 // Double-clicking a row appends that song to the end of the queue rather than
 // replacing it with the playlist (see docs/architecture/unified-play-experience.md).
@@ -219,6 +254,26 @@ const onDelete = (indices: number[]): void => {
     const drop = new Set(indices)
     working.value = working.value.filter((_, i) => !drop.has(i))
 }
+
+// The in-hero edit bubble's actions, run against the current selection. Each
+// clears the selection afterwards — the moved/removed indices no longer point at
+// the same rows (mirrors the drag reorder + delete in TrackEditList).
+const selectedEditIndices = computed(() => [...selectedIndices.value].sort((a, b) => a - b))
+const moveSelectionToTop = (): void => {
+    if (!selectedEditIndices.value.length) return
+    onReorder(selectedEditIndices.value, 0)
+    clearSelection()
+}
+const moveSelectionToBottom = (): void => {
+    if (!selectedEditIndices.value.length) return
+    onReorder(selectedEditIndices.value, working.value.length)
+    clearSelection()
+}
+const deleteSelection = (): void => {
+    if (!selectedEditIndices.value.length) return
+    onDelete(selectedEditIndices.value)
+    clearSelection()
+}
 const saveEdit = async (): Promise<void> => {
     if (!dirty.value) {
         editing.value = false
@@ -231,11 +286,13 @@ const saveEdit = async (): Promise<void> => {
                 .mutateAsync({
                     playlistId: props.id,
                     name: editName.value.trim(),
-                    comment: editComment.value
+                    comment: editComment.value,
+                    public: editPublic.value
                 })
                 .then(() => {
                     baseName.value = editName.value
                     baseComment.value = editComment.value
+                    basePublic.value = editPublic.value
                 })
         )
     }
@@ -304,6 +361,12 @@ const resetOnIdChange = (): void => {
 }
 watch(() => props.id, resetOnIdChange)
 
+// Toggling edit mode in EITHER direction drops any selection. Entering swaps the
+// track list for the reorder editor; leaving must reset it too (Esc/Cancel/Save),
+// or the carried-over selection resurfaces as the view-mode selection bar and
+// leaves rows highlighted once the hero's action row returns.
+watch(editing, () => clearSelection())
+
 // --- Unsaved-changes guards ---
 onBeforeRouteLeave(() => {
     if (dirty.value) {
@@ -335,111 +398,146 @@ onUnmounted(() => {
         </div>
 
         <ContentScaffold v-else-if="playlist" title="" show-back @back="router.back()">
-            <template #actions>
-                <EditActionBar
-                    v-model:editing="editing"
-                    :save-disabled="savePending || !valid"
-                    :saving="savePending"
-                    :dirty="dirty"
-                    delete-header="Delete playlist?"
-                    :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"
-                    @save="saveEdit"
-                    @cancel="cancelEdit"
-                    @delete="handleDelete"
-                />
-            </template>
-
             <div class="playlist-scroll">
-                <div class="playlist-body content-col">
-                    <HeroHeader
-                        eyebrow="Playlist"
-                        :cover-url="displayedCoverUrl"
-                        :cover-size-error="coverSizeError"
-                        v-model:editing="editing"
-                        @cover-select="onCoverSelect"
-                        @cover-remove="onRemoveCover"
-                    >
-                        <template #read>
-                            <h2 class="hero-name">{{ playlist.name }}</h2>
-                            <p v-if="playlist.comment" class="hero-desc">{{ playlist.comment }}</p>
-                            <div class="meta-row">
-                                <span v-if="summary">{{ summary }}</span>
-                                <span v-if="playlist.owner" :class="{ dot: !!summary }">
-                                    by {{ playlist.owner }}
-                                </span>
-                            </div>
-                            <small v-if="coverClear" class="cleared-note">
-                                Cover will be reset on save.
-                            </small>
-                        </template>
-                        <template #edit>
-                            <label class="form-field">
-                                <span class="field-label">Name</span>
-                                <InputText v-model="editName" maxlength="60" />
-                            </label>
-                            <label class="form-field">
-                                <span class="field-label">Description</span>
-                                <Textarea v-model="editComment" rows="3" autoResize />
-                            </label>
-                            <small v-if="coverClear" class="cleared-note">
-                                Cover will be reset on save.
-                            </small>
-                        </template>
-                        <template #actions>
-                            <HeroActions
-                                :play-disabled="working.length === 0"
-                                can-queue
-                                can-star
-                                :starred="!!playlist?.starred"
-                                @play="playAll"
-                                @queue="queueAll"
-                                @star="onStar"
-                            />
-                        </template>
-                    </HeroHeader>
-
-                    <!-- Edit mode: the reorderable/deletable editor (same component
-                         as the queue's edit mode). View mode: the album-style table
-                         extended with a cover column (shared with GenreDetailView). -->
-                    <TrackEditList
-                        v-if="editing && working.length > 0"
-                        :songs="working"
-                        delete-label="Remove from playlist"
-                        group="playlist"
-                        @reorder="onReorder"
-                        @delete="onDelete"
-                    />
-                    <div v-else-if="working.length > 0" class="track-list">
-                        <div class="track-list-header">
-                            <span class="col-cover"></span>
-                            <span class="col-title">Title</span>
-                            <span class="col-artist">Artist</span>
-                            <span class="col-album">Album</span>
-                            <!-- The select and favorite columns are hover-revealed
-                                 per row, so their headers stay blank rather than
-                                 labelling controls that are usually invisible. -->
-                            <span class="col-select"></span>
-                            <span class="col-star"></span>
-                            <span class="col-duration" aria-label="Duration">
-                                <i class="pi pi-clock"></i>
+                <HeroHeader
+                    class="detail-hero"
+                    :eyebrow="editing ? '' : 'Playlist'"
+                    :cover-url="displayedCoverUrl"
+                    :cover-size-error="coverSizeError"
+                    v-model:editing="editing"
+                    @cover-select="onCoverSelect"
+                    @cover-remove="onRemoveCover"
+                >
+                    <template #edit-actions>
+                        <EditActionBar
+                            v-if="isOwner"
+                            v-model:editing="editing"
+                            :save-disabled="savePending || !valid"
+                            :saving="savePending"
+                            :dirty="dirty"
+                            delete-header="Delete playlist?"
+                            :delete-message="`Delete playlist &quot;${playlist.name}&quot;? This cannot be undone.`"
+                            @save="saveEdit"
+                            @cancel="cancelEdit"
+                            @delete="handleDelete"
+                        />
+                    </template>
+                    <template #read>
+                        <h2 class="hero-name">{{ playlist.name }}</h2>
+                        <p v-if="playlist.comment" class="hero-desc">{{ playlist.comment }}</p>
+                        <div class="meta-row">
+                            <span v-if="summary">{{ summary }}</span>
+                            <span v-if="playlist.owner" :class="{ dot: !!summary }">
+                                <i
+                                    v-if="!isOwner"
+                                    class="pi pi-lock not-mine-icon"
+                                    aria-hidden="true"
+                                    v-tooltip.bottom="`Shared by ${playlist.owner} — view only`"
+                                ></i>
+                                by {{ playlist.owner }}
                             </span>
                         </div>
-                        <GenreTrackRow
-                            v-for="(song, index) in working"
-                            :key="song.id + ':' + index"
-                            :song="song"
-                            :index="index"
-                            :selected="isSelected(index)"
-                            @select="(p) => onRowClick(index, p)"
-                            @enqueue="enqueueTrack(index)"
-                            @play="playTrack(index)"
-                            @menu="openTrackMenu(index)"
-                            @dragstart="(e) => onRowDragStart(e, index)"
-                            @dragend="songsDrag.end"
+                        <small v-if="coverClear" class="cleared-note">
+                            Cover will be reset on save.
+                        </small>
+                    </template>
+                    <template #edit>
+                        <label class="form-field">
+                            <span class="field-label">Name</span>
+                            <InputText v-model="editName" maxlength="60" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Description</span>
+                            <Textarea v-model="editComment" rows="3" autoResize />
+                        </label>
+                        <!-- Selecting rows in the reorder list below reveals this
+                             bubble in the band, below the form (like the album
+                             selection bar, but with the editor's reorder/delete
+                             actions). -->
+                        <HeroEditSelectionBar
+                            v-if="selectedCount > 0"
+                            :count="selectedCount"
+                            @move-top="moveSelectionToTop"
+                            @move-bottom="moveSelectionToBottom"
+                            @delete="deleteSelection"
+                            @clear="clearSelection"
                         />
-                    </div>
-                    <div v-else class="empty-tracks">
-                        <p>This playlist is empty</p>
+                        <!-- With nothing selected, the same slot holds the
+                             Public/Private toggle instead of an empty gap. -->
+                        <HeroVisibilityBar v-else v-model="editPublic" />
+                        <small v-if="coverClear" class="cleared-note">
+                            Cover will be reset on save.
+                        </small>
+                    </template>
+                    <template #actions>
+                        <HeroSelectionBar
+                            v-if="selectedCount > 0"
+                            :count="selectedCount"
+                            :songs="selectedSongs"
+                            @play="playSelection"
+                            @queue="queueSelection"
+                            @clear="clearSelection"
+                        />
+                        <HeroActions
+                            v-else
+                            :play-disabled="working.length === 0"
+                            can-queue
+                            can-star
+                            :starred="!!playlist?.starred"
+                            @play="playAll"
+                            @queue="queueAll"
+                            @star="onStar"
+                        />
+                    </template>
+                </HeroHeader>
+
+                <div class="playlist-below">
+                    <div class="playlist-body content-col">
+                        <!-- Edit mode: the reorderable/deletable editor (same component
+                             as the queue's edit mode). View mode: the album-style table
+                             extended with a cover column (shared with GenreDetailView). -->
+                        <TrackEditList
+                            v-if="editing && working.length > 0"
+                            :songs="working"
+                            :selection="rowSelection"
+                            delete-label="Remove from playlist"
+                            group="playlist"
+                            @reorder="onReorder"
+                            @delete="onDelete"
+                        />
+                        <div v-else-if="working.length > 0" class="track-list">
+                            <div class="track-list-header">
+                                <span class="col-cover"></span>
+                                <span class="col-title">Title</span>
+                                <span class="col-artist">Artist</span>
+                                <span class="col-album">Album</span>
+                                <!-- The select and favorite columns are hover-revealed
+                                     per row, so their headers stay blank rather than
+                                     labelling controls that are usually invisible. -->
+                                <span class="col-select"></span>
+                                <span class="col-star"></span>
+                                <span class="col-duration" aria-label="Duration">
+                                    <i class="pi pi-clock"></i>
+                                </span>
+                            </div>
+                            <GenreTrackRow
+                                v-for="(song, index) in working"
+                                :key="song.id + ':' + index"
+                                :song="song"
+                                :index="index"
+                                :selected="isSelected(index)"
+                                :selecting="selectedCount > 0"
+                                @select="(p) => onRowClick(index, p)"
+                                @enqueue="enqueueTrack(index)"
+                                @play="playTrack(index)"
+                                @menu="openTrackMenu(index)"
+                                @dragstart="(e) => onRowDragStart(e, index)"
+                                @dragend="songsDrag.end"
+                            />
+                        </div>
+                        <div v-else class="empty-tracks">
+                            <p>This playlist is empty</p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -473,17 +571,39 @@ onUnmounted(() => {
 .error {
     color: #ef4444;
 }
+/* Recipe B with the hero pulled out of the column so the duotone band bleeds
+   edge to edge: the scroll container no longer reserves the rail clearance
+   itself; the hero (internally) and .playlist-below each reserve it, so the two
+   columns still line up. */
 .playlist-scroll {
     height: 100%;
     overflow-y: auto;
     scrollbar-gutter: stable;
-    /* Recipe B: uniform rail clearance so the column matches the list views. */
-    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
     box-sizing: border-box;
+}
+.playlist-below {
+    box-sizing: border-box;
+    padding-right: calc(var(--app-rail-clearance) + var(--sb-w, 0px));
 }
 .playlist-body {
     padding-top: 1rem;
     padding-bottom: 1rem;
+}
+
+/* Edit mode: pull the name/description form up (the shared hero reserves 3rem of
+   top pad to clear the Save/Cancel trio; the playlist form only needs enough to
+   sit below it). The reclaimed height lets the selection bubble drop into the
+   space beside the cover instead of pushing the band taller when songs are
+   selected. */
+.detail-hero.editing :deep(.hero-info) {
+    padding-top: 1.75rem;
+}
+
+/* Tighten the form stack a touch so the name/description + the selection bubble
+   fit within the cover's height — the band stays cover-sized when songs are
+   selected instead of growing. */
+.detail-hero.editing :deep(.edit-only) {
+    gap: 0.45rem;
 }
 
 .form-field {
@@ -495,16 +615,23 @@ onUnmounted(() => {
 .form-field :deep(textarea) {
     width: 100%;
 }
+/* The edit form sits on the dark duotone band, so its labels take a light ink. */
 .field-label {
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--app-text-secondary);
+    color: #cdd7df;
 }
 .cleared-note {
-    color: var(--app-text-secondary);
+    color: #cdd7df;
     font-size: 0.85rem;
+}
+/* Read-only marker on the meta row for a playlist owned by someone else. */
+.not-mine-icon {
+    margin-right: 0.3rem;
+    font-size: 0.85em;
+    opacity: 0.85;
 }
 .empty-tracks {
     padding: 3rem;

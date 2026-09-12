@@ -16,7 +16,7 @@ const currentTrack = computed(() => player.currentTrack.value)
 const nowCoverUrl = computed(() => {
     const art = currentTrack.value?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 96)
+    return subsonicClient.getCoverArtUrl(art, 144)
 })
 
 const formatTime = (seconds: number): string => {
@@ -278,10 +278,10 @@ const {
 }
 
 .now-cover {
-    width: 52px;
-    height: 52px;
+    width: 72px;
+    height: 72px;
     flex-shrink: 0;
-    border-radius: 5px;
+    border-radius: 6px;
     overflow: hidden;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     display: flex;

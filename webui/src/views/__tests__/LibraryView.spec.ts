@@ -402,10 +402,10 @@ describe('LibraryView Discover tab', () => {
         const w = mountView()
         const tabs = w.findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
-            { label: 'Discover', value: 'discover' },
-            { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' },
-            { label: 'Songs', value: 'songs' }
+            expect.objectContaining({ label: 'Discover', value: 'discover' }),
+            expect.objectContaining({ label: 'Albums', value: 'albums' }),
+            expect.objectContaining({ label: 'Artists', value: 'artists' }),
+            expect.objectContaining({ label: 'Songs', value: 'songs' })
         ])
     })
 
@@ -440,9 +440,9 @@ describe('LibraryView Discover tab', () => {
         route.params = { folderId: '1' }
         const tabs = mountView().findAllComponents(SelectButton)[0]
         expect(tabs.props('options')).toEqual([
-            { label: 'Albums', value: 'albums' },
-            { label: 'Artists', value: 'artists' },
-            { label: 'Songs', value: 'songs' }
+            expect.objectContaining({ label: 'Albums', value: 'albums' }),
+            expect.objectContaining({ label: 'Artists', value: 'artists' }),
+            expect.objectContaining({ label: 'Songs', value: 'songs' })
         ])
     })
 

@@ -15,6 +15,10 @@ const props = withDefaults(
         group?: string
         // Passed through to each row: artist as a column beside the title.
         artistColumn?: boolean
+        // Share the host's selection so it can drive selection-aware UI outside
+        // the list (e.g. the playlist editor's in-hero action bubble). Omitted by
+        // the queue editor, which keeps its selection internal.
+        selection?: ReturnType<typeof useRowSelection>
     }>(),
     { currentIndex: -1, deleteLabel: 'Remove', group: 'tracks' }
 )
@@ -25,7 +29,7 @@ const emit = defineEmits<{
 }>()
 
 const { isSelected, selectedIndices, onRowClick, selectionForDrag, clearSelection } =
-    useRowSelection()
+    props.selection ?? useRowSelection()
 
 const listRef = ref<HTMLElement | null>(null)
 let sortable: Sortable | null = null

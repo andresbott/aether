@@ -1,0 +1,344 @@
+/* ============================================================
+   Selection + add-to-playlist flow — layered on top of _shared.css,
+   used only by the 07 Duotone flow mocks (07-duotone-select /
+   -add-to-playlist / -added). The base 20 hero files never link this,
+   so their track list is untouched.
+   Mirrors Aether's real actions (TrackActionSheet.vue): Play · Add to
+   queue · Add to favorites · Add to playlist (→ pick which) · toast.
+   ============================================================ */
+
+.i-list::before {
+    content: '\2630';
+} /* ☰ */
+.i-check::before {
+    content: '\2713';
+    font-weight: 800;
+}
+.i-close::before {
+    content: '\2715';
+}
+
+/* --- selection-mode track list: the # cell becomes a checkbox --- */
+.tracklist[data-select] .tl-head .num,
+.tracklist[data-select] .tl-row .num {
+    text-align: center;
+}
+.cbx {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--app-text-secondary);
+    border-radius: 5px;
+    box-sizing: border-box;
+}
+.cbx.on {
+    background: var(--app-accent);
+    border-color: var(--app-accent);
+}
+.cbx.on::after {
+    content: '\2713';
+    color: var(--app-accent-contrast);
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1;
+}
+.cbx.some {
+    border-color: var(--app-accent);
+}
+.cbx.some::after {
+    content: '';
+    width: 9px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--app-accent);
+}
+.tl-row.selected {
+    background: var(--app-accent-soft);
+    box-shadow: inset 3px 0 0 var(--app-accent);
+}
+/* Keep "playing" (accent title) legible but distinct from "selected":
+   drop its row tint while selecting so only checked rows are filled. */
+.tracklist[data-select] .tl-row.playing:not(.selected) {
+    background: transparent;
+}
+
+/* --- floating selection action bar (sits above the player bar) --- */
+.sel-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 88px;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.55rem 0.5rem 0.95rem;
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
+}
+.sel-count {
+    font-size: 0.9rem;
+    color: var(--app-text-secondary);
+    white-space: nowrap;
+}
+.sel-count b {
+    color: var(--app-accent);
+    font-weight: 700;
+}
+.sel-sep {
+    width: 1px;
+    height: 26px;
+    background: var(--app-border);
+    margin: 0 0.3rem;
+}
+.sel-bar .btn {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.9rem;
+}
+.sel-clear {
+    width: 38px;
+    height: 38px;
+}
+
+/* --- selection controls integrated INTO the hero (07 Duotone flow) ---
+   Replaces the hero's album action row while tracks are selected, so the
+   contextual actions live where the album's own Play/Queue/Favorite were. */
+.hero-select {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.7rem;
+    padding: 0.5rem 0.55rem 0.5rem 0.95rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+    align-self: flex-start;
+    max-width: 100%;
+}
+.hs-count {
+    font-size: 0.9rem;
+    color: #d3dbe3;
+    white-space: nowrap;
+}
+.hs-count b {
+    color: #8fecff;
+    font-weight: 700;
+}
+.hs-sep {
+    width: 1px;
+    height: 26px;
+    background: rgba(255, 255, 255, 0.22);
+    margin: 0 0.2rem;
+}
+.hero-select .btn:not(.btn-icon) {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.9rem;
+}
+.hs-clear {
+    width: 38px;
+    height: 38px;
+}
+
+/* Anchor the playlist picker to the "Add to playlist" button in the strip. */
+.pl-anchor {
+    position: relative;
+    display: inline-flex;
+}
+.pl-anchor .btn.is-open {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+.pl-pop.in-hero {
+    position: absolute;
+    top: calc(100% + 12px);
+    left: 0;
+    bottom: auto;
+    transform: none;
+}
+.pl-pop.in-hero::after {
+    top: -8px;
+    bottom: auto;
+    left: 42px;
+    transform: rotate(45deg);
+    border: 0;
+    border-left: 1px solid var(--app-border);
+    border-top: 1px solid var(--app-border);
+}
+
+/* --- "pick a playlist" popover --- */
+.pl-pop {
+    position: fixed;
+    left: 50%;
+    bottom: 150px;
+    transform: translateX(-50%);
+    z-index: 61;
+    width: 344px;
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
+}
+.pl-pop::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -8px;
+    width: 15px;
+    height: 15px;
+    background: var(--app-surface-2);
+    border-right: 1px solid var(--app-border);
+    border-bottom: 1px solid var(--app-border);
+    transform: translateX(-50%) rotate(45deg);
+}
+.pl-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.7rem 0.5rem 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--app-border);
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+.pl-search {
+    padding: 0.6rem 0.7rem;
+    border-bottom: 1px solid var(--app-border);
+}
+.pl-search input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-bg-subtle);
+    color: var(--app-text-primary);
+    font-family: inherit;
+    font-size: 0.88rem;
+}
+.pl-search input::placeholder {
+    color: var(--app-text-secondary);
+}
+.pl-search input:focus {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+    border-color: var(--app-accent);
+}
+.pl-list {
+    max-height: 268px;
+    overflow: auto;
+    padding: 0.35rem;
+}
+.pl-item {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    width: 100%;
+    padding: 0.45rem 0.5rem;
+    border: 0;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--app-text-primary);
+    font-family: inherit;
+}
+.pl-item:hover,
+.pl-item.active {
+    background: var(--app-hover);
+}
+.pl-cover {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.pl-txt {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.pl-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+.pl-sub {
+    font-size: 0.78rem;
+    color: var(--app-text-secondary);
+}
+.pl-check {
+    margin-left: auto;
+    color: var(--app-accent);
+    font-size: 0.85rem;
+}
+.pl-foot {
+    border-top: 1px solid var(--app-border);
+    padding: 0.35rem;
+}
+.pl-foot .pl-item {
+    border-radius: 0 0 10px 10px;
+}
+.pl-new .pl-cover {
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+    border: 1px dashed var(--app-accent);
+}
+.pl-new .pl-name {
+    color: var(--app-accent);
+}
+
+/* --- success toast --- */
+.toast {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 70;
+    width: 332px;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.7rem;
+    padding: 0.75rem 0.8rem;
+    background: var(--app-surface-2);
+    border: 1px solid var(--app-border);
+    border-left: 4px solid var(--app-accent);
+    border-radius: 10px;
+    box-shadow: var(--shadow-card);
+}
+.toast-ico {
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.8rem;
+}
+.toast-txt {
+    flex: 1;
+    min-width: 0;
+}
+.toast-sum {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+.toast-det {
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
+    margin-top: 0.1rem;
+}
+.toast-x {
+    width: 28px;
+    height: 28px;
+}

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref, unref, type Ref } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import type { Artist, Album, Genre, Song } from '@/types/subsonic'
 import type { SearchParams } from '@/types/subsonic'
@@ -23,6 +23,7 @@ const isLoading = ref(false)
 const searchError = ref<Error | null>(null)
 const playAlbum = vi.fn()
 const enqueueAndPlayIfIdle = vi.fn()
+const addMultipleToQueue = vi.fn()
 let lastSearchParams: Ref<SearchParams> | null = null
 
 // Only useSearch is stubbed; the length threshold comes through from the real
@@ -39,7 +40,7 @@ vi.mock('@/composables/useSubsonicQueries', async (importOriginal) => ({
 }))
 
 vi.mock('@/composables/usePlayer', () => ({
-    usePlayer: () => ({ playAlbum, enqueueAndPlayIfIdle })
+    usePlayer: () => ({ playAlbum, enqueueAndPlayIfIdle, addMultipleToQueue })
 }))
 
 vi.mock('@/lib/api/subsonic', () => ({
@@ -85,6 +86,14 @@ const GenreRowStub = {
     props: ['genre'],
     template: '<div class="genre-row-stub">{{ genre.value }}</div>'
 }
+// Owns its own PrimeVue Toast + playlist queries; stubbed so selecting a row in
+// this view's harness doesn't drag those in (same tactic as AlbumView.spec).
+const HeroSelectionBarStub = {
+    name: 'HeroSelectionBar',
+    props: ['count', 'songs'],
+    emits: ['play', 'queue', 'clear'],
+    template: '<div class="hero-selection-bar-stub">{{ count }}</div>'
+}
 
 import SearchView from '@/views/SearchView.vue'
 
@@ -100,6 +109,7 @@ const mountView = () =>
                 AlbumRow: AlbumRowStub,
                 GenreCard: GenreCardStub,
                 GenreRow: GenreRowStub,
+                HeroSelectionBar: HeroSelectionBarStub,
                 // vue-router is mocked, so RouterLink (used by GenreTrackRow's
                 // album link) isn't registered — stub it to a plain anchor.
                 RouterLink: { template: '<a><slot /></a>' },
@@ -155,6 +165,7 @@ beforeEach(() => {
     searchError.value = null
     playAlbum.mockClear()
     enqueueAndPlayIfIdle.mockClear()
+    addMultipleToQueue.mockClear()
     lastSearchParams = null
 })
 
@@ -462,5 +473,136 @@ describe('SearchView', () => {
         expect(unref(lastSearchParams!).query).toBe('floyd')
         expect(unref(lastSearchParams!).albumCount).toBeGreaterThan(0)
         expect(w.findAll('.album-card-stub')).toHaveLength(2)
+    })
+})
+
+describe('SearchView song selection', () => {
+    const songResults = () => ({
+        song: [
+            { id: 's1', title: 'Time', artist: 'Pink Floyd' },
+            { id: 's2', title: 'Money', artist: 'Pink Floyd' },
+            { id: 's3', title: 'Breathe', artist: 'Pink Floyd' }
+        ]
+    })
+
+    const bar = (w: ReturnType<typeof mountView>) => w.findComponent(HeroSelectionBarStub)
+
+    it('surfaces the selection bubble, with the picked song, once a row is selected', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        // No bubble until something is selected.
+        expect(bar(w).exists()).toBe(false)
+
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(bar(w).exists()).toBe(true)
+        expect(bar(w).props('count')).toBe(1)
+        expect(bar(w).props('songs')).toEqual([songResults().song[0]])
+    })
+
+    it('narrows the scope to Songs the moment a song is picked in All', async () => {
+        // sampleResults() carries a single song and the scope starts on All.
+        searchResult.value = sampleResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        expect(activeScope(w)).toBe('All')
+
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(activeScope(w)).toBe('Songs')
+        expect(bar(w).props('count')).toBe(1)
+    })
+
+    it('keeps the selection made in All alive through the switch to Songs', async () => {
+        searchResult.value = sampleResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await w.findAll('.genre-track-row')[0].trigger('click')
+
+        // The narrowing refetches a longer song list; the first rows are the same,
+        // so the picked row must keep its index rather than being wiped.
+        searchResult.value = {
+            song: [sampleResults().song[0], { id: 's9', title: 'Extra', artist: 'Pink Floyd' }]
+        }
+        await flushPromises()
+        expect(bar(w).exists()).toBe(true)
+        expect(bar(w).props('count')).toBe(1)
+        expect(bar(w).props('songs')).toEqual([sampleResults().song[0]])
+    })
+
+    it('reveals every row checkbox while a selection is active', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        expect(w.find('.genre-track-row.selecting').exists()).toBe(false)
+
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(w.findAll('.genre-track-row.selecting')).toHaveLength(3)
+    })
+
+    it('drops the selection when the scope is changed by hand', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(bar(w).exists()).toBe(true)
+
+        await setScope(w, 'Albums')
+        expect(bar(w).exists()).toBe(false)
+    })
+
+    it('drops the selection when the search term changes', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(bar(w).exists()).toBe(true)
+
+        await typeQuery(w, 'zeppelin')
+        expect(bar(w).exists()).toBe(false)
+    })
+
+    it('plays exactly the selected songs when the bubble asks to play', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        const rows = w.findAll('.genre-track-row')
+        await rows[0].trigger('click')
+        await rows[2].trigger('click', { ctrlKey: true })
+        expect(bar(w).exists()).toBe(true)
+
+        bar(w).vm.$emit('play')
+        await flushPromises()
+        expect(playAlbum).toHaveBeenCalledWith([songResults().song[0], songResults().song[2]])
+    })
+
+    it('enqueues the selected songs when the bubble asks to add to queue', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(bar(w).exists()).toBe(true)
+
+        bar(w).vm.$emit('queue')
+        await flushPromises()
+        expect(addMultipleToQueue).toHaveBeenCalledWith([songResults().song[0]])
+    })
+
+    it('clears the selection when the bubble asks to clear', async () => {
+        searchResult.value = songResults()
+        const w = mountView()
+        await typeQuery(w, 'floyd')
+        await setScope(w, 'Songs')
+        await w.findAll('.genre-track-row')[0].trigger('click')
+        expect(bar(w).exists()).toBe(true)
+
+        bar(w).vm.$emit('clear')
+        await flushPromises()
+        expect(bar(w).exists()).toBe(false)
     })
 })
