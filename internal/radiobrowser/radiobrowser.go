@@ -15,8 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/aether/internal/upstream"
-	"golang.org/x/time/rate"
+	"github.com/go-bumbu/http/outbound"
 )
 
 const (
@@ -25,7 +24,7 @@ const (
 	defaultBaseURL = "https://all.api.radio-browser.info"
 
 	// requestsPerSecond is a conservative fair-use rate limit (burst 1).
-	requestsPerSecond rate.Limit = 1
+	requestsPerSecond = 1.0
 
 	// serviceName is what the user sees when the directory misbehaves.
 	serviceName = "radio-browser.info"
@@ -57,7 +56,7 @@ type Client struct {
 	BaseURL string
 	// Doer carries the throttle, retry policy and error classification shared
 	// by all of aether's outbound clients.
-	Doer *upstream.Doer
+	Doer *outbound.Client
 }
 
 // New returns a Client pointed at the shared mirror pool with a conservative
@@ -66,7 +65,11 @@ type Client struct {
 func New(userAgent string) *Client {
 	return &Client{
 		BaseURL: defaultBaseURL,
-		Doer:    upstream.New(serviceName, userAgent, requestsPerSecond),
+		Doer: outbound.New(outbound.Cfg{
+			Service:   serviceName,
+			UserAgent: userAgent,
+			RPS:       float64(requestsPerSecond),
+		}),
 	}
 }
 
