@@ -191,9 +191,9 @@ func runServer(configFile string) error {
 	// they — and the reindex below — never touch the library index at once.
 	// Reindex is the metadata editor's targeted re-index, enqueued by its write
 	// handlers rather than run on demand.
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,
+	runner.RegisterWithProgress(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,
 		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
-	runner.RegisterTask(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, true), tasks.ScanFullTaskName, 1,
+	runner.RegisterWithProgress(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, true), tasks.ScanFullTaskName, 1,
 		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
 	taskrunner.Register[tasks.ReindexParams](runner, tasks.NewReindexTaskFn(scanCfg, dataStore, tagReader), tasks.ReindexTaskName, 1,
 		taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
