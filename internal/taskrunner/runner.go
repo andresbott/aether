@@ -17,10 +17,16 @@ import (
 
 var ErrQueueFull = tempo.ErrQueueFull
 
+// Progress is how a running task reports progress. Re-exported from tempo so
+// task packages depend on taskrunner, not tempo. Handed to a task registered
+// via RegisterWithProgress; a no-op reporter under a runner with no sink.
+type Progress = tempo.Progress
+
 type Runner struct {
-	queue     *tempo.QueueRunner
-	logger    *slog.Logger
-	logReader tempo.TaskLogReader
+	queue          *tempo.QueueRunner
+	logger         *slog.Logger
+	logReader      tempo.TaskLogReader
+	progressReader tempo.TaskProgressReader
 }
 
 type Cfg struct {
@@ -79,13 +85,15 @@ func NewRunner(cfg Cfg) (*Runner, error) {
 		persistence = tempo.NewMemPersistence()
 	}
 
+	progressSink := tempo.NewMemTaskProgressSink()
 	qr, err := tempo.NewQueueRunner(tempo.RunnerCfg{
-		Parallelism: cfg.Parallelism,
-		QueueSize:   cfg.QueueSize,
-		HistorySize: cfg.HistorySize,
-		Persistence: persistence,
-		LogSink:     logSink,
-		LogLevel:    cfg.LogLevel,
+		Parallelism:  cfg.Parallelism,
+		QueueSize:    cfg.QueueSize,
+		HistorySize:  cfg.HistorySize,
+		Persistence:  persistence,
+		LogSink:      logSink,
+		LogLevel:     cfg.LogLevel,
+		ProgressSink: progressSink,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("queue runner: %w", err)
@@ -97,9 +105,10 @@ func NewRunner(cfg Cfg) (*Runner, error) {
 	}
 
 	return &Runner{
-		queue:     qr,
-		logger:    l,
-		logReader: logReader,
+		queue:          qr,
+		logger:         l,
+		logReader:      logReader,
+		progressReader: progressSink,
 	}, nil
 }
 
@@ -189,6 +198,22 @@ func (r *Runner) RegisterTask(fn func(ctx context.Context, log *slog.Logger) err
 	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
 }
 
+// RegisterWithProgress registers a task whose body reports progress through the
+// Progress reporter tempo hands it. Identical to RegisterTask otherwise (same
+// logging wrapper and options). Used by the scan tasks; other tasks that do not
+// report progress keep RegisterTask's simpler func(ctx, log) error shape.
+func (r *Runner) RegisterWithProgress(fn func(ctx context.Context, log *slog.Logger, prog Progress) error, name string, maxParallelism int, opts ...TaskOption) {
+	var o taskOpts
+	for _, opt := range opts {
+		opt(&o)
+	}
+	run := func(ctx context.Context, log *slog.Logger, prog tempo.Progress, _ []byte) error {
+		return r.runWithLog(ctx, name, func() error { return fn(ctx, log, prog) })
+	}
+	r.queue.RegisterRaw(name, run, o.tempoOptions(maxParallelism)...)
+	r.logger.Info("task registered", slog.String("component", "taskrunner"), slog.String("task", name))
+}
+
 // runWithLog runs a task body between the wrapper's start/finish/fail log
 // lines, shared by the raw (RegisterTask) and typed (Register) paths.
 func (r *Runner) runWithLog(_ context.Context, name string, call func() error) error {
@@ -239,16 +264,26 @@ func (r *Runner) List() []tempo.TaskInfo {
 	return r.queue.List()
 }
 
-type ExecutionInfo struct {
-	ID        uuid.UUID  `json:"id"`
-	TaskName  string     `json:"task_name"`
-	Status    string     `json:"status"`
-	QueuedAt  time.Time  `json:"queued_at"`
-	StartedAt *time.Time `json:"started_at,omitempty"`
-	EndedAt   time.Time  `json:"ended_at"`
+// ExecutionProgress is a running task's latest progress. done/total are raw work
+// units (the scan reports files×2 — one unit per file for the read pass, one for
+// the save pass); the UI derives the percentage. Absent unless the run is running.
+type ExecutionProgress struct {
+	Done  int64  `json:"done"`
+	Total int64  `json:"total"`
+	Stage string `json:"stage,omitempty"`
 }
 
-func (r *Runner) Executions() []ExecutionInfo {
+type ExecutionInfo struct {
+	ID        uuid.UUID          `json:"id"`
+	TaskName  string             `json:"task_name"`
+	Status    string             `json:"status"`
+	QueuedAt  time.Time          `json:"queued_at"`
+	StartedAt *time.Time         `json:"started_at,omitempty"`
+	EndedAt   time.Time          `json:"ended_at"`
+	Progress  *ExecutionProgress `json:"progress,omitempty"`
+}
+
+func (r *Runner) Executions(ctx context.Context) []ExecutionInfo {
 	raw := r.queue.List()
 	out := make([]ExecutionInfo, len(raw))
 	for i, t := range raw {
@@ -256,7 +291,7 @@ func (r *Runner) Executions() []ExecutionInfo {
 		if !t.StartedAt.IsZero() {
 			startedAt = &t.StartedAt
 		}
-		out[i] = ExecutionInfo{
+		info := ExecutionInfo{
 			ID:        t.ID,
 			TaskName:  t.Name,
 			Status:    t.Status.Str(),
@@ -264,6 +299,14 @@ func (r *Runner) Executions() []ExecutionInfo {
 			StartedAt: startedAt,
 			EndedAt:   t.EndedAt,
 		}
+		// Progress is a live-run concept: attach it only while running, so a
+		// finished row never shows a stale percentage before the sink is reaped.
+		if info.Status == "running" && r.progressReader != nil {
+			if st, ok, err := r.progressReader.Progress(ctx, t.ID); err == nil && ok {
+				info.Progress = &ExecutionProgress{Done: st.Done, Total: st.Total, Stage: st.Stage}
+			}
+		}
+		out[i] = info
 	}
 	slices.SortFunc(out, func(a, b ExecutionInfo) int {
 		if c := b.QueuedAt.Compare(a.QueuedAt); c != 0 {

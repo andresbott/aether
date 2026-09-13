@@ -127,7 +127,7 @@ func (h *Handler) TriggerTask() http.Handler {
 
 func (h *Handler) ListExecutions() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		executions := h.Runner.Executions()
+		executions := h.Runner.Executions(r.Context())
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string][]taskrunner.ExecutionInfo{"executions": executions})
 	})
