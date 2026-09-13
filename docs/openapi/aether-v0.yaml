@@ -3842,20 +3842,10 @@ components:
             has no `omitempty`; it holds the zero time
             ("0001-01-01T00:00:00Z") until the run finishes.
         progress:
-          type: object
+          allOf:
+            - $ref: '#/components/schemas/TaskExecutionProgress'
           description: >
-            Live progress of a run. Present only while `status` is `running`;
-            absent otherwise. `done`/`total` are raw work units (the scan reports
-            files × 2 — one unit for the tag read, one for the reconcile save);
-            clients derive the percentage as `round(done / total * 100)` and treat
-            `total <= 0` as indeterminate.
-          properties:
-            done: { type: integer, format: int64 }
-            total: { type: integer, format: int64 }
-            stage:
-              type: string
-              description: 'Human-readable current step, e.g. "Extracting metadata: Artist/Album/01.flac".'
-          required: [done, total]
+            Present only while `status` is `running`; absent otherwise.
       required: [id, task_name, status, queued_at, ended_at]
 
     TaskExecutionList:
@@ -3865,6 +3855,21 @@ components:
           type: array
           items: { $ref: '#/components/schemas/TaskExecution' }
       required: [executions]
+
+    TaskExecutionProgress:
+      type: object
+      description: >
+        Live progress of a run. `done`/`total` are raw work units (the scan
+        reports files × 2 — one unit for the tag read, one for the reconcile
+        save); clients derive the percentage as `round(done / total * 100)` and
+        treat `total <= 0` as indeterminate.
+      properties:
+        done: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+        stage:
+          type: string
+          description: 'Human-readable current step, e.g. "Extracting metadata: Artist/Album/01.flac".'
+      required: [done, total]
 
   responses:
     BadRequest:

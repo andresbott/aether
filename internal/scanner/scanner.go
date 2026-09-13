@@ -31,6 +31,8 @@ type ScanOptions struct {
 // reporter (which satisfies it); the scanner never imports tempo. A scan counts
 // each file twice — once for the tag read, once for the reconcile save — so the
 // percentage spans both phases rather than stalling at 100% during the save.
+// Implementations must be safe for concurrent use: the tag-read worker pool
+// calls it from multiple goroutines.
 type ProgressReporter interface {
 	SetTotal(total int64)
 	Inc(delta int64) int64
@@ -148,7 +150,7 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		if err := s.scanLibrary(ctx, walks[i], scanStart, opts, prog, &stats); err != nil {
+		if err := s.scanLibrary(ctx, walks[i], scanStart, prog, &stats); err != nil {
 			return stats, err
 		}
 	}
@@ -226,7 +228,7 @@ func (s *Scanner) preflight(ctx context.Context, libs []model.Library) ([]librar
 
 // scanLibrary is phase 2: everything from the LastScanStartedAt stamp onwards,
 // for a library preflight has already validated and walked.
-func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, opts ScanOptions, prog ProgressReporter, stats *ScanStats) error {
+func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, prog ProgressReporter, stats *ScanStats) error {
 	lib, walkResults := lw.lib, lw.walk
 
 	// Stamped in phase 2 on purpose: a library whose run aborted in preflight must
