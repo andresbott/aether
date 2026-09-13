@@ -23,7 +23,8 @@ const scanTaskNoSchedules: Task = {
     description: '',
     schedules: [],
     lastExecution: null,
-    lastExecutionStatus: null
+    lastExecutionStatus: null,
+    lastExecutionProgress: null
 }
 
 const twoSchedules: TaskSchedule[] = [
@@ -58,7 +59,8 @@ const otherTask: Task = {
     description: '',
     schedules: [],
     lastExecution: null,
-    lastExecutionStatus: null
+    lastExecutionStatus: null,
+    lastExecutionProgress: null
 }
 
 const mountDialog = (task: Task | null) =>

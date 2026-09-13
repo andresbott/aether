@@ -6,6 +6,7 @@ import * as TasksApi from '@/lib/api/Tasks'
 import type {
     TaskWithSchedule,
     ExecutionInfo,
+    ExecutionProgress,
     CreateScheduleBody,
     PatchScheduleBody
 } from '@/types/tasks'
@@ -57,6 +58,17 @@ export function getStatusLabel(status: string): string {
     return status === EXECUTION_STATUS.waiting ? 'queued' : status
 }
 
+// progressLabel is the running task's action-cell text: a percentage when the
+// run reports a measurable total, else a plain state word. done/total are raw
+// work units; the percentage is derived here so the API carries no float.
+export function progressLabel(status: string | null, progress: ExecutionProgress | null): string {
+    if (progress && progress.total > 0) {
+        return `${Math.round((progress.done / progress.total) * 100)}% complete`
+    }
+    if (status === EXECUTION_STATUS.waiting) return 'Queued'
+    return 'Running'
+}
+
 export function isActiveStatus(status: string): boolean {
     return status === EXECUTION_STATUS.waiting || status === EXECUTION_STATUS.running
 }
@@ -69,6 +81,7 @@ export function hasActiveExecutions(executions: ExecutionInfo[] | undefined): bo
 export interface Task extends TaskWithSchedule {
     lastExecution: string | null
     lastExecutionStatus: string | null
+    lastExecutionProgress: ExecutionProgress | null
 }
 
 export function deriveTasksWithLastExecution(
@@ -89,7 +102,8 @@ export function deriveTasksWithLastExecution(
         return {
             ...t,
             lastExecution: last ? last.started_at || last.queued_at : null,
-            lastExecutionStatus: last?.status ?? null
+            lastExecutionStatus: last?.status ?? null,
+            lastExecutionProgress: last?.progress ?? null
         }
     })
 }
