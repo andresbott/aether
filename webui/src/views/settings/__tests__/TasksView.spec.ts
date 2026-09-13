@@ -240,4 +240,26 @@ describe('TasksView', () => {
         const dialogTask = w.findComponent(ScheduleDialog).props('task') as { schedules: unknown[] } | null
         expect(dialogTask?.schedules).toHaveLength(1)
     })
+
+    it('shows the percentage and italic stage line while running', () => {
+        tasksFixtureRef.value = [
+            {
+                id: 'scan',
+                name: 'Library Scan',
+                description: 'desc',
+                schedules: [],
+                lastExecution: null,
+                lastExecutionStatus: 'running',
+                lastExecutionProgress: { done: 1, total: 4, stage: 'Extracting metadata: A/B/01.mp3' }
+            }
+        ]
+        const w = mountView()
+        expect(w.find('.task-progress').text()).toContain('25% complete')
+        expect(w.find('.task-stage').text()).toContain('Extracting metadata: A/B/01.mp3')
+    })
+
+    it('shows no stage line when the task is idle', () => {
+        const w = mountView()
+        expect(w.find('.task-stage').exists()).toBe(false)
+    })
 })
