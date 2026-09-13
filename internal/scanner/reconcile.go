@@ -31,7 +31,7 @@ type artistRekey struct {
 	mbid     string
 }
 
-func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time, prog ProgressReporter) (reconcileStats, error) {
 	var stats reconcileStats
 	// Artist-folder images are reconciled in one pass after every track is in
 	// (reconcileArtistImages), not per track. probes collects, per artist touched
@@ -69,6 +69,8 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			return stats, ctx.Err()
 		}
 
+		prog.SetStage("Saving: " + relPath(libRoot, tr.walk.FilePath))
+
 		// A per-track transaction that fails is retried once before being given
 		// up on. The likeliest cause is a lost SQLite write lock under
 		// contention — busy_timeout has already waited its full window, and by
@@ -91,6 +93,8 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			}
 			return isNew, err
 		})
+
+		prog.Inc(1)
 	}
 
 	// Every artist folder is listed at most once per run here, instead of once

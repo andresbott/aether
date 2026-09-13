@@ -80,7 +80,7 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		return stats, fmt.Errorf("rescan: snapshot aggregates: %w", err)
 	}
 
-	rec, err := s.reconcile(ctx, lib.Path, results, time.Now())
+	rec, err := s.reconcile(ctx, lib.Path, results, time.Now(), noopProgress{})
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
 	stats.TracksUpdated += rec.Updated
