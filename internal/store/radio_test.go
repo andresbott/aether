@@ -1,9 +1,11 @@
 package store_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/store"
 )
 
 func TestCreateInternetRadioStation(t *testing.T) {
@@ -58,8 +60,8 @@ func TestGetInternetRadioStation(t *testing.T) {
 
 func TestGetInternetRadioStationNotFound(t *testing.T) {
 	s := testStore(t)
-	if _, err := s.GetInternetRadioStation(9999); err == nil {
-		t.Fatal("expected error, got nil")
+	if _, err := s.GetInternetRadioStation(9999); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
 	}
 }
 
@@ -79,8 +81,8 @@ func TestUpdateInternetRadioStation(t *testing.T) {
 func TestUpdateInternetRadioStationNotFound(t *testing.T) {
 	s := testStore(t)
 	err := s.UpdateInternetRadioStation(9999, "X", "http://x", "")
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
 	}
 }
 
@@ -100,7 +102,7 @@ func TestDeleteInternetRadioStation(t *testing.T) {
 func TestDeleteInternetRadioStationNotFound(t *testing.T) {
 	s := testStore(t)
 	err := s.DeleteInternetRadioStation(9999)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
 	}
 }

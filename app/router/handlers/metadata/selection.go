@@ -10,7 +10,6 @@ import (
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/http/problemjson"
-	"gorm.io/gorm"
 )
 
 // librarySummary is the resolved library a request addresses: its id and root
@@ -49,7 +48,7 @@ func resolveLibraryRel(st *store.Store, r *http.Request) (lib *librarySummary, a
 	}
 	libModel, gerr := st.GetLibrary(uint(id))
 	if gerr != nil {
-		if errors.Is(gerr, gorm.ErrRecordNotFound) {
+		if errors.Is(gerr, store.ErrNotFound) {
 			return nil, "", http.StatusNotFound, gerr
 		}
 		return nil, "", http.StatusInternalServerError, gerr
@@ -98,7 +97,7 @@ func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths
 func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, pw *problemjson.Writer) (*librarySummary, bool) {
 	libModel, err := st.GetLibrary(id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			pw.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return nil, false
 		}

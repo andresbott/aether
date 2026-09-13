@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/internal/metadataedit"
-	"go.senan.xyz/taglib"
+	"github.com/andresbott/aether/internal/tags"
 )
 
 type rawTagsResultDTO struct {
@@ -34,11 +34,11 @@ func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
 
 	readRaw := h.RawTagReader
 	if readRaw == nil {
-		readRaw = taglib.ReadTags
+		readRaw = tags.ReadRawTags
 	}
 	readUnsupported := h.UnsupportedReader
 	if readUnsupported == nil {
-		readUnsupported = taglib.ReadUnsupported
+		readUnsupported = tags.ReadUnsupported
 	}
 	results := make([]rawTagsResultDTO, 0, len(sel.Paths))
 	for _, p := range sel.Paths {

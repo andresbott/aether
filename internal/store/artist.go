@@ -114,7 +114,7 @@ func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 func (s *Store) GetArtist(id uint) (*model.Artist, []model.Album, error) {
 	var artist model.Artist
 	if err := s.db.First(&artist, id).Error; err != nil {
-		return nil, nil, err
+		return nil, nil, notFound(err)
 	}
 	// Albums the artist owns (album_artists) plus albums they appear on via
 	// track credits only — a guest artist's page must not come up empty.

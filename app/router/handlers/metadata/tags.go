@@ -25,10 +25,10 @@ type TagsHandler struct {
 	// disables it.
 	Reindex Reindexer
 	// RawTagReader reads a file's complete tag map; nil defaults to
-	// taglib.ReadTags. Overridable for tests.
+	// tags.ReadRawTags. Overridable for tests.
 	RawTagReader func(absPath string) (map[string][]string, error)
 	// UnsupportedReader lists a file's hidden-frame descriptors; nil defaults
-	// to taglib.ReadUnsupported. Overridable for tests.
+	// to tags.ReadUnsupported. Overridable for tests.
 	UnsupportedReader func(absPath string) ([]string, error)
 	// Problems writes this handler's application/problem+json error responses.
 	Problems *problemjson.Writer

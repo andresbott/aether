@@ -1417,7 +1417,7 @@ func TestInventory_RejectsTooManyPaths(t *testing.T) {
 }
 
 // TestInventory_UnknownLibrary404 confirms decodeSelection maps a
-// gorm.ErrRecordNotFound library lookup to 404, like every other endpoint's
+// store.ErrNotFound library lookup to 404, like every other endpoint's
 // library_id resolution.
 func TestInventory_UnknownLibrary404(t *testing.T) {
 	_, r, _ := newPictureHandler(t, t.TempDir(), nil)

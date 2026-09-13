@@ -159,8 +159,8 @@ func TestRetagAlbumKeepsTheRowAndItsCreatedAt(t *testing.T) {
 func TestRetagAlbumReportsAMissingRow(t *testing.T) {
 	s := testStore(t)
 	err := s.RetagAlbum(4242, store.AlbumIdentity{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"})
-	if err == nil {
-		t.Fatal("expected an error when the album does not exist")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound when the album does not exist, got %v", err)
 	}
 }
 

@@ -12,7 +12,6 @@ import (
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -427,7 +426,7 @@ func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Stor
 	}
 	for _, lookup := range lookups {
 		lib, err := lookup.find()
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}
 		if err != nil {
@@ -444,9 +443,9 @@ func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Stor
 	return false
 }
 
-// Map gorm errors to API status codes.
+// Map store errors to API status codes.
 func mapStoreError(err error) (status int, code string) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, store.ErrNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
 	if store.IsUniqueViolation(err) {

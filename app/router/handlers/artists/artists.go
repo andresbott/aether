@@ -18,7 +18,6 @@ import (
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 // Searcher searches MusicBrainz for artists and releases by name. Satisfied by
@@ -79,7 +78,7 @@ func parseID(r *http.Request) (uint, error) {
 }
 
 func mapStoreError(err error) (status int, code string) {
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if errors.Is(err, store.ErrNotFound) {
 		return http.StatusNotFound, "not_found"
 	}
 	return http.StatusInternalServerError, "internal"

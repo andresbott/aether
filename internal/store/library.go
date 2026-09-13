@@ -29,7 +29,7 @@ func (s *Store) LibraryRoots() ([]string, error) {
 func (s *Store) GetLibrary(id uint) (model.Library, error) {
 	var lib model.Library
 	if err := s.db.First(&lib, id).Error; err != nil {
-		return model.Library{}, err
+		return model.Library{}, notFound(err)
 	}
 	return lib, nil
 }
@@ -38,26 +38,25 @@ func (s *Store) CreateLibrary(lib *model.Library) error {
 	return s.db.Create(lib).Error
 }
 
-// FindLibraryByName returns the library with this exact name, or
-// gorm.ErrRecordNotFound. A miss is an ordinary answer for these two lookups
-// (the config reconcile asks "does this library exist yet?"), so neither logs
-// the not-found as an error.
+// FindLibraryByName returns the library with this exact name, or ErrNotFound. A
+// miss is an ordinary answer for these two lookups (the config reconcile asks
+// "does this library exist yet?"), so neither logs the not-found as an error.
 func (s *Store) FindLibraryByName(name string) (model.Library, error) {
 	var lib model.Library
 	if err := s.db.Session(&gorm.Session{Logger: s.db.Logger.LogMode(logger.Silent)}).
 		Where("name = ?", name).First(&lib).Error; err != nil {
-		return model.Library{}, err
+		return model.Library{}, notFound(err)
 	}
 	return lib, nil
 }
 
 // FindLibraryByPath returns the library rooted at this exact path, or
-// gorm.ErrRecordNotFound.
+// ErrNotFound.
 func (s *Store) FindLibraryByPath(path string) (model.Library, error) {
 	var lib model.Library
 	if err := s.db.Session(&gorm.Session{Logger: s.db.Logger.LogMode(logger.Silent)}).
 		Where("path = ?", path).First(&lib).Error; err != nil {
-		return model.Library{}, err
+		return model.Library{}, notFound(err)
 	}
 	return lib, nil
 }

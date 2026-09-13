@@ -13,7 +13,7 @@ import (
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"gorm.io/gorm"
+	"github.com/andresbott/aether/internal/store"
 )
 
 // ArtistImageFetcher lists and downloads artist portraits from the online image
@@ -147,7 +147,7 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			h.Problems.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}

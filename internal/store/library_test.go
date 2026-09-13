@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
-	"gorm.io/gorm"
+	"github.com/andresbott/aether/internal/store"
 )
 
 func TestCreateAndGetLibrary(t *testing.T) {
@@ -63,8 +63,24 @@ func TestLibraryRootsEmpty(t *testing.T) {
 func TestGetLibraryNotFound(t *testing.T) {
 	s := testStore(t)
 	_, err := s.GetLibrary(999)
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		t.Fatalf("expected ErrRecordNotFound, got %v", err)
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
+	}
+}
+
+func TestFindLibraryByNameNotFound(t *testing.T) {
+	s := testStore(t)
+	_, err := s.FindLibraryByName("nope")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
+	}
+}
+
+func TestFindLibraryByPathNotFound(t *testing.T) {
+	s := testStore(t)
+	_, err := s.FindLibraryByPath("/nope")
+	if !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected store.ErrNotFound, got %v", err)
 	}
 }
 

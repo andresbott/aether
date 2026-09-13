@@ -39,8 +39,12 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
   serves Prometheus `/metrics` via `handlers.Admin()` — opt-in via
   `Observability.Enabled`, and not started at all when false.
 - **`internal/store` is the only DB gateway.** It wraps `*gorm.DB`; handlers
-  never touch GORM directly except through it. `Store.Transaction(fn)` yields
-  a tx-scoped `*Store`. Query filters are small structs in `filters.go`
+  never touch GORM directly except through it — a missing row surfaces as the
+  store's own `store.ErrNotFound` sentinel, never `gorm.ErrRecordNotFound`, so
+  callers recognise a miss without importing the ORM (`store/errors.go`'s
+  `notFound` maps it at the boundary; internal `FindOrCreate*` logic still
+  checks the gorm sentinel directly). `Store.Transaction(fn)` yields a
+  tx-scoped `*Store`. Query filters are small structs in `filters.go`
   (`SearchFilter`, `ArtistsFilter`, `StarredFilter` — all `LibraryID *uint`,
   nil = cross-library).
 - **`internal/model` is schema only.** GORM structs + `Migrate()`
