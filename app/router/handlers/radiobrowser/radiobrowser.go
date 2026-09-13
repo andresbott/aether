@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/radiobrowser"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 )
 
@@ -26,6 +26,8 @@ type Searcher interface {
 
 type Handler struct {
 	Client Searcher
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 func (h *Handler) Routes(r *mux.Router) {
@@ -44,14 +46,14 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if q == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "q is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "q is required")
 		return
 	}
 	limit := 10
 	if l := r.URL.Query().Get("limit"); l != "" {
 		n, err := strconv.Atoi(l)
 		if err != nil || n <= 0 {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "limit must be a positive integer")
 			return
 		}
 		if n > 25 {
@@ -61,7 +63,7 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 	}
 	results, err := h.Client.Search(r.Context(), q, limit)
 	if err != nil {
-		httperr.WriteUpstream(w, r, err, "The station directory could not be reached. Try again in a moment.")
+		h.Problems.WriteUpstream(w, r, err, "The station directory could not be reached. Try again in a moment.")
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
@@ -74,12 +76,12 @@ func (h *Handler) searchStations(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getFavicon(w http.ResponseWriter, r *http.Request) {
 	u := strings.TrimSpace(r.URL.Query().Get("url"))
 	if u == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "url is required")
 		return
 	}
 	data, contentType, err := h.Client.FetchFavicon(r.Context(), u)
 	if err != nil {
-		httperr.WriteUpstream(w, r, err, "The station logo could not be downloaded.")
+		h.Problems.WriteUpstream(w, r, err, "The station logo could not be downloaded.")
 		return
 	}
 	// data is validated PNG/JPEG bytes (FetchFavicon sniffs them); serve it with

@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/go-bumbu/userauth/service/user"
 	userstoredb "github.com/go-bumbu/userauth/service/user/store/db"
 	"github.com/gorilla/mux"
@@ -31,7 +32,7 @@ func newTestHandler(t *testing.T) (*user.Service, *mux.Router) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &users.Handler{Users: svc}
+	h := &users.Handler{Users: svc, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return svc, r
@@ -263,7 +264,7 @@ func TestCreateUserRole(t *testing.T) {
 		if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 			t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 		}
-		var problem httperr.ValidationProblem
+		var problem problemjson.ValidationDetails
 		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
 			t.Fatal(err)
 		}

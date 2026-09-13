@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/andresbott/aether/libs/fpcalc"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // writeFakeFpcalc creates an executable script that echoes a fixed JSON
@@ -100,22 +100,22 @@ func TestIdentifyFileLookupError(t *testing.T) {
 }
 
 // The chain that made writeUpstreamErr reachable for the real resolver: an
-// AcoustID failure must arrive as an *upstream.Error so callers can classify it
+// AcoustID failure must arrive as an *outbound.Error so callers can classify it
 // with errors.As instead of matching error text.
 func TestIdentifyFileClassifiesAcoustIDFailuresAsUpstream(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		status     int
 		body       string
-		wantKind   upstream.Kind
+		wantKind   outbound.Kind
 		wantStatus int
 	}{
 		{"rate limited", http.StatusTooManyRequests, `{"status":"error","error":{"message":"rate limit"}}`,
-			upstream.KindRateLimited, http.StatusTooManyRequests},
+			outbound.KindRateLimited, http.StatusTooManyRequests},
 		{"server error", http.StatusBadGateway, `{"status":"error"}`,
-			upstream.KindUnavailable, http.StatusBadGateway},
+			outbound.KindUnavailable, http.StatusBadGateway},
 		{"rejected", http.StatusBadRequest, `{"status":"error","error":{"message":"invalid API key"}}`,
-			upstream.KindRejected, http.StatusBadGateway},
+			outbound.KindRejected, http.StatusBadGateway},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bin := writeFakeFpcalc(t, `{"duration": 12.3, "fingerprint": "XYZ"}`)
@@ -130,18 +130,18 @@ func TestIdentifyFileClassifiesAcoustIDFailuresAsUpstream(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected an error")
 			}
-			var uerr *upstream.Error
+			var uerr *outbound.Error
 			if !errors.As(err, &uerr) {
-				t.Fatalf("expected errors.As to reach *upstream.Error, got %v", err)
+				t.Fatalf("expected errors.As to reach *outbound.Error, got %v", err)
 			}
 			if uerr.Kind != tc.wantKind {
 				t.Fatalf("expected kind %v, got %v", tc.wantKind, uerr.Kind)
 			}
-			if got := upstream.HTTPStatus(err); got != tc.wantStatus {
+			if got := outbound.HTTPStatus(err); got != tc.wantStatus {
 				t.Fatalf("expected status %d, got %d", tc.wantStatus, got)
 			}
 			// UserMessage must name the service and stay free of Go error text.
-			if msg := upstream.UserMessage(err, "fallback"); !strings.Contains(msg, "AcoustID") {
+			if msg := outbound.UserMessage(err, "fallback"); !strings.Contains(msg, "AcoustID") {
 				t.Fatalf("expected AcoustID named in the user message, got %q", msg)
 			}
 		})
@@ -160,11 +160,11 @@ func TestIdentifyFileClassifiesAnUnreachableServiceAsUpstream(t *testing.T) {
 
 	id := New(fpcalc.New(bin), client)
 	_, _, err := id.IdentifyFileWithDuration(context.Background(), "/some/file.mp3")
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("expected errors.As to reach *upstream.Error, got %v", err)
+		t.Fatalf("expected errors.As to reach *outbound.Error, got %v", err)
 	}
-	if uerr.Kind != upstream.KindUnreachable && uerr.Kind != upstream.KindTimeout {
+	if uerr.Kind != outbound.KindUnreachable && uerr.Kind != outbound.KindTimeout {
 		t.Fatalf("expected an unreachable/timeout kind, got %v", uerr.Kind)
 	}
 }
@@ -177,7 +177,7 @@ func TestIdentifyFileDoesNotClassifyFingerprintFailuresAsUpstream(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if errors.As(err, &uerr) {
 		t.Fatalf("a fingerprint failure must not be an upstream error, got %v", uerr)
 	}
@@ -196,7 +196,7 @@ func TestIdentifyFileDoesNotClassifyContextCancellationAsUpstream(t *testing.T) 
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if errors.As(err, &uerr) {
 		t.Fatalf("a cancelled context must not be an upstream error, got %v", uerr)
 	}

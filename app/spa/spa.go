@@ -5,7 +5,7 @@ import (
 	"mime"
 	"net/http"
 
-	handlers "github.com/go-bumbu/http/handlers/spa"
+	spah "github.com/go-bumbu/http/spa"
 )
 
 //go:embed files/ui/*
@@ -29,9 +29,9 @@ func init() {
 }
 
 func App(path string) (http.Handler, error) {
-	return handlers.NewSpaHAndler(
-		UiFiles,
-		"files/ui",
-		path,
-	)
+	return spah.New(spah.Cfg{
+		FS:         UiFiles,
+		SubDir:     "files/ui",
+		PathPrefix: path,
+	})
 }

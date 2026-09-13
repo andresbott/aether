@@ -50,7 +50,7 @@ func (s *Store) GetPlaylists(owner string) ([]model.Playlist, error) {
 func (s *Store) GetPlaylist(id uint) (*model.Playlist, error) {
 	var pl model.Playlist
 	err := s.db.First(&pl, id).Error
-	return &pl, err
+	return &pl, notFound(err)
 }
 
 func (s *Store) GetPlaylistTracks(playlistID uint) ([]model.Track, error) {

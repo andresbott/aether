@@ -95,77 +95,132 @@ otherwise be `DELETE`-with-body:** `POST /metadata/pictures/removals`
 batch-action `POST`, not `DELETE` with a body, so a client never has to
 attach a payload to a verb that isn't specified to reliably carry one.
 
-## One error shape: RFC 9457 `application/problem+json`, via `httperr`
+## One error shape: RFC 9457 `application/problem+json`, via a threaded `problemjson.Writer`
 
 **Rule:** every `/api/v0` handler answers an error as
-`application/problem+json` (RFC 9457 "Problem Details for HTTP APIs"), built
-with the shared `app/router/handlers/httperr` package. **This package is
+`application/problem+json` (RFC 9457 "Problem Details for HTTP APIs"),
+written by calling a `*problemjson.Writer`
+(`github.com/go-bumbu/http/problemjson`, v0.6.0) **threaded into the handler
+struct as a `Problems *problemjson.Writer` field** — set once, per handler,
+when `app/router/api_v0.go`'s `attachApiV0` constructs it from
+`MainAppHandler`'s own unexported `problems` field. **This mechanism is
 `/api/v0`-only** — `/rest` keeps its own OpenSubsonic envelope (numeric error
 codes inside a 200 `subsonic-response`; see
-[subsonic-api.md](subsonic-api.md)) and must never use it.
+[subsonic-api.md](subsonic-api.md)) and must never speak problem+json.
 
-**The shapes** (`httperr.go`):
-- `Problem{type, title, status, detail, instance}` — a plain error. `type` is
-  a stable, **never-fetched** URI (`https://aether.local/probs/<slug>`); only
-  its last path segment (the slug) is meant to be read — the old ad hoc
-  `"code"` string reborn as a URI suffix (`httperr.Slug` extracts it back
-  out; `httperr.TitleFor` maps a known slug to its human title). `instance`
-  is always the request path, so a client can tell which call failed without
-  re-reading its own request.
-- `ValidationProblem{Problem, errors[]FieldError}` — adds itemized
-  field-level failures. `FieldError.Pointer` names the failing field with a
-  JSON Pointer (RFC 6901) — e.g. `/paths` or `/paths/0` — whether the request
-  was JSON, a query string, or multipart form: a caller only needs to know
-  which field failed, addressed the same way regardless of wire format.
+**`app/router/handlers/problems` owns what aether must own, and nothing
+more.** It exposes a single constructor, `New(masked bool)
+*problemjson.Writer` — no package-level write funcs, since that would make
+the Writer a hidden global; it is built once in `router.New` and passed
+explicitly from there. It configures only:
+- the stable, **never-fetched** base URI every problem's `type` is built
+  from, `https://aether.local/probs` — unchanged from the original ad hoc
+  error package, so every `type` URI is byte-identical across the migration;
+- the human titles for aether's own seven slugs —
+  `identify_unavailable`, `too_many_tokens`, `usertoken_unavailable`,
+  `not_configured`, `config_managed`, `last_admin`, `queue_full` — the
+  generic slugs (`not_found`, `validation_error`, `internal`,
+  `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `unavailable`,
+  `upstream_error`, `upstream_rate_limited`, `upstream_timeout`) ship as
+  `problemjson` defaults and must not be redeclared here;
+- the `Request-Id` extractor that fills a masked body's `reference` (see
+  below).
 
-**Status convention, confirmed across every migrated handler:** `422` is
-`httperr.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
-always a `ValidationProblem`, for a request that is **well-formed but
+**The shapes** (old name → new name): `httperr.Problem` →
+`problemjson.Details{type, title, status, detail, instance, reference}`,
+`httperr.ValidationProblem` → `problemjson.ValidationDetails{Details,
+errors[]FieldError}`, `httperr.FieldError` → `problemjson.FieldError{pointer,
+detail}`, `httperr.Slug` → `problemjson.Slug` (still a package func, the
+inverse of `Writer.TypeURI`). `type` is a stable, **never-fetched** URI
+(`https://aether.local/probs/<slug>`); only its last path segment (the slug)
+is meant to be read — `problemjson.Slug` extracts it back out;
+`Writer.TitleFor` maps a known slug to its human title, falling back to the
+slug itself for an unrecognised one. `instance` is always the request path,
+so a client can tell which call failed without re-reading its own request.
+`FieldError.Pointer` names the failing field with a JSON Pointer (RFC 6901)
+— e.g. `/paths` or `/paths/0` — whether the request was JSON, a query
+string, or multipart form: a caller only needs to know which field failed,
+addressed the same way regardless of wire format.
+
+**Status convention, confirmed across every handler:** `422` is
+`Writer.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
+always a `ValidationDetails`, for a request that is **well-formed but
 invalid** (an unknown enum value, a selection over the size cap, an empty
-list). Everything else goes through `httperr.Write` and is a plain,
-non-itemized `Problem` — including
+list). Everything else goes through `Writer.Write` and is a plain,
+non-itemized `Details` — including
 `400` for a **malformed** request (a missing required field, invalid
 JSON/multipart). Concretely, on `GET /metadata/pictures/image`: a missing
 `slot` is `400` (plain — the request doesn't even name a slot to validate);
 a present but unrecognised `slot` is `422` (itemizing `/slot` — the request
 is well-formed, the value is wrong).
 
-**Upstream failures:** `httperr.WriteUpstream` maps a failed third-party call
-through `internal/upstream`'s classification (see
-[architecture.md](architecture.md)'s `internal/upstream` section) to `429`
-when the provider is rate-limiting Aether, otherwise `502`/`504` — `detail`
-is always `upstream`'s human sentence or a fallback, **never a raw Go
-error**.
+**Upstream failures:** `Writer.WriteUpstream` maps a failed third-party call
+— now made through `github.com/go-bumbu/http/outbound` (see
+[architecture.md](architecture.md)'s `outbound` section) — to `429` when the
+`*outbound.Error`'s `Kind` is `KindRateLimited` (the provider is
+rate-limiting Aether), `504` when it is `KindTimeout` (new in v0.6.0 — every
+other upstream failure kind used to share `502`/`upstream_error` with
+timeouts), otherwise `502`. `detail` is always `outbound`'s human
+`UserMessage()` sentence or a fallback, **never a raw Go error**. In dev
+mode only, when the error also exposes an `UpstreamReason() string` method
+(`*outbound.Error` does, via its `Kind.String()`), `WriteUpstream` adds it as
+a `reason` extension field alongside `detail` — a developer sees the exact
+cause (`"timeout"`, `"unreachable"`, `"rejected"`, …) behind the coarse
+status; production's masked mode strips `reason` like everything else (see
+below).
 
-**Status — uniform across all of `/api/v0`.** All seven handler packages call
-`httperr.Write` directly for every error today: `metadata`, `tokens`,
-`libraries`, `artists`, `radiobrowser`, `users`, `tasks` (enumerated in the
-`titles` var's own comment, `app/router/handlers/httperr/httperr.go` — not the
-package doc above it, which only names a few as examples). The per-package
-`writeError`/`writeErr` shims that once wrapped it were removed; every call
-site now names `httperr.Write`. The front-door session/role
-gate (`sessionGuard`/`headerGuard` in `app/router/api_v0.go` and
+**Masked bodies in production, and the `reference` correlation id.**
+`problems.New(masked bool)` picks the Writer's mode:
+`router.Cfg.Production` (sourced from config's `Env.Production`) selects
+`masked=true` → `problemjson.ModeMasked`. A masked response collapses
+`type`/`title` to a generic `.../probs/error` / "An error occurred" identity
+and drops `detail`, the validation `errors[]`, and the upstream `reason` —
+only `status`, `instance`, and a new `reference` field remain, so a
+production client's error body never leaks internal specifics. `reference`
+is filled from the same `Request-Id` every response now carries:
+`app/router/requestid.go`'s `requestID` middleware — first in the chain —
+honors an inbound `Request-Id` header (e.g. forwarded by Caddy) or mints an
+8-byte hex id, sets it on the request (so the logging middleware and
+`problems.New`'s `RequestID` extractor read the same value) and echoes it on
+the response. That is what lets a masked, detail-free client error still be
+traced 1:1 to the full-detail server log line for the same request. Dev mode
+(`Production` false, the default) keeps `ModeDev` — full detail, unchanged
+from before this option existed.
+
+**Uniform across all of `/api/v0`.** Eight handler packages call
+`h.Problems.Write`/`.WriteValidation`/`.WriteUpstream` directly for every
+error today: `auth`, `metadata` (its three handler structs — tags, pictures,
+identify — each carry their own `Problems` field), `tokens`, `libraries`,
+`artists`, `radiobrowser`, `users`, `tasks`. The per-package
+`writeError`/`writeErr` shims that once wrapped the old `httperr` package are
+gone; every call site names `h.Problems.<Method>` directly (or takes the
+`*problemjson.Writer` as an explicit parameter, conventionally named `pw`,
+in a package-level helper function). The front-door session/role gate
+(`sessionGuard`/`headerGuard` in `app/router/api_v0.go` and
 `app/router/proxy_auth.go`, which answer `401`/`403`/`500`) calls
-`httperr.Write` directly too, rather than relying on the router fallback.
-The router-level `jsonErrorEnvelope` middleware (`app/router/errors.go`,
-wired in `app/router/main.go`) still guarantees the same `Problem` for any
-bare plain-text error that reaches it **on a path under the admin API
-mount** (`apiV0MountPrefix`, `"/api/v0"`) — `errorCodeFor` maps the response
-status to a slug (`401` → `unauthorized`, `403` → `forbidden`, …),
-`httperr.TitleFor` maps that slug to its human title, and the plain-text
-body becomes `detail` verbatim. That fallback still matters for what's left
-on that path: the `/api/v0` catch-all (`api_v0.go`'s `PathPrefix("")`, a
-bare `400`) and a stray `http.NotFound` inside an otherwise-migrated handler
+`h.problems.Write` directly too — `MainAppHandler`'s own unexported
+`problems` field, the same `*problemjson.Writer` instance every handler's
+`Problems` field was threaded from — rather than relying on the router
+fallback. The router-level `jsonErrorEnvelope` middleware
+(`app/router/errors.go`, wired in `app/router/main.go`) still guarantees the
+same `problemjson.Details` shape for any bare plain-text error that reaches
+it **on a path under the admin API mount** (`apiV0MountPrefix`,
+`"/api/v0"`) — `errorCodeFor` maps the response status to a slug (`401` →
+`unauthorized`, `403` → `forbidden`, …), the same threaded Writer's
+`TitleFor` maps that slug to its human title, and the plain-text body
+becomes `detail` verbatim. That fallback still matters for what's left on
+that path: the `/api/v0` catch-all (`api_v0.go`'s `PathPrefix("")`, a bare
+`400`) and a stray `http.NotFound` inside an otherwise-migrated handler
 (`pictureImage`'s "cell not found" `404`, below). A body that is already a
-JSON object (an `httperr` Problem, or an ad hoc handler JSON body) is passed
-through untouched, so the two mechanisms never double-wrap each other.
-`jsonErrorEnvelope` isn't a lesser, non-RFC-9457 fallback to work around —
-together with the handler packages calling `httperr` directly, it is *how*
-`/api/v0` stays uniform: every error response under this mount,
-handler-authored or not, ends up `application/problem+json`, with no
-exceptions — the batch endpoints described below report their per-row
-outcomes on a `200`, so they never author an error response of their own.
-(Outside the mount — chiefly
+JSON object (a handler's own `problemjson.Details`, or an ad hoc handler
+JSON body) is passed through untouched, so the two mechanisms never
+double-wrap each other. `jsonErrorEnvelope` isn't a lesser, non-RFC-9457
+fallback to work around — together with the handler packages calling the
+threaded Writer directly, it is *how* `/api/v0` stays uniform: every error
+response under this mount, handler-authored or not, ends up
+`application/problem+json`, with no exceptions — the batch endpoints
+described below report their per-row outcomes on a `200`, so they never
+author an error response of their own. (Outside the mount — chiefly
 `/rest` — the same middleware answers the legacy, pre-RFC-9457
 `apiError{error,code}` shape instead; see
 [architecture.md](architecture.md)'s error-envelope section — `/rest` must
@@ -173,11 +228,11 @@ never speak problem+json.) `middleware.Cfg.JsonErrors` stays `false`
 regardless — that flag is go-bumbu's own blind wrapper, unrelated to
 `jsonErrorEnvelope`.
 
-`pictureImage`'s "cell not found" `404` (inside the already-migrated
-`metadata` package) takes the router-fallback path rather than calling
-`httperr` directly: the handler answers Go's bare `http.NotFound` because that
-endpoint is an image stream, not a JSON one. The envelope still turns it into
-the same `Problem{type: .../probs/not_found, title: "Not found", detail:
+`pictureImage`'s "cell not found" `404` (inside the `metadata` package)
+takes the router-fallback path rather than calling `h.Problems` directly:
+the handler answers Go's bare `http.NotFound` because that endpoint is an
+image stream, not a JSON one. The envelope still turns it into the same
+`problemjson.Details{type: .../probs/not_found, title: "Not found", detail:
 "404 page not found", ...}` shape as everywhere else — `detail` is just Go's
 stock message rather than a handler-authored sentence.
 `docs/openapi/aether-v0.yaml` documents it as `application/problem+json` like
@@ -212,7 +267,7 @@ a layering rule rather than a formatting one:
   pre-row problem+json rejection rather than letting the aggregate row
   result bend the status. `identifyAlbum` is the worked example:
   `albumidentify.upstreamFailure` answers `429`/`502` problem+json only when
-  every input failed *and* the failures are typed `*upstream.Error` from
+  every input failed *and* the failures are typed `*outbound.Error` from
   AcoustID — positive evidence that the service, not the files, is down.
 
 Both build the `200` body with the package's own `writeJSON`

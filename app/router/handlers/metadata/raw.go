@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/internal/metadataedit"
-	"go.senan.xyz/taglib"
+	"github.com/andresbott/aether/internal/tags"
 )
 
 type rawTagsResultDTO struct {
@@ -27,18 +27,18 @@ type rawTagsResultDTO struct {
 // overflowed a reverse proxy's header buffer). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
 func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
-	lib, sel, ok := decodeSelection(h.Store, w, r)
+	lib, sel, ok := decodeSelection(h.Store, w, r, h.Problems)
 	if !ok {
 		return
 	}
 
 	readRaw := h.RawTagReader
 	if readRaw == nil {
-		readRaw = taglib.ReadTags
+		readRaw = tags.ReadRawTags
 	}
 	readUnsupported := h.UnsupportedReader
 	if readUnsupported == nil {
-		readUnsupported = taglib.ReadUnsupported
+		readUnsupported = tags.ReadUnsupported
 	}
 	results := make([]rawTagsResultDTO, 0, len(sel.Paths))
 	for _, p := range sel.Paths {

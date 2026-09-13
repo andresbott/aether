@@ -2,7 +2,6 @@ package store
 
 import (
 	"github.com/andresbott/aether/internal/model"
-	"gorm.io/gorm"
 )
 
 func (s *Store) GetInternetRadioStations() ([]model.InternetRadioStation, error) {
@@ -14,7 +13,7 @@ func (s *Store) GetInternetRadioStations() ([]model.InternetRadioStation, error)
 func (s *Store) GetInternetRadioStation(id uint) (*model.InternetRadioStation, error) {
 	var st model.InternetRadioStation
 	if err := s.db.First(&st, id).Error; err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
 	return &st, nil
 }
@@ -34,7 +33,7 @@ func (s *Store) CreateInternetRadioStation(name, streamURL, homepageURL string) 
 func (s *Store) UpdateInternetRadioStation(id uint, name, streamURL, homepageURL string) error {
 	var existing model.InternetRadioStation
 	if err := s.db.First(&existing, id).Error; err != nil {
-		return err
+		return notFound(err)
 	}
 	return s.db.Model(&existing).Updates(map[string]any{
 		"name":         name,
@@ -49,7 +48,7 @@ func (s *Store) DeleteInternetRadioStation(id uint) error {
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return ErrNotFound
 	}
 	return nil
 }

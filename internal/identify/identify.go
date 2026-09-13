@@ -10,19 +10,19 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/andresbott/aether/libs/fpcalc"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // acoustIDServiceName is the provider name users see in an upstream error
 // sentence.
 const acoustIDServiceName = "AcoustID"
 
-// asUpstream translates a typed AcoustID failure into internal/upstream's
+// asUpstream translates a typed AcoustID failure into go-bumbu/http/outbound's
 // *Error, so a handler can classify an AcoustID outage exactly as it classifies
 // MusicBrainz or Cover Art Archive: 429 → rate-limited, timeout → 504, transport
-// → 502. libs/acoustid cannot produce *upstream.Error itself because libs/ has
+// → 502. libs/acoustid cannot produce *outbound.Error itself because libs/ has
 // no aether imports by design, so this package is the translation seam.
 //
 // Errors that are not an *acoustid.LookupError (a cancelled context, say) are
@@ -33,20 +33,20 @@ func asUpstream(err error) error {
 	if !errors.As(err, &lerr) {
 		return err
 	}
-	kind := upstream.KindUnavailable
+	kind := outbound.KindUnavailable
 	switch {
 	case lerr.Status == http.StatusTooManyRequests:
-		kind = upstream.KindRateLimited
+		kind = outbound.KindRateLimited
 	case lerr.Timeout():
-		kind = upstream.KindTimeout
+		kind = outbound.KindTimeout
 	case lerr.Transport:
-		kind = upstream.KindUnreachable
+		kind = outbound.KindUnreachable
 	case lerr.Status >= 400 && lerr.Status < 500:
 		// A 4xx other than 429 is the service refusing this request (bad API
 		// key, malformed fingerprint); retrying will not help.
-		kind = upstream.KindRejected
+		kind = outbound.KindRejected
 	}
-	return upstream.WrapError(acoustIDServiceName, kind, lerr.Status, err)
+	return outbound.WrapError(acoustIDServiceName, kind, lerr.Status, err)
 }
 
 // Identifier fingerprints files and looks them up on AcoustID.
@@ -94,7 +94,7 @@ func (i *Identifier) IdentifyFileWithDuration(
 	recs, err := i.Acoust.Lookup(ctx, fp.Fingerprint, fp.Duration)
 	if err != nil {
 		// Wrapped with %w through asUpstream so callers can errors.As their way
-		// to *upstream.Error and tell an AcoustID outage (a request-level
+		// to *outbound.Error and tell an AcoustID outage (a request-level
 		// failure) from a per-file problem like an undecodable track.
 		return nil, fp.Duration, fmt.Errorf("acoustid: %w", asUpstream(err))
 	}

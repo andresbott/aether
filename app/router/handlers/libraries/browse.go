@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 )
 
@@ -34,17 +33,17 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	}
 	showHidden, err := parseBoolParam(r.URL.Query().Get("show_hidden"))
 	if err != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "show_hidden must be a boolean")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "show_hidden must be a boolean")
 		return
 	}
 	if !filepath.IsAbs(path) {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "path must be absolute")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "path must be absolute")
 		return
 	}
 	path = filepath.Clean(path)
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "path is not a readable directory")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "path is not a readable directory")
 		return
 	}
 	folders, err := metadataedit.ListFolders(path, metadataedit.ListFoldersOptions{
@@ -52,7 +51,7 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 		IncludeSymlinks: true,
 	})
 	if err != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	out := make([]browseFolderDTO, 0, len(folders))

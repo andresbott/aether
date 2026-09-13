@@ -70,6 +70,22 @@ func (TaglibReader) Read(ctx context.Context, absPath string) (Metadata, error) 
 	return m, nil
 }
 
+// ReadRawTags returns a file's complete, unfiltered tag map — the raw
+// key -> values pairs taglib exposes, including keys the structured reader does
+// not surface (legacy frames, ReplayGain, encoder and custom tags). It is the
+// raw-editor counterpart to TaglibReader.Read, and exists so callers reach the
+// raw tag map through this package rather than importing taglib directly.
+func ReadRawTags(absPath string) (map[string][]string, error) {
+	return taglib.ReadTags(absPath)
+}
+
+// ReadUnsupported lists a file's hidden-frame descriptors: metadata the tag map
+// cannot represent as text (ID3v2 PRIV/GEOB/POPM, unknown binary frames). The
+// descriptors can be handed back to a write to delete those frames.
+func ReadUnsupported(absPath string) ([]string, error) {
+	return taglib.ReadUnsupported(absPath)
+}
+
 func first(tags map[string][]string, keys ...string) string {
 	for _, k := range keys {
 		if vs, ok := tags[k]; ok && len(vs) > 0 && vs[0] != "" {

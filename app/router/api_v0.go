@@ -10,7 +10,6 @@ import (
 	"github.com/andresbott/aether/app/router/handlers"
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	authHandler "github.com/andresbott/aether/app/router/handlers/auth"
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
@@ -67,12 +66,12 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		// context and renews the rolling expiry ("remember me" sessions).
 		ok, _ := h.sessions.HandleAuth(w, r)
 		if !ok {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		data, err := cookieauth.CtxGetUserData(r)
 		if err != nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		// The DB Enabled flag is aether's kill-switch and it must close sessions
@@ -83,11 +82,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		usr, err := h.users.GetUser(data.UserId)
 		if err != nil {
 			// A session pointing at a deleted user authenticates nothing.
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		if !usr.Enabled {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
 			return
 		}
 		// Session-scoped tier: authenticated, any role. Non-admin ≠ public —
@@ -98,11 +97,11 @@ func (h *MainAppHandler) sessionGuard(next http.Handler) http.Handler {
 		}
 		role, err := usersHandler.RoleOf(h.users, data.UserId)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
+			h.problems.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}
 		if role != usersHandler.RoleAdmin {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -172,15 +171,15 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 
 	// Native auth only: login/logout and the users CRUD.
 	if h.users != nil && h.sessions != nil {
-		ah := &authHandler.Handler{Users: h.users, Passwords: h.passwords, Sessions: h.sessions, Tokens: h.tokens, Guard: h.loginGuard, Reauth: h.reauth, Logger: h.logger}
+		ah := &authHandler.Handler{Users: h.users, Passwords: h.passwords, Sessions: h.sessions, Tokens: h.tokens, Guard: h.loginGuard, Reauth: h.reauth, Logger: h.logger, Problems: h.problems}
 		ah.Routes(r)
 	}
 	if userManagement {
-		uh := &usersHandler.Handler{Users: h.users}
+		uh := &usersHandler.Handler{Users: h.users, Problems: h.problems}
 		uh.Routes(r)
 	}
 	if h.tokens != nil {
-		th := &tokensHandler.Handler{Tokens: h.tokens, Caller: caller}
+		th := &tokensHandler.Handler{Tokens: h.tokens, Caller: caller, Problems: h.problems}
 		th.Routes(r)
 	}
 
@@ -188,7 +187,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 
 	// Radio-browser proxy endpoints (station search + favicon fetch) are an
 	// admin import tool with no store dependency, so register them up front.
-	rbh := &radiobrowserHandler.Handler{Client: radiobrowser.New(userAgent)}
+	rbh := &radiobrowserHandler.Handler{Client: radiobrowser.New(userAgent), Problems: h.problems}
 	rbh.Routes(r)
 
 	if h.taskRunner != nil {
@@ -197,6 +196,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			TaskLogGetter: h.taskLogGetter,
 			Schedules:     h.scheduler,
 			Logger:        h.logger,
+			Problems:      h.problems,
 		}
 		// Executions are global. Register these before /tasks/{name} so the
 		// {name} var does not capture the literal "executions".
@@ -213,7 +213,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	}
 
 	if h.store != nil {
-		lh := &libraryHandler.Handler{Store: h.store}
+		lh := &libraryHandler.Handler{Store: h.store, Problems: h.problems}
 		lh.Routes(r)
 
 		if h.tagReader != nil {
@@ -224,9 +224,10 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			// uses.
 			reindexer := h.metadataReindexer()
 			(&metadataHandler.TagsHandler{
-				Store:   h.store,
-				Reader:  h.tagReader,
-				Reindex: reindexer,
+				Store:    h.store,
+				Reader:   h.tagReader,
+				Reindex:  reindexer,
+				Problems: h.problems,
 			}).Routes(r)
 
 			(&metadataHandler.ImagesHandler{
@@ -245,12 +246,14 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 				// rather than wrapping a nil pointer — upload still works, online
 				// picks answer 503.
 				ArtistImages: h.artistFetcher,
+				Problems:     h.problems,
 			}).Routes(r)
 
 			ih := &metadataHandler.IdentifyHandler{
 				Store:                     h.store,
 				Reader:                    h.tagReader,
 				IdentifyUnavailableReason: h.identifyOff,
+				Problems:                  h.problems,
 			}
 			if h.identifier != nil {
 				// Guard both assignments: a nil *identify.Identifier assigned
@@ -277,10 +280,11 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		}
 
 		ah := &artistsHandler.Handler{
-			Store:   h.store,
-			Assets:  h.assets,
-			Fetcher: h.artistFetcher,
-			Search:  artistimage.NewMusicBrainzSearch(userAgent),
+			Store:    h.store,
+			Assets:   h.assets,
+			Fetcher:  h.artistFetcher,
+			Search:   artistimage.NewMusicBrainzSearch(userAgent),
+			Problems: h.problems,
 		}
 		ah.Routes(r)
 	}

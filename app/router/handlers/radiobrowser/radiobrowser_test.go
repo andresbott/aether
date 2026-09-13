@@ -9,10 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	rbHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
 	"github.com/andresbott/aether/internal/radiobrowser"
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 )
 
@@ -35,7 +36,7 @@ func (f *fakeSearcher) FetchFavicon(_ context.Context, _ string) ([]byte, string
 }
 
 func newRouter(search rbHandler.Searcher) *mux.Router {
-	h := &rbHandler.Handler{Client: search}
+	h := &rbHandler.Handler{Client: search, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return r
@@ -110,9 +111,9 @@ func TestSearch_UpstreamError(t *testing.T) {
 
 // The station directory's outages get the same human treatment.
 func TestSearch_UpstreamErrorIsHumanReadable(t *testing.T) {
-	r := newRouter(&fakeSearcher{searchErr: &upstream.Error{
+	r := newRouter(&fakeSearcher{searchErr: &outbound.Error{
 		Service: "radio-browser.info",
-		Kind:    upstream.KindUnavailable,
+		Kind:    outbound.KindUnavailable,
 		Status:  http.StatusServiceUnavailable,
 	}})
 	w := httptest.NewRecorder()
@@ -124,9 +125,9 @@ func TestSearch_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if got := httperr.Slug(body.Type); got != "upstream_error" {
+	if got := problemjson.Slug(body.Type); got != "upstream_error" {
 		t.Errorf("code = %q, want upstream_error", got)
 	}
 	if !strings.Contains(body.Detail, "radio-browser.info") {

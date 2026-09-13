@@ -53,8 +53,9 @@ type Recording struct {
 // to tell a transport/throttling outage (retry later) from the service refusing
 // the request itself (retrying is pointless).
 //
-// It is a distinct type rather than internal/upstream's *Error because libs/
-// deliberately has no aether imports; internal/identify translates it.
+// It is a distinct type rather than github.com/go-bumbu/http/outbound's
+// *Error because libs/ deliberately has no aether imports; internal/identify
+// translates it.
 type LookupError struct {
 	// Status is the HTTP status, or 0 when the request never got a response.
 	Status int

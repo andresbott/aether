@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-bumbu/http/outbound"
 	"golang.org/x/time/rate"
 )
 
@@ -27,9 +28,12 @@ func TestFanartTVList(t *testing.T) {
 
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "fanart.tv",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(rate.Inf, 1),
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 
 	got, err := p.List(context.Background(), "mbid-1")
 	if err != nil {
@@ -61,9 +65,12 @@ func TestFanartTVListNoCandidatesIsNil(t *testing.T) {
 
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "fanart.tv",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(rate.Inf, 1),
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 
 	got, err := p.List(context.Background(), "mbid-1")
 	if err != nil || got != nil {
@@ -168,9 +175,12 @@ func TestDownloadNon200(t *testing.T) {
 
 	p := NewTheAudioDB("testkey")
 	p.BaseURL = srv.URL
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1) // disable throttling for this logic test
-	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "TheAudioDB",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(rate.Inf, 1), // disable throttling for this logic test
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 
 	cands, err := p.List(context.Background(), "some-mbid")
 	if err != nil || len(cands) != 1 {
@@ -194,8 +204,11 @@ func TestProviderThrottleGatesRequest(t *testing.T) {
 
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(1, 0) // burst 0 -> Wait can never succeed
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "fanart.tv",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(1, 0), // burst 0 -> Wait can never succeed
+	})
 
 	_, err := p.List(context.Background(), "mbid-1")
 	if err == nil {
@@ -228,9 +241,12 @@ func TestProviderRetriesTransientFailure(t *testing.T) {
 
 	p := NewFanartTV("key")
 	p.BaseURL = srv.URL
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "fanart.tv",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(rate.Inf, 1),
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 
 	cands, err := p.List(context.Background(), "mbid-1")
 	if err != nil || len(cands) != 1 {
@@ -252,9 +268,12 @@ func TestProviderDownload(t *testing.T) {
 	defer srv.Close()
 
 	p := NewFanartTV("key")
-	p.Doer.Client = srv.Client()
-	p.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	p.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	p.Doer = outbound.New(outbound.Cfg{
+		Service: "fanart.tv",
+		Client:  srv.Client(),
+		Limiter: rate.NewLimiter(rate.Inf, 1),
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 
 	data, ext, err := p.Download(context.Background(), srv.URL+"/img.png")
 	if err != nil {

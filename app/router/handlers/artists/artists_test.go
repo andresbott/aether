@@ -14,14 +14,15 @@ import (
 	"testing"
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/outbound"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -78,7 +79,7 @@ func newTestHandler(t *testing.T, search artistsHandler.Searcher, fetcher artist
 	}
 	s := store.New(db)
 	as := assetstore.New(t.TempDir())
-	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: search}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: search, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r
@@ -128,9 +129,9 @@ func TestSearchMusicBrainz_UpstreamError(t *testing.T) {
 // An upstream outage must reach the UI as a sentence naming MusicBrainz, with
 // a rate limit distinguished from an outage so the UI can say "wait and retry".
 func TestSearchMusicBrainz_UpstreamErrorIsHumanReadable(t *testing.T) {
-	search := &fakeSearcher{err: &upstream.Error{
+	search := &fakeSearcher{err: &outbound.Error{
 		Service: "MusicBrainz",
-		Kind:    upstream.KindUnavailable,
+		Kind:    outbound.KindUnavailable,
 		Status:  http.StatusServiceUnavailable,
 	}}
 	_, r := newTestHandler(t, search, nil)
@@ -143,9 +144,9 @@ func TestSearchMusicBrainz_UpstreamErrorIsHumanReadable(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if got := httperr.Slug(body.Type); got != "upstream_error" {
+	if got := problemjson.Slug(body.Type); got != "upstream_error" {
 		t.Errorf("code = %q, want upstream_error", got)
 	}
 	if !strings.Contains(body.Detail, "MusicBrainz") || !strings.Contains(body.Detail, "unavailable") {
@@ -157,9 +158,9 @@ func TestSearchMusicBrainz_UpstreamErrorIsHumanReadable(t *testing.T) {
 }
 
 func TestSearchMusicBrainz_RateLimitedReturns429(t *testing.T) {
-	search := &fakeSearcher{err: &upstream.Error{
+	search := &fakeSearcher{err: &outbound.Error{
 		Service: "MusicBrainz",
-		Kind:    upstream.KindRateLimited,
+		Kind:    outbound.KindRateLimited,
 		Status:  http.StatusTooManyRequests,
 	}}
 	_, r := newTestHandler(t, search, nil)
@@ -172,9 +173,9 @@ func TestSearchMusicBrainz_RateLimitedReturns429(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if got := httperr.Slug(body.Type); got != "upstream_rate_limited" {
+	if got := problemjson.Slug(body.Type); got != "upstream_rate_limited" {
 		t.Errorf("code = %q, want upstream_rate_limited", got)
 	}
 }
@@ -501,7 +502,7 @@ func TestGetArtistImageSource_StoredImageWins(t *testing.T) {
 	}
 	s := store.New(db)
 	as := assetstore.New(t.TempDir())
-	h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -641,7 +642,7 @@ func TestGetArtistImageSource_DistinguishesUploadFromFetched(t *testing.T) {
 			}
 			s := store.New(db)
 			as := assetstore.New(t.TempDir())
-			h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}}
+			h := &artistsHandler.Handler{Store: s, Assets: as, Search: &fakeSearcher{}, Problems: problems.New(false)}
 			r := mux.NewRouter()
 			h.Routes(r)
 
@@ -799,7 +800,7 @@ func TestSetArtistImageFromSearch_StoresAsManualUpload(t *testing.T) {
 		ext:   "png",
 		cands: []artistimage.ImageCandidate{{FullURL: "https://cdn/allowed.jpg", Provider: "fanart.tv"}},
 	}
-	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
@@ -847,7 +848,7 @@ func TestSetArtistImageFromSearch_OutranksAutoFetched(t *testing.T) {
 		ext:   "png",
 		cands: []artistimage.ImageCandidate{{FullURL: "https://cdn/allowed.jpg", Provider: "fanart.tv"}},
 	}
-	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: &fakeSearcher{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 

@@ -7,10 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
-	"gorm.io/gorm"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // librarySummary is the resolved library a request addresses: its id and root
@@ -49,7 +48,7 @@ func resolveLibraryRel(st *store.Store, r *http.Request) (lib *librarySummary, a
 	}
 	libModel, gerr := st.GetLibrary(uint(id))
 	if gerr != nil {
-		if errors.Is(gerr, gorm.ErrRecordNotFound) {
+		if errors.Is(gerr, store.ErrNotFound) {
 			return nil, "", http.StatusNotFound, gerr
 		}
 		return nil, "", http.StatusInternalServerError, gerr
@@ -73,17 +72,17 @@ func resolveLibraryRel(st *store.Store, r *http.Request) (lib *librarySummary, a
 // nothing. minPaths is 1 for every endpoint except identify-album (2). Keeping
 // the bound here is what stops the empty-vs-over-cap status from drifting the
 // way it did when each handler hand-rolled the check.
-func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths int) bool {
+func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths int, pw *problemjson.Writer) bool {
 	if len(paths) < minPaths {
 		detail := errNoSelection.Error()
 		if minPaths > 1 {
 			detail = fmt.Sprintf("at least %d paths are required", minPaths)
 		}
-		httperr.WriteValidation(w, r, detail, httperr.FieldError{Pointer: "/paths", Detail: detail})
+		pw.WriteValidation(w, r, detail, problemjson.FieldError{Pointer: "/paths", Detail: detail})
 		return false
 	}
 	if len(paths) > maxSelectionPaths {
-		httperr.WriteValidation(w, r, errTooManyPaths.Error(), httperr.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
+		pw.WriteValidation(w, r, errTooManyPaths.Error(), problemjson.FieldError{Pointer: "/paths", Detail: errTooManyPaths.Error()})
 		return false
 	}
 	return true
@@ -95,14 +94,14 @@ func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths
 // library has id 0, so the lookup answers 404, which matches the schema
 // (library_id has minimum 0 and is therefore a well-formed value: "no such
 // library" is a 404, not a 400).
-func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id uint) (*librarySummary, bool) {
+func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, pw *problemjson.Writer) (*librarySummary, bool) {
 	libModel, err := st.GetLibrary(id)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
+		if errors.Is(err, store.ErrNotFound) {
+			pw.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return nil, false
 		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		pw.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return nil, false
 	}
 	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, true
@@ -113,11 +112,11 @@ func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id 
 // owns every failure response and returns the resolved library with ok=true
 // only when the caller may proceed. Every {library_id, paths[]} endpoint runs
 // through here so status code and error-body shape are defined in one place.
-func resolveSelection(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, paths []string, minPaths int) (*librarySummary, bool) {
-	if !checkPaths(w, r, paths, minPaths) {
+func resolveSelection(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, paths []string, minPaths int, pw *problemjson.Writer) (*librarySummary, bool) {
+	if !checkPaths(w, r, paths, minPaths, pw) {
 		return nil, false
 	}
-	return resolveLibrary(st, w, r, id)
+	return resolveLibrary(st, w, r, id, pw)
 }
 
 // decodeSelection decodes a picture-selection POST body and validates it
@@ -128,14 +127,14 @@ func resolveSelection(st *store.Store, w http.ResponseWriter, r *http.Request, i
 // reported through the same malformed-JSON 400 branch as any other unparseable
 // body. On any failure it has already written the response and returns
 // ok=false; callers only check ok.
-func decodeSelection(st *store.Store, w http.ResponseWriter, r *http.Request) (*librarySummary, pictureSelection, bool) {
+func decodeSelection(st *store.Store, w http.ResponseWriter, r *http.Request, pw *problemjson.Writer) (*librarySummary, pictureSelection, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var sel pictureSelection
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+derr.Error())
+		pw.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+derr.Error())
 		return nil, pictureSelection{}, false
 	}
-	lib, ok := resolveSelection(st, w, r, sel.LibraryID, sel.Paths, 1)
+	lib, ok := resolveSelection(st, w, r, sel.LibraryID, sel.Paths, 1, pw)
 	if !ok {
 		return nil, pictureSelection{}, false
 	}

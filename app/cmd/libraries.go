@@ -9,7 +9,6 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/libraries"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
-	"gorm.io/gorm"
 )
 
 // reconcileLibraries materializes the config file's Libraries list into the
@@ -61,11 +60,11 @@ func resolveConfigLibrary(s *store.Store, cfg LibraryCfg) (*model.Library, error
 	}
 
 	byPath, pathErr := s.FindLibraryByPath(cfg.Path)
-	if pathErr != nil && !errors.Is(pathErr, gorm.ErrRecordNotFound) {
+	if pathErr != nil && !errors.Is(pathErr, store.ErrNotFound) {
 		return nil, fmt.Errorf("look up library by path %q: %w", cfg.Path, pathErr)
 	}
 	byName, nameErr := s.FindLibraryByName(cfg.Name)
-	if nameErr != nil && !errors.Is(nameErr, gorm.ErrRecordNotFound) {
+	if nameErr != nil && !errors.Is(nameErr, store.ErrNotFound) {
 		return nil, fmt.Errorf("look up library by name %q: %w", cfg.Name, nameErr)
 	}
 

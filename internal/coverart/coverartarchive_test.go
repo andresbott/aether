@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 	"golang.org/x/time/rate"
 )
 
@@ -19,8 +19,11 @@ import (
 func newTestClient(baseURL string) *Client {
 	c := New("Aether/test")
 	c.BaseURL = baseURL
-	c.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	c.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	c.Doer = outbound.New(outbound.Cfg{
+		Service: serviceName,
+		Limiter: rate.NewLimiter(rate.Inf, 1),
+		Wait:    func(context.Context, time.Duration) error { return nil },
+	})
 	return c
 }
 
@@ -142,9 +145,9 @@ func TestListReleaseFailureIsTypedUpstreamError(t *testing.T) {
 	defer srv.Close()
 
 	_, err := newTestClient(srv.URL).List(context.Background(), "rel-mbid", "")
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+		t.Fatalf("want *outbound.Error, got %T: %v", err, err)
 	}
 	if uerr.Service != "Cover Art Archive" {
 		t.Fatalf("service = %q", uerr.Service)
@@ -163,11 +166,11 @@ func TestListBothFailuresReturnTypedError(t *testing.T) {
 	defer srv.Close()
 
 	_, err := newTestClient(srv.URL).List(context.Background(), "rel-mbid", "grp-mbid")
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+		t.Fatalf("want *outbound.Error, got %T: %v", err, err)
 	}
-	if uerr.Kind != upstream.KindUnavailable {
+	if uerr.Kind != outbound.KindUnavailable {
 		t.Fatalf("kind = %v, want unavailable", uerr.Kind)
 	}
 }
@@ -179,9 +182,9 @@ func TestDownloadImageFailureIsTypedUpstreamError(t *testing.T) {
 	defer srv.Close()
 
 	_, _, err := newTestClient(srv.URL).DownloadImage(context.Background(), srv.URL+"/cover.jpg")
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+		t.Fatalf("want *outbound.Error, got %T: %v", err, err)
 	}
 }
 

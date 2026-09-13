@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
 )
@@ -55,6 +56,7 @@ func newIdentifyHandlerWithReason(
 		Reader:                    nullReader{},
 		Identifier:                ident,
 		IdentifyUnavailableReason: reason,
+		Problems:                  problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
@@ -142,9 +144,9 @@ func TestIdentify_UnavailableIncludesReason(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Detail != reason || httperr.Slug(body.Type) != "identify_unavailable" {
+	if body.Detail != reason || problemjson.Slug(body.Type) != "identify_unavailable" {
 		t.Fatalf("unexpected error body: %s", w.Body.String())
 	}
 }
@@ -240,7 +242,7 @@ func TestIdentify_ValidationErrors(t *testing.T) {
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for empty paths, got %d", w.Code)
 	}
-	var empty httperr.ValidationProblem
+	var empty problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +263,7 @@ func TestIdentify_ValidationErrors(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var validation httperr.ValidationProblem
+	var validation problemjson.ValidationDetails
 	if err := json.Unmarshal(w.Body.Bytes(), &validation); err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ import (
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
-	"gorm.io/gorm"
+	"github.com/andresbott/aether/internal/store"
 )
 
 const (
@@ -152,7 +152,7 @@ func (h *Handler) updateRadioQueryString(w http.ResponseWriter, r *http.Request)
 	}
 	homepageURL := paramStr(r, "homepageUrl")
 	if err := h.store.UpdateInternetRadioStation(id, name, streamURL, homepageURL); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, 70, "radio station not found")
 			return
 		}
@@ -203,7 +203,7 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.UpdateInternetRadioStation(id, name, streamURL, homepageURL); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, 70, "radio station not found")
 			return
 		}
@@ -265,7 +265,7 @@ func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := h.store.DeleteInternetRadioStation(id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, 70, "radio station not found")
 			return
 		}

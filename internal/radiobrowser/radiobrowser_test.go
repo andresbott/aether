@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/internal/upstream"
+	"github.com/go-bumbu/http/outbound"
 	"golang.org/x/time/rate"
 )
 
@@ -20,9 +20,13 @@ import (
 func testClient(baseURL string, hc *http.Client) *Client {
 	c := New("Aether/test (https://example.com)")
 	c.BaseURL = baseURL
-	c.Doer.Client = hc
-	c.Doer.Limiter = rate.NewLimiter(rate.Inf, 1)
-	c.Doer.Wait = func(context.Context, time.Duration) error { return nil }
+	c.Doer = outbound.New(outbound.Cfg{
+		Service:   serviceName,
+		UserAgent: "Aether/test (https://example.com)",
+		Client:    hc,
+		Limiter:   rate.NewLimiter(rate.Inf, 1),
+		Wait:      func(context.Context, time.Duration) error { return nil },
+	})
 	return c
 }
 
@@ -57,9 +61,9 @@ func TestSearchFailureIsTypedUpstreamError(t *testing.T) {
 	defer srv.Close()
 
 	_, err := testClient(srv.URL, srv.Client()).Search(context.Background(), "BBC", 10)
-	var uerr *upstream.Error
+	var uerr *outbound.Error
 	if !errors.As(err, &uerr) {
-		t.Fatalf("want *upstream.Error, got %T: %v", err, err)
+		t.Fatalf("want *outbound.Error, got %T: %v", err, err)
 	}
 	if msg := uerr.UserMessage(); !strings.Contains(msg, "radio-browser.info") {
 		t.Fatalf("message does not name the service: %q", msg)

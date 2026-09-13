@@ -30,7 +30,7 @@ Notes for editors:
   use metaadata queries insetd of folders for sources of songs
 - [ ] Migrate into own GH org
 - [ ] new icon theme
-- [ ] migrate httperr and upstrem to bunbu http
+- [x] migrate httperr and upstrem to bunbu http
 
 ## Backend
 

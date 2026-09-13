@@ -7,9 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	apptasks "github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/taskrunner"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -19,6 +19,8 @@ type Handler struct {
 	TaskLogGetter taskrunner.TaskLogGetter
 	Schedules     *taskrunner.Scheduler
 	Logger        *slog.Logger
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 // TaskWithSchedule is a task definition combined with every schedule
@@ -45,7 +47,7 @@ func (h *Handler) ListTasks() http.Handler {
 			list, err := h.Schedules.List(r.Context())
 			if err != nil {
 				h.Logger.Error("list tasks: schedule list failed", "err", err)
-				httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to list tasks.")
+				h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to list tasks.")
 				return
 			}
 			scheduleMap = make(map[string][]taskrunner.Schedule, len(list))
@@ -70,7 +72,7 @@ func (h *Handler) GetTask() http.Handler {
 		name := mux.Vars(r)["name"]
 		def, ok := taskDefByName(name)
 		if !ok {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
 		out := TaskWithSchedule{TaskDef: def, Schedules: []taskrunner.Schedule{}}
@@ -78,7 +80,7 @@ func (h *Handler) GetTask() http.Handler {
 			scheds, err := h.Schedules.ListByTaskName(r.Context(), name)
 			if err != nil {
 				h.Logger.Error("get task: schedule list failed", "task", name, "err", err)
-				httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the task.")
+				h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the task.")
 				return
 			}
 			out.Schedules = scheds
@@ -101,7 +103,7 @@ func (h *Handler) TriggerTask() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := mux.Vars(r)["name"]
 		if !apptasks.TaskNameExists(name) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
 		// The user-triggerable tasks (scan, scan-full, the artist-image fetch)
@@ -110,11 +112,11 @@ func (h *Handler) TriggerTask() http.Handler {
 		id, reused, err := h.Runner.AddRun(name)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrQueueFull) {
-				httperr.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")
+				h.Problems.Write(w, r, http.StatusTooManyRequests, "queue_full", "Task queue is full. Try again later.")
 				return
 			}
 			h.Logger.Error("trigger task: add run failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to trigger the task.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to trigger the task.")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -135,7 +137,7 @@ func (h *Handler) CancelExecution() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(mux.Vars(r)["id"])
 		if err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid execution id")
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid execution id")
 			return
 		}
 		if err := h.Runner.Cancel(r.Context(), id); err != nil {
@@ -144,7 +146,7 @@ func (h *Handler) CancelExecution() http.Handler {
 			// preserves as-is (see cancelTaskExecution's description in
 			// docs/openapi/aether-v0.yaml).
 			h.Logger.Error("cancel execution failed", "id", id.String(), "err", err)
-			httperr.Write(w, r, http.StatusConflict, "conflict", "Failed to cancel the execution.")
+			h.Problems.Write(w, r, http.StatusConflict, "conflict", "Failed to cancel the execution.")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -154,18 +156,18 @@ func (h *Handler) CancelExecution() http.Handler {
 func (h *Handler) GetExecutionLog() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.TaskLogGetter == nil {
-			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "task logs not available")
+			h.Problems.Write(w, r, http.StatusServiceUnavailable, "unavailable", "task logs not available")
 			return
 		}
 		id, err := uuid.Parse(mux.Vars(r)["id"])
 		if err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid execution id")
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid execution id")
 			return
 		}
 		text, err := h.TaskLogGetter.GetTaskLog(r.Context(), id)
 		if err != nil {
 			h.Logger.Error("get execution log failed", "id", id.String(), "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to retrieve the task log.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to retrieve the task log.")
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -183,17 +185,17 @@ type CreateScheduleRequest struct {
 func (h *Handler) CreateSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
-			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
+			h.Problems.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
 		name := mux.Vars(r)["name"]
 		if !apptasks.TaskNameExists(name) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", "unknown task: "+name)
 			return
 		}
 		var body CreateScheduleRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
 		// An explicit `{"params":null}` decodes to the 4 bytes "null"; treat it as
@@ -203,12 +205,12 @@ func (h *Handler) CreateSchedule() http.Handler {
 			body.Params = nil
 		}
 		if body.CronExpression == "" {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "cron_expression required")
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "cron_expression required")
 			return
 		}
 		cronExpr := taskrunner.NormalizeCronExpression(body.CronExpression)
 		if err := taskrunner.ValidateCronExpression(cronExpr); err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid cron_expression: "+err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid cron_expression: "+err.Error())
 			return
 		}
 		enabled := true
@@ -218,7 +220,7 @@ func (h *Handler) CreateSchedule() http.Handler {
 		sch, err := h.Schedules.Create(r.Context(), name, cronExpr, enabled, body.Params)
 		if err != nil {
 			h.Logger.Error("create task schedule failed", "task", name, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to save the task schedule.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to save the task schedule.")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -236,7 +238,7 @@ type PatchScheduleRequest struct {
 func (h *Handler) PatchSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
-			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
+			h.Problems.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
 		name := mux.Vars(r)["name"]
@@ -244,22 +246,22 @@ func (h *Handler) PatchSchedule() http.Handler {
 		existing, err := h.Schedules.Get(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
+				h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
 			h.Logger.Error("patch schedule: load failed", "id", id, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
 			return
 		}
 		// The schedule is addressed under its task (/tasks/{name}/schedules/{id});
 		// a mismatched {name} must not edit another task's schedule.
 		if existing.TaskName != name {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
 			return
 		}
 		var body PatchScheduleRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
 		// An explicit JSON null (`{"params":null}`) decodes to the 4 bytes
@@ -272,7 +274,7 @@ func (h *Handler) PatchSchedule() http.Handler {
 		if body.CronExpression != nil {
 			cronExpr := taskrunner.NormalizeCronExpression(*body.CronExpression)
 			if err := taskrunner.ValidateCronExpression(cronExpr); err != nil {
-				httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid cron_expression: "+err.Error())
+				h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid cron_expression: "+err.Error())
 				return
 			}
 			cronPtr = &cronExpr
@@ -280,11 +282,11 @@ func (h *Handler) PatchSchedule() http.Handler {
 		sch, err := h.Schedules.Update(r.Context(), id, cronPtr, body.Enabled, body.Params)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
+				h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
 			h.Logger.Error("patch schedule failed", "id", id, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the schedule.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to update the schedule.")
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -295,7 +297,7 @@ func (h *Handler) PatchSchedule() http.Handler {
 func (h *Handler) DeleteSchedule() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.Schedules == nil {
-			httperr.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
+			h.Problems.Write(w, r, http.StatusServiceUnavailable, "unavailable", "schedules not available")
 			return
 		}
 		name := mux.Vars(r)["name"]
@@ -303,26 +305,26 @@ func (h *Handler) DeleteSchedule() http.Handler {
 		existing, err := h.Schedules.Get(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
+				h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
 			h.Logger.Error("delete schedule: load failed", "id", id, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to load the schedule.")
 			return
 		}
 		// Addressed under its task; a mismatched {name} must not delete another
 		// task's schedule.
 		if existing.TaskName != name {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found under task "+name+": "+id)
 			return
 		}
 		if err := h.Schedules.Delete(r.Context(), id); err != nil {
 			if errors.Is(err, taskrunner.ErrScheduleNotFound) {
-				httperr.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
+				h.Problems.Write(w, r, http.StatusNotFound, "not_found", "schedule not found: "+id)
 				return
 			}
 			h.Logger.Error("delete schedule failed", "id", id, "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "Failed to delete the schedule.")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "Failed to delete the schedule.")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

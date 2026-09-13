@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/andresbott/aether/app/router/handlers/problems"
 	apptasks "github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/glebarez/sqlite"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -63,7 +64,7 @@ func createSchedule(t *testing.T, h *Handler, name, body string) taskrunner.Sche
 }
 
 func TestCreateAndGetTaskSchedule(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 
 	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true,"params":{"full":true}}`)
 	if created.ID == "" {
@@ -98,7 +99,7 @@ func TestCreateAndGetTaskSchedule(t *testing.T) {
 // A task may carry more than one schedule at once (e.g. an hourly incremental
 // scan and a nightly full scan) — this is the whole point of Task 5.
 func TestCreateTaskSchedule_MultiplePerTask(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 
 	fast := createSchedule(t, h, "scan", `{"cron_expression":"0 0 * * * *","params":{"full":false}}`)
 	full := createSchedule(t, h, "scan", `{"cron_expression":"0 0 3 * * *","params":{"full":true}}`)
@@ -120,7 +121,7 @@ func TestCreateTaskSchedule_MultiplePerTask(t *testing.T) {
 }
 
 func TestCreateScheduleInvalidCron(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	req := httptest.NewRequest(http.MethodPost, "/tasks/scan/schedules",
 		strings.NewReader(`{"cron_expression":"not a cron","enabled":true}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "scan"})
@@ -132,7 +133,7 @@ func TestCreateScheduleInvalidCron(t *testing.T) {
 }
 
 func TestCreateScheduleUnknownTask(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	req := httptest.NewRequest(http.MethodPost, "/tasks/nope/schedules",
 		strings.NewReader(`{"cron_expression":"0 0 0 * * *"}`))
 	req = mux.SetURLVars(req, map[string]string{"name": "nope"})
@@ -144,7 +145,7 @@ func TestCreateScheduleUnknownTask(t *testing.T) {
 }
 
 func TestPatchSchedule(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
 	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+created.ID,
@@ -172,7 +173,7 @@ func TestPatchSchedule(t *testing.T) {
 // literal null overwrite (PatchTaskScheduleRequest.params' documented
 // contract; the OpenAPI TaskSchedule.params schema also disallows null).
 func TestPatchScheduleExplicitNullParamsKeepsExisting(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true,"params":{"full":true}}`)
 
 	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+created.ID,
@@ -208,7 +209,7 @@ func TestPatchScheduleExplicitNullParamsKeepsExisting(t *testing.T) {
 }
 
 func TestPatchScheduleUnknownID(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	id := uuid.NewString()
 	req := httptest.NewRequest(http.MethodPatch, "/tasks/scan/schedules/"+id,
 		strings.NewReader(`{"enabled":false}`))
@@ -221,7 +222,7 @@ func TestPatchScheduleUnknownID(t *testing.T) {
 }
 
 func TestDeleteSchedule(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	created := createSchedule(t, h, "scan", `{"cron_expression":"0 0 0 * * *","enabled":true}`)
 
 	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan/schedules/"+created.ID, nil)
@@ -250,7 +251,7 @@ func TestDeleteSchedule(t *testing.T) {
 }
 
 func TestDeleteScheduleUnknownID(t *testing.T) {
-	h := &Handler{Schedules: newTestScheduler(t)}
+	h := &Handler{Schedules: newTestScheduler(t), Problems: problems.New(false)}
 	id := uuid.NewString()
 	req := httptest.NewRequest(http.MethodDelete, "/tasks/scan/schedules/"+id, nil)
 	req = mux.SetURLVars(req, map[string]string{"name": "scan", "id": id})
@@ -264,8 +265,8 @@ func TestDeleteScheduleUnknownID(t *testing.T) {
 // TriggerTask's queue-full case used to answer an ad hoc {"message":...}
 // body, which the middleware's isJSONObject check forwards untouched (it's
 // already a JSON object) — so it never got the router-level problem+json
-// fallback the way a bare http.Error would. It must call httperr directly so
-// the SPA's shared error parser (which reads detail/title) can surface it.
+// fallback the way a bare http.Error would. It must call h.Problems directly
+// so the SPA's shared error parser (which reads detail/title) can surface it.
 func TestTriggerTaskQueueFull(t *testing.T) {
 	// QueueSize: 1 and the runner is never Start()ed, so nothing ever drains
 	// the one waiting slot: the second AddRun is guaranteed to see it full.
@@ -273,7 +274,7 @@ func TestTriggerTaskQueueFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
-	h := &Handler{Runner: runner}
+	h := &Handler{Runner: runner, Problems: problems.New(false)}
 
 	trigger := func() *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger", nil)
@@ -294,11 +295,11 @@ func TestTriggerTaskQueueFull(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Errorf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not problem+json: %s", rec.Body.String())
 	}
-	if got := httperr.Slug(body.Type); got != "queue_full" {
+	if got := problemjson.Slug(body.Type); got != "queue_full" {
 		t.Errorf("slug = %q, want queue_full", got)
 	}
 	if body.Detail != "Task queue is full. Try again later." {
@@ -317,7 +318,7 @@ func TestTriggerTaskSingletonCoalesces(t *testing.T) {
 	// Registered Singleton but never Started, so the first run stays queued and
 	// the second trigger has an in-flight instance to coalesce onto.
 	runner.RegisterTask(func(context.Context, *slog.Logger) error { return nil }, apptasks.ScanTaskName, 1, taskrunner.Singleton())
-	h := &Handler{Runner: runner}
+	h := &Handler{Runner: runner, Problems: problems.New(false)}
 
 	type triggerResp struct {
 		ExecutionID string `json:"execution_id"`
@@ -363,7 +364,7 @@ func TestTriggerTaskIgnoresBodyAndEnqueuesByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
-	h := &Handler{Runner: runner}
+	h := &Handler{Runner: runner, Problems: problems.New(false)}
 
 	// User-triggerable tasks take no parameters (the run mode is the task
 	// identity), so a stray request body is ignored and the task is enqueued by
@@ -389,7 +390,7 @@ func TestTriggerTaskIgnoresBodyAndEnqueuesByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new runner: %v", err)
 	}
-	h2 := &Handler{Runner: runner2}
+	h2 := &Handler{Runner: runner2, Problems: problems.New(false)}
 	req = httptest.NewRequest(http.MethodPost, "/tasks/scan/trigger", nil)
 	req = mux.SetURLVars(req, map[string]string{"name": apptasks.ScanTaskName})
 	rec = httptest.NewRecorder()

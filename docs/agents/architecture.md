@@ -39,8 +39,12 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
   serves Prometheus `/metrics` via `handlers.Admin()` — opt-in via
   `Observability.Enabled`, and not started at all when false.
 - **`internal/store` is the only DB gateway.** It wraps `*gorm.DB`; handlers
-  never touch GORM directly except through it. `Store.Transaction(fn)` yields
-  a tx-scoped `*Store`. Query filters are small structs in `filters.go`
+  never touch GORM directly except through it — a missing row surfaces as the
+  store's own `store.ErrNotFound` sentinel, never `gorm.ErrRecordNotFound`, so
+  callers recognise a miss without importing the ORM (`store/errors.go`'s
+  `notFound` maps it at the boundary; internal `FindOrCreate*` logic still
+  checks the gorm sentinel directly). `Store.Transaction(fn)` yields a
+  tx-scoped `*Store`. Query filters are small structs in `filters.go`
   (`SearchFilter`, `ArtistsFilter`, `StarredFilter` — all `LibraryID *uint`,
   nil = cross-library).
 - **`internal/model` is schema only.** GORM structs + `Migrate()`
@@ -249,25 +253,39 @@ bad request, with the same message. Don't add a second copy of those rules.
 All outbound clients send the `Aether/<version> (github.com/andresbott/aether)`
 user agent — keep that convention for new clients.
 
-### `internal/upstream` — the shared outbound HTTP policy
+### `go-bumbu/http`'s `outbound` — the shared outbound HTTP policy
 
-Every third-party client above goes through `upstream.Doer` (`upstream.New(service, userAgent, rps)`)
-rather than its own `http.Client` + `rate.Limiter`. **Use it for new outbound
-clients; don't hand-roll the retry/throttle again.** It provides:
+Every third-party client above goes through `outbound.Client`
+(`github.com/go-bumbu/http/outbound`, v0.6.0; construct with
+`outbound.New(outbound.Cfg{Service, UserAgent, RPS})`) rather than its own
+`http.Client` + `rate.Limiter`. **Use it for new outbound clients; don't
+hand-roll the retry/throttle again.** This replaces aether's own
+`internal/upstream`, now deleted — every former caller (`internal/artistimage`,
+`internal/coverart`, `internal/identify`, `internal/albumidentify`,
+`internal/radiobrowser`) migrated to this shared module with the same
+behavior. It provides:
 
 - fair-use throttling (burst 1) applied *before* the request,
-- a bounded retry (3 attempts, 500ms doubling) for transient failures —
-  5xx, 429, timeouts, transport errors — and `Retry-After` compliance capped
-  at 5s so a user-facing lookup can't hang,
-- no retry on 4xx (a refusal won't change) — `upstream.IsRejected(err)` lets a
-  caller treat "no data for this id" as an empty result,
-- a typed `*upstream.Error` carrying the technical detail for logs *and*
-  `UserMessage()`, a sentence naming the service for the UI.
+- a bounded retry (3 attempts, 500ms doubling, by default) for transient
+  failures — 5xx, 429, timeouts, transport errors — and `Retry-After`
+  compliance capped at 5s so a user-facing lookup can't hang,
+- no retry on a refusal (any 4xx other than 429, `outbound.KindRejected`) —
+  `outbound.IsRejected(err)` lets a caller treat "no data for this id" as an
+  empty result,
+- a typed `*outbound.Error` carrying the technical detail for logs *and*
+  `UserMessage()`, a sentence naming the service for the UI, plus
+  `HTTPStatus()` (502 default, 429/504 when more precise) and an optional
+  `UpstreamReason()` (a short stable token — `"timeout"`, `"unreachable"`,
+  `"rejected"`, … — surfaced only in `problemjson`'s dev mode; see
+  [api-conventions.md](api-conventions.md)).
 
-Handlers map it with `upstream.HTTPStatus(err)` (502, or 429/504 when more
-precise) and `upstream.UserMessage(err, fallback)` via each handler package's
-`writeUpstreamErr`. **Never put a raw Go error in a user-facing body** — that
-is what leaked `{"error":"...","code":"upstream_error"}` onto the screen.
+Handlers map it with the package-level `outbound.HTTPStatus(err)` and
+`outbound.UserMessage(err, fallback)` — or, on `/api/v0`, more directly via
+`Writer.WriteUpstream`, which recognizes any error exposing the same
+`HTTPStatus()`/`UserMessage()` methods structurally, so `problemjson` needs no
+import of `outbound` at all. **Never put a raw Go error in a user-facing
+body** — that is what leaked `{"error":"...","code":"upstream_error"}` onto
+the screen before either package existed.
 
 Degrade rather than fail where a fallback exists: `coverart.List` tries the
 release-group MBID when the release lookup fails, since both describe the same
@@ -276,27 +294,45 @@ album.
 ## The `/api/v0` error envelope
 
 Every `/api/v0` failure answers RFC 9457 `application/problem+json` — a
-`Problem{type, title, status, detail, instance}` body (see
-[api-conventions.md](api-conventions.md)) — except the metadata package's
-batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
+`problemjson.Details{type, title, status, detail, instance[, reference]}`
+body (see [api-conventions.md](api-conventions.md)) — except the metadata
+package's batch endpoints (`updateTracks`, `rawTags`), which answer a per-row
 `{results: [...]}` envelope instead, forwarded as plain `application/json`
 even on `updateTracks`' failing `500` (`rawTags` always answers `200` once the selection is valid); see
-api-conventions.md's error-shape section for the detail. Most handler
-packages (metadata, tokens, libraries, artists, radiobrowser, users) build a
-Problem directly via
-`app/router/handlers/httperr`; `tasks` calls it directly for its one JSON
-error body (`queue_full`) and otherwise still answers bare `http.Error`.
-Anything that answers a bare `http.Error`/`http.NotFound` under `/api/v0` —
-`tasks`' remaining plain-text errors, the `sessionGuard`/`headerGuard` auth
-gate's `401`/`403`, the `/api/v0` catch-all's `400`, or a stray
-`http.NotFound` inside an otherwise-migrated handler (`pictureImage`'s "cell
-not found") — is still guaranteed the same shape by
-`app/router/errors.go`'s `jsonErrorEnvelope` middleware: a handler body that
-is already a JSON object (an `httperr` Problem, or an ad hoc handler JSON
-body) passes through untouched, and a plain-text body gets a Problem built
-for it from the response status alone (`errorCodeFor` maps status → slug,
-`httperr.TitleFor` maps slug → title, the plain-text body becomes `detail`
+api-conventions.md's error-shape section for the detail. Every handler
+package (`auth`, `metadata`, `tokens`, `libraries`, `artists`, `radiobrowser`,
+`users`, `tasks`) builds its `Details` via a `Problems *problemjson.Writer`
+field, threaded from `MainAppHandler`'s own `problems` field when
+`app/router/api_v0.go` constructs the handler; `tasks` uses it for its one
+aether-specific JSON error body (`queue_full`) and otherwise still answers
+bare `http.Error`. The Writer itself comes from
+`app/router/handlers/problems.New(masked bool)` — a tiny aether-owned
+package that supplies only the stable `https://aether.local/probs` base URI
+and the human titles for aether's own slugs; the generic slugs and the
+`Write`/`WriteValidation`/`WriteUpstream` methods live in the shared
+`github.com/go-bumbu/http/problemjson` package. Anything that answers a bare
+`http.Error`/`http.NotFound` under `/api/v0` — `tasks`' remaining plain-text
+errors, the `sessionGuard`/`headerGuard` auth gate's `401`/`403` (these call
+`h.problems.Write` directly too, rather than falling through), the
+`/api/v0` catch-all's `400`, or a stray `http.NotFound` inside an
+otherwise-migrated handler (`pictureImage`'s "cell not found") — is still
+guaranteed the same shape by `app/router/errors.go`'s `jsonErrorEnvelope`
+middleware: a handler body that is already a JSON object (a
+`problemjson.Details`, or an ad hoc handler JSON body) passes through
+untouched, and a plain-text body gets a `Details` built for it from the
+response status alone (`errorCodeFor` maps status → slug, the threaded
+Writer's `TitleFor` maps slug → title, the plain-text body becomes `detail`
 verbatim).
+
+**Production masking + request correlation.** `router.Cfg.Production`
+(sourced from config's `Env.Production`) makes `problems.New` build a masked
+Writer: every body then collapses to `status`/`instance`/a `reference` id,
+dropping `detail`, validation field errors, and the upstream `reason`
+extension. The `reference` — and the `Request-Id` header every response now
+carries — comes from `app/router/requestid.go`'s `requestID` middleware,
+first in the router's middleware chain. Full behavior (dev vs. masked body
+shape, the 504/`upstream_timeout` mapping, the `reason` field) is in
+[api-conventions.md](api-conventions.md).
 
 **`middleware.Cfg.JsonErrors` must stay `false`.** It wraps *every* error body
 blindly, escaping our JSON into a string field — the client then receives a

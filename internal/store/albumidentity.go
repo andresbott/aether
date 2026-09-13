@@ -168,7 +168,7 @@ func (s *Store) RetagAlbum(id uint, ident AlbumIdentity) error {
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		return ErrNotFound
 	}
 	return nil
 }

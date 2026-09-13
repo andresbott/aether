@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // The production middleware wraps any >=400 body in an envelope, shaped by
 // mount: the internal admin API (apiV0MountPrefix, "/api/v0") gets a
 // problem+json Problem; everything else (chiefly /rest) keeps the legacy
 // apiError{error,code} shape unchanged. Our /api/v0 handlers already answer
-// JSON (most already problem+json via httperr), so without care the client
+// JSON (most already problem+json via h.problems), so without care the client
 // receives an envelope whose "detail" is an escaped JSON *document* — which
 // the UI then shows verbatim (the {"error":...,"code":"upstream_error"}
 // string users saw on a failed cover search, back when the envelope's own
@@ -35,6 +35,17 @@ func newTestRouter(t *testing.T) *MainAppHandler {
 	return h
 }
 
+// newMaskedTestRouter is newTestRouter's ModeMasked (production) variant, for
+// tests asserting the masked shape of an /api/v0 error body.
+func newMaskedTestRouter(t *testing.T) *MainAppHandler {
+	t.Helper()
+	h, err := New(Cfg{Production: true})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return h
+}
+
 func TestApiErrorBodyIsNotDoubleWrapped(t *testing.T) {
 	h := newTestRouter(t)
 	w := httptest.NewRecorder()
@@ -46,7 +57,7 @@ func TestApiErrorBodyIsNotDoubleWrapped(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("error body is not JSON: %s", w.Body.String())
 	}
@@ -65,11 +76,11 @@ func TestApiErrorKeepsHandlerCode(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, jsonErrPath, nil))
 
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not the expected envelope: %s", w.Body.String())
 	}
-	if got := httperr.Slug(body.Type); got != "validation_error" {
+	if got := problemjson.Slug(body.Type); got != "validation_error" {
 		t.Errorf("code = %q, want the handler's own code to survive", got)
 	}
 	if body.Detail != "q is required" {
@@ -111,7 +122,7 @@ func TestSubsonicErrorEnvelopeIsUntouched(t *testing.T) {
 
 // Handlers that answer plain text (http.Error) still need an envelope — the
 // SPA parses every /api/v0 failure as problem+json, not just the ones a
-// handler builds itself via httperr. This exercises the real /api/v0
+// handler builds itself via h.problems. This exercises the real /api/v0
 // catch-all (api_v0.go), which answers unmatched paths with a bare
 // http.Error.
 func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
@@ -125,14 +136,14 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("plain-text handler error was not wrapped as problem+json: %s", w.Body.String())
 	}
 	if !strings.Contains(body.Detail, "wrong api call") {
 		t.Errorf("detail = %q, want the handler's message", body.Detail)
 	}
-	if got := httperr.Slug(body.Type); got != "validation_error" {
+	if got := problemjson.Slug(body.Type); got != "validation_error" {
 		t.Errorf("slug = %q, want validation_error (400)", got)
 	}
 	if body.Instance != "/api/v0/does-not-exist" {
@@ -141,13 +152,14 @@ func TestPlainTextHandlerErrorsGetProblemJSON(t *testing.T) {
 }
 
 // A bare http.NotFound (the pictureImage "cell not found" case, or any other
-// handler that answers 404 without going through httperr) must come out as
+// handler that answers 404 without going through h.problems) must come out as
 // problem+json too, exercised directly against the middleware rather than a
 // specific registered route.
 func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
+	h := newTestRouter(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/v0/nope", nil)
-	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})).ServeHTTP(w, r)
 
@@ -157,18 +169,65 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
 	}
-	var body httperr.Problem
+	var body problemjson.Details
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("http.NotFound body was not wrapped as problem+json: %s", w.Body.String())
 	}
 	if body.Status != http.StatusNotFound {
 		t.Errorf("Status = %d, want 404", body.Status)
 	}
-	if got := httperr.Slug(body.Type); got != "not_found" {
+	if got := problemjson.Slug(body.Type); got != "not_found" {
 		t.Errorf("slug = %q, want not_found", got)
 	}
 	if body.Instance != "/api/v0/nope" {
 		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+}
+
+// Under ModeMasked (production, Cfg.Production=true) the same bare
+// plain-text /api/v0 error must mask exactly like a direct h.problems.Write
+// call: detail/type/title collapse to the generic SlugMasked identity, but
+// status and instance survive, and a non-empty reference (the request's
+// correlation id) is included. Before writeProblemFallback routed through
+// h.problems.Write, this fallback built its own problemjson.Details literal
+// via the mode-agnostic TypeURI/TitleFor helpers and so always answered
+// unmasked and reference-less — even in production; this is the masked
+// counterpart to TestPlainTextHandlerErrorsGetProblemJSON above.
+func TestBareErrorFallbackIsMaskedInProduction(t *testing.T) {
+	h := newMaskedTestRouter(t)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/v0/does-not-exist", nil)
+	r.Header.Set(requestIDHeader, "test-request-id")
+	h.ServeHTTP(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
+	}
+
+	var body problemjson.Details
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("masked fallback body is not JSON: %s", w.Body.String())
+	}
+	if body.Status != http.StatusBadRequest {
+		t.Errorf("Status = %d, want 400", body.Status)
+	}
+	if body.Instance != "/api/v0/does-not-exist" {
+		t.Errorf("instance = %q, want the request path", body.Instance)
+	}
+	if body.Reference != "test-request-id" {
+		t.Errorf("reference = %q, want the Request-Id header echoed back", body.Reference)
+	}
+	if body.Detail != "" {
+		t.Errorf(`detail = %q, want empty under ModeMasked (must not leak "wrong api call")`, body.Detail)
+	}
+	if got := problemjson.Slug(body.Type); got != problemjson.SlugMasked {
+		t.Errorf("type slug = %q, want the generic masked identity %q", got, problemjson.SlugMasked)
+	}
+	if body.Title != "An error occurred" {
+		t.Errorf("title = %q, want the generic masked title", body.Title)
 	}
 }
 
@@ -179,9 +238,10 @@ func TestBareNotFoundBecomesProblemJSON(t *testing.T) {
 // client received before this middleware ever learned about problem+json:
 // /rest must never answer application/problem+json.
 func TestBareErrorOutsideApiV1KeepsLegacyShape(t *testing.T) {
+	h := newTestRouter(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/rest/getCoverArt.view", nil)
-	jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.jsonErrorEnvelope(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})).ServeHTTP(w, r)
 

@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/artistimage"
-	"github.com/andresbott/aether/internal/upstream"
 	"github.com/andresbott/aether/libs/acoustid"
+	"github.com/go-bumbu/http/outbound"
 )
 
 // errFake stands in for a fingerprint failure in table tests.
@@ -1020,9 +1020,9 @@ func TestResolveReturnsFileErrorsWhenAllFilesFail(t *testing.T) {
 
 // upstreamErr builds the failure an AcoustID outage produces, wrapped the way
 // internal/identify wraps it, so the discriminator under test is the real one.
-func upstreamErr(kind upstream.Kind, status int) error {
+func upstreamErr(kind outbound.Kind, status int) error {
 	return fmt.Errorf("acoustid: %w",
-		upstream.WrapError("AcoustID", kind, status, errors.New("boom")))
+		outbound.WrapError("AcoustID", kind, status, errors.New("boom")))
 }
 
 // Pre-fix, Resolve had no failure path at all: a rate-limited or unreachable
@@ -1034,9 +1034,9 @@ func TestResolveFailsWhenEveryFileHitsAnUpstreamOutage(t *testing.T) {
 		err        error
 		wantStatus int
 	}{
-		{"rate limited", upstreamErr(upstream.KindRateLimited, 429), 429},
-		{"unreachable", upstreamErr(upstream.KindUnreachable, 0), 502},
-		{"timeout", upstreamErr(upstream.KindTimeout, 0), 504},
+		{"rate limited", upstreamErr(outbound.KindRateLimited, 429), 429},
+		{"unreachable", upstreamErr(outbound.KindUnreachable, 0), 502},
+		{"timeout", upstreamErr(outbound.KindTimeout, 0), 504},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ident := fakeFileIdentifier{byPath: map[string]fileResult{
@@ -1051,11 +1051,11 @@ func TestResolveFailsWhenEveryFileHitsAnUpstreamOutage(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected Resolve to fail on a total upstream outage")
 			}
-			var uerr *upstream.Error
+			var uerr *outbound.Error
 			if !errors.As(err, &uerr) {
-				t.Fatalf("expected an *upstream.Error the handler can classify, got %v", err)
+				t.Fatalf("expected an *outbound.Error the handler can classify, got %v", err)
 			}
-			if got := upstream.HTTPStatus(err); got != tc.wantStatus {
+			if got := outbound.HTTPStatus(err); got != tc.wantStatus {
 				t.Fatalf("expected status %d, got %d", tc.wantStatus, got)
 			}
 		})
@@ -1090,7 +1090,7 @@ func TestResolveSucceedsWhenOnlySomeFilesFailUpstream(t *testing.T) {
 			recordings: []acoustid.Recording{rec(0.95, "rec-1", "One", rel("rel-A", "Album A", 1991, 1, 1))},
 			duration:   180,
 		},
-		"/lib/bad.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+		"/lib/bad.flac": {err: upstreamErr(outbound.KindRateLimited, 429)},
 	}}
 	r := New(ident, &fakeReleaseLookup{})
 	opts, fileErrs, err := r.Resolve(context.Background(), []Input{
@@ -1113,13 +1113,13 @@ func TestResolveSucceedsWhenOnlySomeFilesFailUpstream(t *testing.T) {
 func TestResolveFailsWhenATotalFailureIncludesAnOutage(t *testing.T) {
 	ident := fakeFileIdentifier{byPath: map[string]fileResult{
 		"/lib/a.flac": {err: errors.New("fingerprint: fpcalc: empty fingerprint in output")},
-		"/lib/b.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+		"/lib/b.flac": {err: upstreamErr(outbound.KindRateLimited, 429)},
 	}}
 	r := New(ident, &fakeReleaseLookup{})
 	if _, _, err := r.Resolve(context.Background(), []Input{
 		{Path: "a.flac", AbsPath: "/lib/a.flac"},
 		{Path: "b.flac", AbsPath: "/lib/b.flac"},
-	}); err == nil || upstream.HTTPStatus(err) != 429 {
+	}); err == nil || outbound.HTTPStatus(err) != 429 {
 		t.Fatalf("expected a classified rate-limit failure, got %v", err)
 	}
 }
@@ -1129,8 +1129,8 @@ func TestResolveFailsWhenATotalFailureIncludesAnOutage(t *testing.T) {
 // rather than be reported as eleven unidentifiable files.
 func TestResolveFailsOnATotalProviderRejection(t *testing.T) {
 	ident := fakeFileIdentifier{byPath: map[string]fileResult{
-		"/lib/a.flac": {err: upstreamErr(upstream.KindRejected, 400)},
-		"/lib/b.flac": {err: upstreamErr(upstream.KindRejected, 400)},
+		"/lib/a.flac": {err: upstreamErr(outbound.KindRejected, 400)},
+		"/lib/b.flac": {err: upstreamErr(outbound.KindRejected, 400)},
 	}}
 	r := New(ident, &fakeReleaseLookup{})
 	if _, _, err := r.Resolve(context.Background(), []Input{
@@ -1154,7 +1154,7 @@ func TestResolveReportsShortReasonsNotRawErrors(t *testing.T) {
 			duration:   180,
 		},
 		"/lib/bad.flac":     {err: fpcalcMissing},
-		"/lib/limited.flac": {err: upstreamErr(upstream.KindRateLimited, 429)},
+		"/lib/limited.flac": {err: upstreamErr(outbound.KindRateLimited, 429)},
 	}}
 	r := New(ident, &fakeReleaseLookup{})
 	opts, fileErrs, err := r.Resolve(context.Background(), []Input{

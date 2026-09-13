@@ -105,7 +105,7 @@ func (s *Store) GetTrackFilePath(id uint) (string, error) {
 	var track model.Track
 	err := s.db.Select("file_path").First(&track, id).Error
 	if err != nil {
-		return "", err
+		return "", notFound(err)
 	}
 	return track.FilePath, nil
 }

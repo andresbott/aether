@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/app/router/handlers"
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/headerauth"
@@ -130,17 +129,17 @@ func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 		id, usr, err := h.resolveProxyIdentity(w, r)
 		if err != nil {
 			h.logger.Error("proxy auth: identity resolution failed", "err", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
+			h.problems.Write(w, r, http.StatusInternalServerError, "internal", "internal error")
 			return
 		}
 		if id == nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 		// The DB Enabled flag is aether's kill-switch: it blocks a user the
 		// proxy still authenticates (pat.Verify enforces the same on /rest).
 		if !usr.Enabled {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "user is disabled")
 			return
 		}
 		r = r.WithContext(context.WithValue(r.Context(), proxyIdentityCtxKey{}, *id))
@@ -149,7 +148,7 @@ func (h *MainAppHandler) headerGuard(next http.Handler) http.Handler {
 			return
 		}
 		if id.Role != usersHandler.RoleAdmin {
-			httperr.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
+			h.problems.Write(w, r, http.StatusForbidden, "forbidden", "admin privileges required")
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -10,11 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"gorm.io/gorm"
+	"github.com/andresbott/aether/internal/store"
 )
 
 // ArtistImageFetcher lists and downloads artist portraits from the online image
@@ -62,7 +61,7 @@ type artistFolderDTO struct {
 func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// Resolve the artist folder from the selected folder — the folder itself, or
@@ -75,7 +74,7 @@ func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	rel, rerr := filepath.Rel(lib.Path, dir)
 	if rerr != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}
 	current := ""
@@ -103,7 +102,7 @@ func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
 	_, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	img := artistimage.BestInDir(abs)
@@ -134,30 +133,30 @@ type artistImageResult struct {
 func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxPictureRequestBytes)
 	if err := r.ParseMultipartForm(pictureMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
 	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
 	if perr != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
 		return
 	}
 	if strings.Trim(strings.TrimSpace(r.FormValue("path")), "/") == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "path required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "path required")
 		return
 	}
 	libModel, err := h.Store.GetLibrary(uint(libID))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			httperr.Write(w, r, http.StatusNotFound, "not_found", err.Error())
+		if errors.Is(err, store.ErrNotFound) {
+			h.Problems.Write(w, r, http.StatusNotFound, "not_found", err.Error())
 			return
 		}
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 	abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, r.FormValue("path"))
 	if rerr != nil {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 		return
 	}
 
@@ -166,20 +165,20 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 		// status 0 marks an upstream download failure: let the upstream mapping
 		// pick the status and the human message.
 		if status == 0 {
-			httperr.WriteUpstream(w, r, serr, "The image could not be downloaded. Try again in a moment.")
+			h.Problems.WriteUpstream(w, r, serr, "The image could not be downloaded. Try again in a moment.")
 			return
 		}
 		code := codeFor(status)
 		if status == http.StatusServiceUnavailable {
 			code = "not_configured"
 		}
-		httperr.Write(w, r, status, code, serr.Error())
+		h.Problems.Write(w, r, status, code, serr.Error())
 		return
 	}
 
 	written, werr := metadataedit.WriteFolderPicture(abs, artistImageBase, ext, data)
 	if werr != nil {
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
 		return
 	}
 	rel, _ := filepath.Rel(libModel.Path, written)
@@ -197,7 +196,7 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
 	lib, abs, status, err := resolveLibraryRel(h.Store, r)
 	if err != nil {
-		httperr.Write(w, r, status, codeFor(status), err.Error())
+		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	img := artistimage.BestInDir(abs)
@@ -206,7 +205,7 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the library root by ResolveInLibrary
-		httperr.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
+		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}
 	out := map[string]any{"ok": true}
@@ -298,20 +297,20 @@ func (h *ImagesHandler) artistImageCandidateInfo(w http.ResponseWriter, r *http.
 	mbid := strings.TrimSpace(r.URL.Query().Get("mbid"))
 	imgURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	if mbid == "" || imgURL == "" {
-		httperr.Write(w, r, http.StatusBadRequest, "validation_error", "mbid and url are required")
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "mbid and url are required")
 		return
 	}
 	data, _, status, err := h.downloadArtistPick(r.Context(), mbid, imgURL)
 	if err != nil {
 		if status == 0 {
-			httperr.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
+			h.Problems.WriteUpstream(w, r, err, "The image could not be downloaded. Try again in a moment.")
 			return
 		}
 		code := codeFor(status)
 		if status == http.StatusServiceUnavailable {
 			code = "not_configured"
 		}
-		httperr.Write(w, r, status, code, err.Error())
+		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, toImageMeta(imageinfo.Describe(data)))

@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/aether/app/router/handlers/httperr"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
+	"github.com/go-bumbu/http/problemjson"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	loginflow "github.com/go-bumbu/userauth/flow/login"
@@ -41,6 +41,8 @@ type Handler struct {
 	// change-password endpoint. Nil leaves that check unthrottled.
 	Reauth *throttle.Backoff
 	Logger *slog.Logger
+	// Problems writes this handler's application/problem+json error responses.
+	Problems *problemjson.Writer
 }
 
 // reauthMethod is the throttle bucket for change-password re-verification,
@@ -94,31 +96,31 @@ func (h *Handler) changePasswordHandler() http.Handler {
 		data, err := cookieauth.CtxGetUserData(r)
 		if err != nil || !data.IsAuthenticated {
 			// The session guard should have caught this; belt and braces.
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.Problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 
 		var in changePasswordRequest
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 			return
 		}
 		if strings.TrimSpace(in.CurrentPassword) == "" {
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", "current password is required")
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "current password is required")
 			return
 		}
 		if err := usersHandler.ValidPassword(in.NewPassword); err != nil {
 			if errors.Is(err, usersHandler.ErrPasswordTooLong) {
-				httperr.WriteValidation(w, r, err.Error(), httperr.FieldError{Pointer: "/newPassword", Detail: err.Error()})
+				h.Problems.WriteValidation(w, r, err.Error(), problemjson.FieldError{Pointer: "/newPassword", Detail: err.Error()})
 				return
 			}
-			httperr.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
+			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
 		}
 
 		usr, err := h.Users.GetUser(data.UserId)
 		if err != nil {
-			httperr.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
+			h.Problems.Write(w, r, http.StatusUnauthorized, "unauthorized", "authentication required")
 			return
 		}
 
@@ -130,30 +132,30 @@ func (h *Handler) changePasswordHandler() http.Handler {
 		ok, retryAfter, err := h.verifyCurrent(usr, in.CurrentPassword)
 		if err != nil {
 			h.logger().Error("auth: could not verify the current password", "user", usr.ID, "error", err)
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", "could not verify the current password")
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", "could not verify the current password")
 			return
 		}
 		if !ok {
 			if retryAfter > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Round(time.Second)/time.Second)))
-				httperr.Write(w, r, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
+				h.Problems.Write(w, r, http.StatusTooManyRequests, "rate_limited", "too many attempts, try again later")
 				return
 			}
 			// 403, not 401: the session is valid — the re-auth check failed.
 			// A 401 here would read as a lost session and sign the caller out
 			// of the SPA (the client treats any /api/v0 401 as session expiry);
 			// 401 stays reserved for the guard's genuine no-session case.
-			httperr.Write(w, r, http.StatusForbidden, "reauth_failed", "current password is incorrect")
+			h.Problems.Write(w, r, http.StatusForbidden, "reauth_failed", "current password is incorrect")
 			return
 		}
 
 		hash, err := bcrypt.GenerateFromPassword([]byte(in.NewPassword), usersHandler.BcryptDifficulty)
 		if err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 		if err := h.Users.SetPasswordHash(data.UserId, string(hash)); err != nil {
-			httperr.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+			h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
 
