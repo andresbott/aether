@@ -69,6 +69,7 @@ func NewFetchArtistImagesTaskFn(s *store.Store, as *assetstore.Store, f Fetcher,
 		if err != nil {
 			return fmt.Errorf("list artists with mbid: %w", err)
 		}
+		log.Info("fetching artist images", slog.Int("artists", len(artists)))
 		var stored, skipped, failed int
 		for _, a := range artists {
 			if ctx.Err() != nil {

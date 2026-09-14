@@ -2,8 +2,10 @@
 package scanner_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,6 +113,42 @@ func TestScannerFullScan(t *testing.T) {
 	st.DB().Model(&model.Track{}).Where("library_id = ?", lib.ID).Count(&withLib)
 	if withLib != 3 {
 		t.Fatalf("expected 3 tracks attached to library, got %d", withLib)
+	}
+}
+
+// A scan logs per-library and per-phase milestones plus periodic progress, so
+// the per-execution task log is informative instead of going silent between
+// "starting" and "complete".
+func TestScannerLogsProgress(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01.mp3",
+		"Artist/Album/02.mp3",
+		"Artist/Album/03.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true, Log: log}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"library scan planned",
+		"scan plan",
+		"reconciling library",
+		"scanning song",
+		"indexing song",
+		"library reconciled",
+		"running cleanup",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scan log missing %q; full log:\n%s", want, out)
+		}
 	}
 }
 

@@ -31,8 +31,11 @@ type artistRekey struct {
 	mbid     string
 }
 
-func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time, prog ProgressReporter) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time, log *slog.Logger, prog ProgressReporter) (reconcileStats, error) {
 	var stats reconcileStats
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	// Artist-folder images are reconciled in one pass after every track is in
 	// (reconcileArtistImages), not per track. probes collects, per artist touched
 	// this run, the track directories to search and the path already on the row.
@@ -70,6 +73,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 		}
 
 		prog.SetStage("Saving: " + relPath(libRoot, tr.walk.FilePath))
+		log.Info("indexing song", slog.String("file", relPath(libRoot, tr.walk.FilePath)))
 
 		// A per-track transaction that fails is retried once before being given
 		// up on. The likeliest cause is a lost SQLite write lock under

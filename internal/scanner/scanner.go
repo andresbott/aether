@@ -142,7 +142,12 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	for i := range walks {
 		walks[i].toProcess = s.selectToProcess(walks[i].walk, opts.IsFull)
 		totalFiles += int64(len(walks[i].toProcess))
+		log.Info("library scan planned",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("found", len(walks[i].walk)),
+			slog.Int("to_process", len(walks[i].toProcess)))
 	}
+	log.Info("scan plan", slog.Int("libraries", len(walks)), slog.Int64("files_to_process", totalFiles))
 	prog.SetTotal(totalFiles * 2)
 
 	// Phase 2: reconcile.
@@ -150,13 +155,24 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		if err := s.scanLibrary(ctx, walks[i], scanStart, prog, &stats); err != nil {
+		before := stats
+		log.Info("reconciling library",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("files", len(walks[i].toProcess)))
+		if err := s.scanLibrary(ctx, walks[i], scanStart, log, prog, &stats); err != nil {
 			return stats, err
 		}
+		log.Info("library reconciled",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("processed", stats.TracksProcessed-before.TracksProcessed),
+			slog.Int("new", stats.TracksNew-before.TracksNew),
+			slog.Int("updated", stats.TracksUpdated-before.TracksUpdated),
+			slog.Int("failed", stats.TracksFailed-before.TracksFailed))
 	}
 
 	if ctx.Err() == nil {
 		prog.SetStage("Cleaning up…")
+		log.Info("running cleanup")
 		if err := s.store.Cleanup(ctx, scanStart); err != nil {
 			return stats, err
 		}
@@ -228,7 +244,7 @@ func (s *Scanner) preflight(ctx context.Context, libs []model.Library) ([]librar
 
 // scanLibrary is phase 2: everything from the LastScanStartedAt stamp onwards,
 // for a library preflight has already validated and walked.
-func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, prog ProgressReporter, stats *ScanStats) error {
+func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, log *slog.Logger, prog ProgressReporter, stats *ScanStats) error {
 	lib, walkResults := lw.lib, lw.walk
 
 	// Stamped in phase 2 on purpose: a library whose run aborted in preflight must
@@ -269,6 +285,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 				}
 				prog.SetStage("Extracting metadata: " + relPath(lib.Path, wr.FilePath))
 				prog.Inc(1)
+				log.Info("scanning song", slog.String("file", relPath(lib.Path, wr.FilePath)))
 				// No separate tagReader.CanRead gate: Walk only admits IsAudioFile
 				// paths, IsAudioFile is tags.Supported, and every supported format is
 				// readable by some reader (enforced by tags.TestSupportedIsReadable),
@@ -308,7 +325,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 		return ctx.Err()
 	}
 
-	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart, prog)
+	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart, log, prog)
 	if err != nil {
 		return err
 	}
