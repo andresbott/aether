@@ -28,6 +28,17 @@ func TestValidateRejects(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsEdgeBleedingMotif(t *testing.T) {
+	// A bottom-anchored motif: full-width fill from y=60 to the bottom edge.
+	// Bottom-left/right corners rasterize opaque, top-left/right stay
+	// transparent — not all four corners are opaque, so it's a legitimate
+	// edge-bleeding motif (e.g. a horizon/wave shape), not a full-canvas fill.
+	const edgeBleed = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="0" y="60" width="100" height="40" fill="#FF00FF"/></svg>`
+	if err := Validate([]byte(edgeBleed)); err != nil {
+		t.Fatalf("Validate rejected a legitimate edge-bleeding motif: %v", err)
+	}
+}
+
 func TestPromoteRejectDemote(t *testing.T) {
 	dir := t.TempDir()
 	cand := filepath.Join(dir, "candidates")

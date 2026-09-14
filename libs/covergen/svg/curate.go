@@ -11,7 +11,10 @@ import (
 
 // Validate reports whether src satisfies the svg asset contract: parseable,
 // viewBox="0 0 100 100", uses at least one sentinel colour, and rasterizes to a
-// motif with transparent corners (not a full-canvas fill).
+// motif that isn't a full-canvas fill (rejected only when all four corners are
+// opaque). A motif may legitimately bleed to one or more edges — e.g. a
+// horizon/wave shape anchored to the bottom — as long as it doesn't cover the
+// entire canvas.
 func Validate(src []byte) error {
 	if !bytes.Contains(src, []byte(`viewBox="0 0 100 100"`)) {
 		return errors.New(`svg: missing viewBox="0 0 100 100"`)
@@ -23,10 +26,16 @@ func Validate(src []byte) error {
 	if err != nil {
 		return fmt.Errorf("svg: rasterize: %w", err)
 	}
-	for _, c := range [][2]int{{0, 0}, {63, 0}, {0, 63}, {63, 63}} {
-		if img.RGBAAt(c[0], c[1]).A != 0 {
-			return errors.New("svg: background not transparent (a corner is opaque)")
+	corners := [][2]int{{0, 0}, {63, 0}, {0, 63}, {63, 63}}
+	allOpaque := true
+	for _, c := range corners {
+		if img.RGBAAt(c[0], c[1]).A == 0 {
+			allOpaque = false
+			break
 		}
+	}
+	if allOpaque {
+		return errors.New("svg: background not transparent (all four corners opaque — looks like a full-canvas fill)")
 	}
 	return nil
 }
