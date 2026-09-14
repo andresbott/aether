@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/imagecache"
 )
@@ -80,5 +81,44 @@ func TestReconcileRejectsUnsafeKind(t *testing.T) {
 	c := imagecache.New(t.TempDir())
 	if _, err := c.Reconcile("../escape", map[string]struct{}{}); err == nil {
 		t.Fatal("expected an error for an unsafe kind")
+	}
+}
+
+func TestPruneStaleRemovesOldFilesKeepsFresh(t *testing.T) {
+	root := t.TempDir()
+	c := imagecache.New(root)
+	seedEntry(t, root, "editor", "fresh")
+	seedEntry(t, root, "editor", "stale")
+
+	stale := filepath.Join(root, "editor", "stale", "cover.abc123.200.webp")
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatalf("backdate stale file: %v", err)
+	}
+
+	removed, err := c.PruneStale("editor", 30*24*time.Hour)
+	if err != nil {
+		t.Fatalf("PruneStale: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("removed = %d, want 1", removed)
+	}
+	if _, err := os.Stat(filepath.Join(root, "editor", "fresh")); err != nil {
+		t.Errorf("fresh entry must remain: %v", err)
+	}
+	// The stale entry had only the one file, so its directory is cleaned up too.
+	if _, err := os.Stat(filepath.Join(root, "editor", "stale")); !os.IsNotExist(err) {
+		t.Error("emptied stale entry directory should be removed")
+	}
+}
+
+func TestPruneStaleMissingKindIsNoOp(t *testing.T) {
+	c := imagecache.New(t.TempDir())
+	removed, err := c.PruneStale("editor", time.Hour)
+	if err != nil {
+		t.Fatalf("PruneStale: %v", err)
+	}
+	if removed != 0 {
+		t.Errorf("removed = %d, want 0", removed)
 	}
 }

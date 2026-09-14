@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -200,14 +201,16 @@ func TestNewPruneTaskFnReportsProgress(t *testing.T) {
 		t.Fatalf("prune fn: %v", err)
 	}
 
-	if spy.total != int64(len(pruneKinds)) {
-		t.Errorf("SetTotal = %d, want %d", spy.total, len(pruneKinds))
+	// One unit per entity kind, plus one for the editor-thumbnail age-sweep.
+	want := len(pruneKinds) + 1
+	if spy.total != int64(want) {
+		t.Errorf("SetTotal = %d, want %d", spy.total, want)
 	}
-	if spy.incs != len(pruneKinds) {
-		t.Errorf("Inc called %d times, want %d", spy.incs, len(pruneKinds))
+	if spy.incs != want {
+		t.Errorf("Inc called %d times, want %d", spy.incs, want)
 	}
-	if len(spy.stages) != len(pruneKinds) {
-		t.Errorf("SetStage called %d times, want %d", len(spy.stages), len(pruneKinds))
+	if len(spy.stages) != want {
+		t.Errorf("SetStage called %d times, want %d", len(spy.stages), want)
 	}
 }
 
@@ -252,6 +255,34 @@ func TestNewPruneTaskFnReclaimsMBIDDriftImageDerivatives(t *testing.T) {
 	}
 	if _, ok := assets.Get(assetstore.KindArtist, nameHashKey); !ok {
 		t.Error("the name-hash STORED cover is a live fallback and must be kept")
+	}
+}
+
+// Editor thumbnails can't be reconciled against entities, so prune sweeps them
+// by age: previews older than the TTL go, recent ones stay.
+func TestNewPruneTaskFnSweepsStaleEditorPreviews(t *testing.T) {
+	s := newTestStore(t)
+	imgRoot := t.TempDir()
+	images := imagecache.New(imgRoot)
+	assets := assetstore.New(t.TempDir())
+
+	seedCacheEntry(t, imgRoot, "editor", "fresh")
+	seedCacheEntry(t, imgRoot, "editor", "stale")
+	stale := filepath.Join(imgRoot, "editor", "stale", "cover.abc123.200.webp")
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatalf("backdate stale preview: %v", err)
+	}
+
+	if err := NewPruneTaskFn(s, images, assets)(context.Background(), slog.Default(), &progressSpy{}); err != nil {
+		t.Fatalf("prune fn: %v", err)
+	}
+
+	if !cacheEntryExists(imgRoot, "editor", "fresh") {
+		t.Error("a recent editor preview must be kept")
+	}
+	if cacheEntryExists(imgRoot, "editor", "stale") {
+		t.Error("a stale editor preview must be swept by age")
 	}
 }
 

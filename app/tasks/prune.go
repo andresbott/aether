@@ -4,10 +4,12 @@ package tasks
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/taskrunner"
 )
@@ -22,11 +24,12 @@ var PruneTaskDef = TaskDef{
 		"hand-uploaded covers are never removed.",
 }
 
-// pruneKinds is the whitelist of asset kinds the prune task reconciles. It is
-// deliberately explicit: the image cache also holds the metadata editor's
-// "editor" thumbnails (keyed by source-file path, a different lifecycle), which
-// this task must never sweep. Reconcile only ever walks the kinds it is given,
-// so anything outside this list is untouched by construction.
+// pruneKinds is the set of asset kinds the prune task reconciles against live
+// entities. It is deliberately explicit: the image cache also holds the metadata
+// editor's thumbnails, which are keyed by source path/bytes rather than an entity
+// id and so cannot be reconciled — those are handled separately by an age-sweep
+// (see editorThumbTTL). Reconcile only walks the kinds it is given, so nothing
+// outside this list is touched by the reconcile pass.
 var pruneKinds = []string{
 	assetstore.KindAlbum,
 	assetstore.KindArtist,
@@ -35,6 +38,11 @@ var pruneKinds = []string{
 	assetstore.KindRadio,
 }
 
+// editorThumbTTL bounds the metadata editor's preview thumbnails by age. They are
+// ephemeral (the editor busts their URL on every change and never relies on them
+// persisting), so a swept one just rebuilds on the next view.
+const editorThumbTTL = 30 * 24 * time.Hour
+
 // NewPruneTaskFn builds the orphan-cover GC task body. It computes the set of
 // live asset keys from the database, then reconciles both the image cache and
 // the asset store against it: cache derivatives and auto-fetched stored covers
@@ -42,9 +50,14 @@ var pruneKinds = []string{
 // assetstore.Reconcile). This is the sweep that the inline per-id deletes cannot
 // cover — the scanner's bulk aggregate pruning, key drift, a dropped DB.
 //
+// It also age-sweeps the metadata editor's preview thumbnails, which can't be
+// reconciled against entities (they are keyed by source path/bytes) — see
+// editorThumbTTL.
+//
 // It shares the library-writes exclusion group with scan/reindex (see
-// server.go), so it never runs while the index is being written. Progress is
-// reported one unit per kind, with the current kind as the stage label.
+// server.go), so it never runs while the index is being written. Progress is one
+// unit per reconciled kind plus one for the editor sweep, the current step as the
+// stage label.
 func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore.Store) func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
 	return func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
 		ids, err := s.AssetIdentities()
@@ -53,7 +66,7 @@ func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore
 			return err
 		}
 		imagesLive, assetsLive := liveAssetKeys(ids)
-		prog.SetTotal(int64(len(pruneKinds)))
+		prog.SetTotal(int64(len(pruneKinds) + 1)) // +1 for the editor-thumbnail sweep
 
 		var cacheRemoved, assetRemoved, assetKeptManual int
 		for _, kind := range pruneKinds {
@@ -84,10 +97,24 @@ func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore
 			prog.Inc(1)
 		}
 
+		// Editor thumbnails can't be reconciled against entities (keyed by source
+		// path/bytes), so bound them by age instead.
+		prog.SetStage("Pruning editor previews…")
+		editorRemoved, err := images.PruneStale(metadataedit.EditorThumbCacheKind, editorThumbTTL)
+		if err != nil {
+			log.Error("prune: sweep editor previews", slog.String("error", err.Error()))
+			return err
+		}
+		if editorRemoved > 0 {
+			log.Info("prune: swept stale editor previews", slog.Int("removed", editorRemoved))
+		}
+		prog.Inc(1)
+
 		log.Info("prune complete",
 			slog.Int("cache_removed", cacheRemoved),
 			slog.Int("asset_removed", assetRemoved),
-			slog.Int("asset_kept_manual", assetKeptManual))
+			slog.Int("asset_kept_manual", assetKeptManual),
+			slog.Int("editor_removed", editorRemoved))
 		return nil
 	}
 }
