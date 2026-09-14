@@ -34,25 +34,7 @@ Notes for editors:
 
 ## Backend
 
-### Backend — Task runner (job engine)
-
-- [x] Update the job engine (`go-bumbu/tempo`) to the latest version
-  Done in code on branch `chore/upgrade-tempo-v0.4` (v0.2.0 → v0.4.0): wrapper adapted to
-  `RegisterRaw`/`WithMaxParallelism`/`AddRaw`, task fns now receive tempo's per-task `*slog.Logger`
-  (replacing the removed `tempo.Info/Error` package helpers). Left open pending commit/merge; the
-  adopt-later items below track what v0.4.0 newly enables.
-  The task runner is `internal/taskrunner`, a thin wrapper over `github.com/go-bumbu/tempo`'s
-  `QueueRunner` (`internal/taskrunner/runner.go:12,20`), pinned at **v0.2.0** in `go.mod`. Bump it to
-  the latest release and adapt the wrapper to any API changes (`Cfg` / `QueueRunner` / `TaskLogSink` /
-  `TaskStatePersistence`). Prerequisite for moving the metadata editor's synchronous re-index onto
-  the job engine — see "[MEDIUM] Metadata edits re-index files inline…" under
-  `### 26-09-04-big-import-review`; that refactor should build on the current engine, not the old one.
-- [ ] Adopt tempo's task progress reporting for long scans
-  v0.4.0 hands each task a `tempo.Progress` reporter (`SetTotal` / `Inc` / `SetStage`) and the runner takes
-  a `RunnerCfg.ProgressSink` (built-in `tempo.MemTaskProgressSink`, or a gorm-backed sink). Wire a progress
-  sink into `internal/taskrunner`, widen `Runner.RegisterTask`'s task-fn signature to pass the reporter
-  (it is currently dropped as `_ tempo.Progress` in `runner.go`), thread it into `scanner.Scan`'s phase-2
-  reconcile loop, and surface percent/ETA in the tasks UI (`ProgressState.Percent()` / `ETA(startedAt)`).
+- [ ] does the artist image job still make sense?
 
 ### Backend — API Surface
 
@@ -72,11 +54,11 @@ Notes for editors:
 
 ### Backend — Resource Leaks
 
-- [ ] Nothing ever evicts from the image cache
+- [x] Nothing ever evicts from the image cache
   `Cache.Delete(kind, key)` exists (`internal/imagecache/imagecache.go:130`) and still has zero callers of any kind, production or test, so deleting an entity leaves its derivative directory behind forever. No prune task exists in `app/tasks` either. Superseded fingerprints of a still-live entry are already swept on rebuild (`Cache.sweep`), so this is only about entities that go away. Wire `Delete` in alongside the existing `assets.Delete` calls: `subsonic/artists.go:55,59`, `subsonic/genres.go:56`, `subsonic/playlists.go:348,423`, `subsonic/radio.go:223,226,228,275`, plus album deletion in the scanner's orphan cleanup (`store.DeleteOrphanedAggregates`, which has no assetstore counterpart today). One trap remains, reduced but not removed:
-  - [ ] Artist cache eviction must handle both key slots
+  - [x] Artist cache eviction must handle both key slots
     The artist cache key uses the MBID-preferring derivation (`artistCoverKey` in `subsonic/artists.go`) and deliberately does not track which of the two slots the image came from (manual upload vs. auto-fetched). An artist later gaining an MBID therefore orphans its old derivatives keyed on the name-hash slot — a leak, not a misattribution, since no other artist can inherit them. The exception is documented in `subsonic-api.md`. Artist-specific eviction logic must handle both keys.
-  - [ ] Editor thumbnails can't be swept by entity id (1.0-critical)
+  - [x] Editor thumbnails can't be swept by entity id (1.0-critical)
     Editor thumbnails (`kind: "editor"`) can't be swept this way at all — `pictureThumbKey` keys them by a hash of the file path or the image bytes (`metadata/pictures.go:419`), which is not derivable from an entity id. They need either a different key scheme or an age-based sweep, so a periodic prune task in `app/tasks` may be the better shape for the whole problem than per-deletion hooks. The editor-thumbnail half is the 1.0-critical part — those grow on every normal use of the metadata editor, not just on deletion. The per-entity wiring could slip to a later release if needed.
 
 ## Frontend
