@@ -1,4 +1,6 @@
-import { computed, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref } from 'vue'
+import { isTypingTarget } from '@/utils/shortcuts'
+import { useShortcutHelp } from '@/composables/useShortcutHelp'
 
 export interface RowClickModifiers {
     additive: boolean
@@ -76,6 +78,27 @@ export function useRowSelection() {
             return [...sel].sort((a, b) => a - b)
         }
         return [draggedIndex]
+    }
+
+    // Esc drops the whole selection — the same as every surface's Clear button — so
+    // the detail-view lists, the queue editor and the playlist reorder list all
+    // deselect the same way. It yields Escape first to anything that owns it: a
+    // focused text field, an open PrimeVue dialog/popover (which closes itself), and
+    // the keyboard-shortcut help overlay (closed by useKeyboardShortcuts). Wired only
+    // when the composable runs in a component's setup; the pure unit tests call it
+    // bare and want no global listener.
+    const onEscape = (event: KeyboardEvent): void => {
+        if (event.key !== 'Escape') return
+        if (selectedIndices.value.size === 0) return
+        if (isTypingTarget(event.target)) return
+        if (useShortcutHelp().open.value) return
+        if (document.querySelector('.p-dialog, .p-popover')) return
+        clearSelection()
+        event.preventDefault()
+    }
+    if (getCurrentInstance()) {
+        onMounted(() => document.addEventListener('keydown', onEscape))
+        onBeforeUnmount(() => document.removeEventListener('keydown', onEscape))
     }
 
     return {

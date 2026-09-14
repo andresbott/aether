@@ -221,11 +221,14 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 		}
 		if oldKey != newKey {
 			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			_ = h.images.Delete(assetstore.KindRadio, oldKey)
 		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindRadio, newKey)
+		_ = h.images.Delete(assetstore.KindRadio, newKey)
 		if oldKey != newKey {
 			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			_ = h.images.Delete(assetstore.KindRadio, oldKey)
 		}
 	default:
 		// URL changed with no cover change: re-key the existing cover so it
@@ -239,6 +242,9 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("radio cover re-key failed",
 					"old_url", existing.StreamURL, "new_url", streamURL, "error", err)
 			}
+			// The image cache has no re-key, so the old key's derivatives are now
+			// orphaned. Drop them — they rebuild lazily under the new key.
+			_ = h.images.Delete(assetstore.KindRadio, oldKey)
 		}
 	}
 
@@ -273,6 +279,7 @@ func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = h.assets.Delete(assetstore.KindRadio, assetkey.Radio(existing.StreamURL))
+	_ = h.images.Delete(assetstore.KindRadio, assetkey.Radio(existing.StreamURL))
 	writeResponse(w, nil)
 }
 

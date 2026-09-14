@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import Popover from 'primevue/popover'
 import InputText from 'primevue/inputtext'
 import Button from 'primevue/button'
@@ -159,18 +159,6 @@ const createNew = (): void => {
         }
     )
 }
-
-// Esc dismisses the selection (same as the ✕ / Clear button). The bar only exists
-// while there is a selection, so the listener's lifetime matches it. If the
-// playlist picker is open — or any modal dialog is up — let it own Escape (close
-// itself) rather than also dropping the selection underneath it.
-function onKeydown(e: KeyboardEvent): void {
-    if (e.key !== 'Escape') return
-    if (pickerOpen.value || document.querySelector('.p-dialog, .p-popover')) return
-    emit('clear')
-}
-onMounted(() => document.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>

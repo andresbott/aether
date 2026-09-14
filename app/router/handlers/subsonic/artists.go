@@ -56,10 +56,12 @@ func (h *Handler) updateArtist(w http.ResponseWriter, r *http.Request) {
 		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindArtist, key)
+		_ = h.images.Delete(assetstore.KindArtist, key)
 		// Also clear the name-hash slot in case a prior upload was made while the
 		// artist was unmatched (or gained an MBID since).
 		if nameHashKey := assetkey.Artist("", artist.NameNorm); nameHashKey != key {
 			_ = h.assets.Delete(assetstore.KindArtist, nameHashKey)
+			_ = h.images.Delete(assetstore.KindArtist, nameHashKey)
 		}
 	}
 

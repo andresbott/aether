@@ -21,6 +21,7 @@ import (
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
+	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
@@ -129,6 +130,10 @@ func runServer(configFile string) error {
 	}
 
 	assets := assetstore.New(filepath.Join(cfg.DataDir, "metadata"))
+	// A second cache handle on the same root the router builds (main.go): both are
+	// stateless directory wrappers, so the prune task and the request handlers can
+	// hold their own without sharing an instance.
+	images := imagecache.New(filepath.Join(cfg.DataDir, router.ImageCacheDir))
 	fetcher := buildArtistFetcher(cfg.ArtistImages)
 
 	scanCfg := scanner.Config{
@@ -200,6 +205,15 @@ func runServer(configFile string) error {
 	runner.RegisterTask(
 		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, 24*time.Hour),
 		tasks.FetchArtistImagesTaskName, 1,
+	)
+	// Prune orphaned cover derivatives and stored covers. It reads the whole
+	// entity set, so it joins the library-writes exclusion group to never race a
+	// scan/reindex, and is a singleton so overlapping triggers coalesce. Reports
+	// progress per kind, so it registers on the with-progress path like scan.
+	runner.RegisterWithProgress(
+		tasks.NewPruneTaskFn(dataStore, images, assets),
+		tasks.PruneTaskName, 1,
+		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup),
 	)
 	runner.Start()
 

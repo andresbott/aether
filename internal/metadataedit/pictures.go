@@ -10,6 +10,13 @@ import (
 	"go.senan.xyz/taglib"
 )
 
+// EditorThumbCacheKind is the imagecache "kind" the metadata editor stores its
+// preview thumbnails under. They are keyed by source-file path or image bytes
+// (not by an entity id), so unlike entity covers they can't be reconciled
+// against the live DB; the prune task sweeps them by age instead. Single source
+// of truth for the handler that writes them and the task that prunes them.
+const EditorThumbCacheKind = "editor"
+
 // ----- Embedded pictures -----
 //
 // Files can carry several attached pictures, each with a type ("Front Cover",

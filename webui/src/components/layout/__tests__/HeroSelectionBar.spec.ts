@@ -134,21 +134,4 @@ describe('HeroSelectionBar', () => {
         )
         expect(w.emitted('clear')).toHaveLength(1)
     })
-
-    it('clears the selection when Escape is pressed', async () => {
-        const w = mountBar()
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-        await flushPromises()
-        expect(w.emitted('clear')).toHaveLength(1)
-    })
-
-    it('leaves Escape to the playlist picker while it is open', async () => {
-        const w = mountBar()
-        // Opening the picker (stub emits `show`) hands Escape to the popover, so
-        // one press closes the picker rather than also dropping the selection.
-        await w.find('.sel-add-playlist').trigger('click')
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-        await flushPromises()
-        expect(w.emitted('clear')).toBeUndefined()
-    })
 })

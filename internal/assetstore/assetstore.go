@@ -170,6 +170,71 @@ func (s *Store) Delete(kind, key string) error {
 	return os.RemoveAll(dir)
 }
 
+// Reconcile deletes every entity directory under kind whose key is not in live,
+// returning how many it removed and how many orphans it deliberately kept.
+//
+// The exception is the point of the guard: a directory holding a manual upload
+// (a non-.auto cover) is never swept, even when orphaned. A hand-uploaded cover
+// is not rebuildable, and because the key is derived from identity it correctly
+// re-attaches if the entity returns after a DB drop + rescan — so preserving it
+// is the same durability guarantee assetkey exists to provide. Auto-fetched-only
+// and empty orphan directories are safely re-fetchable, so those are removed.
+//
+// A missing kind directory is not an error, and only the named kind is walked.
+func (s *Store) Reconcile(kind string, live map[string]struct{}) (removed, keptManual int, err error) {
+	if !KeySafe(kind) {
+		return 0, 0, fmt.Errorf("assetstore: unsafe kind %q", kind)
+	}
+	kindDir := filepath.Join(s.root, kind)
+	entries, err := os.ReadDir(kindDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, fmt.Errorf("assetstore: reconcile read %s: %w", kind, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, ok := live[e.Name()]; ok {
+			continue
+		}
+		dir := filepath.Join(kindDir, e.Name())
+		if hasManualUpload(dir) {
+			keptManual++
+			continue
+		}
+		if rmErr := os.RemoveAll(dir); rmErr != nil {
+			return removed, keptManual, fmt.Errorf("assetstore: reconcile remove %s/%s: %w", kind, e.Name(), rmErr)
+		}
+		removed++
+	}
+	return removed, keptManual, nil
+}
+
+// hasManualUpload reports whether dir holds a manual (non-.auto) primary cover.
+// It fails safe: an unreadable directory is reported as holding a manual upload
+// so Reconcile keeps it, because a hand-uploaded cover is unrebuildable and a
+// transient read error must never be grounds to destroy one. The only cost is
+// that a genuinely re-fetchable orphan that happens to be unreadable is not
+// reclaimed this pass — a later prune retries it.
+func hasManualUpload(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if base, auto, ok := splitEntry(e.Name()); ok && base == DefaultName && !auto {
+			return true
+		}
+	}
+	return false
+}
+
 // ErrKeyOccupied reports that a Rekey destination already holds images. The
 // move is refused rather than completed: an orphaned directory is recoverable,
 // a destroyed upload is not.

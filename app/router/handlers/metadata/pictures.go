@@ -379,8 +379,9 @@ func (h *ImagesHandler) servePictureThumb(
 }
 
 // pictureThumbKind files editor thumbnails apart from the entity covers the
-// music API caches.
-const pictureThumbKind = "editor"
+// music API caches. Defined once in internal/metadataedit so the prune task's
+// age-sweep and this handler cannot disagree on the directory.
+const pictureThumbKind = metadataedit.EditorThumbCacheKind
 
 // pictureThumbKey identifies the source image the thumbnail is built from. A
 // file gets a hash of its path; embedded bytes get a hash of the bytes, since
