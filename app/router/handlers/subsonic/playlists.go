@@ -346,6 +346,7 @@ func (h *Handler) updatePlaylistCover(w http.ResponseWriter, r *http.Request, id
 		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindPlaylist, key)
+		_ = h.images.Delete(assetstore.KindPlaylist, key)
 	}
 
 	writeResponse(w, nil)
@@ -421,6 +422,7 @@ func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 	}
 	if key != "" {
 		_ = h.assets.Delete(assetstore.KindPlaylist, key)
+		_ = h.images.Delete(assetstore.KindPlaylist, key)
 	}
 	writeResponse(w, nil)
 }

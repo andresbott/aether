@@ -59,6 +59,7 @@ func (h *Handler) updateManualCover(
 		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(storeKind, key)
+		_ = h.images.Delete(storeKind, key)
 	}
 
 	writeResponse(w, nil)
