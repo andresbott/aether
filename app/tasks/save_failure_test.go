@@ -50,7 +50,7 @@ func TestNewScanTaskFnReportsUnsaveableTracks(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	fn := NewScanTaskFn(cfg, st, reader, true)
-	if err := fn(context.Background(), log); err != nil {
+	if err := fn(context.Background(), log, nil); err != nil {
 		t.Fatalf("an unsaveable track must not fail the scan job: %v", err)
 	}
 	if n := countTracks(t, st, libID); n != 0 {

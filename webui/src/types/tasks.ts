@@ -18,6 +18,12 @@ export interface TaskWithSchedule extends TaskDef {
     schedules: TaskSchedule[]
 }
 
+export interface ExecutionProgress {
+    done: number
+    total: number
+    stage?: string
+}
+
 export interface ExecutionInfo {
     id: string
     task_name: string
@@ -25,6 +31,8 @@ export interface ExecutionInfo {
     queued_at: string
     started_at?: string
     ended_at: string
+    // Present only while status === 'running'.
+    progress?: ExecutionProgress
 }
 
 export interface ListTasksResponse {

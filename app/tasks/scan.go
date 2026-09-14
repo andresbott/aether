@@ -8,6 +8,7 @@ import (
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/andresbott/aether/internal/taskrunner"
 )
 
 const (
@@ -33,16 +34,16 @@ var ScanFullTaskDef = TaskDef{
 	Description: "Scan the music library in full: every track is re-read regardless of modification time, picking up re-derivations an incremental scan would skip. Distinct from the incremental scan so a full run is never dropped in favour of one.",
 }
 
-func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, full bool) func(ctx context.Context, log *slog.Logger) error {
+func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, full bool) func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
 	sc := scanner.New(cfg, s, tagReader)
-	return func(ctx context.Context, log *slog.Logger) error {
+	return func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
 		mode := "incremental"
 		if full {
 			mode = "full"
 		}
 		log.Info("starting library scan", slog.String("mode", mode))
 
-		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: full, Log: log})
+		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: full, Log: log, Progress: prog})
 		if err != nil {
 			log.Error("scan failed", slog.String("error", err.Error()))
 			return err

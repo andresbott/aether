@@ -2,10 +2,14 @@
 package scanner_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -109,6 +113,42 @@ func TestScannerFullScan(t *testing.T) {
 	st.DB().Model(&model.Track{}).Where("library_id = ?", lib.ID).Count(&withLib)
 	if withLib != 3 {
 		t.Fatalf("expected 3 tracks attached to library, got %d", withLib)
+	}
+}
+
+// A scan logs per-library and per-phase milestones plus periodic progress, so
+// the per-execution task log is informative instead of going silent between
+// "starting" and "complete".
+func TestScannerLogsProgress(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01.mp3",
+		"Artist/Album/02.mp3",
+		"Artist/Album/03.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true, Log: log}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"library scan planned",
+		"scan plan",
+		"reconciling library",
+		"scanning song",
+		"indexing song",
+		"library reconciled",
+		"running cleanup",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scan log missing %q; full log:\n%s", want, out)
+		}
 	}
 }
 
@@ -331,5 +371,70 @@ func TestScanAllowsAnEmptyLibraryWithNothingIndexed(t *testing.T) {
 	}
 	if stats.TracksProcessed != 0 {
 		t.Fatalf("expected 0 tracks processed, got %d", stats.TracksProcessed)
+	}
+}
+
+type recordProgress struct {
+	mu     sync.Mutex
+	total  int64
+	done   int64
+	stages []string
+}
+
+func (r *recordProgress) SetTotal(t int64) { r.mu.Lock(); r.total = t; r.mu.Unlock() }
+func (r *recordProgress) Inc(d int64) int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.done += d
+	return r.done
+}
+func (r *recordProgress) SetStage(s string) {
+	r.mu.Lock()
+	r.stages = append(r.stages, s)
+	r.mu.Unlock()
+}
+
+func (r *recordProgress) hasStagePrefix(p string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, s := range r.stages {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestScannerReportsProgress(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01.mp3",
+		"Artist/Album/02.mp3",
+		"Artist/Album/03.mp3",
+	})
+	seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	rec := &recordProgress{}
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true, Progress: rec}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3 files × 2 passes (read + save).
+	if rec.total != 6 {
+		t.Fatalf("SetTotal = %d, want 6", rec.total)
+	}
+	if rec.done != 6 {
+		t.Fatalf("final done = %d, want 6", rec.done)
+	}
+	if !rec.hasStagePrefix("Extracting metadata: Artist/Album/") {
+		t.Fatalf("no read-pass stage with a relative path; stages=%v", rec.stages)
+	}
+	if !rec.hasStagePrefix("Saving: Artist/Album/") {
+		t.Fatalf("no save-pass stage with a relative path; stages=%v", rec.stages)
+	}
+	if !rec.hasStagePrefix("Cleaning up") {
+		t.Fatalf("no cleanup stage; stages=%v", rec.stages)
 	}
 }

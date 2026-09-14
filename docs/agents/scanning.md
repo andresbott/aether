@@ -69,6 +69,14 @@ passes into the task function, which lands in the per-execution log
    (`store/scan_helpers.go`) deletes albums/artists/genres with no tracks
    plus their join rows, playlist entries, stars, and play history.
 
+**Progress.** `scan`/`scan-full` report progress to the UI via
+`ScanOptions.Progress` (a `scanner.ProgressReporter`; tempo's reporter satisfies
+it, wired in `RegisterWithProgress`). The total is `2 × files-to-process`,
+counted once per file in the tag-read pass and once per track in reconcile, so
+the percentage crosses both phases; the stage string names the current file
+relative to the library root. `reindex` passes a no-op reporter (progress is
+scans-only for now).
+
 `LastSeenAt` is the liveness marker — every code path that touches a track
 during a scan must set it to the scan's start time, or cleanup will delete
 live tracks. It is **monotonic in both writers**: `reconcileTrack` guards its

@@ -73,7 +73,7 @@ func TestRunnerExecutions(t *testing.T) {
 	_, _, _ = runner.AddRun("test-task")
 	time.Sleep(200 * time.Millisecond)
 
-	execs := runner.Executions()
+	execs := runner.Executions(context.Background())
 	if len(execs) == 0 {
 		t.Fatal("expected at least 1 execution")
 	}
@@ -82,6 +82,64 @@ func TestRunnerExecutions(t *testing.T) {
 	}
 	if execs[0].Status != "complete" {
 		t.Fatalf("expected status complete, got %s", execs[0].Status)
+	}
+}
+
+func TestRunnerExecutionsProgress(t *testing.T) {
+	db := testDB(t)
+	runner, err := taskrunner.NewRunner(taskrunner.Cfg{Parallelism: 1, QueueSize: 5, DB: db})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	runner.RegisterWithProgress(func(_ context.Context, _ *slog.Logger, prog taskrunner.Progress) error {
+		prog.SetTotal(10)
+		prog.Inc(4)
+		prog.SetStage("Extracting metadata: a/b.mp3")
+		close(started)
+		<-release
+		return nil
+	}, "prog-task", 1)
+
+	runner.Start()
+	defer func() { _ = runner.Shutdown(context.Background()) }()
+
+	id, _, _ := runner.AddRun("prog-task")
+	<-started
+
+	// The reporter flushes synchronously before started closes, but poll briefly
+	// to absorb the status→running transition landing in the queue.
+	var got *taskrunner.ExecutionProgress
+	for i := 0; i < 50 && got == nil; i++ {
+		for _, e := range runner.Executions(context.Background()) {
+			if e.ID == id && e.Status == "running" && e.Progress != nil {
+				got = e.Progress
+			}
+		}
+		if got == nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	close(release)
+
+	if got == nil {
+		t.Fatal("expected progress on the running execution")
+	}
+	if got.Total != 10 || got.Done != 4 {
+		t.Fatalf("got done=%d total=%d, want 4/10", got.Done, got.Total)
+	}
+	if got.Stage != "Extracting metadata: a/b.mp3" {
+		t.Fatalf("stage = %q", got.Stage)
+	}
+
+	// Once finished, progress is gated off (contract: present only while running).
+	time.Sleep(100 * time.Millisecond)
+	for _, e := range runner.Executions(context.Background()) {
+		if e.ID == id && e.Progress != nil {
+			t.Fatalf("finished execution still carries progress: %+v", e.Progress)
+		}
 	}
 }
 

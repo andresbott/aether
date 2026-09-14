@@ -13,7 +13,7 @@ import { useToast } from 'primevue/usetoast'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
 import LogViewer from '@/components/admin/LogViewer.vue'
 import ScheduleDialog from '@/components/admin/ScheduleDialog.vue'
-import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS } from '@/composables/useTasks'
+import { useTasks, EXECUTION_STATUS, SCHEDULE_PRESETS, progressLabel } from '@/composables/useTasks'
 import type { Task } from '@/composables/useTasks'
 import type { ExecutionInfo, CreateScheduleBody, PatchScheduleBody } from '@/types/tasks'
 import { useViewport } from '@/composables/useViewport'
@@ -166,6 +166,10 @@ const phoneCols = computed(() => tier.value === 'phone')
                                 <template #body="{ data }">
                                     <span class="task-name">{{ data.name }}</span>
                                     <p v-if="data.description" class="task-desc">{{ data.description }}</p>
+                                    <p
+                                        v-if="isTaskRunning(data) && data.lastExecutionProgress?.stage"
+                                        class="task-stage"
+                                    >{{ data.lastExecutionProgress.stage }}</p>
                                 </template>
                             </Column>
                             <Column header="Schedule" :hidden="phoneCols" style="width: 10rem">
@@ -185,11 +189,12 @@ const phoneCols = computed(() => tier.value === 'phone')
                                     />
                                 </template>
                             </Column>
-                            <Column header="Actions" style="width: 9rem">
+                            <Column header="Actions" style="width: 11rem">
                                 <template #body="{ data }">
                                     <Button
-                                        :label="isTaskRunning(data) ? 'Running' : 'Run'"
+                                        :label="isTaskRunning(data) ? progressLabel(data.lastExecutionStatus, data.lastExecutionProgress) : 'Run'"
                                         :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
+                                        :class="{ 'task-progress': isTaskRunning(data) }"
                                         size="small"
                                         :loading="triggeringTaskId === data.id || isTaskRunning(data)"
                                         :disabled="triggeringTaskId !== null || isTaskRunning(data)"
@@ -250,6 +255,12 @@ const phoneCols = computed(() => tier.value === 'phone')
 .task-desc {
     margin: 0.25rem 0 0;
     font-size: 0.85rem;
+    color: var(--app-text-secondary);
+}
+.task-stage {
+    margin: 0.25rem 0 0;
+    font-size: 0.8rem;
+    font-style: italic;
     color: var(--app-text-secondary);
 }
 .schedule-summary {

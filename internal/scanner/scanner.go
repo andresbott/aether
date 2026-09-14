@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"sync"
@@ -21,6 +22,36 @@ type ScanOptions struct {
 	// Log receives task-scoped log lines (e.g. into the per-execution log). A nil
 	// Log discards them, so callers outside the task runner can omit it.
 	Log *slog.Logger
+	// Progress receives scan progress (percentage + current-file stage). A nil
+	// value disables reporting. tempo.Progress satisfies this interface.
+	Progress ProgressReporter
+}
+
+// ProgressReporter receives scan progress. The task runner passes tempo's
+// reporter (which satisfies it); the scanner never imports tempo. A scan counts
+// each file twice — once for the tag read, once for the reconcile save — so the
+// percentage spans both phases rather than stalling at 100% during the save.
+// Implementations must be safe for concurrent use: the tag-read worker pool
+// calls it from multiple goroutines.
+type ProgressReporter interface {
+	SetTotal(total int64)
+	Inc(delta int64) int64
+	SetStage(msg string)
+}
+
+type noopProgress struct{}
+
+func (noopProgress) SetTotal(int64)  {}
+func (noopProgress) Inc(int64) int64 { return 0 }
+func (noopProgress) SetStage(string) {}
+
+// relPath renders p relative to root for a progress stage line, falling back to
+// the base name when it cannot (e.g. a different volume).
+func relPath(root, p string) string {
+	if rel, err := filepath.Rel(root, p); err == nil {
+		return rel
+	}
+	return filepath.Base(p)
 }
 
 type ScanStats struct {
@@ -68,8 +99,9 @@ type tagResult struct {
 // the guards can run for *every* library before *any* library is reconciled
 // (see preflight) without walking the tree twice.
 type libraryWalk struct {
-	lib  *model.Library
-	walk []WalkResult
+	lib       *model.Library
+	walk      []WalkResult
+	toProcess []WalkResult
 }
 
 func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error) {
@@ -97,17 +129,50 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		return stats, err
 	}
 
+	prog := opts.Progress
+	if prog == nil {
+		prog = noopProgress{}
+	}
+
+	// Compute the work total up front so the percentage spans both passes: each
+	// file to process counts twice — once for its tag read, once for its
+	// reconcile save. Selecting toProcess here (not inside scanLibrary) is what
+	// makes the total known before the first save.
+	var totalFiles int64
+	for i := range walks {
+		walks[i].toProcess = s.selectToProcess(walks[i].walk, opts.IsFull)
+		totalFiles += int64(len(walks[i].toProcess))
+		log.Info("library scan planned",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("found", len(walks[i].walk)),
+			slog.Int("to_process", len(walks[i].toProcess)))
+	}
+	log.Info("scan plan", slog.Int("libraries", len(walks)), slog.Int64("files_to_process", totalFiles))
+	prog.SetTotal(totalFiles * 2)
+
 	// Phase 2: reconcile.
 	for i := range walks {
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		if err := s.scanLibrary(ctx, walks[i], scanStart, opts, &stats); err != nil {
+		before := stats
+		log.Info("reconciling library",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("files", len(walks[i].toProcess)))
+		if err := s.scanLibrary(ctx, walks[i], scanStart, log, prog, &stats); err != nil {
 			return stats, err
 		}
+		log.Info("library reconciled",
+			slog.String("library", walks[i].lib.Name),
+			slog.Int("processed", stats.TracksProcessed-before.TracksProcessed),
+			slog.Int("new", stats.TracksNew-before.TracksNew),
+			slog.Int("updated", stats.TracksUpdated-before.TracksUpdated),
+			slog.Int("failed", stats.TracksFailed-before.TracksFailed))
 	}
 
 	if ctx.Err() == nil {
+		prog.SetStage("Cleaning up…")
+		log.Info("running cleanup")
 		if err := s.store.Cleanup(ctx, scanStart); err != nil {
 			return stats, err
 		}
@@ -179,7 +244,7 @@ func (s *Scanner) preflight(ctx context.Context, libs []model.Library) ([]librar
 
 // scanLibrary is phase 2: everything from the LastScanStartedAt stamp onwards,
 // for a library preflight has already validated and walked.
-func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, opts ScanOptions, stats *ScanStats) error {
+func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, log *slog.Logger, prog ProgressReporter, stats *ScanStats) error {
 	lib, walkResults := lw.lib, lw.walk
 
 	// Stamped in phase 2 on purpose: a library whose run aborted in preflight must
@@ -198,12 +263,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 		return err
 	}
 
-	var toProcess []WalkResult
-	if opts.IsFull {
-		toProcess = walkResults
-	} else {
-		toProcess = s.filterChanged(walkResults)
-	}
+	toProcess := lw.toProcess
 
 	workers := s.cfg.TagReadWorkers
 	if workers <= 0 {
@@ -223,6 +283,9 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 				if ctx.Err() != nil {
 					return
 				}
+				prog.SetStage("Extracting metadata: " + relPath(lib.Path, wr.FilePath))
+				prog.Inc(1)
+				log.Info("scanning song", slog.String("file", relPath(lib.Path, wr.FilePath)))
 				// No separate tagReader.CanRead gate: Walk only admits IsAudioFile
 				// paths, IsAudioFile is tags.Supported, and every supported format is
 				// readable by some reader (enforced by tags.TestSupportedIsReadable),
@@ -262,7 +325,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 		return ctx.Err()
 	}
 
-	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart)
+	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart, log, prog)
 	if err != nil {
 		return err
 	}
@@ -272,6 +335,16 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 	stats.TracksFailed += rec.Failed
 
 	return nil
+}
+
+// selectToProcess is the set of files scanLibrary will read and reconcile: the
+// whole walk for a full scan, or only the changed files for an incremental one.
+// Hoisted out of scanLibrary so Scan can total it before any library is saved.
+func (s *Scanner) selectToProcess(walkResults []WalkResult, isFull bool) []WalkResult {
+	if isFull {
+		return walkResults
+	}
+	return s.filterChanged(walkResults)
 }
 
 func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
