@@ -39,7 +39,8 @@ watch(logText, async () => {
         @update:visible="emit('update:visible', $event)"
         header="Execution Log"
         modal
-        :style="{ width: '700px', maxHeight: '80vh' }"
+        :style="{ width: '90vw', maxWidth: '1400px' }"
+        :breakpoints="{ '640px': '100vw' }"
     >
         <div ref="logContainer" class="log-content">
             <pre v-if="logText">{{ logText }}</pre>
@@ -53,7 +54,7 @@ watch(logText, async () => {
 
 <style scoped>
 .log-content {
-    max-height: 60vh;
+    max-height: 72vh;
     overflow-y: auto;
     background-color: #1e1e2e;
     border-radius: 6px;
@@ -66,7 +67,7 @@ watch(logText, async () => {
     line-height: 1.6;
     color: #cdd6f4;
     white-space: pre-wrap;
-    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 .log-empty {
     display: flex;
