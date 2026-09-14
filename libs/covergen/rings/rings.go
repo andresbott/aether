@@ -49,9 +49,10 @@ var ringsKnobs = []covergen.Knob{
 }
 
 // Draw draws eccentric concentric rings with an optional angular wobble
-// (lobes / corners). Palettes mix a deep background with four vivid accents. The
-// band pitch is floored at rings.minBandWidth so rings stay bold and never
-// collapse into a fine moiré.
+// (lobes / corners). Palettes mix a deep base, a bright partner, and two
+// accents cycled over the base. The band pitch is floored at
+// rings.minBandWidth so rings stay bold and never collapse into a fine
+// moiré.
 func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	sz := img.Bounds().Dx()
 	fs := float64(sz)

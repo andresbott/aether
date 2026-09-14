@@ -45,34 +45,6 @@ func HslToRGBA(h, s, l float64) color.RGBA {
 	}
 }
 
-// Palette picks two harmonious RGBA colours. Base hue is random; second hue
-// is shifted 20..60 degrees either way. Overall brightness varies widely
-// across seeds so different albums land in distinctly dark, muted, or
-// pastel palettes.
-func Palette(rng *rand.Rand, satMul, hueMul, satSpread float64) (color.RGBA, color.RGBA) {
-	hue1 := rng.Float64() * 360
-	shift := (20 + rng.Float64()*40) * hueMul
-	if rng.IntN(2) == 0 {
-		shift = -shift
-	}
-	hue2 := math.Mod(hue1+shift+360, 360)
-
-	// Per-seed brightness centre spans from near-black to near-white.
-	base := 0.18 + rng.Float64()*0.62 // 0.18..0.80
-
-	// Saturation tapers toward the extremes: pastels stay soft, very dark
-	// palettes don't turn cartoonish.
-	dist := math.Abs(base-0.49) / 0.31 // 0 at middle, 1 at extremes
-	rsat := rng.Float64()
-	sat := ClampFloat(satMul*(0.55-0.28*dist+rsat*0.08)+(satSpread-1)*0.08*(rsat-0.5), 0, 1)
-
-	// Two gradient endpoints spread around the brightness centre.
-	delta := 0.10 + rng.Float64()*0.08
-	l1 := ClampFloat(base-delta, 0.06, 0.94)
-	l2 := ClampFloat(base+delta, 0.06, 0.94)
-	return HslToRGBA(hue1, sat, l1), HslToRGBA(hue2, sat, l2)
-}
-
 // Vivid returns n saturated colours built from a random harmony scheme
 // (complementary, triadic, analogous, split-complementary).
 func Vivid(rng *rand.Rand, n int, satMul, hueMul, satSpread float64) []color.RGBA {
