@@ -154,17 +154,25 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 
 	// Occasional thin outline ring to break the composition.
-	if rng.IntN(3) == 0 {
-		ox := fs * (0.25 + rng.Float64()*0.5)
-		oy := fs * (0.25 + rng.Float64()*0.5)
-		or := fs * (0.30 + rng.Float64()*0.25)
-		ow := fs * 0.012
-		for y := 0; y < sz; y++ {
-			for x := 0; x < sz; x++ {
-				d := math.Hypot(float64(x)-ox, float64(y)-oy)
-				if math.Abs(d-or) <= ow {
-					paint.BlendPixel(img, x, y, color.RGBA{R: 255, G: 255, B: 255, A: 200})
-				}
+	drawRemixOutlineRing(img, sz, fs, rng)
+}
+
+// drawRemixOutlineRing traces a thin white ring 1-in-3 times to break up the
+// composition; otherwise a no-op. Split out of Draw to keep its cyclomatic
+// complexity down — behavior and rng draw order are unchanged.
+func drawRemixOutlineRing(img *image.RGBA, sz int, fs float64, rng *rand.Rand) {
+	if rng.IntN(3) != 0 {
+		return
+	}
+	ox := fs * (0.25 + rng.Float64()*0.5)
+	oy := fs * (0.25 + rng.Float64()*0.5)
+	or := fs * (0.30 + rng.Float64()*0.25)
+	ow := fs * 0.012
+	for y := 0; y < sz; y++ {
+		for x := 0; x < sz; x++ {
+			d := math.Hypot(float64(x)-ox, float64(y)-oy)
+			if math.Abs(d-or) <= ow {
+				paint.BlendPixel(img, x, y, color.RGBA{R: 255, G: 255, B: 255, A: 200})
 			}
 		}
 	}
