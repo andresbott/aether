@@ -214,10 +214,15 @@ func (s *Store) Reconcile(kind string, live map[string]struct{}) (removed, keptM
 }
 
 // hasManualUpload reports whether dir holds a manual (non-.auto) primary cover.
+// It fails safe: an unreadable directory is reported as holding a manual upload
+// so Reconcile keeps it, because a hand-uploaded cover is unrebuildable and a
+// transient read error must never be grounds to destroy one. The only cost is
+// that a genuinely re-fetchable orphan that happens to be unreadable is not
+// reclaimed this pass — a later prune retries it.
 func hasManualUpload(dir string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return true
 	}
 	for _, e := range entries {
 		if e.IsDir() {
