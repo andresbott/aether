@@ -138,6 +138,41 @@ func (c *Cache) Delete(kind, key string) error {
 	return nil
 }
 
+// Reconcile deletes every entry directory under kind whose key is not in live,
+// returning how many it removed. It is the sweep half of orphan-cover GC: the
+// inline Delete calls handle the deletions the app sees per-id, and Reconcile
+// catches the rest — the scanner's bulk aggregate pruning (no per-id signal),
+// an entity that changed its key (an artist gaining an MBID), a manually dropped
+// DB. A missing kind directory is not an error, and only the named kind is
+// walked, so unrelated kinds — notably the metadata editor's source-file-keyed
+// "editor" thumbnails — are left untouched by construction.
+func (c *Cache) Reconcile(kind string, live map[string]struct{}) (removed int, err error) {
+	if !keyRe.MatchString(kind) {
+		return 0, fmt.Errorf("imagecache: unsafe kind %q", kind)
+	}
+	kindDir := filepath.Join(c.root, kind)
+	entries, err := os.ReadDir(kindDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("imagecache: reconcile read %s: %w", kind, err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, ok := live[e.Name()]; ok {
+			continue
+		}
+		if rmErr := os.RemoveAll(filepath.Join(kindDir, e.Name())); rmErr != nil {
+			return removed, fmt.Errorf("imagecache: reconcile remove %s/%s: %w", kind, e.Name(), rmErr)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
 // FormatForAccept picks the derivative format for a request's Accept header.
 // WebP is a third to a fifth of JPEG's bytes at the same visual quality, so it
 // wins whenever the client names it; anything else — including a bare `*/*`,

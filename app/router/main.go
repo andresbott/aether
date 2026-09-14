@@ -38,11 +38,12 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// imageCacheDir holds the display-sized, re-encoded copies of entity images
+// ImageCacheDir holds the display-sized, re-encoded copies of entity images
 // (see internal/imagecache). It is a pure cache: deleting it costs nothing but
 // the work to rebuild, which is why it lives outside metadata/ — that tree holds
-// the only copy of manually uploaded art and must never be cleared.
-const imageCacheDir = "image-cache"
+// the only copy of manually uploaded art and must never be cleared. Exported so
+// the server wiring can point the prune task at the same directory.
+const ImageCacheDir = "image-cache"
 
 type Cfg struct {
 	Logger        *slog.Logger
@@ -262,7 +263,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		tagReader:     cfg.TagReader,
 		artistFetcher: cfg.ArtistFetcher,
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
-		images:        imagecache.New(filepath.Join(cfg.DataDir, imageCacheDir)),
+		images:        imagecache.New(filepath.Join(cfg.DataDir, ImageCacheDir)),
 		identifier:    cfg.Identifier,
 		identifyOff:   cfg.IdentifyUnavailableReason,
 		authMethod:    cfg.AuthMethod,

@@ -1732,9 +1732,10 @@ paths:
       description: >
         Admin. `apptasks.AvailableTasks` (app/tasks/tasks.go) enumerates the
         fixed set of user-facing tasks aether ships today (scan, scan-full,
-        fetch-artist-images) — not a user-extensible registry, so there is no
-        create/delete for the task definitions themselves, only for their
-        schedules. Incremental and full scans are two distinct tasks (`scan` and
+        fetch-artist-images, prune) — not a user-extensible registry, so there is
+        no create/delete for the task definitions themselves, only for their
+        schedules. `prune` sweeps orphaned cover derivatives and stored covers; it
+        shares the `library-writes` exclusion group so it never runs during a scan. Incremental and full scans are two distinct tasks (`scan` and
         `scan-full`) rather than one task with a flag, so a full run is never
         coalesced onto an in-flight incremental one; both share the
         `library-writes` exclusion group so they never scan concurrently. The
