@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
+import { defineComponent } from 'vue'
+import { mount } from '@vue/test-utils'
 import { useRowSelection } from '@/composables/useRowSelection'
+import { useShortcutHelp } from '@/composables/useShortcutHelp'
 
 const plain = { additive: false, range: false }
 const ctrl = { additive: true, range: false }
@@ -67,5 +70,95 @@ describe('useRowSelection', () => {
         s.clearSelection()
         s.onRowClick(5, shift)
         expect([...s.selectedIndices.value]).toEqual([5])
+    })
+})
+
+// Esc-to-deselect is wired here, in the shared core, so every selection surface
+// (the detail-view lists, the queue editor, the playlist reorder list) drops its
+// selection the same way. The listener only exists while a host component is
+// mounted, so these run the composable inside a throwaway component.
+describe('useRowSelection Escape-to-deselect', () => {
+    const wrappers: ReturnType<typeof mount>[] = []
+
+    const mountSelection = (): {
+        s: ReturnType<typeof useRowSelection>
+        wrapper: ReturnType<typeof mount>
+    } => {
+        let s!: ReturnType<typeof useRowSelection>
+        const Host = defineComponent({
+            setup() {
+                s = useRowSelection()
+                return () => null
+            }
+        })
+        const wrapper = mount(Host)
+        wrappers.push(wrapper)
+        return { s, wrapper }
+    }
+
+    const pressEscape = (init: KeyboardEventInit = {}): KeyboardEvent => {
+        const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, ...init })
+        document.dispatchEvent(event)
+        return event
+    }
+
+    afterEach(() => {
+        for (const w of wrappers.splice(0)) w.unmount()
+        useShortcutHelp().close()
+    })
+
+    it('clears the selection when Escape is pressed', () => {
+        const { s } = mountSelection()
+        s.onRowClick(1, plain)
+        pressEscape()
+        expect(s.selectedIndices.value.size).toBe(0)
+    })
+
+    it('swallows the Escape it consumes so nothing else acts on it', () => {
+        const { s } = mountSelection()
+        s.onRowClick(1, plain)
+        expect(pressEscape().defaultPrevented).toBe(true)
+    })
+
+    it('leaves Escape alone when nothing is selected', () => {
+        mountSelection()
+        expect(pressEscape().defaultPrevented).toBe(false)
+    })
+
+    it('leaves Escape to an open dialog or popover', () => {
+        const { s } = mountSelection()
+        s.onRowClick(1, plain)
+        const overlay = document.createElement('div')
+        overlay.className = 'p-popover'
+        document.body.appendChild(overlay)
+        pressEscape()
+        expect(s.selectedIndices.value.size).toBe(1)
+        overlay.remove()
+    })
+
+    it('leaves Escape to a focused text field', () => {
+        const { s } = mountSelection()
+        s.onRowClick(1, plain)
+        const input = document.createElement('input')
+        document.body.appendChild(input)
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        expect(s.selectedIndices.value.size).toBe(1)
+        input.remove()
+    })
+
+    it('leaves Escape to the shortcut help overlay while it is open', () => {
+        const { s } = mountSelection()
+        s.onRowClick(1, plain)
+        useShortcutHelp().toggle()
+        pressEscape()
+        expect(s.selectedIndices.value.size).toBe(1)
+    })
+
+    it('stops listening once its host component is gone', () => {
+        const { s, wrapper } = mountSelection()
+        s.onRowClick(1, plain)
+        wrapper.unmount()
+        pressEscape()
+        expect(s.selectedIndices.value.size).toBe(1)
     })
 })
