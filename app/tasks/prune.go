@@ -52,7 +52,7 @@ func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore
 			log.Error("prune: load asset identities", slog.String("error", err.Error()))
 			return err
 		}
-		live := liveAssetKeys(ids)
+		imagesLive, assetsLive := liveAssetKeys(ids)
 		prog.SetTotal(int64(len(pruneKinds)))
 
 		var cacheRemoved, assetRemoved, assetKeptManual int
@@ -61,12 +61,12 @@ func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore
 				return err
 			}
 			prog.SetStage("Pruning " + kind + "…")
-			cr, err := images.Reconcile(kind, live[kind])
+			cr, err := images.Reconcile(kind, imagesLive[kind])
 			if err != nil {
 				log.Error("prune: reconcile image cache", slog.String("kind", kind), slog.String("error", err.Error()))
 				return err
 			}
-			ar, akm, err := assets.Reconcile(kind, live[kind])
+			ar, akm, err := assets.Reconcile(kind, assetsLive[kind])
 			if err != nil {
 				log.Error("prune: reconcile asset store", slog.String("kind", kind), slog.String("error", err.Error()))
 				return err
@@ -92,43 +92,63 @@ func NewPruneTaskFn(s *store.Store, images *imagecache.Cache, assets *assetstore
 	}
 }
 
-// liveAssetKeys maps each cover-owning kind to the set of asset keys that still
-// belong to a live entity, using the same assetkey functions the handlers use so
-// the keys match the ones on disk exactly. Artists contribute two keys — their
-// primary (MBID-or-name-hash) slot and their name-hash slot — because a cover
-// can have been stored under either, and the inline delete path clears both.
-// Empty keys (e.g. a legacy playlist with no UUID, which can own no directory)
-// are dropped.
-func liveAssetKeys(ids store.AssetIdentities) map[string]map[string]struct{} {
-	live := map[string]map[string]struct{}{
+// liveKeys maps each cover-owning kind to the set of asset keys still in use.
+type liveKeys map[string]map[string]struct{}
+
+func newLiveKeys() liveKeys {
+	return liveKeys{
 		assetstore.KindAlbum:    {},
 		assetstore.KindArtist:   {},
 		assetstore.KindGenre:    {},
 		assetstore.KindPlaylist: {},
 		assetstore.KindRadio:    {},
 	}
-	add := func(kind, key string) {
-		if key == "" {
-			return
-		}
-		live[kind][key] = struct{}{}
+}
+
+// add records key as live under kind, dropping empty keys (e.g. a legacy
+// playlist with no UUID, which can own no directory).
+func (l liveKeys) add(kind, key string) {
+	if key == "" {
+		return
+	}
+	l[kind][key] = struct{}{}
+}
+
+// liveAssetKeys returns the live key sets for the image cache and the asset
+// store, using the same assetkey functions the handlers use so the keys match
+// the ones on disk exactly.
+//
+// They differ only for artists. Derivatives are always cached under the current
+// ArtistOf (see media.go), so the image cache's live set is ArtistOf alone — an
+// artist that gained an MBID has dead name-hash-slot derivatives that prune must
+// reclaim. The asset store, by contrast, still SERVES the name-hash slot as a
+// fallback (artistCoverMeta), so that slot stays a live source there and both
+// slots are kept.
+func liveAssetKeys(ids store.AssetIdentities) (images, assets liveKeys) {
+	images, assets = newLiveKeys(), newLiveKeys()
+	both := func(kind, key string) {
+		images.add(kind, key)
+		assets.add(kind, key)
 	}
 	for i := range ids.Albums {
-		add(assetstore.KindAlbum, assetkey.AlbumOf(&ids.Albums[i]))
+		both(assetstore.KindAlbum, assetkey.AlbumOf(&ids.Albums[i]))
 	}
 	for i := range ids.Artists {
 		a := &ids.Artists[i]
-		add(assetstore.KindArtist, assetkey.ArtistOf(a))
-		add(assetstore.KindArtist, assetkey.Artist("", a.NameNorm))
+		both(assetstore.KindArtist, assetkey.ArtistOf(a))
+		// The name-hash slot is a live SOURCE only in the asset store; its
+		// derivatives live under ArtistOf, so leaving it out of images-live is
+		// exactly what lets prune reclaim the MBID-drift leak.
+		assets.add(assetstore.KindArtist, assetkey.Artist("", a.NameNorm))
 	}
 	for i := range ids.Genres {
-		add(assetstore.KindGenre, assetkey.GenreOf(&ids.Genres[i]))
+		both(assetstore.KindGenre, assetkey.GenreOf(&ids.Genres[i]))
 	}
 	for i := range ids.Playlists {
-		add(assetstore.KindPlaylist, assetkey.PlaylistOf(&ids.Playlists[i]))
+		both(assetstore.KindPlaylist, assetkey.PlaylistOf(&ids.Playlists[i]))
 	}
 	for i := range ids.Radios {
-		add(assetstore.KindRadio, assetkey.Radio(ids.Radios[i].StreamURL))
+		both(assetstore.KindRadio, assetkey.Radio(ids.Radios[i].StreamURL))
 	}
-	return live
+	return images, assets
 }

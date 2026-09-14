@@ -14,7 +14,7 @@ import (
 	"github.com/andresbott/aether/internal/store"
 )
 
-func TestLiveAssetKeysCoversAllKindsAndBothArtistSlots(t *testing.T) {
+func TestLiveAssetKeysSplitsArtistSlotsBetweenStores(t *testing.T) {
 	ids := store.AssetIdentities{
 		Albums:    []model.Album{{NameNorm: "al", AlbumArtistNorm: "ar", MBReleaseID: "rel"}},
 		Artists:   []model.Artist{{NameNorm: "queen", MBArtistID: "mbid-q"}, {NameNorm: "noid"}},
@@ -23,36 +23,53 @@ func TestLiveAssetKeysCoversAllKindsAndBothArtistSlots(t *testing.T) {
 		Radios:    []model.InternetRadioStation{{StreamURL: "http://s"}},
 	}
 
-	live := liveAssetKeys(ids)
+	images, assets := liveAssetKeys(ids)
 
-	want := map[string]string{
+	// Non-artist kinds are identical in both stores.
+	for kind, key := range map[string]string{
 		assetstore.KindAlbum:    assetkey.Album("al", "ar", "rel"),
 		assetstore.KindGenre:    assetkey.Genre("Rock"),
 		assetstore.KindPlaylist: assetkey.Playlist("u1"),
 		assetstore.KindRadio:    assetkey.Radio("http://s"),
-	}
-	for kind, key := range want {
-		if _, ok := live[kind][key]; !ok {
-			t.Errorf("live[%s] missing key %s", kind, key)
+	} {
+		if _, ok := images[kind][key]; !ok {
+			t.Errorf("images live[%s] missing key %s", kind, key)
+		}
+		if _, ok := assets[kind][key]; !ok {
+			t.Errorf("assets live[%s] missing key %s", kind, key)
 		}
 	}
 
-	// An MBID artist occupies BOTH its MBID slot and its name-hash slot, since
-	// covers can have been stored under either (the delete path clears both).
-	artistKeys := live[assetstore.KindArtist]
-	if _, ok := artistKeys[assetkey.Artist("mbid-q", "queen")]; !ok {
-		t.Error("artist MBID slot missing")
+	mbid := assetkey.Artist("mbid-q", "queen") // ArtistOf for the MBID artist
+	queenNameHash := assetkey.Artist("", "queen")
+	noidNameHash := assetkey.Artist("", "noid")
+
+	// Asset store keeps BOTH slots — the name-hash slot is a served fallback.
+	for _, k := range []string{mbid, queenNameHash, noidNameHash} {
+		if _, ok := assets[assetstore.KindArtist][k]; !ok {
+			t.Errorf("assets artist live missing %s", k)
+		}
 	}
-	if _, ok := artistKeys[assetkey.Artist("", "queen")]; !ok {
-		t.Error("MBID artist's name-hash slot missing")
+
+	// Image cache keeps only the current ArtistOf slot: the MBID artist's dead
+	// name-hash slot is NOT live, so prune reclaims its drift derivatives.
+	if _, ok := images[assetstore.KindArtist][mbid]; !ok {
+		t.Error("images artist live missing the MBID slot")
 	}
-	if _, ok := artistKeys[assetkey.Artist("", "noid")]; !ok {
-		t.Error("no-MBID artist name-hash slot missing")
+	if _, ok := images[assetstore.KindArtist][queenNameHash]; ok {
+		t.Error("images artist live must NOT include the MBID artist's name-hash slot")
+	}
+	// A no-MBID artist's ArtistOf IS its name-hash, so that slot stays live in images.
+	if _, ok := images[assetstore.KindArtist][noidNameHash]; !ok {
+		t.Error("images artist live missing the no-MBID artist's slot")
 	}
 
 	// The empty-UUID playlist can own no directory, so it contributes no key.
-	if _, ok := live[assetstore.KindPlaylist][""]; ok {
-		t.Error("empty playlist key must not be in the live set")
+	if _, ok := assets[assetstore.KindPlaylist][""]; ok {
+		t.Error("empty playlist key must not be in the asset live set")
+	}
+	if _, ok := images[assetstore.KindPlaylist][""]; ok {
+		t.Error("empty playlist key must not be in the image live set")
 	}
 }
 
@@ -191,6 +208,50 @@ func TestNewPruneTaskFnReportsProgress(t *testing.T) {
 	}
 	if len(spy.stages) != len(pruneKinds) {
 		t.Errorf("SetStage called %d times, want %d", len(spy.stages), len(pruneKinds))
+	}
+}
+
+// An artist that gains an MBID leaves its old name-hash-slot derivatives
+// orphaned: new derivatives cache under ArtistOf (the MBID), so the name-hash
+// IMAGE-cache slot is dead and prune must reclaim it. The name-hash STORED cover
+// must survive, though — artistCoverMeta still serves it as a fallback, so it is
+// a live source, not an orphan.
+func TestNewPruneTaskFnReclaimsMBIDDriftImageDerivatives(t *testing.T) {
+	s := newTestStore(t)
+	db := s.DB()
+	artist := model.Artist{Name: "Queen", NameNorm: "queen", MBArtistID: "mbid-q"}
+	db.Create(&artist)
+
+	imgRoot := t.TempDir()
+	assetRoot := t.TempDir()
+	images := imagecache.New(imgRoot)
+	assets := assetstore.New(assetRoot)
+
+	mbidKey := assetkey.ArtistOf(&artist)               // current derivative key
+	nameHashKey := assetkey.Artist("", artist.NameNorm) // dead drift slot
+	if mbidKey == nameHashKey {
+		t.Fatal("test needs the MBID and name-hash keys to differ")
+	}
+
+	seedCacheEntry(t, imgRoot, assetstore.KindArtist, mbidKey)     // live
+	seedCacheEntry(t, imgRoot, assetstore.KindArtist, nameHashKey) // dead drift
+	// The name-hash STORED cover is still a live fallback source.
+	if err := assets.PutAuto(assetstore.KindArtist, nameHashKey, "jpg", []byte("fallback")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := NewPruneTaskFn(s, images, assets)(context.Background(), slog.Default(), &progressSpy{}); err != nil {
+		t.Fatalf("prune fn: %v", err)
+	}
+
+	if !cacheEntryExists(imgRoot, assetstore.KindArtist, mbidKey) {
+		t.Error("current MBID-slot derivatives must be kept")
+	}
+	if cacheEntryExists(imgRoot, assetstore.KindArtist, nameHashKey) {
+		t.Error("dead name-hash-slot derivatives must be reclaimed after an MBID gain")
+	}
+	if _, ok := assets.Get(assetstore.KindArtist, nameHashKey); !ok {
+		t.Error("the name-hash STORED cover is a live fallback and must be kept")
 	}
 }
 
