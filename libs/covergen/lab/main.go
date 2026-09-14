@@ -37,7 +37,7 @@ const (
 // tuning/preview: svg stays opt-in and out of the shipped allstyles set, but
 // the lab (a dev-only tool, never imported by the server binary) knows about
 // it directly so it can be curated and tuned here.
-var gen = covergen.New(append(allstyles.All(), svg.Style)...)
+var gen = covergen.New(append(allstyles.All(covergen.DefaultPalette()), svg.Style)...)
 
 // svgDir is the on-disk location of the svg style package (candidates/ + assets/),
 // set from the -svgdir flag; the curation tool reads and writes there.
@@ -285,11 +285,11 @@ var baseCSS = `
 var overviewTmpl = template.Must(template.New("overview").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>covergenlab</title><style>` + baseCSS + `</style></head>
 <body>
-<header><h1>covergenlab — cover-art styles</h1> <a href="/svg">svg curation →</a></header>
+<header><h1>covergenlab — cover-art styles</h1></header>
 <main>
 {{range .Rows}}{{$name := .Name}}
   <section>
-    <h2><a href="/style/{{$name}}">{{$name}} →</a></h2>
+    <h2><a href="/style/{{$name}}">{{$name}} →</a>{{if eq $name "svg"}} &nbsp;·&nbsp; <a href="/svg">svg curation →</a>{{end}}</h2>
     <div class="grid">
       {{range .Seeds}}<img src="/img?style={{$name}}&seed={{.}}&size={{$.Size}}" title="{{.}}">{{end}}
     </div>
