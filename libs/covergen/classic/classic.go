@@ -29,7 +29,26 @@ type style struct{ pal covergen.Palette }
 func (s style) Name() string { return "classic" }
 func (s style) Grain() int   { return 0 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), classicKnobs...), s.pal.Knobs()...)
+	out := append([]covergen.Knob(nil), classicKnobs...)
+	// classic prefers its own defaults for the shared palette's knobs (a muted,
+	// low hue-variance look), without affecting the other styles. Applied here in
+	// Knobs so the tuned defaults flow through newKnobSet everywhere classic is
+	// rendered, regardless of which palette instance is injected.
+	for _, k := range s.pal.Knobs() {
+		if d, ok := classicPaletteDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
+// classicPaletteDefaults overrides the shared palette's knob defaults for classic
+// only. Keys not present here keep the palette's own defaults.
+var classicPaletteDefaults = map[string]float64{
+	"palette.saturation": 0.8,
+	"palette.hue":        0,
+	"palette.hueSpread":  2,
 }
 
 func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
@@ -110,10 +129,10 @@ var classicKnobs = []covergen.Knob{
 	{Name: "classic.shapes", Label: "Shape count", Min: 0, Max: 3, Step: 0.05, Default: 1},
 	{Name: "classic.shapesSpread", Label: "Shape count spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
 	{Name: "classic.position", Label: "Shape position", Min: 0, Max: 6, Step: 0.05, Default: 1},
-	{Name: "classic.size", Label: "Shape size", Min: 0.3, Max: 2, Step: 0.05, Default: 1},
-	{Name: "classic.sizeSpread", Label: "Shape size spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
+	{Name: "classic.size", Label: "Shape size", Min: 0.3, Max: 2, Step: 0.05, Default: 0.9},
+	{Name: "classic.sizeSpread", Label: "Shape size spread", Min: 0, Max: 10, Step: 0.05, Default: 10},
 	{Name: "classic.opacityCenter", Label: "Opacity center", Min: 0, Max: 1, Step: 0.05, Default: 0.6},
-	{Name: "classic.opacityWidth", Label: "Opacity spread", Min: 0, Max: 0.5, Step: 0.02, Default: 0.15},
+	{Name: "classic.opacityWidth", Label: "Opacity spread", Min: 0, Max: 0.5, Step: 0.02, Default: 0.34},
 }
 
 // drawForeground paints 2..4 white translucent shapes of the same kind over
