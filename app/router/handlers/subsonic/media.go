@@ -13,11 +13,11 @@ import (
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
-	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/andresbott/aether/libs/covergen/allstyles"
 )
 
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
@@ -447,14 +447,19 @@ func (h *Handler) embeddedCoverSource(meta coverMeta) (coverSource, bool) {
 // front cover cannot be read after all (re-tagged since the scan).
 var errNoEmbeddedCover = errors.New("track has no embedded front cover")
 
+// coverGen is the Generator over covergen's full built-in style set, used both
+// to render the name-seeded fallback cover and to validate a configured style
+// name.
+var coverGen = allstyles.New()
+
 // generateCover renders a generated cover at the largest size the server will
 // serve. The image cache scales it down per request, so one render covers every
 // size instead of one PNG per (seed, size) as the old generated-covers tree did.
 func generateCover(seed, style string) ([]byte, error) {
-	if st, ok := covergen.ParseStyle(style); ok {
-		return covergen.GenerateStyle(seed, maxCoverSize, st)
+	if st, ok := coverGen.ByName(style); ok {
+		return coverGen.GenerateStyle(seed, maxCoverSize, st)
 	}
-	return covergen.Generate(seed, maxCoverSize)
+	return coverGen.Generate(seed, maxCoverSize)
 }
 
 // serveETaggedFile serves path with an ETag identifying that exact file, and no
@@ -522,7 +527,7 @@ func resolveCoverStyle(styleFor func() (string, error)) string {
 	if err != nil || name == "" || name == "auto" {
 		return "auto"
 	}
-	if _, ok := covergen.ParseStyle(name); !ok {
+	if _, ok := coverGen.ByName(name); !ok {
 		return "auto"
 	}
 	return name
