@@ -37,7 +37,7 @@ workflows).
 - Tests live next to the code; external test packages (`package foo_test`)
   are the norm, with `_internal_test.go` for white-box cases.
 - Fixtures: real audio files under `internal/tags/testdata`,
-  `internal/metadataedit/testdata`, `internal/covergen/testdata`.
+  `internal/metadataedit/testdata`, `libs/covergen/testdata`.
 - Test files are excluded from `nestif`, `dupl`, `gosec` — table-driven tests
   with some duplication are fine.
 - Optional external binaries (ffprobe, fpcalc) must not break the suite:
