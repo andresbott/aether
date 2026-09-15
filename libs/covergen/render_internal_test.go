@@ -19,7 +19,6 @@ import (
 type biasedStub struct{}
 
 func (biasedStub) Name() string  { return "biased" }
-func (biasedStub) Grain() int    { return 0 }
 func (biasedStub) Knobs() []Knob { return nil }
 func (biasedStub) Draw(img *image.RGBA, rng *rand.Rand, _ KnobSet) {
 	if rng.Uint64()%2 == 0 {
@@ -42,7 +41,6 @@ func (biasedStub) Draw(img *image.RGBA, rng *rand.Rand, _ KnobSet) {
 type flatStub struct{}
 
 func (flatStub) Name() string  { return "flat" }
-func (flatStub) Grain() int    { return 0 }
 func (flatStub) Knobs() []Knob { return nil }
 func (flatStub) Draw(img *image.RGBA, _ *rand.Rand, _ KnobSet) {
 	fillRGBA(img, color.RGBA{R: 10, G: 20, B: 30, A: 255})
@@ -135,5 +133,42 @@ func TestRenderStyleDeterministicThroughRetry(t *testing.T) {
 	}
 	if !bytes.Equal(a, b) {
 		t.Fatal("renderStyle through the retry path is not deterministic")
+	}
+}
+
+// grainStub paints a solid mid-grey and declares the shared grain knob, so the
+// render pipeline's post-process grain step can be exercised in isolation: a flat
+// fill has zero variation, so any variation in the output is grain.
+type grainStub struct{}
+
+func (grainStub) Name() string  { return "grainy" }
+func (grainStub) Knobs() []Knob { return []Knob{GrainKnob(0)} }
+func (grainStub) Draw(img *image.RGBA, _ *rand.Rand, _ KnobSet) {
+	fillRGBA(img, color.RGBA{R: 128, G: 128, B: 128, A: 255})
+}
+
+func TestGrainKnobControlsNoise(t *testing.T) {
+	const size = 64
+	h := sha256.Sum256([]byte("grain-seed"))
+
+	none := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), nil))
+	if v := variation(none); v != 0 {
+		t.Fatalf("grain=0 should leave a flat fill untouched, got variation %v", v)
+	}
+
+	grainy := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), map[string]float64{GrainKnobName: 8}))
+	if v := variation(grainy); v == 0 {
+		t.Fatal("grain=8 should add noise, but the output stayed flat")
+	}
+}
+
+func TestGrainRenderDeterministic(t *testing.T) {
+	const size = 64
+	h := sha256.Sum256([]byte("grain-seed"))
+	ks := newKnobSet(grainStub{}.Knobs(), map[string]float64{GrainKnobName: 6})
+	a := renderOnce(h, grainStub{}, size, ks)
+	b := renderOnce(h, grainStub{}, size, ks)
+	if !bytes.Equal(a.Pix, b.Pix) {
+		t.Fatal("grain render is not deterministic for a fixed seed")
 	}
 }

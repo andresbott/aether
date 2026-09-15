@@ -26,16 +26,34 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "waves" }
-func (s style) Grain() int   { return 3 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), wavesKnobs...), s.pal.Knobs()...)
+	out := append([]covergen.Knob(nil), wavesKnobs...)
+	for _, k := range s.pal.Knobs() {
+		if d, ok := wavesPaletteDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return append(out, covergen.GrainKnob(8))
+}
+
+// wavesPaletteDefaults tunes the injected palette's knob defaults for waves. It
+// ships on triadic (see allstyles.New): softer, wider-varying saturation and a
+// collapsed triad spread (the three hues sit near the base, jittered per seed)
+// for a tonal synthwave sky. Keys the injected palette does not declare are
+// ignored.
+var wavesPaletteDefaults = map[string]float64{
+	"palette.saturation":       0.8,
+	"palette.saturationSpread": 2.1,
+	"palette.spread":           0,
+	"palette.spreadJitter":     0.65,
 }
 
 // wavesKnobs tune the synthwave poster. Most are multipliers/spreads applied
 // after a per-seed random draw; the defaults are a hand-tuned look (not the
 // identity), so the waves goldens reflect these values.
 var wavesKnobs = []covergen.Knob{
-	{Name: "waves.amp", Label: "Wave height", Min: 0, Max: 3, Step: 0.05, Default: 0.75},
+	{Name: "waves.amp", Label: "Wave height", Min: 0, Max: 3, Step: 0.05, Default: 0.05},
 	{Name: "waves.ampSpread", Label: "Wave height spread", Min: 0, Max: 10, Step: 0.05, Default: 5.65},
 	{Name: "waves.freq", Label: "Wave frequency", Min: 0.2, Max: 3, Step: 0.05, Default: 0.25},
 	{Name: "waves.freqSpread", Label: "Wave frequency spread", Min: 0, Max: 10, Step: 0.05, Default: 1},

@@ -14,7 +14,6 @@ import (
 type stubStyle struct{ name string }
 
 func (s stubStyle) Name() string           { return s.name }
-func (s stubStyle) Grain() int             { return 0 }
 func (s stubStyle) Knobs() []covergen.Knob { return nil }
 func (s stubStyle) Draw(img *image.RGBA, _ *rand.Rand, _ covergen.KnobSet) {
 	b := img.Bounds()

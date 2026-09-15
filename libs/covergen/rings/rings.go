@@ -27,9 +27,8 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "rings" }
-func (s style) Grain() int   { return 3 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), ringsKnobs...), s.pal.Knobs()...)
+	return append(append(append([]covergen.Knob(nil), ringsKnobs...), s.pal.Knobs()...), covergen.GrainKnob(6))
 }
 
 // ringsKnobs are the tunable parameters of the rings style. Most are multipliers

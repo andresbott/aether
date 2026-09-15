@@ -27,9 +27,25 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "remix" }
-func (s style) Grain() int   { return 4 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), remixKnobs...), s.pal.Knobs()...)
+	out := append([]covergen.Knob(nil), remixKnobs...)
+	for _, k := range s.pal.Knobs() {
+		if d, ok := remixPaletteDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return append(out, covergen.GrainKnob(4))
+}
+
+// remixPaletteDefaults tunes the injected palette's knob defaults for remix. It
+// ships on pastel (see allstyles.New): wider saturation variance and a larger
+// accent hue gap so its two duotone tints diverge, kept fairly soft. Keys the
+// injected palette does not declare are ignored.
+var remixPaletteDefaults = map[string]float64{
+	"palette.saturationSpread": 2,
+	"palette.hueGap":           1.85,
+	"palette.softness":         0.55,
 }
 
 type remixShape int

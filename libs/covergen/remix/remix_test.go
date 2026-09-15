@@ -27,6 +27,7 @@ func TestStyleRenders(t *testing.T) {
 
 type stubPalette struct{ c covergen.ColorSet }
 
+func (p stubPalette) Name() string                                          { return "stub" }
 func (p stubPalette) Knobs() []covergen.Knob                                { return nil }
 func (p stubPalette) Colors(*rand.Rand, covergen.KnobSet) covergen.ColorSet { return p.c }
 

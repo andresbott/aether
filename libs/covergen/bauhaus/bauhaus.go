@@ -25,9 +25,24 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "bauhaus" }
-func (s style) Grain() int   { return 0 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), bauhausKnobs...), s.pal.Knobs()...)
+	out := append([]covergen.Knob(nil), bauhausKnobs...)
+	for _, k := range s.pal.Knobs() {
+		if d, ok := bauhausPaletteDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return append(out, covergen.GrainKnob(9))
+}
+
+// bauhausPaletteDefaults tunes the injected palette's knob defaults for bauhaus.
+// It ships on neon (see allstyles.New): a hotter saturation and a wider accent
+// hue gap. Keys the injected palette does not declare are ignored, so the lab
+// can still swap in any palette.
+var bauhausPaletteDefaults = map[string]float64{
+	"palette.saturation": 1.1,
+	"palette.hueGap":     1.2,
 }
 
 // bauhausKnobs tune the poster grid. Most are multipliers/spreads applied after

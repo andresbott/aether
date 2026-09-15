@@ -1,7 +1,10 @@
 // Command covergenlab is a local, browser-based tuning lab for the covergen
 // package. It renders every style across a spread of random seeds and exposes
 // each style's knobs as live sliders, so tuning cover art is a drag-and-watch
-// loop instead of edit-rebuild-squint.
+// loop instead of edit-rebuild-squint. Each palette-colored style also has a
+// palette picker (decoupled from the style) exposing the selected palette's own
+// knobs plus a live swatch strip of its four role colors; grain is a per-style
+// knob like any other.
 //
 // It is a dev tool: it lives under libs/covergen/lab and is never imported by the server
 // binary, so it ships in nothing. Edits to covergen's algorithms show up on
@@ -12,8 +15,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
 	"html/template"
+	"image/color"
 	"log"
 	"math/rand/v2"
 	"net/http"
@@ -21,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/allstyles"
@@ -31,6 +38,7 @@ const (
 	overviewPerStyle = 6   // thumbnails per style on the overview
 	tuningGrid       = 12  // seeds shown on a style's tuning page
 	thumbSize        = 200 // px; rendered fresh per request (no cache)
+	swatchSeeds      = 4   // sample seeds shown as palette-role swatch rows
 )
 
 // gen is the Generator over covergen's full built-in style set, plus svg for
@@ -46,6 +54,52 @@ var svgDir = "libs/covergen/svg"
 func candidatesDir() string { return filepath.Join(svgDir, "candidates") }
 func assetsDir() string     { return filepath.Join(svgDir, "assets") }
 
+// paletteNames lists the built-in palettes for the style page's picker.
+func paletteNames() []string {
+	ps := covergen.Palettes()
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.Name()
+	}
+	return out
+}
+
+// styleWithPalette builds the named style colored by pal. svg colors itself from
+// its own knobs and ignores the palette. Returns false for an unknown style.
+func styleWithPalette(name string, pal covergen.Palette) (covergen.Style, bool) {
+	if name == svg.Style.Name() {
+		return svg.Style, true
+	}
+	for _, s := range allstyles.All(pal) {
+		if s.Name() == name {
+			return s, true
+		}
+	}
+	return nil, false
+}
+
+// isPaletteStyle reports whether a style is colored by a covergen.Palette (i.e.
+// declares palette.* knobs). svg is not, so it gets no picker or swatches.
+func isPaletteStyle(s covergen.Style) bool {
+	for _, k := range s.Knobs() {
+		if strings.HasPrefix(k.Name, "palette.") {
+			return true
+		}
+	}
+	return false
+}
+
+// hexRGBA formats a colour as #rrggbb, dropping alpha (palette colours are opaque).
+func hexRGBA(c color.RGBA) string {
+	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 func main() {
 	addr := flag.String("addr", ":8099", "listen address")
 	svgFlag := flag.String("svgdir", "libs/covergen/svg", "path to the svg style package (candidates/ + assets/)")
@@ -56,6 +110,7 @@ func main() {
 	mux.HandleFunc("GET /", handleOverview)
 	mux.HandleFunc("GET /style/{style}", handleStyle)
 	mux.HandleFunc("GET /img", handleImg)
+	mux.HandleFunc("GET /colors", handleColors)
 	mux.HandleFunc("GET /svg", handleSvg)
 	mux.HandleFunc("GET /svg/img", handleSvgImg)
 	mux.HandleFunc("POST /svg/promote", handleSvgPromote)
@@ -63,7 +118,7 @@ func main() {
 	mux.HandleFunc("POST /svg/demote", handleSvgDemote)
 
 	log.Printf("covergenlab listening on http://localhost%s", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if err := http.ListenAndServe(*addr, mux); err != nil { //nolint:gosec // G114: dev-only localhost tuning tool, never linked into the server binary; request timeouts are unnecessary
 		log.Fatal(err)
 	}
 }
@@ -99,7 +154,7 @@ func parseOverrides(knobs []covergen.Knob, q url.Values) map[string]float64 {
 // randomSeed returns an arbitrary high-entropy string. covergen hashes the
 // seed, so any content works; this simply spreads samples across the space.
 func randomSeed() string {
-	return strconv.FormatUint(rand.Uint64(), 36) + strconv.FormatUint(rand.Uint64(), 36)
+	return strconv.FormatUint(rand.Uint64(), 36) + strconv.FormatUint(rand.Uint64(), 36) //nolint:gosec // G404: spreads lab sample seeds across the space; not security-sensitive
 }
 
 func randomSeeds(n int) []string {
@@ -114,7 +169,8 @@ func randomSeeds(n int) []string {
 // code edits (after a restart) and knob edits (live) are reflected immediately.
 func handleImg(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	style, ok := gen.ByName(q.Get("style"))
+	pal := covergen.PaletteByName(q.Get("palette"))
+	style, ok := styleWithPalette(q.Get("style"), pal)
 	if !ok {
 		http.Error(w, "unknown style", http.StatusBadRequest)
 		return
@@ -123,7 +179,7 @@ func handleImg(w http.ResponseWriter, r *http.Request) {
 	if s, err := strconv.Atoi(q.Get("size")); err == nil && s > 0 {
 		size = s
 	}
-	png, err := gen.GenerateWithKnobs(q.Get("seed"), size, style, parseOverrides(style.Knobs(), q))
+	png, err := covergen.New(style).GenerateWithKnobs(q.Get("seed"), size, style, parseOverrides(style.Knobs(), q))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -131,6 +187,31 @@ func handleImg(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(png)
+}
+
+// handleColors returns the palette's four role colours for one seed under the
+// current knobs, as JSON hex, so the style page can show live swatches next to
+// the palette picker. It mirrors handleImg's palette/style/knob resolution.
+// Styles without a palette (svg) have no role colours and return 404.
+func handleColors(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	pal := covergen.PaletteByName(q.Get("palette"))
+	style, ok := styleWithPalette(q.Get("style"), pal)
+	if !ok {
+		http.Error(w, "unknown style", http.StatusBadRequest)
+		return
+	}
+	if !isPaletteStyle(style) {
+		http.Error(w, "style has no palette", http.StatusNotFound)
+		return
+	}
+	cs := covergen.Colors(pal, q.Get("seed"), style.Knobs(), parseOverrides(style.Knobs(), q))
+	writeJSON(w, map[string]string{
+		"background": hexRGBA(cs.Background),
+		"ink":        hexRGBA(cs.Ink),
+		"accent1":    hexRGBA(cs.Accent1),
+		"accent2":    hexRGBA(cs.Accent2),
+	})
 }
 
 func listSVGs(dir string) []string {
@@ -232,32 +313,68 @@ func handleOverview(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleStyle(w http.ResponseWriter, r *http.Request) {
-	style, ok := gen.ByName(r.PathValue("style"))
+	q := r.URL.Query()
+	pal := covergen.PaletteByName(q.Get("palette"))
+	style, ok := styleWithPalette(r.PathValue("style"), pal)
 	if !ok {
 		http.Error(w, "unknown style", http.StatusNotFound)
 		return
 	}
-	overrides := parseOverrides(style.Knobs(), r.URL.Query())
+	overrides := parseOverrides(style.Knobs(), q)
+
+	// Split the style's knobs into its own controls and the injected palette
+	// controls, so the page can group the palette picker, its knobs, and the
+	// colour swatches together (see styleTmpl). Grain is a plain style knob.
 	values := make(map[string]float64)
+	var styleKnobs, paletteKnobs []covergen.Knob
 	for _, k := range style.Knobs() {
 		if v, ok := overrides[k.Name]; ok {
 			values[k.Name] = v
 		} else {
 			values[k.Name] = k.Default
 		}
+		if strings.HasPrefix(k.Name, "palette.") {
+			paletteKnobs = append(paletteKnobs, k)
+		} else {
+			styleKnobs = append(styleKnobs, k)
+		}
 	}
+
+	hasPalette := len(paletteKnobs) > 0
+	selPalette := ""
+	if hasPalette {
+		selPalette = pal.Name()
+	}
+	// Swatch rows reuse the first few tuning seeds so the previewed colours line
+	// up with the first thumbnails in the grid.
+	seeds := randomSeeds(tuningGrid)
+	swatch := seeds
+	if len(swatch) > swatchSeeds {
+		swatch = swatch[:swatchSeeds]
+	}
+
 	data := struct {
-		Name   string
-		Knobs  []covergen.Knob
-		Values map[string]float64
-		Seeds  []string
-		Size   int
+		Name         string
+		StyleKnobs   []covergen.Knob
+		PaletteKnobs []covergen.Knob
+		Values       map[string]float64
+		Palettes     []string
+		Palette      string
+		HasPalette   bool
+		Seeds        []string
+		SwatchSeeds  []string
+		Size         int
 	}{
-		Name:   style.Name(),
-		Knobs:  style.Knobs(),
-		Values: values,
-		Seeds:  randomSeeds(tuningGrid),
-		Size:   thumbSize,
+		Name:         style.Name(),
+		StyleKnobs:   styleKnobs,
+		PaletteKnobs: paletteKnobs,
+		Values:       values,
+		Palettes:     paletteNames(),
+		Palette:      selPalette,
+		HasPalette:   hasPalette,
+		Seeds:        seeds,
+		SwatchSeeds:  swatch,
+		Size:         thumbSize,
 	}
 	render(w, styleTmpl, data)
 }
@@ -309,21 +426,43 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   .controls { display: flex; gap: 8px; margin-top: 8px; }
   button { background: #223; color: #cde; border: 1px solid #345; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
   .empty { color: #666; }
+  .group { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #222; }
+  .group:last-of-type { border-bottom: 0; padding-bottom: 0; }
+  .group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 0 0 8px; }
+  select#palette { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
+  .swatches { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .swatch-row { display: flex; gap: 4px; }
+  .swatch { flex: 1; height: 22px; border-radius: 4px; background: #000; border: 1px solid rgba(0,0,0,.4); }
 </style></head>
 <body>
 <header><h1><a href="/">← styles</a> &nbsp;/&nbsp; {{.Name}}</h1></header>
 <main>
   <div class="layout">
     <div class="knobs">
-      {{if .Knobs}}
-      {{range .Knobs}}
+      <div class="group">
+        {{range .StyleKnobs}}
         <div class="knob">
           <label><span>{{.Label}}</span> <output>{{index $.Values .Name}}</output></label>
           <input type="range" data-knob="{{.Name}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}" value="{{index $.Values .Name}}">
         </div>
-      {{end}}
-      {{else}}
-        <p class="empty">This style has no knobs yet.</p>
+        {{end}}
+      </div>
+      {{if .HasPalette}}
+      <div class="group">
+        <h3>Palette</h3>
+        <select id="palette">
+          {{range .Palettes}}<option value="{{.}}"{{if eq . $.Palette}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        {{range .PaletteKnobs}}
+        <div class="knob">
+          <label><span>{{.Label}}</span> <output>{{index $.Values .Name}}</output></label>
+          <input type="range" data-knob="{{.Name}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}" value="{{index $.Values .Name}}">
+        </div>
+        {{end}}
+        <div class="swatches">
+          {{range .SwatchSeeds}}<div class="swatch-row" data-seed="{{.}}" title="{{.}}"><span class="swatch"></span><span class="swatch"></span><span class="swatch"></span><span class="swatch"></span></div>{{end}}
+        </div>
+      </div>
       {{end}}
       <div class="controls">
         <button id="reroll" title="new random seeds">Reroll</button>
@@ -338,29 +477,81 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
 <script>
   const STYLE = "{{.Name}}";
   const SIZE = "{{.Size}}";
-  function update() {
+  const PALETTE = "{{.Palette}}"; // "" when the style has no palette (svg)
+  const ROLES = ['background', 'ink', 'accent1', 'accent2'];
+  let swatchToken = 0;
+
+  function readKnobs() {
     const knobs = new URLSearchParams();
     document.querySelectorAll('input[data-knob]').forEach(function (inp) {
       knobs.set(inp.dataset.knob, inp.value);
       const out = inp.closest('.knob').querySelector('output');
       if (out) out.textContent = inp.value;
     });
+    return knobs;
+  }
+
+  // updateSwatches repaints each palette-role swatch row from /colors, live with
+  // the current knobs. The token guards against out-of-order fetch responses.
+  function updateSwatches(knobs) {
+    if (!PALETTE) return;
+    const rows = document.querySelectorAll('.swatch-row');
+    if (!rows.length) return;
+    const token = ++swatchToken;
+    rows.forEach(function (row) {
+      const u = new URLSearchParams(knobs);
+      u.set('style', STYLE);
+      u.set('palette', PALETTE);
+      u.set('seed', row.dataset.seed);
+      fetch('/colors?' + u.toString()).then(function (r) {
+        return r.ok ? r.json() : null;
+      }).then(function (c) {
+        if (!c || token !== swatchToken) return;
+        row.querySelectorAll('.swatch').forEach(function (el, i) {
+          const hex = c[ROLES[i]] || '#000';
+          el.style.background = hex;
+          el.title = ROLES[i] + ' ' + hex;
+        });
+      }).catch(function () {});
+    });
+  }
+
+  function update() {
+    const knobs = readKnobs();
     document.querySelectorAll('img.cell').forEach(function (img) {
       const u = new URLSearchParams(knobs);
       u.set('style', STYLE);
+      if (PALETTE) u.set('palette', PALETTE);
       u.set('size', SIZE);
       u.set('seed', img.dataset.seed);
       img.src = '/img?' + u.toString();
     });
-    const qs = knobs.toString();
-    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+    updateSwatches(knobs);
+    const qs = new URLSearchParams(knobs);
+    if (PALETTE) qs.set('palette', PALETTE);
+    const s = qs.toString();
+    history.replaceState(null, '', location.pathname + (s ? '?' + s : ''));
   }
+
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('input[data-knob]').forEach(function (inp) {
       inp.addEventListener('input', update);
     });
+    const palSel = document.getElementById('palette');
+    if (palSel) {
+      palSel.addEventListener('change', function () {
+        // Reload with the chosen palette; drop palette.* overrides so it starts
+        // from the new palette's own defaults, but keep the style knobs.
+        const q = new URLSearchParams();
+        readKnobs().forEach(function (v, k) { if (k.indexOf('palette.') !== 0) q.set(k, v); });
+        q.set('palette', palSel.value);
+        location.href = location.pathname + '?' + q.toString();
+      });
+    }
     document.getElementById('reroll').addEventListener('click', function () { location.reload(); });
-    document.getElementById('reset').addEventListener('click', function () { location.href = location.pathname; });
+    document.getElementById('reset').addEventListener('click', function () {
+      location.href = location.pathname + (PALETTE ? '?palette=' + encodeURIComponent(PALETTE) : '');
+    });
     update();
   });
 </script>

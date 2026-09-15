@@ -27,9 +27,25 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "poster" }
-func (s style) Grain() int   { return 5 }
 func (s style) Knobs() []covergen.Knob {
-	return append(append([]covergen.Knob(nil), posterKnobs...), s.pal.Knobs()...)
+	out := append([]covergen.Knob(nil), posterKnobs...)
+	for _, k := range s.pal.Knobs() {
+		if d, ok := posterPaletteDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return append(out, covergen.GrainKnob(5))
+}
+
+// posterPaletteDefaults tunes the injected palette's knob defaults for poster. It
+// ships on pastel (see allstyles.New): lifted, wider-varying saturation and a
+// firmer (less soft) accent so the duotone reads boldly. Keys the injected
+// palette does not declare are ignored.
+var posterPaletteDefaults = map[string]float64{
+	"palette.saturation":       1.2,
+	"palette.saturationSpread": 3.1,
+	"palette.softness":         0.45,
 }
 
 // posterKnobs tune the duotone poster. Applied after the per-seed random draws.

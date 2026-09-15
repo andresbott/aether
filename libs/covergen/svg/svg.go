@@ -42,9 +42,10 @@ func loadEmbedded() [][]byte {
 
 type style struct{ assets [][]byte }
 
-func (style) Name() string           { return "svg" }
-func (style) Grain() int             { return 4 }
-func (style) Knobs() []covergen.Knob { return svgKnobs }
+func (style) Name() string { return "svg" }
+func (style) Knobs() []covergen.Knob {
+	return append(append([]covergen.Knob(nil), svgKnobs...), covergen.GrainKnob(4))
+}
 
 var svgKnobs = []covergen.Knob{
 	{Name: "svg.scale", Label: "Motif size", Min: 0.2, Max: 1.2, Step: 0.05, Default: 0.7},

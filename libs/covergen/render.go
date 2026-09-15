@@ -68,14 +68,16 @@ func perturb(h [32]byte) [32]byte {
 }
 
 // renderOnce draws s at double resolution, downsamples 2x for anti-aliasing, and
-// applies the style's grain, returning the final image before PNG encoding:
+// applies grain, returning the final image before PNG encoding:
 // rngFromHash -> Draw -> downsample2x -> grain, dispatching through a Style value.
+// The grain amount is the resolved "grain" knob (see GrainKnob), so it is tuned
+// uniformly across styles here rather than in each Draw func.
 func renderOnce(h [32]byte, s Style, size int, ks KnobSet) *image.RGBA {
 	rng := rngFromHash(h)
 	big := image.NewRGBA(image.Rect(0, 0, size*2, size*2))
 	s.Draw(big, rng, ks)
 	img := downsample2x(big)
-	if g := s.Grain(); g > 0 {
+	if g := int(ks.Float(GrainKnobName)); g > 0 {
 		addGrain(img, rng, g)
 	}
 	return img

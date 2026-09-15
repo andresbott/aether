@@ -40,3 +40,17 @@ func newKnobSet(knobs []Knob, overrides map[string]float64) KnobSet {
 
 // Float returns the resolved value for name, or 0 if the style has no such knob.
 func (k KnobSet) Float(name string) float64 { return k.v[name] }
+
+// GrainKnobName is the well-known knob every style declares for post-process
+// film grain. The render pipeline reads it (not the Draw funcs) to layer
+// monochrome noise after downsampling, so grain is tuned uniformly across styles.
+const GrainKnobName = "grain"
+
+// GrainKnob returns the standard film-grain knob with the given default amount
+// (0 disables grain; higher is coarser noise). Every style includes it in its
+// Knobs so grain is tunable everywhere and applied consistently by the render
+// pipeline. The default preserves each style's shipped grain, so output at the
+// defaults is byte-identical.
+func GrainKnob(def float64) Knob {
+	return Knob{Name: GrainKnobName, Label: "Grain", Min: 0, Max: 12, Step: 1, Default: def}
+}

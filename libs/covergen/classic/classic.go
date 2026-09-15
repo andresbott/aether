@@ -27,7 +27,6 @@ var Style covergen.Style = New(nil)
 type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "classic" }
-func (s style) Grain() int   { return 0 }
 func (s style) Knobs() []covergen.Knob {
 	out := append([]covergen.Knob(nil), classicKnobs...)
 	// classic prefers its own defaults for the shared palette's knobs (a muted,
@@ -40,7 +39,8 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return out
+	// grain last so it reads as a render post-process, after style + palette knobs.
+	return append(out, covergen.GrainKnob(7))
 }
 
 // classicPaletteDefaults overrides the shared palette's knob defaults for classic

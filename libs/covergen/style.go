@@ -8,15 +8,15 @@ import (
 )
 
 // Style is a self-describing rendering algorithm: it knows its own name, the
-// knobs it exposes for tuning, its post-processing film-grain amount, and how
-// to paint itself onto an image given an RNG and a resolved KnobSet.
-// Implementations live in their own per-style packages (see the covergen
+// knobs it exposes for tuning (including the shared "grain" knob, see GrainKnob),
+// and how to paint itself onto an image given an RNG and a resolved KnobSet.
+// Post-process film grain is a knob read by the render pipeline, not a Draw
+// concern. Implementations live in their own per-style packages (see the covergen
 // style-packages refactor); the Generator below dispatches across whichever
 // set of Styles it is constructed with.
 type Style interface {
 	Name() string
 	Knobs() []Knob
-	Grain() int
 	Draw(img *image.RGBA, rng *rand.Rand, ks KnobSet)
 }
 

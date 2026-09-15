@@ -23,5 +23,19 @@ func All(pal covergen.Palette) []covergen.Style {
 	}
 }
 
-// New returns a Generator over All() with the default palette.
-func New() *covergen.Generator { return covergen.New(All(covergen.DefaultPalette())...) }
+// New returns a Generator over the six built-in styles, each paired with the
+// palette it was tuned for in the lab (bauhaus and rings on neon, waves on
+// triadic, poster and remix on pastel, classic on the default harmony). Style
+// order matches All so Generate's seed-hash style pick is byte-for-byte
+// unchanged. Each style's own palette-knob tweaks live in its package (see its
+// *PaletteDefaults), so those apply on top of whichever palette is paired here.
+func New() *covergen.Generator {
+	return covergen.New(
+		classic.New(covergen.PaletteByName("harmony")),
+		bauhaus.New(covergen.PaletteByName("neon")),
+		rings.New(covergen.PaletteByName("neon")),
+		waves.New(covergen.PaletteByName("triadic")),
+		poster.New(covergen.PaletteByName("pastel")),
+		remix.New(covergen.PaletteByName("pastel")),
+	)
+}
