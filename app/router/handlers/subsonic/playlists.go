@@ -126,8 +126,8 @@ func (h *Handler) getPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -262,8 +262,8 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing playlistId parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -406,8 +406,8 @@ func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}

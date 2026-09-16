@@ -204,6 +204,49 @@ func TestCreatePlaylistWithPlaylistIdNotFound(t *testing.T) {
 	}
 }
 
+// deletePlaylist takes a playlist id. decodeID accepts every prefix but the
+// handler discarded it, so deletePlaylist?id=tr-N used to delete the PLAYLIST
+// sharing N's number. A non-playlist id must fail without deleting anything.
+func TestDeletePlaylistRejectsNonPlaylistID(t *testing.T) {
+	s := testStore(t)
+	pl, _ := s.CreatePlaylist("Mix", "admin", false, nil)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	env := getJSON(t, srv.URL, "/rest/deletePlaylist.view?id="+encodeTrackID(pl.ID))
+	if env.SubsonicResponse.Status != "failed" {
+		t.Fatalf("status = %q, want failed", env.SubsonicResponse.Status)
+	}
+	if _, err := s.GetPlaylist(pl.ID); err != nil {
+		t.Fatalf("playlist deleted by non-playlist id tr-%d: %v", pl.ID, err)
+	}
+}
+
+// getPlaylist and updatePlaylist likewise take a playlist id and must reject a
+// non-playlist one rather than acting on the playlist sharing its number.
+func TestPlaylistReadEndpointsRejectNonPlaylistID(t *testing.T) {
+	s := testStore(t)
+	pl, _ := s.CreatePlaylist("Mix", "admin", false, nil)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"getPlaylist", "/rest/getPlaylist.view?id=" + encodeTrackID(pl.ID)},
+		{"updatePlaylist", "/rest/updatePlaylist.view?playlistId=" + encodeTrackID(pl.ID) + "&name=Renamed"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := getJSON(t, srv.URL, tc.path)
+			if env.SubsonicResponse.Status != "failed" {
+				t.Fatalf("status = %q, want failed", env.SubsonicResponse.Status)
+			}
+		})
+	}
+}
+
 func TestGetPlaylistsHandler(t *testing.T) {
 	s := testStore(t)
 	tracks := seedTracks(t, s, 2)

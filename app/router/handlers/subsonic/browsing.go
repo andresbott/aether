@@ -98,8 +98,8 @@ func (h *Handler) getArtist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "artist" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -136,8 +136,8 @@ func (h *Handler) getAlbum(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "album" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -165,8 +165,8 @@ func (h *Handler) getSong(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "track" {
 		writeError(w, 0, "invalid id")
 		return
 	}
