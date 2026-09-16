@@ -40,7 +40,7 @@ type embeddedFont struct {
 	parsed *opentype.Font
 }
 
-func (f *embeddedFont) Name() string             { return f.name }
+func (f *embeddedFont) Name() string              { return f.name }
 func (f *embeddedFont) Class() covergen.FontClass { return f.class }
 
 // Face builds a face at pxHeight (Size in points == pixels at 72 DPI). On the
@@ -90,8 +90,8 @@ func Default() covergen.FontProvider {
 	return p
 }
 
-func (p *provider) All() []covergen.Font                       { return p.all }
-func (p *provider) Classes() []covergen.FontClass              { return p.classes }
+func (p *provider) All() []covergen.Font                         { return p.all }
+func (p *provider) Classes() []covergen.FontClass                { return p.classes }
 func (p *provider) ByClass(c covergen.FontClass) []covergen.Font { return p.byClass[c] }
 
 func (p *provider) ByName(name string) (covergen.Font, bool) {

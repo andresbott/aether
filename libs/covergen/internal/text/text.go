@@ -29,8 +29,11 @@ const (
 // DrawString draws s in face and col with its baseline origin at (x, y), over
 // img, returning the advance width. It wraps font.Drawer, which composites the
 // glyph coverage mask with draw.Over — anti-aliased, and alpha-blended when
-// col.A < 255.
-func DrawString(img *image.RGBA, face font.Face, s string, x, y int, col color.RGBA) int {
+// col's alpha is translucent. col is typed as the color.Color interface (not
+// color.RGBA) so callers can pass a non-premultiplied color.NRGBA, whose
+// RGBA() method premultiplies correctly; a color.RGBA with RGB > A is already
+// invalid premultiplied data and would composite wrong.
+func DrawString(img *image.RGBA, face font.Face, s string, x, y int, col color.Color) int {
 	d := font.Drawer{Dst: img, Src: image.NewUniform(col), Face: face, Dot: fixed.P(x, y)}
 	d.DrawString(s)
 	return (d.Dot.X - fixed.I(x)).Round()
@@ -44,8 +47,12 @@ func Measure(face font.Face, s string) (w, ascent, descent int) {
 
 // AutoContrastColor samples the mean luminance of img under box and returns a
 // near-black or near-white ink that reads against it, plus a translucent shadow
-// of the opposite polarity. Deterministic; consumes no rng.
-func AutoContrastColor(img *image.RGBA, box image.Rectangle) (ink, shadow color.RGBA) {
+// of the opposite polarity. Both are color.NRGBA (non-premultiplied): the
+// shadow's alpha < 255 must survive as a genuinely translucent composite, and
+// color.RGBA's premultiplied convention (RGB must be <= A) can't represent
+// that — {255,255,255,170} is invalid premultiplied data and would render
+// opaque. Deterministic; consumes no rng.
+func AutoContrastColor(img *image.RGBA, box image.Rectangle) (ink, shadow color.NRGBA) {
 	box = box.Intersect(img.Bounds())
 	var sum float64
 	var n int
@@ -60,9 +67,9 @@ func AutoContrastColor(img *image.RGBA, box image.Rectangle) (ink, shadow color.
 		mean = sum / float64(n)
 	}
 	if mean < 128 {
-		return color.RGBA{245, 245, 245, 255}, color.RGBA{0, 0, 0, 170}
+		return color.NRGBA{245, 245, 245, 255}, color.NRGBA{0, 0, 0, 170}
 	}
-	return color.RGBA{15, 15, 15, 255}, color.RGBA{255, 255, 255, 170}
+	return color.NRGBA{15, 15, 15, 255}, color.NRGBA{255, 255, 255, 170}
 }
 
 // Block draws a two-line overlay (main above a smaller subtitle) anchored within
@@ -129,7 +136,7 @@ func Block(img *image.RGBA, main, sub string, faceAt func(pxHeight float64) font
 
 // drawLine draws one line at baseline by, offsetting x for centered anchors and
 // laying a 1px shadow under the ink.
-func drawLine(img *image.RGBA, face font.Face, s string, ox, by int, ink, shadow color.RGBA, anchor Anchor, blockW, lineW int) {
+func drawLine(img *image.RGBA, face font.Face, s string, ox, by int, ink, shadow color.NRGBA, anchor Anchor, blockW, lineW int) {
 	x := ox
 	if anchor == AnchorLowerCenter || anchor == AnchorCenter {
 		x = ox + (blockW-lineW)/2
@@ -155,8 +162,10 @@ func anchorOrigin(anchor Anchor, bounds image.Rectangle, blockW, blockH, marginP
 	return marginPx, h - marginPx - blockH
 }
 
-// withAlpha scales col's alpha by opacity in [0,1].
-func withAlpha(col color.RGBA, opacity float64) color.RGBA {
+// withAlpha scales col's alpha by opacity in [0,1]. col is color.NRGBA
+// (non-premultiplied), so scaling .A alone and leaving RGB untouched is
+// correct — premultiplication happens later, in col.RGBA().
+func withAlpha(col color.NRGBA, opacity float64) color.NRGBA {
 	if opacity < 0 {
 		opacity = 0
 	}

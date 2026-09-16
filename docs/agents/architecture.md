@@ -56,10 +56,13 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
 - **`libs/covergen`** (the deterministic generated-cover fallback; ten styles
   under `libs/covergen/<style>`, bundled by `libs/covergen/allstyles`) now has a
   `Font`/`FontProvider` contract (root package) with an embedded OFL provider in
-  `libs/covergen/fonts` (linked only by the lab), and styles optionally
-  implement `TextDrawer` to paint a `Text{Main,Subtitle}` overlay via
-  `libs/covergen/internal/text`; `GenerateWithText` is the entry point and the
-  textless `Generate*` path is byte-identical.
+  `libs/covergen/fonts` (the embedded TTF bytes and the `opentype`/`sfnt` parser
+  are linked only by that package and the lab), and styles optionally implement
+  `TextDrawer` to paint a `Text{Main,Subtitle}` overlay via
+  `libs/covergen/internal/text` — which does pull the lightweight
+  `golang.org/x/image/font` + `math/fixed` (`font.Drawer`/`MeasureString`) into
+  the server binary, a negligible single-digit-KB addition; `GenerateWithText`
+  is the entry point and the textless `Generate*` path is byte-identical.
 
 ## The two-API split (do not blur it)
 
