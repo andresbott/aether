@@ -18,6 +18,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/subsonic"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
 	"github.com/andresbott/aether/app/spa"
+	"github.com/andresbott/aether/internal/artist"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -54,6 +55,9 @@ type Cfg struct {
 	DataDir       string
 	TagReader     tags.Reader
 	ArtistFetcher artistsHandler.Fetcher
+	// ArtistImages fetches and stores an artist's image (the setMBID auto-fetch);
+	// nil when no image-provider API key is configured.
+	ArtistImages *artist.ImageService
 	// Identifier is optional: nil disables audio identification in the
 	// metadata editor.
 	Identifier *identify.Identifier
@@ -109,6 +113,7 @@ type MainAppHandler struct {
 	dataDir       string
 	tagReader     tags.Reader
 	artistFetcher artistsHandler.Fetcher
+	artistImages  *artist.ImageService
 	assets        *assetstore.Store
 	images        *imagecache.Cache
 	identifier    *identify.Identifier
@@ -262,6 +267,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		dataDir:       cfg.DataDir,
 		tagReader:     cfg.TagReader,
 		artistFetcher: cfg.ArtistFetcher,
+		artistImages:  cfg.ArtistImages,
 		assets:        assetstore.New(filepath.Join(cfg.DataDir, "metadata")),
 		images:        imagecache.New(filepath.Join(cfg.DataDir, ImageCacheDir)),
 		identifier:    cfg.Identifier,

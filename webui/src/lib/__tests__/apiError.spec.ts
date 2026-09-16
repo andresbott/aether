@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { apiErrorMessage, isCanceledError, isRateLimitError } from '@/lib/apiError'
+import {
+    apiErrorMessage,
+    apiFieldErrors,
+    apiFieldErrorMap,
+    isCanceledError,
+    isRateLimitError
+} from '@/lib/apiError'
 
 // The server answers /api/v0 failures as an RFC 9457 problem+json body:
 // {"type","title","status","detail","instance","errors"?}. apiErrorMessage is
@@ -117,6 +123,72 @@ describe('apiErrorMessage', () => {
         const cancelErr = { code: 'ERR_CANCELED', message: 'canceled', name: 'CanceledError' }
         expect(apiErrorMessage(cancelErr)).toBe('canceled')
         expect(apiErrorMessage(cancelErr)).not.toContain('server could not be reached')
+    })
+})
+
+// A 422 validation problem itemises which field failed in errors[]
+// ({pointer, detail}); forms read that to mark the offending input instead of
+// showing only the top-level sentence.
+describe('apiFieldErrors', () => {
+    const validation = {
+        response: {
+            status: 422,
+            data: {
+                type: 'https://aether.local/probs/validation_error',
+                title: 'Unprocessable Entity',
+                status: 422,
+                detail: 'invalid default_view: "grid" (allowed: albums, artists)',
+                errors: [
+                    {
+                        pointer: '/default_view',
+                        detail: 'invalid default_view: "grid" (allowed: albums, artists)'
+                    }
+                ]
+            }
+        }
+    }
+
+    it('returns the field errors a 422 problem carries', () => {
+        expect(apiFieldErrors(validation)).toEqual([
+            {
+                pointer: '/default_view',
+                detail: 'invalid default_view: "grid" (allowed: albums, artists)'
+            }
+        ])
+    })
+
+    it('maps each pointer to its detail', () => {
+        expect(apiFieldErrorMap(validation)).toEqual({
+            '/default_view': 'invalid default_view: "grid" (allowed: albums, artists)'
+        })
+    })
+
+    it('is empty for a problem body that carries no errors[]', () => {
+        const err = { response: { status: 500, data: { detail: 'boom' } } }
+        expect(apiFieldErrors(err)).toEqual([])
+        expect(apiFieldErrorMap(err)).toEqual({})
+    })
+
+    it('is empty for a plain Error, null, or undefined', () => {
+        expect(apiFieldErrors(new Error('boom'))).toEqual([])
+        expect(apiFieldErrors(null)).toEqual([])
+        expect(apiFieldErrors(undefined)).toEqual([])
+    })
+
+    it('drops malformed entries missing a pointer or detail', () => {
+        const err = {
+            response: {
+                status: 422,
+                data: {
+                    errors: [
+                        { pointer: '/path' },
+                        { detail: 'orphan detail' },
+                        { pointer: '/name', detail: 'name is required' }
+                    ]
+                }
+            }
+        }
+        expect(apiFieldErrors(err)).toEqual([{ pointer: '/name', detail: 'name is required' }])
     })
 })
 

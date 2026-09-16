@@ -126,8 +126,8 @@ func (h *Handler) getPlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -262,8 +262,8 @@ func (h *Handler) updatePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing playlistId parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}
@@ -357,8 +357,8 @@ func (h *Handler) updatePlaylistCover(w http.ResponseWriter, r *http.Request, id
 // ("coverFile") or a "coverClear" flag, alongside the usual name/comment/public
 // fields. Mirrors updateRadioMultipart in radio.go.
 func (h *Handler) updatePlaylistMultipart(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverRequestBytes)
+	if err := r.ParseMultipartForm(coverMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		writeError(w, 0, "invalid multipart body")
 		return
 	}
@@ -406,8 +406,8 @@ func (h *Handler) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "playlist" {
 		writeError(w, 0, "invalid id")
 		return
 	}

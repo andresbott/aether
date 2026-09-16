@@ -11,8 +11,7 @@ type Artist struct {
 	// (`<collection>/<artist>/artist.jpg`), detected at scan time. It is the
 	// last fallback before the generated avatar — a fetched or uploaded image
 	// in the asset store wins.
-	ImagePath        string
-	LastImageFetchAt *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ImagePath string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

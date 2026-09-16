@@ -209,12 +209,9 @@ func TestPlayHistoryCRUD(t *testing.T) {
 	}
 }
 
-func TestArtistHasMBIDAndFetchState(t *testing.T) {
+func TestArtistHasMBID(t *testing.T) {
 	a := model.Artist{MBArtistID: "mbid-x"}
 	if a.MBArtistID != "mbid-x" {
 		t.Fatal("MBArtistID field missing")
-	}
-	if a.LastImageFetchAt != nil {
-		t.Fatal("LastImageFetchAt should default to nil")
 	}
 }

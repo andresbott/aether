@@ -14,8 +14,9 @@ vi.mock('@/lib/api/Libraries', () => ({
     deleteLibrary: vi.fn()
 }))
 
+const toastAdd = vi.hoisted(() => vi.fn())
 vi.mock('primevue/usetoast', () => ({
-    useToast: () => ({ add: vi.fn() })
+    useToast: () => ({ add: toastAdd })
 }))
 
 import { useUpdateLibrary, useCreateLibrary } from '@/composables/useLibraries'
@@ -71,6 +72,7 @@ function mountMutation<T>(composable: () => T) {
 beforeEach(() => {
     updateLibraryMock.mockReset()
     createLibraryMock.mockReset()
+    toastAdd.mockReset()
 })
 
 describe('useUpdateLibrary', () => {
@@ -92,5 +94,38 @@ describe('useCreateLibrary', () => {
         await mutation.mutateAsync(sampleInput)
 
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['subsonic'] })
+    })
+})
+
+// A 422 names the offending field in errors[]; the dialog renders that inline,
+// so the composable must not also toast it (that would double-report the same
+// message). Other failures (network, 500) still toast.
+describe('validation errors are left for the form, not toasted', () => {
+    const fieldProblem = {
+        response: {
+            status: 422,
+            data: { detail: 'name is required', errors: [{ pointer: '/name', detail: 'name is required' }] }
+        }
+    }
+
+    it('useCreateLibrary does not toast a field-validation error', async () => {
+        createLibraryMock.mockRejectedValue(fieldProblem)
+        const { mutation } = mountMutation(useCreateLibrary)
+        await mutation.mutateAsync(sampleInput).catch(() => {})
+        expect(toastAdd).not.toHaveBeenCalled()
+    })
+
+    it('useUpdateLibrary does not toast a field-validation error', async () => {
+        updateLibraryMock.mockRejectedValue(fieldProblem)
+        const { mutation } = mountMutation(useUpdateLibrary)
+        await mutation.mutateAsync({ id: 1, input: sampleInput }).catch(() => {})
+        expect(toastAdd).not.toHaveBeenCalled()
+    })
+
+    it('still toasts a non-field failure such as a 500', async () => {
+        createLibraryMock.mockRejectedValue({ response: { status: 500, data: { detail: 'boom' } } })
+        const { mutation } = mountMutation(useCreateLibrary)
+        await mutation.mutateAsync(sampleInput).catch(() => {})
+        expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }))
     })
 })

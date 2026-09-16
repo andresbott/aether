@@ -352,8 +352,7 @@ not just any scan, to self-heal.
      (`artist.go:52-54`): the MBID slot is content-addressed by the real-world
      artist, so moving images when tags reassert a different MusicBrainz artist
      would attach the old artist's portrait to the new one — a misattribution,
-     worse than the stranding it avoids. The store already resets
-     `LastImageFetchAt` on a change so the image is re-fetched.
+     worse than the stranding it avoids.
   3. **Radio stream-URL edit** (`PUT /rest/updateInternetRadioStation`,
      `handlers/subsonic/radio.go:230-243`) re-keys unless the user also uploaded
      a cover in the same request (which is a replace, not a move). Both an

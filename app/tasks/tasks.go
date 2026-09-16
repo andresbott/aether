@@ -11,7 +11,7 @@ type TaskDef struct {
 // trigger endpoint and schedules. reindex is deliberately absent: it is enqueued
 // by the metadata editor's write handlers, not triggered or scheduled by hand.
 // It stays registered on the runner (see server.go) so the editor can enqueue it.
-var AvailableTasks = []TaskDef{ScanTaskDef, ScanFullTaskDef, FetchArtistImagesTaskDef, PruneTaskDef}
+var AvailableTasks = []TaskDef{ScanTaskDef, ScanFullTaskDef, PruneTaskDef}
 
 func TaskNameExists(taskName string) bool {
 	for _, t := range AvailableTasks {

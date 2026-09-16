@@ -18,6 +18,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers"
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	"github.com/andresbott/aether/app/tasks"
+	"github.com/andresbott/aether/internal/artist"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
@@ -134,7 +135,16 @@ func runServer(configFile string) error {
 	// stateless directory wrappers, so the prune task and the request handlers can
 	// hold their own without sharing an instance.
 	images := imagecache.New(filepath.Join(cfg.DataDir, router.ImageCacheDir))
-	fetcher := buildArtistFetcher(cfg.ArtistImages)
+	// The artist-image provider chain (nil when no provider key is set) powers
+	// the manual gallery (List/Download) on the artists handler and the setMBID
+	// auto-fetch (via artist.ImageService). Both are nil together with the chain.
+	artistChain := buildArtistFetcher(cfg.ArtistImages)
+	var artistImages *artist.ImageService
+	var artistFetcher artistsHandler.Fetcher
+	if artistChain != nil {
+		artistImages = artist.NewImageService(assets, artistChain)
+		artistFetcher = artistChain
+	}
 
 	scanCfg := scanner.Config{
 		TagReadWorkers: cfg.TaskRunner.TagReadWorkers,
@@ -188,9 +198,8 @@ func runServer(configFile string) error {
 		identifier.Cache = identify.NewCache(identify.DefaultCacheSize)
 	}
 
-	// Register tasks — the incremental scan, the full scan, and the metadata
-	// fetch are independent, user-triggered tasks; a scan does NOT auto-trigger
-	// the artist-image fetch. scan and scan-full are separate singleton tasks so
+	// Register tasks — the incremental scan and the full scan are independent,
+	// user-triggered tasks. scan and scan-full are separate singleton tasks so
 	// a full run never coalesces onto an in-flight incremental one (the runner
 	// dedupes by task name); both share the library-writes exclusion group, so
 	// they — and the reindex below — never touch the library index at once.
@@ -202,10 +211,6 @@ func runServer(configFile string) error {
 		taskrunner.Singleton(), taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
 	taskrunner.Register[tasks.ReindexParams](runner, tasks.NewReindexTaskFn(scanCfg, dataStore, tagReader), tasks.ReindexTaskName, 1,
 		taskrunner.ExclusionGroup(tasks.LibraryWriteExclusionGroup))
-	runner.RegisterTask(
-		tasks.NewFetchArtistImagesTaskFn(dataStore, assets, fetcher, 24*time.Hour),
-		tasks.FetchArtistImagesTaskName, 1,
-	)
 	// Prune orphaned cover derivatives and stored covers. It reads the whole
 	// entity set, so it joins the library-writes exclusion group to never race a
 	// scan/reindex, and is a singleton so overlapping triggers coalesce. Reports
@@ -234,7 +239,8 @@ func runServer(configFile string) error {
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
 		TagReader:     tagReader,
-		ArtistFetcher: fetcher,
+		ArtistFetcher: artistFetcher,
+		ArtistImages:  artistImages,
 		AuthMethod:    cfg.Auth.Method,
 		Users:         auth.Users,
 		Passwords:     auth.Passwords,
@@ -309,10 +315,11 @@ func serveWithGracefulShutdown(l *slog.Logger, obs obsCfg, mainSrv *http.Server,
 	return g.Wait()
 }
 
-// buildArtistFetcher assembles the artist-image fetcher from whatever provider
-// API keys are set. If none are configured it returns nil and the task reports
-// a clear "not configured" message when run (the task is always registered).
-func buildArtistFetcher(cfg ArtistImagesCfg) artistsHandler.Fetcher {
+// buildArtistFetcher assembles the artist-image provider chain from whatever
+// provider API keys are set. If none are configured it returns nil; callers
+// then leave the dependent handler/service/task features off (the task is
+// always registered and reports a clear "not configured" message when run).
+func buildArtistFetcher(cfg ArtistImagesCfg) *artistimage.Chain {
 	var providers []artistimage.Provider
 	if cfg.FanartApiKey != "" {
 		providers = append(providers, artistimage.NewFanartTV(cfg.FanartApiKey))

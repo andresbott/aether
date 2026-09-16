@@ -15,6 +15,7 @@ import (
 
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	"github.com/andresbott/aether/app/router/handlers/problems"
+	"github.com/andresbott/aether/internal/artist"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -68,7 +69,7 @@ func (f *fakeFetcher) Download(_ context.Context, _ string, url string) ([]byte,
 	return f.data, f.ext, f.err
 }
 
-func newTestHandler(t *testing.T, search artistsHandler.Searcher, fetcher artistsHandler.Fetcher) (*store.Store, *mux.Router) {
+func newTestHandler(t *testing.T, search artistsHandler.Searcher, fetcher *fakeFetcher) (*store.Store, *mux.Router) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -79,7 +80,14 @@ func newTestHandler(t *testing.T, search artistsHandler.Searcher, fetcher artist
 	}
 	s := store.New(db)
 	as := assetstore.New(t.TempDir())
-	h := &artistsHandler.Handler{Store: s, Assets: as, Fetcher: fetcher, Search: search, Problems: problems.New(false)}
+	h := &artistsHandler.Handler{Store: s, Assets: as, Search: search, Problems: problems.New(false)}
+	if fetcher != nil {
+		// One fake drives both the manual gallery (List/Download) and the
+		// setMBID auto-fetch (via the image service), so a test can inspect a
+		// single fetcher's calls across both paths.
+		h.Fetcher = fetcher
+		h.Images = artist.NewImageService(as, fetcher)
+	}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return s, r

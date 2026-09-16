@@ -244,8 +244,6 @@ collects the first one once no track credits it. What goes with it:
 
 - the **star** (`scan_helpers.go:83`)
 - the **imagecache derivative** keyed on the DB id (`subsonic/media.go:141,153`)
-- **`LastImageFetchAt`**, which resets to nil — so the artist-image task re-hits the
-  rate-limited fanart.tv / TheAudioDB for an artist it already fetched
 - any **`/artist/:id`** link or bookmark
 
 The **manual cover** survives only for artists carrying an MBID: `assetkey.Artist`
@@ -275,8 +273,8 @@ The three fix shapes for id churn all exist in the tree already — preserve the
 (albums, `planAlbumContinuity`), migrate on re-key (radio, `subsonic/radio.go:230-243`
 moves the cover when a stream URL edit changes `RadioKey`), and key on content (artist
 MBIDs). The scheduled work takes the third for covers: with a content-derived key
-instead of a positional DB id, an artist rename still loses the star,
-`LastImageFetchAt` and the link, but no longer orphans or misattributes the image.
+instead of a positional DB id, an artist rename still loses the star and the
+link, but no longer orphans or misattributes the image.
 That also fixes the drop-and-rescan case, where autoincrement ids are reassigned in
 insertion order and a hand-uploaded cover silently comes back on a different entity.
 

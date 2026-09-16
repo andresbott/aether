@@ -298,6 +298,54 @@ func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
 	}
 }
 
+// stream serves audio files, so it must reject an id that is not a track.
+// decodeID accepts every prefix but stream discarded it, so stream?id=rs-N used
+// to serve the TRACK sharing N's number (rs-3 -> track 3) — a content-confusion
+// bug and a trap for any future radio-in-queue design.
+func TestStreamRejectsNonTrackID(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	libRoot := t.TempDir()
+	song := filepath.Join(libRoot, "a.mp3")
+	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newGuardedTestServer(t, s, libRoot)
+	defer srv.Close()
+
+	// A radio-station id whose number matches the track must not serve the track.
+	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=rs-%d", srv.URL, track.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) == "song-bytes" {
+		t.Fatalf("stream served the track's file for non-track id rs-%d", track.ID)
+	}
+	var env playlistEnvelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("expected a subsonic error body, got %q (%v)", body, err)
+	}
+	if env.SubsonicResponse.Status != "failed" {
+		t.Fatalf("status = %q, want failed", env.SubsonicResponse.Status)
+	}
+}
+
 // An album cover_path outside every library root is the same defect on the cover
 // path: the bytes of an arbitrary file would be re-encoded into a JPEG and
 // served. The request must fall through to the generated cover instead.

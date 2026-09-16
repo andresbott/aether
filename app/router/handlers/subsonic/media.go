@@ -26,8 +26,8 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 10, "missing id parameter")
 		return
 	}
-	_, id, err := decodeID(idStr)
-	if err != nil {
+	kind, id, err := decodeID(idStr)
+	if err != nil || kind != "track" {
 		writeError(w, 0, "invalid id")
 		return
 	}

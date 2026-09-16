@@ -25,11 +25,22 @@ const confirm = useConfirm()
 const dialogVisible = ref(false)
 const editing = ref<User | null>(null)
 
+// The dialog shows the last failed submit's field errors; whichever mutation
+// backs the open dialog owns that error.
+const submitError = computed(() =>
+    editing.value ? updateMutation.error.value : createMutation.error.value
+)
+
 function openCreate() {
+    // Clear any error left from a previous submit so the fresh form is clean.
+    createMutation.reset()
+    updateMutation.reset()
     editing.value = null
     dialogVisible.value = true
 }
 function openEdit(user: User) {
+    createMutation.reset()
+    updateMutation.reset()
     editing.value = user
     dialogVisible.value = true
 }
@@ -126,6 +137,7 @@ const phoneCols = computed(() => tier.value === 'phone')
             v-model:visible="dialogVisible"
             :user="editing"
             :submitting="submitting"
+            :error="submitError"
             @create="onCreate"
             @update="onUpdate"
             @cancel="dialogVisible = false"

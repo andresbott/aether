@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
@@ -35,15 +34,10 @@ func (s *Store) FindOrCreateArtists(names []string, mbids []string) (artists []*
 		}
 		if mbid != "" && artist.MBArtistID != mbid {
 			// Tag is source of truth: overwrite a differing (or previously
-			// empty) MBID and reset the image-fetch timestamp so the artist
-			// image is refetched for the corrected match.
+			// empty) MBID.
 			oldMBID := artist.MBArtistID
 			artist.MBArtistID = mbid
-			artist.LastImageFetchAt = nil
-			if uErr := s.db.Model(&artist).Updates(map[string]interface{}{
-				"mb_artist_id":        mbid,
-				"last_image_fetch_at": nil,
-			}).Error; uErr != nil {
+			if uErr := s.db.Model(&artist).Update("mb_artist_id", mbid).Error; uErr != nil {
 				return nil, nil, uErr
 			}
 			// Report this artist as having gained an MBID only when the old
@@ -170,28 +164,16 @@ func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error
 	return result, nil
 }
 
-func (s *Store) ArtistsWithMBID() ([]model.Artist, error) {
-	var artists []model.Artist
-	err := s.db.Where("mb_artist_id != ''").Find(&artists).Error
-	return artists, err
-}
-
 // SetArtistImagePath records the artist-folder image found on disk at scan time
 // (empty string clears it).
 func (s *Store) SetArtistImagePath(id uint, path string) error {
 	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("image_path", path).Error
 }
 
-func (s *Store) SetArtistImageFetchedAt(id uint, t time.Time) error {
-	return s.db.Model(&model.Artist{}).Where("id = ?", id).Update("last_image_fetch_at", t).Error
-}
-
-// SetArtistMBID sets the artist's MusicBrainz artist ID (empty string
-// clears it) and always resets LastImageFetchAt to nil, so a changed match
-// is retried on the next fetch attempt instead of hitting the backoff.
+// SetArtistMBID sets the artist's MusicBrainz artist ID (empty string clears it).
 func (s *Store) SetArtistMBID(id uint, mbid string) error {
 	return s.db.Model(&model.Artist{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"mb_artist_id": mbid, "last_image_fetch_at": nil}).Error
+		Update("mb_artist_id", mbid).Error
 }
 
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {

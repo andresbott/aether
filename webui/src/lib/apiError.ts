@@ -12,6 +12,16 @@
 const GENERIC_MESSAGE = 'Something went wrong. Please try again.'
 export const NETWORK_MESSAGE = 'The server could not be reached. Check your connection and try again.'
 
+/**
+ * A single field-level validation error from a 422 problem's errors[]: `pointer`
+ * is a JSON Pointer naming the offending field (e.g. "/path"), `detail` the
+ * message for it.
+ */
+export interface FieldError {
+    pointer: string
+    detail: string
+}
+
 /** The RFC 9457 problem+json body every /api/v0 handler answers with. */
 export interface ApiErrorBody {
     type?: string
@@ -19,7 +29,7 @@ export interface ApiErrorBody {
     status?: number
     detail?: string
     instance?: string
-    errors?: { pointer: string; detail: string }[]
+    errors?: FieldError[]
 }
 
 function responseData(err: unknown): unknown {
@@ -100,6 +110,37 @@ export function apiErrorMessage(err: unknown, fallback: string = GENERIC_MESSAGE
     }
 
     return fallback
+}
+
+/**
+ * apiFieldErrors returns the RFC 9457 errors[] a 422 validation problem carries
+ * — one {pointer, detail} per field that failed — or [] when the thrown value is
+ * not a validation problem. Forms use it to mark the offending input, where
+ * apiErrorMessage only yields the top-level sentence.
+ */
+export function apiFieldErrors(err: unknown): FieldError[] {
+    const data = responseData(err)
+    if (typeof data !== 'object' || data === null) return []
+    const errors = (data as ApiErrorBody).errors
+    if (!Array.isArray(errors)) return []
+    return errors.filter(
+        (e): e is FieldError =>
+            typeof e === 'object' &&
+            e !== null &&
+            typeof (e as FieldError).pointer === 'string' &&
+            typeof (e as FieldError).detail === 'string'
+    )
+}
+
+/**
+ * apiFieldErrorMap indexes apiFieldErrors by pointer so a form can look up the
+ * message for one field (`map['/path']`). A pointer is not expected to repeat;
+ * the last one wins if it does.
+ */
+export function apiFieldErrorMap(err: unknown): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const fe of apiFieldErrors(err)) out[fe.pointer] = fe.detail
+    return out
 }
 
 /**

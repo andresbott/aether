@@ -53,6 +53,41 @@ func newTestServerWithIdentity(t *testing.T, s *store.Store) *httptest.Server {
 	return httptest.NewServer(r)
 }
 
+// getSong/getAlbum/getArtist each take a typed id. decodeID accepts every prefix
+// but these handlers discarded it, so getSong?id=al-N used to return the TRACK
+// sharing N's number. A wrong-kind id must fail, not resolve to the entity that
+// happens to share the number.
+func TestBrowsingRejectsWrongKindID(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	artist := model.Artist{Name: "A", NameNorm: "a"}
+	db.Create(&artist)
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "a"}
+	db.Create(&album)
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: "/a.mp3"}
+	db.Create(&track)
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"getSong with a non-track id", "/rest/getSong.view?id=" + encodeAlbumID(track.ID)},
+		{"getAlbum with a non-album id", "/rest/getAlbum.view?id=" + encodeTrackID(album.ID)},
+		{"getArtist with a non-artist id", "/rest/getArtist.view?id=" + encodeAlbumID(artist.ID)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := getJSON(t, srv.URL, tc.path)
+			if env.SubsonicResponse.Status != "failed" {
+				t.Fatalf("status = %q, want failed", env.SubsonicResponse.Status)
+			}
+		})
+	}
+}
+
 func TestGetMusicFoldersFromDB(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

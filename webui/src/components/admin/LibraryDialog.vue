@@ -9,12 +9,16 @@ import Select from 'primevue/select'
 import Message from 'primevue/message'
 import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
+import { apiFieldErrorMap } from '@/lib/apiError'
 import type { Library, LibraryCoverStyle, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
     library: Library | null  // null = create mode
     submitting: boolean
+    // The last failed submit, so a 422's per-field errors[] can be shown on the
+    // field its pointer names. Undefined until a submit fails.
+    error?: unknown
 }>()
 
 const emit = defineEmits<{
@@ -79,6 +83,26 @@ watch(
 const isEditMode = computed(() => props.library !== null)
 const pathChanged = computed(() => isEditMode.value && form.value.path !== initialPath.value)
 
+// A failed submit's per-field validation errors, keyed by the JSON Pointer the
+// backend names (validateDTO in the libraries handler): /name, /path,
+// /exclude_patterns, /default_view, /icon, /cover_style.
+const fieldErrors = computed(() => apiFieldErrorMap(props.error))
+const KNOWN_POINTERS = [
+    '/name',
+    '/path',
+    '/exclude_patterns',
+    '/default_view',
+    '/icon',
+    '/cover_style'
+]
+// Any field error whose pointer we don't render inline (e.g. a future field) is
+// shown as a general message so a validation failure is never swallowed silently.
+const otherErrors = computed(() =>
+    Object.entries(fieldErrors.value)
+        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer))
+        .map(([, detail]) => detail)
+)
+
 function buildInput(): LibraryInput {
     const excludes = form.value.excludesText
         .split('\n')
@@ -131,13 +155,41 @@ const coverStyleOptions = [
         :header="isEditMode ? 'Edit Library' : 'Add Library'"
         :style="{ width: '32rem' }"
     >
+        <Message
+            v-if="otherErrors.length"
+            class="form-error"
+            severity="error"
+            :closable="false"
+        >
+            <ul class="form-error-list">
+                <li v-for="(m, i) in otherErrors" :key="i">{{ m }}</li>
+            </ul>
+        </Message>
+
         <div class="form-grid">
             <label>Name</label>
-            <InputText v-model="form.name" placeholder="e.g. Main" />
+            <InputText
+                v-model="form.name"
+                placeholder="e.g. Main"
+                :invalid="!!fieldErrors['/name']"
+            />
+            <Message
+                v-if="fieldErrors['/name']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/name'] }}
+            </Message>
 
             <label>Path</label>
             <div class="path-row">
-                <InputText v-model="form.path" placeholder="/srv/music" />
+                <InputText
+                    v-model="form.path"
+                    placeholder="/srv/music"
+                    :invalid="!!fieldErrors['/path']"
+                />
                 <Button
                     icon="pi pi-folder-open"
                     outlined
@@ -145,6 +197,15 @@ const coverStyleOptions = [
                     @click="pickerVisible = true"
                 />
             </div>
+            <Message
+                v-if="fieldErrors['/path']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/path'] }}
+            </Message>
 
             <Message v-if="pathChanged" severity="warn" :closable="false">
                 Changing the path will wipe existing tracks under the old path.
@@ -163,10 +224,29 @@ const coverStyleOptions = [
                 :options="defaultViewOptions"
                 optionLabel="label"
                 optionValue="value"
+                :invalid="!!fieldErrors['/default_view']"
             />
+            <Message
+                v-if="fieldErrors['/default_view']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/default_view'] }}
+            </Message>
 
             <label>Icon</label>
             <IconSelect v-model="form.icon" />
+            <Message
+                v-if="fieldErrors['/icon']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/icon'] }}
+            </Message>
 
             <label>Generated cover style</label>
             <Select
@@ -174,14 +254,34 @@ const coverStyleOptions = [
                 :options="coverStyleOptions"
                 optionLabel="label"
                 optionValue="value"
+                :invalid="!!fieldErrors['/cover_style']"
             />
+            <Message
+                v-if="fieldErrors['/cover_style']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/cover_style'] }}
+            </Message>
 
             <label>Exclude patterns</label>
             <Textarea
                 v-model="form.excludesText"
                 rows="4"
                 placeholder="One Go regex per line"
+                :invalid="!!fieldErrors['/exclude_patterns']"
             />
+            <Message
+                v-if="fieldErrors['/exclude_patterns']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/exclude_patterns'] }}
+            </Message>
         </div>
 
         <template #footer>
@@ -219,5 +319,16 @@ const coverStyleOptions = [
 }
 .path-row .p-inputtext {
     flex: 1;
+}
+.field-error {
+    grid-column: 2 / 3;
+    margin-top: -0.25rem;
+}
+.form-error {
+    margin-bottom: 1rem;
+}
+.form-error-list {
+    margin: 0;
+    padding-left: 1.1rem;
 }
 </style>

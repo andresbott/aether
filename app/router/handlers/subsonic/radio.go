@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	radioCoverMaxBytes = 5 * 1024 * 1024 // 5 MB
+	coverMaxBytes = 5 * 1024 * 1024 // 5 MB
 	// Multipart parse memory: 1 MB kept in memory, rest spilled to a temp file.
-	radioMultipartMemory = 1 * 1024 * 1024
+	coverMultipartMemory = 1 * 1024 * 1024
 	// Hard cap on the whole multipart request body (cover + form fields).
-	maxRadioRequestBytes = radioCoverMaxBytes + radioMultipartMemory
+	maxCoverRequestBytes = coverMaxBytes + coverMultipartMemory
 )
 
 func (h *Handler) getInternetRadioStations(w http.ResponseWriter, r *http.Request) {
@@ -82,8 +82,8 @@ func (h *Handler) createRadioQueryString(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) createRadioMultipart(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverRequestBytes)
+	if err := r.ParseMultipartForm(coverMultipartMemory); err != nil {
 		writeError(w, 0, "invalid multipart body")
 		return
 	}
@@ -163,8 +163,8 @@ func (h *Handler) updateRadioQueryString(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverRequestBytes)
+	if err := r.ParseMultipartForm(coverMultipartMemory); err != nil {
 		writeError(w, 0, "invalid multipart body")
 		return
 	}
@@ -299,20 +299,20 @@ func readCoverFile(r *http.Request) ([]byte, string, error) {
 		return nil, "", nil
 	}
 	fh := parts[0]
-	if fh.Size > radioCoverMaxBytes {
-		return nil, "", fmt.Errorf("cover file too large (max %d bytes)", radioCoverMaxBytes)
+	if fh.Size > coverMaxBytes {
+		return nil, "", fmt.Errorf("cover file too large (max %d bytes)", coverMaxBytes)
 	}
 	f, err := fh.Open()
 	if err != nil {
 		return nil, "", fmt.Errorf("read cover file")
 	}
 	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, radioCoverMaxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, coverMaxBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("read cover file")
 	}
-	if int64(len(data)) > radioCoverMaxBytes {
-		return nil, "", fmt.Errorf("cover file too large (max %d bytes)", radioCoverMaxBytes)
+	if int64(len(data)) > coverMaxBytes {
+		return nil, "", fmt.Errorf("cover file too large (max %d bytes)", coverMaxBytes)
 	}
 	sniff := data
 	if len(sniff) > 512 {
