@@ -41,11 +41,21 @@ const (
 	swatchSeeds      = 4   // sample seeds shown as palette-role swatch rows
 )
 
-// gen is the Generator over covergen's full built-in style set, plus svg for
-// tuning/preview: svg stays opt-in and out of the shipped allstyles set, but
-// the lab (a dev-only tool, never imported by the server binary) knows about
-// it directly so it can be curated and tuned here.
-var gen = covergen.New(append(allstyles.All(covergen.DefaultPalette()), svg.Style)...)
+// gen is the Generator over covergen's full built-in style set. The
+// work-in-progress svg style is appended only when svg.Enabled (a temporary
+// feature flag): it stays opt-in and out of the shipped allstyles set, and the
+// lab (a dev-only tool, never imported by the server binary) surfaces it for
+// curation and tuning only while that flag is on. Flip svg.Enabled to bring it
+// back here and under /svg.
+var gen = newGen()
+
+func newGen() *covergen.Generator {
+	styles := allstyles.All(covergen.DefaultPalette())
+	if svg.Enabled {
+		styles = append(styles, svg.Style)
+	}
+	return covergen.New(styles...)
+}
 
 // svgDir is the on-disk location of the svg style package (candidates/ + assets/),
 // set from the -svgdir flag; the curation tool reads and writes there.
@@ -76,6 +86,19 @@ func styleWithPalette(name string, pal covergen.Palette) (covergen.Style, bool) 
 		}
 	}
 	return nil, false
+}
+
+// paletteFor resolves the palette for styleName from the request. An explicit
+// ?palette= wins; with none, it falls back to the style's shipped palette (the
+// allstyles pairing) so the lab previews and pre-selects each style the way it
+// actually ships, instead of always defaulting to harmony. Unknown or
+// palette-less styles (svg) fall through to harmony via PaletteByName("").
+func paletteFor(styleName string, q url.Values) covergen.Palette {
+	name := q.Get("palette")
+	if name == "" {
+		name = allstyles.DefaultPaletteName(styleName)
+	}
+	return covergen.PaletteByName(name)
 }
 
 // isPaletteStyle reports whether a style is colored by a covergen.Palette (i.e.
@@ -111,11 +134,14 @@ func main() {
 	mux.HandleFunc("GET /style/{style}", handleStyle)
 	mux.HandleFunc("GET /img", handleImg)
 	mux.HandleFunc("GET /colors", handleColors)
-	mux.HandleFunc("GET /svg", handleSvg)
-	mux.HandleFunc("GET /svg/img", handleSvgImg)
-	mux.HandleFunc("POST /svg/promote", handleSvgPromote)
-	mux.HandleFunc("POST /svg/reject", handleSvgReject)
-	mux.HandleFunc("POST /svg/demote", handleSvgDemote)
+	mux.HandleFunc("GET /setup", handleSetup)
+	if svg.Enabled {
+		mux.HandleFunc("GET /svg", handleSvg)
+		mux.HandleFunc("GET /svg/img", handleSvgImg)
+		mux.HandleFunc("POST /svg/promote", handleSvgPromote)
+		mux.HandleFunc("POST /svg/reject", handleSvgReject)
+		mux.HandleFunc("POST /svg/demote", handleSvgDemote)
+	}
 
 	log.Printf("covergenlab listening on http://localhost%s", *addr)
 	if err := http.ListenAndServe(*addr, mux); err != nil { //nolint:gosec // G114: dev-only localhost tuning tool, never linked into the server binary; request timeouts are unnecessary
@@ -151,6 +177,61 @@ func parseOverrides(knobs []covergen.Knob, q url.Values) map[string]float64 {
 	return out
 }
 
+// setupSnippet renders a paste-ready Go fragment that reconstructs style exactly
+// as tuned in the lab. It constructs the style on paletteName, collects the knobs
+// whose value differs from their Default into an overrides map (kept in Knobs()
+// order so the output is deterministic), and calls the matching Generator method:
+// GenerateWithKnobs when anything was tuned, the simpler GenerateStyle when every
+// knob is at its default. Palette-less styles (svg) are asset-driven, so they get
+// an svg.New(yourSVG) constructor instead of a covergen.PaletteByName one.
+func setupSnippet(style covergen.Style, paletteName string, values map[string]float64) string {
+	name := style.Name()
+
+	type override struct {
+		name string
+		val  float64
+	}
+	var overrides []override
+	for _, k := range style.Knobs() {
+		if v, ok := values[k.Name]; ok && v != k.Default {
+			overrides = append(overrides, override{k.Name, v})
+		}
+	}
+
+	palette := isPaletteStyle(style)
+	ctorArg := "yourSVG"
+	if palette {
+		ctorArg = fmt.Sprintf("covergen.PaletteByName(%q)", paletteName)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "// covergenlab setup for style %q.\n", name)
+	b.WriteString("// Imports: github.com/andresbott/aether/libs/covergen\n")
+	fmt.Fprintf(&b, "//          github.com/andresbott/aether/libs/covergen/%s\n", name)
+	if !palette {
+		b.WriteString("// svg is asset-driven: replace yourSVG with your []byte SVG source.\n")
+	}
+	fmt.Fprintf(&b, "style := %s.New(%s)\n", name, ctorArg)
+
+	if len(overrides) == 0 {
+		b.WriteString("// All knobs at their defaults; no overrides needed.\n")
+		b.WriteString("png, err := covergen.New(style).GenerateStyle(seed, 512, style)\n")
+		return b.String()
+	}
+
+	b.WriteString("overrides := map[string]float64{\n")
+	for _, o := range overrides {
+		fmt.Fprintf(&b, "\t%q: %s,\n", o.name, formatKnob(o.val))
+	}
+	b.WriteString("}\n")
+	b.WriteString("png, err := covergen.New(style).GenerateWithKnobs(seed, 512, style, overrides)\n")
+	return b.String()
+}
+
+// formatKnob renders a knob value with the fewest digits that round-trips it,
+// so 4 stays "4" and 1.2 stays "1.2" rather than "4.000000".
+func formatKnob(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
+
 // randomSeed returns an arbitrary high-entropy string. covergen hashes the
 // seed, so any content works; this simply spreads samples across the space.
 func randomSeed() string {
@@ -169,7 +250,7 @@ func randomSeeds(n int) []string {
 // code edits (after a restart) and knob edits (live) are reflected immediately.
 func handleImg(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	pal := covergen.PaletteByName(q.Get("palette"))
+	pal := paletteFor(q.Get("style"), q)
 	style, ok := styleWithPalette(q.Get("style"), pal)
 	if !ok {
 		http.Error(w, "unknown style", http.StatusBadRequest)
@@ -195,7 +276,7 @@ func handleImg(w http.ResponseWriter, r *http.Request) {
 // Styles without a palette (svg) have no role colours and return 404.
 func handleColors(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	pal := covergen.PaletteByName(q.Get("palette"))
+	pal := paletteFor(q.Get("style"), q)
 	style, ok := styleWithPalette(q.Get("style"), pal)
 	if !ok {
 		http.Error(w, "unknown style", http.StatusBadRequest)
@@ -212,6 +293,22 @@ func handleColors(w http.ResponseWriter, r *http.Request) {
 		"accent1":    hexRGBA(cs.Accent1),
 		"accent2":    hexRGBA(cs.Accent2),
 	})
+}
+
+// handleSetup returns a paste-ready Go snippet reconstructing the current style
+// under its live knob values (see setupSnippet). It mirrors handleImg's palette/
+// style/knob resolution so the snippet reproduces exactly what the grid shows.
+func handleSetup(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	pal := paletteFor(q.Get("style"), q)
+	style, ok := styleWithPalette(q.Get("style"), pal)
+	if !ok {
+		http.Error(w, "unknown style", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = fmt.Fprint(w, setupSnippet(style, pal.Name(), parseOverrides(style.Knobs(), q)))
 }
 
 func listSVGs(dir string) []string {
@@ -314,7 +411,7 @@ func handleOverview(w http.ResponseWriter, _ *http.Request) {
 
 func handleStyle(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	pal := covergen.PaletteByName(q.Get("palette"))
+	pal := paletteFor(r.PathValue("style"), q)
 	style, ok := styleWithPalette(r.PathValue("style"), pal)
 	if !ok {
 		http.Error(w, "unknown style", http.StatusNotFound)
@@ -433,6 +530,10 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   .swatches { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .swatch-row { display: flex; gap: 4px; }
   .swatch { flex: 1; height: 22px; border-radius: 4px; background: #000; border: 1px solid rgba(0,0,0,.4); }
+  dialog#setup { width: min(680px, 92vw); padding: 0; background: #161616; color: #ddd; border: 1px solid #345; border-radius: 8px; }
+  dialog#setup::backdrop { background: rgba(0,0,0,.6); }
+  dialog#setup pre { margin: 0; padding: 14px; max-height: 62vh; overflow: auto; background: #0d0d0d; border-radius: 8px 8px 0 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; color: #cde; }
+  dialog#setup .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 14px; }
 </style></head>
 <body>
 <header><h1><a href="/">← styles</a> &nbsp;/&nbsp; {{.Name}}</h1></header>
@@ -467,12 +568,20 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
       <div class="controls">
         <button id="reroll" title="new random seeds">Reroll</button>
         <button id="reset" title="back to defaults">Reset</button>
+        <button id="copy-setup" title="Go code that reproduces this tuning">Copy setup</button>
       </div>
     </div>
     <div class="grid">
       {{range .Seeds}}<img class="cell" data-seed="{{.}}" title="{{.}}">{{end}}
     </div>
   </div>
+  <dialog id="setup">
+    <pre id="setup-code"></pre>
+    <div class="dlg-actions">
+      <button id="copy-clip">Copy to clipboard</button>
+      <button id="close-setup">Close</button>
+    </div>
+  </dialog>
 </main>
 <script>
   const STYLE = "{{.Name}}";
@@ -552,6 +661,32 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
     document.getElementById('reset').addEventListener('click', function () {
       location.href = location.pathname + (PALETTE ? '?palette=' + encodeURIComponent(PALETTE) : '');
     });
+
+    // Copy setup: ask /setup for the Go snippet that reproduces the live knobs,
+    // then show it in a modal with a clipboard button.
+    const setupDlg = document.getElementById('setup');
+    const setupCode = document.getElementById('setup-code');
+    document.getElementById('copy-setup').addEventListener('click', function () {
+      const u = readKnobs();
+      u.set('style', STYLE);
+      if (PALETTE) u.set('palette', PALETTE);
+      fetch('/setup?' + u.toString()).then(function (r) {
+        return r.ok ? r.text() : Promise.reject(new Error('setup ' + r.status));
+      }).then(function (code) {
+        setupCode.textContent = code;
+      }).catch(function () {
+        setupCode.textContent = '// failed to generate setup';
+      }).finally(function () {
+        if (typeof setupDlg.showModal === 'function') setupDlg.showModal();
+      });
+    });
+    document.getElementById('copy-clip').addEventListener('click', function () {
+      if (navigator.clipboard) navigator.clipboard.writeText(setupCode.textContent);
+    });
+    document.getElementById('close-setup').addEventListener('click', function () {
+      setupDlg.close();
+    });
+
     update();
   });
 </script>

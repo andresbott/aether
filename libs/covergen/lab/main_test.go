@@ -207,3 +207,145 @@ func TestHandleColorsVariesByPalette(t *testing.T) {
 		t.Error("harmony and neon should produce different colors for the same seed")
 	}
 }
+
+func TestSetupSnippetOnlyIncludesNonDefaultKnobs(t *testing.T) {
+	style := rings.Style // harmony palette
+	// rings.wobble default is 0.75; rings.spacing default is 1.0.
+	values := map[string]float64{
+		"rings.wobble":  1.2, // changed -> must appear
+		"rings.spacing": 1.0, // == default -> must be omitted
+	}
+	got := setupSnippet(style, "harmony", values)
+	if !strings.Contains(got, `"rings.wobble"`) {
+		t.Errorf("snippet should include the changed knob rings.wobble:\n%s", got)
+	}
+	if strings.Contains(got, `"rings.spacing"`) {
+		t.Errorf("snippet must omit the at-default knob rings.spacing:\n%s", got)
+	}
+}
+
+func TestSetupSnippetUsesPaletteConstructor(t *testing.T) {
+	style := rings.New(covergen.PaletteByName("neon"))
+	got := setupSnippet(style, "neon", map[string]float64{"rings.wobble": 1.2})
+	if !strings.Contains(got, `rings.New(covergen.PaletteByName("neon"))`) {
+		t.Errorf("snippet should construct the style on the selected palette:\n%s", got)
+	}
+	if !strings.Contains(got, "GenerateWithKnobs(") {
+		t.Errorf("snippet with overrides should call GenerateWithKnobs:\n%s", got)
+	}
+}
+
+func TestSetupSnippetNoOverridesUsesGenerateStyle(t *testing.T) {
+	style := rings.Style
+	values := map[string]float64{} // every knob left at its default
+	for _, k := range style.Knobs() {
+		values[k.Name] = k.Default
+	}
+	got := setupSnippet(style, "harmony", values)
+	if !strings.Contains(got, "GenerateStyle(") {
+		t.Errorf("no-override snippet should call GenerateStyle:\n%s", got)
+	}
+	if strings.Contains(got, "GenerateWithKnobs(") || strings.Contains(got, "map[string]float64") {
+		t.Errorf("no-override snippet must not build an overrides map:\n%s", got)
+	}
+}
+
+func TestSetupSnippetKeepsKnobOrder(t *testing.T) {
+	style := rings.Style
+	// Both changed; the snippet must list them in Knobs() order (rings.spacing
+	// precedes rings.wobble), not Go's random map iteration order.
+	values := map[string]float64{
+		"rings.wobble":  1.2,
+		"rings.spacing": 2.0,
+	}
+	got := setupSnippet(style, "harmony", values)
+	iSpacing := strings.Index(got, `"rings.spacing"`)
+	iWobble := strings.Index(got, `"rings.wobble"`)
+	if iSpacing < 0 || iWobble < 0 {
+		t.Fatalf("both changed knobs should be present:\n%s", got)
+	}
+	if iSpacing > iWobble {
+		t.Errorf("knobs should follow Knobs() order (spacing before wobble):\n%s", got)
+	}
+}
+
+func TestSetupSnippetSvgUsesAssetConstructor(t *testing.T) {
+	got := setupSnippet(svg.Style, "harmony", map[string]float64{})
+	if !strings.Contains(got, "svg.New(") {
+		t.Errorf("svg snippet should use the asset constructor svg.New:\n%s", got)
+	}
+	if strings.Contains(got, "PaletteByName") {
+		t.Errorf("svg has no palette; snippet must not reference PaletteByName:\n%s", got)
+	}
+}
+
+func TestHandleSetupReturnsSnippet(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleSetup(rec, httptest.NewRequest("GET", "/setup?style=rings&palette=neon&rings.wobble=1.2", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `rings.New(covergen.PaletteByName("neon"))`) {
+		t.Errorf("snippet should construct rings on neon:\n%s", body)
+	}
+	if !strings.Contains(body, `"rings.wobble"`) {
+		t.Errorf("snippet should carry the overridden knob:\n%s", body)
+	}
+}
+
+func TestHandleSetupUnknownStyle(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleSetup(rec, httptest.NewRequest("GET", "/setup?style=nope", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("unknown style status = %d, want 400", rec.Code)
+	}
+}
+
+func TestStylePagePreselectsShippedPalette(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings", nil) // no ?palette=
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `<option value="neon" selected>`) {
+		t.Error("rings should default its palette picker to neon (its shipped palette)")
+	}
+	if strings.Contains(body, `<option value="harmony" selected>`) {
+		t.Error("rings must not default to harmony")
+	}
+}
+
+func TestStylePageClassicDefaultsToHarmony(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/classic", nil)
+	req.SetPathValue("style", "classic")
+	handleStyle(rec, req)
+	if !strings.Contains(rec.Body.String(), `<option value="harmony" selected>`) {
+		t.Error("classic ships on harmony and should default to it")
+	}
+}
+
+func TestStylePaletteQueryOverridesShippedDefault(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings?palette=pastel", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	if !strings.Contains(rec.Body.String(), `<option value="pastel" selected>`) {
+		t.Error("an explicit ?palette= should win over the shipped default")
+	}
+}
+
+func TestStylePageHasSetupButton(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="copy-setup"`) {
+		t.Error("style page should have a Copy setup button")
+	}
+	if !strings.Contains(body, `id="setup"`) {
+		t.Error("style page should have the setup dialog")
+	}
+}

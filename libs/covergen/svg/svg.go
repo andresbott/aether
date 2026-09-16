@@ -14,6 +14,14 @@ import (
 //go:embed assets/*.svg
 var assetFS embed.FS
 
+// Enabled is a temporary feature flag for the work-in-progress svg style. While
+// it is false the style is kept out of every wired style set: the lab neither
+// lists it for tuning nor mounts its curation routes (see libs/covergen/lab), and
+// it is deliberately absent from allstyles. The package, its embedded assets, and
+// its curation tooling stay in the tree so the work can resume later by flipping
+// this to true and wiring the style back in.
+const Enabled = false
+
 // Style is the svg cover-art style over the embedded assets/ rotation.
 var Style covergen.Style = New(loadEmbedded()...)
 
