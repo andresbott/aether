@@ -4,18 +4,19 @@ import (
 	"net/http"
 )
 
-// updateManualCover is the shared body of the album and genre cover-write
-// endpoints (updateAlbum / updateGenre): admin-gated multipart handlers that
-// store or clear a manual cover keyed by DB ID. The two differ only in the
-// entity they resolve (via resolveKey) and the assetstore kind, so they pass
-// those in rather than repeating identical parse/guard/store boilerplate.
-// updateArtist stays separate: it resolves a second (name-hash) key it must
-// also clear.
+// updateManualCover is the shared body of the album, genre, and artist
+// cover-write endpoints (updateAlbum / updateGenre / updateArtist): admin-gated
+// multipart handlers that store or clear a manual cover keyed by DB ID. They
+// differ only in the entity they resolve (via resolveKey) and the assetstore
+// kind, so they pass those in rather than repeating identical parse/guard/store
+// boilerplate. resolveKey returns the key to write plus any extra keys to clear:
+// artist has a second (name-hash) slot to wipe on clear, while album and genre
+// have none.
 func (h *Handler) updateManualCover(
 	w http.ResponseWriter,
 	r *http.Request,
 	endpoint, idKind, storeKind string,
-	resolveKey func(id uint) (string, error),
+	resolveKey func(id uint) (writeKey string, clearKeys []string, err error),
 ) {
 	if !h.requireAdmin(w, r) {
 		return
@@ -24,8 +25,8 @@ func (h *Handler) updateManualCover(
 		writeError(w, 0, endpoint+" requires a multipart request")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverRequestBytes)
+	if err := r.ParseMultipartForm(coverMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		writeError(w, 0, "invalid multipart body")
 		return
 	}
@@ -39,7 +40,7 @@ func (h *Handler) updateManualCover(
 		writeError(w, 0, "invalid id")
 		return
 	}
-	key, err := resolveKey(id)
+	key, clearKeys, err := resolveKey(id)
 	if err != nil {
 		writeError(w, 70, idKind+" not found")
 		return
@@ -60,6 +61,10 @@ func (h *Handler) updateManualCover(
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(storeKind, key)
 		_ = h.images.Delete(storeKind, key)
+		for _, k := range clearKeys {
+			_ = h.assets.Delete(storeKind, k)
+			_ = h.images.Delete(storeKind, k)
+		}
 	}
 
 	writeResponse(w, nil)

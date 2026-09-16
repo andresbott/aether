@@ -357,8 +357,8 @@ func (h *Handler) updatePlaylistCover(w http.ResponseWriter, r *http.Request, id
 // ("coverFile") or a "coverClear" flag, alongside the usual name/comment/public
 // fields. Mirrors updateRadioMultipart in radio.go.
 func (h *Handler) updatePlaylistMultipart(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxRadioRequestBytes)
-	if err := r.ParseMultipartForm(radioMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
+	r.Body = http.MaxBytesReader(w, r.Body, maxCoverRequestBytes)
+	if err := r.ParseMultipartForm(coverMultipartMemory); err != nil { //nolint:gosec // G120: body is bounded by http.MaxBytesReader on the previous line
 		writeError(w, 0, "invalid multipart body")
 		return
 	}

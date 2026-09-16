@@ -22,6 +22,16 @@ Notes for editors:
 
 # 1.0
 
+## Up next
+
+- [ ] Expose Release type as an editable field
+  Read and stored (`tags.Metadata.ReleaseType` → `album.ReleaseType`, `scanner/reconcile.go:128`) but not editable, so album/EP/single/compilation classification can't be corrected in the UI. Write side only (`taglib.ReleaseType` / `RELEASETYPE`).
+- [x] Extract a shared helper for the three cover-art extension handlers
+  `updateArtist` (`handlers/subsonic/artists.go`), `updateGenre` (`genres.go`) and `updateAlbum` (`albums.go`) differ in five places — the endpoint name in one error string, the `decodeID` kind, the store lookup, the `assetstore.Kind`, and the key derivation (`artistCoverKey`'s MBID-or-DB-id logic vs `strconv.FormatUint`) — while everything around them is character-identical: multipart guard, byte cap, `id` presence, kind check, 404, `readCoverFile`, the put/clear switch, `writeResponse`. Roughly 40 duplicated lines. Shape: a helper taking `(endpointName, idKind string, kind assetstore.Kind, resolve func(uint) (writeKey string, clearKeys []string, err error))`, where the artist's extra DB-id slot clear fits `clearKeys` naturally. `dupl` flagged the albums/genres pair when `albums.go` was added and stopped firing once `requireAdmin` diverged them, so nothing is currently suppressed — this is a real DRY item, not a lint workaround. While there: `maxRadioRequestBytes` / `radioMultipartMemory` / `radioCoverMaxBytes` are now imported by four non-radio handlers and deserve cover-neutral names.
+- [ ] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
+- [ ] Fix `stream` ignoring the id kind (`rs-3` serves track 3)
+  `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves track 3's file. A latent bug worth fixing on its own; also a trap any future radio-in-queue design walks straight into.
+
 ## Features
 
 - [x] Proper playlist editing
@@ -34,7 +44,7 @@ Notes for editors:
 
 ## Backend
 
-- [ ] does the artist image job still make sense?
+- [x] does the artist image job still make sense?
 
 ### Backend — API Surface
 
@@ -49,6 +59,7 @@ Notes for editors:
 ### Backend — Data Integrity & Scanning
 
 - [ ] Document the audio-hash format limit in the user-facing docs
+  **Blocked on** first establishing a proper user-facing documentation model — there is no limitations/caveats home in the user docs yet (`README.md` has no such section). Do this once that model exists.
   The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
   Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
 
@@ -56,17 +67,18 @@ Notes for editors:
 
 ### Frontend — Metadata editor
 
-- [ ] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
 - [ ] When identifying albums sometimes the track position is wrong — can we improve that?
 
 # Future releases
 
 ## Frontend - Metadata editor
 
-- [ ] Explore exposing Lyrics as an editable field
-  Already read and stored (`tags.Metadata.Lyrics` → `track.Lyrics`, `scanner/reconcile.go:200`) but the editor can't set it, so a mis-tagged lyric is unfixable in-app. Only the write side is missing: `metadataedit.Track`/`Patch`/`BuildTagMap` (`taglib.Lyrics`), `managedTagKeys`, and the frontend `Track`/`PatchFields`/`MANAGED_TAG_KEYS` + `EditPanel`.
-- [ ] Explore exposing Release type as an editable field
-  Same shape as lyrics: read and stored (`tags.Metadata.ReleaseType` → `album.ReleaseType`, `scanner/reconcile.go:128`) but not editable, so album/EP/single/compilation classification can't be corrected in the UI. `taglib.ReleaseType` (`RELEASETYPE`).
+- [ ] Lyrics — full lyrics support (fetch, edit, display)
+  Full epic. Currently lyrics are only read and stored (`tags.Metadata.Lyrics` → `track.Lyrics`, `scanner/reconcile.go:200`); nothing fetches, edits, or shows them. Three slices:
+  - [ ] Fetch lyrics from an external provider
+  - [ ] Edit lyrics in the metadata editor
+    Write side for the stored tag: `metadataedit.Track`/`Patch`/`BuildTagMap` (`taglib.Lyrics`), `managedTagKeys`, and the frontend `Track`/`PatchFields`/`MANAGED_TAG_KEYS` + `EditPanel`.
+  - [ ] Display lyrics in the UI (during playback)
 - [ ] Explore sort keys as editable fields
   MusicBrainz-style sort tags — ArtistSort/AlbumSort/TitleSort/AlbumArtistSort/ComposerSort (`TSOP`/`TSOA`/`TSOT`/`TSO2`/`TSOC`) — control browse ordering, which is aether's whole job. Bigger slice than the two above: not read today, so it needs scanner read + a store column *and* the editor field, not just the write side.
 - [ ] Improve track position when identifying albums
@@ -95,11 +107,6 @@ Notes for editors:
   Internet Radio has since been implemented: full CRUD under `/rest/` + Radio UI.
 - [ ] Bookmarks — not needed for resume
   `savePlayQueue`'s `position` already covers resume. Only worth adding for per-track offsets that survive a queue replacement (audiobooks, long sets). If added, the play queue stays the single source of truth for the current track's position — do not write both on the same tick.
-
-## Backend — Cleanup
-
-- [ ] Extract a shared helper for the three cover-art extension handlers
-  `updateArtist` (`handlers/subsonic/artists.go`), `updateGenre` (`genres.go`) and `updateAlbum` (`albums.go`) differ in five places — the endpoint name in one error string, the `decodeID` kind, the store lookup, the `assetstore.Kind`, and the key derivation (`artistCoverKey`'s MBID-or-DB-id logic vs `strconv.FormatUint`) — while everything around them is character-identical: multipart guard, byte cap, `id` presence, kind check, 404, `readCoverFile`, the put/clear switch, `writeResponse`. Roughly 40 duplicated lines. Shape: a helper taking `(endpointName, idKind string, kind assetstore.Kind, resolve func(uint) (writeKey string, clearKeys []string, err error))`, where the artist's extra DB-id slot clear fits `clearKeys` naturally. `dupl` flagged the albums/genres pair when `albums.go` was added and stopped firing once `requireAdmin` diverged them, so nothing is currently suppressed — this is a real DRY item, not a lint workaround. While there: `maxRadioRequestBytes` / `radioMultipartMemory` / `radioCoverMaxBytes` are now imported by four non-radio handlers and deserve cover-neutral names.
 
 ## Backend — Library
 
@@ -153,8 +160,6 @@ Notes for editors:
     OpenSubsonic has no mechanism for this: `savePlayQueue`'s `id`/`current` are defined strictly as song ids; `PlayQueue.entry` is an array of `Child` ("the list of songs in the queue") with a MUST that `current` be "a valid id in the list of songs"; `Child.type` ∈ `{music, podcast, audiobook, video}` and `mediaType` ∈ `{song, album, artist}` — no stream/radio value, no `streamUrl` field. Stations are a separate entity with their own CRUD: the spec's model is that a station is something you play, not something you queue. The extension registry (11 entries) has nothing for it — podcast episodes got a dedicated extension, radio-in-queue never did — so there is no upstream extension to adopt, only one to author.
   - [ ] Options: (A) follow spec, or (B) author a `radioQueue` extension
     Options: (A) follow the spec — radio doesn't persist cross-device, but the client strips non-track entries and recomputes `currentIndex` over the survivors so (a)/(b) become impossible. Pure bugfix, no spec deviation, no schema change. (B) author a `radioQueue` extension — polymorphic `PlayQueueEntry` (kind + ref), `rs-` ids accepted on the `ByIndex` variant only, spec-shaped `getPlayQueue` still filtered to songs. Schema drop, and deviate-first-upstream-later. **The "schema drop" half of B's cost is free right now** — with no consumers, dropping and recreating the DB is the accepted answer to any schema change, so B is not "spec-pure vs. expensive" but simply spec-pure vs. not; weigh it on the deviation alone, and decide before 1.0 makes the schema half real. Either way fix the two collateral bugs above first: they are wrong under both options.
-  - [ ] Trap for (B): `stream` ignores the id kind (`rs-3` serves track 3)
-    Trap for (B): `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves track 3's file. A latent bug a radio-in-queue design walks straight into — worth fixing on its own regardless.
 
 # Won't implement
 
