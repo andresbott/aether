@@ -27,13 +27,17 @@ func grainDefault(s covergen.Style) (float64, bool) {
 // on CI, where they are skipped.
 func TestEveryStyleDeclaresGrainKnobWithShippedDefault(t *testing.T) {
 	want := map[string]float64{
-		"classic": 7,
-		"bauhaus": 9,
-		"rings":   6,
-		"waves":   8,
-		"poster":  5,
-		"remix":   4,
-		"svg":     4,
+		"classic":  7,
+		"bauhaus":  9,
+		"rings":    6,
+		"waves":    8,
+		"poster":   5,
+		"remix":    4,
+		"mosaic":   6,
+		"halftone": 8,
+		"liquid":   2,
+		"lowpoly":  7,
+		"svg":      4,
 	}
 
 	styles := append(allstyles.All(nil), svg.Style)
