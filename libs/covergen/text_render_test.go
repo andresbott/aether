@@ -78,6 +78,15 @@ func TestNonTextDrawerIgnoresText(t *testing.T) {
 	}
 }
 
+func TestNilFontProviderIgnoresText(t *testing.T) {
+	g := New(textStub{})
+	plain, _ := g.GenerateWithKnobs("seed-1", 128, textStub{}, nil)
+	withText, _ := g.GenerateWithText("seed-1", 128, textStub{}, nil, Text{Main: "X"}, nil)
+	if !bytes.Equal(plain, withText) {
+		t.Fatal("nil FontProvider with non-empty text should be a no-op")
+	}
+}
+
 type fakeFont struct{}
 
 func (fakeFont) Name() string           { return "fake" }
