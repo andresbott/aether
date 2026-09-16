@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andresbott/aether/app/tasks"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
@@ -28,20 +27,29 @@ type Searcher interface {
 	ReleaseGroupGenres(ctx context.Context, mbid string) ([]string, error)
 }
 
-// Fetcher lists and downloads artist images. Satisfied by *artistimage.Chain.
-// Fetch is the one-shot auto-pick used by setMBID; List/Download drive the
-// manual gallery. nil when no image-provider API key is configured.
+// Fetcher lists and downloads artist-image candidates for the manual gallery.
+// Satisfied by *artistimage.Chain. nil when no image-provider API key is
+// configured.
 type Fetcher interface {
-	Fetch(ctx context.Context, mbid string) ([]byte, string, error)
 	List(ctx context.Context, mbid string) ([]artistimage.ImageCandidate, error)
 	Download(ctx context.Context, providerName, url string) ([]byte, string, error)
+}
+
+// ArtistImageStore fetches an artist's image from the providers and persists it,
+// stamping the fetch time. Satisfied by *artist.ImageService. This is the
+// setMBID auto-fetch path; nil when no image-provider API key is configured.
+type ArtistImageStore interface {
+	FetchAndStore(ctx context.Context, a model.Artist) (bool, error)
 }
 
 type Handler struct {
 	Store   *store.Store
 	Assets  *assetstore.Store
 	Fetcher Fetcher // nil when no image-provider API key is configured
-	Search  Searcher
+	// Images fetches and persists an artist's image (the setMBID auto-fetch);
+	// nil when no image-provider API key is configured.
+	Images ArtistImageStore
+	Search Searcher
 	// Problems writes this handler's application/problem+json error responses.
 	Problems *problemjson.Writer
 }
@@ -396,11 +404,11 @@ func (h *Handler) setMBID(w http.ResponseWriter, r *http.Request) {
 // image was stored and a human-readable error message when the fetch could not
 // complete.
 func (h *Handler) fetchArtistImage(ctx context.Context, artist model.Artist) (bool, *string) {
-	if h.Fetcher == nil {
+	if h.Images == nil {
 		msg := "artist image fetching is not configured"
 		return false, &msg
 	}
-	stored, ferr := tasks.FetchAndStoreArtistImage(ctx, h.Store, h.Assets, h.Fetcher, artist)
+	stored, ferr := h.Images.FetchAndStore(ctx, artist)
 	if ferr != nil {
 		msg := ferr.Error()
 		return stored, &msg

@@ -67,3 +67,45 @@ describe('LibraryDialog cover style', () => {
         expect(values).toEqual(['auto', 'classic', 'bauhaus', 'rings', 'waves', 'poster', 'remix'])
     })
 })
+
+const mountWithError = (error: unknown) =>
+    mount(LibraryDialog, {
+        props: { visible: true, library: null, submitting: false, error },
+        global: {
+            plugins: [PrimeVue],
+            directives: { tooltip: {} },
+            stubs: { teleport: true }
+        }
+    })
+
+// The backend answers a bad library with a 422 that names the offending field in
+// errors[] ({pointer, detail}); the dialog shows that message on the field and
+// marks it invalid, rather than the parent only toasting the top-level sentence.
+describe('LibraryDialog validation errors', () => {
+    const problem = (pointer: string, detail: string) => ({
+        response: { status: 422, data: { title: 'Unprocessable Entity', status: 422, detail, errors: [{ pointer, detail }] } }
+    })
+
+    it('shows the server message on the field its pointer names and marks it invalid', async () => {
+        const w = mountWithError(problem('/path', 'path is not a usable directory'))
+        await flushPromises()
+        expect(w.find('.field-error').exists()).toBe(true)
+        expect(w.find('.field-error').text()).toContain('path is not a usable directory')
+        expect(w.find('.p-invalid').exists()).toBe(true)
+    })
+
+    it('surfaces a field error whose pointer maps to no field, so none is ever swallowed', async () => {
+        const w = mountWithError(problem('/mystery', 'unknown field failed'))
+        await flushPromises()
+        expect(w.find('.form-error').exists()).toBe(true)
+        expect(w.text()).toContain('unknown field failed')
+    })
+
+    it('shows no field error when the submit did not fail', async () => {
+        const w = mountWithError(undefined)
+        await flushPromises()
+        expect(w.find('.field-error').exists()).toBe(false)
+        expect(w.find('.form-error').exists()).toBe(false)
+        expect(w.find('.p-invalid').exists()).toBe(false)
+    })
+})

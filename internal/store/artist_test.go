@@ -3,7 +3,6 @@ package store_test
 import (
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/store"
@@ -267,29 +266,6 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 	}
 }
 
-func TestArtistsWithMBIDAndStamp(t *testing.T) {
-	st := testStore(t)
-	_ = st.Transaction(func(tx *store.Store) error {
-		_, _, e := tx.FindOrCreateArtists([]string{"A", "B"}, []string{"mbid-a", ""})
-		return e
-	})
-	withMBID, err := st.ArtistsWithMBID()
-	if err != nil {
-		t.Fatalf("ArtistsWithMBID: %v", err)
-	}
-	if len(withMBID) != 1 || withMBID[0].MBArtistID != "mbid-a" {
-		t.Fatalf("expected 1 artist with MBID, got %+v", withMBID)
-	}
-	now := time.Now()
-	if err := st.SetArtistImageFetchedAt(withMBID[0].ID, now); err != nil {
-		t.Fatalf("stamp: %v", err)
-	}
-	got, _, _ := st.GetArtist(withMBID[0].ID)
-	if got.LastImageFetchAt == nil {
-		t.Fatal("LastImageFetchAt not stamped")
-	}
-}
-
 func TestSearchArtistsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
@@ -331,10 +307,6 @@ func TestSetArtistMBID(t *testing.T) {
 	}
 	artist := artists[0]
 
-	if err := s.SetArtistImageFetchedAt(artist.ID, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-
 	newMbid := "5b11f4ce-a62d-471e-81fc-a69a8278c7da"
 	if err := s.SetArtistMBID(artist.ID, newMbid); err != nil {
 		t.Fatalf("SetArtistMBID: %v", err)
@@ -346,9 +318,6 @@ func TestSetArtistMBID(t *testing.T) {
 	}
 	if updated.MBArtistID != newMbid {
 		t.Fatalf("expected MBArtistID %q, got %q", newMbid, updated.MBArtistID)
-	}
-	if updated.LastImageFetchAt != nil {
-		t.Fatal("expected LastImageFetchAt to be cleared")
 	}
 }
 
@@ -375,16 +344,12 @@ func TestSetArtistMBIDClear(t *testing.T) {
 
 func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
 	s := testStore(t)
-	// Create with an initial MBID and a set image-fetch timestamp.
+	// Create with an initial MBID.
 	err := s.Transaction(func(tx *store.Store) error {
 		_, _, e := tx.FindOrCreateArtists([]string{"Muse"}, []string{"mbid-old"})
 		return e
 	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	if err := s.SetArtistImageFetchedAt(mustArtistID(t, s, "Muse"), now); err != nil {
 		t.Fatal(err)
 	}
 	// Rescan finds the same artist with a corrected MBID.
@@ -400,23 +365,11 @@ func TestFindOrCreateArtists_TagOverwritesDifferingMBID(t *testing.T) {
 	if got[0].MBArtistID != "mbid-new" {
 		t.Fatalf("expected overwrite to mbid-new, got %q", got[0].MBArtistID)
 	}
-	if got[0].LastImageFetchAt != nil {
-		t.Fatalf("expected LastImageFetchAt reset to nil, got %v", got[0].LastImageFetchAt)
-	}
 	// An MBID change (not a gain) must NOT be reported in the gained list, because
 	// it could be a mistaken match being corrected, not a rename.
 	if len(gained) != 0 {
 		t.Fatalf("expected empty gained list for an MBID change, got %d entries", len(gained))
 	}
-}
-
-func mustArtistID(t *testing.T, s *store.Store, name string) uint {
-	t.Helper()
-	var artist model.Artist
-	if err := s.DB().Where("name = ?", name).First(&artist).Error; err != nil {
-		t.Fatalf("artist %q not found: %v", name, err)
-	}
-	return artist.ID
 }
 
 // seedArtistTrack creates an artist with one track in the given library,

@@ -286,6 +286,12 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			Search:   artistimage.NewMusicBrainzSearch(userAgent),
 			Problems: h.problems,
 		}
+		// Guard the assignment: a nil *artist.ImageService assigned to the
+		// interface-typed field would wrap a nil pointer, defeating the nil
+		// check in fetchArtistImage.
+		if h.artistImages != nil {
+			ah.Images = h.artistImages
+		}
 		ah.Routes(r)
 	}
 

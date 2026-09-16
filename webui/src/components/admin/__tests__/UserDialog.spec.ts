@@ -116,3 +116,44 @@ describe('UserDialog edit mode', () => {
         expect(payload.input.password).toBe('new-pw')
     })
 })
+
+const mountWithError = (user: User | null, error: unknown) =>
+    mount(UserDialog, {
+        props: { visible: true, user, submitting: false, error },
+        global: {
+            plugins: [PrimeVue],
+            directives: { tooltip: {} },
+            stubs: { teleport: true }
+        }
+    })
+
+// The backend answers a bad user with a 422 naming the offending field in
+// errors[] ({pointer, detail}); the dialog shows it on the field (/login,
+// /password, /role) instead of the parent only toasting the top-level sentence.
+describe('UserDialog validation errors', () => {
+    const problem = (pointer: string, detail: string) => ({
+        response: { status: 422, data: { title: 'Unprocessable Entity', status: 422, detail, errors: [{ pointer, detail }] } }
+    })
+
+    it('shows the server message on the field its pointer names and marks it invalid', async () => {
+        const w = mountWithError(null, problem('/login', 'login already exists'))
+        await flushPromises()
+        expect(w.find('.field-error').exists()).toBe(true)
+        expect(w.find('.field-error').text()).toContain('login already exists')
+        expect(w.find('.p-invalid').exists()).toBe(true)
+    })
+
+    it('surfaces a field error whose pointer maps to no field, so none is ever swallowed', async () => {
+        const w = mountWithError(null, problem('/mystery', 'unknown field failed'))
+        await flushPromises()
+        expect(w.find('.form-error').exists()).toBe(true)
+        expect(w.text()).toContain('unknown field failed')
+    })
+
+    it('shows no field error when the submit did not fail', async () => {
+        const w = mountWithError(null, undefined)
+        await flushPromises()
+        expect(w.find('.field-error').exists()).toBe(false)
+        expect(w.find('.form-error').exists()).toBe(false)
+    })
+})

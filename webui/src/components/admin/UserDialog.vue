@@ -6,12 +6,17 @@ import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import ToggleSwitch from 'primevue/toggleswitch'
 import SelectButton from 'primevue/selectbutton'
+import Message from 'primevue/message'
+import { apiFieldErrorMap } from '@/lib/apiError'
 import type { User, CreateUserInput, UpdateUserInput, UserRole } from '@/types/users'
 
 const props = defineProps<{
     visible: boolean
     user: User | null // null = create mode
     submitting: boolean
+    // The last failed submit, so a 422's per-field errors[] can be shown on the
+    // field its pointer names. Undefined until a submit fails.
+    error?: unknown
 }>()
 
 const emit = defineEmits<{
@@ -60,6 +65,18 @@ watch(
 
 const isEditMode = computed(() => props.user !== null)
 
+// A failed submit's per-field validation errors, keyed by the JSON Pointer the
+// users handler names: /login, /password, /role.
+const fieldErrors = computed(() => apiFieldErrorMap(props.error))
+const KNOWN_POINTERS = ['/login', '/password', '/role']
+// Any field error whose pointer we don't render inline (e.g. a future field) is
+// shown as a general message so a validation failure is never swallowed silently.
+const otherErrors = computed(() =>
+    Object.entries(fieldErrors.value)
+        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer))
+        .map(([, detail]) => detail)
+)
+
 const canSubmit = computed(() => {
     // Edit mode always has a login (read-only, prefilled) and an empty password
     // means "keep current", so nothing can be missing.
@@ -102,6 +119,17 @@ function onCancel() {
         @update:visible="(v: boolean) => emit('update:visible', v)"
     >
         <div class="form">
+            <Message
+                v-if="otherErrors.length"
+                class="form-error"
+                severity="error"
+                :closable="false"
+            >
+                <ul class="form-error-list">
+                    <li v-for="(m, i) in otherErrors" :key="i">{{ m }}</li>
+                </ul>
+            </Message>
+
             <div class="field">
                 <label for="user-login">Login</label>
                 <InputText
@@ -110,8 +138,18 @@ function onCancel() {
                     autocomplete="off"
                     placeholder="username"
                     :readonly="isEditMode"
+                    :invalid="!!fieldErrors['/login']"
                     :aria-describedby="isEditMode ? 'user-login-hint' : undefined"
                 />
+                <Message
+                    v-if="fieldErrors['/login']"
+                    class="field-error"
+                    severity="error"
+                    size="small"
+                    variant="simple"
+                >
+                    {{ fieldErrors['/login'] }}
+                </Message>
                 <small v-if="isEditMode" id="user-login-hint" class="hint">
                     The login cannot be changed after the user is created.
                 </small>
@@ -128,8 +166,18 @@ function onCancel() {
                     toggle-mask
                     autocomplete="new-password"
                     :placeholder="isEditMode ? 'leave empty to keep current' : ''"
+                    :invalid="!!fieldErrors['/password']"
                     fluid
                 />
+                <Message
+                    v-if="fieldErrors['/password']"
+                    class="field-error"
+                    severity="error"
+                    size="small"
+                    variant="simple"
+                >
+                    {{ fieldErrors['/password'] }}
+                </Message>
             </div>
 
             <div class="field">
@@ -140,8 +188,18 @@ function onCancel() {
                     optionLabel="label"
                     optionValue="value"
                     :allowEmpty="false"
+                    :invalid="!!fieldErrors['/role']"
                     aria-labelledby="user-role-label"
                 />
+                <Message
+                    v-if="fieldErrors['/role']"
+                    class="field-error"
+                    severity="error"
+                    size="small"
+                    variant="simple"
+                >
+                    {{ fieldErrors['/role'] }}
+                </Message>
             </div>
 
             <div class="field field-inline">
@@ -185,5 +243,9 @@ function onCancel() {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+}
+.form-error-list {
+    margin: 0;
+    padding-left: 1.1rem;
 }
 </style>

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as UsersApi from '@/lib/api/Users'
 import type { MeResponse, User, CreateUserInput, UpdateUserInput } from '@/types/users'
-import { apiErrorMessage } from '@/lib/apiError'
+import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
 
 export const userQueryKeys = {
     all: ['users'] as const,
@@ -49,6 +49,9 @@ export function useCreateUser() {
             })
         },
         onError: (err: any) => {
+            // A 422 names the bad field in errors[]; the dialog shows it inline,
+            // so toasting would double-report the same message.
+            if (apiFieldErrors(err).length > 0) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to create user',
@@ -75,6 +78,9 @@ export function useUpdateUser() {
             })
         },
         onError: (err: any) => {
+            // A 422 names the bad field in errors[]; the dialog shows it inline,
+            // so toasting would double-report the same message.
+            if (apiFieldErrors(err).length > 0) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to update user',

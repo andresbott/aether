@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as LibrariesApi from '@/lib/api/Libraries'
 import type { Library, LibraryInput } from '@/types/libraries'
-import { apiErrorMessage } from '@/lib/apiError'
+import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
 
 export const libraryQueryKeys = {
     all: ['libraries'] as const,
@@ -35,6 +35,9 @@ export function useCreateLibrary() {
             })
         },
         onError: (err: any) => {
+            // A 422 names the bad field in errors[]; the dialog shows it inline,
+            // so toasting would double-report the same message.
+            if (apiFieldErrors(err).length > 0) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to create library',
@@ -65,6 +68,9 @@ export function useUpdateLibrary() {
             })
         },
         onError: (err: any) => {
+            // A 422 names the bad field in errors[]; the dialog shows it inline,
+            // so toasting would double-report the same message.
+            if (apiFieldErrors(err).length > 0) return
             toast.add({
                 severity: 'error',
                 summary: 'Failed to update library',

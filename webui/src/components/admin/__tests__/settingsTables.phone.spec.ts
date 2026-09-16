@@ -24,11 +24,12 @@ const libraries = vi.hoisted(() => {
 
 vi.mock('@/composables/useLibraries', async () => {
     const { ref: vueRef } = await import('vue')
+    const mutation = () => ({ mutate: vi.fn(), isPending: vueRef(false), error: vueRef(null), reset: vi.fn() })
     return {
         useLibraries: () => ({ data: vueRef(libraries.current), isLoading: vueRef(false) }),
-        useCreateLibrary: () => ({ mutate: vi.fn(), isPending: vueRef(false) }),
-        useUpdateLibrary: () => ({ mutate: vi.fn(), isPending: vueRef(false) }),
-        useDeleteLibrary: () => ({ mutate: vi.fn(), isPending: vueRef(false) })
+        useCreateLibrary: mutation,
+        useUpdateLibrary: mutation,
+        useDeleteLibrary: mutation
     }
 })
 
@@ -39,11 +40,12 @@ const users = vi.hoisted(() => {
 
 vi.mock('@/composables/useUsers', async () => {
     const { ref: vueRef } = await import('vue')
+    const mutation = () => ({ mutate: vi.fn(), isPending: vueRef(false), error: vueRef(null), reset: vi.fn() })
     return {
         useUsers: () => ({ data: vueRef(users.current), isLoading: vueRef(false) }),
-        useCreateUser: () => ({ mutate: vi.fn(), isPending: vueRef(false) }),
-        useUpdateUser: () => ({ mutate: vi.fn(), isPending: vueRef(false) }),
-        useDeleteUser: () => ({ mutate: vi.fn(), isPending: vueRef(false) })
+        useCreateUser: mutation,
+        useUpdateUser: mutation,
+        useDeleteUser: mutation
     }
 })
 
