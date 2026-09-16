@@ -215,7 +215,11 @@ type namePinned struct {
 
 func (n namePinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
 	if rng != nil {
-		_ = rng.IntN(1)
+		// Draw exactly one uint64, matching the cost of provider.Random's
+		// pool[rng.IntN(len(pool))] (today's pools are len 1, i.e. IntN(1),
+		// which itself draws one uint64 via IntN's power-of-two mask path) so
+		// placement rng draws downstream stay aligned with an unpinned render.
+		_ = rng.Uint64()
 	}
 	return n.font
 }
