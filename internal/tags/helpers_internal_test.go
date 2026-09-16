@@ -172,6 +172,20 @@ func TestParseFFProbeJSON(t *testing.T) {
 	}
 }
 
+// A MusicBrainz album type carrying a primary plus a secondary type (Picard
+// writes them as a separator-joined value) must parse into the full list, not
+// just the first token.
+func TestParseFFProbeJSONReleaseTypes(t *testing.T) {
+	const sample = `{"format":{"tags":{"MUSICBRAINZ_ALBUMTYPE":"Album; Compilation"}}}`
+	m, err := parseFFProbeJSON([]byte(sample))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ReleaseTypes) != 2 || m.ReleaseTypes[0] != "Album" || m.ReleaseTypes[1] != "Compilation" {
+		t.Errorf("ReleaseTypes = %v, want [Album Compilation]", m.ReleaseTypes)
+	}
+}
+
 // ffprobe exposes an attached picture's type in the video stream's "comment"
 // tag ("Cover (front)", "Cover (back)", "Other", ...). Only a front cover
 // counts as the album cover.

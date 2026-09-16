@@ -122,7 +122,7 @@ func parseFFProbeJSON(out []byte) (Metadata, error) {
 	m.MBAlbumArtistID = allOrSingle(tags, "musicbrainz_albumartistid", "MUSICBRAINZ_ALBUMARTISTID", "MusicBrainz Album Artist Id")
 	m.Lyrics = first(tags, "lyrics", "LYRICS")
 	m.Compilation = parseBool(first(tags, "compilation", "COMPILATION"))
-	m.ReleaseType = first(tags, "MUSICBRAINZ_ALBUMTYPE", "musicbrainz_albumtype")
+	m.ReleaseTypes = allOrSingle(tags, "MUSICBRAINZ_ALBUMTYPE", "musicbrainz_albumtype", "RELEASETYPE")
 	m.ReplayGain = ReplayGain{
 		TrackGain: parseDBPtr(first(tags, "replaygain_track_gain", "REPLAYGAIN_TRACK_GAIN")),
 		TrackPeak: parseFloatPtr(first(tags, "replaygain_track_peak", "REPLAYGAIN_TRACK_PEAK")),

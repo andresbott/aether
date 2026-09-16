@@ -185,7 +185,7 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	// Update album metadata
 	album.Year = meta.Year
 	album.Compilation = meta.Compilation
-	album.ReleaseType = meta.ReleaseType
+	album.ReleaseTypes = meta.ReleaseTypes
 	album.HasEmbeddedCover = meta.HasCover
 
 	// Detect external cover. Always re-detect for art in THIS directory (so

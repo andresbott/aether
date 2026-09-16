@@ -210,3 +210,53 @@ func TestReconcileStoresTheWalkedFileSize(t *testing.T) {
 		t.Fatalf("FileSize = %d, want 4", track.FileSize)
 	}
 }
+
+// releaseTypeTagReader emits a fixed MusicBrainz release-type list (and the
+// iTunes compilation flag) for every file, so a scan's persistence of the whole
+// list can be asserted end to end.
+type releaseTypeTagReader struct {
+	releaseTypes []string
+	compilation  bool
+}
+
+func (r releaseTypeTagReader) CanRead(absPath string) bool {
+	return scanner.IsAudioFile(absPath)
+}
+
+func (r releaseTypeTagReader) Read(_ context.Context, absPath string) (tags.Metadata, error) {
+	return tags.Metadata{
+		Title:        filepath.Base(absPath),
+		Artist:       []string{"Test Artist"},
+		AlbumArtist:  []string{"Test Artist"},
+		Album:        filepath.Base(filepath.Dir(absPath)),
+		Year:         2020,
+		TrackNumber:  1,
+		Duration:     180,
+		Bitrate:      320,
+		ReleaseTypes: r.releaseTypes,
+		Compilation:  r.compilation,
+	}, nil
+}
+
+// A scanned album must persist the full MusicBrainz release-type list through
+// the serializer:json column, not just the primary type.
+func TestReconcileStoresReleaseTypes(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	seedLibrary(t, st, dir, nil)
+
+	reader := releaseTypeTagReader{releaseTypes: []string{"Album", "Compilation"}}
+	s := scanner.New(scanner.Config{}, st, reader)
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var album model.Album
+	if err := st.DB().First(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(album.ReleaseTypes) != 2 || album.ReleaseTypes[0] != "Album" || album.ReleaseTypes[1] != "Compilation" {
+		t.Fatalf("ReleaseTypes = %v, want [Album Compilation]", album.ReleaseTypes)
+	}
+}

@@ -62,7 +62,7 @@ type Metadata struct {
 	MBAlbumArtistID  []string
 	Lyrics           string
 	Compilation      bool
-	ReleaseType      string
+	ReleaseTypes     []string
 	HasCover         bool
 	ReplayGain       ReplayGain
 }

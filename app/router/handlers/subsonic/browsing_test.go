@@ -281,3 +281,40 @@ func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
 		t.Fatalf("expected one folder with defaultView=albums, got %+v", folders)
 	}
 }
+
+func TestAlbumToMapReleaseTypes(t *testing.T) {
+	m := albumToMap(&model.Album{ReleaseTypes: []string{"Album", "Compilation"}})
+	got, ok := m["releaseTypes"].([]string)
+	if !ok || len(got) != 2 || got[0] != "Album" || got[1] != "Compilation" {
+		t.Errorf("releaseTypes = %v, want [Album Compilation]", m["releaseTypes"])
+	}
+
+	// Omitted entirely when the album carries no release types.
+	if _, ok := albumToMap(&model.Album{})["releaseTypes"]; ok {
+		t.Error("releaseTypes should be omitted when the list is empty")
+	}
+}
+
+// isCompilation unions the two independent sources OpenSubsonic keeps side by
+// side: the iTunes compilation flag and a MusicBrainz "Compilation" secondary
+// type. Either one alone is enough; matching is case-insensitive.
+func TestAlbumToMapIsCompilation(t *testing.T) {
+	cases := []struct {
+		name  string
+		album model.Album
+		want  bool
+	}{
+		{"neither", model.Album{ReleaseTypes: []string{"Album"}}, false},
+		{"itunes flag only", model.Album{Compilation: true}, true},
+		{"release type only", model.Album{ReleaseTypes: []string{"Album", "Compilation"}}, true},
+		{"release type any case", model.Album{ReleaseTypes: []string{"compilation"}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := albumToMap(&tc.album)["isCompilation"].(bool)
+			if got != tc.want {
+				t.Errorf("isCompilation = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

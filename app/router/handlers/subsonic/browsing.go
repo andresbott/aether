@@ -3,6 +3,7 @@ package subsonic
 import (
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -246,6 +247,16 @@ func albumToMap(al *model.Album) map[string]any {
 		m["duration"] = dur
 		m["discTitles"] = discTitles(al.Tracks)
 	}
+	// OpenSubsonic AlbumID3 additions. releaseTypes is the flat MusicBrainz type
+	// list (primary + secondary); isCompilation unions the two independent
+	// sources the standard keeps side by side — the iTunes compilation flag and a
+	// "Compilation" secondary type — so either one alone marks a compilation.
+	if len(al.ReleaseTypes) > 0 {
+		m["releaseTypes"] = al.ReleaseTypes
+	}
+	m["isCompilation"] = al.Compilation || slices.ContainsFunc(al.ReleaseTypes, func(t string) bool {
+		return strings.EqualFold(t, "Compilation")
+	})
 	return m
 }
 
