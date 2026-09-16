@@ -31,6 +31,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/allstyles"
+	"github.com/andresbott/aether/libs/covergen/fonts"
 	"github.com/andresbott/aether/libs/covergen/svg"
 )
 
@@ -56,6 +57,10 @@ func newGen() *covergen.Generator {
 	}
 	return covergen.New(styles...)
 }
+
+// fontLib is the default provider the lab renders text with. Pinning happens via
+// wrappers (see fontProviderFor).
+var fontLib = fonts.Default()
 
 // svgDir is the on-disk location of the svg style package (candidates/ + assets/),
 // set from the -svgdir flag; the curation tool reads and writes there.
@@ -135,6 +140,7 @@ func main() {
 	mux.HandleFunc("GET /img", handleImg)
 	mux.HandleFunc("GET /colors", handleColors)
 	mux.HandleFunc("GET /setup", handleSetup)
+	mux.HandleFunc("GET /fonts", handleFonts)
 	if svg.Enabled {
 		mux.HandleFunc("GET /svg", handleSvg)
 		mux.HandleFunc("GET /svg/img", handleSvgImg)
@@ -177,14 +183,70 @@ func parseOverrides(knobs []covergen.Knob, q url.Values) map[string]float64 {
 	return out
 }
 
+// parseText reads the main/subtitle overlay strings from the query.
+func parseText(q url.Values) covergen.Text {
+	return covergen.Text{Main: q.Get("main"), Subtitle: q.Get("sub")}
+}
+
+// styleTextClass returns a style's declared text class, or "" if it draws no text.
+func styleTextClass(s covergen.Style) covergen.FontClass {
+	if td, ok := s.(covergen.TextDrawer); ok {
+		return td.TextClass()
+	}
+	return ""
+}
+
+// classPinned overrides the requested class with a fixed one (lab class picker).
+type classPinned struct {
+	covergen.FontProvider
+	class covergen.FontClass
+}
+
+func (c classPinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
+	return c.FontProvider.Random(rng, c.class)
+}
+
+// namePinned always returns one font (lab specific-font picker), still consuming
+// one rng draw so placement matches the unpinned render.
+type namePinned struct {
+	covergen.FontProvider
+	font covergen.Font
+}
+
+func (n namePinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
+	if rng != nil {
+		_ = rng.IntN(1)
+	}
+	return n.font
+}
+
+// fontProviderFor resolves the provider for a request: a pinned font (?font=)
+// wins, then a pinned class (?fontClass=), else the default library.
+func fontProviderFor(q url.Values) covergen.FontProvider {
+	if name := q.Get("font"); name != "" {
+		if f, ok := fontLib.ByName(name); ok {
+			return namePinned{FontProvider: fontLib, font: f}
+		}
+	}
+	if class := q.Get("fontClass"); class != "" {
+		return classPinned{FontProvider: fontLib, class: covergen.FontClass(class)}
+	}
+	return fontLib
+}
+
 // setupSnippet renders a paste-ready Go fragment that reconstructs style exactly
 // as tuned in the lab. It constructs the style on paletteName, collects the knobs
 // whose value differs from their Default into an overrides map (kept in Knobs()
 // order so the output is deterministic), and calls the matching Generator method:
 // GenerateWithKnobs when anything was tuned, the simpler GenerateStyle when every
 // knob is at its default. Palette-less styles (svg) are asset-driven, so they get
-// an svg.New(yourSVG) constructor instead of a covergen.PaletteByName one.
-func setupSnippet(style covergen.Style, paletteName string, values map[string]float64) string {
+// an svg.New(yourSVG) constructor instead of a covergen.PaletteByName one. When
+// text carries a Main or Subtitle, the snippet instead declares a covergen.Text
+// and switches to GenerateWithText against the real fonts.Default() provider —
+// the lab's pinned-font/class wrappers are a preview-only seam, not something
+// worth hardcoding into copy-paste setup code. An empty text reproduces today's
+// textless output exactly.
+func setupSnippet(style covergen.Style, paletteName string, values map[string]float64, text covergen.Text) string {
 	name := style.Name()
 
 	type override struct {
@@ -208,23 +270,39 @@ func setupSnippet(style covergen.Style, paletteName string, values map[string]fl
 	fmt.Fprintf(&b, "// covergenlab setup for style %q.\n", name)
 	b.WriteString("// Imports: github.com/andresbott/aether/libs/covergen\n")
 	fmt.Fprintf(&b, "//          github.com/andresbott/aether/libs/covergen/%s\n", name)
+	if !text.Empty() {
+		b.WriteString("//          github.com/andresbott/aether/libs/covergen/fonts\n")
+	}
 	if !palette {
 		b.WriteString("// svg is asset-driven: replace yourSVG with your []byte SVG source.\n")
 	}
 	fmt.Fprintf(&b, "style := %s.New(%s)\n", name, ctorArg)
 
-	if len(overrides) == 0 {
+	if len(overrides) == 0 && text.Empty() {
 		b.WriteString("// All knobs at their defaults; no overrides needed.\n")
 		b.WriteString("png, err := covergen.New(style).GenerateStyle(seed, 512, style)\n")
 		return b.String()
 	}
 
-	b.WriteString("overrides := map[string]float64{\n")
-	for _, o := range overrides {
-		fmt.Fprintf(&b, "\t%q: %s,\n", o.name, formatKnob(o.val))
+	overridesExpr := "nil"
+	if len(overrides) > 0 {
+		b.WriteString("overrides := map[string]float64{\n")
+		for _, o := range overrides {
+			fmt.Fprintf(&b, "\t%q: %s,\n", o.name, formatKnob(o.val))
+		}
+		b.WriteString("}\n")
+		overridesExpr = "overrides"
+	} else {
+		b.WriteString("// All knobs at their defaults; no overrides needed.\n")
 	}
-	b.WriteString("}\n")
-	b.WriteString("png, err := covergen.New(style).GenerateWithKnobs(seed, 512, style, overrides)\n")
+
+	if text.Empty() {
+		b.WriteString("png, err := covergen.New(style).GenerateWithKnobs(seed, 512, style, overrides)\n")
+		return b.String()
+	}
+
+	fmt.Fprintf(&b, "text := covergen.Text{Main: %q, Subtitle: %q}\n", text.Main, text.Subtitle)
+	fmt.Fprintf(&b, "png, err := covergen.New(style).GenerateWithText(seed, 512, style, %s, text, fonts.Default())\n", overridesExpr)
 	return b.String()
 }
 
@@ -248,6 +326,9 @@ func randomSeeds(n int) []string {
 
 // handleImg renders one cover as PNG, fresh per request (no caching) so both
 // code edits (after a restart) and knob edits (live) are reflected immediately.
+// Text and font resolution mirror the live query: an empty Text or the default
+// (unpinned) FontProvider reproduce the textless render exactly (see
+// GenerateWithText).
 func handleImg(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	pal := paletteFor(q.Get("style"), q)
@@ -260,7 +341,9 @@ func handleImg(w http.ResponseWriter, r *http.Request) {
 	if s, err := strconv.Atoi(q.Get("size")); err == nil && s > 0 {
 		size = s
 	}
-	png, err := covergen.New(style).GenerateWithKnobs(q.Get("seed"), size, style, parseOverrides(style.Knobs(), q))
+	png, err := covergen.New(style).GenerateWithText(
+		q.Get("seed"), size, style, parseOverrides(style.Knobs(), q),
+		parseText(q), fontProviderFor(q))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -308,7 +391,21 @@ func handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = fmt.Fprint(w, setupSnippet(style, pal.Name(), parseOverrides(style.Knobs(), q)))
+	_, _ = fmt.Fprint(w, setupSnippet(style, pal.Name(), parseOverrides(style.Knobs(), q), parseText(q)))
+}
+
+// handleFonts lists font names for ?class= (all fonts when class is empty), as
+// JSON, so the style page can repopulate its specific-font picker.
+func handleFonts(w http.ResponseWriter, r *http.Request) {
+	pool := fontLib.All()
+	if c := r.URL.Query().Get("class"); c != "" {
+		pool = fontLib.ByClass(covergen.FontClass(c))
+	}
+	names := make([]string, len(pool))
+	for i, f := range pool {
+		names[i] = f.Name()
+	}
+	writeJSON(w, names)
 }
 
 func listSVGs(dir string) []string {
@@ -450,6 +547,23 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		swatch = swatch[:swatchSeeds]
 	}
 
+	// The font-class picker preselects the style's own declared class, unless an
+	// explicit ?fontClass= names another one (mirroring paletteFor). The
+	// specific-font picker then lists that class's fonts, falling back to every
+	// font when the style draws no text (class ""), matching handleFonts.
+	selClass := covergen.FontClass(q.Get("fontClass"))
+	if selClass == "" {
+		selClass = styleTextClass(style)
+	}
+	fontPool := fontLib.All()
+	if selClass != "" {
+		fontPool = fontLib.ByClass(selClass)
+	}
+	fontNames := make([]string, len(fontPool))
+	for i, f := range fontPool {
+		fontNames[i] = f.Name()
+	}
+
 	data := struct {
 		Name         string
 		StyleKnobs   []covergen.Knob
@@ -461,6 +575,12 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		Seeds        []string
 		SwatchSeeds  []string
 		Size         int
+		TextClass    string
+		FontClasses  []covergen.FontClass
+		Fonts        []string
+		Font         string
+		Main         string
+		Sub          string
 	}{
 		Name:         style.Name(),
 		StyleKnobs:   styleKnobs,
@@ -472,6 +592,12 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		Seeds:        seeds,
 		SwatchSeeds:  swatch,
 		Size:         thumbSize,
+		TextClass:    string(selClass),
+		FontClasses:  fontLib.Classes(),
+		Fonts:        fontNames,
+		Font:         q.Get("font"),
+		Main:         q.Get("main"),
+		Sub:          q.Get("sub"),
 	}
 	render(w, styleTmpl, data)
 }
@@ -526,7 +652,8 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   .group { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #222; }
   .group:last-of-type { border-bottom: 0; padding-bottom: 0; }
   .group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 0 0 8px; }
-  select#palette { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
+  select#palette, select#fontClass, select#font { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
+  .knob input[type="text"] { width: 100%; box-sizing: border-box; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
   .swatches { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .swatch-row { display: flex; gap: 4px; }
   .swatch { flex: 1; height: 22px; border-radius: 4px; background: #000; border: 1px solid rgba(0,0,0,.4); }
@@ -565,6 +692,24 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
         </div>
       </div>
       {{end}}
+      <div class="group">
+        <h3>Text</h3>
+        <div class="knob">
+          <label><span>Main</span></label>
+          <input type="text" id="text-main" placeholder="Main title" value="{{.Main}}">
+        </div>
+        <div class="knob">
+          <label><span>Subtitle</span></label>
+          <input type="text" id="text-sub" placeholder="Subtitle" value="{{.Sub}}">
+        </div>
+        <select id="fontClass">
+          {{range .FontClasses}}<option value="{{.}}"{{if eq . $.TextClass}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        <select id="font">
+          <option value="">(random)</option>
+          {{range .Fonts}}<option value="{{.}}"{{if eq . $.Font}} selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </div>
       <div class="controls">
         <button id="reroll" title="new random seeds">Reroll</button>
         <button id="reset" title="back to defaults">Reset</button>
@@ -587,6 +732,7 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   const STYLE = "{{.Name}}";
   const SIZE = "{{.Size}}";
   const PALETTE = "{{.Palette}}"; // "" when the style has no palette (svg)
+  let FONT_CLASS = "{{.TextClass}}"; // "" when the style draws no text (svg); changes live, not via reload
   const ROLES = ['background', 'ink', 'accent1', 'accent2'];
   let swatchToken = 0;
 
@@ -625,8 +771,22 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
     });
   }
 
+  // textAndFontParams reads the live text/font controls (main, sub, the pinned
+  // font, and the pinned class) onto knobs, the same way readKnobs() reads the
+  // sliders — so update() ends up with one query string covering all of it.
+  function textAndFontParams(knobs) {
+    const mainEl = document.getElementById('text-main');
+    const subEl = document.getElementById('text-sub');
+    const fontEl = document.getElementById('font');
+    if (mainEl && mainEl.value) knobs.set('main', mainEl.value);
+    if (subEl && subEl.value) knobs.set('sub', subEl.value);
+    if (fontEl && fontEl.value) knobs.set('font', fontEl.value);
+    if (FONT_CLASS) knobs.set('fontClass', FONT_CLASS);
+    return knobs;
+  }
+
   function update() {
-    const knobs = readKnobs();
+    const knobs = textAndFontParams(readKnobs());
     document.querySelectorAll('img.cell').forEach(function (img) {
       const u = new URLSearchParams(knobs);
       u.set('style', STYLE);
@@ -662,6 +822,42 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
       location.href = location.pathname + (PALETTE ? '?palette=' + encodeURIComponent(PALETTE) : '');
     });
 
+    // Text inputs and the specific-font picker update live, like the knobs.
+    const mainInput = document.getElementById('text-main');
+    const subInput = document.getElementById('text-sub');
+    const fontSel = document.getElementById('font');
+    if (mainInput) mainInput.addEventListener('input', update);
+    if (subInput) subInput.addEventListener('input', update);
+    if (fontSel) fontSel.addEventListener('change', update);
+
+    // The font-class picker fetches /fonts for the newly chosen class and
+    // repopulates the specific-font picker (keeping the pinned font only if it
+    // still belongs to the new class), then updates the grid live — no reload.
+    const fontClassSel = document.getElementById('fontClass');
+    if (fontClassSel) {
+      fontClassSel.addEventListener('change', function () {
+        FONT_CLASS = fontClassSel.value;
+        fetch('/fonts?class=' + encodeURIComponent(FONT_CLASS)).then(function (r) {
+          return r.ok ? r.json() : [];
+        }).then(function (names) {
+          if (!fontSel) return;
+          const prev = fontSel.value;
+          fontSel.innerHTML = '';
+          const optRandom = document.createElement('option');
+          optRandom.value = '';
+          optRandom.textContent = '(random)';
+          fontSel.appendChild(optRandom);
+          names.forEach(function (name) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            fontSel.appendChild(opt);
+          });
+          fontSel.value = names.indexOf(prev) !== -1 ? prev : '';
+        }).catch(function () {}).finally(update);
+      });
+    }
+
     // Copy setup: ask /setup for the Go snippet that reproduces the live knobs,
     // then show it in a modal with a clipboard button.
     const setupDlg = document.getElementById('setup');
@@ -670,6 +866,8 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
       const u = readKnobs();
       u.set('style', STYLE);
       if (PALETTE) u.set('palette', PALETTE);
+      if (mainInput && mainInput.value) u.set('main', mainInput.value);
+      if (subInput && subInput.value) u.set('sub', subInput.value);
       fetch('/setup?' + u.toString()).then(function (r) {
         return r.ok ? r.text() : Promise.reject(new Error('setup ' + r.status));
       }).then(function (code) {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"image/color"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,34 @@ import (
 	"github.com/andresbott/aether/libs/covergen/rings"
 	"github.com/andresbott/aether/libs/covergen/svg"
 )
+
+// mustRand returns a fixed-seed RNG so font-picking tests are deterministic.
+func mustRand() *rand.Rand { return rand.New(rand.NewPCG(1, 1)) }
+
+func TestParseText(t *testing.T) {
+	q := url.Values{"main": {"Title"}, "sub": {"Artist"}}
+	got := parseText(q)
+	if got.Main != "Title" || got.Subtitle != "Artist" {
+		t.Fatalf("parseText = %+v", got)
+	}
+}
+
+func TestFontProviderForPinsFont(t *testing.T) {
+	q := url.Values{"font": {"Space Mono"}}
+	p := fontProviderFor(q)
+	f := p.Random(nil, covergen.FontFormal) // class ignored when a font is pinned
+	if f == nil || f.Name() != "Space Mono" {
+		t.Fatalf("pinned provider returned %v", f)
+	}
+}
+
+func TestFontProviderForPinsClass(t *testing.T) {
+	q := url.Values{"fontClass": {"mono"}}
+	p := fontProviderFor(q)
+	if got := p.Random(mustRand(), covergen.FontFormal); got.Class() != covergen.FontMono {
+		t.Fatalf("class-pinned provider returned class %q", got.Class())
+	}
+}
 
 func TestParseOverridesReadsDeclaredKnob(t *testing.T) {
 	q := url.Values{"rings.spacing": {"2.5"}}
@@ -215,7 +244,7 @@ func TestSetupSnippetOnlyIncludesNonDefaultKnobs(t *testing.T) {
 		"rings.wobble":  1.2, // changed -> must appear
 		"rings.spacing": 1.0, // == default -> must be omitted
 	}
-	got := setupSnippet(style, "harmony", values)
+	got := setupSnippet(style, "harmony", values, covergen.Text{})
 	if !strings.Contains(got, `"rings.wobble"`) {
 		t.Errorf("snippet should include the changed knob rings.wobble:\n%s", got)
 	}
@@ -226,7 +255,7 @@ func TestSetupSnippetOnlyIncludesNonDefaultKnobs(t *testing.T) {
 
 func TestSetupSnippetUsesPaletteConstructor(t *testing.T) {
 	style := rings.New(covergen.PaletteByName("neon"))
-	got := setupSnippet(style, "neon", map[string]float64{"rings.wobble": 1.2})
+	got := setupSnippet(style, "neon", map[string]float64{"rings.wobble": 1.2}, covergen.Text{})
 	if !strings.Contains(got, `rings.New(covergen.PaletteByName("neon"))`) {
 		t.Errorf("snippet should construct the style on the selected palette:\n%s", got)
 	}
@@ -241,7 +270,7 @@ func TestSetupSnippetNoOverridesUsesGenerateStyle(t *testing.T) {
 	for _, k := range style.Knobs() {
 		values[k.Name] = k.Default
 	}
-	got := setupSnippet(style, "harmony", values)
+	got := setupSnippet(style, "harmony", values, covergen.Text{})
 	if !strings.Contains(got, "GenerateStyle(") {
 		t.Errorf("no-override snippet should call GenerateStyle:\n%s", got)
 	}
@@ -258,7 +287,7 @@ func TestSetupSnippetKeepsKnobOrder(t *testing.T) {
 		"rings.wobble":  1.2,
 		"rings.spacing": 2.0,
 	}
-	got := setupSnippet(style, "harmony", values)
+	got := setupSnippet(style, "harmony", values, covergen.Text{})
 	iSpacing := strings.Index(got, `"rings.spacing"`)
 	iWobble := strings.Index(got, `"rings.wobble"`)
 	if iSpacing < 0 || iWobble < 0 {
@@ -270,7 +299,7 @@ func TestSetupSnippetKeepsKnobOrder(t *testing.T) {
 }
 
 func TestSetupSnippetSvgUsesAssetConstructor(t *testing.T) {
-	got := setupSnippet(svg.Style, "harmony", map[string]float64{})
+	got := setupSnippet(svg.Style, "harmony", map[string]float64{}, covergen.Text{})
 	if !strings.Contains(got, "svg.New(") {
 		t.Errorf("svg snippet should use the asset constructor svg.New:\n%s", got)
 	}
@@ -347,5 +376,104 @@ func TestStylePageHasSetupButton(t *testing.T) {
 	}
 	if !strings.Contains(body, `id="setup"`) {
 		t.Error("style page should have the setup dialog")
+	}
+}
+
+func TestSetupSnippetIncludesTextWhenPresent(t *testing.T) {
+	got := setupSnippet(rings.Style, "harmony", map[string]float64{}, covergen.Text{Main: "Title", Subtitle: "Artist"})
+	if !strings.Contains(got, `covergen.Text{Main: "Title", Subtitle: "Artist"}`) {
+		t.Errorf("snippet should declare the text overlay:\n%s", got)
+	}
+	if !strings.Contains(got, "GenerateWithText(seed, 512, style, nil, text, fonts.Default())") {
+		t.Errorf("text snippet with no overrides should pass nil and fonts.Default():\n%s", got)
+	}
+	if !strings.Contains(got, "libs/covergen/fonts") {
+		t.Errorf("text snippet should mention the fonts import:\n%s", got)
+	}
+}
+
+func TestSetupSnippetTextWithOverridesUsesOverridesVar(t *testing.T) {
+	got := setupSnippet(rings.Style, "harmony", map[string]float64{"rings.wobble": 1.2}, covergen.Text{Main: "Title"})
+	if !strings.Contains(got, "GenerateWithText(seed, 512, style, overrides, text, fonts.Default())") {
+		t.Errorf("text snippet with overrides should pass the overrides var:\n%s", got)
+	}
+}
+
+func TestSetupSnippetEmptyTextUnchanged(t *testing.T) {
+	got := setupSnippet(rings.Style, "harmony", map[string]float64{}, covergen.Text{})
+	if strings.Contains(got, "GenerateWithText(") || strings.Contains(got, "covergen.Text{") {
+		t.Errorf("empty text must not alter the textless snippet:\n%s", got)
+	}
+}
+
+func TestHandleFontsListsAllWhenClassEmpty(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleFonts(rec, httptest.NewRequest("GET", "/fonts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var names []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &names); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(names) != len(fontLib.All()) {
+		t.Errorf("got %d names, want %d (all fonts)", len(names), len(fontLib.All()))
+	}
+}
+
+func TestHandleFontsFiltersByClass(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleFonts(rec, httptest.NewRequest("GET", "/fonts?class=mono", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var names []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &names); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(names) != 1 || names[0] != "Space Mono" {
+		t.Errorf("mono class = %v, want [Space Mono]", names)
+	}
+}
+
+func TestStylePageShowsTextControlsPreselectedToStyleClass(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `id="text-main"`) || !strings.Contains(body, `id="text-sub"`) {
+		t.Error("style page should include the main/subtitle text inputs")
+	}
+	if !strings.Contains(body, `id="fontClass"`) || !strings.Contains(body, `id="font"`) {
+		t.Error("style page should include the font-class and specific-font pickers")
+	}
+	if !strings.Contains(body, `<option value="clean" selected>`) {
+		t.Error("rings should preselect its own text class (clean)")
+	}
+}
+
+func TestStylePageFontClassQueryOverridesStyleDefault(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings?fontClass=mono", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `<option value="mono" selected>`) {
+		t.Error("an explicit ?fontClass= should win over the style's own class")
+	}
+	if !strings.Contains(body, `<option value="Space Mono"`) {
+		t.Error("the specific-font list should reflect the overridden class")
+	}
+}
+
+func TestHandleImgRendersWithTextAndPinnedFont(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleImg(rec, httptest.NewRequest("GET", "/img?style=rings&seed=abc&main=Title&sub=Artist&font=Space+Mono", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+		t.Errorf("content-type = %q, want image/png", ct)
 	}
 }
