@@ -10,6 +10,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/internal/paint"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a classic style that colors itself from pal; nil uses
@@ -40,7 +41,7 @@ func (s style) Knobs() []covergen.Knob {
 		out = append(out, k)
 	}
 	// grain last so it reads as a render post-process, after style + palette knobs.
-	return append(out, covergen.GrainKnob(7))
+	return append(append(out, covergen.GrainKnob(7)), covergen.TextKnobs()...)
 }
 
 // classicPaletteDefaults overrides the shared palette's knob defaults for classic
@@ -56,6 +57,19 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	drawGradient(img, cs.Accent1, cs.Accent2)
 	drawForeground(img, rng, ks)
 }
+
+// textClass is the classification classic renders its overlay in.
+const textClass = covergen.FontFormal
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle low-left in a formal face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * classicTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const classicTextFrac = 0.085
 
 // drawGradient fills img with a two-colour diagonal gradient from c1 (top-left)
 // to c2 (bottom-right).

@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/andresbott/aether/libs/covergen"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a liquid style that colors itself from pal; nil uses
@@ -33,7 +34,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(2))
+	return append(append(out, covergen.GrainKnob(2)), covergen.TextKnobs()...)
 }
 
 // liquidPaletteDefaults tunes the injected palette's knob defaults for liquid. It
@@ -129,3 +130,16 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 		}
 	}
 }
+
+// textClass is the classification liquid renders its overlay in.
+const textClass = covergen.FontScript
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle centered in a script face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * liquidTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorCenter, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const liquidTextFrac = 0.090

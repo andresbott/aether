@@ -11,6 +11,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/internal/paint"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a lowpoly style that colors itself from pal; nil uses
@@ -36,7 +37,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(7))
+	return append(append(out, covergen.GrainKnob(7)), covergen.TextKnobs()...)
 }
 
 // lowpolyPaletteDefaults tunes the injected palette's knob defaults for lowpoly.
@@ -143,6 +144,19 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 		}
 	}
 }
+
+// textClass is the classification lowpoly renders its overlay in.
+const textClass = covergen.FontClean
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle low-left in a clean sans face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * lowpolyTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const lowpolyTextFrac = 0.085
 
 // edge returns twice the signed area of triangle (ax,ay)-(bx,by)-(cx,cy); its
 // sign tells which side of edge AB point C lies on.

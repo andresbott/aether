@@ -10,6 +10,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/internal/paint"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a poster style that colors itself from pal; nil uses
@@ -35,7 +36,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(5))
+	return append(append(out, covergen.GrainKnob(5)), covergen.TextKnobs()...)
 }
 
 // posterPaletteDefaults tunes the injected palette's knob defaults for poster. It
@@ -112,6 +113,19 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 		}
 	}
 }
+
+// textClass is the classification poster renders its overlay in.
+const textClass = covergen.FontDisplay
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle bottom-center in a bold display face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * posterTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerCenter, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const posterTextFrac = 0.095
 
 func inCircle(x, y, cx, cy, r float64) bool {
 	dx, dy := x-cx, y-cy

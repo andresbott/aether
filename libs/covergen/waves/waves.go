@@ -9,6 +9,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/internal/paint"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a waves style that colors itself from pal; nil uses
@@ -34,7 +35,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(8))
+	return append(append(out, covergen.GrainKnob(8)), covergen.TextKnobs()...)
 }
 
 // wavesPaletteDefaults tunes the injected palette's knob defaults for waves. It
@@ -162,3 +163,16 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 		}
 	}
 }
+
+// textClass is the classification waves renders its overlay in.
+const textClass = covergen.FontScript
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle top-left in a script face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * wavesTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorUpperLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const wavesTextFrac = 0.090

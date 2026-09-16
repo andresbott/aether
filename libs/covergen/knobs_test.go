@@ -6,6 +6,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/allstyles"
+	"github.com/andresbott/aether/libs/covergen/fonts"
 	"github.com/andresbott/aether/libs/covergen/rings"
 )
 
@@ -77,6 +78,12 @@ var knobTestSeeds = []string{
 	"dimmu borgir|stormblast", "raised fist|get this right", "various artists|ugly",
 }
 
+// knobTestText is the overlay TestEveryKnobIsWiredAndInertAtDefault feeds
+// through GenerateWithText to exercise the shared text.scale/text.opacity knobs
+// (see renderKnobPair) — Draw never reads them, so only a non-empty Text drives
+// DrawText and gives them anything to wire-check.
+var knobTestText = covergen.Text{Main: "Test Artist", Subtitle: "Test Album"}
+
 // TestEveryKnobIsWiredAndInertAtDefault is the Phase-4 guard for the knob
 // rollout. For every style it asserts (a) nil overrides reproduce GenerateStyle
 // exactly (knobs are inert at default), and (b) each declared knob, pushed away
@@ -84,6 +91,7 @@ var knobTestSeeds = []string{
 // is declared but never read by the draw func (dead / mis-wired) fails here.
 func TestEveryKnobIsWiredAndInertAtDefault(t *testing.T) {
 	g := allstyles.New()
+	fp := fonts.Default()
 	const size = 96
 	for _, style := range g.Styles() {
 		for _, seed := range knobTestSeeds {
@@ -106,8 +114,7 @@ func TestEveryKnobIsWiredAndInertAtDefault(t *testing.T) {
 			}
 			changed := false
 			for _, seed := range knobTestSeeds {
-				base, _ := g.GenerateWithKnobs(seed, size, style, nil)
-				tuned, _ := g.GenerateWithKnobs(seed, size, style, map[string]float64{k.Name: target})
+				base, tuned := renderKnobPair(g, style, seed, size, k.Name, target, fp)
 				if !bytes.Equal(base, tuned) {
 					changed = true
 					break
@@ -118,4 +125,23 @@ func TestEveryKnobIsWiredAndInertAtDefault(t *testing.T) {
 			}
 		}
 	}
+}
+
+// renderKnobPair renders style at seed twice — once at style.Knobs() defaults,
+// once with knob name overridden to target — and returns both PNG encodings for
+// comparison. text.scale and text.opacity (see covergen.TextKnobs) are declared
+// by every TextDrawer style but read only inside DrawText, which
+// GenerateWithKnobs never reaches (it always renders with an empty Text); those
+// two are routed through GenerateWithText with a non-empty overlay instead, the
+// only path that actually exercises them. Every other knob keeps the plain
+// GenerateWithKnobs check.
+func renderKnobPair(g *covergen.Generator, style covergen.Style, seed string, size int, name string, target float64, fp covergen.FontProvider) (base, tuned []byte) {
+	if name == covergen.TextScaleKnobName || name == covergen.TextOpacityKnobName {
+		base, _ = g.GenerateWithText(seed, size, style, nil, knobTestText, fp)
+		tuned, _ = g.GenerateWithText(seed, size, style, map[string]float64{name: target}, knobTestText, fp)
+		return base, tuned
+	}
+	base, _ = g.GenerateWithKnobs(seed, size, style, nil)
+	tuned, _ = g.GenerateWithKnobs(seed, size, style, map[string]float64{name: target})
+	return base, tuned
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/internal/paint"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a remix style that colors itself from pal; nil uses
@@ -35,7 +36,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(4))
+	return append(append(out, covergen.GrainKnob(4)), covergen.TextKnobs()...)
 }
 
 // remixPaletteDefaults tunes the injected palette's knob defaults for remix. It
@@ -172,6 +173,19 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	// Occasional thin outline ring to break the composition.
 	drawRemixOutlineRing(img, sz, fs, rng)
 }
+
+// textClass is the classification remix renders its overlay in.
+const textClass = covergen.FontMono
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle low-left in a mono face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * remixTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const remixTextFrac = 0.075
 
 // drawRemixOutlineRing traces a thin white ring 1-in-3 times to break up the
 // composition; otherwise a no-op. Split out of Draw to keep its cyclomatic

@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 
 	"github.com/andresbott/aether/libs/covergen"
+	"github.com/andresbott/aether/libs/covergen/internal/text"
 )
 
 // New returns a bauhaus style that colors itself from pal; nil uses
@@ -33,7 +34,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(out, covergen.GrainKnob(9))
+	return append(append(out, covergen.GrainKnob(9)), covergen.TextKnobs()...)
 }
 
 // bauhausPaletteDefaults tunes the injected palette's knob defaults for bauhaus.
@@ -85,6 +86,19 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 		}
 	}
 }
+
+// textClass is the classification bauhaus renders its overlay in.
+const textClass = covergen.FontDisplay
+
+func (s style) TextClass() covergen.FontClass { return textClass }
+
+// DrawText paints the album title + subtitle low-left in a bold display face.
+func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
+	px := float64(img.Bounds().Dx()) * bauhausTextFrac * ks.Float(covergen.TextScaleKnobName)
+	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+}
+
+const bauhausTextFrac = 0.095
 
 // drawBauhausCell fills one grid cell with a randomly chosen motif drawn in
 // two (or three, for the bullseye) palette colours.
