@@ -29,11 +29,11 @@ const maxVariationAttempts = 8
 // renderStyle renders a deterministic cover for h in style s and encodes it as
 // PNG. It goes through renderBest, so a cover that fails the quality floors (see
 // coverScore) is rejected and deterministically reseeded.
-func renderStyle(h [32]byte, s Style, size int, ks KnobSet) ([]byte, error) {
+func renderStyle(h [32]byte, s Style, size int, ks KnobSet, text Text, fonts FontProvider) ([]byte, error) {
 	if size <= 0 {
 		return nil, fmt.Errorf("covergen: size must be > 0, got %d", size)
 	}
-	img := renderBest(h, s, size, ks, coverScore, maxVariationAttempts)
+	img := renderBest(h, s, size, ks, text, fonts, coverScore, maxVariationAttempts)
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return nil, fmt.Errorf("covergen: encode png: %w", err)
@@ -46,12 +46,12 @@ func renderStyle(h [32]byte, s Style, size int, ks KnobSet) ([]byte, error) {
 // maxAttempts renders total — returning the highest-scoring image seen. A render
 // that scores >= 1 is returned immediately, so well-behaved seeds are
 // byte-identical to a single render and only degenerate ones pay for the retries.
-func renderBest(h [32]byte, s Style, size int, ks KnobSet, score func(*image.RGBA) float64, maxAttempts int) *image.RGBA {
-	best := renderOnce(h, s, size, ks)
+func renderBest(h [32]byte, s Style, size int, ks KnobSet, text Text, fonts FontProvider, score func(*image.RGBA) float64, maxAttempts int) *image.RGBA {
+	best := renderOnce(h, s, size, ks, text, fonts)
 	bestScore := score(best)
 	for attempt := 1; bestScore < 1 && attempt < maxAttempts; attempt++ {
 		h = perturb(h)
-		cand := renderOnce(h, s, size, ks)
+		cand := renderOnce(h, s, size, ks, text, fonts)
 		if sc := score(cand); sc > bestScore {
 			best, bestScore = cand, sc
 		}
@@ -67,15 +67,26 @@ func perturb(h [32]byte) [32]byte {
 	return sha256.Sum256(h[:])
 }
 
-// renderOnce draws s at double resolution, downsamples 2x for anti-aliasing, and
-// applies grain, returning the final image before PNG encoding:
-// rngFromHash -> Draw -> downsample2x -> grain, dispatching through a Style value.
-// The grain amount is the resolved "grain" knob (see GrainKnob), so it is tuned
-// uniformly across styles here rather than in each Draw func.
-func renderOnce(h [32]byte, s Style, size int, ks KnobSet) *image.RGBA {
+// renderOnce draws s at double resolution, optionally overlays text, downsamples
+// 2x for anti-aliasing, and applies grain, returning the final image before PNG
+// encoding: rngFromHash -> Draw -> [text] -> downsample2x -> grain, dispatching
+// through a Style value. The text overlay only runs when text is non-empty, fonts
+// is non-nil, and s implements TextDrawer — so a nil/empty caller (Text{}, nil)
+// reproduces the textless render exactly. The grain amount is the resolved
+// "grain" knob (see GrainKnob), so it is tuned uniformly across styles here
+// rather than in each Draw func.
+func renderOnce(h [32]byte, s Style, size int, ks KnobSet, text Text, fonts FontProvider) *image.RGBA {
 	rng := rngFromHash(h)
 	big := image.NewRGBA(image.Rect(0, 0, size*2, size*2))
 	s.Draw(big, rng, ks)
+	if !text.Empty() && fonts != nil {
+		if td, ok := s.(TextDrawer); ok {
+			f := fonts.Random(rng, td.TextClass())
+			if f != nil {
+				td.DrawText(big, rng, ks, text, f)
+			}
+		}
+	}
 	img := downsample2x(big)
 	if g := int(ks.Float(GrainKnobName)); g > 0 {
 		addGrain(img, rng, g)

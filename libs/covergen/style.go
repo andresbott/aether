@@ -66,13 +66,13 @@ func (g *Generator) Generate(seed string, size int) ([]byte, error) {
 		return nil, errors.New("covergen: generator has no styles")
 	}
 	h := sha256.Sum256([]byte(seed))
-	return renderStyle(h, s, size, newKnobSet(s.Knobs(), nil))
+	return renderStyle(h, s, size, newKnobSet(s.Knobs(), nil), Text{}, nil)
 }
 
 // GenerateStyle produces a deterministic cover in the given style.
 func (g *Generator) GenerateStyle(seed string, size int, s Style) ([]byte, error) {
 	h := sha256.Sum256([]byte(seed))
-	return renderStyle(h, s, size, newKnobSet(s.Knobs(), nil))
+	return renderStyle(h, s, size, newKnobSet(s.Knobs(), nil), Text{}, nil)
 }
 
 // GenerateWithKnobs is GenerateStyle with per-style knob overrides applied
@@ -80,5 +80,14 @@ func (g *Generator) GenerateStyle(seed string, size int, s Style) ([]byte, error
 // ignored, and nil overrides reproduce GenerateStyle exactly.
 func (g *Generator) GenerateWithKnobs(seed string, size int, s Style, overrides map[string]float64) ([]byte, error) {
 	h := sha256.Sum256([]byte(seed))
-	return renderStyle(h, s, size, newKnobSet(s.Knobs(), overrides))
+	return renderStyle(h, s, size, newKnobSet(s.Knobs(), overrides), Text{}, nil)
+}
+
+// GenerateWithText is GenerateWithKnobs plus a text overlay drawn by the style's
+// TextDrawer using a font of its TextClass picked from fonts. An empty Text, a
+// nil fonts, or a style that is not a TextDrawer all render exactly as
+// GenerateWithKnobs.
+func (g *Generator) GenerateWithText(seed string, size int, s Style, overrides map[string]float64, text Text, fonts FontProvider) ([]byte, error) {
+	h := sha256.Sum256([]byte(seed))
+	return renderStyle(h, s, size, newKnobSet(s.Knobs(), overrides), text, fonts)
 }

@@ -59,7 +59,7 @@ func firstRenderFlatSeed(t *testing.T, size int, ks KnobSet) [32]byte {
 	t.Helper()
 	for i := 0; i < 2000; i++ {
 		h := sha256.Sum256([]byte("clear-" + strconv.Itoa(i)))
-		if variation(renderOnce(h, biasedStub{}, size, ks)) < testFloor {
+		if variation(renderOnce(h, biasedStub{}, size, ks, Text{}, nil)) < testFloor {
 			return h
 		}
 	}
@@ -72,10 +72,10 @@ func TestRenderBestReseedsPastFlatStart(t *testing.T) {
 	ks := newKnobSet(biasedStub{}.Knobs(), nil)
 	h := firstRenderFlatSeed(t, size, ks)
 	// Sanity: this seed really does start flat.
-	if v := variation(renderOnce(h, biasedStub{}, size, ks)); v >= testFloor {
+	if v := variation(renderOnce(h, biasedStub{}, size, ks, Text{}, nil)); v >= testFloor {
 		t.Fatalf("precondition: first render should be flat, got variation %v", v)
 	}
-	got := renderBest(h, biasedStub{}, size, ks, scoreVar, 64)
+	got := renderBest(h, biasedStub{}, size, ks, Text{}, nil, scoreVar, 64)
 	if v := variation(got); v < testFloor {
 		t.Fatalf("renderBest left output below floor: got %v, want >= %v", v, testFloor)
 	}
@@ -85,7 +85,7 @@ func TestRenderBestGivesUpOnAlwaysFlat(t *testing.T) {
 	const size = 64
 	ks := newKnobSet(flatStub{}.Knobs(), nil)
 	h := sha256.Sum256([]byte("flat-seed"))
-	got := renderBest(h, flatStub{}, size, ks, scoreVar, 8)
+	got := renderBest(h, flatStub{}, size, ks, Text{}, nil, scoreVar, 8)
 	if got == nil {
 		t.Fatal("renderBest returned nil image")
 	}
@@ -106,13 +106,13 @@ func TestRenderBestKeepsGoodFirstRender(t *testing.T) {
 	var h [32]byte
 	for i := 0; ; i++ {
 		hh := sha256.Sum256([]byte("good-" + strconv.Itoa(i)))
-		if variation(renderOnce(hh, biasedStub{}, size, ks)) >= testFloor {
+		if variation(renderOnce(hh, biasedStub{}, size, ks, Text{}, nil)) >= testFloor {
 			h = hh
 			break
 		}
 	}
-	first := renderOnce(h, biasedStub{}, size, ks)
-	best := renderBest(h, biasedStub{}, size, ks, scoreVar, 8)
+	first := renderOnce(h, biasedStub{}, size, ks, Text{}, nil)
+	best := renderBest(h, biasedStub{}, size, ks, Text{}, nil, scoreVar, 8)
 	if !bytes.Equal(first.Pix, best.Pix) {
 		t.Fatal("renderBest changed a good first render; the fast path must return it unchanged")
 	}
@@ -123,11 +123,11 @@ func TestRenderStyleDeterministicThroughRetry(t *testing.T) {
 	ks := newKnobSet(biasedStub{}.Knobs(), nil)
 	// A flat-start seed forces renderStyle's retry loop (prod floor > 0) to run.
 	h := firstRenderFlatSeed(t, size, ks)
-	a, err := renderStyle(h, biasedStub{}, size, ks)
+	a, err := renderStyle(h, biasedStub{}, size, ks, Text{}, nil)
 	if err != nil {
 		t.Fatalf("renderStyle a: %v", err)
 	}
-	b, err := renderStyle(h, biasedStub{}, size, ks)
+	b, err := renderStyle(h, biasedStub{}, size, ks, Text{}, nil)
 	if err != nil {
 		t.Fatalf("renderStyle b: %v", err)
 	}
@@ -151,12 +151,12 @@ func TestGrainKnobControlsNoise(t *testing.T) {
 	const size = 64
 	h := sha256.Sum256([]byte("grain-seed"))
 
-	none := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), nil))
+	none := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), nil), Text{}, nil)
 	if v := variation(none); v != 0 {
 		t.Fatalf("grain=0 should leave a flat fill untouched, got variation %v", v)
 	}
 
-	grainy := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), map[string]float64{GrainKnobName: 8}))
+	grainy := renderOnce(h, grainStub{}, size, newKnobSet(grainStub{}.Knobs(), map[string]float64{GrainKnobName: 8}), Text{}, nil)
 	if v := variation(grainy); v == 0 {
 		t.Fatal("grain=8 should add noise, but the output stayed flat")
 	}
@@ -166,8 +166,8 @@ func TestGrainRenderDeterministic(t *testing.T) {
 	const size = 64
 	h := sha256.Sum256([]byte("grain-seed"))
 	ks := newKnobSet(grainStub{}.Knobs(), map[string]float64{GrainKnobName: 6})
-	a := renderOnce(h, grainStub{}, size, ks)
-	b := renderOnce(h, grainStub{}, size, ks)
+	a := renderOnce(h, grainStub{}, size, ks, Text{}, nil)
+	b := renderOnce(h, grainStub{}, size, ks, Text{}, nil)
 	if !bytes.Equal(a.Pix, b.Pix) {
 		t.Fatal("grain render is not deterministic for a fixed seed")
 	}
