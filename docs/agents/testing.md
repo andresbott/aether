@@ -38,6 +38,12 @@ workflows).
   are the norm, with `_internal_test.go` for white-box cases.
 - Fixtures: real audio files under `internal/tags/testdata`,
   `internal/metadataedit/testdata`, `libs/covergen/testdata`.
+- `libs/covergen` and `libs/covergen/allstyles` guard default appearance with
+  local-only golden-PNG tests (`TestGolden`, `TestTextGoldens` for the text
+  overlay) — bless with `-run TestGolden -update` / `-run TestTextGoldens
+  -update`. Goldens live in gitignored `testdata/` dirs and the tests **skip**
+  (not fail) when a golden is absent, so a fresh checkout or CI never gates on
+  them; only a local `-update` run commits you to a new baseline.
 - Test files are excluded from `nestif`, `dupl`, `gosec` — table-driven tests
   with some duplication are fine.
 - Optional external binaries (ffprobe, fpcalc) must not break the suite:

@@ -33,6 +33,7 @@ app/spa/files/ui/*
 
 # Generated cover art test samples
 libs/covergen/testdata/*.png
+libs/covergen/allstyles/testdata/text/*.png
 .tokensave
 
 # Subagent-driven-development scratch workspace
