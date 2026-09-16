@@ -59,11 +59,29 @@ func TestAutoContrastColor(t *testing.T) {
 
 func TestBlockDrawsBothLines(t *testing.T) {
 	bg := color.RGBA{0, 0, 0, 255}
-	img := fillRGBA(240, 240, bg)
-	Block(img, "TITLE", "subtitle",
-		func(float64) font.Face { return basicfont.Face7x13 },
-		18, AnchorLowerLeft, 12, 1)
-	if nonBackground(img, bg) == 0 {
-		t.Fatal("Block drew nothing")
+	faceAt := func(float64) font.Face { return basicfont.Face7x13 }
+
+	// Render main-only Block
+	imgMain := fillRGBA(240, 240, bg)
+	Block(imgMain, "TITLE", "",
+		faceAt, 18, AnchorLowerLeft, 12, 1)
+	mainOnlyPixels := nonBackground(imgMain, bg)
+	if mainOnlyPixels == 0 {
+		t.Fatal("Block with main only drew nothing")
+	}
+
+	// Render main+subtitle Block
+	imgBoth := fillRGBA(240, 240, bg)
+	Block(imgBoth, "TITLE", "subtitle",
+		faceAt, 18, AnchorLowerLeft, 12, 1)
+	bothPixels := nonBackground(imgBoth, bg)
+	if bothPixels == 0 {
+		t.Fatal("Block with both lines drew nothing")
+	}
+
+	// Verify subtitle added pixels (proves both lines rendered)
+	if bothPixels <= mainOnlyPixels {
+		t.Fatalf("Block with subtitle drew %d pixels, main-only drew %d; subtitle must add pixels",
+			bothPixels, mainOnlyPixels)
 	}
 }
