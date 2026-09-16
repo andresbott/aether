@@ -467,6 +467,17 @@ func TestStylePageFontClassQueryOverridesStyleDefault(t *testing.T) {
 	}
 }
 
+func TestStylePageFontQueryPreselectsSpecificFontOption(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings?fontClass=mono&font=Space+Mono", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `<option value="Space Mono" selected>`) {
+		t.Errorf("the specific-font picker should preselect the ?font= value:\n%s", body)
+	}
+}
+
 func TestHandleImgRendersWithTextAndPinnedFont(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleImg(rec, httptest.NewRequest("GET", "/img?style=rings&seed=abc&main=Title&sub=Artist&font=Space+Mono", nil))
