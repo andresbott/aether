@@ -54,3 +54,20 @@ const GrainKnobName = "grain"
 func GrainKnob(def float64) Knob {
 	return Knob{Name: GrainKnobName, Label: "Grain", Min: 0, Max: 12, Step: 1, Default: def}
 }
+
+// TextScaleKnobName and TextOpacityKnobName are the well-known knobs a
+// TextDrawer style declares so the lab can tune its text overlay live.
+const (
+	TextScaleKnobName   = "text.scale"
+	TextOpacityKnobName = "text.opacity"
+)
+
+// TextKnobs returns the shared text-overlay knobs every TextDrawer style adds to
+// its Knobs (like GrainKnob). Identity defaults (scale 1, opacity 1) keep output
+// unchanged until they are tuned, and they are only read inside DrawText.
+func TextKnobs() []Knob {
+	return []Knob{
+		{Name: TextScaleKnobName, Label: "Text size", Min: 0.3, Max: 2, Step: 0.05, Default: 1},
+		{Name: TextOpacityKnobName, Label: "Text opacity", Min: 0, Max: 1, Step: 0.05, Default: 1},
+	}
+}
