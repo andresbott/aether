@@ -57,6 +57,7 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 		"indexBasedQueue",
 		"searchGenres",
 		"apiKeyAuthentication",
+		"releaseTypeFilter",
 	}
 	if len(exts) != len(expected) {
 		t.Fatalf("expected %d extensions, got %d: %+v", len(expected), len(exts), exts)

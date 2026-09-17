@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Sixteen extensions exist today — copy their shape.
+  Seventeen extensions exist today — copy their shape.
 - **Never route music features through `/api/v0`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -152,6 +152,15 @@ Owner}`). The handler reports each entry's `username` field as the actual owner,
 while the **star state (`starred`) is the viewer's own** — decorated via
 `starredSongList(h.store, requestOwner(r), tracks)` so each user sees their own
 favorites, not the playing user's.
+
+## Album lists (`getAlbumList2` / `getAlbumList2Index`, the `releaseTypeFilter` extension)
+
+**`releaseTypeFilter` (v1).** `getAlbumList2` and `getAlbumList2Index` accept an
+optional `releaseType=<MB primary type>` (`Album`/`Single`/`EP`/`Broadcast`/
+`Other`). Matches, case-insensitively, albums whose `releaseTypes` contains the
+value; the letter index applies the same filter so virtual-grid offsets stay
+consistent. Untyped releases match no typed value (they appear only
+unfiltered).
 
 ## Discovery feed (`getDiscovery`, the `discovery` extension)
 

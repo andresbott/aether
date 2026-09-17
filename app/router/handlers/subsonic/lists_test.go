@@ -53,6 +53,39 @@ func TestGetAlbumList2IncludesSongCountAndDuration(t *testing.T) {
 	}
 }
 
+func TestGetAlbumList2FilterByReleaseType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	db.Create(&model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getAlbumList2.view?type=alphabeticalByName&releaseType=Single")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			AlbumList2 struct {
+				Album []struct {
+					Name string `json:"name"`
+				} `json:"album"`
+			} `json:"albumList2"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	albums := body.SubsonicResponse.AlbumList2.Album
+	if len(albums) != 1 || albums[0].Name != "Hit" {
+		t.Fatalf("expected only the Single 'Hit', got %+v", albums)
+	}
+}
+
 func TestGetAlbumList2Index(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
@@ -97,6 +130,36 @@ func TestGetAlbumList2Index(t *testing.T) {
 	}
 	if idx.Index[0].Name != "A" || idx.Index[0].Offset != 0 || idx.Index[0].Count != 1 {
 		t.Fatalf("first bucket = %+v, want {A 0 1}", idx.Index[0])
+	}
+}
+
+func TestGetAlbumList2IndexFilterByReleaseType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "Abba", NameNorm: "abba", AlbumArtistNorm: "x", ReleaseTypes: []string{"EP"}})
+	db.Create(&model.Album{Name: "Beta", NameNorm: "beta", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getAlbumList2Index.view?releaseType=EP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			AlbumList2Index struct {
+				Total int `json:"total"`
+			} `json:"albumList2Index"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.SubsonicResponse.AlbumList2Index.Total != 1 {
+		t.Fatalf("expected total 1 EP, got %d", body.SubsonicResponse.AlbumList2Index.Total)
 	}
 }
 

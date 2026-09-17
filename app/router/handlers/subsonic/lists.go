@@ -21,11 +21,12 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 	}
 	owner := requestOwner(r)
 	filter := &store.AlbumListFilter{
-		Genre:     paramStr(r, "genre"),
-		FromYear:  paramInt(r, "fromYear", 0),
-		ToYear:    paramInt(r, "toYear", 0),
-		LibraryID: paramLibraryID(r),
-		Owner:     owner,
+		Genre:       paramStr(r, "genre"),
+		FromYear:    paramInt(r, "fromYear", 0),
+		ToYear:      paramInt(r, "toYear", 0),
+		LibraryID:   paramLibraryID(r),
+		Owner:       owner,
+		ReleaseType: paramStr(r, "releaseType"),
 	}
 	albums, err := h.store.GetAlbumList(listType, size, offset, filter)
 	if err != nil {
@@ -177,7 +178,10 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
-	filter := &store.AlbumListFilter{LibraryID: paramLibraryID(r)}
+	filter := &store.AlbumListFilter{
+		LibraryID:   paramLibraryID(r),
+		ReleaseType: paramStr(r, "releaseType"),
+	}
 	letters, total, err := h.store.GetAlbumLetterIndex(filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
