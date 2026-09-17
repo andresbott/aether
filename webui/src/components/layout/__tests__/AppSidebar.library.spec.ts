@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Replaces AppSidebar.discovery.spec.ts: the standalone /discover entry and view are
-// gone, so what needs guarding is the Library group's new shape — one flat level, no
-// section header, and Library itself as the door to the Discovery feed.
+// Guards the redesigned Library block: Discover/Releases/Artists/Songs sit under a
+// titled "Library" section header, followed by Playlists and any per-folder entries,
+// with Now Playing/Search above it and Genres/Radio below.
 
 const pushSpy = vi.fn()
 vi.mock('vue-router', () => ({
@@ -37,104 +37,56 @@ beforeEach(() => {
     foldersRef.value = []
 })
 
-describe('AppSidebar Library entry', () => {
-    it('names the cross-collection entry "Library", not "All Music"', () => {
-        foldersRef.value = [
-            { id: 1, name: 'Main' },
-            { id: 2, name: 'Classical' }
-        ]
+describe('AppSidebar Library block', () => {
+    it('puts Now Playing and Search above the Library block', () => {
         const labels = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
             .map((n) => n.text())
-        expect(labels).toContain('Library')
-        expect(labels).not.toContain('All Music')
+        expect(labels.slice(0, 2)).toEqual(['Now Playing', 'Search'])
     })
 
-    it('carries the compass icon, since it opens on the Discovery feed', () => {
+    it('renders a "Library" section header', () => {
+        const headers = mountSidebar()
+            .findAll('.nav-section-label')
+            .map((n) => n.text())
+        expect(headers).toContain('Library')
+    })
+
+    it('lists the browse modes, then Playlists, in the Library block', () => {
+        const labels = mountSidebar()
+            .findAll('.sidebar-nav .nav-item')
+            .map((n) => n.text())
+        expect(labels).toEqual([
+            'Now Playing',
+            'Search',
+            'Discover',
+            'Releases',
+            'Artists',
+            'Songs',
+            'Playlists',
+            'Genres',
+            'Radio'
+        ])
+    })
+
+    it('gives Discover the compass icon and routes it to /library', async () => {
         const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
-            .find((n) => n.text() === 'Library')!
+            .find((n) => n.text() === 'Discover')!
         expect(item.find('i').classes()).toContain('pi-compass')
-    })
-
-    it('navigates to /library when clicked', async () => {
-        const item = mountSidebar()
-            .findAll('.sidebar-nav .nav-item')
-            .find((n) => n.text() === 'Library')!
         await item.trigger('click')
         expect(pushSpy).toHaveBeenCalledWith('/library')
     })
 
-    it('offers no standalone Discover entry — the feed lives inside Library', async () => {
-        const w = mountSidebar()
-        expect(w.text()).not.toContain('Discover')
-        expect(pushSpy).not.toHaveBeenCalledWith('/discover')
-    })
-
-    // Both section headers are gone; the nav is one flat list around a single
-    // label-less separator.
-    it('renders no section headers at all', () => {
-        const w = mountSidebar()
-        expect(w.findAll('.nav-section-label')).toHaveLength(0)
-        expect(w.findAll('.nav-separator.has-label')).toHaveLength(0)
-        expect(w.findAll('.sidebar-nav .nav-separator')).toHaveLength(1)
-    })
-
-    it('keeps Radio as a flat entry now that the Streaming header is gone', () => {
-        const labels = mountSidebar()
+    it('routes Releases to the #releases mode', async () => {
+        const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
-            .map((n) => n.text())
-        expect(labels).toContain('Radio')
-        expect(mountSidebar().text()).not.toContain('Streaming')
+            .find((n) => n.text() === 'Releases')!
+        await item.trigger('click')
+        expect(pushSpy).toHaveBeenCalledWith('/library#releases')
     })
 
-    // Each library is a peer destination, not a child of a browse mode, so no
-    // per-folder entry may carry the old indent class.
-    it('renders per-folder entries at the same level as every other entry', () => {
-        foldersRef.value = [
-            { id: 1, name: 'Main' },
-            { id: 2, name: 'Classical' }
-        ]
-        const w = mountSidebar()
-        expect(w.findAll('.nav-item.sub-item')).toHaveLength(0)
-        const folder = w.findAll('.sidebar-nav .nav-item').find((n) => n.text() === 'Classical')!
-        expect(folder.classes()).not.toContain('sub-item')
-    })
-
-    it('keeps the per-folder entries and their icons', () => {
-        foldersRef.value = [
-            { id: 1, name: 'Main' },
-            { id: 2, name: 'Classical', icon: 'star' }
-        ]
-        const w = mountSidebar()
-        const labels = w.findAll('.sidebar-nav .nav-item').map((n) => n.text())
-        expect(labels).toEqual(
-            expect.arrayContaining(['Library', 'Main', 'Classical', 'Playlists', 'Genres'])
-        )
-        const classical = w.findAll('.sidebar-nav .nav-item').find((n) => n.text() === 'Classical')!
-        expect(classical.find('i').classes()).toContain('pi-star')
-    })
-
-    // A lone library needs no entry of its own — the Library entry already reaches it.
-    it('adds no per-folder entry when there is one library or none', () => {
-        foldersRef.value = [{ id: 1, name: 'Main' }]
-        const labels = mountSidebar()
-            .findAll('.sidebar-nav .nav-item')
-            .map((n) => n.text())
-        expect(labels.filter((l) => l === 'Library')).toHaveLength(1)
-        expect(labels).not.toContain('Main')
-    })
-
-    it('sits directly below Now Playing, above Search', () => {
-        const labels = mountSidebar()
-            .findAll('.sidebar-nav .nav-item')
-            .map((n) => n.text())
-        expect(labels.slice(0, 3)).toEqual(['Now Playing', 'Library', 'Search'])
-    })
-
-    // The per-folder entries did NOT follow the root up: they lead the group below
-    // the separator, with Search still above it.
-    it('leaves the per-folder entries below Search', () => {
+    it('appends per-library entries after Playlists, before Genres', () => {
         foldersRef.value = [
             { id: 1, name: 'Main' },
             { id: 2, name: 'Classical' }
@@ -144,21 +96,24 @@ describe('AppSidebar Library entry', () => {
             .map((n) => n.text())
         expect(labels).toEqual([
             'Now Playing',
-            'Library',
             'Search',
+            'Discover',
+            'Releases',
+            'Artists',
+            'Songs',
+            'Playlists',
             'Main',
             'Classical',
-            'Playlists',
             'Genres',
             'Radio'
         ])
     })
 
-    it('orders Library before Playlists and Genres', () => {
+    it('adds no per-library entry when there is one library or none', () => {
+        foldersRef.value = [{ id: 1, name: 'Main' }]
         const labels = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
             .map((n) => n.text())
-        expect(labels.indexOf('Library')).toBeLessThan(labels.indexOf('Playlists'))
-        expect(labels.indexOf('Playlists')).toBeLessThan(labels.indexOf('Genres'))
+        expect(labels).not.toContain('Main')
     })
 })
