@@ -488,3 +488,19 @@ func TestHandleImgRendersWithTextAndPinnedFont(t *testing.T) {
 		t.Errorf("content-type = %q, want image/png", ct)
 	}
 }
+
+func TestHandleOverviewRenders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleOverview(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	// The overview must execute its template and carry the Text toggle, the
+	// data-driven cells, and the placeholder title/artist the toggle JS reads.
+	for _, want := range []string{`id="text-toggle"`, `class="cell"`, `data-style=`, placeholderMain, placeholderSub} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview body missing %q", want)
+		}
+	}
+}

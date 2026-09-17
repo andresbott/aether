@@ -37,9 +37,17 @@ import (
 
 const (
 	overviewPerStyle = 6   // thumbnails per style on the overview
-	tuningGrid       = 12  // seeds shown on a style's tuning page
+	tuningGrid       = 24  // seeds shown on a style's tuning page
 	thumbSize        = 200 // px; rendered fresh per request (no cache)
 	swatchSeeds      = 4   // sample seeds shown as palette-role swatch rows
+)
+
+// placeholderMain and placeholderSub are the sample title/artist the lab overlays
+// on thumbnails while the "Text" toggle is on, so text placement can be previewed
+// without typing. The same pair is used on every thumbnail.
+const (
+	placeholderMain = "Midnight Drive"
+	placeholderSub  = "The Wanderers"
 )
 
 // gen is the Generator over covergen's full built-in style set. The
@@ -503,7 +511,9 @@ func handleOverview(w http.ResponseWriter, _ *http.Request) {
 	data := struct {
 		Rows []overviewRow
 		Size int
-	}{Size: thumbSize}
+		Main string
+		Sub  string
+	}{Size: thumbSize, Main: placeholderMain, Sub: placeholderSub}
 	for _, s := range gen.Styles() {
 		data.Rows = append(data.Rows, overviewRow{Name: s.Name(), Seeds: randomSeeds(overviewPerStyle)})
 	}
@@ -569,39 +579,43 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Name         string
-		StyleKnobs   []covergen.Knob
-		PaletteKnobs []covergen.Knob
-		Values       map[string]float64
-		Palettes     []string
-		Palette      string
-		HasPalette   bool
-		Seeds        []string
-		SwatchSeeds  []string
-		Size         int
-		TextClass    string
-		FontClasses  []covergen.FontClass
-		Fonts        []string
-		Font         string
-		Main         string
-		Sub          string
+		Name            string
+		StyleKnobs      []covergen.Knob
+		PaletteKnobs    []covergen.Knob
+		Values          map[string]float64
+		Palettes        []string
+		Palette         string
+		HasPalette      bool
+		Seeds           []string
+		SwatchSeeds     []string
+		Size            int
+		TextClass       string
+		FontClasses     []covergen.FontClass
+		Fonts           []string
+		Font            string
+		Main            string
+		Sub             string
+		PlaceholderMain string
+		PlaceholderSub  string
 	}{
-		Name:         style.Name(),
-		StyleKnobs:   styleKnobs,
-		PaletteKnobs: paletteKnobs,
-		Values:       values,
-		Palettes:     paletteNames(),
-		Palette:      selPalette,
-		HasPalette:   hasPalette,
-		Seeds:        seeds,
-		SwatchSeeds:  swatch,
-		Size:         thumbSize,
-		TextClass:    string(selClass),
-		FontClasses:  fontLib.Classes(),
-		Fonts:        fontNames,
-		Font:         q.Get("font"),
-		Main:         q.Get("main"),
-		Sub:          q.Get("sub"),
+		Name:            style.Name(),
+		StyleKnobs:      styleKnobs,
+		PaletteKnobs:    paletteKnobs,
+		Values:          values,
+		Palettes:        paletteNames(),
+		Palette:         selPalette,
+		HasPalette:      hasPalette,
+		Seeds:           seeds,
+		SwatchSeeds:     swatch,
+		Size:            thumbSize,
+		TextClass:       string(selClass),
+		FontClasses:     fontLib.Classes(),
+		Fonts:           fontNames,
+		Font:            q.Get("font"),
+		Main:            q.Get("main"),
+		Sub:             q.Get("sub"),
+		PlaceholderMain: placeholderMain,
+		PlaceholderSub:  placeholderSub,
 	}
 	render(w, styleTmpl, data)
 }
@@ -617,7 +631,9 @@ var baseCSS = `
   :root { color-scheme: dark; }
   body { margin: 0; background: #111; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
   a { color: #7db7ff; text-decoration: none; }
-  header { padding: 12px 20px; border-bottom: 1px solid #222; position: sticky; top: 0; background: #111; z-index: 2; }
+  header { padding: 12px 20px; border-bottom: 1px solid #222; position: sticky; top: 0; background: #111; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .text-toggle { background: #223; color: #cde; border: 1px solid #345; border-radius: 6px; padding: 6px 10px; cursor: pointer; font: inherit; white-space: nowrap; }
+  .text-toggle[aria-pressed="true"] { background: #1e5631; color: #d7ffe6; border-color: #2b7a4b; }
   h1 { font-size: 16px; margin: 0; }
   h2 { font-size: 14px; margin: 0 0 8px; }
   main { padding: 20px; }
@@ -627,34 +643,72 @@ var baseCSS = `
 `
 
 var overviewTmpl = template.Must(template.New("overview").Parse(`<!doctype html>
-<html><head><meta charset="utf-8"><title>covergenlab</title><style>` + baseCSS + `</style></head>
+<html><head><meta charset="utf-8"><title>covergenlab</title><style>` + baseCSS + `
+  .styles { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+  .style-card { background: #161616; border: 1px solid #222; border-radius: 8px; padding: 12px; margin: 0; }
+  .style-card h2 { margin: 0 0 10px; }
+  .style-card .grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+  @media (min-width: 1100px) {
+    .styles { grid-template-columns: repeat(2, 1fr); }
+    .style-card .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  }
+</style></head>
 <body>
-<header><h1>covergenlab — cover-art styles</h1></header>
+<header>
+  <h1>covergenlab — cover-art styles</h1>
+  <button type="button" class="text-toggle" id="text-toggle" aria-pressed="true">Text: on</button>
+</header>
 <main>
+<div class="styles">
 {{range .Rows}}{{$name := .Name}}
-  <section>
+  <section class="style-card">
     <h2><a href="/style/{{$name}}">{{$name}} →</a>{{if eq $name "svg"}} &nbsp;·&nbsp; <a href="/svg">svg curation →</a>{{end}}</h2>
     <div class="grid">
-      {{range .Seeds}}<img src="/img?style={{$name}}&seed={{.}}&size={{$.Size}}" title="{{.}}">{{end}}
+      {{range .Seeds}}<img class="cell" data-style="{{$name}}" data-seed="{{.}}" title="{{.}}">{{end}}
     </div>
   </section>
 {{end}}
+</div>
 </main>
+<script>
+  var TEXT_ON = true;
+  var PH_MAIN = "{{.Main}}", PH_SUB = "{{.Sub}}", SIZE = "{{.Size}}";
+  function renderCells() {
+    document.querySelectorAll('img.cell').forEach(function (img) {
+      var u = new URLSearchParams();
+      u.set('style', img.dataset.style);
+      u.set('seed', img.dataset.seed);
+      u.set('size', SIZE);
+      if (TEXT_ON) { u.set('main', PH_MAIN); u.set('sub', PH_SUB); }
+      img.src = '/img?' + u.toString();
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var t = document.getElementById('text-toggle');
+    t.addEventListener('click', function () {
+      TEXT_ON = !TEXT_ON;
+      t.setAttribute('aria-pressed', TEXT_ON ? 'true' : 'false');
+      t.textContent = TEXT_ON ? 'Text: on' : 'Text: off';
+      renderCells();
+    });
+    renderCells();
+  });
+</script>
 </body></html>`))
 
 var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
 <html><head><meta charset="utf-8"><title>{{.Name}} — covergenlab</title><style>` + baseCSS + `
-  .layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: start; }
-  .knobs { position: sticky; top: 60px; background: #161616; border: 1px solid #222; border-radius: 8px; padding: 14px; }
+  .layout { display: grid; grid-template-columns: minmax(500px, 560px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+  .knobs { position: sticky; top: 60px; background: #161616; border: 1px solid #222; border-radius: 8px; padding: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 18px; align-items: start; }
   .knob { margin-bottom: 14px; }
   .knob label { display: flex; justify-content: space-between; margin-bottom: 4px; }
   .knob output { color: #7db7ff; font-variant-numeric: tabular-nums; }
   .knob input { width: 100%; }
-  .controls { display: flex; gap: 8px; margin-top: 8px; }
+  .controls { grid-column: 1 / -1; display: flex; gap: 8px; margin-top: 4px; }
   button { background: #223; color: #cde; border: 1px solid #345; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
   .empty { color: #666; }
-  .group { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #222; }
-  .group:last-of-type { border-bottom: 0; padding-bottom: 0; }
+  .group { min-width: 0; }
   .group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 0 0 8px; }
   select#palette, select#fontClass, select#font { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
   .knob input[type="text"] { width: 100%; box-sizing: border-box; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
@@ -667,11 +721,15 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   dialog#setup .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 12px 14px; }
 </style></head>
 <body>
-<header><h1><a href="/">← styles</a> &nbsp;/&nbsp; {{.Name}}</h1></header>
+<header>
+  <h1><a href="/">← styles</a> &nbsp;/&nbsp; {{.Name}}</h1>
+  <button type="button" class="text-toggle" id="text-toggle" aria-pressed="true">Text: on</button>
+</header>
 <main>
   <div class="layout">
     <div class="knobs">
       <div class="group">
+        <h3>Style</h3>
         {{range .StyleKnobs}}
         <div class="knob">
           <label><span>{{.Label}}</span> <output>{{index $.Values .Name}}</output></label>
@@ -700,11 +758,11 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
         <h3>Text</h3>
         <div class="knob">
           <label><span>Main</span></label>
-          <input type="text" id="text-main" placeholder="Main title" value="{{.Main}}">
+          <input type="text" id="text-main" placeholder="{{.PlaceholderMain}}" value="{{.Main}}">
         </div>
         <div class="knob">
           <label><span>Subtitle</span></label>
-          <input type="text" id="text-sub" placeholder="Subtitle" value="{{.Sub}}">
+          <input type="text" id="text-sub" placeholder="{{.PlaceholderSub}}" value="{{.Sub}}">
         </div>
         <select id="fontClass">
           {{range .FontClasses}}<option value="{{.}}"{{if eq . $.TextClass}} selected{{end}}>{{.}}</option>{{end}}
@@ -739,6 +797,8 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   let FONT_CLASS = "{{.TextClass}}"; // "" when the style draws no text (svg); changes live, not via reload
   const ROLES = ['background', 'ink', 'accent1', 'accent2'];
   let swatchToken = 0;
+  let TEXT_ON = true; // "Text" toggle; when on, empty Main/Sub fall back to the placeholder
+  const PH_MAIN = "{{.PlaceholderMain}}", PH_SUB = "{{.PlaceholderSub}}";
 
   function readKnobs() {
     const knobs = new URLSearchParams();
@@ -782,8 +842,14 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
     const mainEl = document.getElementById('text-main');
     const subEl = document.getElementById('text-sub');
     const fontEl = document.getElementById('font');
-    if (mainEl && mainEl.value) knobs.set('main', mainEl.value);
-    if (subEl && subEl.value) knobs.set('sub', subEl.value);
+    // With the Text toggle on, an empty field falls back to the placeholder so
+    // covers preview text; a typed value overrides it. Toggle off = no overlay.
+    if (TEXT_ON) {
+      const main = (mainEl && mainEl.value) || PH_MAIN;
+      const sub = (subEl && subEl.value) || PH_SUB;
+      if (main) knobs.set('main', main);
+      if (sub) knobs.set('sub', sub);
+    }
     if (fontEl && fontEl.value) knobs.set('font', fontEl.value);
     if (FONT_CLASS) knobs.set('fontClass', FONT_CLASS);
     return knobs;
@@ -833,6 +899,17 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
     if (mainInput) mainInput.addEventListener('input', update);
     if (subInput) subInput.addEventListener('input', update);
     if (fontSel) fontSel.addEventListener('change', update);
+
+    // The "Text" toggle enables/disables the overlay (placeholder-or-typed vs none).
+    const textToggle = document.getElementById('text-toggle');
+    if (textToggle) {
+      textToggle.addEventListener('click', function () {
+        TEXT_ON = !TEXT_ON;
+        textToggle.setAttribute('aria-pressed', TEXT_ON ? 'true' : 'false');
+        textToggle.textContent = TEXT_ON ? 'Text: on' : 'Text: off';
+        update();
+      });
+    }
 
     // The font-class picker fetches /fonts for the newly chosen class and
     // repopulates the specific-font picker (keeping the pinned font only if it
