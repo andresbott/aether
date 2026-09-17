@@ -93,14 +93,16 @@ const trackPick: IdentifyPick = {
         releases: []
     },
     release: null,
-    genres: ['Grunge', 'Alternative Rock']
+    genres: ['Grunge', 'Alternative Rock'],
+    releaseTypes: []
 }
 
 const albumPick: AlbumIdentifyPick = {
     path: 'a.mp3',
     option: albumOption,
     assignment: null,
-    genres: ['Grunge', 'Alternative Rock']
+    genres: ['Grunge', 'Alternative Rock'],
+    releaseTypes: []
 }
 
 const stubs = {

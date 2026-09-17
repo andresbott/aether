@@ -14,6 +14,7 @@ import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
 import AlbumCandidatePicker from './AlbumCandidatePicker.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
+import { useReleaseGroupTypes } from '@/composables/useReleaseGroupTypes'
 
 // Sentinel slot values for the per-row re-point dropdown: keep the server's
 // proposal, or drop the position entirely (album fields only).
@@ -376,6 +377,8 @@ const selectedDetail = computed(() =>
 // and the same group comes up again every time this dialog is reopened.
 const genreCache = useReleaseGroupGenres()
 const selectedGenres = ref<string[]>([])
+const typeCache = useReleaseGroupTypes()
+const selectedTypes = ref<string[]>([])
 
 watch(
     selectedOption,
@@ -390,6 +393,22 @@ watch(
             // belongs to an option that is no longer selected.
             if (selectedOption.value?.release_group_mbid !== mbid) return
             selectedGenres.value = genres
+        })
+    },
+    { immediate: true }
+)
+
+// Release types ride the same rail as genres, in their own watch so neither
+// early-return can skip the other's lookup.
+watch(
+    selectedOption,
+    (option) => {
+        const mbid = option?.release_group_mbid ?? ''
+        selectedTypes.value = typeCache.cached(mbid) ?? []
+        if (mbid === '' || selectedTypes.value.length > 0) return
+        void typeCache.lookup(mbid).then((types) => {
+            if (selectedOption.value?.release_group_mbid !== mbid) return
+            selectedTypes.value = types
         })
     },
     { immediate: true }
@@ -469,8 +488,9 @@ function apply() {
         option,
         assignment: resolved(path),
         // Album-level, like the album name itself: every included song gets the
-        // release group's genres.
-        genres: [...selectedGenres.value]
+        // release group's genres and types.
+        genres: [...selectedGenres.value],
+        releaseTypes: [...selectedTypes.value]
     }))
     emit('apply', picks, [...selectedFields.value])
 }

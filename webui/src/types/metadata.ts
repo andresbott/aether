@@ -200,6 +200,8 @@ export interface IdentifyPick {
     candidate: IdentifyCandidate
     release: IdentifyRelease | null
     genres: string[]
+    // The release group's MusicBrainz types, looked up by the dialog like genres.
+    releaseTypes: string[]
 }
 
 export interface IdentifyRequest {
@@ -281,6 +283,7 @@ export interface AlbumIdentifyPick {
     option: AlbumOption
     assignment: AlbumAssignment | null
     genres: string[]
+    releaseTypes: string[]
 }
 
 export interface UpdateTracksRequest {

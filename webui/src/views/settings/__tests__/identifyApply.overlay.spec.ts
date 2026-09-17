@@ -95,7 +95,8 @@ describe('identify apply → session overlay staging', () => {
                     track_number: 1,
                     disc_number: 1
                 },
-                genres: []
+                genres: [],
+                releaseTypes: []
             },
             {
                 path: 'track2.mp3',
@@ -123,7 +124,8 @@ describe('identify apply → session overlay staging', () => {
                     track_number: 2,
                     disc_number: 1
                 },
-                genres: []
+                genres: [],
+                releaseTypes: []
             }
         ]
 

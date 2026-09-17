@@ -228,7 +228,8 @@ export function groupPatches(
 export function candidateToOverlay(
     candidate: IdentifyCandidate,
     release: IdentifyRelease | null,
-    genres: string[] = []
+    genres: string[] = [],
+    releaseTypes: string[] = []
 ): TrackOverlay {
     const out: TrackOverlay = {
         title: candidate.title,
@@ -246,6 +247,7 @@ export function candidateToOverlay(
         if (release.disc_number > 0) out.disc_number = release.disc_number
     }
     if (genres.length > 0) out.genres = [...genres]
+    if (releaseTypes.length > 0) out.release_types = [...releaseTypes]
     return out
 }
 
@@ -263,7 +265,8 @@ export function candidateToOverlay(
  */
 export function albumPickToOverlay(
     pick: import('@/types/metadata').AlbumIdentifyPick,
-    genres: string[] = []
+    genres: string[] = [],
+    releaseTypes: string[] = []
 ): TrackOverlay {
     const { option, assignment } = pick
     const out: TrackOverlay = {}
@@ -278,6 +281,7 @@ export function albumPickToOverlay(
         out.album_artists = albumArtists.map((a) => ({ name: a.name, mbid: a.mbid }))
     }
     if (genres.length > 0) out.genres = [...genres]
+    if (releaseTypes.length > 0) out.release_types = [...releaseTypes]
     if (assignment) {
         if (assignment.title !== '') out.title = assignment.title
         if (assignment.recording_mbid !== '') out.mb_recording_id = assignment.recording_mbid

@@ -4,20 +4,26 @@ import { mount, flushPromises } from '@vue/test-utils'
 // Genres are looked up per release group when an option is selected; drive that
 // through a spy so the specs can assert what was asked for and how often.
 const genresMock = vi.fn()
+const typesMock = vi.fn()
 vi.mock('@/lib/api/Artists', () => ({
-    getReleaseGroupGenres: (...args: unknown[]) => genresMock(...args)
+    getReleaseGroupGenres: (...args: unknown[]) => genresMock(...args),
+    getReleaseGroupTypes: (...args: unknown[]) => typesMock(...args)
 }))
 
 import IdentifyAlbumDialog from '@/views/settings/metadata-editor/IdentifyAlbumDialog.vue'
 import { ALL_IDENTIFY_FIELD_IDS, IDENTIFY_FIELDS } from '@/lib/identifyFields'
 import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
+import { useReleaseGroupTypes } from '@/composables/useReleaseGroupTypes'
 import type { AlbumOption, Track } from '@/types/metadata'
 
 beforeEach(() => {
     genresMock.mockReset()
     genresMock.mockResolvedValue([])
+    typesMock.mockReset()
+    typesMock.mockResolvedValue([])
     // Module-scoped cache: without this, one spec's answers serve the next.
     useReleaseGroupGenres().clear()
+    useReleaseGroupTypes().clear()
 })
 
 const stubs = {
