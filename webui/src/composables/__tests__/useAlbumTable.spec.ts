@@ -54,7 +54,7 @@ describe('useAlbumTable', () => {
 
         await c.api!.ensureRange(0, 50)
         expect(getAlbumList).toHaveBeenCalledTimes(1)
-        expect(getAlbumList).toHaveBeenCalledWith('alphabeticalByName', 100, 0, 1)
+        expect(getAlbumList).toHaveBeenCalledWith('alphabeticalByName', 100, 0, 1, undefined)
         expect(c.api!.items.value[0]).toEqual({ id: 'al0', name: 'A0' })
 
         // Re-requesting the same page does not refetch.
@@ -64,7 +64,33 @@ describe('useAlbumTable', () => {
         // Jumping to offset 200 loads only page 2.
         await c.api!.ensureRange(200, 240)
         expect(getAlbumList).toHaveBeenCalledTimes(2)
-        expect(getAlbumList).toHaveBeenLastCalledWith('alphabeticalByName', 100, 200, 1)
+        expect(getAlbumList).toHaveBeenLastCalledWith('alphabeticalByName', 100, 200, 1, undefined)
         expect(c.api!.items.value[200]).toEqual({ id: 'al200', name: 'A200' })
+    })
+
+    it('resets and refetches when the release type changes', async () => {
+        getAlbumIndex.mockResolvedValue({ total: 100, index: [] })
+        getAlbumList.mockImplementation((_t: string, size: number, offset: number) =>
+            Promise.resolve(Array.from({ length: size }, (_, i) => ({ id: `al${offset + i}` })))
+        )
+        const releaseType = ref<string | undefined>(undefined)
+        const captured: { api?: ReturnType<typeof useAlbumTable> } = {}
+        const Host = defineComponent({
+            setup() {
+                captured.api = useAlbumTable(ref(1), undefined, releaseType)
+                return () => h('div')
+            }
+        })
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        mount(Host, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
+
+        await vi.waitFor(() => expect(captured.api!.total.value).toBe(100))
+        await captured.api!.ensureRange(0, 50)
+        expect(getAlbumList).toHaveBeenLastCalledWith('alphabeticalByName', 100, 0, 1, undefined)
+
+        releaseType.value = 'Single'
+        await vi.waitFor(() => expect(getAlbumIndex).toHaveBeenLastCalledWith(1, 'Single'))
+        await captured.api!.ensureRange(0, 50)
+        expect(getAlbumList).toHaveBeenLastCalledWith('alphabeticalByName', 100, 0, 1, 'Single')
     })
 })

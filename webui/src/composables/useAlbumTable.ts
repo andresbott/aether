@@ -1,4 +1,4 @@
-import { ref, unref, watch } from 'vue'
+import { ref, unref, toValue, watch } from 'vue'
 import type { Ref, ComputedRef, MaybeRefOrGetter } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
@@ -10,18 +10,20 @@ export const ALBUM_PAGE_SIZE = 100
 
 export function useAlbumTable(
     folderId: Ref<number | undefined> | ComputedRef<number | undefined>,
-    options?: { enabled?: MaybeRefOrGetter<boolean> }
+    options?: { enabled?: MaybeRefOrGetter<boolean> },
+    releaseType?: MaybeRefOrGetter<string | undefined>
 ) {
     const queryClient = useQueryClient()
 
-    const { total, letters, isLoading, error } = useAlbumIndex(folderId, options)
+    const { total, letters, isLoading, error } = useAlbumIndex(folderId, options, releaseType)
 
     const items = ref<(Album | undefined)[]>([])
     let loadedPages = new Set<number>()
 
-    // Reset the sparse array whenever the library or its size changes.
+    // Reset the sparse array whenever the library, its size, OR the release-type
+    // filter changes — a new filter is a different dataset.
     watch(
-        [total, () => unref(folderId)],
+        [total, () => unref(folderId), () => toValue(releaseType)],
         () => {
             items.value = new Array<Album | undefined>(total.value)
             loadedPages = new Set<number>()
@@ -38,11 +40,12 @@ export function useAlbumTable(
             loadedPages.add(page)
             const offset = page * ALBUM_PAGE_SIZE
             const fid = unref(folderId)
+            const rt = toValue(releaseType)
             try {
                 const albums = await queryClient.fetchQuery({
-                    queryKey: queryKeys.albumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
+                    queryKey: queryKeys.albumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid, rt),
                     queryFn: () =>
-                        subsonicClient.getAlbumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid),
+                        subsonicClient.getAlbumList('alphabeticalByName', ALBUM_PAGE_SIZE, offset, fid, rt),
                     staleTime: 2 * 60 * 1000
                 })
                 const next = items.value.slice()
