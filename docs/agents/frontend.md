@@ -384,13 +384,18 @@ transform per placement is what does the actual placing, and scoped styles never
 apply under vue-test-utils, so `ShortcutHelpOverlay.badgeStyles.spec.ts` parses
 the style block — same reason `PlayerControls.railStyles.spec.ts` exists.
 
-Sidebar anchors come from `NAV_SHORTCUT_ANCHORS` in `AppSidebar`, applied to
-`primaryItems` and `libraryExtras` but **never to `folderItems`**: the per-folder
-entries share `routeName: 'library'` with the root, so anchoring them too would let
-the overlay badge whichever it found first instead of the cross-collection root.
-That is why this is a `routeName` lookup applied per loop rather than one blanket
-attribute, and why `AppSidebar.shortcutAnchor.spec.ts` asserts a bare *count* of
-anchored entries — a count is what catches an anchor leaking onto the folder rows.
+Sidebar anchors come from a per-item `shortcut` field on `AppSidebar`'s `NavItem`
+(not a `NAV_SHORTCUT_ANCHORS` routeName map): every nav loop binds the same
+`:data-shortcut="item.shortcut"` attribute, so which entries anchor is entirely
+data-driven — `topItems`, the Discover entry in `libraryModes`, `playlistsItem`
+and `streamingItems` each set one, six in total. The four library modes
+(Discover/Releases/Artists/Songs) share `routeName: 'library'`, but only Discover's
+entry sets `shortcut`; Releases/Artists/Songs and every `folderItems` entry leave
+it unset, since anchoring more than one of them would let the overlay badge
+whichever it found first instead of the cross-collection root. That is why
+`AppSidebar.shortcutAnchor.spec.ts` asserts a bare *count* of anchored entries — a
+count is what catches an anchor leaking onto the folder rows or the other three
+modes.
 
 The panel sits **top-right**, not centred: the player bar it badges runs along the
 bottom and the nav entries it badges run down the left edge, both of which a
