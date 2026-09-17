@@ -36,7 +36,7 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(8)), covergen.TextKnobs()...)
+	return append(append(out, covergen.GrainKnob(8)), covergen.TextOverlayKnobs()...)
 }
 
 // halftonePaletteDefaults tunes the injected palette's knob defaults for halftone.
@@ -181,15 +181,29 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification halftone renders its overlay in.
-const textClass = covergen.FontMono
+// textClasses are the classification(s) halftone renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontMono}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle low-left in a mono face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * halftoneTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a mono face via the shared overlay
+// (see covergen.DrawTextOverlay); halftoneAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, halftoneTextFrac, halftoneAnchors)
 }
 
 const halftoneTextFrac = 0.075
+
+// halftoneAnchors is halftone's roam order: index 0 (lower-left) is the placement
+// used at text.roam 0; higher roam widens the pool.
+var halftoneAnchors = []text.Anchor{
+	text.AnchorLowerLeft, text.AnchorLowerCenter, text.AnchorCenter,
+	text.AnchorUpperLeft, text.AnchorLowerRight, text.AnchorUpperRight,
+}

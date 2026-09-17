@@ -18,8 +18,8 @@ func TestDefaultCoversEveryClass(t *testing.T) {
 			t.Fatalf("class %q has no font", c)
 		}
 	}
-	if len(p.All()) != 5 {
-		t.Fatalf("All() = %d fonts, want 5", len(p.All()))
+	if len(p.All()) != 15 {
+		t.Fatalf("All() = %d fonts, want 15", len(p.All()))
 	}
 	if len(p.Classes()) != 5 {
 		t.Fatalf("Classes() = %d, want 5", len(p.Classes()))
@@ -37,6 +37,26 @@ func TestRandomDeterministic(t *testing.T) {
 	}
 	if f1.Class() != covergen.FontFormal {
 		t.Fatalf("Random(formal).Class() = %q", f1.Class())
+	}
+}
+
+func TestRandomUnionOfClasses(t *testing.T) {
+	p := fonts.Default()
+	// Across two classes, Random must draw from BOTH over many seeds.
+	got := map[covergen.FontClass]bool{}
+	for i := 0; i < 200; i++ {
+		f := p.Random(rand.New(rand.NewPCG(uint64(i), 9)), covergen.FontClean, covergen.FontDisplay)
+		if f == nil {
+			t.Fatalf("seed %d: Random(clean, display) = nil", i)
+		}
+		got[f.Class()] = true
+	}
+	if !got[covergen.FontClean] || !got[covergen.FontDisplay] {
+		t.Fatalf("union pick didn't cover both classes: got %v", got)
+	}
+	// No classes -> falls back to any font (non-nil).
+	if p.Random(rand.New(rand.NewPCG(1, 1))) == nil {
+		t.Fatal("Random() with no classes should fall back to a font")
 	}
 }
 

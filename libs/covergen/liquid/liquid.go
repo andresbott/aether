@@ -34,26 +34,44 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(2)), covergen.TextKnobs()...)
+	out = append(out, covergen.GrainKnob(4))
+	// liquid prefers its own defaults for several shared text-overlay knobs (a small,
+	// size-varied title — baked from a lab URL), without affecting the other styles.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := liquidTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // liquidPaletteDefaults tunes the injected palette's knob defaults for liquid. It
-// ships on triadic (see allstyles.New): a coloured field with two vivid,
-// triad-separated blob colours (widened per-seed by the triad spread jitter). Keys
-// the injected palette does not declare are ignored.
+// ships on neon (see allstyles.New): vivid blobs on a near-black field, with a
+// slightly wider per-seed saturation spread. Keys the injected palette does not
+// declare are ignored.
 var liquidPaletteDefaults = map[string]float64{
-	"palette.saturation":       1,
 	"palette.saturationSpread": 1.1,
-	"palette.spread":           1.25,
-	"palette.spreadJitter":     5.85,
+}
+
+// liquidTextDefaults overrides the shared text-overlay knob defaults for liquid only
+// (baked from a lab URL, 2026-09-17). Keys not present keep the shared house-style
+// defaults (see covergen.TextOverlayKnobs).
+var liquidTextDefaults = map[string]float64{
+	covergen.TextScaleKnobName:         1.05,
+	covergen.TextSizeSpreadKnobName:    1.2,
+	covergen.TextOpacityKnobName:       1,
+	covergen.TextOpacitySpreadKnobName: 1,
+	covergen.TextTintKnobName:          0.7,
+	covergen.TextSaturationKnobName:    0.35,
 }
 
 // liquidKnobs tune the metaball field. Multipliers/spreads applied after a
 // per-seed random draw: blobs sets how many merge, threshold scales the field
 // level at which a blob's edge falls (higher = tighter blobs, more background).
 var liquidKnobs = []covergen.Knob{
-	{Name: "liquid.blobs", Label: "Blob count", Min: 0.5, Max: 3, Step: 0.05, Default: 2.1},
-	{Name: "liquid.blobsSpread", Label: "Blob count spread", Min: 0, Max: 10, Step: 0.05, Default: 7.35},
+	{Name: "liquid.blobs", Label: "Blob count", Min: 0.5, Max: 3, Step: 0.05, Default: 1.65},
+	{Name: "liquid.blobsSpread", Label: "Blob count spread", Min: 0, Max: 10, Step: 0.05, Default: 3.4},
 	{Name: "liquid.threshold", Label: "Blob tightness", Min: 0.3, Max: 3, Step: 0.05, Default: 0.85},
 }
 
@@ -131,15 +149,29 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification liquid renders its overlay in.
-const textClass = covergen.FontScript
+// textClasses are the classification(s) liquid renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontScript}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle centered in a script face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * liquidTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorCenter, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a script face via the shared
+// overlay (see covergen.DrawTextOverlay); liquidAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, liquidTextFrac, liquidAnchors)
 }
 
 const liquidTextFrac = 0.090
+
+// liquidAnchors is liquid's roam order: index 0 (center) is the placement used at
+// text.roam 0; higher roam widens the pool.
+var liquidAnchors = []text.Anchor{
+	text.AnchorCenter, text.AnchorLowerCenter, text.AnchorLowerLeft,
+	text.AnchorUpperLeft, text.AnchorLowerRight, text.AnchorUpperRight,
+}

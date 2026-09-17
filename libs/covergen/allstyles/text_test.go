@@ -17,8 +17,8 @@ func TestEveryStyleDrawsText(t *testing.T) {
 		if !ok {
 			t.Fatalf("style %q is not a TextDrawer", s.Name())
 		}
-		if td.TextClass() == "" {
-			t.Fatalf("style %q has empty TextClass", s.Name())
+		if len(td.TextClasses()) == 0 {
+			t.Fatalf("style %q declares no text classes", s.Name())
 		}
 		plain, err := g.GenerateStyle("seed-xyz", 256, s)
 		if err != nil {
@@ -36,14 +36,21 @@ func TestEveryStyleDrawsText(t *testing.T) {
 }
 
 func TestEveryStyleDeclaresTextKnobs(t *testing.T) {
+	want := []string{
+		covergen.TextScaleKnobName, covergen.TextSizeSpreadKnobName,
+		covergen.TextOpacityKnobName, covergen.TextOpacitySpreadKnobName,
+		covergen.TextRoamKnobName, covergen.TextTintKnobName,
+		covergen.TextSaturationKnobName, covergen.TextSaturationSpreadKnobName,
+	}
 	for _, s := range allstyles.New().Styles() {
-		var hasScale, hasOpacity bool
+		have := map[string]bool{}
 		for _, k := range s.Knobs() {
-			hasScale = hasScale || k.Name == covergen.TextScaleKnobName
-			hasOpacity = hasOpacity || k.Name == covergen.TextOpacityKnobName
+			have[k.Name] = true
 		}
-		if !hasScale || !hasOpacity {
-			t.Fatalf("style %q missing text knobs", s.Name())
+		for _, name := range want {
+			if !have[name] {
+				t.Errorf("style %q missing text-overlay knob %q", s.Name(), name)
+			}
 		}
 	}
 }

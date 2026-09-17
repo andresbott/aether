@@ -36,7 +36,15 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(4)), covergen.TextKnobs()...)
+	out = append(out, covergen.GrainKnob(4))
+	// remix tunes several of the shared text-overlay knob defaults for itself.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := remixTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // remixPaletteDefaults tunes the injected palette's knob defaults for remix. It
@@ -47,6 +55,21 @@ var remixPaletteDefaults = map[string]float64{
 	"palette.saturationSpread": 2,
 	"palette.hueGap":           1.85,
 	"palette.softness":         0.55,
+}
+
+// remixTextDefaults overrides the shared text-overlay knob defaults for remix
+// only (see covergen.TextOverlayKnobs): smaller, tighter, near-opaque titles
+// whose ink is rarely tinted (mostly auto black/white) but fully saturated when
+// it is, suited to its display/script faces over the vivid duotone. Keys not
+// listed keep the shared house defaults.
+var remixTextDefaults = map[string]float64{
+	covergen.TextScaleKnobName:            0.95,
+	covergen.TextSizeSpreadKnobName:       0.4,
+	covergen.TextOpacityKnobName:          0.8,
+	covergen.TextOpacitySpreadKnobName:    0,
+	covergen.TextTintKnobName:             0.2,
+	covergen.TextSaturationKnobName:       1,
+	covergen.TextSaturationSpreadKnobName: 0.15,
 }
 
 type remixShape int
@@ -174,18 +197,32 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	drawRemixOutlineRing(img, sz, fs, rng)
 }
 
-// textClass is the classification remix renders its overlay in.
-const textClass = covergen.FontMono
+// textClasses are the classification(s) remix renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontDisplay, covergen.FontScript}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle low-left in a mono face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * remixTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a display/script face via the
+// shared overlay (see covergen.DrawTextOverlay); remixAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, remixTextFrac, remixAnchors)
 }
 
 const remixTextFrac = 0.075
+
+// remixAnchors is remix's roam order: index 0 (lower-left) is the placement used
+// at text.roam 0; higher roam widens the pool.
+var remixAnchors = []text.Anchor{
+	text.AnchorLowerLeft, text.AnchorLowerCenter, text.AnchorCenter,
+	text.AnchorUpperLeft, text.AnchorLowerRight, text.AnchorUpperRight,
+}
 
 // drawRemixOutlineRing traces a thin white ring 1-in-3 times to break up the
 // composition; otherwise a no-op. Split out of Draw to keep its cyclomatic

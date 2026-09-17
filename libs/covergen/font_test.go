@@ -15,13 +15,24 @@ func TestTextEmpty(t *testing.T) {
 	}
 }
 
-func TestTextKnobsIdentityDefaults(t *testing.T) {
-	ks := newKnobSet(TextKnobs(), nil)
-	if got := ks.Float(TextScaleKnobName); got != 1 {
-		t.Fatalf("text.scale default = %v, want 1", got)
+func TestTextOverlayKnobs(t *testing.T) {
+	want := []string{
+		TextScaleKnobName, TextSizeSpreadKnobName, TextOpacityKnobName,
+		TextOpacitySpreadKnobName, TextRoamKnobName, TextTintKnobName,
+		TextSaturationKnobName, TextSaturationSpreadKnobName,
 	}
-	if got := ks.Float(TextOpacityKnobName); got != 1 {
-		t.Fatalf("text.opacity default = %v, want 1", got)
+	knobs := TextOverlayKnobs()
+	if len(knobs) != len(want) {
+		t.Fatalf("TextOverlayKnobs() returned %d knobs, want %d", len(knobs), len(want))
+	}
+	for i, name := range want {
+		k := knobs[i]
+		if k.Name != name {
+			t.Errorf("knob %d = %q, want %q", i, k.Name, name)
+		}
+		if !(k.Min <= k.Default && k.Default <= k.Max) {
+			t.Errorf("%s default %v outside [%v, %v]", k.Name, k.Default, k.Min, k.Max)
+		}
 	}
 }
 

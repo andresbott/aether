@@ -42,13 +42,41 @@ const (
 	swatchSeeds      = 4   // sample seeds shown as palette-role swatch rows
 )
 
-// placeholderMain and placeholderSub are the sample title/artist the lab overlays
-// on thumbnails while the "Text" toggle is on, so text placement can be previewed
-// without typing. The same pair is used on every thumbnail.
+// placeholderMain and placeholderSub are the text inputs' placeholder hint. When
+// a field is left empty the preview covers draw a per-tile name from labNamesJS
+// instead (see pickName), so different thumbnails simulate different releases.
 const (
 	placeholderMain = "Midnight Drive"
 	placeholderSub  = "The Wanderers"
 )
+
+// labNamesJS is shared preview JS injected into both the overview and style-page
+// scripts: a spread of album/artist name pairs plus pickName, a deterministic
+// seed->name map so an empty text field simulates a different release per grid
+// tile rather than one repeated placeholder.
+const labNamesJS = `
+  const NAMES = [
+    ["Midnight Drive", "The Wanderers"],
+    ["Neon Harbor", "The Glass Hours"],
+    ["Paper Kites", "Lila Moon"],
+    ["Golden Static", "Vble"],
+    ["Slow Rivers", "Ash & Ember"],
+    ["Concrete Garden", "Nova Reyes"],
+    ["Velvet Circuit", "The Below"],
+    ["Northern Lines", "Marisol"],
+    ["Echo Vineyard", "Kites at Dawn"],
+    ["Amber Fields", "Cassette Youth"],
+    ["Parallel", "Kite Section"],
+    ["Saltwater Hymns", "The Tide Machine"]
+  ];
+  // pickName maps a seed to a stable [main, sub], so a tile keeps its name across
+  // re-renders while different tiles differ.
+  function pickName(seed) {
+    var h = 0;
+    for (var i = 0; i < seed.length; i++) { h = (h * 31 + seed.charCodeAt(i)) >>> 0; }
+    return NAMES[h % NAMES.length];
+  }
+`
 
 // gen is the Generator over covergen's full built-in style set. The
 // work-in-progress svg style is appended only when svg.Enabled (a temporary
@@ -196,22 +224,66 @@ func parseText(q url.Values) covergen.Text {
 	return covergen.Text{Main: q.Get("main"), Subtitle: q.Get("sub")}
 }
 
-// styleTextClass returns a style's declared text class, or "" if it draws no text.
-func styleTextClass(s covergen.Style) covergen.FontClass {
+// styleTextClasses returns a style's declared text classes, or nil if it draws
+// no text.
+func styleTextClasses(s covergen.Style) []covergen.FontClass {
 	if td, ok := s.(covergen.TextDrawer); ok {
-		return td.TextClass()
+		return td.TextClasses()
 	}
-	return ""
+	return nil
 }
 
-// classPinned overrides the requested class with a fixed one (lab class picker).
-type classPinned struct {
+// fontClassOpt is one checkbox in the lab's multi-select font-class picker.
+type fontClassOpt struct {
+	Name    covergen.FontClass
+	Checked bool
+}
+
+// parseClasses reads repeated ?fontClass= / ?class= values into a deduped,
+// order-preserving list of font classes, dropping blanks.
+func parseClasses(vals []string) []covergen.FontClass {
+	seen := map[covergen.FontClass]bool{}
+	var out []covergen.FontClass
+	for _, v := range vals {
+		if v == "" {
+			continue
+		}
+		fc := covergen.FontClass(v)
+		if seen[fc] {
+			continue
+		}
+		seen[fc] = true
+		out = append(out, fc)
+	}
+	return out
+}
+
+// fontsForClasses is the union of the given classes' fonts, in class then
+// builtin order; with no class it is every font (an unfiltered picker).
+func fontsForClasses(classes []covergen.FontClass) []covergen.Font {
+	if len(classes) == 0 {
+		return fontLib.All()
+	}
+	var pool []covergen.Font
+	for _, c := range classes {
+		pool = append(pool, fontLib.ByClass(c)...)
+	}
+	return pool
+}
+
+// classesPinned overrides the style's class with a fixed pool drawn from one or
+// more lab-selected classes; Random picks uniformly across that union in a
+// single rng draw, standing in for the unpinned per-class pick.
+type classesPinned struct {
 	covergen.FontProvider
-	class covergen.FontClass
+	pool []covergen.Font
 }
 
-func (c classPinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
-	return c.FontProvider.Random(rng, c.class)
+func (c classesPinned) Random(rng *rand.Rand, _ ...covergen.FontClass) covergen.Font {
+	if len(c.pool) == 0 {
+		return c.FontProvider.Random(rng)
+	}
+	return c.pool[rng.IntN(len(c.pool))]
 }
 
 // namePinned always returns one font (lab specific-font picker), still consuming
@@ -221,11 +293,10 @@ type namePinned struct {
 	font covergen.Font
 }
 
-func (n namePinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
+func (n namePinned) Random(rng *rand.Rand, _ ...covergen.FontClass) covergen.Font {
 	if rng != nil {
 		// Draw exactly one uint64, matching the cost of provider.Random's
-		// pool[rng.IntN(len(pool))] (today's pools are len 1, i.e. IntN(1),
-		// which itself draws one uint64 via IntN's power-of-two mask path) so
+		// pool[rng.IntN(len(pool))] (an IntN draw over the pool) so the
 		// placement rng draws downstream stay aligned with an unpinned render.
 		_ = rng.Uint64()
 	}
@@ -233,15 +304,16 @@ func (n namePinned) Random(rng *rand.Rand, _ covergen.FontClass) covergen.Font {
 }
 
 // fontProviderFor resolves the provider for a request: a pinned font (?font=)
-// wins, then a pinned class (?fontClass=), else the default library.
+// wins, then one or more pinned classes (?fontClass=, repeatable), else the
+// default library.
 func fontProviderFor(q url.Values) covergen.FontProvider {
 	if name := q.Get("font"); name != "" {
 		if f, ok := fontLib.ByName(name); ok {
 			return namePinned{FontProvider: fontLib, font: f}
 		}
 	}
-	if class := q.Get("fontClass"); class != "" {
-		return classPinned{FontProvider: fontLib, class: covergen.FontClass(class)}
+	if classes := parseClasses(q["fontClass"]); len(classes) > 0 {
+		return classesPinned{FontProvider: fontLib, pool: fontsForClasses(classes)}
 	}
 	return fontLib
 }
@@ -406,13 +478,11 @@ func handleSetup(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, setupSnippet(style, pal.Name(), parseOverrides(style.Knobs(), q), parseText(q)))
 }
 
-// handleFonts lists font names for ?class= (all fonts when class is empty), as
-// JSON, so the style page can repopulate its specific-font picker.
+// handleFonts lists font names for the requested classes (?class=, repeatable;
+// the union, or every font when none is given) as JSON, so the style page can
+// repopulate its specific-font picker.
 func handleFonts(w http.ResponseWriter, r *http.Request) {
-	pool := fontLib.All()
-	if c := r.URL.Query().Get("class"); c != "" {
-		pool = fontLib.ByClass(covergen.FontClass(c))
-	}
+	pool := fontsForClasses(parseClasses(r.URL.Query()["class"]))
 	names := make([]string, len(pool))
 	for i, f := range pool {
 		names[i] = f.Name()
@@ -534,16 +604,19 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 	// controls, so the page can group the palette picker, its knobs, and the
 	// colour swatches together (see styleTmpl). Grain is a plain style knob.
 	values := make(map[string]float64)
-	var styleKnobs, paletteKnobs []covergen.Knob
+	var styleKnobs, textKnobs, paletteKnobs []covergen.Knob
 	for _, k := range style.Knobs() {
 		if v, ok := overrides[k.Name]; ok {
 			values[k.Name] = v
 		} else {
 			values[k.Name] = k.Default
 		}
-		if strings.HasPrefix(k.Name, "palette.") {
+		switch {
+		case strings.HasPrefix(k.Name, "palette."):
 			paletteKnobs = append(paletteKnobs, k)
-		} else {
+		case strings.Contains(k.Name, "text"):
+			textKnobs = append(textKnobs, k) // grouped with the text controls, not the style sliders
+		default:
 			styleKnobs = append(styleKnobs, k)
 		}
 	}
@@ -561,18 +634,24 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		swatch = swatch[:swatchSeeds]
 	}
 
-	// The font-class picker preselects the style's own declared class, unless an
-	// explicit ?fontClass= names another one (mirroring paletteFor). The
-	// specific-font picker then lists that class's fonts, falling back to every
-	// font when the style draws no text (class ""), matching handleFonts.
-	selClass := covergen.FontClass(q.Get("fontClass"))
-	if selClass == "" {
-		selClass = styleTextClass(style)
+	// The font-class picker preselects the style's own declared class unless
+	// explicit ?fontClass= values name others (repeatable — it is multi-select).
+	// The specific-font picker then lists the union of the selected classes'
+	// fonts, falling back to every font when the style draws no text, matching
+	// handleFonts.
+	selClasses := parseClasses(q["fontClass"])
+	if len(selClasses) == 0 {
+		selClasses = styleTextClasses(style)
 	}
-	fontPool := fontLib.All()
-	if selClass != "" {
-		fontPool = fontLib.ByClass(selClass)
+	selected := map[covergen.FontClass]bool{}
+	for _, c := range selClasses {
+		selected[c] = true
 	}
+	classOpts := make([]fontClassOpt, 0, len(fontLib.Classes()))
+	for _, c := range fontLib.Classes() {
+		classOpts = append(classOpts, fontClassOpt{Name: c, Checked: selected[c]})
+	}
+	fontPool := fontsForClasses(selClasses)
 	fontNames := make([]string, len(fontPool))
 	for i, f := range fontPool {
 		fontNames[i] = f.Name()
@@ -581,6 +660,7 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Name            string
 		StyleKnobs      []covergen.Knob
+		TextKnobs       []covergen.Knob
 		PaletteKnobs    []covergen.Knob
 		Values          map[string]float64
 		Palettes        []string
@@ -589,8 +669,7 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		Seeds           []string
 		SwatchSeeds     []string
 		Size            int
-		TextClass       string
-		FontClasses     []covergen.FontClass
+		FontClasses     []fontClassOpt
 		Fonts           []string
 		Font            string
 		Main            string
@@ -600,6 +679,7 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 	}{
 		Name:            style.Name(),
 		StyleKnobs:      styleKnobs,
+		TextKnobs:       textKnobs,
 		PaletteKnobs:    paletteKnobs,
 		Values:          values,
 		Palettes:        paletteNames(),
@@ -608,8 +688,7 @@ func handleStyle(w http.ResponseWriter, r *http.Request) {
 		Seeds:           seeds,
 		SwatchSeeds:     swatch,
 		Size:            thumbSize,
-		TextClass:       string(selClass),
-		FontClasses:     fontLib.Classes(),
+		FontClasses:     classOpts,
 		Fonts:           fontNames,
 		Font:            q.Get("font"),
 		Main:            q.Get("main"),
@@ -671,15 +750,16 @@ var overviewTmpl = template.Must(template.New("overview").Parse(`<!doctype html>
 </div>
 </main>
 <script>
+` + labNamesJS + `
   var TEXT_ON = true;
-  var PH_MAIN = "{{.Main}}", PH_SUB = "{{.Sub}}", SIZE = "{{.Size}}";
+  var SIZE = "{{.Size}}";
   function renderCells() {
     document.querySelectorAll('img.cell').forEach(function (img) {
       var u = new URLSearchParams();
       u.set('style', img.dataset.style);
       u.set('seed', img.dataset.seed);
       u.set('size', SIZE);
-      if (TEXT_ON) { u.set('main', PH_MAIN); u.set('sub', PH_SUB); }
+      if (TEXT_ON) { var nm = pickName(img.dataset.seed); u.set('main', nm[0]); u.set('sub', nm[1]); }
       img.src = '/img?' + u.toString();
     });
   }
@@ -710,7 +790,10 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   .empty { color: #666; }
   .group { min-width: 0; }
   .group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #9aa; margin: 0 0 8px; }
-  select#palette, select#fontClass, select#font { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
+  select#palette, select#font { width: 100%; margin-bottom: 12px; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+  .checks .check { display: flex; align-items: center; justify-content: flex-start; gap: 5px; margin: 0; cursor: pointer; }
+  .knob .checks input { width: auto; margin: 0; }
   .knob input[type="text"] { width: 100%; box-sizing: border-box; background: #101010; color: #ddd; border: 1px solid #345; border-radius: 6px; padding: 6px; }
   .swatches { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
   .swatch-row { display: flex; gap: 4px; }
@@ -764,13 +847,25 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
           <label><span>Subtitle</span></label>
           <input type="text" id="text-sub" placeholder="{{.PlaceholderSub}}" value="{{.Sub}}">
         </div>
-        <select id="fontClass">
-          {{range .FontClasses}}<option value="{{.}}"{{if eq . $.TextClass}} selected{{end}}>{{.}}</option>{{end}}
-        </select>
-        <select id="font">
-          <option value="">(random)</option>
-          {{range .Fonts}}<option value="{{.}}"{{if eq . $.Font}} selected{{end}}>{{.}}</option>{{end}}
-        </select>
+        {{range .TextKnobs}}
+        <div class="knob">
+          <label><span>{{.Label}}</span> <output>{{index $.Values .Name}}</output></label>
+          <input type="range" data-knob="{{.Name}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}" value="{{index $.Values .Name}}">
+        </div>
+        {{end}}
+        <div class="knob">
+          <label><span>Font classes</span></label>
+          <div id="fontClass" class="checks">
+            {{range .FontClasses}}<label class="check"><input type="checkbox" class="fontclass" value="{{.Name}}"{{if .Checked}} checked{{end}}>{{.Name}}</label>{{end}}
+          </div>
+        </div>
+        <div class="knob">
+          <label><span>Font</span></label>
+          <select id="font">
+            <option value="">(random)</option>
+            {{range .Fonts}}<option value="{{.}}"{{if eq . $.Font}} selected{{end}}>{{.}}</option>{{end}}
+          </select>
+        </div>
       </div>
       <div class="controls">
         <button id="reroll" title="new random seeds">Reroll</button>
@@ -791,14 +886,20 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
   </dialog>
 </main>
 <script>
+` + labNamesJS + `
   const STYLE = "{{.Name}}";
   const SIZE = "{{.Size}}";
   const PALETTE = "{{.Palette}}"; // "" when the style has no palette (svg)
-  let FONT_CLASS = "{{.TextClass}}"; // "" when the style draws no text (svg); changes live, not via reload
+  // Font classes are read live from the checkbox group (multi-select); the union
+  // of the checked classes drives the pool. None checked = the style's default.
+  function selectedFontClasses() {
+    return Array.prototype.map.call(
+      document.querySelectorAll('#fontClass input.fontclass:checked'),
+      function (el) { return el.value; });
+  }
   const ROLES = ['background', 'ink', 'accent1', 'accent2'];
   let swatchToken = 0;
-  let TEXT_ON = true; // "Text" toggle; when on, empty Main/Sub fall back to the placeholder
-  const PH_MAIN = "{{.PlaceholderMain}}", PH_SUB = "{{.PlaceholderSub}}";
+  let TEXT_ON = true; // "Text" toggle; off = no overlay; on = typed text, or a per-tile preview name when empty
 
   function readKnobs() {
     const knobs = new URLSearchParams();
@@ -835,39 +936,41 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
     });
   }
 
-  // textAndFontParams reads the live text/font controls (main, sub, the pinned
-  // font, and the pinned class) onto knobs, the same way readKnobs() reads the
-  // sliders — so update() ends up with one query string covering all of it.
-  function textAndFontParams(knobs) {
-    const mainEl = document.getElementById('text-main');
-    const subEl = document.getElementById('text-sub');
+  // fontParams adds the pinned font and the selected font-classes onto knobs. The
+  // text strings are applied per-tile in update() instead, so each empty-text
+  // cell can draw its own preview name (see pickName).
+  function fontParams(knobs) {
     const fontEl = document.getElementById('font');
-    // With the Text toggle on, an empty field falls back to the placeholder so
-    // covers preview text; a typed value overrides it. Toggle off = no overlay.
-    if (TEXT_ON) {
-      const main = (mainEl && mainEl.value) || PH_MAIN;
-      const sub = (subEl && subEl.value) || PH_SUB;
-      if (main) knobs.set('main', main);
-      if (sub) knobs.set('sub', sub);
-    }
     if (fontEl && fontEl.value) knobs.set('font', fontEl.value);
-    if (FONT_CLASS) knobs.set('fontClass', FONT_CLASS);
+    selectedFontClasses().forEach(function (c) { knobs.append('fontClass', c); });
     return knobs;
   }
 
   function update() {
-    const knobs = textAndFontParams(readKnobs());
+    const knobs = fontParams(readKnobs());
+    const typedMain = (document.getElementById('text-main') || {}).value || '';
+    const typedSub = (document.getElementById('text-sub') || {}).value || '';
     document.querySelectorAll('img.cell').forEach(function (img) {
       const u = new URLSearchParams(knobs);
       u.set('style', STYLE);
       if (PALETTE) u.set('palette', PALETTE);
       u.set('size', SIZE);
       u.set('seed', img.dataset.seed);
+      // Empty fields draw a per-tile preview name; a typed value applies to all.
+      if (TEXT_ON) {
+        const nm = pickName(img.dataset.seed);
+        const m = typedMain || nm[0], s = typedSub || nm[1];
+        if (m) u.set('main', m);
+        if (s) u.set('sub', s);
+      }
       img.src = '/img?' + u.toString();
     });
     updateSwatches(knobs);
+    // Persist only typed text so reloading an empty-text page stays random.
     const qs = new URLSearchParams(knobs);
     if (PALETTE) qs.set('palette', PALETTE);
+    if (typedMain) qs.set('main', typedMain);
+    if (typedSub) qs.set('sub', typedSub);
     const s = qs.toString();
     history.replaceState(null, '', location.pathname + (s ? '?' + s : ''));
   }
@@ -911,14 +1014,16 @@ var styleTmpl = template.Must(template.New("style").Parse(`<!doctype html>
       });
     }
 
-    // The font-class picker fetches /fonts for the newly chosen class and
-    // repopulates the specific-font picker (keeping the pinned font only if it
-    // still belongs to the new class), then updates the grid live — no reload.
-    const fontClassSel = document.getElementById('fontClass');
-    if (fontClassSel) {
-      fontClassSel.addEventListener('change', function () {
-        FONT_CLASS = fontClassSel.value;
-        fetch('/fonts?class=' + encodeURIComponent(FONT_CLASS)).then(function (r) {
+    // The font-class checkboxes fetch /fonts for the union of the checked classes
+    // and repopulate the specific-font picker (keeping the pinned font only if it
+    // still belongs), then update the grid live — no reload. change bubbles from
+    // each checkbox up to this container.
+    const fontClassBox = document.getElementById('fontClass');
+    if (fontClassBox) {
+      fontClassBox.addEventListener('change', function () {
+        const q = new URLSearchParams();
+        selectedFontClasses().forEach(function (c) { q.append('class', c); });
+        fetch('/fonts?' + q.toString()).then(function (r) {
           return r.ok ? r.json() : [];
         }).then(function (names) {
           if (!fontSel) return;

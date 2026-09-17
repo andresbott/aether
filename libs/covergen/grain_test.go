@@ -33,9 +33,9 @@ func TestEveryStyleDeclaresGrainKnobWithShippedDefault(t *testing.T) {
 		"waves":    8,
 		"poster":   5,
 		"remix":    4,
-		"mosaic":   6,
+		"mosaic":   5,
 		"halftone": 8,
-		"liquid":   2,
+		"liquid":   4,
 		"lowpoly":  7,
 		"svg":      4,
 	}

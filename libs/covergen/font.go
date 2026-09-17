@@ -8,8 +8,8 @@ import (
 )
 
 // FontClass is the typographic classification a Font belongs to. Selection is
-// randomized within a class, so a style asks for "a formal face" and gets a
-// deterministic-per-seed pick.
+// randomized within the class(es) a style declares, so a style asks for "a formal
+// face" (or a small pool of classes) and gets a deterministic-per-seed pick.
 type FontClass string
 
 const (
@@ -30,11 +30,12 @@ type Font interface {
 }
 
 // FontProvider exposes a classified font set to the render pipeline. Random
-// deterministically picks one font of class from rng, falling back to any font
-// when the class is empty; it is the seam the lab overrides to preview a pinned
-// class or a single font.
+// deterministically picks one font from rng, uniformly across the union of the
+// given classes, falling back to any font when no class (or only an unknown one)
+// is given; it is the seam the lab overrides to preview a pinned class-set or a
+// single font.
 type FontProvider interface {
-	Random(rng *rand.Rand, class FontClass) Font
+	Random(rng *rand.Rand, classes ...FontClass) Font
 	ByClass(class FontClass) []Font
 	ByName(name string) (Font, bool)
 	All() []Font
@@ -53,11 +54,22 @@ type Text struct {
 func (t Text) Empty() bool { return t.Main == "" && t.Subtitle == "" }
 
 // TextDrawer is the optional capability a Style implements to paint a Text
-// overlay. The render pipeline resolves a font of the style's TextClass and
-// calls DrawText after Draw, only for non-empty text. DrawText draws onto the
-// same 2x canvas as Draw and may consume rng — but only here, so the textless
-// path is unaffected.
+// overlay. The render pipeline resolves a font from the union of the style's
+// TextClasses and calls DrawText after Draw, only for non-empty text. A style
+// returning more than one class gets a per-seed pick across all their fonts.
+// DrawText draws onto the same 2x canvas as Draw and may consume rng — but only
+// here, so the textless path is unaffected. cs is the cover's ColorSet (see
+// Colored), so a style can ink type in palette roles; it is the zero value for
+// styles that don't implement Colored.
 type TextDrawer interface {
-	TextClass() FontClass
-	DrawText(img *image.RGBA, rng *rand.Rand, ks KnobSet, text Text, f Font)
+	TextClasses() []FontClass
+	DrawText(img *image.RGBA, rng *rand.Rand, ks KnobSet, text Text, f Font, cs ColorSet)
+}
+
+// Colored is the optional capability a Style implements to expose its per-cover
+// ColorSet so the text overlay can ink type in palette roles. renderOnce
+// recomputes it from a fresh per-seed rng — matching Draw's first colour draw —
+// and passes the result to DrawText.
+type Colored interface {
+	Colors(rng *rand.Rand, ks KnobSet) ColorSet
 }

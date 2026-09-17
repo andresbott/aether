@@ -36,9 +36,9 @@ func (stubStyle) Draw(img *image.RGBA, _ *rand.Rand, _ KnobSet) {
 // text package, so we can prove the text branch runs.
 type textStub struct{ stubStyle }
 
-func (textStub) TextClass() FontClass { return FontClean }
-func (textStub) DrawText(img *image.RGBA, _ *rand.Rand, _ KnobSet, t Text, f Font) {
-	text.Block(img, t.Main, t.Subtitle, f.Face, 24, text.AnchorCenter, 8, 1)
+func (textStub) TextClasses() []FontClass { return []FontClass{FontClean} }
+func (textStub) DrawText(img *image.RGBA, _ *rand.Rand, _ KnobSet, t Text, f Font, _ ColorSet) {
+	text.Block(img, t.Main, t.Subtitle, f.Face, 24, text.AnchorCenter, 8, 1, nil)
 }
 
 func TestGenerateWithTextEmptyIsByteIdentical(t *testing.T) {
@@ -95,8 +95,8 @@ func (fakeFont) Face(float64) font.Face { return basicfont.Face7x13 }
 
 type fakeFonts struct{}
 
-func (fakeFonts) Random(*rand.Rand, FontClass) Font { return fakeFont{} }
-func (fakeFonts) ByClass(FontClass) []Font          { return []Font{fakeFont{}} }
-func (fakeFonts) ByName(string) (Font, bool)        { return fakeFont{}, true }
-func (fakeFonts) All() []Font                       { return []Font{fakeFont{}} }
-func (fakeFonts) Classes() []FontClass              { return []FontClass{FontClean} }
+func (fakeFonts) Random(*rand.Rand, ...FontClass) Font { return fakeFont{} }
+func (fakeFonts) ByClass(FontClass) []Font             { return []Font{fakeFont{}} }
+func (fakeFonts) ByName(string) (Font, bool)           { return fakeFont{}, true }
+func (fakeFonts) All() []Font                          { return []Font{fakeFont{}} }
+func (fakeFonts) Classes() []FontClass                 { return []FontClass{FontClean} }

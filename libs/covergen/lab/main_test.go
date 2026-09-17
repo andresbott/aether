@@ -431,8 +431,20 @@ func TestHandleFontsFiltersByClass(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &names); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(names) != 1 || names[0] != "Space Mono" {
-		t.Errorf("mono class = %v, want [Space Mono]", names)
+	if want := len(fontLib.ByClass(covergen.FontMono)); len(names) != want {
+		t.Errorf("mono class = %d names, want %d", len(names), want)
+	}
+	if len(names) >= len(fontLib.All()) {
+		t.Errorf("class filter should return a subset, got all %d fonts", len(names))
+	}
+	found := false
+	for _, n := range names {
+		if n == "Space Mono" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("mono class = %v, want it to include Space Mono", names)
 	}
 }
 
@@ -448,7 +460,7 @@ func TestStylePageShowsTextControlsPreselectedToStyleClass(t *testing.T) {
 	if !strings.Contains(body, `id="fontClass"`) || !strings.Contains(body, `id="font"`) {
 		t.Error("style page should include the font-class and specific-font pickers")
 	}
-	if !strings.Contains(body, `<option value="clean" selected>`) {
+	if !strings.Contains(body, `value="clean" checked`) {
 		t.Error("rings should preselect its own text class (clean)")
 	}
 }
@@ -459,7 +471,7 @@ func TestStylePageFontClassQueryOverridesStyleDefault(t *testing.T) {
 	req.SetPathValue("style", "rings")
 	handleStyle(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `<option value="mono" selected>`) {
+	if !strings.Contains(body, `value="mono" checked`) {
 		t.Error("an explicit ?fontClass= should win over the style's own class")
 	}
 	if !strings.Contains(body, `<option value="Space Mono"`) {
@@ -475,6 +487,52 @@ func TestStylePageFontQueryPreselectsSpecificFontOption(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `<option value="Space Mono" selected>`) {
 		t.Errorf("the specific-font picker should preselect the ?font= value:\n%s", body)
+	}
+}
+
+func TestStylePageMultipleFontClasses(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/style/rings?fontClass=clean&fontClass=display", nil)
+	req.SetPathValue("style", "rings")
+	handleStyle(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, `value="clean" checked`) || !strings.Contains(body, `value="display" checked`) {
+		t.Error("both selected font classes should be checked")
+	}
+	if strings.Contains(body, `value="mono" checked`) {
+		t.Error("unselected classes must not be checked")
+	}
+	// The specific-font list is the union: a clean face and a display face.
+	if !strings.Contains(body, `<option value="Inter"`) || !strings.Contains(body, `<option value="Anton"`) {
+		t.Errorf("specific-font list should union both classes' fonts:\n%s", body)
+	}
+}
+
+func TestHandleFontsUnionOfClasses(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handleFonts(rec, httptest.NewRequest("GET", "/fonts?class=clean&class=display", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var names []string
+	if err := json.Unmarshal(rec.Body.Bytes(), &names); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := len(fontLib.ByClass(covergen.FontClean)) + len(fontLib.ByClass(covergen.FontDisplay))
+	if len(names) != want {
+		t.Errorf("union of clean+display = %d names, want %d", len(names), want)
+	}
+	hasClean, hasDisplay := false, false
+	for _, n := range names {
+		if n == "Inter" {
+			hasClean = true
+		}
+		if n == "Anton" {
+			hasDisplay = true
+		}
+	}
+	if !hasClean || !hasDisplay {
+		t.Errorf("union should include a clean (Inter) and a display (Anton) font: %v", names)
 	}
 }
 

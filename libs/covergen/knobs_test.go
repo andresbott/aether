@@ -2,6 +2,7 @@ package covergen_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/andresbott/aether/libs/covergen"
@@ -108,20 +109,22 @@ func TestEveryKnobIsWiredAndInertAtDefault(t *testing.T) {
 			}
 		}
 		for _, k := range style.Knobs() {
-			target := k.Max
-			if target == k.Default {
-				target = k.Min
-			}
+			extra := wireCheckContext(k.Name)
 			changed := false
-			for _, seed := range knobTestSeeds {
-				base, tuned := renderKnobPair(g, style, seed, size, k.Name, target, fp)
-				if !bytes.Equal(base, tuned) {
-					changed = true
+			for _, target := range wireCheckTargets(k) {
+				for _, seed := range knobTestSeeds {
+					base, tuned := renderKnobPair(g, style, seed, size, k.Name, target, extra, fp)
+					if !bytes.Equal(base, tuned) {
+						changed = true
+						break
+					}
+				}
+				if changed {
 					break
 				}
 			}
 			if !changed {
-				t.Errorf("%s: knob %q (default %v, tried %v) changed no seed — dead or mis-wired", style.Name(), k.Name, k.Default, target)
+				t.Errorf("%s: knob %q (default %v) changed no seed at either extreme — dead or mis-wired", style.Name(), k.Name, k.Default)
 			}
 		}
 	}
@@ -129,19 +132,84 @@ func TestEveryKnobIsWiredAndInertAtDefault(t *testing.T) {
 
 // renderKnobPair renders style at seed twice — once at style.Knobs() defaults,
 // once with knob name overridden to target — and returns both PNG encodings for
-// comparison. text.scale and text.opacity (see covergen.TextKnobs) are declared
-// by every TextDrawer style but read only inside DrawText, which
-// GenerateWithKnobs never reaches (it always renders with an empty Text); those
-// two are routed through GenerateWithText with a non-empty overlay instead, the
-// only path that actually exercises them. Every other knob keeps the plain
-// GenerateWithKnobs check.
-func renderKnobPair(g *covergen.Generator, style covergen.Style, seed string, size int, name string, target float64, fp covergen.FontProvider) (base, tuned []byte) {
-	if name == covergen.TextScaleKnobName || name == covergen.TextOpacityKnobName {
-		base, _ = g.GenerateWithText(seed, size, style, nil, knobTestText, fp)
-		tuned, _ = g.GenerateWithText(seed, size, style, map[string]float64{name: target}, knobTestText, fp)
+// comparison. extra is applied to BOTH renders (see wireCheckContext) so the two
+// still differ only by name, letting a knob that a style's other defaults happen
+// to mask be checked in a context where it can act. Text-overlay knobs (any whose
+// name carries a "text" token: the shared text.scale/text.opacity centres plus the
+// text.sizeSpread/opacitySpread/roam/tint variety knobs, see
+// covergen.TextOverlayKnobs) are read only inside DrawText, which GenerateWithKnobs
+// never reaches (it always renders an empty Text); those are routed through
+// GenerateWithText with a non-empty overlay, the only path that exercises them.
+// Every other knob keeps the plain GenerateWithKnobs check.
+func renderKnobPair(g *covergen.Generator, style covergen.Style, seed string, size int, name string, target float64, extra map[string]float64, fp covergen.FontProvider) (base, tuned []byte) {
+	baseOv := mergeOverrides(extra, nil)
+	tunedOv := mergeOverrides(extra, map[string]float64{name: target})
+	if isTextOverlayKnob(name) {
+		base, _ = g.GenerateWithText(seed, size, style, baseOv, knobTestText, fp)
+		tuned, _ = g.GenerateWithText(seed, size, style, tunedOv, knobTestText, fp)
 		return base, tuned
 	}
-	base, _ = g.GenerateWithKnobs(seed, size, style, nil)
-	tuned, _ = g.GenerateWithKnobs(seed, size, style, map[string]float64{name: target})
+	base, _ = g.GenerateWithKnobs(seed, size, style, baseOv)
+	tuned, _ = g.GenerateWithKnobs(seed, size, style, tunedOv)
 	return base, tuned
+}
+
+// wireCheckTargets returns the knob values the wire-check pushes name toward: the Max
+// and Min extremes that differ from its default. Trying BOTH matters for the pool-sized
+// variety knobs (text.tint / text.roam) — poolSize buckets a 0..1 range into 1..n, so a
+// default and the nearer extreme can share a bucket (e.g. tint 0.75 and 1 both map to
+// the full pool) and render identically; the far extreme still moves it. A knob that
+// changes nothing at either extreme is genuinely dead.
+func wireCheckTargets(k covergen.Knob) []float64 {
+	var out []float64
+	if k.Max != k.Default {
+		out = append(out, k.Max)
+	}
+	if k.Min != k.Default {
+		out = append(out, k.Min)
+	}
+	return out
+}
+
+// wireCheckContext returns knob overrides applied to both renders of name's
+// wire-check, so a knob genuinely read by the engine but masked by a style's other
+// defaults is still verified as wired (not flagged dead). The text.saturation knobs
+// only tint a palette-derived ink, so a style whose text.tint default never selects
+// one (auto black/white only, e.g. waves at tint 0) would otherwise mask them; forcing
+// text.tint high puts the tinted ink in play so the check reflects the engine wiring,
+// not the style's tint choice. text.saturationSpread additionally scales a per-seed
+// jitter around the saturation CENTRE, so a style shipping saturation 0 (e.g. lowpoly)
+// would zero it out — its check also forces a non-zero saturation centre. Returns nil
+// for every other knob, preserving the plain default-context check.
+func wireCheckContext(name string) map[string]float64 {
+	switch name {
+	case covergen.TextSaturationKnobName:
+		return map[string]float64{covergen.TextTintKnobName: 1}
+	case covergen.TextSaturationSpreadKnobName:
+		return map[string]float64{covergen.TextTintKnobName: 1, covergen.TextSaturationKnobName: 0.85}
+	}
+	return nil
+}
+
+// mergeOverrides unions a and b (b wins on conflict), returning nil when both are
+// empty so the default-context path stays byte-identical to a nil override.
+func mergeOverrides(a, b map[string]float64) map[string]float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
+}
+
+// isTextOverlayKnob reports whether a knob is read only in the text overlay, so
+// it must be wire-checked through GenerateWithText. All such knob names carry a
+// "text" token (text.scale, text.opacity, text.roam, text.tint, ...).
+func isTextOverlayKnob(name string) bool {
+	return strings.Contains(strings.ToLower(name), "text")
 }

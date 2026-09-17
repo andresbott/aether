@@ -37,7 +37,17 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(7)), covergen.TextKnobs()...)
+	out = append(out, covergen.GrainKnob(7))
+	// lowpoly prefers its own defaults for several shared text-overlay knobs (a small,
+	// monochrome title pinned to its home anchor — baked from a lab URL), without
+	// affecting the other styles.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := lowpolyTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // lowpolyPaletteDefaults tunes the injected palette's knob defaults for lowpoly.
@@ -48,6 +58,19 @@ var lowpolyPaletteDefaults = map[string]float64{
 	"palette.saturationSpread": 3.15,
 	"palette.spread":           1.7,
 	"palette.spreadJitter":     0.55,
+}
+
+// lowpolyTextDefaults overrides the shared text-overlay knob defaults for lowpoly only
+// (baked from a lab URL, 2026-09-17). Keys not present keep the shared house-style
+// defaults (see covergen.TextOverlayKnobs).
+var lowpolyTextDefaults = map[string]float64{
+	covergen.TextScaleKnobName:         0.9,
+	covergen.TextSizeSpreadKnobName:    1,
+	covergen.TextOpacityKnobName:       1,
+	covergen.TextOpacitySpreadKnobName: 1,
+	covergen.TextRoamKnobName:          0,
+	covergen.TextTintKnobName:          0.25,
+	covergen.TextSaturationKnobName:    0,
 }
 
 // lowpolyKnobs tune the triangle lattice. Multipliers/spreads applied after a
@@ -145,18 +168,32 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification lowpoly renders its overlay in.
-const textClass = covergen.FontClean
+// textClasses are the classification(s) lowpoly renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontMono}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle low-left in a clean sans face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * lowpolyTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a clean sans face via the shared
+// overlay (see covergen.DrawTextOverlay); lowpolyAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, lowpolyTextFrac, lowpolyAnchors)
 }
 
 const lowpolyTextFrac = 0.085
+
+// lowpolyAnchors is lowpoly's roam order: index 0 (lower-left) is the placement
+// used at text.roam 0; higher roam widens the pool.
+var lowpolyAnchors = []text.Anchor{
+	text.AnchorLowerLeft, text.AnchorLowerCenter, text.AnchorCenter,
+	text.AnchorUpperLeft, text.AnchorLowerRight, text.AnchorUpperRight,
+}
 
 // edge returns twice the signed area of triangle (ax,ay)-(bx,by)-(cx,cy); its
 // sign tells which side of edge AB point C lies on.

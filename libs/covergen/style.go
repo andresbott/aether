@@ -84,7 +84,7 @@ func (g *Generator) GenerateWithKnobs(seed string, size int, s Style, overrides 
 }
 
 // GenerateWithText is GenerateWithKnobs plus a text overlay drawn by the style's
-// TextDrawer using a font of its TextClass picked from fonts. An empty Text, a
+// TextDrawer using a font from its TextClasses picked from fonts. An empty Text, a
 // nil fonts, or a style that is not a TextDrawer all render exactly as
 // GenerateWithKnobs.
 func (g *Generator) GenerateWithText(seed string, size int, s Style, overrides map[string]float64, text Text, fonts FontProvider) ([]byte, error) {

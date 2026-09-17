@@ -70,28 +70,45 @@ func perturb(h [32]byte) [32]byte {
 // renderOnce draws s at double resolution, optionally overlays text, downsamples
 // 2x for anti-aliasing, and applies grain, returning the final image before PNG
 // encoding: rngFromHash -> Draw -> [text] -> downsample2x -> grain, dispatching
-// through a Style value. The text overlay only runs when text is non-empty, fonts
-// is non-nil, and s implements TextDrawer — so a nil/empty caller (Text{}, nil)
-// reproduces the textless render exactly. The grain amount is the resolved
-// "grain" knob (see GrainKnob), so it is tuned uniformly across styles here
-// rather than in each Draw func.
+// through a Style value. The text overlay (see overlayText) runs only on the
+// non-empty-text path, so a nil/empty caller (Text{}, nil) reproduces the textless
+// render exactly. The grain amount is the resolved "grain" knob (see GrainKnob),
+// so it is tuned uniformly across styles here rather than in each Draw func.
 func renderOnce(h [32]byte, s Style, size int, ks KnobSet, text Text, fonts FontProvider) *image.RGBA {
 	rng := rngFromHash(h)
 	big := image.NewRGBA(image.Rect(0, 0, size*2, size*2))
 	s.Draw(big, rng, ks)
-	if !text.Empty() && fonts != nil {
-		if td, ok := s.(TextDrawer); ok {
-			f := fonts.Random(rng, td.TextClass())
-			if f != nil {
-				td.DrawText(big, rng, ks, text, f)
-			}
-		}
-	}
+	overlayText(big, rng, h, s, ks, text, fonts)
 	img := downsample2x(big)
 	if g := int(ks.Float(GrainKnobName)); g > 0 {
 		addGrain(img, rng, g)
 	}
 	return img
+}
+
+// overlayText draws the album-title overlay onto big, but only when text is
+// non-empty, fonts is non-nil, and s is a TextDrawer whose font class resolves —
+// so a nil/empty caller leaves big untouched and reproduces the textless render
+// exactly. A Colored style's ColorSet is recomputed from a fresh per-seed rng
+// (reproducing Draw's first colour draw), so the overlay can ink type in the same
+// palette roles the cover uses; other styles receive the zero ColorSet.
+func overlayText(big *image.RGBA, rng *rand.Rand, h [32]byte, s Style, ks KnobSet, text Text, fonts FontProvider) {
+	if text.Empty() || fonts == nil {
+		return
+	}
+	td, ok := s.(TextDrawer)
+	if !ok {
+		return
+	}
+	f := fonts.Random(rng, td.TextClasses()...)
+	if f == nil {
+		return
+	}
+	var cs ColorSet
+	if c, ok := s.(Colored); ok {
+		cs = c.Colors(rngFromHash(h), ks)
+	}
+	td.DrawText(big, rng, ks, text, f, cs)
 }
 
 // downsample2x box-filters src (which must be square with even dimensions)

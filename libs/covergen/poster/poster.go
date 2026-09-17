@@ -36,7 +36,15 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(5)), covergen.TextKnobs()...)
+	out = append(out, covergen.GrainKnob(5))
+	// poster tunes a few of the shared text-overlay knob defaults for itself.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := posterTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // posterPaletteDefaults tunes the injected palette's knob defaults for poster. It
@@ -47,6 +55,17 @@ var posterPaletteDefaults = map[string]float64{
 	"palette.saturation":       1.2,
 	"palette.saturationSpread": 3.1,
 	"palette.softness":         0.45,
+}
+
+// posterTextDefaults overrides the shared text-overlay knob defaults for poster
+// only (see covergen.TextOverlayKnobs): the title ink takes a palette tint more
+// often, at a lower and slightly varied saturation, so it reads as a muted
+// pastel against the duotone rather than a punchy accent. Keys not listed keep
+// the shared house defaults.
+var posterTextDefaults = map[string]float64{
+	covergen.TextTintKnobName:             0.65,
+	covergen.TextSaturationKnobName:       0.3,
+	covergen.TextSaturationSpreadKnobName: 0.35,
 }
 
 // posterKnobs tune the duotone poster. Applied after the per-seed random draws.
@@ -114,18 +133,32 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification poster renders its overlay in.
-const textClass = covergen.FontDisplay
+// textClasses are the classification(s) poster renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontDisplay}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle bottom-center in a bold display face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * posterTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerCenter, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a bold display face via the shared
+// overlay (see covergen.DrawTextOverlay); posterAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, posterTextFrac, posterAnchors)
 }
 
 const posterTextFrac = 0.095
+
+// posterAnchors is poster's roam order: index 0 (lower-center) is the placement
+// used at text.roam 0; higher roam widens the pool.
+var posterAnchors = []text.Anchor{
+	text.AnchorLowerCenter, text.AnchorLowerLeft, text.AnchorLowerRight,
+	text.AnchorCenter, text.AnchorUpperLeft, text.AnchorUpperRight,
+}
 
 func inCircle(x, y, cx, cy, r float64) bool {
 	dx, dy := x-cx, y-cy

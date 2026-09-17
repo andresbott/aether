@@ -40,8 +40,9 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	// grain last so it reads as a render post-process, after style + palette knobs.
-	return append(append(out, covergen.GrainKnob(7)), covergen.TextKnobs()...)
+	// grain (a render post-process) then the shared text-overlay knobs.
+	out = append(out, covergen.GrainKnob(7))
+	return append(out, covergen.TextOverlayKnobs()...)
 }
 
 // classicPaletteDefaults overrides the shared palette's knob defaults for classic
@@ -58,18 +59,37 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	drawForeground(img, rng, ks)
 }
 
-// textClass is the classification classic renders its overlay in.
-const textClass = covergen.FontFormal
+// textClasses are the classification(s) classic renders its overlay in; the
+// pipeline picks a font from their union per seed. classic ships a clean+display
+// pool (lab-tuned 2026-09-17) so titles vary between a neutral sans and a heavy
+// poster face.
+var textClasses = []covergen.FontClass{covergen.FontClean, covergen.FontDisplay}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle low-left in a formal face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * classicTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes classic's per-cover ColorSet (see covergen.Colored) so DrawText
+// can ink type in the same palette roles the gradient uses.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a formal face via the shared
+// overlay: size and ink vary per seed and the placement auto-avoids busy regions
+// (text.LeastBusyAnchor). It is all tunable through the text.* knobs (see
+// covergen.TextOverlayKnobs); classicAnchors sets classic's roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, classicTextFrac, classicAnchors)
 }
 
 const classicTextFrac = 0.085
+
+// classicAnchors is classic's roam order: index 0 (lower-left) is the placement
+// used at text.roam 0; a higher text.roam widens the pool toward the more
+// adventurous anchors.
+var classicAnchors = []text.Anchor{
+	text.AnchorLowerLeft, text.AnchorLowerCenter, text.AnchorCenter,
+	text.AnchorUpperLeft, text.AnchorLowerRight, text.AnchorUpperRight,
+}
 
 // drawGradient fills img with a two-colour diagonal gradient from c1 (top-left)
 // to c2 (bottom-right).

@@ -48,7 +48,7 @@ var defaultPalettes = map[string]string{
 	"remix":    "pastel",
 	"mosaic":   "neon",
 	"halftone": "mono",
-	"liquid":   "triadic",
+	"liquid":   "neon",
 	"lowpoly":  "triadic",
 }
 
@@ -58,8 +58,8 @@ var defaultPalettes = map[string]string{
 func DefaultPaletteName(styleName string) string { return defaultPalettes[styleName] }
 
 // New returns a Generator over the ten built-in styles, each paired with the
-// palette it was tuned for in the lab (bauhaus, rings, and mosaic on neon; waves,
-// liquid, and lowpoly on triadic; poster and remix on pastel; classic on harmony;
+// palette it was tuned for in the lab (bauhaus, rings, mosaic, and liquid on neon;
+// waves and lowpoly on triadic; poster and remix on pastel; classic on harmony;
 // halftone on mono; see defaultPalettes). Style order matches All. Each style's
 // own palette-knob tweaks live in its package (see its *PaletteDefaults), so those
 // apply on top of whichever palette is paired here.

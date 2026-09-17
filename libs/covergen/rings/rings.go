@@ -29,7 +29,27 @@ type style struct{ pal covergen.Palette }
 
 func (s style) Name() string { return "rings" }
 func (s style) Knobs() []covergen.Knob {
-	return append(append(append(append([]covergen.Knob(nil), ringsKnobs...), s.pal.Knobs()...), covergen.GrainKnob(6)), covergen.TextKnobs()...)
+	out := append([]covergen.Knob(nil), ringsKnobs...)
+	out = append(out, s.pal.Knobs()...)
+	out = append(out, covergen.GrainKnob(6))
+	// rings prefers its own defaults for a couple of shared text-overlay knobs (a
+	// fully-opaque title with no per-seed opacity jitter — baked from a lab URL),
+	// without affecting the other styles.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := ringsTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
+}
+
+// ringsTextDefaults overrides the shared text-overlay knob defaults for rings only
+// (baked from a lab URL, 2026-09-17). Keys not present keep the shared house-style
+// defaults (see covergen.TextOverlayKnobs).
+var ringsTextDefaults = map[string]float64{
+	covergen.TextOpacityKnobName:       1,
+	covergen.TextOpacitySpreadKnobName: 0,
 }
 
 // ringsKnobs are the tunable parameters of the rings style. Most are multipliers
@@ -46,6 +66,10 @@ var ringsKnobs = []covergen.Knob{
 	{Name: "rings.corners", Label: "Corners", Min: 0.2, Max: 4, Step: 0.05, Default: 0.2},
 	{Name: "rings.cornersSpread", Label: "Corners spread", Min: 0, Max: 10, Step: 0.05, Default: 3.05},
 	{Name: "rings.minBandWidth", Label: "Min band width", Min: 0.01, Max: 0.12, Step: 0.005, Default: 0.015},
+	// The title is drawn wrapped in a single thick white border (a 70s "echo" look)
+	// via the shared text overlay; textBorderWidth is the border's width as a fraction
+	// of the title height.
+	{Name: "rings.textBorderWidth", Label: "Text border width", Min: 0.02, Max: 0.6, Step: 0.005, Default: 0.29},
 }
 
 // Draw draws eccentric concentric rings with an optional angular wobble
@@ -136,15 +160,35 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification rings renders its overlay in.
-const textClass = covergen.FontClean
+// textClasses are the classification(s) rings renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontClean}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle bottom-center in a clean sans face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * ringsTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorLowerCenter, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a clean sans face via the shared
+// overlay (see covergen.DrawTextOverlay); ringsAnchors sets its roam order. Rings wraps
+// each letter in a single thick white border (see covergen.WithOutline) for a retro /
+// 70s look; rings.textBorderWidth tunes its thickness.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	var opts []covergen.TextOption
+	if w := ks.Float("rings.textBorderWidth"); w > 0 {
+		opts = append(opts, covergen.WithOutline(w))
+	}
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, ringsTextFrac, ringsAnchors, opts...)
 }
 
 const ringsTextFrac = 0.080
+
+// ringsAnchors is rings's roam order: index 0 (lower-center) is the placement used
+// at text.roam 0; higher roam widens the pool.
+var ringsAnchors = []text.Anchor{
+	text.AnchorLowerCenter, text.AnchorLowerLeft, text.AnchorLowerRight,
+	text.AnchorCenter, text.AnchorUpperLeft, text.AnchorUpperRight,
+}

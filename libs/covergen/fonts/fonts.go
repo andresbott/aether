@@ -19,18 +19,34 @@ import (
 //go:embed assets/*.ttf
 var assets embed.FS
 
-// builtins maps each embedded face to its display name and class. One face per
-// class today; add rows (same class allowed) to widen a class's random pool.
+// builtins maps each embedded face to its display name and class. Several faces
+// per class widen that class's random pool (Random picks within the class); add
+// rows (same class allowed) to extend it.
 var builtins = []struct {
 	file  string
 	name  string
 	class covergen.FontClass
 }{
+	// formal — elegant serif
 	{"assets/PTSerif-Regular.ttf", "PT Serif", covergen.FontFormal},
+	{"assets/DMSerifDisplay-Regular.ttf", "DM Serif Display", covergen.FontFormal},
+	{"assets/CormorantGaramond-Regular.ttf", "Cormorant Garamond", covergen.FontFormal},
+	// clean — neutral grotesque sans
 	{"assets/PTSans-Regular.ttf", "PT Sans", covergen.FontClean},
+	{"assets/Inter-Regular.ttf", "Inter", covergen.FontClean},
+	{"assets/WorkSans-Regular.ttf", "Work Sans", covergen.FontClean},
+	// display — heavy poster/display
 	{"assets/ArchivoBlack-Regular.ttf", "Archivo Black", covergen.FontDisplay},
+	{"assets/Anton-Regular.ttf", "Anton", covergen.FontDisplay},
+	{"assets/BebasNeue-Regular.ttf", "Bebas Neue", covergen.FontDisplay},
+	// mono — monospace
 	{"assets/SpaceMono-Regular.ttf", "Space Mono", covergen.FontMono},
+	{"assets/IBMPlexMono-Regular.ttf", "IBM Plex Mono", covergen.FontMono},
+	{"assets/JetBrainsMono-Regular.ttf", "JetBrains Mono", covergen.FontMono},
+	// script — handwritten/script
 	{"assets/Pacifico-Regular.ttf", "Pacifico", covergen.FontScript},
+	{"assets/Lobster-Regular.ttf", "Lobster", covergen.FontScript},
+	{"assets/Caveat-Regular.ttf", "Caveat", covergen.FontScript},
 }
 
 // embeddedFont is one parsed typeface implementing covergen.Font.
@@ -99,10 +115,15 @@ func (p *provider) ByName(name string) (covergen.Font, bool) {
 	return f, ok
 }
 
-// Random picks a deterministic-per-rng font of class, falling back to any font
-// when the class is empty. It consumes one rng draw when the pool is non-empty.
-func (p *provider) Random(rng *rand.Rand, class covergen.FontClass) covergen.Font {
-	pool := p.byClass[class]
+// Random picks a deterministic-per-rng font uniformly across the union of the
+// given classes, falling back to any font when no class (or only unknown ones)
+// is given. It consumes one rng draw when the pool is non-empty. A single class
+// reproduces the old per-class pick exactly (same pool, same draw).
+func (p *provider) Random(rng *rand.Rand, classes ...covergen.FontClass) covergen.Font {
+	var pool []covergen.Font
+	for _, c := range classes {
+		pool = append(pool, p.byClass[c]...)
+	}
 	if len(pool) == 0 {
 		pool = p.all
 	}

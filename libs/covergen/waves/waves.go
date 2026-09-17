@@ -35,19 +35,38 @@ func (s style) Knobs() []covergen.Knob {
 		}
 		out = append(out, k)
 	}
-	return append(append(out, covergen.GrainKnob(8)), covergen.TextKnobs()...)
+	out = append(out, covergen.GrainKnob(8))
+	// waves tunes several of the shared text-overlay knob defaults for itself.
+	for _, k := range covergen.TextOverlayKnobs() {
+		if d, ok := wavesTextDefaults[k.Name]; ok {
+			k.Default = d
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 // wavesPaletteDefaults tunes the injected palette's knob defaults for waves. It
 // ships on triadic (see allstyles.New): softer, wider-varying saturation and a
-// collapsed triad spread (the three hues sit near the base, jittered per seed)
-// for a tonal synthwave sky. Keys the injected palette does not declare are
-// ignored.
+// narrow triad spread (the three hues sit close to the base, lightly jittered
+// per seed) for a tonal synthwave sky. Keys the injected palette does not
+// declare are ignored.
 var wavesPaletteDefaults = map[string]float64{
-	"palette.saturation":       0.8,
+	"palette.saturation":       0.6,
 	"palette.saturationSpread": 2.1,
-	"palette.spread":           0,
+	"palette.spread":           0.35,
 	"palette.spreadJitter":     0.65,
+}
+
+// wavesTextDefaults overrides the shared text-overlay knob defaults for waves
+// only (see covergen.TextOverlayKnobs): a slightly smaller title inked in auto
+// black/white — tint 0 never takes a palette colour, so the saturation below is
+// dormant unless tint is raised — matching its display/script faces over the
+// synthwave sky. Keys not listed keep the shared house defaults.
+var wavesTextDefaults = map[string]float64{
+	covergen.TextScaleKnobName:      1,
+	covergen.TextTintKnobName:       0,
+	covergen.TextSaturationKnobName: 0.55,
 }
 
 // wavesKnobs tune the synthwave poster. Most are multipliers/spreads applied
@@ -164,15 +183,31 @@ func (s style) Draw(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet) {
 	}
 }
 
-// textClass is the classification waves renders its overlay in.
-const textClass = covergen.FontScript
+// textClasses are the classification(s) waves renders its overlay in; the
+// pipeline picks a font from their union per seed.
+var textClasses = []covergen.FontClass{covergen.FontDisplay, covergen.FontScript}
 
-func (s style) TextClass() covergen.FontClass { return textClass }
+func (s style) TextClasses() []covergen.FontClass { return textClasses }
 
-// DrawText paints the album title + subtitle top-left in a script face.
-func (s style) DrawText(img *image.RGBA, _ *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font) {
-	px := float64(img.Bounds().Dx()) * wavesTextFrac * ks.Float(covergen.TextScaleKnobName)
-	text.Block(img, t.Main, t.Subtitle, f.Face, px, text.AnchorUpperLeft, int(px*0.6), ks.Float(covergen.TextOpacityKnobName))
+// Colors exposes the per-cover ColorSet (see covergen.Colored) so the shared text
+// overlay can tint the title in the palette's accent complement.
+func (s style) Colors(rng *rand.Rand, ks covergen.KnobSet) covergen.ColorSet {
+	return s.pal.Colors(rng, ks)
+}
+
+// DrawText paints the album title + subtitle in a display/script face via the
+// shared overlay (see covergen.DrawTextOverlay); wavesAnchors sets its roam order.
+func (s style) DrawText(img *image.RGBA, rng *rand.Rand, ks covergen.KnobSet, t covergen.Text, f covergen.Font, cs covergen.ColorSet) {
+	covergen.DrawTextOverlay(img, rng, ks, t, f, cs, wavesTextFrac, wavesAnchors)
 }
 
 const wavesTextFrac = 0.090
+
+// wavesAnchors is waves's roam order, deliberately restricted to the four
+// corners: waves never centers its title (no AnchorCenter / AnchorLowerCenter),
+// so a busy horizon or sun disc never sits behind the text. Index 0 (upper-left)
+// is the placement at text.roam 0; higher roam widens the pool across the corners.
+var wavesAnchors = []text.Anchor{
+	text.AnchorUpperLeft, text.AnchorUpperRight,
+	text.AnchorLowerLeft, text.AnchorLowerRight,
+}

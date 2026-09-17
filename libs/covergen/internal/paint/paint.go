@@ -45,6 +45,38 @@ func HslToRGBA(h, s, l float64) color.RGBA {
 	}
 }
 
+// RgbToHsl converts an opaque colour to HSL — h in degrees [0, 360), s and l in
+// [0, 1]. It is the inverse of HslToRGBA; a grey returns h = s = 0.
+func RgbToHsl(c color.RGBA) (h, s, l float64) {
+	r := float64(c.R) / 255
+	g := float64(c.G) / 255
+	b := float64(c.B) / 255
+	mx := math.Max(r, math.Max(g, b))
+	mn := math.Min(r, math.Min(g, b))
+	l = (mx + mn) / 2
+	d := mx - mn
+	if d == 0 {
+		return 0, 0, l
+	}
+	if l > 0.5 {
+		s = d / (2 - mx - mn)
+	} else {
+		s = d / (mx + mn)
+	}
+	switch mx {
+	case r:
+		h = math.Mod((g-b)/d, 6)
+	case g:
+		h = (b-r)/d + 2
+	default:
+		h = (r-g)/d + 4
+	}
+	if h *= 60; h < 0 {
+		h += 360
+	}
+	return h, s, l
+}
+
 // Vivid returns n saturated colours built from a random harmony scheme
 // (complementary, triadic, analogous, split-complementary).
 func Vivid(rng *rand.Rand, n int, satMul, hueMul, satSpread float64) []color.RGBA {

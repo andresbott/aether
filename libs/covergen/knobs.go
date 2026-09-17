@@ -55,19 +55,38 @@ func GrainKnob(def float64) Knob {
 	return Knob{Name: GrainKnobName, Label: "Grain", Min: 0, Max: 12, Step: 1, Default: def}
 }
 
-// TextScaleKnobName and TextOpacityKnobName are the well-known knobs a
-// TextDrawer style declares so the lab can tune its text overlay live.
+// The well-known text-overlay knob names every TextDrawer style declares (via
+// TextOverlayKnobs) so the lab can tune its title overlay live. DrawTextOverlay is
+// the sole reader. All carry a "text" token so the knob-wiring guard routes them
+// through the text path and the lab groups them under Text.
 const (
-	TextScaleKnobName   = "text.scale"
-	TextOpacityKnobName = "text.opacity"
+	TextScaleKnobName            = "text.scale"            // title size, a multiplier on the style's base fraction
+	TextSizeSpreadKnobName       = "text.sizeSpread"       // per-seed title-size jitter (0 = uniform)
+	TextOpacityKnobName          = "text.opacity"          // title opacity centre
+	TextOpacitySpreadKnobName    = "text.opacitySpread"    // per-seed opacity jitter (0 = uniform)
+	TextRoamKnobName             = "text.roam"             // placement breadth: 0 pins the style's anchor, 1 auto-places over the calmest spot
+	TextTintKnobName             = "text.tint"             // how often the ink takes a palette-derived colour vs auto black/white
+	TextSaturationKnobName       = "text.saturation"       // tint-colour saturation centre
+	TextSaturationSpreadKnobName = "text.saturationSpread" // per-seed tint-saturation jitter (0 = uniform)
 )
 
-// TextKnobs returns the shared text-overlay knobs every TextDrawer style adds to
-// its Knobs (like GrainKnob). Identity defaults (scale 1, opacity 1) keep output
-// unchanged until they are tuned, and they are only read inside DrawText.
-func TextKnobs() []Knob {
+// TextOverlayKnobs returns the shared title-overlay knobs every TextDrawer style
+// adds to its Knobs (like GrainKnob), in lab display order: each size/opacity
+// centre is immediately followed by its per-seed spread, then placement, tint, and
+// the tint's saturation (centre + spread). DrawTextOverlay reads them. The defaults
+// are the shared house style — larger,
+// slightly translucent titles that auto-place and occasionally take a palette
+// colour; a style tunes them for itself in the lab. They are read only on the
+// text path, so textless output stays byte-identical regardless of their values.
+func TextOverlayKnobs() []Knob {
 	return []Knob{
-		{Name: TextScaleKnobName, Label: "Text size", Min: 0.3, Max: 2, Step: 0.05, Default: 1},
-		{Name: TextOpacityKnobName, Label: "Text opacity", Min: 0, Max: 1, Step: 0.05, Default: 1},
+		{Name: TextScaleKnobName, Label: "Text size", Min: 0.3, Max: 2, Step: 0.05, Default: 1.55},
+		{Name: TextSizeSpreadKnobName, Label: "Text size spread", Min: 0, Max: 3, Step: 0.05, Default: 0.8},
+		{Name: TextOpacityKnobName, Label: "Text opacity", Min: 0, Max: 1, Step: 0.05, Default: 0.85},
+		{Name: TextOpacitySpreadKnobName, Label: "Text opacity spread", Min: 0, Max: 1, Step: 0.05, Default: 0.75},
+		{Name: TextRoamKnobName, Label: "Text placement", Min: 0, Max: 1, Step: 0.05, Default: 1},
+		{Name: TextTintKnobName, Label: "Text tint", Min: 0, Max: 1, Step: 0.05, Default: 0.3},
+		{Name: TextSaturationKnobName, Label: "Text saturation", Min: 0, Max: 1, Step: 0.05, Default: 0.85},
+		{Name: TextSaturationSpreadKnobName, Label: "Text saturation spread", Min: 0, Max: 1, Step: 0.05, Default: 0},
 	}
 }
