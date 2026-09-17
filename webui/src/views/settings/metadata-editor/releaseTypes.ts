@@ -1,22 +1,9 @@
-// MusicBrainz release-type vocabulary for the metadata editor. Storage and the
-// wire are a single flat list; the primary/secondary split is UX only. A release
-// group has exactly one primary type and zero-or-more secondary types.
-export const PRIMARY_RELEASE_TYPES = ['Album', 'Single', 'EP', 'Broadcast', 'Other'] as const
-
-export const SECONDARY_RELEASE_TYPES = [
-    'Compilation',
-    'Soundtrack',
-    'Spokenword',
-    'Interview',
-    'Audiobook',
-    'Audio drama',
-    'Live',
-    'Remix',
-    'DJ-mix',
-    'Mixtape/Street',
-    'Demo',
-    'Field recording'
-] as const
+// Storage and the wire are a single flat list; the primary/secondary split
+// below is UX only. The vocabulary itself now lives in @/lib (shared with the
+// Releases browse tabs) — re-exported here so existing editor imports keep
+// resolving.
+import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from '@/lib/releaseTypes'
+export { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES }
 
 function canonical(vocab: readonly string[], value: string): string | undefined {
     const v = value.trim().toLowerCase()

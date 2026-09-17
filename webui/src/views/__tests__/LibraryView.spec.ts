@@ -8,7 +8,7 @@ import { useUiStore } from '@/store/uiStore'
 
 const route = {
     params: { folderId: '1' } as Record<string, string>,
-    hash: '#albums',
+    hash: '#releases',
     query: {} as Record<string, string>
 }
 const replace = vi.fn()
@@ -83,12 +83,12 @@ vi.mock('@/composables/useStarred', () => ({
 
 const AlbumListStub = {
     name: 'AlbumListView',
-    props: ['folderId', 'favoritesOnly'],
+    props: ['folderId', 'favoritesOnly', 'releaseType'],
     template: '<div class="album-list-stub" />'
 }
 const AlbumGridStub = {
     name: 'AlbumGrid',
-    props: ['folderId', 'favoritesOnly'],
+    props: ['folderId', 'favoritesOnly', 'releaseType'],
     template: '<div class="album-grid-stub" />'
 }
 const ArtistListStub = {
@@ -152,7 +152,7 @@ beforeEach(() => {
     setActivePinia(createPinia())
     replace.mockReset()
     route.params = { folderId: '1' }
-    route.hash = '#albums'
+    route.hash = '#releases'
     route.query = {}
     foldersRef.value = [{ id: 1, name: 'Main' }]
     discoveryItems.value = []
@@ -161,16 +161,16 @@ beforeEach(() => {
 })
 
 describe('LibraryView', () => {
-    it('albums + default layout → AlbumGrid, and shows the album summary', () => {
+    it('releases + default layout → AlbumGrid, and shows the release summary', () => {
         const w = mountView()
         expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
         expect(w.findComponent(AlbumListStub).exists()).toBe(false)
-        expect(w.text()).toContain('1240 albums')
+        expect(w.text()).toContain('1240 releases')
     })
 
-    it('albums + list layout → AlbumListView', () => {
+    it('releases + list layout → AlbumListView', () => {
         const ui = useUiStore()
-        ui.setLibraryViewMode('albums', 'list')
+        ui.setLibraryViewMode('releases', 'list')
         const w = mountView()
         expect(w.findComponent(AlbumListStub).exists()).toBe(true)
         expect(w.findComponent(AlbumListStub).props('folderId')).toBe(1)
@@ -194,55 +194,56 @@ describe('LibraryView', () => {
     })
 
     it('shows the layout toggle on every tab except songs', () => {
-        route.hash = '#albums'
-        const albumsView = mountView()
-        expect(albumsView.findAllComponents(SelectButton).length).toBe(2)
+        route.hash = '#releases'
+        const releasesView = mountView()
+        // Layout toggle + release-type tabs (releases mode, favorites off).
+        expect(releasesView.findAllComponents(SelectButton).length).toBe(2)
         route.hash = '#artists'
         const artistsView = mountView()
-        expect(artistsView.findAllComponents(SelectButton).length).toBe(2)
+        expect(artistsView.findAllComponents(SelectButton).length).toBe(1)
         route.params = {}
         route.hash = '#discover'
         const discoverView = mountView()
-        expect(discoverView.findAllComponents(SelectButton).length).toBe(2)
-        // Songs tab has only the view mode selector, no layout toggle
+        expect(discoverView.findAllComponents(SelectButton).length).toBe(1)
+        // Songs tab has neither the layout toggle nor the release-type tabs.
         route.params = { folderId: '1' }
         route.hash = '#songs'
         const songsView = mountView()
-        expect(songsView.findAllComponents(SelectButton).length).toBe(1)
+        expect(songsView.findAllComponents(SelectButton).length).toBe(0)
     })
 
     it('toggling layout only affects the current type', async () => {
         const ui = useUiStore()
         const w = mountView()
-        // Toggle albums to list
+        // SelectButton[0] is the release-type tabs, [1] is the layout toggle.
         w.findAllComponents(SelectButton)[1].vm.$emit('update:modelValue', 'list')
         await w.vm.$nextTick()
-        expect(ui.getLibraryViewMode('albums')).toBe('list')
+        expect(ui.getLibraryViewMode('releases')).toBe('list')
         expect(ui.getLibraryViewMode('artists')).toBe('grid')
         expect(ui.getLibraryViewMode('discover')).toBe('grid')
     })
 
     it('switching tabs shows each type own layout mode', async () => {
         const ui = useUiStore()
-        ui.setLibraryViewMode('albums', 'list')
+        ui.setLibraryViewMode('releases', 'list')
         ui.setLibraryViewMode('artists', 'grid')
 
-        route.hash = '#albums'
-        const albumsView = mountView()
-        expect(albumsView.findComponent(AlbumListStub).exists()).toBe(true)
+        route.hash = '#releases'
+        const releasesView = mountView()
+        expect(releasesView.findComponent(AlbumListStub).exists()).toBe(true)
 
         route.hash = '#artists'
         const artistsView = mountView()
         expect(artistsView.findComponent(ArtistGridStub).exists()).toBe(true)
     })
 
-    it('hides the Artists tab and forces albums when the folder has showArtists=false', () => {
+    it('hides the Artists tab and forces releases when the folder has showArtists=false', () => {
         foldersRef.value = [{ id: 1, name: 'Main', showArtists: false }]
         route.hash = '#artists'
         const w = mountView()
         expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
         expect(w.findComponent(ArtistGridStub).exists()).toBe(false)
-        // Albums and Songs tabs + layout toggle (only one SelectButton for tabs since songs has no layout toggle in this context).
+        // Falls back to Releases: release-type tabs + layout toggle.
         expect(w.findAllComponents(SelectButton).length).toBe(2)
     })
 
@@ -254,7 +255,7 @@ describe('LibraryView', () => {
 })
 
 // The favorites filter is URL state (?favorites=1) like the layout, so it survives
-// a reload and is linkable, and it applies to Albums and Artists but not Discover.
+// a reload and is linkable, and it applies to Releases and Artists but not Discover.
 describe('LibraryView favorites filter', () => {
     it('is off by default and passes favoritesOnly=false to the body', () => {
         const w = mountView()
@@ -284,7 +285,7 @@ describe('LibraryView favorites filter', () => {
         expect(mountView().findComponent(AlbumGridStub).props('favoritesOnly')).toBe(true)
 
         route.query = { favorites: '1' }
-        ui.setLibraryViewMode('albums', 'list')
+        ui.setLibraryViewMode('releases', 'list')
         expect(mountView().findComponent(AlbumListStub).props('favoritesOnly')).toBe(true)
 
         route.hash = '#artists'
@@ -301,7 +302,7 @@ describe('LibraryView favorites filter', () => {
         const w = mountView()
         await favoritesToggle(w).trigger('click')
         expect(replace).toHaveBeenCalledWith({
-            hash: '#albums',
+            hash: '#releases',
             query: { favorites: '1' }
         })
 
@@ -309,23 +310,23 @@ describe('LibraryView favorites filter', () => {
         route.query = { favorites: '1' }
         const on = mountView()
         await favoritesToggle(on).trigger('click')
-        expect(replace).toHaveBeenCalledWith({ hash: '#albums', query: {} })
+        expect(replace).toHaveBeenCalledWith({ hash: '#releases', query: {} })
     })
 
     it('layout state is independent of the favorites filter', async () => {
         const ui = useUiStore()
-        ui.setLibraryViewMode('albums', 'list')
+        ui.setLibraryViewMode('releases', 'list')
         const w = mountView()
         await favoritesToggle(w).trigger('click')
         expect(replace).toHaveBeenCalledWith({
-            hash: '#albums',
+            hash: '#releases',
             query: { favorites: '1' }
         })
         // Layout is not in query, still in store
-        expect(ui.getLibraryViewMode('albums')).toBe('list')
+        expect(ui.getLibraryViewMode('releases')).toBe('list')
     })
 
-    // "6 favorites", not "6 favorite albums": the active tab names the type, and the
+    // "6 favorites", not "6 favorite releases": the active tab names the type, and the
     // root header has no room for the longer form.
     it('summarises the favorites count, pluralised', () => {
         route.query = { favorites: '1' }
@@ -365,27 +366,50 @@ describe('LibraryView favorites filter', () => {
     })
 })
 
-// All Music (no folderId) is the only route that offers Discovery: the ranking is
-// cross-collection, so a per-library feed would be meaningless.
-describe('LibraryView secondary actions', () => {
-    it('keeps the tab switch primary and moves layout toggle to secondary actions', () => {
-        const view = mountView()
-        const selectButtons = view.findAllComponents(SelectButton)
-        expect(selectButtons.length).toBe(2)
-        // Tab switch comes first (in primary actions), layout toggle second (in secondary)
-        // On desktop tier, secondary renders inline after primary
-        const [first, second] = selectButtons
-        // The tab switch has text options (Discover/Albums/Artists)
-        expect(first.props('options')).toEqual(
-            expect.arrayContaining([expect.objectContaining({ label: 'Albums', value: 'albums' })])
+// The release-type filter is URL state (?releaseType=), like favorites, and is
+// meaningful only in Releases mode with favorites off.
+describe('LibraryView release-type tabs', () => {
+    it('renders the release-type tabs in Releases mode', () => {
+        route.hash = '#releases'
+        route.query = {}
+        const w = mountView()
+        const labels = w.findAllComponents(SelectButton).flatMap((sb) =>
+            (sb.props('options') as Array<{ label: string }>).map((o) => o.label)
         )
-        // The layout toggle has icon options (list/grid)
-        expect(second.props('options')).toEqual(
-            expect.arrayContaining([expect.objectContaining({ icon: 'pi pi-list' })])
+        expect(labels).toEqual(
+            expect.arrayContaining(['All', 'Albums', 'Singles', 'EPs', 'Broadcast', 'Other'])
         )
+    })
+
+    it('writes ?releaseType when a type tab is chosen', async () => {
+        route.hash = '#releases'
+        route.query = {}
+        const w = mountView()
+        const typeBtn = w
+            .findAllComponents(SelectButton)
+            .find((sb) =>
+                (sb.props('options') as Array<{ label: string }>).some((o) => o.label === 'Singles')
+            )!
+        typeBtn.vm.$emit('update:modelValue', 'Single')
+        await w.vm.$nextTick()
+        expect(replace).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.objectContaining({ releaseType: 'Single' }) })
+        )
+    })
+
+    it('hides the release-type tabs while favorites is on', () => {
+        route.hash = '#releases'
+        route.query = { favorites: '1' }
+        const w = mountView()
+        const labels = w.findAllComponents(SelectButton).flatMap((sb) =>
+            (sb.props('options') as Array<{ label: string }>).map((o) => o.label)
+        )
+        expect(labels).not.toContain('Singles')
     })
 })
 
+// All Music (no folderId) is the only route that offers Discovery: the ranking is
+// cross-collection, so a per-library feed would be meaningless.
 describe('LibraryView Discover tab', () => {
     beforeEach(() => {
         route.params = {}
@@ -396,17 +420,6 @@ describe('LibraryView Discover tab', () => {
         const w = mountView()
         expect(w.findComponent(DiscoveryFeedStub).exists()).toBe(true)
         expect(w.findComponent(AlbumGridStub).exists()).toBe(false)
-    })
-
-    it('offers Discover, Albums and Artists on All Music', () => {
-        const w = mountView()
-        const tabs = w.findAllComponents(SelectButton)[0]
-        expect(tabs.props('options')).toEqual([
-            expect.objectContaining({ label: 'Discover', value: 'discover' }),
-            expect.objectContaining({ label: 'Albums', value: 'albums' }),
-            expect.objectContaining({ label: 'Artists', value: 'artists' }),
-            expect.objectContaining({ label: 'Songs', value: 'songs' })
-        ])
     })
 
     it('passes the layout through to the feed', () => {
@@ -429,26 +442,16 @@ describe('LibraryView Discover tab', () => {
         expect(mountView().text()).not.toContain('0 item')
     })
 
-    it('leaves Discover for Albums when the hash says albums', () => {
-        route.hash = '#albums'
+    it('leaves Discover for Releases when the hash says releases', () => {
+        route.hash = '#releases'
         const w = mountView()
         expect(w.findComponent(AlbumGridStub).exists()).toBe(true)
         expect(w.findComponent(DiscoveryFeedStub).exists()).toBe(false)
     })
 
-    it('omits the Discover tab inside a single library', () => {
-        route.params = { folderId: '1' }
-        const tabs = mountView().findAllComponents(SelectButton)[0]
-        expect(tabs.props('options')).toEqual([
-            expect.objectContaining({ label: 'Albums', value: 'albums' }),
-            expect.objectContaining({ label: 'Artists', value: 'artists' }),
-            expect.objectContaining({ label: 'Songs', value: 'songs' })
-        ])
-    })
-
     // A folder deep-linked to #discover must not land on a tab its toggle cannot
-    // reach — it falls back to that folder's albums.
-    it('falls back to albums when a folder is deep-linked to #discover', () => {
+    // reach — it falls back to that folder's releases.
+    it('falls back to releases when a folder is deep-linked to #discover', () => {
         route.params = { folderId: '1' }
         route.hash = '#discover'
         const w = mountView()

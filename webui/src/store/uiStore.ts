@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-type ViewMode = 'discover' | 'albums' | 'artists' | 'songs'
+type ViewMode = 'discover' | 'releases' | 'artists' | 'songs'
 type Layout = 'grid' | 'list'
 
-// Per-type defaults: grid for discover/albums/artists, list for songs.
+// Per-type defaults: grid for discover/releases/artists, list for songs.
 const defaultLayoutForType = (viewMode: ViewMode): Layout => {
     return viewMode === 'songs' ? 'list' : 'grid'
 }

@@ -7,11 +7,12 @@ import AlbumRow from '@/components/library/AlbumRow.vue'
 import { ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
 import { useAlbumSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean; releaseType?: string }>()
 
 const { total, letters, items, isLoading, error, ensureRange } = useAlbumSource(
     toRef(props, 'folderId'),
-    computed(() => props.favoritesOnly === true)
+    computed(() => props.favoritesOnly === true),
+    computed(() => props.releaseType)
 )
 const scroller = ref<InstanceType<typeof VirtualScroller> | null>(null)
 
@@ -53,11 +54,12 @@ function onSelectLetter(offset: number): void {
                     <div class="col-duration">Duration</div>
                 </div>
             </div>
-            <!-- Keyed on folder + source: each is a different dataset, and a
-                 retained scroll offset from the previous one lands nowhere. -->
+            <!-- Keyed on folder + source + release type: each is a different
+                 dataset, and a retained scroll offset from the previous one
+                 lands nowhere. -->
             <VirtualScroller
                 ref="scroller"
-                :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
+                :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}-${releaseType ?? 'all'}`"
                 :items="items"
                 :itemSize="56"
                 lazy
