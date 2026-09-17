@@ -5,11 +5,12 @@ import AlbumCard from '@/components/library/AlbumCard.vue'
 import { ALBUM_PAGE_SIZE } from '@/composables/useAlbumTable'
 import { useAlbumSource } from '@/composables/useLibrarySource'
 
-const props = defineProps<{ folderId?: number; favoritesOnly?: boolean }>()
+const props = defineProps<{ folderId?: number; favoritesOnly?: boolean; releaseType?: string }>()
 
 const { total, letters, items, isLoading, error, ensureRange } = useAlbumSource(
     toRef(props, 'folderId'),
-    computed(() => props.favoritesOnly === true)
+    computed(() => props.favoritesOnly === true),
+    computed(() => props.releaseType)
 )
 
 function onLazyLoad(first: number, last: number): void {
@@ -31,12 +32,12 @@ function onLazyLoad(first: number, last: number): void {
             <p v-if="favoritesOnly">No favorite albums yet</p>
             <p v-else>No albums found</p>
         </div>
-        <!-- Keyed on the source too: switching between all albums and favorites
-             swaps the whole dataset, so the grid must remeasure rather than keep
-             the previous scroll offset and row range. -->
+        <!-- Keyed on the source too: switching between all albums, favorites, or a
+             release-type tab swaps the whole dataset, so the grid must remeasure
+             rather than keep the previous scroll offset and row range. -->
         <VirtualCardGrid
             v-else
-            :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}`"
+            :key="`${folderId ?? 'all'}-${favoritesOnly ? 'fav' : 'all'}-${releaseType ?? 'all'}`"
             :items="items"
             :letters="letters"
             :total="total"

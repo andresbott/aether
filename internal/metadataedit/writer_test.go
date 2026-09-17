@@ -80,6 +80,26 @@ func TestBuildTagMap_GenresEmptyListClears(t *testing.T) {
 	}
 }
 
+func TestBuildTagMap_ReleaseTypesWritesAlbumTypeKey(t *testing.T) {
+	// Release types must be written to the MusicBrainz key the readers prefer,
+	// NOT RELEASETYPE (which the ffprobe reader ignores).
+	patch := metadataedit.Patch{ReleaseTypes: &[]string{"Album", "Compilation"}}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})
+	want := map[string][]string{"MUSICBRAINZ_ALBUMTYPE": {"Album", "Compilation"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestBuildTagMap_ReleaseTypesEmptyListClears(t *testing.T) {
+	patch := metadataedit.Patch{ReleaseTypes: &[]string{}}
+	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})
+	want := map[string][]string{"MUSICBRAINZ_ALBUMTYPE": {}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
 func TestBuildTagMap_TrackNumber(t *testing.T) {
 	patch := metadataedit.Patch{TrackNumber: intPtr(7)}
 	got, _ := metadataedit.BuildTagMap(patch, metadataedit.CurrentTags{})
@@ -215,7 +235,7 @@ func TestBuildTagMap_RawWritesAndDeletes(t *testing.T) {
 }
 
 func TestBuildTagMap_RawRejectsManagedKey(t *testing.T) {
-	for _, key := range []string{"TITLE", "artist", "Musicbrainz_TrackID"} {
+	for _, key := range []string{"TITLE", "artist", "Musicbrainz_TrackID", "MUSICBRAINZ_ALBUMTYPE", "releasetype"} {
 		raw := map[string][]string{key: {"x"}}
 		_, err := metadataedit.BuildTagMap(
 			metadataedit.Patch{Raw: &raw}, metadataedit.CurrentTags{},

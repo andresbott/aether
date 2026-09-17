@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { mount } from '@vue/test-utils'
 
 vi.mock('vue-router', () => ({
-    useRoute: () => ({ name: 'library', path: '/library', params: {} }),
+    useRoute: () => ({ name: 'library', path: '/library', params: {}, hash: '' }),
     useRouter: () => ({ push: vi.fn() })
 }))
 // Two folders, so the per-folder entries actually render — `folderItems` is empty
@@ -47,7 +47,7 @@ describe('AppSidebar shortcut anchors', () => {
 
     it.each([
         ['now-playing', 'Now Playing'],
-        ['library', 'Library'],
+        ['library', 'Discover'],
         ['search', 'Search'],
         ['playlists', 'Playlists'],
         ['genres', 'Genres'],
@@ -88,7 +88,7 @@ describe('AppSidebar shortcut anchors', () => {
     // root — the entry with no folderId.
     it('anchors the library root, not the per-folder entries', () => {
         const el = mountSidebar().find('[data-shortcut="library"]')
-        expect(el.text()).toContain('Library')
+        expect(el.text()).toContain('Discover')
         expect(el.text()).not.toContain('Main')
     })
 

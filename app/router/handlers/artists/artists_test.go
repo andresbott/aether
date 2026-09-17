@@ -32,6 +32,7 @@ type fakeSearcher struct {
 	results        []artistimage.Candidate
 	releaseResults []artistimage.ReleaseCandidate
 	genres         []string
+	types          []string
 	err            error
 }
 
@@ -45,6 +46,10 @@ func (f *fakeSearcher) SearchRelease(_ context.Context, _ string, _ int) ([]arti
 
 func (f *fakeSearcher) ReleaseGroupGenres(_ context.Context, _ string) ([]string, error) {
 	return f.genres, f.err
+}
+
+func (f *fakeSearcher) ReleaseGroupTypes(_ context.Context, _ string) ([]string, error) {
+	return f.types, f.err
 }
 
 type fakeFetcher struct {
@@ -242,6 +247,41 @@ func TestReleaseGroupGenres_UpstreamError(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestReleaseGroupTypes_ReturnsTypes(t *testing.T) {
+	search := &fakeSearcher{types: []string{"Album", "Compilation"}}
+	_, r := newTestHandler(t, search, nil)
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/musicbrainz/release-groups/0b6b4884-f8f0-3f47-a992-3730c2a477c9/types", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got []string
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "Album" || got[1] != "Compilation" {
+		t.Fatalf("unexpected body: %s", w.Body.String())
+	}
+}
+
+func TestReleaseGroupTypes_EmptyIsJSONArray(t *testing.T) {
+	_, r := newTestHandler(t, &fakeSearcher{}, nil)
+	req := httptest.NewRequest(http.MethodGet,
+		"/musicbrainz/release-groups/0b6b4884-f8f0-3f47-a992-3730c2a477c9/types", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if body := strings.TrimSpace(w.Body.String()); body != "[]" {
+		t.Fatalf("expected [], got %q", body)
 	}
 }
 

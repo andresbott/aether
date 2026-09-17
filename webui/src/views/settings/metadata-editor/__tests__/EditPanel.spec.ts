@@ -97,6 +97,18 @@ const stubs = {
         props: ['modelValue', 'multiple', 'typeahead', 'disabled'],
         template: '<div class="genres-autocomplete">{{ (modelValue ?? []).join(",") }}</div>'
     },
+    // Release-type controls: the primary single-select and secondary multi-select.
+    // Rendered as plain elements so the panel mounts without PrimeVue's theming.
+    Select: {
+        props: ['modelValue', 'options'],
+        template:
+            '<div class="select-stub" :data-test="$attrs[\'data-test\']">{{ modelValue }}</div>'
+    },
+    MultiSelect: {
+        props: ['modelValue', 'options'],
+        template:
+            '<div class="multiselect-stub" :data-test="$attrs[\'data-test\']">{{ (modelValue ?? []).join(",") }}</div>'
+    },
     // inheritAttrs:false stops the parent's @click from ALSO falling through as a
     // native listener (which would fire the handler twice); aria-label is bound
     // explicitly so [aria-label=...] queries still resolve.
@@ -149,6 +161,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     album_artists: [],
     album: '',
     genres: [],
+    release_types: [],
     year: 0,
     track_number: 0,
     disc_number: 0,

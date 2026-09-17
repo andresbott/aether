@@ -106,6 +106,7 @@ type trackDTO struct {
 	DiscNumber       int      `json:"disc_number"`
 	DiscSubtitle     string   `json:"disc_subtitle"`
 	Compilation      bool     `json:"compilation"`
+	ReleaseTypes     []string `json:"release_types"`
 	MBArtistIDs      []string `json:"mb_artist_ids"`
 	MBAlbumArtistIDs []string `json:"mb_album_artist_ids"`
 	MBRecordingID    string   `json:"mb_recording_id"`
@@ -140,6 +141,7 @@ func (h *TagsHandler) tracks(w http.ResponseWriter, r *http.Request) {
 			DiscNumber:       t.DiscNumber,
 			DiscSubtitle:     t.DiscSubtitle,
 			Compilation:      t.Compilation,
+			ReleaseTypes:     t.ReleaseTypes,
 			MBArtistIDs:      t.MBArtistIDs,
 			MBAlbumArtistIDs: t.MBAlbumArtistIDs,
 			MBRecordingID:    t.MBRecordingID,
@@ -168,6 +170,7 @@ type fields struct {
 	DiscNumber       *int               `json:"disc_number,omitempty"`
 	DiscSubtitle     *string            `json:"disc_subtitle,omitempty"`
 	Compilation      *bool              `json:"compilation,omitempty"`
+	ReleaseTypes     *[]string          `json:"release_types,omitempty"`
 	ArtistMBIDs      *map[string]string `json:"artist_mbids,omitempty"`
 	AlbumArtistMBIDs *map[string]string `json:"album_artist_mbids,omitempty"`
 	MBRecordingID    *string            `json:"mb_recording_id,omitempty"`
@@ -269,6 +272,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		DiscNumber:      body.Fields.DiscNumber,
 		DiscSubtitle:    body.Fields.DiscSubtitle,
 		Compilation:     body.Fields.Compilation,
+		ReleaseTypes:    body.Fields.ReleaseTypes,
 		ArtistMBID:      body.Fields.ArtistMBIDs,
 		AlbumArtistMBID: body.Fields.AlbumArtistMBIDs,
 		// Recording/album MB IDs are scalars with no positional coupling to

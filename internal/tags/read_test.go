@@ -42,7 +42,7 @@ func writeTaggedFLAC(t *testing.T) string {
 		"MUSICBRAINZ_ALBUMID":   {"mb-album-1"},
 		"LYRICS":                {"la la"},
 		"COMPILATION":           {"1"},
-		"MUSICBRAINZ_ALBUMTYPE": {"album"},
+		"MUSICBRAINZ_ALBUMTYPE": {"album", "compilation"},
 		"REPLAYGAIN_TRACK_GAIN": {"-6.50 dB"},
 		"REPLAYGAIN_TRACK_PEAK": {"0.988"},
 		"REPLAYGAIN_ALBUM_GAIN": {"-7.10 dB"},
@@ -103,6 +103,9 @@ func TestTaglibReader_Read(t *testing.T) {
 	}
 	if !m.Compilation {
 		t.Error("Compilation = false, want true")
+	}
+	if len(m.ReleaseTypes) != 2 || m.ReleaseTypes[0] != "album" || m.ReleaseTypes[1] != "compilation" {
+		t.Errorf("ReleaseTypes = %v, want [album compilation]", m.ReleaseTypes)
 	}
 }
 

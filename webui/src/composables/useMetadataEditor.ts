@@ -398,6 +398,7 @@ export interface InitialValues {
     artists: FieldDiff<string[]>
     album_artists: FieldDiff<string[]>
     genres: FieldDiff<string[]>
+    release_types: FieldDiff<string[]>
     year: FieldDiff<number>
     track_number: FieldDiff<number>
     disc_number: FieldDiff<number>
@@ -439,7 +440,9 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
         const all = tracks.every((t) => t[key] === v)
         return all ? { shared: true, value: v } : { shared: false, value: false }
     }
-    const arr = (key: 'artists' | 'album_artists' | 'genres'): FieldDiff<string[]> => {
+    const arr = (
+        key: 'artists' | 'album_artists' | 'genres' | 'release_types'
+    ): FieldDiff<string[]> => {
         if (tracks.length === 0) return { shared: true, value: [] }
         const first = tracks[0][key]
         const all = tracks.every(
@@ -456,6 +459,7 @@ export function diffInitialValues(tracks: Track[]): InitialValues {
         artists: arr('artists'),
         album_artists: arr('album_artists'),
         genres: arr('genres'),
+        release_types: arr('release_types'),
         year: num('year'),
         track_number: num('track_number'),
         disc_number: num('disc_number'),

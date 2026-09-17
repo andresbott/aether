@@ -53,6 +53,7 @@ const mkTrack = (path: string): Track => ({
     album_artists: [],
     album: '',
     genres: [],
+    release_types: [],
     year: 0,
     track_number: 0,
     disc_number: 0,
@@ -92,14 +93,16 @@ const trackPick: IdentifyPick = {
         releases: []
     },
     release: null,
-    genres: ['Grunge', 'Alternative Rock']
+    genres: ['Grunge', 'Alternative Rock'],
+    releaseTypes: []
 }
 
 const albumPick: AlbumIdentifyPick = {
     path: 'a.mp3',
     option: albumOption,
     assignment: null,
-    genres: ['Grunge', 'Alternative Rock']
+    genres: ['Grunge', 'Alternative Rock'],
+    releaseTypes: []
 }
 
 const stubs = {

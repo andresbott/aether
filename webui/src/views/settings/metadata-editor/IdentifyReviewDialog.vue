@@ -13,6 +13,7 @@ import type {
 import IdentifyFieldSelect from './IdentifyFieldSelect.vue'
 import { ALL_IDENTIFY_FIELD_IDS, type IdentifyFieldId } from '@/lib/identifyFields'
 import { useReleaseGroupGenres } from '@/composables/useReleaseGroupGenres'
+import { useReleaseGroupTypes } from '@/composables/useReleaseGroupTypes'
 
 // A candidate above this score is considered a confident match and its track
 // is pre-accepted when the dialog opens.
@@ -206,6 +207,9 @@ const acceptedCount = computed(
 const genreCache = useReleaseGroupGenres()
 // Release group mbid -> its genres, for the groups the rows currently point at.
 const genresByGroup = ref(new Map<string, string[]>())
+const typeCache = useReleaseGroupTypes()
+// Release group mbid -> its release types (primary + secondary), same lifecycle.
+const typesByGroup = ref(new Map<string, string[]>())
 
 // The release group a row would stage from, or '' when it has no release.
 function chosenGroup(path: string): string {
@@ -218,6 +222,11 @@ function chosenGroup(path: string): string {
 // a row with no release group or whose lookup failed.
 function rowGenres(path: string): string[] {
     return genresByGroup.value.get(chosenGroup(path)) ?? []
+}
+
+// The release types a row would stage — same shape and lifecycle as rowGenres.
+function rowTypes(path: string): string[] {
+    return typesByGroup.value.get(chosenGroup(path)) ?? []
 }
 
 // The distinct release groups the reviewable rows point at right now. Deduped, so
@@ -252,6 +261,18 @@ watch(
                 genresByGroup.value.set(mbid, genres)
             })
         }
+        for (const mbid of groups) {
+            if (typesByGroup.value.has(mbid)) continue
+            const hit = typeCache.cached(mbid)
+            if (hit !== undefined) {
+                typesByGroup.value.set(mbid, hit)
+                continue
+            }
+            typesByGroup.value.set(mbid, [])
+            void typeCache.lookup(mbid).then((types) => {
+                typesByGroup.value.set(mbid, types)
+            })
+        }
     },
     { immediate: true }
 )
@@ -267,7 +288,8 @@ function apply() {
             path: r.path,
             candidate,
             release: candidate.releases[state.releaseIndex] ?? null,
-            genres: rowGenres(r.path)
+            genres: rowGenres(r.path),
+            releaseTypes: rowTypes(r.path)
         })
     }
     emit('apply', picks, [...selectedFields.value])

@@ -1,5 +1,5 @@
 import { computed } from 'vue'
-import type { Ref, ComputedRef } from 'vue'
+import type { Ref, ComputedRef, MaybeRefOrGetter } from 'vue'
 import { useAlbumTable } from '@/composables/useAlbumTable'
 import { useArtistTable } from '@/composables/useArtistTable'
 import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
@@ -21,11 +21,14 @@ import type { Album, AlbumLetter, Artist } from '@/types/subsonic'
  */
 export function useAlbumSource(
     folderId: Ref<number | undefined> | ComputedRef<number | undefined>,
-    favoritesOnly: Ref<boolean> | ComputedRef<boolean>
+    favoritesOnly: Ref<boolean> | ComputedRef<boolean>,
+    releaseType?: MaybeRefOrGetter<string | undefined>
 ) {
-    const table = useAlbumTable(folderId, {
-        enabled: computed(() => !favoritesOnly.value)
-    })
+    const table = useAlbumTable(
+        folderId,
+        { enabled: computed(() => !favoritesOnly.value) },
+        releaseType
+    )
     const starred = useStarredAlbums(folderId, {
         enabled: computed(() => favoritesOnly.value)
     })

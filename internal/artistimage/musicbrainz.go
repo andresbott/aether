@@ -164,6 +164,32 @@ func (m *MusicBrainzSearch) ReleaseGroupGenres(ctx context.Context, mbid string)
 	return out, nil
 }
 
+type mbReleaseGroupTypesResponse struct {
+	PrimaryType    string   `json:"primary-type"`
+	SecondaryTypes []string `json:"secondary-types"`
+}
+
+// ReleaseGroupTypes looks up a release group's MusicBrainz type list: the
+// primary type first (Album/Single/EP/...), then any secondary types
+// (Compilation/Live/...). These are core release-group fields, so no `inc` is
+// needed. An empty mbid returns (nil, nil) without a request.
+func (m *MusicBrainzSearch) ReleaseGroupTypes(ctx context.Context, mbid string) ([]string, error) {
+	if mbid == "" {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/ws/2/release-group/%s?fmt=json", m.BaseURL, url.PathEscape(mbid))
+	var body mbReleaseGroupTypesResponse
+	if err := m.getJSON(ctx, u, &body); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, 1+len(body.SecondaryTypes))
+	if body.PrimaryType != "" {
+		out = append(out, body.PrimaryType)
+	}
+	out = append(out, body.SecondaryTypes...)
+	return out, nil
+}
+
 type mbReleaseSearchResponse struct {
 	Releases []struct {
 		ID             string `json:"id"`

@@ -25,6 +25,7 @@ export interface Track {
     album_artists: string[]
     album: string
     genres: string[]
+    release_types: string[]
     year: number
     track_number: number
     disc_number: number
@@ -51,6 +52,7 @@ export interface PatchFields {
     artists?: string[]
     album_artists?: string[]
     genres?: string[]
+    release_types?: string[]
     year?: number
     track_number?: number
     disc_number?: number
@@ -136,6 +138,7 @@ export interface TrackOverlay {
     mb_release_id?: string
     mb_release_group_id?: string
     genres?: string[]
+    release_types?: string[]
     year?: number
     track_number?: number
     disc_number?: number
@@ -197,6 +200,8 @@ export interface IdentifyPick {
     candidate: IdentifyCandidate
     release: IdentifyRelease | null
     genres: string[]
+    // The release group's MusicBrainz types, looked up by the dialog like genres.
+    releaseTypes: string[]
 }
 
 export interface IdentifyRequest {
@@ -278,6 +283,7 @@ export interface AlbumIdentifyPick {
     option: AlbumOption
     assignment: AlbumAssignment | null
     genres: string[]
+    releaseTypes: string[]
 }
 
 export interface UpdateTracksRequest {

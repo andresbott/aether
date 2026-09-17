@@ -3,6 +3,7 @@ import type { Track, TrackOverlay } from '@/types/metadata'
 import { diffInitialValues, distinctArtistMbids, type FieldDiff, type InitialValues } from '@/composables/useMetadataEditor'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ArtistMatchPayload } from '@/types/artists'
+import { mergeReleaseTypes, splitReleaseTypes } from './releaseTypes'
 
 export type TextKey =
     | 'title' | 'album' | 'mb_recording_id' | 'mb_release_id' | 'mb_release_group_id' | 'disc_subtitle'
@@ -65,12 +66,36 @@ export function useEditForm(selection: () => Track[], session: EditSession) {
             else session.stageField(paths.value, 'genres', [...list])
         }
     })
+    const releaseTypes: WritableComputedRef<string[]> = computed({
+        get: () => (diff.value.release_types.shared ? [...diff.value.release_types.value] : []),
+        set: (list) => {
+            const mixed = isMass.value && !originalDiff.value.release_types.shared
+            if (mixed && list.length === 0) session.unstageField(paths.value, 'release_types')
+            else session.stageField(paths.value, 'release_types', [...list])
+        }
+    })
+    // The primary (single) and secondary (multi) controls are two views of the
+    // one flat release-type list; each setter re-merges through the other's
+    // current value so neither clobbers it.
+    const primaryReleaseType: WritableComputedRef<string> = computed({
+        get: () => splitReleaseTypes(releaseTypes.value).primary,
+        set: (p) => {
+            releaseTypes.value = mergeReleaseTypes(p, splitReleaseTypes(releaseTypes.value).secondary)
+        }
+    })
+    const secondaryReleaseTypes: WritableComputedRef<string[]> = computed({
+        get: () => splitReleaseTypes(releaseTypes.value).secondary,
+        set: (s) => {
+            releaseTypes.value = mergeReleaseTypes(splitReleaseTypes(releaseTypes.value).primary, s)
+        }
+    })
 
     function placeholder(key: PlaceholderKey): ComputedRef<string> {
         return computed(() => (diff.value[key].shared ? '' : '(multiple values)'))
     }
 
     const genresMixed = computed(() => isMass.value && !diff.value.genres.shared)
+    const releaseTypesMixed = computed(() => isMass.value && !diff.value.release_types.shared)
     const compilationMixed = computed(() => isMass.value && !diff.value.compilation.shared)
 
     const dirtyFields = computed<Set<keyof TrackOverlay>>(() => {
@@ -99,6 +124,12 @@ export function useEditForm(selection: () => Track[], session: EditSession) {
     }
     function undoGenresTooltip(): string {
         const d = originalDiff.value.genres
+        if (!d.shared) return 'Revert to each track\'s own value'
+        if (d.value.length === 0) return 'Revert to empty'
+        return `Revert to "${d.value.join(', ')}"`
+    }
+    function undoReleaseTypesTooltip(): string {
+        const d = originalDiff.value.release_types
         if (!d.shared) return 'Revert to each track\'s own value'
         if (d.value.length === 0) return 'Revert to empty'
         return `Revert to "${d.value.join(', ')}"`
@@ -196,8 +227,9 @@ export function useEditForm(selection: () => Track[], session: EditSession) {
     return {
         isMass, paths, effective, diff, originalDiff,
         text, num, compilation, genres, placeholder,
-        genresMixed, compilationMixed,
-        dirtyFields, isDirty, undo, undoTooltip, undoGenresTooltip,
+        releaseTypes, primaryReleaseType, secondaryReleaseTypes,
+        genresMixed, releaseTypesMixed, compilationMixed,
+        dirtyFields, isDirty, undo, undoTooltip, undoGenresTooltip, undoReleaseTypesTooltip,
         artistRows, albumArtistRows,
         addPair, removePair, stagePairs, undoPairs, undoPairsTooltip,
         artistsMixed, albumArtistsMixed,

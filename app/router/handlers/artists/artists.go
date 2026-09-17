@@ -25,6 +25,7 @@ type Searcher interface {
 	Search(ctx context.Context, query string, limit int) ([]artistimage.Candidate, error)
 	SearchRelease(ctx context.Context, query string, limit int) ([]artistimage.ReleaseCandidate, error)
 	ReleaseGroupGenres(ctx context.Context, mbid string) ([]string, error)
+	ReleaseGroupTypes(ctx context.Context, mbid string) ([]string, error)
 }
 
 // Fetcher lists and downloads artist-image candidates for the manual gallery.
@@ -58,6 +59,7 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/musicbrainz/search").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainz)
 	r.Path("/musicbrainz/search/releases").Methods(http.MethodGet).HandlerFunc(h.searchMusicBrainzReleases)
 	r.Path("/musicbrainz/release-groups/{mbid}/genres").Methods(http.MethodGet).HandlerFunc(h.releaseGroupGenres)
+	r.Path("/musicbrainz/release-groups/{mbid}/types").Methods(http.MethodGet).HandlerFunc(h.releaseGroupTypes)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodGet).HandlerFunc(h.getMBID)
 	r.Path("/artists/{id:[0-9]+}/mbid").Methods(http.MethodPut).HandlerFunc(h.setMBID)
 	r.Path("/artists/{id:[0-9]+}/image-source").Methods(http.MethodGet).HandlerFunc(h.getImageSource)
@@ -157,6 +159,26 @@ func (h *Handler) releaseGroupGenres(w http.ResponseWriter, r *http.Request) {
 		genres = []string{}
 	}
 	writeJSON(w, http.StatusOK, genres)
+}
+
+// releaseGroupTypes returns a release group's MusicBrainz type list (primary
+// type first, then secondary types), used by the identify dialogs to pre-fill
+// the editor's release-type field from a picked release group.
+func (h *Handler) releaseGroupTypes(w http.ResponseWriter, r *http.Request) {
+	mbid := mux.Vars(r)["mbid"]
+	if !mbidRe.MatchString(mbid) {
+		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "mbid must be a valid MusicBrainz identifier")
+		return
+	}
+	types, err := h.Search.ReleaseGroupTypes(r.Context(), mbid)
+	if err != nil {
+		h.Problems.WriteUpstream(w, r, err, "The release-type lookup could not be completed. Try again in a moment.")
+		return
+	}
+	if types == nil {
+		types = []string{}
+	}
+	writeJSON(w, http.StatusOK, types)
 }
 
 type mbidResponse struct {

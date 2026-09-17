@@ -21,6 +21,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     album_artists: [],
     album: '',
     genres: [],
+    release_types: [],
     year: 0,
     track_number: 0,
     disc_number: 0,
@@ -89,6 +90,18 @@ describe('diffInitialValues', () => {
         const mixed = diffInitialValues([a, c])
         expect(mixed.genres).toEqual({ shared: false, value: [] })
         expect(mixed.track_number).toEqual({ shared: false, value: 0 })
+    })
+
+    it('prefills release types when shared, marks them mixed when they differ', () => {
+        const a = mkTrack({ release_types: ['Album', 'Compilation'] })
+        const b = mkTrack({ path: 'b.mp3', release_types: ['Album', 'Compilation'] })
+        expect(diffInitialValues([a, b]).release_types).toEqual({
+            shared: true,
+            value: ['Album', 'Compilation']
+        })
+
+        const c = mkTrack({ path: 'c.mp3', release_types: ['Single'] })
+        expect(diffInitialValues([a, c]).release_types).toEqual({ shared: false, value: [] })
     })
 
     it('compares artist arrays by value, not reference', () => {

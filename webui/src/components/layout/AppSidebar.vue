@@ -18,33 +18,31 @@ interface NavItem {
     icon: string
     route: string
     routeName: string
+    mode?: 'discover' | 'releases' | 'artists'
     folderId?: number
+    shortcut?: string
 }
 
-// "Library" is the cross-collection entry (`/library`, no folderId): it opens on the
-// Discovery feed, which is why it carries the compass rather than a browse icon. It
-// sits with Now Playing among the primary destinations — it is where you land, not a
-// heading for the per-folder entries below.
-const libraryRoot: NavItem = {
-    label: 'Library',
-    icon: 'pi pi-compass',
-    route: '/library',
-    routeName: 'library'
-}
-
-const primaryItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home' },
-    libraryRoot,
-    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search' }
+const topItems: NavItem[] = [
+    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home', shortcut: 'now-playing' },
+    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search', shortcut: 'search' }
 ]
+
+// The browse modes are path segments off /library; only Discover carries the
+// shortcut badge. All three share `routeName: 'library'` — the item's section tag,
+// which is distinct from the route record a folder resolves to ('library-folder').
+const libraryModes: NavItem[] = [
+    { label: 'Discover', icon: 'pi pi-compass', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
+    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' },
+    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' }
+]
+
+const playlistsItem: NavItem = {
+    label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists', shortcut: 'playlists'
+}
 
 const { data: musicFolders } = useMusicFolders()
 
-// The per-folder entries only — the root moved up to `primaryItems`. They sit at the
-// SAME level as every other entry: no indentation and no section header, since each
-// library is a peer nav destination rather than a child of a browse mode. A single
-// library needs no entry of its own (the Library entry already covers it), so this
-// is empty below two.
 const folderItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
     if (folders.length <= 1) return []
@@ -57,24 +55,33 @@ const folderItems = computed<NavItem[]>(() => {
     }))
 })
 
-// One flat group below the separator: the per-folder entries lead it, then the
-// browse destinations, then Radio. No standalone Discover entry (the feed lives
-// inside Library as its default tab, and a second door would only split the
-// navigation) and no "Streaming" header — Radio is just another destination.
-const libraryExtras: NavItem[] = [
-    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists' },
-    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres' },
-    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio' }
+// The Library block: browse modes, Playlists, then per-library entries.
+const libraryGroup = computed<NavItem[]>(() => [...libraryModes, playlistsItem, ...folderItems.value])
+
+const streamingItems: NavItem[] = [
+    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres', shortcut: 'genres' },
+    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio', shortcut: 'radio' }
 ]
+
+const currentMode = computed<'discover' | 'releases' | 'artists'>(() => {
+    const raw = route.params.mode
+    const m = Array.isArray(raw) ? raw[0] : raw
+    return m === 'releases' || m === 'artists' ? m : 'discover'
+})
 
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
     if (item.routeName === 'library') {
-        if (route.name !== 'library') return false
+        // The root modes and the per-folder entries resolve to two route records
+        // ('library' and 'library-folder'); both are "the library" here.
+        if (route.name !== 'library' && route.name !== 'library-folder') return false
         const raw = route.params.folderId
         const currentFolder = Array.isArray(raw) ? raw[0] : raw
         const currentId = currentFolder ? Number(currentFolder) : undefined
-        return item.folderId === currentId
+        if (item.folderId !== undefined) return item.folderId === currentId
+        // Root browse-mode entry: active only at the cross-collection root and on
+        // the matching mode segment.
+        return currentId === undefined && item.mode === currentMode.value
     }
     return route.path.startsWith(item.route)
 }
@@ -82,26 +89,6 @@ const isActive = (item: NavItem): boolean => {
 const navigateTo = (item: NavItem) => {
     router.push(item.route)
 }
-
-// The keyboard-shortcut badge anchors. None of the nav shortcuts has a control in
-// the player bar, so the help overlay pins their badges to these nav entries and
-// finds them by `data-shortcut`.
-//
-// Applied to `primaryItems` and `libraryExtras`, and deliberately NOT to
-// `folderItems`: the per-folder entries share `routeName: 'library'` with the
-// root, so anchoring them too would let the overlay badge whichever it happened to
-// find first instead of the cross-collection root. That is also why this stays a
-// routeName lookup applied per loop rather than one blanket attribute.
-const NAV_SHORTCUT_ANCHORS: Record<string, string> = {
-    home: 'now-playing',
-    library: 'library',
-    search: 'search',
-    playlists: 'playlists',
-    genres: 'genres',
-    radio: 'radio'
-}
-
-const shortcutAnchor = (item: NavItem): string | undefined => NAV_SHORTCUT_ANCHORS[item.routeName]
 
 const collapsed = computed(() => uiStore.sidebarCollapsed)
 
@@ -201,15 +188,12 @@ onBeforeUnmount(resetEgg)
         </div>
 
         <nav class="sidebar-nav">
-            <!-- These entries carry the shortcut badges the help overlay pins:
-                 they are the only affordances that open those views (see
-                 NAV_SHORTCUT_ANCHORS). The per-folder loop below deliberately
-                 gets none. -->
+            <!-- Top: the two primary destinations, each carrying its shortcut badge. -->
             <button
-                v-for="item in primaryItems"
+                v-for="item in topItems"
                 :key="item.routeName"
                 class="nav-item"
-                :data-shortcut="shortcutAnchor(item)"
+                :data-shortcut="item.shortcut"
                 :class="{ active: isActive(item) }"
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
@@ -218,28 +202,32 @@ onBeforeUnmount(resetEgg)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
-            <!-- The nav's only body separator, and label-less: both section headers
-                 ("Library", "Streaming") are gone, but the spacing break between the
-                 primary destinations and everything else stays. -->
+            <div class="nav-separator"></div>
+            <div v-if="!collapsed" class="nav-section-label">Library</div>
+
+            <!-- Library block: the browse modes (path-addressed off /library),
+                 Playlists, then any per-folder entries. Only Discover and Playlists
+                 carry shortcut badges. -->
+            <button
+                v-for="item in libraryGroup"
+                :key="item.route"
+                class="nav-item"
+                :data-shortcut="item.shortcut"
+                :class="{ active: isActive(item) }"
+                @click="navigateTo(item)"
+                v-tooltip.right="collapsed ? item.label : undefined"
+            >
+                <i :class="item.icon"></i>
+                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+            </button>
+
             <div class="nav-separator"></div>
 
             <button
-                v-for="item in folderItems"
-                :key="item.route"
+                v-for="item in streamingItems"
+                :key="item.routeName"
                 class="nav-item"
-                :class="{ active: isActive(item) }"
-                @click="navigateTo(item)"
-                v-tooltip.right="collapsed ? item.label : undefined"
-            >
-                <i :class="item.icon"></i>
-                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
-            </button>
-
-            <button
-                v-for="item in libraryExtras"
-                :key="item.route"
-                class="nav-item"
-                :data-shortcut="shortcutAnchor(item)"
+                :data-shortcut="item.shortcut"
                 :class="{ active: isActive(item) }"
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
@@ -331,6 +319,15 @@ onBeforeUnmount(resetEgg)
 .nav-item i {
     font-size: 1.1rem;
     flex-shrink: 0;
+}
+
+.nav-section-label {
+    padding: 0.75rem 1rem 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--app-nav-text-dim);
 }
 
 .sidebar-header {

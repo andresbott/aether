@@ -1,16 +1,18 @@
-import { computed, unref } from 'vue'
+import { computed, unref, toValue } from 'vue'
 import type { Ref, ComputedRef, MaybeRefOrGetter } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { queryKeys } from '@/composables/useSubsonicQueries'
 import type { AlbumLetter } from '@/types/subsonic'
 
 export function useAlbumIndex(
     folderId: Ref<number | undefined> | ComputedRef<number | undefined>,
-    options?: { enabled?: MaybeRefOrGetter<boolean> }
+    options?: { enabled?: MaybeRefOrGetter<boolean> },
+    releaseType?: MaybeRefOrGetter<string | undefined>
 ) {
     const query = useQuery({
-        queryKey: computed(() => ['subsonic', 'albumIndex', unref(folderId)] as const),
-        queryFn: () => subsonicClient.getAlbumIndex(unref(folderId)),
+        queryKey: computed(() => queryKeys.albumIndex(unref(folderId), toValue(releaseType))),
+        queryFn: () => subsonicClient.getAlbumIndex(unref(folderId), toValue(releaseType)),
         staleTime: 2 * 60 * 1000,
         enabled: options?.enabled
     })

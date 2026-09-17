@@ -10,7 +10,7 @@ type Album struct {
 	MBReleaseID      string
 	Year             int
 	Compilation      bool
-	ReleaseType      string
+	ReleaseTypes     []string `gorm:"serializer:json"`
 	CoverPath        string
 	HasEmbeddedCover bool
 	CreatedAt        time.Time

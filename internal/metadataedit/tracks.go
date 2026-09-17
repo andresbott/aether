@@ -27,6 +27,7 @@ type Track struct {
 	DiscNumber       int
 	DiscSubtitle     string
 	Compilation      bool
+	ReleaseTypes     []string
 	MBArtistIDs      []string
 	MBAlbumArtistIDs []string
 	MBRecordingID    string
@@ -73,6 +74,7 @@ func ListTracks(ctx context.Context, libRoot, absDir string, reader tags.Reader)
 			Artists:          []string{},
 			AlbumArtists:     []string{},
 			Genres:           []string{},
+			ReleaseTypes:     []string{},
 			MBArtistIDs:      []string{},
 			MBAlbumArtistIDs: []string{},
 		}
@@ -97,6 +99,9 @@ func ListTracks(ctx context.Context, libRoot, absDir string, reader tags.Reader)
 		}
 		if meta.Genre != nil {
 			row.Genres = meta.Genre
+		}
+		if meta.ReleaseTypes != nil {
+			row.ReleaseTypes = meta.ReleaseTypes
 		}
 		row.Album = meta.Album
 		row.TrackNumber = meta.TrackNumber

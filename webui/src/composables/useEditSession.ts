@@ -55,6 +55,9 @@ export function originalValueEquals<K extends keyof TrackOverlay>(
     if (key === 'genres') {
         return sameStrings(value as string[], track.genres)
     }
+    if (key === 'release_types') {
+        return sameStrings(value as string[], track.release_types)
+    }
     return track[key as keyof Track] === value
 }
 
@@ -73,6 +76,7 @@ export function applyOverlay(track: Track, overlay: TrackOverlay | undefined): T
     if (overlay.mb_release_group_id !== undefined)
         out.mb_release_group_id = overlay.mb_release_group_id
     if (overlay.genres !== undefined) out.genres = [...overlay.genres]
+    if (overlay.release_types !== undefined) out.release_types = [...overlay.release_types]
     if (overlay.year !== undefined) out.year = overlay.year
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number
     if (overlay.disc_number !== undefined) out.disc_number = overlay.disc_number
@@ -140,6 +144,9 @@ export function buildTrackPatch(original: Track, overlay: TrackOverlay): PatchFi
         out.mb_release_group_id = overlay.mb_release_group_id
     if (overlay.genres !== undefined) {
         out.genres = overlay.genres.map((g) => g.trim()).filter((g) => g !== '')
+    }
+    if (overlay.release_types !== undefined) {
+        out.release_types = overlay.release_types.map((t) => t.trim()).filter((t) => t !== '')
     }
     if (overlay.year !== undefined) out.year = overlay.year
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number
@@ -221,7 +228,8 @@ export function groupPatches(
 export function candidateToOverlay(
     candidate: IdentifyCandidate,
     release: IdentifyRelease | null,
-    genres: string[] = []
+    genres: string[] = [],
+    releaseTypes: string[] = []
 ): TrackOverlay {
     const out: TrackOverlay = {
         title: candidate.title,
@@ -239,6 +247,7 @@ export function candidateToOverlay(
         if (release.disc_number > 0) out.disc_number = release.disc_number
     }
     if (genres.length > 0) out.genres = [...genres]
+    if (releaseTypes.length > 0) out.release_types = [...releaseTypes]
     return out
 }
 
@@ -256,7 +265,8 @@ export function candidateToOverlay(
  */
 export function albumPickToOverlay(
     pick: import('@/types/metadata').AlbumIdentifyPick,
-    genres: string[] = []
+    genres: string[] = [],
+    releaseTypes: string[] = []
 ): TrackOverlay {
     const { option, assignment } = pick
     const out: TrackOverlay = {}
@@ -271,6 +281,7 @@ export function albumPickToOverlay(
         out.album_artists = albumArtists.map((a) => ({ name: a.name, mbid: a.mbid }))
     }
     if (genres.length > 0) out.genres = [...genres]
+    if (releaseTypes.length > 0) out.release_types = [...releaseTypes]
     if (assignment) {
         if (assignment.title !== '') out.title = assignment.title
         if (assignment.recording_mbid !== '') out.mb_recording_id = assignment.recording_mbid

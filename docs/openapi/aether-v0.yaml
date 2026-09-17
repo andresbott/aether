@@ -1557,6 +1557,37 @@ paths:
         '502': { $ref: '#/components/responses/UpstreamError' }
         '504': { $ref: '#/components/responses/GatewayTimeout' }
 
+  /musicbrainz/release-groups/{mbid}/types:
+    get:
+      operationId: getReleaseGroupTypes
+      summary: MusicBrainz release-type list for a release group.
+      description: >
+        Admin. The release group's primary type first
+        (Album/Single/EP/Broadcast/Other), then any secondary types
+        (Compilation/Live/Remix/...). Used by the identify dialogs to pre-fill
+        the editor's release-type field. A `mbid` not matching the MusicBrainz
+        identifier format (a UUID) answers 400, before any upstream call.
+      tags: [artists]
+      parameters:
+        - $ref: '#/components/parameters/MbId'
+      responses:
+        '200':
+          description: >
+            Type names, primary first. Deliberate bare array (mirrors the
+            genres endpoint). Never null — the handler substitutes `[]` for a
+            nil result before encoding.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '504': { $ref: '#/components/responses/GatewayTimeout' }
+
   /artists/{id}/mbid:
     get:
       operationId: getArtistMBID
