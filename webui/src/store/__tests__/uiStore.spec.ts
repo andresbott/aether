@@ -27,11 +27,6 @@ describe('uiStore library view modes', () => {
         expect(ui.getLibraryViewMode('artists')).toBe('grid')
     })
 
-    it('defaults to list for songs', () => {
-        const ui = useUiStore()
-        expect(ui.getLibraryViewMode('songs')).toBe('list')
-    })
-
     it('setting releases to list does not change artists', () => {
         const ui = useUiStore()
         ui.setLibraryViewMode('releases', 'list')
@@ -72,6 +67,5 @@ describe('uiStore library view modes', () => {
         expect(ui2.getLibraryViewMode('releases')).toBe('grid')
         expect(ui2.getLibraryViewMode('artists')).toBe('grid')
         expect(ui2.getLibraryViewMode('discover')).toBe('grid')
-        expect(ui2.getLibraryViewMode('songs')).toBe('list')
     })
 })

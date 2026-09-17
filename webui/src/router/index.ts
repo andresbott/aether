@@ -40,8 +40,23 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        path: '/library/:folderId?',
+        // The cross-collection root. Bare /library is Discover (the default,
+        // cross-collection ranked feed); the browse modes are real path segments,
+        // /library/releases and /library/artists. The mode is constrained to the
+        // library-scoped modes, so there is deliberately no /library/discover —
+        // discover is only ever the bare root.
+        path: '/library/:mode(releases|artists)?',
         name: 'library',
+        component: () => import('@/views/LibraryView.vue'),
+        props: true,
+        meta: { flush: true }
+    },
+    {
+        // A single collection. folderId is numeric so it never collides with the
+        // mode segment above; the optional trailing mode (/library/5/artists)
+        // overrides that folder's default view.
+        path: '/library/:folderId(\\d+)/:mode(releases|artists)?',
+        name: 'library-folder',
         component: () => import('@/views/LibraryView.vue'),
         props: true,
         meta: { flush: true }

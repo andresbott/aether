@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 
-// Guards the mode-aware `isActive` in AppSidebar: the four root browse modes
-// (Discover/Releases/Artists/Songs) share `routeName: 'library'` with every
-// per-folder entry, yet each must highlight independently — this is the
-// coverage the plan promised but never landed.
+// Guards the mode-aware `isActive` in AppSidebar: the root browse modes
+// (Discover/Releases/Artists) share the library section with every per-folder
+// entry, yet each must highlight independently. The mode is now a path segment
+// (route.params.mode), and a folder resolves to the separate 'library-folder'
+// route — isActive must treat both route names as "the library".
 
 const route: {
     name: string
@@ -58,52 +59,43 @@ beforeEach(() => {
 })
 
 describe('AppSidebar isActive', () => {
-    it('activates Discover at the cross-collection root with no hash', () => {
+    it('activates Discover at the cross-collection root with no mode segment', () => {
         const w = mountSidebar()
         expect(isActive(w, 'Discover')).toBe(true)
         expect(isActive(w, 'Releases')).toBe(false)
         expect(isActive(w, 'Artists')).toBe(false)
-        expect(isActive(w, 'Songs')).toBe(false)
     })
 
-    it('activates Releases on #releases, and not Discover', () => {
-        route.hash = '#releases'
+    it('activates Releases in releases mode, and not Discover', () => {
+        route.path = '/library/releases'
+        route.params = { mode: 'releases' }
         const w = mountSidebar()
         expect(isActive(w, 'Releases')).toBe(true)
         expect(isActive(w, 'Discover')).toBe(false)
     })
 
-    it('activates Artists on #artists', () => {
-        route.hash = '#artists'
+    it('activates Artists in artists mode', () => {
+        route.path = '/library/artists'
+        route.params = { mode: 'artists' }
         const w = mountSidebar()
         expect(isActive(w, 'Artists')).toBe(true)
         expect(isActive(w, 'Discover')).toBe(false)
         expect(isActive(w, 'Releases')).toBe(false)
-        expect(isActive(w, 'Songs')).toBe(false)
     })
 
-    it('activates Songs on #songs', () => {
-        route.hash = '#songs'
-        const w = mountSidebar()
-        expect(isActive(w, 'Songs')).toBe(true)
-        expect(isActive(w, 'Discover')).toBe(false)
-        expect(isActive(w, 'Releases')).toBe(false)
-        expect(isActive(w, 'Artists')).toBe(false)
-    })
-
-    it('activates the matching folder entry, and no mode entry, when a folderId is present', () => {
+    it('activates the matching folder entry, and no mode entry, on the folder route', () => {
         foldersRef.value = [
             { id: 1, name: 'Main' },
             { id: 2, name: 'Archive' }
         ]
+        route.name = 'library-folder'
+        route.path = '/library/2'
         route.params = { folderId: '2' }
-        route.hash = ''
         const w = mountSidebar()
         expect(isActive(w, 'Archive')).toBe(true)
         expect(isActive(w, 'Main')).toBe(false)
         expect(isActive(w, 'Discover')).toBe(false)
         expect(isActive(w, 'Releases')).toBe(false)
         expect(isActive(w, 'Artists')).toBe(false)
-        expect(isActive(w, 'Songs')).toBe(false)
     })
 })

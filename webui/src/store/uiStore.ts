@@ -1,13 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-type ViewMode = 'discover' | 'releases' | 'artists' | 'songs'
+type ViewMode = 'discover' | 'releases' | 'artists'
 type Layout = 'grid' | 'list'
-
-// Per-type defaults: grid for discover/releases/artists, list for songs.
-const defaultLayoutForType = (viewMode: ViewMode): Layout => {
-    return viewMode === 'songs' ? 'list' : 'grid'
-}
 
 export const useUiStore = defineStore('ui', () => {
     const sidebarCollapsed = ref(false)
@@ -34,7 +29,7 @@ export const useUiStore = defineStore('ui', () => {
     }
 
     const getLibraryViewMode = (viewMode: ViewMode): Layout => {
-        return libraryViewModes.value[viewMode] ?? defaultLayoutForType(viewMode)
+        return libraryViewModes.value[viewMode] ?? 'grid'
     }
 
     const setLibraryViewMode = (viewMode: ViewMode, layout: Layout) => {

@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Guards the redesigned Library block: Discover/Releases/Artists/Songs sit under a
+// Guards the redesigned Library block: Discover/Releases/Artists sit under a
 // titled "Library" section header, followed by Playlists and any per-folder entries,
 // with Now Playing/Search above it and Genres/Radio below.
 
@@ -62,7 +62,6 @@ describe('AppSidebar Library block', () => {
             'Discover',
             'Releases',
             'Artists',
-            'Songs',
             'Playlists',
             'Genres',
             'Radio'
@@ -78,12 +77,20 @@ describe('AppSidebar Library block', () => {
         expect(pushSpy).toHaveBeenCalledWith('/library')
     })
 
-    it('routes Releases to the #releases mode', async () => {
+    it('routes Releases to the /library/releases path', async () => {
         const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
             .find((n) => n.text() === 'Releases')!
         await item.trigger('click')
-        expect(pushSpy).toHaveBeenCalledWith('/library#releases')
+        expect(pushSpy).toHaveBeenCalledWith('/library/releases')
+    })
+
+    it('routes Artists to the /library/artists path', async () => {
+        const item = mountSidebar()
+            .findAll('.sidebar-nav .nav-item')
+            .find((n) => n.text() === 'Artists')!
+        await item.trigger('click')
+        expect(pushSpy).toHaveBeenCalledWith('/library/artists')
     })
 
     it('appends per-library entries after Playlists, before Genres', () => {
@@ -100,7 +107,6 @@ describe('AppSidebar Library block', () => {
             'Discover',
             'Releases',
             'Artists',
-            'Songs',
             'Playlists',
             'Main',
             'Classical',

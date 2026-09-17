@@ -18,7 +18,7 @@ interface NavItem {
     icon: string
     route: string
     routeName: string
-    mode?: 'discover' | 'releases' | 'artists' | 'songs'
+    mode?: 'discover' | 'releases' | 'artists'
     folderId?: number
     shortcut?: string
 }
@@ -28,13 +28,13 @@ const topItems: NavItem[] = [
     { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search', shortcut: 'search' }
 ]
 
-// The four browse modes are one route (/library) addressed by hash; only Discover
-// carries the `D` badge (all four share routeName 'library').
+// The browse modes are path segments off /library; only Discover carries the
+// shortcut badge. All three share `routeName: 'library'` — the item's section tag,
+// which is distinct from the route record a folder resolves to ('library-folder').
 const libraryModes: NavItem[] = [
     { label: 'Discover', icon: 'pi pi-compass', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
-    { label: 'Releases', icon: 'pi pi-images', route: '/library#releases', routeName: 'library', mode: 'releases' },
-    { label: 'Artists', icon: 'pi pi-users', route: '/library#artists', routeName: 'library', mode: 'artists' },
-    { label: 'Songs', icon: 'pi pi-wave-pulse', route: '/library#songs', routeName: 'library', mode: 'songs' }
+    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' },
+    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' }
 ]
 
 const playlistsItem: NavItem = {
@@ -63,21 +63,24 @@ const streamingItems: NavItem[] = [
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio', shortcut: 'radio' }
 ]
 
-const currentMode = computed<'discover' | 'releases' | 'artists' | 'songs'>(() => {
-    const h = route.hash.replace('#', '')
-    return h === 'releases' || h === 'artists' || h === 'songs' ? h : 'discover'
+const currentMode = computed<'discover' | 'releases' | 'artists'>(() => {
+    const raw = route.params.mode
+    const m = Array.isArray(raw) ? raw[0] : raw
+    return m === 'releases' || m === 'artists' ? m : 'discover'
 })
 
 const isActive = (item: NavItem): boolean => {
     if (item.routeName === 'home') return route.name === 'home'
     if (item.routeName === 'library') {
-        if (route.name !== 'library') return false
+        // The root modes and the per-folder entries resolve to two route records
+        // ('library' and 'library-folder'); both are "the library" here.
+        if (route.name !== 'library' && route.name !== 'library-folder') return false
         const raw = route.params.folderId
         const currentFolder = Array.isArray(raw) ? raw[0] : raw
         const currentId = currentFolder ? Number(currentFolder) : undefined
         if (item.folderId !== undefined) return item.folderId === currentId
         // Root browse-mode entry: active only at the cross-collection root and on
-        // the matching hash mode.
+        // the matching mode segment.
         return currentId === undefined && item.mode === currentMode.value
     }
     return route.path.startsWith(item.route)
@@ -202,7 +205,7 @@ onBeforeUnmount(resetEgg)
             <div class="nav-separator"></div>
             <div v-if="!collapsed" class="nav-section-label">Library</div>
 
-            <!-- Library block: the four browse modes (one route, hash-addressed),
+            <!-- Library block: the browse modes (path-addressed off /library),
                  Playlists, then any per-folder entries. Only Discover and Playlists
                  carry shortcut badges. -->
             <button

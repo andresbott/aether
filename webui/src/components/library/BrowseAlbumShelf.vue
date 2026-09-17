@@ -34,7 +34,7 @@ const items = computed(() => (data.value ?? []).map((album) => ({ key: album.id,
     <BrowseShelf
         :title="title"
         :icon="icon"
-        :to="{ name: 'library', params: { folderId: String(folderId) } }"
+        :to="{ name: 'library-folder', params: { folderId: String(folderId) } }"
         :items="items"
         :loading="isLoading"
         :error="isError"

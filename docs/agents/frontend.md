@@ -388,9 +388,9 @@ Sidebar anchors come from a per-item `shortcut` field on `AppSidebar`'s `NavItem
 (not a `NAV_SHORTCUT_ANCHORS` routeName map): every nav loop binds the same
 `:data-shortcut="item.shortcut"` attribute, so which entries anchor is entirely
 data-driven — `topItems`, the Discover entry in `libraryModes`, `playlistsItem`
-and `streamingItems` each set one, six in total. The four library modes
-(Discover/Releases/Artists/Songs) share `routeName: 'library'`, but only Discover's
-entry sets `shortcut`; Releases/Artists/Songs and every `folderItems` entry leave
+and `streamingItems` each set one, six in total. The three library modes
+(Discover/Releases/Artists) share `routeName: 'library'`, but only Discover's
+entry sets `shortcut`; Releases/Artists and every `folderItems` entry leave
 it unset, since anchoring more than one of them would let the overlay badge
 whichever it found first instead of the cross-collection root. That is why
 `AppSidebar.shortcutAnchor.spec.ts` asserts a bare *count* of anchored entries — a
