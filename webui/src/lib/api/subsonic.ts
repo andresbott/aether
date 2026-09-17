@@ -172,12 +172,16 @@ class SubsonicClient {
         type: string,
         size = 20,
         offset = 0,
-        musicFolderId?: number
+        musicFolderId?: number,
+        releaseType?: string
     ): Promise<Album[]> {
         if (!this.isConfigured()) return []
         const params: Record<string, string | number | undefined> = { type, size, offset }
         if (musicFolderId !== undefined) {
             params.musicFolderId = musicFolderId
+        }
+        if (releaseType) {
+            params.releaseType = releaseType
         }
         const response = await this.request<{ albumList2: { album: Album[] } }>(
             'getAlbumList2.view',
@@ -186,11 +190,14 @@ class SubsonicClient {
         return response.albumList2?.album || []
     }
 
-    async getAlbumIndex(musicFolderId?: number): Promise<AlbumIndex> {
+    async getAlbumIndex(musicFolderId?: number, releaseType?: string): Promise<AlbumIndex> {
         if (!this.isConfigured()) return { total: 0, index: [] }
         const params: Record<string, string | number | undefined> = {}
         if (musicFolderId !== undefined) {
             params.musicFolderId = musicFolderId
+        }
+        if (releaseType) {
+            params.releaseType = releaseType
         }
         const response = await this.request<{ albumList2Index?: AlbumIndex }>(
             'getAlbumList2Index.view',

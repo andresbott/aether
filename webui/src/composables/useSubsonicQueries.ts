@@ -26,10 +26,17 @@ type SearchCounts = Pick<
 export const queryKeys = {
     ping: ['subsonic', 'ping'] as const,
     musicFolders: ['subsonic', 'musicFolders'] as const,
-    albumList: (type: string, size: number, offset: number, musicFolderId?: number) =>
-        ['subsonic', 'albumList', type, size, offset, musicFolderId] as const,
+    albumList: (
+        type: string,
+        size: number,
+        offset: number,
+        musicFolderId?: number,
+        releaseType?: string
+    ) => ['subsonic', 'albumList', type, size, offset, musicFolderId, releaseType] as const,
     // Prefix of every albumList query, for invalidating them all.
     albumListAll: ['subsonic', 'albumList'] as const,
+    albumIndex: (musicFolderId?: number, releaseType?: string) =>
+        ['subsonic', 'albumIndex', musicFolderId, releaseType] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     // The requested per-type counts are part of the key, not just the term: a
