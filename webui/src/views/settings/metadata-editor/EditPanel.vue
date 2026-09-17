@@ -3,6 +3,8 @@ import { computed, ref, watch, useId } from 'vue'
 import InputText from 'primevue/inputtext'
 import Checkbox from 'primevue/checkbox'
 import Button from 'primevue/button'
+import Select from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
 import type { Track } from '@/types/metadata'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ReleaseArtistCredit } from '@/types/artists'
@@ -15,6 +17,7 @@ import FieldRow from './FieldRow.vue'
 import CreditListEditor from './CreditListEditor.vue'
 import GenreChips from './GenreChips.vue'
 import { useEditForm } from './useEditForm'
+import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from './releaseTypes'
 
 const props = defineProps<{
     selection: Track[]
@@ -68,6 +71,10 @@ const trackNumber = form.num('track_number')
 const discNumber = form.num('disc_number')
 const genres = form.genres
 const compilation = form.compilation
+const primaryReleaseType = form.primaryReleaseType
+const secondaryReleaseTypes = form.secondaryReleaseTypes
+const primaryReleaseTypeOptions = [...PRIMARY_RELEASE_TYPES]
+const secondaryReleaseTypeOptions = [...SECONDARY_RELEASE_TYPES]
 
 const isMass = form.isMass
 const isDirty = form.isDirty
@@ -486,6 +493,50 @@ watch(
                 />
             </div>
 
+            <div
+                class="field-row"
+                :class="{ 'field-dirty': form.isDirty('release_types') }"
+            >
+                <label :for="fid('release_type_primary')">Release type</label>
+                <div class="release-types-field">
+                    <Select
+                        :inputId="fid('release_type_primary')"
+                        v-model="primaryReleaseType"
+                        :options="primaryReleaseTypeOptions"
+                        placeholder="Primary"
+                        show-clear
+                        class="release-type-primary"
+                        data-test="release-type-primary"
+                    />
+                    <MultiSelect
+                        v-model="secondaryReleaseTypes"
+                        :options="secondaryReleaseTypeOptions"
+                        placeholder="Secondary types"
+                        display="chip"
+                        :show-toggle-all="false"
+                        class="release-type-secondary"
+                        data-test="release-type-secondary"
+                    />
+                    <small
+                        v-if="form.releaseTypesMixed.value"
+                        class="mixed-note"
+                        data-test="release-types-mixed"
+                    >
+                        (multiple values)
+                    </small>
+                </div>
+                <Button
+                    v-if="form.isDirty('release_types')"
+                    icon="pi pi-undo"
+                    text
+                    size="small"
+                    aria-label="Reset release type"
+                    data-test="undo-release_types"
+                    v-tooltip.left="form.undoReleaseTypesTooltip()"
+                    @click="form.undo('release_types')"
+                />
+            </div>
+
             <FieldRow
                 label="Disc number"
                 :id="fid('disc_number')"
@@ -699,6 +750,19 @@ watch(
 .field-block.section-dirty .genres-field :deep(.p-autocomplete-input-multiple) {
     border-color: var(--app-staged);
     background-color: var(--app-staged-soft);
+}
+.release-types-field {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.release-type-primary {
+    min-width: 9rem;
+}
+.release-type-secondary {
+    flex: 1;
+    min-width: 12rem;
 }
 .album-mbid {
     font-family: var(--font-mono, monospace);

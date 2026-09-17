@@ -567,6 +567,48 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	}
 }
 
+func TestUpdateTracks_ReleaseTypesWritten(t *testing.T) {
+	root := t.TempDir()
+	fx := "../../../../internal/metadataedit/testdata/empty.flac"
+	if _, err := os.Stat(fx); err != nil {
+		t.Skipf("no fixture: %v", err)
+	}
+	dst := filepath.Join(root, "a.flac")
+	copyTestFile(t, fx, dst)
+
+	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	_ = model.Migrate(db)
+	s := store.New(db)
+	lib := &model.Library{Name: "Main", Path: root}
+	_ = s.CreateLibrary(lib)
+	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	r := mux.NewRouter()
+	h.Routes(r)
+
+	body := `{
+		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"paths": ["a.flac"],
+		"fields": { "release_types": ["Album", "Compilation"] }
+	}`
+	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Written to the MusicBrainz key the readers prefer, not RELEASETYPE.
+	got, err := taglibReadTags(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := got["MUSICBRAINZ_ALBUMTYPE"]
+	if len(rt) != 2 || rt[0] != "Album" || rt[1] != "Compilation" {
+		t.Fatalf("release types unexpected: %v", rt)
+	}
+}
+
 func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 	root := t.TempDir()
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"

@@ -28,6 +28,7 @@ type Patch struct {
 	Artists         *[]string
 	AlbumArtists    *[]string
 	Genres          *[]string
+	ReleaseTypes    *[]string
 	Year            *int
 	TrackNumber     *int
 	DiscNumber      *int
@@ -55,7 +56,7 @@ type Patch struct {
 // Empty reports whether the patch would write nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Album == nil && p.Artists == nil &&
-		p.AlbumArtists == nil && p.Genres == nil && p.Year == nil &&
+		p.AlbumArtists == nil && p.Genres == nil && p.ReleaseTypes == nil && p.Year == nil &&
 		p.TrackNumber == nil && p.DiscNumber == nil &&
 		p.DiscSubtitle == nil && p.Compilation == nil &&
 		p.ArtistMBID == nil && p.AlbumArtistMBID == nil &&
@@ -92,11 +93,21 @@ func mergeMBIDs(names, currentIDs []string, overrides map[string]string) []strin
 // separate values (taglib emits multiple frames where the format allows).
 func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 	out := map[string][]string{}
-	if p.Title != nil {
-		out[taglib.Title] = []string{*p.Title}
-	}
-	if p.Album != nil {
-		out[taglib.Album] = []string{*p.Album}
+	// Single-string fields share one shape: write [key] = [value] when set.
+	for _, f := range []struct {
+		val *string
+		key string
+	}{
+		{p.Title, taglib.Title},
+		{p.Album, taglib.Album},
+		{p.DiscSubtitle, taglib.DiscSubtitle},
+		{p.MBRecordingID, taglib.MusicBrainzTrackID},
+		{p.MBReleaseID, taglib.MusicBrainzAlbumID},
+		{p.MBReleaseGroupID, taglib.MusicBrainzReleaseGroupID},
+	} {
+		if f.val != nil {
+			out[f.key] = []string{*f.val}
+		}
 	}
 	if p.Artists != nil {
 		out[taglib.Artist] = *p.Artists
@@ -107,6 +118,12 @@ func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 	if p.Genres != nil {
 		out[taglib.Genre] = *p.Genres
 	}
+	if p.ReleaseTypes != nil {
+		// Raw key on purpose: the readers prefer MUSICBRAINZ_ALBUMTYPE, and taglib
+		// has no constant for it — taglib.ReleaseType is RELEASETYPE, which the
+		// ffprobe reader ignores, so writing that would vanish on the next rescan.
+		out["MUSICBRAINZ_ALBUMTYPE"] = *p.ReleaseTypes
+	}
 	if p.Year != nil {
 		out[taglib.Date] = []string{strconv.Itoa(*p.Year)}
 	}
@@ -115,9 +132,6 @@ func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 	}
 	if p.DiscNumber != nil {
 		out[taglib.DiscNumber] = []string{strconv.Itoa(*p.DiscNumber)}
-	}
-	if p.DiscSubtitle != nil {
-		out[taglib.DiscSubtitle] = []string{*p.DiscSubtitle}
 	}
 	if p.Compilation != nil {
 		if *p.Compilation {
@@ -131,15 +145,6 @@ func BuildTagMap(p Patch, cur CurrentTags) (map[string][]string, error) {
 	}
 	if p.AlbumArtistMBID != nil {
 		out[taglib.MusicBrainzAlbumArtistID] = mergeMBIDs(cur.AlbumArtists, cur.AlbumArtistMBIDs, *p.AlbumArtistMBID)
-	}
-	if p.MBRecordingID != nil {
-		out[taglib.MusicBrainzTrackID] = []string{*p.MBRecordingID}
-	}
-	if p.MBReleaseID != nil {
-		out[taglib.MusicBrainzAlbumID] = []string{*p.MBReleaseID}
-	}
-	if p.MBReleaseGroupID != nil {
-		out[taglib.MusicBrainzReleaseGroupID] = []string{*p.MBReleaseGroupID}
 	}
 	if p.Raw != nil {
 		for key, vals := range *p.Raw {

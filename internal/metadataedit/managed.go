@@ -30,6 +30,8 @@ var managedTagKeys = map[string]bool{
 	"MUSICBRAINZ_RELEASEGROUPID": true,
 	"MUSICBRAINZ_ARTISTID":       true,
 	"MUSICBRAINZ_ALBUMARTISTID":  true,
+	"MUSICBRAINZ_ALBUMTYPE":      true,
+	"RELEASETYPE":                true,
 }
 
 // IsManagedTag reports whether a raw tag key belongs to the structured

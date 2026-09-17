@@ -55,6 +55,9 @@ export function originalValueEquals<K extends keyof TrackOverlay>(
     if (key === 'genres') {
         return sameStrings(value as string[], track.genres)
     }
+    if (key === 'release_types') {
+        return sameStrings(value as string[], track.release_types)
+    }
     return track[key as keyof Track] === value
 }
 
@@ -73,6 +76,7 @@ export function applyOverlay(track: Track, overlay: TrackOverlay | undefined): T
     if (overlay.mb_release_group_id !== undefined)
         out.mb_release_group_id = overlay.mb_release_group_id
     if (overlay.genres !== undefined) out.genres = [...overlay.genres]
+    if (overlay.release_types !== undefined) out.release_types = [...overlay.release_types]
     if (overlay.year !== undefined) out.year = overlay.year
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number
     if (overlay.disc_number !== undefined) out.disc_number = overlay.disc_number
@@ -140,6 +144,9 @@ export function buildTrackPatch(original: Track, overlay: TrackOverlay): PatchFi
         out.mb_release_group_id = overlay.mb_release_group_id
     if (overlay.genres !== undefined) {
         out.genres = overlay.genres.map((g) => g.trim()).filter((g) => g !== '')
+    }
+    if (overlay.release_types !== undefined) {
+        out.release_types = overlay.release_types.map((t) => t.trim()).filter((t) => t !== '')
     }
     if (overlay.year !== undefined) out.year = overlay.year
     if (overlay.track_number !== undefined) out.track_number = overlay.track_number

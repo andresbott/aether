@@ -18,7 +18,7 @@ vi.mock('@/composables/useMetadataEditor', async (orig) => ({
 
 const mkTrack = (over: Partial<Track> = {}): Track => ({
     path: 'a.mp3', name: 'a.mp3', title: 'Orig', artists: ['X'], album_artists: [],
-    album: '', genres: [], year: 0, track_number: 0, disc_number: 0, disc_subtitle: '',
+    album: '', genres: [], release_types: [], year: 0, track_number: 0, disc_number: 0, disc_subtitle: '',
     compilation: false, mb_artist_ids: [''], mb_album_artist_ids: [], mb_recording_id: '',
     mb_release_id: '', mb_release_group_id: '', ...over
 })
@@ -83,6 +83,27 @@ describe('useEditForm scalars', () => {
         expect(api.isDirty('genres')).toBe(false)
         api.genres.value = ['Pop'] // non-empty -> overwrite all
         expect(api.isDirty('genres')).toBe(true)
+    })
+
+    it('release types stage as a flat list; empty over a mixed selection stages nothing', () => {
+        const a = mkTrack({ release_types: ['Album'] })
+        const b = mkTrack({ path: 'b.mp3', release_types: ['Single'] })
+        const { api } = useForm([a, b])
+        expect(api.releaseTypesMixed.value).toBe(true)
+        api.releaseTypes.value = [] // empty over mixed -> stage nothing
+        expect(api.isDirty('release_types')).toBe(false)
+        api.releaseTypes.value = ['EP'] // non-empty -> overwrite all
+        expect(api.isDirty('release_types')).toBe(true)
+    })
+
+    it('splits and merges primary/secondary into the one flat release-type list', () => {
+        const { api } = useForm([mkTrack({ release_types: ['Album', 'Compilation'] })])
+        expect(api.primaryReleaseType.value).toBe('Album')
+        expect(api.secondaryReleaseTypes.value).toEqual(['Compilation'])
+        api.primaryReleaseType.value = 'EP'
+        expect(api.releaseTypes.value).toEqual(['EP', 'Compilation'])
+        api.secondaryReleaseTypes.value = ['Live', 'Remix']
+        expect(api.releaseTypes.value).toEqual(['EP', 'Live', 'Remix'])
     })
 })
 

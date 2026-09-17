@@ -68,6 +68,7 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     album_artists: [],
     album: '',
     genres: [],
+    release_types: [],
     year: 0,
     track_number: 0,
     disc_number: 0,
@@ -134,6 +135,14 @@ describe('applyOverlay', () => {
         out.genres.push('Mutated')
         expect(t.genres).toEqual(['Rock'])
     })
+
+    it('overrides release types without aliasing the staged list', () => {
+        const t = mkTrack({ release_types: ['Album'] })
+        const out = applyOverlay(t, { release_types: ['Album', 'Compilation'] })
+        expect(out.release_types).toEqual(['Album', 'Compilation'])
+        out.release_types.push('Mutated')
+        expect(t.release_types).toEqual(['Album'])
+    })
 })
 
 describe('originalValueEquals', () => {
@@ -155,6 +164,13 @@ describe('originalValueEquals', () => {
         expect(originalValueEquals(t, 'genres', ['Rock', 'Jazz'])).toBe(true)
         expect(originalValueEquals(t, 'genres', ['Jazz', 'Rock'])).toBe(false)
         expect(originalValueEquals(t, 'genres', [])).toBe(false)
+    })
+
+    it('compares release-type lists element-wise', () => {
+        const t = mkTrack({ release_types: ['Album', 'Compilation'] })
+        expect(originalValueEquals(t, 'release_types', ['Album', 'Compilation'])).toBe(true)
+        expect(originalValueEquals(t, 'release_types', ['Compilation', 'Album'])).toBe(false)
+        expect(originalValueEquals(t, 'release_types', [])).toBe(false)
     })
 })
 
@@ -228,6 +244,13 @@ describe('buildTrackPatch', () => {
         })
         expect(patch.genres).toEqual(['Rock', 'Jazz'])
         expect(patch.track_number).toBe(4)
+    })
+
+    it('copies release types (trimmed, empties dropped)', () => {
+        const patch = buildTrackPatch(mkTrack(), {
+            release_types: [' Album ', '', 'Compilation']
+        })
+        expect(patch.release_types).toEqual(['Album', 'Compilation'])
     })
 })
 

@@ -41,7 +41,7 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	touch(t, filepath.Join(root, "notes.txt"))
 
 	reader := stubReader{byPath: map[string]tags.Metadata{
-		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 1, DiscSubtitle: "CD 1", MBArtistID: []string{"id-a"}, MBReleaseID: "rel-1", MBReleaseGroupID: "rg-1"},
+		filepath.Join(root, "album", "01.flac"): {Title: "One", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 1, DiscSubtitle: "CD 1", MBArtistID: []string{"id-a"}, MBReleaseID: "rel-1", MBReleaseGroupID: "rg-1", ReleaseTypes: []string{"Album", "Compilation"}},
 		filepath.Join(root, "album", "02.mp3"):  {Title: "Two", Artist: []string{"A"}, Album: "X", Year: 2020, DiscNumber: 2, DiscSubtitle: "CD 2"},
 	}}
 	got, err := metadataedit.ListTracks(context.Background(), root, root, reader)
@@ -62,6 +62,9 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 	}
 	if got[0].MBReleaseID != "rel-1" || got[0].MBReleaseGroupID != "rg-1" {
 		t.Fatalf("release IDs not surfaced on row 0: %+v", got[0])
+	}
+	if len(got[0].ReleaseTypes) != 2 || got[0].ReleaseTypes[0] != "Album" || got[0].ReleaseTypes[1] != "Compilation" {
+		t.Fatalf("release types not surfaced on row 0: %+v", got[0].ReleaseTypes)
 	}
 	if got[0].DiscNumber != 1 || got[0].DiscSubtitle != "CD 1" {
 		t.Fatalf("disc fields not surfaced on row 0: %+v", got[0])
