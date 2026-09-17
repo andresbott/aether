@@ -15,6 +15,7 @@ import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersi
 import { usePlayer } from '@/composables/usePlayer'
 import { useAuth } from '@/composables/useAuth'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { groupAlbumsByReleaseType } from '@/lib/releaseGrouping'
 import type { Song } from '@/types/subsonic'
 import type { ArtistImagePick } from '@/types/artists'
 
@@ -278,6 +279,10 @@ const sortedAlbums = computed(() => {
         .sort((a, b) => (b.year || 0) - (a.year || 0))
 })
 
+// Group the discography by MusicBrainz release type for display (Albums, EPs,
+// Singles, …). Derived from sortedAlbums so each card keeps the artist fallback.
+const releaseGroups = computed(() => groupAlbumsByReleaseType(sortedAlbums.value))
+
 const player = usePlayer()
 const gathering = ref(false)
 
@@ -399,11 +404,15 @@ const onQueue = async (): Promise<void> => {
 
                 <div class="artist-below">
                     <div class="artist-body content-col">
-                        <section v-if="sortedAlbums.length > 0" class="discography">
-                            <h2>Albums</h2>
+                        <section
+                            v-for="group in releaseGroups"
+                            :key="group.type"
+                            class="discography"
+                        >
+                            <h2>{{ group.label }}</h2>
                             <div class="album-grid">
                                 <AlbumCard
-                                    v-for="album in sortedAlbums"
+                                    v-for="album in group.albums"
                                     :key="album.id"
                                     :album="album"
                                 />
@@ -467,6 +476,11 @@ const onQueue = async (): Promise<void> => {
     font-size: 1.5rem;
     font-weight: 600;
     margin-bottom: 1.5rem;
+}
+
+/* Space consecutive type sections (Albums, EPs, Singles, …) apart. */
+.discography + .discography {
+    margin-top: 2.5rem;
 }
 
 /* Sits on the cover's flip-back face (inside 250px), under the FileUpload.

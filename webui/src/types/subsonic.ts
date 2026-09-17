@@ -44,6 +44,9 @@ export interface Album {
     genre?: string
     starred?: string
     discTitles?: DiscTitle[]
+    // OpenSubsonic AlbumID3: the flat MusicBrainz release-type list (primary first,
+    // then secondary types). Absent when the release carries no type tags.
+    releaseTypes?: string[]
 }
 
 export interface AlbumWithSongs extends Album {

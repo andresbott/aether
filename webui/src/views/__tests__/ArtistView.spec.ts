@@ -109,6 +109,14 @@ const ScaffoldStub = {
     template: '<div class="scaffold"><slot name="actions" /><slot /></div>'
 }
 
+// The discography grid renders one card per album; a light stub lets the grouping
+// specs count cards per section without pulling in AlbumCard's own dependencies.
+const AlbumCardStub = {
+    name: 'AlbumCard',
+    props: ['album'],
+    template: '<div class="album-card-stub" :data-id="album.id" />'
+}
+
 import ArtistView from '@/views/ArtistView.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
@@ -129,7 +137,12 @@ const mountView = () =>
         global: {
             plugins: [PrimeVue],
             directives: { tooltip: recordingTooltip },
-            stubs: { ContentScaffold: ScaffoldStub, ConfirmDialog: true, RouterLink: true }
+            stubs: {
+                ContentScaffold: ScaffoldStub,
+                AlbumCard: AlbumCardStub,
+                ConfirmDialog: true,
+                RouterLink: true
+            }
         }
     })
 
@@ -818,5 +831,52 @@ describe('ArtistView removing a staged online pick', () => {
         await w.find('.edit-action-save').trigger('click')
         expect(coverMutate).not.toHaveBeenCalled()
         expect(imageSearchMutate).not.toHaveBeenCalled()
+    })
+})
+
+// The discography is grouped by MusicBrainz release type (see lib/releaseGrouping):
+// one ordered section per surviving type. The exhaustive fold/order rules live in
+// that function's own spec; here we assert the view renders the groups it returns.
+describe('ArtistView discography grouping', () => {
+    const album = (id: string, releaseTypes?: string[]) => ({ id, name: id, releaseTypes })
+
+    const sectionHeadings = (w: ReturnType<typeof mountView>) =>
+        w.findAll('.discography').map((s) => s.find('h2').text())
+
+    it('renders one ordered section per release-type group', () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'X',
+            album: [
+                album('al', ['Album']),
+                album('ep', ['EP']),
+                album('s1', ['Single']),
+                album('s2', ['Single']),
+                album('s3', ['Single']),
+                album('s4', ['Single'])
+            ]
+        }
+        const w = mountView()
+        expect(sectionHeadings(w)).toEqual(['Albums', 'EPs', 'Singles'])
+        const sections = w.findAll('.discography')
+        expect(sections[0].findAll('.album-card-stub').length).toBe(1) // Albums
+        expect(sections[2].findAll('.album-card-stub').length).toBe(4) // Singles
+    })
+
+    it('folds a handful of singles into an Other section', () => {
+        artist.value = {
+            id: 'ar-1',
+            name: 'X',
+            album: [album('al', ['Album']), album('s1', ['Single']), album('s2', ['Single'])]
+        }
+        const w = mountView()
+        expect(sectionHeadings(w)).toEqual(['Albums', 'Other'])
+    })
+
+    it('shows a single section for a one-type (all untyped) discography', () => {
+        artist.value = { id: 'ar-1', name: 'X', album: [album('a1'), album('a2')] }
+        const w = mountView()
+        expect(sectionHeadings(w)).toEqual(['Albums'])
+        expect(w.findAll('.discography')[0].findAll('.album-card-stub').length).toBe(2)
     })
 })
