@@ -63,11 +63,12 @@ func (s *Store) GetAlbum(id uint) (*model.Album, error) {
 }
 
 type AlbumListFilter struct {
-	Genre     string
-	FromYear  int
-	ToYear    int
-	LibraryID *uint
-	Owner     string
+	Genre       string
+	FromYear    int
+	ToYear      int
+	LibraryID   *uint
+	Owner       string
+	ReleaseType string
 }
 
 func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumListFilter) ([]model.Album, error) {
@@ -75,6 +76,12 @@ func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumLis
 
 	if filter != nil && filter.LibraryID != nil {
 		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
+	if filter != nil && filter.ReleaseType != "" {
+		q = q.Where(
+			"EXISTS (SELECT 1 FROM json_each(albums.release_types) WHERE LOWER(json_each.value) = LOWER(?))",
+			filter.ReleaseType,
+		)
 	}
 
 	switch listType {
@@ -144,6 +151,12 @@ func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int
 	q := s.db.Model(&model.Album{})
 	if filter != nil && filter.LibraryID != nil {
 		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	}
+	if filter != nil && filter.ReleaseType != "" {
+		q = q.Where(
+			"EXISTS (SELECT 1 FROM json_each(albums.release_types) WHERE LOWER(json_each.value) = LOWER(?))",
+			filter.ReleaseType,
+		)
 	}
 
 	type row struct {

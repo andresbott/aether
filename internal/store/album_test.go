@@ -306,3 +306,69 @@ func TestSearchAlbumsByLibrary(t *testing.T) {
 		t.Fatalf("expected 2 albums with nil filter, got %d", len(all))
 	}
 }
+
+func TestGetAlbumListFilterByReleaseType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	// Lowercase, as a Vorbis file may store it — must still match "Album".
+	db.Create(&model.Album{Name: "Low", NameNorm: "low", AlbumArtistNorm: "x", ReleaseTypes: []string{"album"}})
+	db.Create(&model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}})
+	db.Create(&model.Album{Name: "Untyped", NameNorm: "untyped", AlbumArtistNorm: "x"})
+
+	got, err := s.GetAlbumList("alphabeticalByName", 100, 0, &store.AlbumListFilter{ReleaseType: "Album"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 Album releases (case-insensitive), got %d", len(got))
+	}
+	names := map[string]bool{}
+	for _, a := range got {
+		names[a.NameNorm] = true
+	}
+	if !names["lp"] || !names["low"] {
+		t.Fatalf("expected both lp and low, got %+v", names)
+	}
+}
+
+func TestGetAlbumListReleaseTypeExcludesUntyped(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "S1", NameNorm: "s1", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}})
+	db.Create(&model.Album{Name: "Untyped", NameNorm: "untyped", AlbumArtistNorm: "x"})
+
+	got, err := s.GetAlbumList("alphabeticalByName", 100, 0, &store.AlbumListFilter{ReleaseType: "Single"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].NameNorm != "s1" {
+		t.Fatalf("expected only the Single, got %+v", got)
+	}
+	all, err := s.GetAlbumList("alphabeticalByName", 100, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected 2 unfiltered, got %d", len(all))
+	}
+}
+
+func TestGetAlbumLetterIndexFilterByReleaseType(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "Abba", NameNorm: "abba", AlbumArtistNorm: "x", ReleaseTypes: []string{"EP"}})
+	db.Create(&model.Album{Name: "Beta", NameNorm: "beta", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	db.Create(&model.Album{Name: "Acme", NameNorm: "acme", AlbumArtistNorm: "x", ReleaseTypes: []string{"EP"}})
+
+	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{ReleaseType: "EP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Fatalf("expected 2 EPs, got %d", total)
+	}
+	if len(letters) != 1 || letters[0].Letter != "A" || letters[0].Count != 2 {
+		t.Fatalf("expected one 'A' bucket count 2, got %+v", letters)
+	}
+}
