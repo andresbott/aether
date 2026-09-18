@@ -248,6 +248,7 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	// Media
 	register("stream", h.stream)
 	register("getCoverArt", h.getCoverArt)
+	register("getGeneratedCoverPreview", h.getGeneratedCoverPreview)
 
 	// Playlists
 	register("getPlaylists", h.getPlaylists)

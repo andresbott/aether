@@ -73,6 +73,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"name":     "apiKeyAuthentication",
 				"versions": []int{1},
 			},
+			{
+				"name":     "generatedCovers",
+				"versions": []int{1},
+			},
 		},
 	})
 }
