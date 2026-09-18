@@ -32,6 +32,10 @@ const userManagement = useUserManagement()
 
 const groups = computed<SettingsNavGroup[]>(() => [
     {
+        label: 'General',
+        items: [{ label: 'Generated Covers', icon: 'pi pi-images', route: '/settings/general' }]
+    },
+    {
         label: 'Administration',
         items: [
             { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },

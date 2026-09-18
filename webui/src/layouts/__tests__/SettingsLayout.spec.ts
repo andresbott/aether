@@ -65,6 +65,21 @@ describe('SettingsLayout', () => {
         expect(text).not.toContain('Logout')
     })
 
+    it('renders a General group with the Generated Covers entry', () => {
+        const text = mountLayout().text()
+        expect(text).toContain('General')
+        expect(text).toContain('Generated Covers')
+    })
+
+    it('navigates to /settings/general from the Generated Covers entry', async () => {
+        const w = mountLayout()
+        const item = w
+            .findAll('.sidebar-nav .nav-item')
+            .find((b) => b.text() === 'Generated Covers')!
+        await item.trigger('click')
+        expect(push).toHaveBeenCalledWith('/settings/general')
+    })
+
     // The metadata editor sits under its own Tools header, in addition to being
     // reachable from the sidebar UserMenu. Its side-nav entry points at the
     // top-level /metadata-editor route.
