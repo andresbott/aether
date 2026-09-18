@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import ConfirmDialog from 'primevue/confirmdialog'
@@ -15,6 +16,7 @@ import EditActionBar from '@/components/layout/EditActionBar.vue'
 import TrackEditList from '@/components/layout/TrackEditList.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
+import GenerateCoverDialog from '@/components/cover/GenerateCoverDialog.vue'
 import {
     usePlaylist,
     useUpdatePlaylist,
@@ -128,8 +130,12 @@ const selectedCoverFile = ref<File | null>(null)
 const coverClear = ref(false)
 const coverPreviewUrl = ref<string | null>(null)
 const coverSizeError = ref<string | null>(null)
+const showGenerate = ref(false)
+const stagedPick = ref<{ style: string; variation: number } | null>(null)
 
-const coverDirty = computed(() => selectedCoverFile.value !== null || coverClear.value)
+const coverDirty = computed(
+    () => selectedCoverFile.value !== null || coverClear.value || stagedPick.value !== null
+)
 
 const dirty = computed(() => tracksDirty.value || coverDirty.value || metaDirty.value)
 
@@ -146,6 +152,7 @@ function resetCoverStaging(): void {
     selectedCoverFile.value = null
     coverClear.value = false
     coverSizeError.value = null
+    stagedPick.value = null
 }
 
 const displayedCoverUrl = computed(() => {
@@ -246,6 +253,19 @@ const onRemoveCover = (): void => {
     coverClear.value = true
 }
 
+const onGeneratePick = (pick: { style: string; variation: number }): void => {
+    stagedPick.value = pick
+    selectedCoverFile.value = null
+    if (coverPreviewUrl.value) URL.revokeObjectURL(coverPreviewUrl.value)
+    coverPreviewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
+        id: props.id,
+        style: pick.style,
+        variation: pick.variation,
+        size: 512
+    })
+    coverClear.value = false
+}
+
 // --- Track edits (local until Save) ---
 const onReorder = (indices: number[], target: number): void => {
     working.value = reorderQueue(working.value, indices, target)
@@ -313,7 +333,8 @@ const saveEdit = async (): Promise<void> => {
                 .mutateAsync({
                     playlistId: props.id,
                     coverFile: selectedCoverFile.value ?? undefined,
-                    coverClear: coverClear.value || undefined
+                    coverClear: coverClear.value || undefined,
+                    generate: stagedPick.value ?? undefined
                 })
                 .then(() => {
                     resetCoverStaging()
@@ -421,6 +442,9 @@ onUnmounted(() => {
                             @cancel="cancelEdit"
                             @delete="handleDelete"
                         />
+                    </template>
+                    <template v-if="isOwner" #cover-actions>
+                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
                     </template>
                     <template #read>
                         <h2 class="hero-name">{{ playlist.name }}</h2>
@@ -545,6 +569,12 @@ onUnmounted(() => {
                 v-model:visible="actionSheetOpen"
                 :song="actionSong"
                 @play="playTrack(actionIndex)"
+            />
+            <GenerateCoverDialog
+                v-model:visible="showGenerate"
+                :entity-id="props.id"
+                :title="playlist?.name"
+                @select="onGeneratePick"
             />
         </ContentScaffold>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import Button from 'primevue/button'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
 import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
@@ -8,6 +9,7 @@ import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumTrackRow from '@/components/library/AlbumTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
+import GenerateCoverDialog from '@/components/cover/GenerateCoverDialog.vue'
 import { useAlbum, useToggleStar, useUpdateAlbumCover } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useAlbumDrag } from '@/composables/useAlbumDrag'
@@ -71,8 +73,10 @@ const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
 const coverSizeError = ref<string | null>(null)
+const showGenerate = ref(false)
+const stagedPick = ref<{ style: string; variation: number } | null>(null)
 
-const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+const dirty = computed(() => selectedFile.value !== null || coverClear.value || stagedPick.value !== null)
 
 function resetCoverStaging(): void {
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -80,6 +84,7 @@ function resetCoverStaging(): void {
     selectedFile.value = null
     coverClear.value = false
     coverSizeError.value = null
+    stagedPick.value = null
 }
 
 const onCoverSelect = (file: File): void => {
@@ -102,6 +107,19 @@ const onRemoveCover = (): void => {
     coverSizeError.value = null
 }
 
+const onGeneratePick = (pick: { style: string; variation: number }): void => {
+    stagedPick.value = pick
+    selectedFile.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
+        id: props.id,
+        style: pick.style,
+        variation: pick.variation,
+        size: 512
+    })
+    coverClear.value = false
+}
+
 const saveEdit = (): void => {
     if (!dirty.value || !album.value?.id) {
         editing.value = false
@@ -111,7 +129,8 @@ const saveEdit = (): void => {
         {
             albumId: album.value.id,
             coverFile: selectedFile.value ?? undefined,
-            coverClear: coverClear.value || undefined
+            coverClear: coverClear.value || undefined,
+            generate: stagedPick.value ?? undefined
         },
         {
             onSuccess: () => {
@@ -300,6 +319,9 @@ watch(editing, (isEditing) => {
                             @cancel="cancelEdit"
                         />
                     </template>
+                    <template v-if="isAdmin" #cover-actions>
+                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                    </template>
                     <template #cover-note>
                         <div class="cover-help">
                             Remove clears aether's managed cover and reverts to the folder or
@@ -387,6 +409,12 @@ watch(editing, (isEditing) => {
                 v-model:visible="actionSheetOpen"
                 :song="actionSong"
                 @play="playTrack(actionIndex)"
+            />
+            <GenerateCoverDialog
+                v-model:visible="showGenerate"
+                :entity-id="props.id"
+                :title="album?.name"
+                @select="onGeneratePick"
             />
         </ContentScaffold>
     </div>

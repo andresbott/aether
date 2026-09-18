@@ -63,10 +63,12 @@ vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({ isAdmin })
 }))
 
+const mockGetGeneratedCoverPreviewUrl = vi.fn()
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
-        getCoverArtUrl: (art: string, size: number) => `cover:${art}:${size}`
+        getCoverArtUrl: (art: string, size: number) => `cover:${art}:${size}`,
+        getGeneratedCoverPreviewUrl: (...args: unknown[]) => mockGetGeneratedCoverPreviewUrl(...args)
     }
 }))
 
@@ -102,6 +104,12 @@ const mountView = () =>
                     name: 'HeroSelectionBar',
                     props: ['count', 'songs'],
                     template: '<div class="hero-selection-bar-stub" />'
+                },
+                GenerateCoverDialog: {
+                    name: 'GenerateCoverDialog',
+                    props: ['visible', 'entityId', 'title'],
+                    emits: ['update:visible', 'select'],
+                    template: '<div class="generate-cover-dialog-stub" />'
                 }
             }
         }
@@ -123,6 +131,8 @@ beforeEach(() => {
     resetCoverVersions()
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
+    mockGetGeneratedCoverPreviewUrl.mockClear()
+    mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
 })
 
 describe('AlbumView album drag', () => {
@@ -378,5 +388,41 @@ describe('AlbumView cover editing', () => {
 
         await enterEdit(w)
         expect(w.find('.edit-action-save').attributes('disabled')).toBeDefined()
+    })
+
+    it('shows Generate button in edit mode and passes pick to mutation', async () => {
+        const w = mountView()
+        await enterEdit(w)
+
+        const generateBtn = w.find('button[aria-label="Generate"]')
+        expect(generateBtn.exists()).toBe(true)
+
+        await generateBtn.trigger('click')
+        await flushPromises()
+
+        const dialog = w.findComponent({ name: 'GenerateCoverDialog' })
+        expect(dialog.props('visible')).toBe(true)
+        expect(dialog.props('entityId')).toBe('al1')
+
+        dialog.vm.$emit('select', { style: 'bauhaus', variation: 3 })
+        await flushPromises()
+
+        expect(mockGetGeneratedCoverPreviewUrl).toHaveBeenCalledWith({
+            id: 'al1',
+            style: 'bauhaus',
+            variation: 3,
+            size: 512
+        })
+
+        await w.find('.edit-action-save').trigger('click')
+        expect(updateCoverMutate).toHaveBeenCalledWith(
+            {
+                albumId: 'al1',
+                coverFile: undefined,
+                coverClear: undefined,
+                generate: { style: 'bauhaus', variation: 3 }
+            },
+            expect.anything()
+        )
     })
 })

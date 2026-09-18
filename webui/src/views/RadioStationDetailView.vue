@@ -9,6 +9,7 @@ import HeroHeader from '@/components/layout/HeroHeader.vue'
 import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import StationSearchDialog from '@/components/library/StationSearchDialog.vue'
+import GenerateCoverDialog from '@/components/cover/GenerateCoverDialog.vue'
 import {
     useRadioStations,
     useCreateRadioStation,
@@ -62,6 +63,8 @@ const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
 const sizeError = ref<string | null>(null)
+const showGenerate = ref(false)
+const stagedPick = ref<{ style: string; variation: number } | null>(null)
 
 // Create starts already in edit mode; existing stations open read-only.
 const editing = ref(!!props.create)
@@ -72,6 +75,7 @@ function resetCoverState() {
     selectedFile.value = null
     coverClear.value = false
     sizeError.value = null
+    stagedPick.value = null
 }
 
 // Seed the form from the station when its identity changes (edit mode); create mode
@@ -129,7 +133,8 @@ const input = computed(() => {
         streamUrl: form.value.streamUrl.trim(),
         homepageUrl: homepage === '' ? undefined : homepage,
         coverFile: selectedFile.value ?? undefined,
-        coverClear: coverClear.value || undefined
+        coverClear: coverClear.value || undefined,
+        generate: stagedPick.value ?? undefined
     }
 })
 
@@ -150,6 +155,21 @@ function onRemoveCover() {
     previewUrl.value = null
     selectedFile.value = null
     coverClear.value = true
+}
+
+function onGeneratePick(pick: { style: string; variation: number }) {
+    stagedPick.value = pick
+    selectedFile.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    // For radio stations, use the station ID if we have it, or the entity from create mode
+    const entityId = props.id ?? props.create ? 'new-station' : ''
+    previewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
+        id: entityId,
+        style: pick.style,
+        variation: pick.variation,
+        size: 512
+    })
+    coverClear.value = false
 }
 
 // Discover: search radio-browser.info and fill the form from the picked station.
@@ -327,6 +347,9 @@ onUnmounted(() => {
                             @delete="onDelete"
                         />
                     </template>
+                    <template v-if="isAdmin" #cover-actions>
+                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                    </template>
                     <template #read>
                         <h2 class="hero-name">{{ station?.name }}</h2>
                         <div class="meta-row">
@@ -365,6 +388,12 @@ onUnmounted(() => {
             v-if="create && isAdmin"
             v-model:visible="searchVisible"
             @select="onDiscoverSelect"
+        />
+        <GenerateCoverDialog
+            v-model:visible="showGenerate"
+            :entity-id="props.id ?? 'new-station'"
+            :title="station?.name ?? 'New Station'"
+            @select="onGeneratePick"
         />
     </div>
 </template>

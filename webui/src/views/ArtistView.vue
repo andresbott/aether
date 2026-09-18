@@ -7,6 +7,7 @@ import HeroActions from '@/components/layout/HeroActions.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import AlbumCard from '@/components/library/AlbumCard.vue'
 import ArtistImageSearchDialog from '@/components/library/ArtistImageSearchDialog.vue'
+import GenerateCoverDialog from '@/components/cover/GenerateCoverDialog.vue'
 import Button from 'primevue/button'
 import { useArtist, useToggleStar, useUpdateArtistCover } from '@/composables/useSubsonicQueries'
 import { useArtistImageSource } from '@/composables/useArtistImageSource'
@@ -42,9 +43,15 @@ const coverSizeError = ref<string | null>(null)
 // A pick from the online search, staged like any other cover edit: previewed
 // here, written only by saveEdit, discarded by Cancel.
 const imagePick = ref<ArtistImagePick | null>(null)
+const showGenerate = ref(false)
+const stagedPick = ref<{ style: string; variation: number } | null>(null)
 
 const dirty = computed(
-    () => selectedFile.value !== null || coverClear.value || imagePick.value !== null
+    () =>
+        selectedFile.value !== null ||
+        coverClear.value ||
+        imagePick.value !== null ||
+        stagedPick.value !== null
 )
 
 // The image may be a file read from the music folder rather than one of aether's
@@ -139,6 +146,7 @@ function resetCoverStaging(): void {
     coverClear.value = false
     coverSizeError.value = null
     imagePick.value = null
+    stagedPick.value = null
 }
 
 // Artist edit = cover only. Changes are staged locally and applied on Save.
@@ -204,7 +212,8 @@ const saveEdit = (): void => {
         {
             artistId: props.id,
             coverFile: selectedFile.value ?? undefined,
-            coverClear: coverClear.value || undefined
+            coverClear: coverClear.value || undefined,
+            generate: stagedPick.value ?? undefined
         },
         { onSuccess: afterCoverSaved }
     )
@@ -227,6 +236,20 @@ const onImageSearchSelect = (pick: ArtistImagePick): void => {
     coverClear.value = false
     coverSizeError.value = null
     imagePick.value = pick
+}
+
+const onGeneratePick = (pick: { style: string; variation: number }): void => {
+    stagedPick.value = pick
+    selectedFile.value = null
+    imagePick.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    previewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
+        id: props.id,
+        style: pick.style,
+        variation: pick.variation,
+        size: 512
+    })
+    coverClear.value = false
 }
 
 const coverUrl = computed(() => {
@@ -363,6 +386,7 @@ const onQueue = async (): Promise<void> => {
                             label="Search online"
                             @click="imageSearchOpen = true"
                         />
+                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
                     </template>
 
                     <template #cover-note>
@@ -425,6 +449,12 @@ const onQueue = async (): Promise<void> => {
                 v-model:visible="imageSearchOpen"
                 :artist-name="artist.name"
                 @select="onImageSearchSelect"
+            />
+            <GenerateCoverDialog
+                v-model:visible="showGenerate"
+                :entity-id="props.id"
+                :title="artist?.name"
+                @select="onGeneratePick"
             />
         </ContentScaffold>
     </div>
