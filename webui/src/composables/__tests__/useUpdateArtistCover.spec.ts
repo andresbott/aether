@@ -66,4 +66,22 @@ describe('useUpdateArtistCover cache invalidation', () => {
 
         expect(invalidatedKeys(invalidate)).toContainEqual(['artistImageSource', 'ar-1'])
     })
+
+    // The mutation forwards a generate pick to the client.
+    it('forwards generate params to the client', async () => {
+        updateArtistCover.mockResolvedValue(undefined)
+        const { captured } = withComposable()
+
+        await captured.api!.mutateAsync({
+            artistId: 'ar-1',
+            generate: { style: 'bauhaus', variation: 2 }
+        })
+
+        expect(updateArtistCover).toHaveBeenCalledWith(
+            'ar-1',
+            undefined,
+            undefined,
+            { style: 'bauhaus', variation: 2 }
+        )
+    })
 })

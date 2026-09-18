@@ -174,8 +174,18 @@ export function useGenres() {
 export function useUpdateGenreCover() {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: (params: { genreId: string; coverFile?: File; coverClear?: boolean }) =>
-            subsonicClient.updateGenreCover(params.genreId, params.coverFile, params.coverClear),
+        mutationFn: (params: {
+            genreId: string
+            coverFile?: File
+            coverClear?: boolean
+            generate?: { style: string; variation: number }
+        }) =>
+            subsonicClient.updateGenreCover(
+                params.genreId,
+                params.coverFile,
+                params.coverClear,
+                params.generate
+            ),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.genres })
         }
@@ -233,8 +243,18 @@ export function useUpdatePlaylist() {
 export function useUpdateArtistCover() {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: (params: { artistId: string; coverFile?: File; coverClear?: boolean }) =>
-            subsonicClient.updateArtistCover(params.artistId, params.coverFile, params.coverClear),
+        mutationFn: (params: {
+            artistId: string
+            coverFile?: File
+            coverClear?: boolean
+            generate?: { style: string; variation: number }
+        }) =>
+            subsonicClient.updateArtistCover(
+                params.artistId,
+                params.coverFile,
+                params.coverClear,
+                params.generate
+            ),
         onSuccess: (_data, params) => {
             // Every cached surface that renders this artist's cover has to go:
             // the detail view, the library index (list/grid), and search results.
@@ -257,8 +277,18 @@ export function useUpdateAlbumCover() {
     const queryClient = useQueryClient()
     const toast = useToast()
     return useMutation({
-        mutationFn: (params: { albumId: string; coverFile?: File; coverClear?: boolean }) =>
-            subsonicClient.updateAlbumCover(params.albumId, params.coverFile, params.coverClear),
+        mutationFn: (params: {
+            albumId: string
+            coverFile?: File
+            coverClear?: boolean
+            generate?: { style: string; variation: number }
+        }) =>
+            subsonicClient.updateAlbumCover(
+                params.albumId,
+                params.coverFile,
+                params.coverClear,
+                params.generate
+            ),
         onSuccess: (_data, params) => {
             // Every cached surface that renders this album's cover has to go:
             // the detail view, the album lists (library grid), the starred grid,
@@ -295,11 +325,17 @@ export function useReplacePlaylistTracks() {
 export function useUpdatePlaylistCover() {
     const queryClient = useQueryClient()
     return useMutation({
-        mutationFn: (params: { playlistId: string; coverFile?: File; coverClear?: boolean }) =>
+        mutationFn: (params: {
+            playlistId: string
+            coverFile?: File
+            coverClear?: boolean
+            generate?: { style: string; variation: number }
+        }) =>
             subsonicClient.updatePlaylistCover(
                 params.playlistId,
                 params.coverFile,
-                params.coverClear
+                params.coverClear,
+                params.generate
             ),
         onSuccess: () => {
             invalidatePlaylistSurfaces(queryClient)
@@ -384,6 +420,7 @@ export function useUpdateRadioStation() {
             homepageUrl?: string
             coverFile?: File
             coverClear?: boolean
+            generate?: { style: string; variation: number }
         }) =>
             subsonicClient.updateInternetRadioStation(
                 params.id,
@@ -391,7 +428,8 @@ export function useUpdateRadioStation() {
                 params.streamUrl,
                 params.homepageUrl,
                 params.coverFile,
-                params.coverClear
+                params.coverClear,
+                params.generate
             ),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: queryKeys.radioStations })
