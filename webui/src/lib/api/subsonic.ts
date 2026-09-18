@@ -307,7 +307,8 @@ class SubsonicClient {
     async updateGenreCover(
         genreId: string,
         coverFile?: File,
-        coverClear?: boolean
+        coverClear?: boolean,
+        generate?: { style: string; variation: number }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const url = this.buildUrl('updateGenre.view')
@@ -315,13 +316,18 @@ class SubsonicClient {
         body.append('id', genreId)
         if (coverFile) body.append('coverFile', coverFile)
         if (coverClear) body.append('coverClear', 'true')
+        if (generate) {
+            body.append('generateStyle', generate.style)
+            body.append('generateVariation', String(generate.variation))
+        }
         await this.submitMultipart(url, body)
     }
 
     async updateAlbumCover(
         albumId: string,
         coverFile?: File,
-        coverClear?: boolean
+        coverClear?: boolean,
+        generate?: { style: string; variation: number }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const url = this.buildUrl('updateAlbum.view')
@@ -329,6 +335,10 @@ class SubsonicClient {
         body.append('id', albumId)
         if (coverFile) body.append('coverFile', coverFile)
         if (coverClear) body.append('coverClear', 'true')
+        if (generate) {
+            body.append('generateStyle', generate.style)
+            body.append('generateVariation', String(generate.variation))
+        }
         await this.submitMultipart(url, body)
     }
 
@@ -410,7 +420,8 @@ class SubsonicClient {
         streamUrl: string,
         homepageUrl?: string,
         coverFile?: File,
-        coverClear?: boolean
+        coverClear?: boolean,
+        generate?: { style: string; variation: number }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const url = this.buildUrl('updateInternetRadioStation.view')
@@ -421,6 +432,10 @@ class SubsonicClient {
         if (homepageUrl) body.append('homepageUrl', homepageUrl)
         if (coverFile) body.append('coverFile', coverFile)
         if (coverClear) body.append('coverClear', 'true')
+        if (generate) {
+            body.append('generateStyle', generate.style)
+            body.append('generateVariation', String(generate.variation))
+        }
         await this.submitMultipart(url, body)
     }
 
@@ -450,6 +465,32 @@ class SubsonicClient {
             params.size = size
         }
         return this.buildUrl('getCoverArt.view', params)
+    }
+
+    async getGeneratedCoverCandidates(
+        id: string,
+        count = 9
+    ): Promise<Array<{ style: string; variation: number }>> {
+        if (!this.isConfigured()) return []
+        const res = await this.request<{
+            generatedCoverCandidates?: { candidate?: Array<{ style: string; variation: number }> }
+        }>('getGeneratedCoverCandidates.view', { id, count })
+        return res.generatedCoverCandidates?.candidate ?? []
+    }
+
+    getGeneratedCoverPreviewUrl(p: {
+        id?: string
+        style: string
+        variation: number
+        size?: number
+    }): string {
+        const params: Record<string, string | number | undefined> = {
+            style: p.style,
+            variation: p.variation,
+            size: p.size
+        }
+        if (p.id) params.id = p.id
+        return this.buildUrl('getGeneratedCoverPreview.view', params)
     }
 
     async createPlaylist(name: string, songIds?: string[]): Promise<Playlist | null> {
@@ -500,7 +541,8 @@ class SubsonicClient {
     async updatePlaylistCover(
         playlistId: string,
         coverFile?: File,
-        coverClear?: boolean
+        coverClear?: boolean,
+        generate?: { style: string; variation: number }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const url = this.buildUrl('updatePlaylist.view')
@@ -508,13 +550,18 @@ class SubsonicClient {
         body.append('playlistId', playlistId)
         if (coverFile) body.append('coverFile', coverFile)
         if (coverClear) body.append('coverClear', 'true')
+        if (generate) {
+            body.append('generateStyle', generate.style)
+            body.append('generateVariation', String(generate.variation))
+        }
         await this.submitMultipart(url, body)
     }
 
     async updateArtistCover(
         artistId: string,
         coverFile?: File,
-        coverClear?: boolean
+        coverClear?: boolean,
+        generate?: { style: string; variation: number }
     ): Promise<void> {
         if (!this.isConfigured()) return
         const url = this.buildUrl('updateArtist.view')
@@ -522,6 +569,10 @@ class SubsonicClient {
         body.append('id', artistId)
         if (coverFile) body.append('coverFile', coverFile)
         if (coverClear) body.append('coverClear', 'true')
+        if (generate) {
+            body.append('generateStyle', generate.style)
+            body.append('generateVariation', String(generate.variation))
+        }
         await this.submitMultipart(url, body)
     }
 
