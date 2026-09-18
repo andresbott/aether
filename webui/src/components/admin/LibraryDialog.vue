@@ -10,7 +10,7 @@ import Message from 'primevue/message'
 import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
-import type { Library, LibraryCoverStyle, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
@@ -35,7 +35,6 @@ interface FormState {
     show_artists: boolean
     default_view: 'albums' | 'artists'
     icon: string
-    cover_style: LibraryCoverStyle
 }
 
 function emptyForm(): FormState {
@@ -46,8 +45,7 @@ function emptyForm(): FormState {
         follow_symlinks: true,
         show_artists: true,
         default_view: 'albums',
-        icon: 'folder',
-        cover_style: 'auto'
+        icon: 'folder'
     }
 }
 
@@ -68,8 +66,7 @@ watch(
                 follow_symlinks: lib.follow_symlinks,
                 show_artists: lib.show_artists,
                 default_view: lib.default_view,
-                icon: lib.icon || 'folder',
-                cover_style: lib.cover_style || 'auto'
+                icon: lib.icon || 'folder'
             }
             initialPath.value = lib.path
         } else {
@@ -85,15 +82,14 @@ const pathChanged = computed(() => isEditMode.value && form.value.path !== initi
 
 // A failed submit's per-field validation errors, keyed by the JSON Pointer the
 // backend names (validateDTO in the libraries handler): /name, /path,
-// /exclude_patterns, /default_view, /icon, /cover_style.
+// /exclude_patterns, /default_view, /icon.
 const fieldErrors = computed(() => apiFieldErrorMap(props.error))
 const KNOWN_POINTERS = [
     '/name',
     '/path',
     '/exclude_patterns',
     '/default_view',
-    '/icon',
-    '/cover_style'
+    '/icon'
 ]
 // Any field error whose pointer we don't render inline (e.g. a future field) is
 // shown as a general message so a validation failure is never swallowed silently.
@@ -115,8 +111,7 @@ function buildInput(): LibraryInput {
         follow_symlinks: form.value.follow_symlinks,
         show_artists: form.value.show_artists,
         default_view: form.value.default_view,
-        icon: form.value.icon,
-        cover_style: form.value.cover_style
+        icon: form.value.icon
     }
 }
 
@@ -132,18 +127,6 @@ function onCancel() {
 const defaultViewOptions = [
     { label: 'Albums', value: 'albums' },
     { label: 'Artists', value: 'artists' }
-]
-
-// Rendering styles for generated (placeholder) covers; "Auto" picks a style
-// per album/artist deterministically.
-const coverStyleOptions = [
-    { label: 'Auto (varied)', value: 'auto' },
-    { label: 'Classic', value: 'classic' },
-    { label: 'Bauhaus', value: 'bauhaus' },
-    { label: 'Rings', value: 'rings' },
-    { label: 'Waves', value: 'waves' },
-    { label: 'Poster', value: 'poster' },
-    { label: 'Remix', value: 'remix' }
 ]
 </script>
 
@@ -246,24 +229,6 @@ const coverStyleOptions = [
                 variant="simple"
             >
                 {{ fieldErrors['/icon'] }}
-            </Message>
-
-            <label>Generated cover style</label>
-            <Select
-                v-model="form.cover_style"
-                :options="coverStyleOptions"
-                optionLabel="label"
-                optionValue="value"
-                :invalid="!!fieldErrors['/cover_style']"
-            />
-            <Message
-                v-if="fieldErrors['/cover_style']"
-                class="field-error"
-                severity="error"
-                size="small"
-                variant="simple"
-            >
-                {{ fieldErrors['/cover_style'] }}
             </Message>
 
             <label>Exclude patterns</label>
