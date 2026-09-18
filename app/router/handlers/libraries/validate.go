@@ -7,13 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/andresbott/aether/libs/covergen/allstyles"
 )
-
-// coverGen is the Generator over covergen's full built-in style set, used to
-// validate a configured cover_style name.
-var coverGen = allstyles.New()
 
 // The validators are exported because config-provisioned libraries
 // (app/cmd/libraries.go) must be held to exactly the same rules as ones
@@ -94,21 +88,6 @@ func ValidateDefaultView(v string) error {
 	default:
 		return fmt.Errorf("invalid default_view: %q (allowed: albums, artists)", v)
 	}
-}
-
-// ValidateCoverStyle verifies v is "auto"/"" or a known covergen style.
-func ValidateCoverStyle(v string) error {
-	if v == "" || v == "auto" {
-		return nil
-	}
-	if _, ok := coverGen.ByName(v); !ok {
-		names := make([]string, 0, len(coverGen.Styles()))
-		for _, s := range coverGen.Styles() {
-			names = append(names, s.Name())
-		}
-		return fmt.Errorf("invalid cover_style: %q (allowed: auto, %s)", v, strings.Join(names, ", "))
-	}
-	return nil
 }
 
 // iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".

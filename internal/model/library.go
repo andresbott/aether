@@ -19,10 +19,6 @@ type Library struct {
 	HideArtists bool   `gorm:"not null;default:false"`
 	DefaultView string `gorm:"not null;default:'albums'"` // "albums" | "artists"
 	Icon        string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
-	// CoverStyle selects the covergen style for generated (placeholder)
-	// covers of this library's albums and artists: "auto" picks a style
-	// deterministically per seed; other values are covergen style names.
-	CoverStyle string `gorm:"not null;default:'auto'"`
 	// Source records who owns this library's configuration: SourceDB for one
 	// created through the admin UI, SourceConfig for one declared in the
 	// config file's Libraries list and materialized here at startup. A config

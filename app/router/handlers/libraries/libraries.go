@@ -31,7 +31,6 @@ type libraryDTO struct {
 	ShowArtists    *bool  `json:"show_artists"`
 	DefaultView    string `json:"default_view"`
 	Icon           string `json:"icon"`
-	CoverStyle     string `json:"cover_style"`
 	// Source is "db" for a library managed here or "config" for one declared in
 	// the server config file. Config libraries are read-only over this API and
 	// the UI renders them without edit/delete actions.
@@ -81,10 +80,6 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if icon == "" {
 		icon = "folder"
 	}
-	cs := lib.CoverStyle
-	if cs == "" {
-		cs = "auto"
-	}
 	source := lib.Source
 	if source == "" {
 		source = model.SourceDB
@@ -103,7 +98,6 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		ShowArtists:       &showArtists,
 		DefaultView:       dv,
 		Icon:              icon,
-		CoverStyle:        cs,
 		Source:            source,
 		LastScanStartedAt: lib.LastScanStartedAt,
 		CreatedAt:         lib.CreatedAt,
@@ -206,7 +200,6 @@ func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO, pw *prob
 		{"/exclude_patterns", ValidateExcludePatterns(in.ExcludePatterns)},
 		{"/default_view", ValidateDefaultView(in.DefaultView)},
 		{"/icon", ValidateIcon(in.Icon)},
-		{"/cover_style", ValidateCoverStyle(in.CoverStyle)},
 	} {
 		if check.err != nil {
 			pw.WriteValidation(w, r, check.err.Error(), problemjson.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
@@ -254,10 +247,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if icon == "" {
 		icon = "folder"
 	}
-	cs := in.CoverStyle
-	if cs == "" {
-		cs = "auto"
-	}
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
 	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
@@ -271,7 +260,6 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		HideArtists:     hideArtists,
 		DefaultView:     dv,
 		Icon:            icon,
-		CoverStyle:      cs,
 		Source:          model.SourceDB,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
@@ -341,11 +329,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		icon = "folder"
 	}
 	existing.Icon = icon
-	cs := in.CoverStyle
-	if cs == "" {
-		cs = "auto"
-	}
-	existing.CoverStyle = cs
 
 	err = h.Store.TransactionContext(r.Context(), func(tx *store.Store) error {
 		if pathChanged {

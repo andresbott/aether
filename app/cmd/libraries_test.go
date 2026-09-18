@@ -56,7 +56,6 @@ func TestReconcileCreatesConfigLibrary(t *testing.T) {
 		ShowArtists:     &no,
 		DefaultView:     "artists",
 		Icon:            "folder-open",
-		CoverStyle:      "bauhaus",
 	})
 
 	lib := libByName(t, s, "Rock")
@@ -75,7 +74,7 @@ func TestReconcileCreatesConfigLibrary(t *testing.T) {
 	if !lib.HideArtists {
 		t.Fatal("expected HideArtists=true (ShowArtists false)")
 	}
-	if lib.DefaultView != "artists" || lib.Icon != "folder-open" || lib.CoverStyle != "bauhaus" {
+	if lib.DefaultView != "artists" || lib.Icon != "folder-open" {
 		t.Fatalf("display fields not applied: %+v", lib)
 	}
 }
@@ -91,7 +90,7 @@ func TestReconcileAppliesDefaultsForOmittedFields(t *testing.T) {
 	if lib.HideArtists {
 		t.Fatal("expected artists visible by default")
 	}
-	if lib.DefaultView != "albums" || lib.Icon != "folder" || lib.CoverStyle != "auto" {
+	if lib.DefaultView != "albums" || lib.Icon != "folder" {
 		t.Fatalf("expected defaults, got %+v", lib)
 	}
 	if lib.ExcludePatterns != "" {
@@ -292,7 +291,6 @@ func TestReconcileRejectsInvalidConfigLibrary(t *testing.T) {
 		{"bad regex", LibraryCfg{Name: "X", ExcludePatterns: []string{"["}}},
 		{"bad default view", LibraryCfg{Name: "X", DefaultView: "songs"}},
 		{"bad icon", LibraryCfg{Name: "X", Icon: "Not An Icon"}},
-		{"bad cover style", LibraryCfg{Name: "X", CoverStyle: "nope"}},
 		{"empty name", LibraryCfg{Name: ""}},
 	}
 	for _, tc := range tests {

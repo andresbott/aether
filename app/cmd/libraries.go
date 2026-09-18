@@ -107,9 +107,6 @@ func validateConfigLibrary(cfg LibraryCfg) error {
 	if err := libraries.ValidateIcon(cfg.Icon); err != nil {
 		return fmt.Errorf("config library %q: %w", cfg.Name, err)
 	}
-	if err := libraries.ValidateCoverStyle(cfg.CoverStyle); err != nil {
-		return fmt.Errorf("config library %q: %w", cfg.Name, err)
-	}
 	return nil
 }
 
@@ -126,7 +123,6 @@ func applyConfigLibrary(lib *model.Library, cfg LibraryCfg) {
 	lib.HideArtists = !boolOr(cfg.ShowArtists, true)
 	lib.DefaultView = orDefault(cfg.DefaultView, "albums")
 	lib.Icon = orDefault(cfg.Icon, "folder")
-	lib.CoverStyle = orDefault(cfg.CoverStyle, "auto")
 	lib.Source = model.SourceConfig
 }
 
