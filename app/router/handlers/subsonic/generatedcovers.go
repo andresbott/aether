@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"slices"
 )
@@ -59,4 +60,60 @@ func (h *Handler) getGeneratedCoverPreview(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "image/png")
 	_, _ = w.Write(data)
+}
+
+type candidate struct {
+	Style     string `json:"style"`
+	Variation int    `json:"variation"`
+}
+
+// sampleCandidates returns n candidates drawn from styles, cycling styles and
+// bumping the variation index so the grid mixes styles and looks. Empty styles
+// or n <= 0 returns nil.
+func sampleCandidates(styles []string, _ string, n int) []candidate {
+	if len(styles) == 0 || n <= 0 {
+		return nil
+	}
+	out := make([]candidate, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, candidate{
+			Style:     styles[i%len(styles)],
+			Variation: rand.IntN(1000),
+		})
+	}
+	return out
+}
+
+const (
+	candidatesDefault = 9
+	candidatesMax     = 24
+)
+
+// getGeneratedCoverCandidates returns a grid of candidate style+variation pairs
+// for the given entity. Admin-gated — it is an editor/admin tool.
+func (h *Handler) getGeneratedCoverCandidates(w http.ResponseWriter, r *http.Request) {
+	if !h.requireAdmin(w, r) {
+		return
+	}
+	idStr := paramStr(r, "id")
+	kind, id, err := decodeID(idStr)
+	if err != nil {
+		writeError(w, 0, "invalid id")
+		return
+	}
+	meta, ok := h.resolveCoverMeta(w, r, kind, id)
+	if !ok {
+		return
+	}
+	count := paramInt(r, "count", candidatesDefault)
+	if count <= 0 {
+		count = candidatesDefault
+	}
+	if count > candidatesMax {
+		count = candidatesMax
+	}
+	cands := sampleCandidates(h.availableStyles(), meta.seed, count)
+	writeResponse(w, map[string]any{
+		"generatedCoverCandidates": map[string]any{"candidate": cands},
+	})
 }

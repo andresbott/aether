@@ -19,3 +19,19 @@ func TestRenderGeneratedCoverDeterministicAndVaries(t *testing.T) {
 		t.Fatal("different variation must differ")
 	}
 }
+
+func TestSampleCandidatesFromAvailable(t *testing.T) {
+	avail := []string{"bauhaus", "rings"}
+	got := sampleCandidates(avail, "seed", 9)
+	if len(got) != 9 {
+		t.Fatalf("want 9 candidates, got %d", len(got))
+	}
+	for _, c := range got {
+		if c.Style != "bauhaus" && c.Style != "rings" {
+			t.Fatalf("candidate style %q not in available set", c.Style)
+		}
+	}
+	if len(sampleCandidates(nil, "seed", 9)) != 0 {
+		t.Fatal("empty available set yields no candidates")
+	}
+}
