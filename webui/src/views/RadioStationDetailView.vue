@@ -123,7 +123,8 @@ const dirty = computed(
         form.value.streamUrl !== baseline.value.streamUrl ||
         form.value.homepageUrl !== baseline.value.homepageUrl ||
         selectedFile.value !== null ||
-        coverClear.value
+        coverClear.value ||
+        stagedPick.value !== null
 )
 
 const input = computed(() => {
@@ -347,7 +348,7 @@ onUnmounted(() => {
                             @delete="onDelete"
                         />
                     </template>
-                    <template v-if="isAdmin" #cover-actions>
+                    <template v-if="isAdmin && !create" #cover-actions>
                         <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
                     </template>
                     <template #read>
@@ -390,6 +391,7 @@ onUnmounted(() => {
             @select="onDiscoverSelect"
         />
         <GenerateCoverDialog
+            v-if="!create"
             v-model:visible="showGenerate"
             :entity-id="props.id ?? 'new-station'"
             :title="station?.name ?? 'New Station'"

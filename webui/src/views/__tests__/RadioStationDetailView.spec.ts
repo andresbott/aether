@@ -334,4 +334,28 @@ describe('RadioStationDetailView', () => {
             expect.anything()
         )
     })
+
+    it('create mode: hides Generate button (no entity ID)', () => {
+        const w = mountView({ create: true })
+        expect(w.find('button[aria-label="Generate"]').exists()).toBe(false)
+        expect(w.findComponent({ name: 'GenerateCoverDialog' }).exists()).toBe(false)
+    })
+
+    it('edit mode: staged generated pick marks form dirty', async () => {
+        const w = mountView({ id: 's1' })
+        await w.find('.edit-action-edit').trigger('click')
+
+        // Not dirty initially.
+        expect(w.find('.edit-action-save').classes()).not.toContain('dirty')
+
+        const generateBtn = w.find('button[aria-label="Generate"]')
+        await generateBtn.trigger('click')
+
+        const dialog = w.findComponent({ name: 'GenerateCoverDialog' })
+        dialog.vm.$emit('select', { style: 'poster', variation: 4 })
+        await w.vm.$nextTick()
+
+        // Form is now dirty (the EditActionBar reflects this via :dirty binding).
+        expect(w.vm.dirty).toBe(true)
+    })
 })
