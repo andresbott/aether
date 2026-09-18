@@ -213,11 +213,22 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 
 	oldKey := assetkey.Radio(existing.StreamURL)
 	newKey := assetkey.Radio(streamURL)
+	if !h.applyRadioCover(w, r, id, existing.StreamURL, streamURL, oldKey, newKey, coverBytes, coverExt) {
+		return
+	}
+
+	writeResponse(w, nil)
+}
+
+// applyRadioCover handles the cover-resolution logic for updateRadioMultipart:
+// uploading a new cover, generating one, clearing it, or re-keying when the URL
+// changes. Returns false when an error response has been written.
+func (h *Handler) applyRadioCover(w http.ResponseWriter, r *http.Request, id uint, oldURL, newURL, oldKey, newKey string, coverBytes []byte, coverExt string) bool {
 	switch {
 	case coverBytes != nil:
 		if err := h.assets.PutManual(assetstore.KindRadio, newKey, coverExt, coverBytes); err != nil {
 			writeError(w, 0, "internal error")
-			return
+			return false
 		}
 		if oldKey != newKey {
 			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
@@ -226,11 +237,11 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 	case r.Form.Get("generateStyle") != "":
 		data, ok := h.renderRequestedCover(w, r, "radio", id)
 		if !ok {
-			return
+			return false
 		}
 		if err := h.assets.PutManual(assetstore.KindRadio, newKey, "png", data); err != nil {
 			writeError(w, 0, "internal error")
-			return
+			return false
 		}
 		if oldKey != newKey {
 			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
@@ -253,15 +264,14 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 				// ErrKeyOccupied and hard failures are logged but don't fail
 				// the request — the edit committed, and the images stay intact.
 				slog.Warn("radio cover re-key failed",
-					"old_url", existing.StreamURL, "new_url", streamURL, "error", err)
+					"old_url", oldURL, "new_url", newURL, "error", err)
 			}
 			// The image cache has no re-key, so the old key's derivatives are now
 			// orphaned. Drop them — they rebuild lazily under the new key.
 			_ = h.images.Delete(assetstore.KindRadio, oldKey)
 		}
 	}
-
-	writeResponse(w, nil)
+	return true
 }
 
 func (h *Handler) deleteInternetRadioStation(w http.ResponseWriter, r *http.Request) {

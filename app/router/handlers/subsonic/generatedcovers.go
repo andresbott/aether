@@ -60,7 +60,7 @@ func (h *Handler) getGeneratedCoverPreview(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) //nolint:gosec // G705: writes PNG image bytes with Content-Type image/png, not HTML
 }
 
 type candidate struct {
@@ -79,7 +79,7 @@ func sampleCandidates(styles []string, _ string, n int) []candidate {
 	for i := 0; i < n; i++ {
 		out = append(out, candidate{
 			Style:     styles[i%len(styles)],
-			Variation: rand.IntN(1000),
+			Variation: rand.IntN(1000), //nolint:gosec // G404: non-security-sensitive shuffle of cover-preview candidates
 		})
 	}
 	return out

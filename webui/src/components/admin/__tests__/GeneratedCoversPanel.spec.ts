@@ -81,9 +81,9 @@ describe('GeneratedCoversPanel', () => {
 
         const checkboxes = w.findAll('input[type="checkbox"]')
         // First checkbox should be classic in the Default group
-        expect(checkboxes[0].element.checked).toBe(true)
+        expect((checkboxes[0].element as HTMLInputElement).checked).toBe(true)
         // Second should be bauhaus in Default (unchecked)
-        expect(checkboxes[1].element.checked).toBe(false)
+        expect((checkboxes[1].element as HTMLInputElement).checked).toBe(false)
     })
 
     it('calls mutate with both names when bauhaus is checked in Default and Save is clicked', async () => {
