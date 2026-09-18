@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"slices"
+	"strconv"
 )
 
 // renderGeneratedCover renders one candidate PNG. variation is folded into the
@@ -116,4 +117,27 @@ func (h *Handler) getGeneratedCoverCandidates(w http.ResponseWriter, r *http.Req
 	writeResponse(w, map[string]any{
 		"generatedCoverCandidates": map[string]any{"candidate": cands},
 	})
+}
+
+// renderRequestedCover renders the candidate named by the request's
+// generateStyle/generateVariation for entity (idKind,id), validating the style
+// against the Available set. Writes a subsonic error and returns ok=false on a
+// bad style or missing entity.
+func (h *Handler) renderRequestedCover(w http.ResponseWriter, r *http.Request, idKind string, id uint) ([]byte, bool) {
+	style := r.Form.Get("generateStyle")
+	if !h.styleAvailable(style) {
+		writeError(w, 0, "cover style not available")
+		return nil, false
+	}
+	variation, _ := strconv.Atoi(r.Form.Get("generateVariation"))
+	meta, ok := h.resolveCoverMeta(w, r, idKind, id)
+	if !ok {
+		return nil, false
+	}
+	data, err := renderGeneratedCover(meta.seed, meta.title, style, variation, maxCoverSize)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return nil, false
+	}
+	return data, true
 }

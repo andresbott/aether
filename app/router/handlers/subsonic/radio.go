@@ -223,6 +223,19 @@ func (h *Handler) updateRadioMultipart(w http.ResponseWriter, r *http.Request) {
 			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
 			_ = h.images.Delete(assetstore.KindRadio, oldKey)
 		}
+	case r.Form.Get("generateStyle") != "":
+		data, ok := h.renderRequestedCover(w, r, "radio", id)
+		if !ok {
+			return
+		}
+		if err := h.assets.PutManual(assetstore.KindRadio, newKey, "png", data); err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
+		if oldKey != newKey {
+			_ = h.assets.Delete(assetstore.KindRadio, oldKey)
+			_ = h.images.Delete(assetstore.KindRadio, oldKey)
+		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindRadio, newKey)
 		_ = h.images.Delete(assetstore.KindRadio, newKey)
