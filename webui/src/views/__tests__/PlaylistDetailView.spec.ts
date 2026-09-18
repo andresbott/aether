@@ -55,11 +55,13 @@ vi.mock('@/composables/useAuth', () => ({
     useAuth: () => ({ currentUser })
 }))
 
+const mockGetGeneratedCoverPreviewUrl = vi.fn()
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
         getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`,
-        scrobble: vi.fn()
+        scrobble: vi.fn(),
+        getGeneratedCoverPreviewUrl: (...args: unknown[]) => mockGetGeneratedCoverPreviewUrl(...args)
     }
 }))
 vi.mock('sortablejs', () => ({ default: { create: () => ({ destroy: vi.fn() }) } }))
@@ -94,6 +96,12 @@ const mountView = () =>
                     name: 'TrackActionSheet',
                     props: ['song', 'visible'],
                     template: '<div />'
+                },
+                GenerateCoverDialog: {
+                    name: 'GenerateCoverDialog',
+                    props: ['visible', 'entityId', 'title'],
+                    emits: ['update:visible', 'select'],
+                    template: '<div class="generate-cover-dialog-stub" />'
                 }
             }
         }
@@ -131,6 +139,8 @@ beforeEach(() => {
     // jsdom doesn't implement object URLs — stub them for the cover preview.
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
+    mockGetGeneratedCoverPreviewUrl.mockClear()
+    mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
 })
 
 describe('PlaylistDetailView', () => {
@@ -307,6 +317,42 @@ describe('PlaylistDetailView', () => {
         await flushPromises()
         expect(coverAsync).toHaveBeenCalledWith(
             expect.objectContaining({ playlistId: 'pl1', coverClear: true })
+        )
+    })
+
+    it('shows Generate button in edit mode and passes pick to mutation', async () => {
+        const w = mountView()
+        await enterEdit(w)
+
+        const generateBtn = w.find('button[aria-label="Generate"]')
+        expect(generateBtn.exists()).toBe(true)
+
+        await generateBtn.trigger('click')
+        await flushPromises()
+
+        const dialog = w.findComponent({ name: 'GenerateCoverDialog' })
+        expect(dialog.props('visible')).toBe(true)
+        expect(dialog.props('entityId')).toBe('pl1')
+
+        dialog.vm.$emit('select', { style: 'waves', variation: 7 })
+        await flushPromises()
+
+        expect(mockGetGeneratedCoverPreviewUrl).toHaveBeenCalledWith({
+            id: 'pl1',
+            style: 'waves',
+            variation: 7,
+            size: 512
+        })
+
+        await w.find('.edit-action-save').trigger('click')
+        await flushPromises()
+        expect(coverAsync).toHaveBeenCalledWith(
+            expect.objectContaining({
+                playlistId: 'pl1',
+                coverFile: undefined,
+                coverClear: undefined,
+                generate: { style: 'waves', variation: 7 }
+            })
         )
     })
 

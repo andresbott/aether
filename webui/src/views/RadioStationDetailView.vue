@@ -161,8 +161,8 @@ function onGeneratePick(pick: { style: string; variation: number }) {
     stagedPick.value = pick
     selectedFile.value = null
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-    // For radio stations, use the station ID if we have it, or the entity from create mode
-    const entityId = props.id ?? props.create ? 'new-station' : ''
+    // For radio stations, use the station ID if we have it, or fallback for create mode
+    const entityId = props.id ?? 'new-station'
     previewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
         id: entityId,
         style: pick.style,

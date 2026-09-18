@@ -16,9 +16,11 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
     useDeleteRadioStation: () => ({ mutate: deleteMutate, isPending: ref(false) })
 }))
 
+const mockGetGeneratedCoverPreviewUrl = vi.fn()
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
-        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`
+        getCoverArtUrl: (id: string, size?: number) => `/cover/${id}?size=${size}`,
+        getGeneratedCoverPreviewUrl: (...args: unknown[]) => mockGetGeneratedCoverPreviewUrl(...args)
     }
 }))
 
@@ -62,7 +64,13 @@ const SearchDialogStub = {
 const stubs = {
     ContentScaffold: ScaffoldStub,
     ConfirmDialog: { template: '<div />' },
-    StationSearchDialog: SearchDialogStub
+    StationSearchDialog: SearchDialogStub,
+    GenerateCoverDialog: {
+        name: 'GenerateCoverDialog',
+        props: ['visible', 'entityId', 'title'],
+        emits: ['update:visible', 'select'],
+        template: '<div class="generate-cover-dialog-stub" />'
+    }
 }
 
 import RadioStationDetailView from '@/views/RadioStationDetailView.vue'
@@ -97,6 +105,8 @@ beforeEach(() => {
     isAdmin.value = true
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
+    mockGetGeneratedCoverPreviewUrl.mockClear()
+    mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
 })
 
 describe('RadioStationDetailView', () => {
@@ -286,5 +296,42 @@ describe('RadioStationDetailView', () => {
     it('create mode: has no hero play action', () => {
         const w = mountView({ create: true })
         expect(w.find('.hero-action-play').exists()).toBe(false)
+    })
+
+    it('edit mode: shows Generate button and passes pick to mutation', async () => {
+        const w = mountView({ id: 's1' })
+        await w.find('.edit-action-edit').trigger('click')
+
+        const generateBtn = w.find('button[aria-label="Generate"]')
+        expect(generateBtn.exists()).toBe(true)
+
+        await generateBtn.trigger('click')
+
+        const dialog = w.findComponent({ name: 'GenerateCoverDialog' })
+        expect(dialog.props('visible')).toBe(true)
+        expect(dialog.props('entityId')).toBe('s1')
+
+        dialog.vm.$emit('select', { style: 'poster', variation: 4 })
+
+        expect(mockGetGeneratedCoverPreviewUrl).toHaveBeenCalledWith({
+            id: 's1',
+            style: 'poster',
+            variation: 4,
+            size: 512
+        })
+
+        await w.find('.edit-action-save').trigger('click')
+        expect(updateMutate).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 's1',
+                name: 'Jazz FM',
+                streamUrl: 'http://stream/jazz',
+                homepageUrl: 'http://jazzfm.example',
+                coverFile: undefined,
+                coverClear: undefined,
+                generate: { style: 'poster', variation: 4 }
+            }),
+            expect.anything()
+        )
     })
 })
