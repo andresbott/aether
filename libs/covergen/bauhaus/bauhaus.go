@@ -46,12 +46,11 @@ func (s style) Knobs() []covergen.Knob {
 }
 
 // bauhausPaletteDefaults tunes the injected palette's knob defaults for bauhaus.
-// It ships on neon (see allstyles.New): a hotter saturation and a wider accent
-// hue gap. Keys the injected palette does not declare are ignored, so the lab
-// can still swap in any palette.
+// It ships on neon (see allstyles.New): a wider accent hue gap. Saturation now
+// follows the neon base default (see neonKnobs). Keys the injected palette does
+// not declare are ignored, so the lab can still swap in any palette.
 var bauhausPaletteDefaults = map[string]float64{
-	"palette.saturation": 1.1,
-	"palette.hueGap":     1.2,
+	"palette.hueGap": 1.2,
 }
 
 // bauhausTextDefaults overrides the shared text-overlay knob defaults for bauhaus

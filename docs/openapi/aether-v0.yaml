@@ -2026,49 +2026,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /settings/generated-covers:
-    get:
-      operationId: getGeneratedCoversSettings
-      summary: Fetch the generated-cover style configuration.
-      description: >
-        Admin. Returns the full roster of available styles, the configured
-        default set (from which a random pick is made per album), and the
-        configured available set (styles the user can manually apply in the
-        editor). Both default and available are subsets of the styles roster.
-      tags: [settings]
-      responses:
-        '200':
-          description: The current configuration.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GeneratedCoversSettings' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '500': { $ref: '#/components/responses/InternalServerError' }
-    put:
-      operationId: updateGeneratedCoversSettings
-      summary: Update the generated-cover style configuration.
-      description: >
-        Admin. Replaces the default and available style sets. Both must be
-        subsets of the known roster (unknown names answer 400); default must
-        be non-empty (empty answers 400).
-      tags: [settings]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateGeneratedCoversRequest' }
-      responses:
-        '200':
-          description: The updated configuration.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/GeneratedCoversSettings' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '500': { $ref: '#/components/responses/InternalServerError' }
-
 components:
   securitySchemes:
     sessionCookie:
@@ -3930,66 +3887,6 @@ components:
           type: string
           description: 'Human-readable current step, e.g. "Extracting metadata: Artist/Album/01.flac".'
       required: [done, total]
-
-    CoverStyleInfo:
-      type: object
-      description: One cover-generation style's metadata.
-      properties:
-        name:
-          type: string
-          description: Stable style identifier.
-          example: classic
-        label:
-          type: string
-          description: Human-readable display name.
-          example: Classic
-      required: [name, label]
-
-    GeneratedCoversSettings:
-      type: object
-      description: >
-        Generated-cover configuration: the full roster of styles the server
-        knows, the default set (styles randomly chosen from when generating
-        album covers), and the available set (styles the user can manually
-        pick in the editor). Returned by `getGeneratedCoversSettings` and
-        echoed back by `updateGeneratedCoversSettings`.
-      properties:
-        styles:
-          type: array
-          description: The full roster of styles.
-          items: { $ref: '#/components/schemas/CoverStyleInfo' }
-        default:
-          type: array
-          description: >
-            Configured default styles. A subset of `styles[]`. When
-            generating a cover for an album, one of these is picked at
-            random.
-          items: { type: string }
-        available:
-          type: array
-          description: >
-            Configured available styles. A subset of `styles[]`. The set of
-            styles the user can manually choose from in the editor's Generate
-            dialog.
-          items: { type: string }
-      required: [styles, default, available]
-
-    UpdateGeneratedCoversRequest:
-      type: object
-      description: >
-        Request body for `updateGeneratedCoversSettings`. Both `default` and
-        `available` must be subsets of the known roster (unknown style names
-        answer 400); `default` must be non-empty (empty answers 400).
-      properties:
-        default:
-          type: array
-          description: The new default set (names only).
-          items: { type: string }
-        available:
-          type: array
-          description: The new available set (names only).
-          items: { type: string }
-      required: [default, available]
 
   responses:
     BadRequest:

@@ -63,21 +63,9 @@ describe('SettingsLayout', () => {
         expect(text).not.toContain('Account')
         expect(text).not.toContain('Profile')
         expect(text).not.toContain('Logout')
-    })
-
-    it('renders a General group with the Generated Covers entry', () => {
-        const text = mountLayout().text()
-        expect(text).toContain('General')
-        expect(text).toContain('Generated Covers')
-    })
-
-    it('navigates to /settings/general from the Generated Covers entry', async () => {
-        const w = mountLayout()
-        const item = w
-            .findAll('.sidebar-nav .nav-item')
-            .find((b) => b.text() === 'Generated Covers')!
-        await item.trigger('click')
-        expect(push).toHaveBeenCalledWith('/settings/general')
+        // Generated-cover style selection is gone: all styles are always used.
+        expect(text).not.toContain('General')
+        expect(text).not.toContain('Generated Covers')
     })
 
     // The metadata editor sits under its own Tools header, in addition to being

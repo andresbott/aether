@@ -138,12 +138,7 @@ const routes: RouteRecordRaw[] = [
             {
                 path: '',
                 name: 'settings',
-                redirect: '/settings/general'
-            },
-            {
-                path: 'general',
-                name: 'settings-general',
-                component: () => import('@/views/settings/GeneralView.vue')
+                redirect: '/settings/libraries'
             },
             {
                 path: 'libraries',

@@ -398,14 +398,14 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 	if meta.seed != "" {
 		seed := meta.seed
 		title := meta.title
-		style := h.defaultCoverStyle(seed)
+		style := defaultCoverStyle(seed)
 		out = append(out, coverSource{
 			kind: meta.cacheKind,
 			key:  meta.cacheKey,
 			name: "generated",
-			// The style is configurable per library and the title is drawn onto the
-			// art, so both belong in the key: a change to either must re-render
-			// rather than serve the old look.
+			// The seed-picked style and the title (drawn onto the art) both belong
+			// in the key, so a change to either re-renders rather than serving the
+			// old look.
 			fingerprint: "generated|" + seed + "|" + style + "|" + title,
 			load: func(size int) ([]byte, error) {
 				// Render at the display size so grain lands where it's shown; the
@@ -477,31 +477,10 @@ func coverStyleNames(g *covergen.Generator) []string {
 	return names
 }
 
-// defaultGenerator builds a generator over the enabled default styles, in
-// coverGen's canonical order. An empty set — or one naming no known style —
-// falls back to the full generator so a misconfiguration never yields a blank
-// cover.
-func defaultGenerator(names []string) *covergen.Generator {
-	var styles []covergen.Style
-	for _, s := range coverGen.Styles() {
-		if slices.Contains(names, s.Name()) {
-			styles = append(styles, s)
-		}
-	}
-	if len(styles) == 0 {
-		return coverGen
-	}
-	return covergen.New(styles...)
-}
-
-// defaultCoverStyle picks the covergen style for an entity's generated cover
-// from the configured Default set, deterministically by seed.
-func (h *Handler) defaultCoverStyle(seed string) string {
-	cs, err := h.store.GetCoverSettings(coverStyleNames(coverGen))
-	if err != nil {
-		return "auto"
-	}
-	if s := defaultGenerator(cs.DefaultStyles).StyleFor(seed); s != nil {
+// defaultCoverStyle picks the covergen style for an entity's generated cover,
+// deterministically by seed, over the full built-in style set.
+func defaultCoverStyle(seed string) string {
+	if s := coverGen.StyleFor(seed); s != nil {
 		return s.Name()
 	}
 	return "auto"

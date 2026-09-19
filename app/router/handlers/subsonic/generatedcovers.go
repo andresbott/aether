@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
-	"slices"
 	"strconv"
 )
 
@@ -15,17 +14,15 @@ func renderGeneratedCover(seed, title, style string, variation, size int) ([]byt
 	return generateCover(fmt.Sprintf("%s#%d", seed, variation), style, title, size)
 }
 
-// availableStyles reads the configured Available set (empty on error).
-func (h *Handler) availableStyles() []string {
-	cs, err := h.store.GetCoverSettings(coverStyleNames(coverGen))
-	if err != nil {
-		return nil
-	}
-	return cs.AvailableStyles
+// availableStyles returns every built-in style, in canonical order. All styles
+// are always offered — there is no admin-configurable selection.
+func availableStyles() []string {
+	return coverStyleNames(coverGen)
 }
 
-func (h *Handler) styleAvailable(style string) bool {
-	return slices.Contains(h.availableStyles(), style)
+func styleAvailable(style string) bool {
+	_, ok := coverGen.ByName(style)
+	return ok
 }
 
 // getGeneratedCoverPreview renders a single candidate as PNG. With id set the
@@ -113,7 +110,7 @@ func (h *Handler) getGeneratedCoverCandidates(w http.ResponseWriter, r *http.Req
 	if count > candidatesMax {
 		count = candidatesMax
 	}
-	cands := sampleCandidates(h.availableStyles(), meta.seed, count)
+	cands := sampleCandidates(availableStyles(), meta.seed, count)
 	writeResponse(w, map[string]any{
 		"generatedCoverCandidates": map[string]any{"candidate": cands},
 	})
@@ -125,7 +122,7 @@ func (h *Handler) getGeneratedCoverCandidates(w http.ResponseWriter, r *http.Req
 // bad style or missing entity.
 func (h *Handler) renderRequestedCover(w http.ResponseWriter, r *http.Request, idKind string, id uint) ([]byte, bool) {
 	style := r.Form.Get("generateStyle")
-	if !h.styleAvailable(style) {
+	if !styleAvailable(style) {
 		writeError(w, 0, "cover style not available")
 		return nil, false
 	}

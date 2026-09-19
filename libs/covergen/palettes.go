@@ -155,7 +155,7 @@ func (pastelPalette) Colors(rng *rand.Rand, ks KnobSet) ColorSet {
 type neonPalette struct{}
 
 var neonKnobs = []Knob{
-	{Name: "palette.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 1},
+	{Name: "palette.saturation", Label: "Saturation", Min: 0, Max: 1.5, Step: 0.05, Default: 0.8},
 	{Name: "palette.saturationSpread", Label: "Saturation spread", Min: 0, Max: 10, Step: 0.05, Default: 1},
 	{Name: "palette.hueGap", Label: "Accent hue gap", Min: 0, Max: 3, Step: 0.05, Default: 1},
 	{Name: "palette.glow", Label: "Glow", Min: 0.2, Max: 1, Step: 0.05, Default: 0.6},

@@ -10,7 +10,6 @@ import (
 	"github.com/andresbott/aether/app/router/handlers"
 	artistsHandler "github.com/andresbott/aether/app/router/handlers/artists"
 	authHandler "github.com/andresbott/aether/app/router/handlers/auth"
-	coversettingsHandler "github.com/andresbott/aether/app/router/handlers/coversettings"
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
@@ -22,7 +21,6 @@ import (
 	"github.com/andresbott/aether/internal/coverart"
 	"github.com/andresbott/aether/internal/dlcache"
 	"github.com/andresbott/aether/internal/radiobrowser"
-	"github.com/andresbott/aether/libs/covergen/allstyles"
 	"github.com/go-bumbu/userauth/auth/cookieauth"
 	"github.com/gorilla/mux"
 )
@@ -217,9 +215,6 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	if h.store != nil {
 		lh := &libraryHandler.Handler{Store: h.store, Problems: h.problems}
 		lh.Routes(r)
-
-		csh := &coversettingsHandler.Handler{Store: h.store, Gen: allstyles.New(), Problems: h.problems}
-		csh.Routes(r)
 
 		if h.tagReader != nil {
 			// The metadata editor's endpoints are split across three handlers by

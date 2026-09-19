@@ -14,13 +14,6 @@ func TestUpdateAlbumStoresGeneratedCover(t *testing.T) {
 	if err := s.DB().Create(&album).Error; err != nil {
 		t.Fatal(err)
 	}
-	// Ensure "bauhaus" is in the Available set:
-	if err := s.SetCoverSettings(model.CoverSettings{
-		DefaultStyles:   []string{"bauhaus"},
-		AvailableStyles: []string{"bauhaus"},
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	srv, as := newRadioServer(t, s)
 	defer srv.Close()
@@ -38,17 +31,10 @@ func TestUpdateAlbumStoresGeneratedCover(t *testing.T) {
 	}
 }
 
-func TestUpdateAlbumRejectsUnavailableStyle(t *testing.T) {
+func TestUpdateAlbumRejectsUnknownStyle(t *testing.T) {
 	s := testStore(t)
 	album := model.Album{Name: "The Bends", NameNorm: "the bends", AlbumArtistNorm: "radiohead"}
 	if err := s.DB().Create(&album).Error; err != nil {
-		t.Fatal(err)
-	}
-	// Only "rings" is available, not "bauhaus":
-	if err := s.SetCoverSettings(model.CoverSettings{
-		DefaultStyles:   []string{"rings"},
-		AvailableStyles: []string{"rings"},
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,10 +43,10 @@ func TestUpdateAlbumRejectsUnavailableStyle(t *testing.T) {
 
 	body, ct := buildMultipart(t, map[string]string{
 		"id":                encodeAlbumID(album.ID),
-		"generateStyle":     "bauhaus",
+		"generateStyle":     "nonexistent-style",
 		"generateVariation": "2",
 	}, nil, "")
 	if status, _ := postAlbum(t, srv.URL, body, ct); status != "failed" {
-		t.Fatalf("expected failed for unavailable style, got %s", status)
+		t.Fatalf("expected failed for unknown style, got %s", status)
 	}
 }

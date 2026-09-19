@@ -1,23 +1,35 @@
 package subsonic
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
-func TestDefaultGeneratorConfinesToSet(t *testing.T) {
-	gen := defaultGenerator([]string{"bauhaus"})
+// TestDefaultCoverStyleIsDeterministicAndKnown pins that the auto-fill style is
+// picked deterministically by seed over the full built-in style set — there is
+// no configurable selection to confine it.
+func TestDefaultCoverStyleIsDeterministicAndKnown(t *testing.T) {
+	known := coverStyleNames(coverGen)
 	for _, seed := range []string{"a", "b", "c", "zzz", "The Beatles|Abbey Road"} {
-		if got := gen.StyleFor(seed).Name(); got != "bauhaus" {
-			t.Fatalf("seed %q picked %q, want bauhaus", seed, got)
+		got := defaultCoverStyle(seed)
+		if !slices.Contains(known, got) {
+			t.Fatalf("seed %q picked %q, not a known style %v", seed, got, known)
+		}
+		if again := defaultCoverStyle(seed); again != got {
+			t.Fatalf("seed %q not deterministic: %q then %q", seed, got, again)
 		}
 	}
 }
 
-func TestDefaultGeneratorEmptyFallsBackToFull(t *testing.T) {
-	gen := defaultGenerator(nil)
-	if gen != coverGen {
-		t.Fatal("empty set must fall back to the full generator")
+// TestStyleAvailableAcceptsEveryStyle pins that every built-in style is offered:
+// there is no admin-configurable "available" subset.
+func TestStyleAvailableAcceptsEveryStyle(t *testing.T) {
+	for _, name := range availableStyles() {
+		if !styleAvailable(name) {
+			t.Fatalf("style %q reported unavailable", name)
+		}
 	}
-	gen = defaultGenerator([]string{"nonexistent-style"})
-	if gen != coverGen {
-		t.Fatal("unknown-only set must fall back to the full generator")
+	if styleAvailable("nonexistent-style") {
+		t.Fatal("unknown style must not be available")
 	}
 }
