@@ -198,3 +198,29 @@ func TestFolderExcludes(t *testing.T) {
 		t.Fatalf("no patterns: %v, %v", res, err)
 	}
 }
+
+// A Folder that leaves the Set must not share its ExcludePatterns backing array
+// with the Set: the set is read concurrently, and a caller editing "its" copy in
+// place would otherwise corrupt what every other reader sees.
+func TestReturnedFoldersDoNotAliasTheSet(t *testing.T) {
+	root := t.TempDir()
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: root, ExcludePatterns: []string{`^\.`}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	all := set.All()
+	all[0].ExcludePatterns[0] = "("
+	byName, _ := set.ByName("Music")
+	byName.ExcludePatterns[0] = "("
+	containing, _ := set.Containing(filepath.Join(root, "x.mp3"))
+	containing.ExcludePatterns[0] = "("
+
+	fresh, ok := set.ByName("Music")
+	if !ok || len(fresh.ExcludePatterns) != 1 || fresh.ExcludePatterns[0] != `^\.` {
+		t.Fatalf("the set was mutated through a returned folder: %+v", fresh.ExcludePatterns)
+	}
+	if _, err := fresh.Excludes(); err != nil {
+		t.Fatalf("a folder taken from a Set must always compile its excludes: %v", err)
+	}
+}

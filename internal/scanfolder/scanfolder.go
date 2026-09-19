@@ -127,6 +127,13 @@ func within(root, p string) bool {
 	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// detached returns f with its own ExcludePatterns backing array, so a caller
+// that edits the folder it was handed cannot reach the set's copy.
+func detached(f Folder) Folder {
+	f.ExcludePatterns = slices.Clone(f.ExcludePatterns)
+	return f
+}
+
 // Len is the number of folders.
 func (s *Set) Len() int {
 	if s == nil {
@@ -141,7 +148,11 @@ func (s *Set) All() []Folder {
 	if s == nil {
 		return nil
 	}
-	return slices.Clone(s.folders)
+	out := make([]Folder, 0, len(s.folders))
+	for _, f := range s.folders {
+		out = append(out, detached(f))
+	}
+	return out
 }
 
 // ByName returns the folder with exactly this name.
@@ -151,7 +162,7 @@ func (s *Set) ByName(name string) (Folder, bool) {
 	}
 	for _, f := range s.folders {
 		if f.Name == name {
-			return f, true
+			return detached(f), true
 		}
 	}
 	return Folder{}, false
@@ -167,7 +178,7 @@ func (s *Set) Containing(absPath string) (Folder, bool) {
 	clean := filepath.Clean(absPath)
 	for _, f := range s.folders {
 		if clean == f.Path || within(f.Path, clean) {
-			return f, true
+			return detached(f), true
 		}
 	}
 	return Folder{}, false
