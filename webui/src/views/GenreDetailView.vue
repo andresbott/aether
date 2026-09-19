@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, onBeforeRouteLeave } from 'vue-router'
+import Button from 'primevue/button'
 import VirtualScroller from 'primevue/virtualscroller'
 import type { VirtualScrollerLazyEvent } from 'primevue/virtualscroller'
 import ContentScaffold from '@/components/layout/ContentScaffold.vue'
@@ -10,6 +11,7 @@ import HeroSelectionBar from '@/components/layout/HeroSelectionBar.vue'
 import EditActionBar from '@/components/layout/EditActionBar.vue'
 import GenreTrackRow from '@/components/library/GenreTrackRow.vue'
 import TrackActionSheet from '@/components/library/TrackActionSheet.vue'
+import GenerateCoverDialog from '@/components/cover/GenerateCoverDialog.vue'
 import { useGenres, useUpdateGenreCover } from '@/composables/useSubsonicQueries'
 import { useGenreSongsTable, GENRE_SONG_PAGE_SIZE } from '@/composables/useGenreSongsTable'
 import { usePlayer } from '@/composables/usePlayer'
@@ -83,8 +85,12 @@ const selectedFile = ref<File | null>(null)
 const previewUrl = ref<string | null>(null)
 const coverClear = ref(false)
 const coverSizeError = ref<string | null>(null)
+const showGenerate = ref(false)
+const stagedPick = ref<{ style: string; variation: number } | null>(null)
 
-const dirty = computed(() => selectedFile.value !== null || coverClear.value)
+const dirty = computed(
+    () => selectedFile.value !== null || coverClear.value || stagedPick.value !== null
+)
 
 function resetCoverStaging(): void {
     if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
@@ -92,6 +98,7 @@ function resetCoverStaging(): void {
     selectedFile.value = null
     coverClear.value = false
     coverSizeError.value = null
+    stagedPick.value = null
 }
 
 const onCoverSelect = (file: File): void => {
@@ -114,6 +121,20 @@ const onRemoveCover = (): void => {
     coverSizeError.value = null
 }
 
+const onGeneratePick = (pick: { style: string; variation: number }): void => {
+    stagedPick.value = pick
+    selectedFile.value = null
+    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
+    // Genre IDs are the coverArt identifier
+    previewUrl.value = subsonicClient.getGeneratedCoverPreviewUrl({
+        id: genre.value?.coverArt ?? props.name,
+        style: pick.style,
+        variation: pick.variation,
+        size: 512
+    })
+    coverClear.value = false
+}
+
 const saveEdit = (): void => {
     if (!dirty.value || !genre.value?.coverArt) {
         editing.value = false
@@ -123,7 +144,8 @@ const saveEdit = (): void => {
         {
             genreId: genre.value.coverArt,
             coverFile: selectedFile.value ?? undefined,
-            coverClear: coverClear.value || undefined
+            coverClear: coverClear.value || undefined,
+            generate: stagedPick.value ?? undefined
         },
         {
             onSuccess: () => {
@@ -304,6 +326,9 @@ watch(editing, (isEditing) => {
                             @cancel="cancelEdit"
                         />
                     </template>
+                    <template v-if="isAdmin" #cover-actions>
+                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                    </template>
                     <template #read>
                         <h2 class="hero-name">{{ genre.value }}</h2>
                         <div v-if="heroMeta.length" class="meta-row">
@@ -379,6 +404,12 @@ watch(editing, (isEditing) => {
                 v-model:visible="actionSheetOpen"
                 :song="actionSong"
                 @play="playTrack(actionIndex)"
+            />
+            <GenerateCoverDialog
+                v-model:visible="showGenerate"
+                :entity-id="genre?.coverArt ?? props.name"
+                :title="genre?.value"
+                @select="onGeneratePick"
             />
         </ContentScaffold>
     </div>

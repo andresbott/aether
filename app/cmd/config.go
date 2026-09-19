@@ -40,7 +40,6 @@ type LibraryCfg struct {
 	ShowArtists     *bool
 	DefaultView     string
 	Icon            string
-	CoverStyle      string
 }
 
 // Auth method values for AuthCfg.Method.
@@ -373,7 +372,6 @@ func validateLibraries(libs []LibraryCfg) error {
 		lib.Path = strings.TrimSpace(lib.Path)
 		lib.DefaultView = strings.TrimSpace(lib.DefaultView)
 		lib.Icon = strings.TrimSpace(lib.Icon)
-		lib.CoverStyle = strings.TrimSpace(lib.CoverStyle)
 
 		if lib.Name == "" {
 			return fmt.Errorf("config Libraries[%d]: Name is required", i)

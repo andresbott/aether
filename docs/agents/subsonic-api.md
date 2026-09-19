@@ -240,7 +240,7 @@ convention).
 `media.go`: `stream` serves the original file via `http.ServeFile` (range
 requests work; no transcoding). `getCoverArt` resolves, in order: assetstore
 image → folder cover from disk → embedded front cover → deterministic generated
-cover (`internal/covergen`).
+cover (`libs/covergen`).
 
 **Cover-art management extensions:**
 

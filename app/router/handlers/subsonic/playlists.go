@@ -344,6 +344,15 @@ func (h *Handler) updatePlaylistCover(w http.ResponseWriter, r *http.Request, id
 			writeError(w, 0, "internal error")
 			return
 		}
+	case r.Form.Get("generateStyle") != "":
+		data, ok := h.renderRequestedCover(w, r, "playlist", id)
+		if !ok {
+			return
+		}
+		if err := h.assets.PutManual(assetstore.KindPlaylist, key, "png", data); err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(assetstore.KindPlaylist, key)
 		_ = h.images.Delete(assetstore.KindPlaylist, key)

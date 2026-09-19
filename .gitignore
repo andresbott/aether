@@ -32,8 +32,12 @@ app/spa/files/ui/*
 !app/spa/files/ui/.gitkeep
 
 # Generated cover art test samples
-internal/covergen/testdata/*.png
+libs/covergen/testdata/*.png
+libs/covergen/allstyles/testdata/text/*.png
 .tokensave
 
 # Subagent-driven-development scratch workspace
 .superpowers/
+
+libs/covergen/svg/candidates/*
+!libs/covergen/svg/candidates/.gitkeep

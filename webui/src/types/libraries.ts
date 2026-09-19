@@ -1,14 +1,5 @@
 export type LibraryDefaultView = 'albums' | 'artists'
 
-export type LibraryCoverStyle =
-    | 'auto'
-    | 'classic'
-    | 'bauhaus'
-    | 'rings'
-    | 'waves'
-    | 'poster'
-    | 'remix'
-
 /**
  * Who owns a library's configuration: 'db' for one managed here, 'config' for
  * one declared in the server's config file. Config libraries are read-only —
@@ -25,7 +16,6 @@ export interface Library {
     show_artists: boolean
     default_view: LibraryDefaultView
     icon: string
-    cover_style: LibraryCoverStyle
     source: LibrarySource
     last_scan_started_at: string | null
     created_at: string
@@ -42,7 +32,6 @@ export interface LibraryInput {
     show_artists: boolean
     default_view: LibraryDefaultView
     icon: string
-    cover_style: LibraryCoverStyle
 }
 
 export interface ListLibrariesResponse {

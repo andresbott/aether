@@ -167,10 +167,15 @@ const onSelect = (event: { files: File[] }): void => {
                                          carries the real state, on its own row. -->
                                     <template #filelabel><span /></template>
                                 </FileUpload>
+                                <!-- Optional extra actions, e.g. Generate (and ArtistView's
+                                     online image search). Placed between Upload and Remove so
+                                     the stack reads Upload / Generate / Remove. -->
+                                <slot name="cover-actions" />
                                 <!-- Outlined danger rather than a flat secondary text
                                      button: next to the solid upload button, muted text
                                      reads as disabled — and this is a real destructive
-                                     action. -->
+                                     action. Kept last so the destructive control is not
+                                     adjacent to Upload. -->
                                 <Button
                                     v-if="coverRemovable"
                                     class="cover-remove"
@@ -180,10 +185,6 @@ const onSelect = (event: { files: File[] }): void => {
                                     label="Remove"
                                     @click="emit('cover-remove')"
                                 />
-                                <!-- Optional extra actions, e.g. ArtistView's online image
-                                     search. Part of the same stack so it aligns with the
-                                     buttons above. -->
-                                <slot name="cover-actions" />
                                 <Message v-if="coverSizeError" severity="error" :closable="false">
                                     {{ coverSizeError }}
                                 </Message>

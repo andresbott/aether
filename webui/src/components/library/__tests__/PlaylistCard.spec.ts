@@ -3,12 +3,15 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import type { Playlist } from '@/types/subsonic'
 
-const { starMutate, scrobbleMock, getPlaylistMock, playAlbumMock } = vi.hoisted(() => ({
-    starMutate: vi.fn(),
-    scrobbleMock: vi.fn(() => Promise.resolve()),
-    getPlaylistMock: vi.fn(() => Promise.resolve({ entry: [{ id: 'tr-1' }] })),
-    playAlbumMock: vi.fn()
-}))
+const { starMutate, scrobbleMock, getPlaylistMock, playAlbumMock, isConfiguredMock, getCoverArtUrlMock } =
+    vi.hoisted(() => ({
+        starMutate: vi.fn(),
+        scrobbleMock: vi.fn(() => Promise.resolve()),
+        getPlaylistMock: vi.fn(() => Promise.resolve({ entry: [{ id: 'tr-1' }] })),
+        playAlbumMock: vi.fn(),
+        isConfiguredMock: vi.fn(() => false),
+        getCoverArtUrlMock: vi.fn((_id: string, _size?: number): string => '')
+    }))
 
 vi.mock('@/composables/useSubsonicQueries', () => ({
     useTogglePlaylistStar: () => ({ mutate: starMutate })
@@ -16,8 +19,8 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
 
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
-        isConfigured: () => false,
-        getCoverArtUrl: () => '',
+        isConfigured: isConfiguredMock,
+        getCoverArtUrl: getCoverArtUrlMock,
         getPlaylist: getPlaylistMock,
         scrobble: scrobbleMock
     }
@@ -29,6 +32,7 @@ vi.mock('@/composables/usePlayer', () => ({ usePlayer: () => ({ playAlbum: playA
 const currentUser = ref<{ login: string; role: string } | null>(null)
 vi.mock('@/composables/useAuth', () => ({ useAuth: () => ({ currentUser }) }))
 
+import { bumpCoverVersion, resetCoverVersions } from '@/composables/useCoverVersion'
 import PlaylistCard from '@/components/library/PlaylistCard.vue'
 
 const playlist = (over: Partial<Playlist> = {}): Playlist => ({
@@ -49,6 +53,9 @@ beforeEach(() => {
     scrobbleMock.mockClear()
     playAlbumMock.mockReset()
     currentUser.value = null
+    isConfiguredMock.mockReturnValue(false)
+    getCoverArtUrlMock.mockReturnValue('')
+    resetCoverVersions()
 })
 
 describe('PlaylistCard star toggle', () => {
@@ -107,5 +114,21 @@ describe('PlaylistCard ownership marker', () => {
     it('shows no marker with no identity (auth "none")', () => {
         currentUser.value = null
         expect(mountCard(playlist({ owner: 'admin' })).find('.not-mine-icon').exists()).toBe(false)
+    })
+})
+
+describe('PlaylistCard cover cache busting', () => {
+    it('appends the cover version so an edited cover refreshes without a reload', async () => {
+        isConfiguredMock.mockReturnValue(true)
+        getCoverArtUrlMock.mockImplementation((id: string) => `/rest/getCoverArt.view?id=${id}`)
+        const w = mountCard(playlist({ coverArt: 'pl-cover' }))
+        // Before any edit the url is un-versioned.
+        expect(w.find('.card-cover img').attributes('src')).not.toContain('_v=')
+        // Editing the cover elsewhere bumps the module-level version; the card,
+        // which renders the same coverArt id, must pick it up (the bug was that
+        // it rendered a plain, cached url and stayed stale until reload).
+        bumpCoverVersion('pl-cover')
+        await w.vm.$nextTick()
+        expect(w.find('.card-cover img').attributes('src')).toContain('_v=1')
     })
 })

@@ -139,3 +139,118 @@ describe('subsonicClient.updatePlaylist', () => {
         expect(params.has('public')).toBe(false)
     })
 })
+
+describe('subsonicClient generated cover support', () => {
+    beforeEach(() => subsonicClient.initWithDefaults())
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('getGeneratedCoverCandidates unwraps the candidate array', async () => {
+        const fetchMock = mockFetchOnce({
+            generatedCoverCandidates: {
+                candidate: [
+                    { style: 'bauhaus', variation: 1 },
+                    { style: 'rings', variation: 2 }
+                ]
+            }
+        })
+        const result = await subsonicClient.getGeneratedCoverCandidates('al-1', 9)
+        expect(result).toEqual([
+            { style: 'bauhaus', variation: 1 },
+            { style: 'rings', variation: 2 }
+        ])
+        const url = new URL(fetchMock.mock.calls[0][0] as string)
+        expect(url.pathname).toContain('/rest/getGeneratedCoverCandidates.view')
+        expect(url.searchParams.get('id')).toBe('al-1')
+        expect(url.searchParams.get('count')).toBe('9')
+    })
+
+    it('getGeneratedCoverCandidates returns empty array when response omits candidates', async () => {
+        mockFetchOnce({})
+        const result = await subsonicClient.getGeneratedCoverCandidates('al-1')
+        expect(result).toEqual([])
+    })
+
+    it('getGeneratedCoverPreviewUrl builds a preview URL with all params', () => {
+        subsonicClient.initWithDefaults()
+        const url = new URL(subsonicClient.getGeneratedCoverPreviewUrl({
+            id: 'al-1',
+            style: 'bauhaus',
+            variation: 3,
+            size: 300
+        }))
+        expect(url.pathname).toContain('/rest/getGeneratedCoverPreview.view')
+        expect(url.searchParams.get('id')).toBe('al-1')
+        expect(url.searchParams.get('style')).toBe('bauhaus')
+        expect(url.searchParams.get('variation')).toBe('3')
+        expect(url.searchParams.get('size')).toBe('300')
+    })
+
+    it('getGeneratedCoverPreviewUrl omits id when not provided', () => {
+        subsonicClient.initWithDefaults()
+        const url = new URL(subsonicClient.getGeneratedCoverPreviewUrl({
+            style: 'poster',
+            variation: 1
+        }))
+        expect(url.searchParams.has('id')).toBe(false)
+        expect(url.searchParams.get('style')).toBe('poster')
+        expect(url.searchParams.get('variation')).toBe('1')
+    })
+
+    it('updateGenreCover posts generateStyle and generateVariation when generate is provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updateGenreCover('ge-1', undefined, false, {
+            style: 'bauhaus',
+            variation: 5
+        })
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+        expect(url).toContain('/rest/updateGenre.view')
+        const body = init.body as FormData
+        expect(body.get('id')).toBe('ge-1')
+        expect(body.get('generateStyle')).toBe('bauhaus')
+        expect(body.get('generateVariation')).toBe('5')
+    })
+
+    it('updateAlbumCover posts generateStyle and generateVariation when generate is provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updateAlbumCover('al-1', undefined, false, {
+            style: 'rings',
+            variation: 2
+        })
+        const body = (fetchMock.mock.calls[0][1] as RequestInit).body as FormData
+        expect(body.get('generateStyle')).toBe('rings')
+        expect(body.get('generateVariation')).toBe('2')
+    })
+
+    it('updateArtistCover posts generateStyle and generateVariation when generate is provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updateArtistCover('ar-1', undefined, false, {
+            style: 'waves',
+            variation: 3
+        })
+        const body = (fetchMock.mock.calls[0][1] as RequestInit).body as FormData
+        expect(body.get('generateStyle')).toBe('waves')
+        expect(body.get('generateVariation')).toBe('3')
+    })
+
+    it('updatePlaylistCover posts generateStyle and generateVariation when generate is provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updatePlaylistCover('pl-1', undefined, false, {
+            style: 'poster',
+            variation: 1
+        })
+        const body = (fetchMock.mock.calls[0][1] as RequestInit).body as FormData
+        expect(body.get('generateStyle')).toBe('poster')
+        expect(body.get('generateVariation')).toBe('1')
+    })
+
+    it('updateInternetRadioStation posts generateStyle and generateVariation when generate is provided', async () => {
+        const fetchMock = mockFetchOnce({})
+        await subsonicClient.updateInternetRadioStation('rs-1', 'Radio', 'http://stream', undefined, undefined, false, {
+            style: 'remix',
+            variation: 4
+        })
+        const body = (fetchMock.mock.calls[0][1] as RequestInit).body as FormData
+        expect(body.get('generateStyle')).toBe('remix')
+        expect(body.get('generateVariation')).toBe('4')
+    })
+})

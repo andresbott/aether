@@ -58,6 +58,15 @@ func (h *Handler) updateManualCover(
 			writeError(w, 0, "internal error")
 			return
 		}
+	case r.Form.Get("generateStyle") != "":
+		data, ok := h.renderRequestedCover(w, r, idKind, id)
+		if !ok {
+			return
+		}
+		if err := h.assets.PutManual(storeKind, key, "png", data); err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
 	case r.Form.Get("coverClear") == "true":
 		_ = h.assets.Delete(storeKind, key)
 		_ = h.images.Delete(storeKind, key)

@@ -39,6 +39,7 @@ vi.mock('@/composables/useArtistImageSource', () => ({
     useArtistImageSource: () => ({ data: imageSource, refetch: imageSourceRefetch })
 }))
 
+const mockGetGeneratedCoverPreviewUrl = vi.fn()
 vi.mock('@/lib/api/subsonic', () => ({
     subsonicClient: {
         isConfigured: () => true,
@@ -51,7 +52,8 @@ vi.mock('@/lib/api/subsonic', () => ({
                         a2: { id: 'a2', song: [{ id: 's3' }] }
                     } as Record<string, unknown>
                 )[id] ?? null
-            )
+            ),
+        getGeneratedCoverPreviewUrl: (...args: unknown[]) => mockGetGeneratedCoverPreviewUrl(...args)
     }
 }))
 
@@ -141,7 +143,13 @@ const mountView = () =>
                 ContentScaffold: ScaffoldStub,
                 AlbumCard: AlbumCardStub,
                 ConfirmDialog: true,
-                RouterLink: true
+                RouterLink: true,
+                GenerateCoverDialog: {
+                    name: 'GenerateCoverDialog',
+                    props: ['visible', 'entityId', 'title'],
+                    emits: ['update:visible', 'select'],
+                    template: '<div class="generate-cover-dialog-stub" />'
+                }
             }
         }
     })
@@ -169,6 +177,8 @@ beforeEach(() => {
     resetCoverVersions()
     global.URL.createObjectURL = vi.fn(() => 'blob:mock')
     global.URL.revokeObjectURL = vi.fn()
+    mockGetGeneratedCoverPreviewUrl.mockClear()
+    mockGetGeneratedCoverPreviewUrl.mockReturnValue('generated:preview')
 })
 
 describe('ArtistView', () => {
@@ -878,5 +888,46 @@ describe('ArtistView discography grouping', () => {
         const w = mountView()
         expect(sectionHeadings(w)).toEqual(['Albums'])
         expect(w.findAll('.discography')[0].findAll('.album-card-stub').length).toBe(2)
+    })
+})
+
+describe('ArtistView generated covers', () => {
+    it('shows Generate button in edit mode and passes pick to mutation', async () => {
+        artist.value = { id: 'ar-1', name: 'Pink Floyd', albumCount: 1, coverArt: 'ar-1' }
+        imageSource.value = { source: 'upload', path: '', filename: 'cover.png' }
+        const w = mountView()
+        await enterEdit(w)
+        await flushPromises()
+
+        const generateBtn = w.find('button[aria-label="Generate"]')
+        expect(generateBtn.exists()).toBe(true)
+
+        await generateBtn.trigger('click')
+        await flushPromises()
+
+        const dialog = w.findComponent({ name: 'GenerateCoverDialog' })
+        expect(dialog.props('visible')).toBe(true)
+        expect(dialog.props('entityId')).toBe('ar-1')
+
+        dialog.vm.$emit('select', { style: 'rings', variation: 5 })
+        await flushPromises()
+
+        expect(mockGetGeneratedCoverPreviewUrl).toHaveBeenCalledWith({
+            id: 'ar-1',
+            style: 'rings',
+            variation: 5,
+            size: 512
+        })
+
+        await w.find('.edit-action-save').trigger('click')
+        expect(coverMutate).toHaveBeenCalledWith(
+            {
+                artistId: 'ar-1',
+                coverFile: undefined,
+                coverClear: undefined,
+                generate: { style: 'rings', variation: 5 }
+            },
+            expect.anything()
+        )
     })
 })

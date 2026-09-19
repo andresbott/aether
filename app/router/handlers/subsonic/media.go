@@ -13,11 +13,13 @@ import (
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
-	"github.com/andresbott/aether/internal/covergen"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/tags"
+	"github.com/andresbott/aether/libs/covergen"
+	"github.com/andresbott/aether/libs/covergen/allstyles"
+	"github.com/andresbott/aether/libs/covergen/fonts"
 )
 
 func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
@@ -116,16 +118,18 @@ type coverMeta struct {
 	coverManaged bool
 	albumID      uint
 	seed         string
+	// title is the entity's display name, drawn onto the generated cover as its
+	// text overlay (empty renders the textless art). It is kept out of seed — the
+	// normalized, rename-stable identity that drives the artwork — so a display
+	// rename recaptions without redrawing the art; it lives in the derivative
+	// fingerprint instead.
+	title string
 	// cacheKind/cacheKey file this entity's cached derivatives (imagecache
 	// mirrors the assetstore layout: <kind>/<key>/). They identify the entity,
 	// not the winning source — which source wins changes as uploads land and
 	// are removed, and the per-derivative fingerprint covers that.
 	cacheKind string
 	cacheKey  string
-	// styleFor resolves the configured covergen style for the entity when
-	// the generated-cover fallback is reached; nil means "auto". Deferred so
-	// requests served from a real cover skip the library lookup.
-	styleFor func() (string, error)
 }
 
 // artistCoverMeta resolves an artist's cover. A cover keyed by MusicBrainz ID
@@ -136,9 +140,9 @@ type coverMeta struct {
 // `<collection>/<artist>/<album>` layouts). Nothing found means the
 // name-seeded generated avatar.
 func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
-	id := artist.ID
 	meta := coverMeta{
 		seed:      artist.NameNorm,
+		title:     artist.Name,
 		cacheKind: assetstore.KindArtist,
 		// The cache key is derived from identity (MusicBrainz ID when matched,
 		// otherwise name_norm hash) so it remains stable across DB rebuilds.
@@ -147,9 +151,6 @@ func (h *Handler) artistCoverMeta(artist *model.Artist) coverMeta {
 		// misattribution — no other artist can inherit them). This is accepted
 		// rather than adding cache-eviction logic here.
 		cacheKey: assetkey.ArtistOf(artist),
-		styleFor: func() (string, error) {
-			return h.store.CoverStyleForArtist(id)
-		},
 	}
 	if artist.MBArtistID != "" {
 		if p, ok := h.assets.Get(assetstore.KindArtist, assetkey.Artist(artist.MBArtistID, artist.NameNorm)); ok {
@@ -175,9 +176,9 @@ func (h *Handler) albumCoverMeta(album *model.Album) coverMeta {
 		coverPath: album.CoverPath,
 		albumID:   album.ID,
 		seed:      album.AlbumArtistNorm + "|" + album.NameNorm,
+		title:     album.Name,
 		cacheKind: assetstore.KindAlbum,
 		cacheKey:  assetkey.AlbumOf(album),
-		styleFor:  h.albumStyleFor(album.ID),
 	}
 	if p, ok := h.assets.Get(assetstore.KindAlbum, assetkey.AlbumOf(album)); ok {
 		meta.coverPath, meta.coverManaged = p, true
@@ -224,6 +225,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		}
 		meta := coverMeta{
 			seed:      station.Name,
+			title:     station.Name,
 			cacheKind: assetstore.KindRadio,
 			cacheKey:  assetkey.Radio(station.StreamURL),
 		}
@@ -242,6 +244,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		// mechanism as artists/radio).
 		meta := coverMeta{
 			seed:      pl.Name,
+			title:     pl.Name,
 			cacheKind: assetstore.KindPlaylist,
 			cacheKey:  assetkey.PlaylistOf(pl),
 		}
@@ -263,6 +266,7 @@ func (h *Handler) resolveCoverMeta(w http.ResponseWriter, r *http.Request, itemT
 		// artists/radio/playlists).
 		meta := coverMeta{
 			seed:      genre.Name,
+			title:     genre.Name,
 			cacheKind: assetstore.KindGenre,
 			cacheKey:  assetkey.GenreOf(genre),
 		}
@@ -323,7 +327,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 			Size:        size,
 			Format:      format,
 			Fingerprint: src.fingerprint,
-			Load:        src.load,
+			Load:        func() ([]byte, error) { return src.load(size) },
 		})
 		if err != nil {
 			continue
@@ -350,7 +354,11 @@ type coverSource struct {
 	// fingerprint identifies these source bytes; a change invalidates the
 	// entity's cached derivatives.
 	fingerprint string
-	load        func() ([]byte, error)
+	// load produces the source image; size is the display size the cache will
+	// serve. File-backed sources ignore it (the cache scales their full-res
+	// bytes); the generated source renders covergen at size so its grain lands
+	// at the shown size instead of a downscaled master.
+	load func(size int) ([]byte, error)
 }
 
 // coverSources lists the entity's candidate sources in precedence order — the
@@ -378,7 +386,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 				// (removing an upload uncovers the folder image) must still
 				// invalidate the cached derivative.
 				fingerprint: fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-				load:        func() ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver, never from the request — either aether's own asset store or a scanner-detected image confined to the library roots by mediaPathAllowed above
+				load:        func(int) ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver, never from the request — either aether's own asset store or a scanner-detected image confined to the library roots by mediaPathAllowed above
 			})
 		}
 	}
@@ -389,18 +397,20 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 
 	if meta.seed != "" {
 		seed := meta.seed
-		style := resolveCoverStyle(meta.styleFor)
+		title := meta.title
+		style := defaultCoverStyle(seed)
 		out = append(out, coverSource{
 			kind: meta.cacheKind,
 			key:  meta.cacheKey,
 			name: "generated",
-			// The style is configurable per library, so it belongs in the key: a
-			// style change must re-render rather than serve the old look.
-			fingerprint: "generated|" + seed + "|" + style,
-			load: func() ([]byte, error) {
-				// covergen renders square, so the requested size fully determines
-				// the output; it is rendered once here and re-encoded by the cache.
-				return generateCover(seed, style)
+			// The seed-picked style and the title (drawn onto the art) both belong
+			// in the key, so a change to either re-renders rather than serving the
+			// old look.
+			fingerprint: "generated|" + seed + "|" + style + "|" + title,
+			load: func(size int) ([]byte, error) {
+				// Render at the display size so grain lands where it's shown; the
+				// cache's scale to size is then a no-op (see generateCover).
+				return generateCover(seed, style, title, size)
 			},
 		})
 	}
@@ -433,7 +443,7 @@ func (h *Handler) embeddedCoverSource(meta coverMeta) (coverSource, bool) {
 		// point of caching here is that a hit costs no tag read of a whole music
 		// file at all.
 		fingerprint: fmt.Sprintf("embedded|%s|%d|%d", trackPath, info.Size(), info.ModTime().UnixNano()),
-		load: func() ([]byte, error) {
+		load: func(int) ([]byte, error) {
 			data := h.readEmbeddedCover(albumID)
 			if data == nil {
 				return nil, errNoEmbeddedCover
@@ -447,14 +457,49 @@ func (h *Handler) embeddedCoverSource(meta coverMeta) (coverSource, bool) {
 // front cover cannot be read after all (re-tagged since the scan).
 var errNoEmbeddedCover = errors.New("track has no embedded front cover")
 
-// generateCover renders a generated cover at the largest size the server will
-// serve. The image cache scales it down per request, so one render covers every
-// size instead of one PNG per (seed, size) as the old generated-covers tree did.
-func generateCover(seed, style string) ([]byte, error) {
-	if st, ok := covergen.ParseStyle(style); ok {
-		return covergen.GenerateStyle(seed, maxCoverSize, st)
+// coverGen is the Generator over covergen's full built-in style set, used both
+// to render the name-seeded fallback cover and to validate a configured style
+// name.
+var coverGen = allstyles.New()
+
+// coverFonts is covergen's embedded OFL font set, parsed once at startup. It is
+// the FontProvider handed to GenerateWithText so a generated cover can caption
+// itself with the entity's name; without it the overlay renders textless.
+var coverFonts = fonts.Default()
+
+// coverStyleNames returns g's style names in canonical order.
+func coverStyleNames(g *covergen.Generator) []string {
+	styles := g.Styles()
+	names := make([]string, 0, len(styles))
+	for _, s := range styles {
+		names = append(names, s.Name())
 	}
-	return covergen.Generate(seed, maxCoverSize)
+	return names
+}
+
+// defaultCoverStyle picks the covergen style for an entity's generated cover,
+// deterministically by seed, over the full built-in style set.
+func defaultCoverStyle(seed string) string {
+	if s := coverGen.StyleFor(seed); s != nil {
+		return s.Name()
+	}
+	return "auto"
+}
+
+// generateCover renders a generated cover at the requested display size,
+// captioned with title (an empty title renders the textless art). Rendering at
+// the output size — rather than one large master the cache downscales — keeps
+// film grain and fine detail at the size actually shown, matching the lab.
+func generateCover(seed, style, title string, size int) ([]byte, error) {
+	st, ok := coverGen.ByName(style)
+	if !ok {
+		// "auto"/unknown resolves to the seed-picked style, matching Generate.
+		st = coverGen.StyleFor(seed)
+	}
+	if st == nil {
+		return coverGen.Generate(seed, size)
+	}
+	return coverGen.GenerateWithText(seed, size, st, nil, covergen.Text{Main: title}, coverFonts)
 }
 
 // serveETaggedFile serves path with an ETag identifying that exact file, and no
@@ -504,28 +549,6 @@ func quantizeCoverSize(requested int) int {
 		}
 	}
 	return maxCoverSize
-}
-
-// albumStyleFor returns a deferred cover-style resolver for an album.
-func (h *Handler) albumStyleFor(albumID uint) func() (string, error) {
-	return func() (string, error) { return h.store.CoverStyleForAlbum(albumID) }
-}
-
-// resolveCoverStyle runs the deferred resolver and maps its result to a
-// covergen style name, degrading to "auto" when the resolver is absent,
-// fails, or names an unknown style.
-func resolveCoverStyle(styleFor func() (string, error)) string {
-	if styleFor == nil {
-		return "auto"
-	}
-	name, err := styleFor()
-	if err != nil || name == "" || name == "auto" {
-		return "auto"
-	}
-	if _, ok := covergen.ParseStyle(name); !ok {
-		return "auto"
-	}
-	return name
 }
 
 // readEmbeddedCover returns the album's embedded front cover, or nil when the

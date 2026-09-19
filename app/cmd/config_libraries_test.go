@@ -30,7 +30,6 @@ Libraries:
     ShowArtists: false
     DefaultView: "artists"
     Icon: "folder-open"
-    CoverStyle: "bauhaus"
   - Name: "Jazz"
     Path: "`+dirB+`"
 `)
@@ -55,7 +54,7 @@ Libraries:
 	if rock.ShowArtists == nil || *rock.ShowArtists {
 		t.Fatalf("expected ShowArtists=false, got %v", rock.ShowArtists)
 	}
-	if rock.DefaultView != "artists" || rock.Icon != "folder-open" || rock.CoverStyle != "bauhaus" {
+	if rock.DefaultView != "artists" || rock.Icon != "folder-open" {
 		t.Fatalf("display fields not loaded: %+v", rock)
 	}
 

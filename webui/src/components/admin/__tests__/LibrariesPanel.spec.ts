@@ -53,7 +53,6 @@ function library(over: Partial<Library>): Library {
         show_artists: true,
         default_view: 'albums',
         icon: 'folder',
-        cover_style: 'auto',
         source: 'db',
         last_scan_started_at: null,
         created_at: '',

@@ -5,6 +5,7 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { usePlayer } from '@/composables/usePlayer'
 import { stationToSong } from '@/utils/radioSong'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{
     station?: InternetRadioStation
@@ -22,7 +23,8 @@ const onPlay = (event: Event): void => {
 const coverUrl = computed(() => {
     const art = props.station?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 200)
+    const base = subsonicClient.getCoverArtUrl(art, 200)
+    return versionedCoverUrl(base, art)
 })
 
 const onCardDragStart = (event: DragEvent): void => {

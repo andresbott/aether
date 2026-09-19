@@ -1,0 +1,299 @@
+package covergen_test
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"image/png"
+	"os"
+	"testing"
+
+	"github.com/andresbott/aether/libs/covergen/allstyles"
+)
+
+func TestGenerateReturnsValidPNG(t *testing.T) {
+	g := allstyles.New()
+	data, err := g.Generate("adele|19", 256)
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("Generate returned empty bytes")
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
+	}
+	b := img.Bounds()
+	if b.Dx() != 256 || b.Dy() != 256 {
+		t.Errorf("expected 256x256 image, got %dx%d", b.Dx(), b.Dy())
+	}
+}
+
+func TestGenerateDeterministic(t *testing.T) {
+	g := allstyles.New()
+	a, err := g.Generate("some seed", 256)
+	if err != nil {
+		t.Fatalf("Generate a: %v", err)
+	}
+	b, err := g.Generate("some seed", 256)
+	if err != nil {
+		t.Fatalf("Generate b: %v", err)
+	}
+	if !bytes.Equal(a, b) {
+		t.Fatal("same seed+size produced different bytes")
+	}
+}
+
+func TestGenerateSeedSensitive(t *testing.T) {
+	g := allstyles.New()
+	a, err := g.Generate("seed one", 256)
+	if err != nil {
+		t.Fatalf("Generate a: %v", err)
+	}
+	b, err := g.Generate("seed two", 256)
+	if err != nil {
+		t.Fatalf("Generate b: %v", err)
+	}
+	if bytes.Equal(a, b) {
+		t.Fatal("different seeds produced identical bytes")
+	}
+}
+
+func TestGenerateRejectsNonPositiveSize(t *testing.T) {
+	g := allstyles.New()
+	for _, size := range []int{0, -1, -256} {
+		if _, err := g.Generate("seed", size); err == nil {
+			t.Errorf("Generate(seed, %d) returned nil error; want error", size)
+		}
+	}
+}
+
+func TestGenerateUsesStyleFromSeedHash(t *testing.T) {
+	// Generate must equal GenerateStyle with the style StyleFor reports,
+	// proving the auto-pick is pure seed-hash dispatch.
+	g := allstyles.New()
+	for _, seed := range []string{"adele|19", "miles davis|kind of blue", "x", ""} {
+		auto, err := g.Generate(seed, 128)
+		if err != nil {
+			t.Fatalf("Generate(%q): %v", seed, err)
+		}
+		style := g.StyleFor(seed)
+		explicit, err := g.GenerateStyle(seed, 128, style)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%q, %v): %v", seed, style.Name(), err)
+		}
+		if !bytes.Equal(auto, explicit) {
+			t.Errorf("seed %q: Generate != GenerateStyle(%v)", seed, style.Name())
+		}
+	}
+}
+
+func TestStyleForCoversAllStyles(t *testing.T) {
+	// With enough seeds every style must be reachable; also sanity-check
+	// the distribution isn't collapsed onto one style.
+	g := allstyles.New()
+	got := map[any]int{}
+	for i := 0; i < 256; i++ {
+		got[g.StyleFor(fmt.Sprintf("seed-%d", i))]++
+	}
+	for _, s := range g.Styles() {
+		if got[s] == 0 {
+			t.Errorf("style %v never selected across 256 seeds", s.Name())
+		}
+	}
+}
+
+func TestGenerateStyleAllStylesRenderAndDiffer(t *testing.T) {
+	g := allstyles.New()
+	const seed = "style matrix seed"
+	rendered := map[string][]byte{}
+	for _, s := range g.Styles() {
+		data, err := g.GenerateStyle(seed, 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v): %v", s.Name(), err)
+		}
+		img, err := png.Decode(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("style %v: png.Decode: %v", s.Name(), err)
+		}
+		if b := img.Bounds(); b.Dx() != 128 || b.Dy() != 128 {
+			t.Errorf("style %v: expected 128x128, got %dx%d", s.Name(), b.Dx(), b.Dy())
+		}
+		for name, other := range rendered {
+			if bytes.Equal(data, other) {
+				t.Errorf("styles %v and %s produced identical bytes", s.Name(), name)
+			}
+		}
+		rendered[s.Name()] = data
+	}
+}
+
+func TestGenerateStyleDeterministic(t *testing.T) {
+	g := allstyles.New()
+	for _, s := range g.Styles() {
+		a, err := g.GenerateStyle("det seed", 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v) a: %v", s.Name(), err)
+		}
+		b, err := g.GenerateStyle("det seed", 128, s)
+		if err != nil {
+			t.Fatalf("GenerateStyle(%v) b: %v", s.Name(), err)
+		}
+		if !bytes.Equal(a, b) {
+			t.Errorf("style %v: same seed+size produced different bytes", s.Name())
+		}
+	}
+}
+
+func TestClassicBackgroundVaries(t *testing.T) {
+	g := allstyles.New()
+	classicStyle, ok := g.ByName("classic")
+	if !ok {
+		t.Fatal(`ByName("classic") not found`)
+	}
+	data, err := g.GenerateStyle("gradient test", 256, classicStyle)
+	if err != nil {
+		t.Fatalf("GenerateStyle: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("png.Decode: %v", err)
+	}
+	// Corner colours must differ — confirms a gradient was drawn, not a flat fill.
+	tl := img.At(0, 0)
+	br := img.At(255, 255)
+	if tl == br {
+		t.Errorf("top-left and bottom-right are identical (%v); expected gradient", tl)
+	}
+}
+
+func TestClassicHasForeground(t *testing.T) {
+	// The centre pixel and a corner pixel should differ: a shape near the
+	// centre should paint over the gradient, producing a different colour
+	// there than the gradient alone would produce.
+	g := allstyles.New()
+	classicStyle, ok := g.ByName("classic")
+	if !ok {
+		t.Fatal(`ByName("classic") not found`)
+	}
+	data, err := g.GenerateStyle("shape test alpha", 256, classicStyle)
+	if err != nil {
+		t.Fatalf("GenerateStyle: %v", err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	centre := img.At(128, 128)
+	edge := img.At(10, 10)
+	if colorDist(centre, edge) < 5 {
+		t.Errorf("centre and edge nearly identical (%v vs %v); expected foreground shape", centre, edge)
+	}
+}
+
+func colorDist(a, b interface{ RGBA() (r, g, b, a uint32) }) int {
+	ar, ag, ab, _ := a.RGBA()
+	br, bg, bb, _ := b.RGBA()
+	d := func(x, y uint32) int {
+		if x > y {
+			return int(x - y)
+		}
+		return int(y - x)
+	}
+	return (d(ar, br) + d(ag, bg) + d(ab, bb)) >> 8
+}
+
+var updateGolden = flag.Bool("update", false, "write golden sample PNGs to testdata/")
+
+// TestGolden guards the default appearance of every style. With -update it
+// (re)writes local golden PNGs under testdata/ (which is gitignored). Without
+// it, if those goldens exist it re-renders each sample and asserts byte
+// identity — so a refactor that unintentionally moves default output, or a
+// shared-helper edit whose blast radius reaches other styles, fails here. When
+// the goldens are absent (fresh checkout / CI) it skips: this is a local tool,
+// not a committed suite. The "knobs are inert at default" invariant is covered
+// separately by TestGenerateStyleWithKnobsDefaultsMatchGenerateStyle.
+func TestGolden(t *testing.T) {
+	g := allstyles.New()
+	// genSeeds exercise Generate's hash-picked style across a spread of real
+	// album seeds. styleSeeds are rendered in every style so each style's
+	// default look is locked explicitly (Generate alone need not hit them all).
+	genSeeds := []string{
+		"adele|19",
+		"various artists|coyote ugly",
+		"miles davis|kind of blue",
+		"daft punk|one more time",
+		"boards of canada|music has the right to children",
+		"metallica|the memory remains",
+		"dimmu borgir|stormblast",
+		"est|behind the yashmak",
+		"steve lacy|jazz adv",
+		"clutch|the regulator",
+		"air|la femme d'argent",
+		"raised fist|get this right",
+	}
+	styleSeeds := []string{
+		"adele|19",
+		"daft punk|one more time",
+		"miles davis|kind of blue",
+	}
+
+	type sample struct {
+		filename string
+		gen      func() ([]byte, error)
+	}
+	var samples []sample
+	for _, seed := range genSeeds {
+		samples = append(samples, sample{
+			filename: "testdata/gen_" + sanitize(seed) + ".png",
+			gen:      func() ([]byte, error) { return g.Generate(seed, 512) },
+		})
+	}
+	for _, s := range g.Styles() {
+		for _, seed := range styleSeeds {
+			samples = append(samples, sample{
+				filename: "testdata/style_" + s.Name() + "_" + sanitize(seed) + ".png",
+				gen:      func() ([]byte, error) { return g.GenerateStyle(seed, 512, s) },
+			})
+		}
+	}
+
+	for _, s := range samples {
+		data, err := s.gen()
+		if err != nil {
+			t.Fatalf("%s: %v", s.filename, err)
+		}
+		if *updateGolden {
+			if err := os.WriteFile(s.filename, data, 0644); err != nil {
+				t.Fatalf("write %s: %v", s.filename, err)
+			}
+			continue
+		}
+		want, err := os.ReadFile(s.filename)
+		if os.IsNotExist(err) {
+			t.Skipf("golden %s absent (testdata/*.png is gitignored, so this guard is local-only); run `go test ./libs/covergen -run TestGolden -update` to generate the baseline", s.filename)
+		}
+		if err != nil {
+			t.Fatalf("read golden %s: %v", s.filename, err)
+		}
+		if !bytes.Equal(data, want) {
+			t.Errorf("%s: output changed from golden (got %d bytes, want %d) — a code change moved default appearance; only regenerate with -update if that change is intentional", s.filename, len(data), len(want))
+		}
+	}
+}
+
+func sanitize(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out = append(out, r)
+		case r >= 'A' && r <= 'Z':
+			out = append(out, r+32)
+		default:
+			out = append(out, '_')
+		}
+	}
+	return string(out)
+}

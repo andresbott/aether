@@ -53,6 +53,8 @@ tags:
     description: Artist MusicBrainz lookup and image management (admin).
   - name: radiobrowser
     description: Radio station search and favicon proxy via the Radio Browser API (admin).
+  - name: settings
+    description: General server settings (admin).
 security:
   - sessionCookie: []
 
@@ -1198,10 +1200,10 @@ paths:
         path that isn't an existing, readable directory) answers 422,
         itemising `/name` or `/path`. `path` is resolved to an absolute
         path server-side before being stored. `exclude_patterns`,
-        `default_view`, `icon` and `cover_style` are always optional, so
-        any failure on them (a regex that fails to compile, an unknown
-        view/style, an unusable icon name) is unconditionally 422 — never
-        400 — itemising the failing pointer.
+        `default_view` and `icon` are always optional, so any failure on
+        them (a regex that fails to compile, an unknown view, an unusable
+        icon name) is unconditionally 422 — never 400 — itemising the
+        failing pointer.
 
         Refused with 409 `config_managed` when the submitted `name` or
         `path` is already owned by a config-provisioned library, distinct
@@ -1252,14 +1254,13 @@ paths:
       operationId: updateLibrary
       summary: Replace a library's editable fields.
       description: >
-        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon`/
-        `cover_style` are always fully replaced by the submitted value
-        (empty/omitted `default_view`, `icon` and `cover_style` fall back
-        the same way createLibrary's do) — this is a full replace, not a
-        partial update. `follow_symlinks`/`show_artists` are the only true
-        tri-state fields here: omitted (or explicit null) keeps the
-        library's current stored value instead of resetting it — see
-        LibraryUpdateRequest.
+        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon` are
+        always fully replaced by the submitted value (empty/omitted
+        `default_view` and `icon` fall back the same way createLibrary's do)
+        — this is a full replace, not a partial update.
+        `follow_symlinks`/`show_artists` are the only true tri-state fields
+        here: omitted (or explicit null) keeps the library's current stored
+        value instead of resetting it — see LibraryUpdateRequest.
 
         Changing `path` wipes and re-scans the library's tracks; the
         response's `path_changed` reports whether that happened, and is
@@ -3270,12 +3271,6 @@ components:
         icon:
           type: string
           description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
-        cover_style:
-          type: string
-          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
-          description: >
-            "auto" picks a covergen style deterministically per seed; the
-            other values pin one specific style.
         source:
           type: string
           enum: [db, config]
@@ -3303,7 +3298,6 @@ components:
         - show_artists
         - default_view
         - icon
-        - cover_style
         - source
         - last_scan_started_at
         - created_at
@@ -3363,24 +3357,19 @@ components:
           description: >
             A PrimeIcons name without the "pi pi-" prefix, e.g.
             "folder-open". Omitted or empty defaults to "folder".
-        cover_style:
-          type: string
-          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
-          default: auto
-          description: Omitted or empty defaults to "auto".
       required: [name, path]
 
     LibraryUpdateRequest:
       type: object
       description: >
         A full replace, not a partial update: `name`/`path`/
-        `exclude_patterns`/`default_view`/`icon`/`cover_style` are always
-        overwritten by the submitted value (empty/omitted `default_view`,
-        `icon` and `cover_style` fall back the same way
-        LibraryCreateRequest's do). `follow_symlinks`/`show_artists` are
-        the only true tri-state fields: omitted (or explicit null) keeps
-        the library's current stored value instead of resetting it.
-        Refused with 409 `config_managed` for a config-provisioned library.
+        `exclude_patterns`/`default_view`/`icon` are always overwritten by
+        the submitted value (empty/omitted `default_view`/`icon` fall back
+        the same way LibraryCreateRequest's do). `follow_symlinks`/
+        `show_artists` are the only true tri-state fields: omitted (or
+        explicit null) keeps the library's current stored value instead of
+        resetting it. Refused with 409 `config_managed` for a
+        config-provisioned library.
       properties:
         name:
           type: string
@@ -3417,11 +3406,6 @@ components:
           maxLength: 100
           default: folder
           description: Omitted or empty falls back to "folder".
-        cover_style:
-          type: string
-          enum: [auto, classic, bauhaus, rings, waves, poster, remix]
-          default: auto
-          description: Omitted or empty falls back to "auto".
       required: [name, path]
 
     LibraryBrowseResult:

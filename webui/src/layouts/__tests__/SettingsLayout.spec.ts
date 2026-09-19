@@ -63,6 +63,9 @@ describe('SettingsLayout', () => {
         expect(text).not.toContain('Account')
         expect(text).not.toContain('Profile')
         expect(text).not.toContain('Logout')
+        // Generated-cover style selection is gone: all styles are always used.
+        expect(text).not.toContain('General')
+        expect(text).not.toContain('Generated Covers')
     })
 
     // The metadata editor sits under its own Tools header, in addition to being

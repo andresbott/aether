@@ -17,6 +17,8 @@ require (
 	github.com/rainycape/unidecode v0.0.0-20150907023854-cb7f23ec59be
 	github.com/samber/slog-formatter v1.3.0
 	github.com/spf13/cobra v1.10.2
+	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	go.senan.xyz/taglib v0.11.1
 	golang.org/x/crypto v0.54.0
 	golang.org/x/sync v0.22.0
@@ -36,6 +38,7 @@ require (
 	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/reugn/go-quartz v0.15.2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	golang.org/x/net v0.56.0 // indirect
 )
 
 require (

@@ -16,7 +16,6 @@ const baseLibrary: Library = {
     show_artists: true,
     default_view: 'albums',
     icon: 'folder',
-    cover_style: 'bauhaus',
     source: 'db',
     last_scan_started_at: null,
     created_at: '',
@@ -33,40 +32,6 @@ const mountDialog = (library: Library | null) =>
             stubs: { teleport: true }
         }
     })
-
-describe('LibraryDialog cover style', () => {
-    it('defaults cover_style to auto in create mode', async () => {
-        const w = mountDialog(null)
-        await flushPromises()
-        const createBtn = w.findAll('button').find((b) => b.text().includes('Create'))!
-        await createBtn.trigger('click')
-        await flushPromises()
-        const input = w.emitted('submit')![0][0] as LibraryInput
-        expect(input.cover_style).toBe('auto')
-    })
-
-    it('submits the library cover_style unchanged in edit mode', async () => {
-        const w = mountDialog(baseLibrary)
-        await flushPromises()
-        const saveBtn = w.findAll('button').find((b) => b.text().includes('Save'))!
-        await saveBtn.trigger('click')
-        await flushPromises()
-        const input = w.emitted('submit')![0][0] as LibraryInput
-        expect(input.cover_style).toBe('bauhaus')
-    })
-
-    it('offers auto plus all six styles in the dropdown', async () => {
-        const w = mountDialog(null)
-        await flushPromises()
-        const selects = w.findAllComponents({ name: 'Select' })
-        const styleSelect = selects.find((d) =>
-            (d.props('options') as { value: string }[]).some((o) => o.value === 'auto')
-        )!
-        expect(styleSelect).toBeTruthy()
-        const values = (styleSelect.props('options') as { value: string }[]).map((o) => o.value)
-        expect(values).toEqual(['auto', 'classic', 'bauhaus', 'rings', 'waves', 'poster', 'remix'])
-    })
-})
 
 const mountWithError = (error: unknown) =>
     mount(LibraryDialog, {

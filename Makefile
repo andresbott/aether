@@ -82,6 +82,11 @@ run: ## start the GO service (uses built-in defaults; optional -c config.yaml)
 
 run-ui: package-ui run## build the UI and start the GO service
 
+LAB_ADDR ?= :8099
+.PHONY: run-lab
+run-lab: ## start the covergen cover-art tuning lab (dev-only; http://localhost:8099 — override with LAB_ADDR=:9000)
+	@go run ./libs/covergen/lab -addr "$(LAB_ADDR)"
+
 proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GROUP=aether-admin (GROUP optional)
 	@# USER is also a shell env var (the login name), so require it explicitly
 	@# on the command line — inheriting it would silently proxy as $$USER.
