@@ -135,14 +135,14 @@ func TestSearchGenresFiltersByLibrary(t *testing.T) {
 	libB := model.Library{Name: "B", Path: "/b"}
 	db.Create(&libA)
 	db.Create(&libB)
-	trackA := model.Track{Filename: "a.mp3", FilePath: "/a/a.mp3", LibraryID: libA.ID}
-	trackB := model.Track{Filename: "b.mp3", FilePath: "/b/b.mp3", LibraryID: libB.ID}
+	trackA := model.Track{Filename: "a.mp3", FilePath: "/a/a.mp3", LibraryID: libA.ID, ScanFolder: "A"}
+	trackB := model.Track{Filename: "b.mp3", FilePath: "/b/b.mp3", LibraryID: libB.ID, ScanFolder: "B"}
 	db.Create(&trackA)
 	db.Create(&trackB)
 	_ = db.Model(&trackA).Association("Genres").Replace([]*model.Genre{&rock})
 	_ = db.Model(&trackB).Association("Genres").Replace([]*model.Genre{&prog})
 
-	got, err := s.SearchGenres("rock", 20, 0, &store.SearchFilter{LibraryID: &libA.ID})
+	got, err := s.SearchGenres("rock", 20, 0, &store.SearchFilter{Scope: scanFolderScope("A")})
 	if err != nil {
 		t.Fatal(err)
 	}

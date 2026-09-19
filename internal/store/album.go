@@ -66,7 +66,7 @@ type AlbumListFilter struct {
 	Genre       string
 	FromYear    int
 	ToYear      int
-	LibraryID   *uint
+	Scope       TrackScope
 	Owner       string
 	ReleaseType string
 }
@@ -74,8 +74,8 @@ type AlbumListFilter struct {
 func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumListFilter) ([]model.Album, error) {
 	q := s.db.Model(&model.Album{}).Preload("Artists").Preload("Genres")
 
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	if filter != nil && filter.ReleaseType != "" {
 		q = q.Where(
@@ -145,12 +145,12 @@ type AlbumLetter struct {
 }
 
 // GetAlbumLetterIndex returns per-letter offsets/counts for the alphabeticalByName
-// album ordering (same LibraryID filter and name_norm ASC order as GetAlbumList),
+// album ordering (same Scope filter and name_norm ASC order as GetAlbumList),
 // plus the total album count. Non-alphabetic first chars bucket under "#".
 func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int, error) {
 	q := s.db.Model(&model.Album{})
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	if filter != nil && filter.ReleaseType != "" {
 		q = q.Where(
@@ -224,8 +224,8 @@ func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilt
 	q := s.db.
 		Preload("Artists").
 		Where("name_norm LIKE ?", "%"+norm+"%")
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	var albums []model.Album
 	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&albums).Error

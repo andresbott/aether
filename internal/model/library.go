@@ -45,3 +45,31 @@ const (
 func (l Library) IsConfigManaged() bool {
 	return l.Source == SourceConfig
 }
+
+// LibraryFilterField names what a LibraryFilter tests.
+type LibraryFilterField string
+
+// The filter vocabulary. Track-level fields test the track row; album-level
+// ones (release type, compilation) test the track's album.
+const (
+	// FilterScanFolder matches tracks indexed under one of the named scan folders.
+	FilterScanFolder LibraryFilterField = "scan_folder"
+	// FilterPath matches tracks whose file lies under one of the absolute directories.
+	FilterPath LibraryFilterField = "path"
+	// FilterFormat matches tracks by lowercase file extension ("flac").
+	FilterFormat LibraryFilterField = "format"
+	// FilterReleaseType matches tracks whose album carries one of the release
+	// types, case-insensitively; the empty string matches an album with none.
+	FilterReleaseType LibraryFilterField = "release_type"
+	// FilterCompilation takes exactly one value, "true" or "false".
+	FilterCompilation LibraryFilterField = "compilation"
+	// FilterGenre matches tracks tagged with one of the genre names.
+	FilterGenre LibraryFilterField = "genre"
+)
+
+// LibraryFilter is one condition of a library. A library's filters are AND-ed;
+// the Values of one filter are OR-ed.
+type LibraryFilter struct {
+	Field  LibraryFilterField `json:"field"`
+	Values []string           `json:"values"`
+}

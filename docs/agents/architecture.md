@@ -45,8 +45,12 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
   `notFound` maps it at the boundary; internal `FindOrCreate*` logic still
   checks the gorm sentinel directly). `Store.Transaction(fn)` yields a
   tx-scoped `*Store`. Query filters are small structs in `filters.go`
-  (`SearchFilter`, `ArtistsFilter`, `StarredFilter` — all `LibraryID *uint`,
-  nil = cross-library).
+  (`SearchFilter`, `ArtistsFilter`, `StarredFilter`) that carry a
+  `Scope store.TrackScope` — a library's filters compiled (`store.ScopeOf`,
+  pure) into one boolean SQL predicate over `tracks`; the zero scope is
+  cross-library. An album, artist or genre is in a scope when at least one of
+  its tracks is. `scope.go` owns the filter vocabulary's SQL and fails closed:
+  a filter it cannot honor matches nothing.
 - **`internal/model` is schema only.** GORM structs + `Migrate()`
   (AutoMigrate + the composite unique index `idx_album_identity` on
   `albums(name_norm, album_artist_norm, mb_release_id)` — album identity is

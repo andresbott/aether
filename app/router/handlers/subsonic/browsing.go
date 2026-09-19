@@ -52,11 +52,18 @@ func (h *Handler) getIndexes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeArtistIndex(w http.ResponseWriter, r *http.Request, key string) {
-	filter := &store.ArtistsFilter{LibraryID: paramLibraryID(r)}
-	artists, err := h.store.GetArtists(filter)
-	if err != nil {
-		writeError(w, 0, "internal error")
-		return
+	scope, lib := h.libraryScope(r)
+	filter := &store.ArtistsFilter{Scope: scope}
+	var artists []model.Artist
+	// A library that hides its artists answers an empty index by design. A scope
+	// carries no library identity, so the check lives here, not in the store.
+	if lib == nil || !lib.HideArtists {
+		var err error
+		artists, err = h.store.GetArtists(filter)
+		if err != nil {
+			writeError(w, 0, "internal error")
+			return
+		}
 	}
 	albumCounts, err := h.store.GetArtistAlbumCounts(filter)
 	if err != nil {

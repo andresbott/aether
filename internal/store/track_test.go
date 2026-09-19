@@ -159,12 +159,11 @@ func TestGetRandomSongsByLibrary(t *testing.T) {
 
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "2.mp3", FilePath: "/l1/2.mp3"})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "3.mp3", FilePath: "/l2/3.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "2.mp3", FilePath: "/l1/2.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "3.mp3", FilePath: "/l2/3.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.GetRandomSongs(10, &store.RandomSongsFilter{LibraryID: &id1})
+	got, err := s.GetRandomSongs(10, &store.RandomSongsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,15 +191,14 @@ func TestGetSongsByGenreByLibrary(t *testing.T) {
 
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	t1 := model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"}
-	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
+	t1 := model.Track{AlbumID: album.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"}
+	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
 	_ = db.Model(&t1).Association("Genres").Replace([]*model.Genre{&rock})
 	_ = db.Model(&t2).Association("Genres").Replace([]*model.Genre{&rock})
 
-	id1 := lib1.ID
-	got, err := s.GetSongsByGenre("Rock", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	got, err := s.GetSongsByGenre("Rock", 10, 0, &store.SearchFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,11 +218,10 @@ func TestSearchSongsByLibrary(t *testing.T) {
 
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Title: "Hello World", TitleNorm: "hello world", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Title: "Hello There", TitleNorm: "hello there", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib1.ID, ScanFolder: "L1", Title: "Hello World", TitleNorm: "hello world", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib2.ID, ScanFolder: "L2", Title: "Hello There", TitleNorm: "hello there", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.SearchSongs("hello", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	got, err := s.SearchSongs("hello", 10, 0, &store.SearchFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}

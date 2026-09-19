@@ -19,7 +19,8 @@ func (h *Handler) search3(w http.ResponseWriter, r *http.Request) {
 	genreCount := paramInt(r, "genreCount", 0)
 	genreOffset := paramInt(r, "genreOffset", 0)
 
-	filter := &store.SearchFilter{LibraryID: paramLibraryID(r)}
+	scope, _ := h.libraryScope(r)
+	filter := &store.SearchFilter{Scope: scope}
 
 	artists, err := h.store.SearchArtists(query, artistCount, artistOffset, filter)
 	if err != nil {

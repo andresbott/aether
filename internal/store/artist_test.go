@@ -216,8 +216,7 @@ func TestGetArtistsByLibrary(t *testing.T) {
 	seedArtistTrack(t, s, lib2.ID, "Beta", "/l2/2.mp3")
 	seedArtistTrack(t, s, lib1.ID, "Gamma", "/l1/3.mp3")
 
-	id1 := lib1.ID
-	got, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &id1})
+	got, err := s.GetArtists(&store.ArtistsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,11 +252,10 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 	_ = db.Model(&alb1).Association("Artists").Replace([]*model.Artist{&artist})
 	_ = db.Model(&alb2).Association("Artists").Replace([]*model.Artist{&artist})
 
-	db.Create(&model.Track{AlbumID: alb1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
-	db.Create(&model.Track{AlbumID: alb2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+	db.Create(&model.Track{AlbumID: alb1.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: alb2.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
 
-	id1 := lib1.ID
-	counts, err := s.GetArtistAlbumCounts(&store.ArtistsFilter{LibraryID: &id1})
+	counts, err := s.GetArtistAlbumCounts(&store.ArtistsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,15 +280,14 @@ func TestSearchArtistsByLibrary(t *testing.T) {
 
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	t1 := model.Track{AlbumID: album.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"}
-	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
+	t1 := model.Track{AlbumID: album.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"}
+	t2 := model.Track{AlbumID: album.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
 	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&a1})
 	_ = db.Model(&t2).Association("Artists").Replace([]*model.Artist{&a2})
 
-	id1 := lib1.ID
-	got, err := s.SearchArtists("alph", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	got, err := s.SearchArtists("alph", 10, 0, &store.SearchFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +387,7 @@ func seedArtistTrack(t *testing.T, s *store.Store, libID uint, artistName, file 
 	if err := s.DB().Model(album).Association("Artists").Replace(artists); err != nil {
 		t.Fatal(err)
 	}
-	track := &model.Track{AlbumID: album.ID, LibraryID: libID, Title: file, FilePath: file, Filename: file}
+	track := &model.Track{AlbumID: album.ID, LibraryID: libID, ScanFolder: scanFolderOf(t, s, libID), Title: file, FilePath: file, Filename: file}
 	if err := s.UpsertTrack(track, artists, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +416,7 @@ func seedGuestAppearance(t *testing.T, s *store.Store, libID uint, albumName, ow
 	if err := db.Model(album).Association("Artists").Replace(owners); err != nil {
 		t.Fatal(err)
 	}
-	track := &model.Track{AlbumID: album.ID, LibraryID: libID, Title: file, FilePath: file, Filename: file}
+	track := &model.Track{AlbumID: album.ID, LibraryID: libID, ScanFolder: scanFolderOf(t, s, libID), Title: file, FilePath: file, Filename: file}
 	if err := s.UpsertTrack(track, guests, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +439,7 @@ func TestGetArtistsExcludesTrackOnlyGuestArtists(t *testing.T) {
 		t.Fatalf("expected only the album artist in the index, got %+v", artists)
 	}
 
-	filtered, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &lib.ID})
+	filtered, err := s.GetArtists(&store.ArtistsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +457,7 @@ func TestGetArtistsByLibraryIncludesAlbumArtistWithoutTrackCredits(t *testing.T)
 	// Compilation shape: album credited to Various Artists, tracks credited to guests.
 	seedGuestAppearance(t, s, lib.ID, "Cyberpunk 2077", "Various Artists", "P.T. Adamczyk", "/l1/1.mp3")
 
-	filtered, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &lib.ID})
+	filtered, err := s.GetArtists(&store.ArtistsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +502,7 @@ func TestGetArtistAlbumCountsIncludesAppearances(t *testing.T) {
 		t.Fatalf("expected guest appearance count 1, got %d", counts[guest.ID])
 	}
 
-	filtered, err := s.GetArtistAlbumCounts(&store.ArtistsFilter{LibraryID: &lib.ID})
+	filtered, err := s.GetArtistAlbumCounts(&store.ArtistsFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -555,22 +552,5 @@ func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
 	}
 	if len(artists) != 1 || artists[0].Name != "Shared Artist" {
 		t.Fatalf("expected Shared Artist to stay visible, got %+v", artists)
-	}
-}
-
-func TestGetArtistsFilterByHiddenLibraryIsEmpty(t *testing.T) {
-	s := testStore(t)
-	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
-	if err := s.CreateLibrary(hid); err != nil {
-		t.Fatal(err)
-	}
-	seedArtistTrack(t, s, hid.ID, "Hidden Artist", "/hid/b.mp3")
-
-	artists, err := s.GetArtists(&store.ArtistsFilter{LibraryID: &hid.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(artists) != 0 {
-		t.Fatalf("expected empty index for hidden library, got %+v", artists)
 	}
 }

@@ -69,7 +69,7 @@ func (s *Store) GetGenres() ([]GenreWithCounts, error) {
 
 // SearchGenres returns genres whose normalized name contains the query, using
 // the same unidecode substring match as the artist/album/track searches. A
-// LibraryID filter keeps only genres with at least one track in that library.
+// Scope filter keeps only genres with at least one track in the scope.
 //
 // Unlike the other searches this matches and sorts in Go rather than SQL: genres
 // have no normalized column (see model.Genre), and there are few enough of them
@@ -79,10 +79,11 @@ func (s *Store) SearchGenres(query string, count, offset int, filter *SearchFilt
 	q := s.db.
 		Table("genres").
 		Select(genreCountsSelect)
-	if filter != nil && filter.LibraryID != nil {
+	if filter != nil && !filter.Scope.IsZero() {
+		sql, args := filter.Scope.where("tracks")
 		q = q.Where(`EXISTS (SELECT 1 FROM track_genres
 			JOIN tracks ON tracks.id = track_genres.track_id
-			WHERE track_genres.genre_id = genres.id AND tracks.library_id = ?)`, *filter.LibraryID)
+			WHERE track_genres.genre_id = genres.id AND `+sql+`)`, args...)
 	}
 	var all []GenreWithCounts
 	if err := q.Scan(&all).Error; err != nil {

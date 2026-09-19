@@ -40,8 +40,8 @@ func newStarFixture(t *testing.T) starFixture {
 	_ = db.Model(&f.album).Association("Artists").Replace([]*model.Artist{&f.artist})
 	_ = db.Model(&f.album2).Association("Artists").Replace([]*model.Artist{&f.artist2})
 
-	f.track = model.Track{AlbumID: f.album.ID, LibraryID: 1, Filename: "1.mp3", FilePath: "/l/1.mp3", Title: "Starred Song", TrackNumber: 1}
-	f.track2 = model.Track{AlbumID: f.album.ID, LibraryID: 1, Filename: "2.mp3", FilePath: "/l/2.mp3", Title: "Plain Song", TrackNumber: 2}
+	f.track = model.Track{AlbumID: f.album.ID, LibraryID: 1, ScanFolder: "Lib", Filename: "1.mp3", FilePath: "/l/1.mp3", Title: "Starred Song", TrackNumber: 1}
+	f.track2 = model.Track{AlbumID: f.album.ID, LibraryID: 1, ScanFolder: "Lib", Filename: "2.mp3", FilePath: "/l/2.mp3", Title: "Plain Song", TrackNumber: 2}
 	db.Create(&f.track)
 	db.Create(&f.track2)
 	_ = db.Model(&f.track).Association("Artists").Replace([]*model.Artist{&f.artist})

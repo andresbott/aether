@@ -231,9 +231,13 @@ response shape was a deliberate design decision, so the reasoning is recorded he
 
 Helpers in `subsonic.go` — use them instead of raw query reads:
 `paramStr`, `paramInt(default)`, `paramStrSlice`, `paramBoolPtr` (nil =
-absent, distinguishes "not provided" from `false`), and `paramLibraryID`
-(`musicFolderId`; nil = cross-library, matching the store's `*uint` filter
-convention).
+absent, distinguishes "not provided" from `false`), and the handler method
+`libraryScope` (`musicFolderId` → the `store.TrackScope` of the library it
+names, plus the library; absent = the zero, cross-library scope; an unknown id
+= a scope matching nothing, so the request answers empty lists). The artist
+index is the one caller that reads the returned library: a library with
+`HideArtists` answers an empty index there, because a scope carries no library
+identity for the store to check.
 
 ## Media serving
 

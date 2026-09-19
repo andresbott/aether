@@ -60,12 +60,11 @@ func (s *Store) starredArtists(owner string, filter *StarredFilter) ([]model.Art
 	}
 
 	q := s.db.Model(&model.Artist{}).Where("artists.id IN ?", artistIDs)
-	if filter != nil && filter.LibraryID != nil {
-		q = q.
+	if filter != nil && !filter.Scope.IsZero() {
+		q = scopeTracks(q.
 			Distinct().
 			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
-			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
-			Where("tracks.library_id = ?", *filter.LibraryID)
+			Joins("JOIN tracks ON tracks.id = track_artists.track_id"), filter.Scope)
 	}
 
 	var artists []model.Artist
@@ -87,8 +86,8 @@ func (s *Store) starredAlbums(owner string, filter *StarredFilter) ([]model.Albu
 	}
 
 	q := s.db.Preload("Artists").Where("albums.id IN ?", albumIDs)
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 
 	var albums []model.Album
@@ -110,8 +109,8 @@ func (s *Store) starredTracks(owner string, filter *StarredFilter) ([]model.Trac
 	}
 
 	q := s.db.Preload("Album").Preload("Album.Artists").Preload("Artists").Preload("Genres").Where("tracks.id IN ?", trackIDs)
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("tracks.library_id = ?", *filter.LibraryID)
+	if filter != nil {
+		q = scopeTracks(q, filter.Scope)
 	}
 
 	var tracks []model.Track
@@ -123,7 +122,7 @@ func (s *Store) starredTracks(owner string, filter *StarredFilter) ([]model.Trac
 
 func (s *Store) starredPlaylists(owner string) ([]model.Playlist, error) {
 	// Playlists are not scoped to a library — a playlist can hold tracks from
-	// several — so StarredFilter.LibraryID deliberately does not apply here.
+	// several — so StarredFilter.Scope deliberately does not apply here.
 	var playlistStars []model.StarredItem
 	if err := s.db.Where("owner = ? AND item_type = 'playlist'", owner).
 		Order("created_at DESC").

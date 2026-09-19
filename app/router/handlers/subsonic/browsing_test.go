@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/assetstore"
@@ -316,5 +317,65 @@ func TestAlbumToMapIsCompilation(t *testing.T) {
 				t.Errorf("isCompilation = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A library that hides its artists answers an empty artist index. The store
+// cannot know which library a scope came from, so the handler decides.
+func TestGetArtistsOfHiddenLibraryIsEmpty(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	hid := model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
+	db.Create(&hid)
+	artist := model.Artist{Name: "Hidden Artist", NameNorm: "hidden artist"}
+	db.Create(&artist)
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "hidden artist"}
+	db.Create(&album)
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+	db.Create(&model.Track{AlbumID: album.ID, LibraryID: hid.ID, ScanFolder: "Hid", Filename: "1.mp3", FilePath: "/hid/1.mp3"})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Status  string `json:"status"`
+			Artists struct {
+				Index []struct {
+					Name string `json:"name"`
+				} `json:"index"`
+			} `json:"artists"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getArtists.view?musicFolderId="+strconv.FormatUint(uint64(hid.ID), 10), &body)
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("status = %q, want ok", body.SubsonicResponse.Status)
+	}
+	if n := len(body.SubsonicResponse.Artists.Index); n != 0 {
+		t.Fatalf("expected an empty index for a library that hides its artists, got %d letters", n)
+	}
+}
+
+// musicFolderId is optional and unvalidated by the spec: an id that names no
+// library must keep answering empty lists, not an error and not everything.
+func TestUnknownMusicFolderAnswersEmptyLists(t *testing.T) {
+	f := newStarFixture(t)
+	srv := newTestServer(t, f.store)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Status     string `json:"status"`
+			AlbumList2 struct {
+				Album []starredItem `json:"album"`
+			} `json:"albumList2"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getAlbumList2.view?type=alphabeticalByName&musicFolderId=999", &body)
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("status = %q, want ok", body.SubsonicResponse.Status)
+	}
+	if n := len(body.SubsonicResponse.AlbumList2.Album); n != 0 {
+		t.Fatalf("expected no albums for an unknown music folder, got %d", n)
 	}
 }

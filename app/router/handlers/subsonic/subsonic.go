@@ -10,6 +10,7 @@ import (
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
@@ -346,18 +347,23 @@ func paramBoolPtr(r *http.Request, key string) *bool {
 	return &b
 }
 
-// paramLibraryID parses the optional musicFolderId query parameter.
-// Returns nil when absent or unparseable — treated as "cross-library"
-// per the Subsonic spec (param is optional).
-func paramLibraryID(r *http.Request) *uint {
+// libraryScope resolves the optional musicFolderId parameter to the scope of
+// the library it names, plus that library. Absent or unparseable answers the
+// zero scope and a nil library — cross-library, since the spec makes the
+// parameter optional. An id that names no library answers a scope matching
+// nothing, so the request keeps returning empty lists.
+func (h *Handler) libraryScope(r *http.Request) (store.TrackScope, *model.Library) {
 	s := r.URL.Query().Get("musicFolderId")
 	if s == "" {
-		return nil
+		return store.TrackScope{}, nil
 	}
 	n, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return nil
+		return store.TrackScope{}, nil
 	}
-	u := uint(n)
-	return &u
+	lib, err := h.store.GetLibrary(uint(n))
+	if err != nil {
+		return store.NoTracks(), nil
+	}
+	return store.LibraryScope(&lib), &lib
 }

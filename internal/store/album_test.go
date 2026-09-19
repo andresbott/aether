@@ -151,13 +151,12 @@ func TestGetAlbumListByLibrary(t *testing.T) {
 	db.Create(&onlyL2)
 	db.Create(&shared)
 
-	db.Create(&model.Track{AlbumID: onlyL1.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
-	db.Create(&model.Track{AlbumID: onlyL2.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
-	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib1.ID, Filename: "c.mp3", FilePath: "/l1/c.mp3"})
-	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib2.ID, Filename: "d.mp3", FilePath: "/l2/d.mp3"})
+	db.Create(&model.Track{AlbumID: onlyL1.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: onlyL2.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "c.mp3", FilePath: "/l1/c.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "d.mp3", FilePath: "/l2/d.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.GetAlbumList("alphabeticalByName", 10, 0, &store.AlbumListFilter{LibraryID: &id1})
+	got, err := s.GetAlbumList("alphabeticalByName", 10, 0, &store.AlbumListFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,11 +227,10 @@ func TestGetAlbumLetterIndexByLibrary(t *testing.T) {
 	b := model.Album{Name: "Banana", NameNorm: "banana", AlbumArtistNorm: "x"}
 	db.Create(&a)
 	db.Create(&b)
-	db.Create(&model.Track{AlbumID: a.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
-	db.Create(&model.Track{AlbumID: b.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+	db.Create(&model.Track{AlbumID: a.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: b.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
 
-	id1 := lib1.ID
-	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{LibraryID: &id1})
+	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,11 +284,10 @@ func TestSearchAlbumsByLibrary(t *testing.T) {
 	a2 := model.Album{Name: "Blue Planet", NameNorm: "blue planet", AlbumArtistNorm: "x"}
 	db.Create(&a1)
 	db.Create(&a2)
-	db.Create(&model.Track{AlbumID: a1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
-	db.Create(&model.Track{AlbumID: a2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+	db.Create(&model.Track{AlbumID: a1.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: a2.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.SearchAlbums("blue", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	got, err := s.SearchAlbums("blue", 10, 0, &store.SearchFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}

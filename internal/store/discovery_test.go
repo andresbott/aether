@@ -33,6 +33,7 @@ func seedTrack(t *testing.T, s *store.Store, al model.Album, libraryID uint, gen
 	}
 	if libraryID != 0 {
 		tr.LibraryID = libraryID
+		tr.ScanFolder = scanFolderOf(t, s, libraryID)
 	}
 	if err := s.DB().Create(&tr).Error; err != nil {
 		t.Fatal(err)
@@ -353,7 +354,7 @@ func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	seedTrack(t, s, inLib1, lib1.ID)
 	seedTrack(t, s, inLib2, lib2.ID)
 
-	items, err := s.DiscoveryFeed("admin", 10, 0, 1, &store.DiscoveryFilter{LibraryID: &lib1.ID})
+	items, err := s.DiscoveryFeed("admin", 10, 0, 1, &store.DiscoveryFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
