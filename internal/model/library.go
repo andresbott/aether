@@ -24,9 +24,12 @@ type Library struct {
 	// config file's Libraries list and materialized here at startup. A config
 	// library is read-only over the API — startup rewrites its fields from the
 	// file on every boot, so an API write would be silently reverted.
-	// LastScanStartedAt is runtime state, not configuration, and stays on the
-	// row for both sources.
-	Source            string `gorm:"not null;default:'db';index"`
+	Source string `gorm:"not null;default:'db';index"`
+	// LastScanStartedAt is a legacy column nothing writes any more: the
+	// scanner reads scan folders from the config file instead of library
+	// rows, so no scan is ever attributed to a library. It goes away together
+	// with the library's other disk-era fields (Path, ExcludePatterns,
+	// FollowSymlinks, Source) once libraries become purely filter-based.
 	LastScanStartedAt *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time

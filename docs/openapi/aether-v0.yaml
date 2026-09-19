@@ -3287,7 +3287,11 @@ components:
         last_scan_started_at:
           type: [string, 'null']
           format: date-time
-          description: Present but null until a scan of this library has started.
+          description: >
+            Always null. Libraries no longer own a scan — what gets scanned
+            is the server's configured scan folders — so nothing stamps this
+            field any more. Kept only so the response shape is unchanged;
+            scan history is available through the tasks endpoints.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         track_count:
