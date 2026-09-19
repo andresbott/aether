@@ -5,7 +5,7 @@ three registered tasks: the incremental `scan` and the full `scan-full` — two
 distinct, parameterless tasks (`app/tasks/scan.go`, registered in
 `app/cmd/server.go`), each pinned to a `ScanOptions.IsFull` mode rather than one
 task carrying a `full` flag — and the metadata editor's targeted `reindex`
-(`ReindexParams{LibraryID, Paths}`, `app/tasks/reindex.go` — see "Targeted
+(`ReindexParams{ScanFolder, Paths}`, `app/tasks/reindex.go` — see "Targeted
 re-index" below). `scan` and `scan-full` are user-triggerable and schedulable
 (they are in `apptasks.AvailableTasks`); `reindex` is deliberately absent from
 that catalog — enqueued only by the editor's write handlers, never triggered or
@@ -13,43 +13,50 @@ scheduled by hand. All hand their progress/log lines to the `*slog.Logger` tempo
 passes into the task function, which lands in the per-execution log
 (`internal/taskrunner`'s `filelog.Store`; see architecture.md).
 
-## Pipeline (per library, `scanner.go`)
+## Pipeline (per scan folder, `scanner.go`)
 
 1. **Preflight + walk** (`scanner.go`, `walk.go`) — `Scan` is **two-phase**:
-   `preflight` validates and walks *every* library before *any* library is
-   reconciled, and phase 2 (`scanLibrary`) then reconciles each one from the walk
-   preflight already produced — the tree is never walked twice. Phase 1 collects
-   audio files under `Library.Path`, honoring JSON-encoded
-   `Library.ExcludePatterns` (`excludes.go`) and `FollowSymlinks`, and applies two
-   guards: it refuses a root that does not stat as a directory, and refuses to
-   *continue* when the walk found no audio files while `CountTracksForLibrary` is
-   non-zero. `makeWalkFn` swallows every error including the root's, so an
-   unmounted share would otherwise scan "successfully" with zero results and let
-   step 5 delete the whole library. Both guards fail the scan task for **every**
-   library, and because they all run in phase 1 the run stops before the first
+   `preflight` validates and walks *every* scan folder before *any* folder is
+   reconciled, and phase 2 (`scanFolder`) then reconciles each one from the walk
+   preflight already produced — the tree is never walked twice. Folders come
+   from `scanner.Config.Folders` (a `*scanfolder.Set`, built once in `app/cmd`
+   from `config.yaml`'s `ScanFolders` — not `Library` rows; see
+   architecture.md) and are processed in **name order** (`Set.All()`), which
+   is what decides ownership when a file is reachable from two folders (see
+   "Identity & normalization rules" below). Phase 1 collects audio files under
+   `Folder.Path`, honoring `Folder.ExcludePatterns` (compiled regexes, via
+   `Folder.Excludes`) and `FollowSymlinks`, and applies two guards: it refuses
+   a folder whose root fails `Folder.Available()` (does not stat as a
+   directory), and refuses to *continue* when the walk found no audio files
+   while `store.CountTracksInScanFolder(name, root)` is non-zero — the marker
+   **or** the path range, so the guard still trips even right after a config
+   rename, before the next scan has re-stamped the marker. `makeWalkFn`
+   swallows every error including the root's, so an unmounted share would
+   otherwise scan "successfully" with zero results and let step 5 delete the
+   whole scan folder. Both guards fail the scan task for **every** scan
+   folder, and because they all run in phase 1 the run stops before the first
    write: nothing is committed and `Cleanup` never runs, so the abort is atomic.
-   A user who really did empty a library deletes the library instead — which
-   cascades its tracks and with them the playlist entries, stars and play history
-   attached to them, and the guard's error message says so, because that is the
-   very deletion it just refused to perform.
+   A user who really did empty a scan folder removes its entry from
+   `ScanFolders` in the config and restarts instead — the next scan then
+   sweeps its tracks and with them the playlist entries, stars and play
+   history attached to them, and the guard's error message says so, because
+   that is the very deletion it just refused to perform.
    **The phase split is load-bearing, not tidiness.**
-   `planTrackContinuity`'s candidate pool is deliberately *not* library-scoped (a
-   move between two collections has to keep its row), so a single-phase loop let a
-   library sorting earlier by name — `ListLibraries` orders `name ASC` — harvest
-   the rows of an unavailable library that had not reached its own guard yet:
+   `planTrackContinuity`'s candidate pool is deliberately *not* scan-folder-scoped
+   (a move between two collections has to keep its row), so a single-phase loop let an
+   earlier-sorting scan folder harvest
+   the rows of an unavailable folder that had not reached its own guard yet:
    every path of an unplugged drive stats ENOENT, and one byte-identical new file
-   was enough to re-link such a row, moving its stars, playlist entries, history
-   and `library_id` onto a file from another collection before the later guard
+   was enough to re-link such a row, moving its stars, playlist entries and history
+   onto a file from another collection before the later guard
    failed the scan too late to undo it.
-   `LastScanStartedAt` is stamped in **phase 2**, so a library the run never got
-   to reconcile does not claim it was scanned.
    Still unguarded, and sharper than "swept silently": an unreadable or absent
    *subtree* inside a root that is present — a per-directory mount that is gone
    leaves an empty mountpoint directory behind. Its files stat ENOENT
    indistinguishably from deleted ones, so those rows are swept **and can be
    re-linked** onto a byte-identical new file elsewhere. Not fixable by requiring
    a vanished row's parent directory to still exist: that would break the primary
-   use case, since reorganising a library moves whole directories.
+   use case, since reorganising a scan folder moves whole directories.
    `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
    subtree fails with EACCES rather than merely looking empty.
    Accepted, won't fix, on an explicit assumption — mounts are library *roots*, never
@@ -57,26 +64,40 @@ passes into the task function, which lands in the per-execution log
    dropped root mount trips the guards above. Full analysis and the candidate fixes:
    [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
 2. **Change filter** — incremental scans skip files whose size/modtime match
-   the DB (`store.FilterChanged`); unchanged files only get their
-   `last_seen_at` bumped in 500-row chunks (`store.BulkMarkSeen`, which also
-   re-stamps each row's `scan_folder` — the marker library scoping matches
-   on; see "Identity & normalization rules").
-   A **full** scan (`ScanOptions.IsFull`) re-reads every file's tags.
+   the DB (`store.FilterChanged`); every walked file in the folder — changed
+   or not — gets its `last_seen_at` bumped and its `scan_folder` re-stamped in
+   500-row chunks (`store.BulkMarkSeen`; see "Identity & normalization
+   rules"). A **full** scan (`ScanOptions.IsFull`) re-reads every file's tags.
 3. **Tag read** — a worker pool (`Config.TagReadWorkers`, 0 = NumCPU) reads
    tags via `tags.Reader`.
 4. **Reconcile** (`reconcile.go`) — one `store.Transaction` **per track**; a
    failed track is logged and skipped, never aborts the scan.
-5. **Cleanup** — after all libraries: tracks with `last_seen_at < scanStart`
+5. **Cleanup** — after all scan folders: tracks with `last_seen_at < scanStart`
    are removed (`store.Cleanup`), then `DeleteOrphanedAggregates`
    (`store/scan_helpers.go`) deletes albums/artists/genres with no tracks
    plus their join rows, playlist entries, stars, and play history.
+
+With **zero scan folders configured**, `Scan` logs and returns before phase 1
+ever runs, so an empty (or not-yet-written) `ScanFolders` list cannot wipe an
+existing index by starving `Cleanup`'s liveness check.
+
+**Changing the config.** Removing a folder's entry from `ScanFolders` does
+not delete anything by itself — its tracks are swept at the *next* scan
+(with the playlist entries, stars and play history attached to them), and a
+startup `WARN` (`warnScanFolders`) gives the operator one restart's notice
+first. Changing a folder's `Path` wipes nothing either: the old paths simply
+vanish from the walk and the new ones appear as unknown paths, and
+`planTrackContinuity` re-links the rows across the two if it can prove the
+move (see "Identity & normalization rules" below). Renaming a folder (its
+`Name`) heals on the next scan of any kind through `store.BulkMarkSeen`,
+which re-stamps every walked file's `scan_folder` unconditionally.
 
 **Progress.** `scan`/`scan-full` report progress to the UI via
 `ScanOptions.Progress` (a `scanner.ProgressReporter`; tempo's reporter satisfies
 it, wired in `RegisterWithProgress`). The total is `2 × files-to-process`,
 counted once per file in the tag-read pass and once per track in reconcile, so
 the percentage crosses both phases; the stage string names the current file
-relative to the library root. `reindex` passes a no-op reporter (progress is
+relative to the scan folder root. `reindex` passes a no-op reporter (progress is
 scans-only for now).
 
 `LastSeenAt` is the liveness marker — every code path that touches a track
@@ -98,7 +119,7 @@ a bump that was needed.
 
 **One deliberate exception.** `store.RelinkTrack` is a third writer that touches
 a track during a scan and does **not** advance `last_seen_at` — it rewrites
-`file_path`, `filename`, `library_id` and `scan_folder` only. That is safe
+`file_path`, `filename` and `scan_folder` only. That is safe
 because the row now carries the new path, so `reconcileTrack` finds it moments
 later in the same batch and sets the marker there; and if *that* transaction
 fails, `Cleanup` deletes the row exactly as it would have without the re-link.
@@ -108,24 +129,31 @@ tracks mid-scan still has to advance it.
 
 ## Targeted re-index (`internal/scanner/rescan.go`, `app/tasks/reindex.go`)
 
-`Scanner.RescanPaths(ctx, libraryID, absPaths)` re-indexes an explicit list of
-files: it admits each path (inside the library root, audio extension, not
-excluded, stat-able, `tagReader.CanRead`), reads its tags serially — always
-fresh, with no `filterChanged` mtime gate — and hands the results to the same
-`reconcile` step 4 uses. Inadmissible paths are silently skipped and counted
-in `ScanStats.TracksSkipped`; only real tag-read failures land in
-`ScanStats.Errors`.
+`Scanner.RescanPaths(ctx, scanFolder, absPaths)` re-indexes an explicit list
+of files: it looks up `scanFolder` by name in `scanner.Config.Folders` — an
+unknown name fails the job outright — then admits each path via
+`WalkWouldEmit`, the same predicate `Walk` uses (inside that folder's root,
+an audio extension, not excluded, resolved through any followed symlinks),
+reads its tags serially — always fresh, with no `filterChanged` mtime gate —
+and hands the results to the same `reconcile` step 4 uses. Inadmissible paths
+are silently skipped and counted in `ScanStats.TracksSkipped`; only real
+tag-read failures land in `ScanStats.Errors`.
 
 The metadata editor never calls `RescanPaths` directly. Every write handler
 (`app/router/handlers/metadata`: `updateTracks`, `applyPicture`, `removals`,
 and the artist-folder `setArtistImage`/`deleteArtistImage`) writes to disk
 first, then enqueues a `reindex` task (`app/tasks/reindex.go`,
-`ReindexParams{LibraryID, Paths}`; `NewReindexTaskFn` reuses one `Scanner`,
+`ReindexParams{ScanFolder, Paths}`; `NewReindexTaskFn` reuses one `Scanner`,
 like `NewScanTaskFn` does, and just calls `RescanPaths`) through the
 `metadata.Reindexer` interface — implemented by the router's `reindexEnqueuer`
 over `*taskrunner.Runner` — and reports it as `reindex: {execution_id}` in the
 response (`enqueueReindex`; omitted when nothing was written, or re-indexing
-is disabled because no task runner is configured). The artist-folder handlers
+is disabled because no task runner is configured). The metadata API still
+addresses the selection by `library_id` (the request shape is unchanged —
+see [api-conventions.md](api-conventions.md)); the write handlers resolve
+that to the library row and hand `enqueueReindex` its **name** as the scan
+folder to re-index — a later phase is planned to have the editor address
+scan folders directly instead. The artist-folder handlers
 re-index only one representative track under the folder
 (`metadataedit.FirstAudioPath`) — enough for the per-artist reconcile pass to
 re-probe the image, not the whole discography.
@@ -208,11 +236,11 @@ Two invariants:
 
 - **It must never call `store.Cleanup` / `DeleteTracksNotSeenSince`.** Those
   delete every track whose `last_seen_at` predates the run — with only N
-  paths reconciled that is the whole library.
+  paths reconciled that is the whole catalog.
 - **It calls `store.PruneOrphanedAggregates`, not `DeleteOrphanedAggregates`.**
   Only on the aggregates the touched tracks belonged to before reconcile
   (`store.TouchedAggregatesForPaths`, snapshotted first), not the exhaustive
-  whole-library sweep the scheduled scan's `Cleanup` runs. An edit can empty
+  whole-catalog sweep the scheduled scan's `Cleanup` runs. An edit can empty
   an album/artist/genre (renaming the last track by an artist), and pruning
   by "has no tracks" rather than a timestamp is safe standalone; anything a
   narrower snapshot misses (a moved-and-retagged row, say) is still swept by
@@ -220,8 +248,8 @@ Two invariants:
 
 **A successful `reindex` job does not mean every touched track reconciled.**
 `NewReindexTaskFn` fails the job only when `RescanPaths` itself returns an
-error (a bad library id, unparsable exclude patterns, a canceled context, or a
-DB error snapshotting/pruning aggregates); a non-empty `ScanStats.Errors`
+error (an unconfigured scan folder name, unparsable exclude patterns, a
+canceled context, or a DB error snapshotting/pruning aggregates); a non-empty `ScanStats.Errors`
 (tag-read failures) or a `TracksProcessed` shortfall against
 `len(paths)-TracksSkipped` is only logged, exactly like the scheduled `scan`
 task, and never fails it. The synchronous handler this replaced (`rescanSaved`,
@@ -315,8 +343,8 @@ not just any scan, to self-heal.
   the `newest` ordering, the discovery feed's recency term, and client-cached
   `/album/:id`. Everything unprovable falls through to `FindOrCreateAlbum` and
   churns the id as before: partial edits, splits, merges into an existing
-  identity, identity swaps, albums spanning two libraries (`reconcile` runs per
-  library), and albums with a track deleted from disk but not yet swept by
+  identity, identity swaps, albums spanning two scan folders (`reconcile` runs
+  per scan folder), and albums with a track deleted from disk but not yet swept by
   `Cleanup`. Several albums collapsing into one identity in one batch keep the
   row of the album with the most tracks (lowest id as tiebreak). The entire
   pre-pass is deliberately independent of tag-reader ordering — the survivor
@@ -428,10 +456,10 @@ depth (intermediate and disc folders such as
 reusable `internal/artistimage` package so callers outside the scanner (the
 metadata editor, to create an artist image file) can share it.
 `artistimage.Detect(libRoot, startDir, artistName)` walks from `startDir`'s
-parent up to (excluding) the library root and accepts a directory only when it is
+parent up to (excluding) the scan folder root and accepts a directory only when it is
 **both** above the album directory **and** named after the artist
 (`unidecode.Normalize` on both sides). That double condition is deliberate: file
-location alone does not identify an artist, so a library laid out differently
+location alone does not identify an artist, so a differently laid out collection
 yields `""` rather than a wrong portrait. `artistimage.FindDir` returns that
 folder even when it holds no image yet — what a caller writing a new artist image
 needs. Accepted filenames are exact-match only (`artist` > `artistthumb` >
@@ -442,9 +470,9 @@ directory stays an album cover.
 Unlike `album.CoverPath`, the path is re-validated every pass
 (`artistimage.IsUsablePath`) and cleared when the file is gone; it is only kept
 across a pass when detection finds nothing but the recorded file still exists
-(another library may have supplied it). Images are reconciled **once per artist**
+(another scan folder may have supplied it). Images are reconciled **once per artist**
 in a single pass after every track is in (`reconcileArtistImages`), not per
-track, so a large library lists each artist folder at most once per run.
+track, so a large scan folder lists each artist folder at most once per run.
 
 `ImagePath` is the **last** fallback in `artistCoverMeta`
 (`handlers/subsonic/media.go`): asset store by MBID → asset store by DB ID →

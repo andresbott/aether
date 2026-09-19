@@ -55,11 +55,11 @@ no error at all: the directory exists, opens fine, and is honestly empty.
 
 Two guards already cover the root-level version of this (`scanning.md`, pipeline
 step 1): a root that does not stat as a directory is refused, and a walk that finds
-zero audio files while `CountTracksForLibrary` is non-zero is refused. `makeWalkFn`
+zero audio files while `store.CountTracksInScanFolder` is non-zero is refused. `makeWalkFn`
 swallows every error including the root's, so without them an unmounted share would
-scan "successfully" with zero results and let cleanup delete the whole library.
+scan "successfully" with zero results and let cleanup delete the whole scan folder.
 
-Neither guard sees *inside* a root. A library whose root is healthy while one
+Neither guard sees *inside* a root. A scan folder whose root is healthy while one
 subdirectory is hollow passes both, and the tracks under that subdirectory are
 treated exactly as deletions.
 
@@ -98,13 +98,14 @@ only ever swept.
 
 ### Not this caveat
 
-- **Whole library unavailable** — guarded in phase 1, fails the scan atomically.
+- **Whole scan folder unavailable** — guarded in phase 1, fails the scan atomically.
 - **A subtree that fails with EACCES** rather than looking empty —
   `planTrackContinuity` narrows on `fs.ErrNotExist`, so a permissions failure already
   declines. It is specifically the *readable and empty* case that slips through.
-- **A library the user genuinely emptied** — the zero-files guard refuses that too,
-  and its error message says to delete the library instead, because that is the
-  cascade it just declined to perform.
+- **A scan folder the user genuinely emptied** — the zero-files guard refuses that
+  too, and its error message points at removing the entry from `ScanFolders` in the
+  config and restarting, because that is the same cascade — the next scan sweeps the
+  folder's tracks — the guard just declined to perform outright.
 - **Cloud placeholder files** (OneDrive, Offline Files) — those stat successfully and
   report their true size, so nothing is swept; tag reads fail instead and land in
   `ScanStats.Errors`. Different, milder failure.

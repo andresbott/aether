@@ -25,6 +25,27 @@ Vue 3 web player embedded.
   Third-party clients authenticate with per-app tokens.
 - **Operations** — SQLite, YAML/env config, Debian packages.
 
+## Configure what gets scanned
+
+List the directories to scan under `ScanFolders:` in `config.yaml` — there is
+no UI for this, only the config file:
+
+```yaml
+ScanFolders:
+  - Name: "Music"
+    Path: "/srv/music"
+    ExcludePatterns:
+      - ".*/covers/.*"   # optional, Go regexes
+    FollowSymlinks: true # optional, default true
+```
+
+`Name` identifies the folder (tracks remember it); `Path` is the directory to
+scan. Restart the server after editing, then run a scan. Removing an entry
+removes its tracks at the next scan, along with their stars, playlist
+entries and play history.
+
+See `config.yaml` for the full annotated example and every other setting.
+
 ## Development
 
 Tasks are driven by make:
