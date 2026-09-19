@@ -44,10 +44,10 @@ func TestRescanPathsCancelsBlockedTagRead(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Album/01.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &blockingReader{}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	type result struct {
@@ -56,7 +56,7 @@ func TestRescanPathsCancelsBlockedTagRead(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() {
-		stats, err := s.RescanPaths(ctx, lib.ID, []string{filepath.Join(dir, "Album", "01.mp3")})
+		stats, err := s.RescanPaths(ctx, folder.Name, []string{filepath.Join(dir, "Album", "01.mp3")})
 		done <- result{stats: stats, err: err}
 	}()
 

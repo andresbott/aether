@@ -14,7 +14,6 @@ import (
 type TrackRow struct {
 	ID          uint      `gorm:"column:id"`
 	FilePath    string    `gorm:"column:file_path"`
-	LibraryID   uint      `gorm:"column:library_id"`
 	FileSize    int64     `gorm:"column:file_size"`
 	FileModTime time.Time `gorm:"column:file_mod_time"`
 	Duration    int       `gorm:"column:duration"`
@@ -73,7 +72,7 @@ func (s *Store) TracksByFileSizes(ctx context.Context, sizes []int64) ([]TrackRo
 
 // trackRowColumns is the projection every TrackRow query shares, so a column
 // added to the struct cannot be forgotten in one of them.
-const trackRowColumns = "id, file_path, library_id, file_size, file_mod_time, duration, title, audio_hash"
+const trackRowColumns = "id, file_path, file_size, file_mod_time, duration, title, audio_hash"
 
 // TracksByAudioHashes returns every track row whose audio_hash is one of hashes.
 // It backs the second, metadata-invariant half of the move proof: unlike
@@ -123,13 +122,12 @@ func (s *Store) TracksByAudioHashes(ctx context.Context, hashes []string) ([]Tra
 // filesystem reads it must not hold a write transaction across, so the update
 // itself is the check: a row whose path changed underneath reports
 // relinked=false and is skipped rather than overwritten.
-func (s *Store) RelinkTrack(ctx context.Context, id uint, oldPath, newPath string, libraryID uint, scanFolder string) (bool, error) {
+func (s *Store) RelinkTrack(ctx context.Context, id uint, oldPath, newPath, scanFolder string) (bool, error) {
 	res := s.db.WithContext(ctx).Model(&model.Track{}).
 		Where("id = ? AND file_path = ?", id, oldPath).
 		Updates(map[string]any{
 			"file_path":   newPath,
 			"filename":    filepath.Base(newPath),
-			"library_id":  libraryID,
 			"scan_folder": scanFolder,
 		})
 	if res.Error != nil {

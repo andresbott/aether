@@ -12,13 +12,13 @@ import (
 
 // RescanPaths re-reads the tags of absPaths and reconciles them into the store,
 // so files the metadata editor just wrote are reflected in the library index
-// without a full scan. Paths that are not inside the library, not audio files,
-// excluded by the library's patterns, or unreadable are silently skipped and
-// counted in ScanStats.TracksSkipped; only tag-read failures appear in
+// without a full scan. Paths that are not inside the scan folder, not audio
+// files, excluded by the folder's patterns, or unreadable are silently skipped
+// and counted in ScanStats.TracksSkipped; only tag-read failures appear in
 // ScanStats.Errors. A run indexed everything it was supposed to when
 // TracksProcessed == len(absPaths)-TracksSkipped and Errors is empty — callers
 // must not compare TracksProcessed to len(absPaths) directly, because the
-// editor's file listing ignores the library's exclude patterns, so it can hand
+// editor's file listing ignores the folder's exclude patterns, so it can hand
 // this method a path the scanner deliberately skips as excluded.
 //
 // It deliberately does NOT run the scan cleanup: store.Cleanup deletes every
@@ -30,19 +30,19 @@ import (
 // moved a track away from. Anything that snapshot misses (a moved-and-retagged
 // row, say) is swept by the scheduled scan's Cleanup, which still runs the
 // exhaustive sweep.
-func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []string) (ScanStats, error) {
+func (s *Scanner) RescanPaths(ctx context.Context, scanFolder string, absPaths []string) (ScanStats, error) {
 	stats := ScanStats{}
 	if len(absPaths) == 0 {
 		return stats, nil
 	}
 
-	lib, err := s.store.GetLibrary(libraryID)
-	if err != nil {
-		return stats, fmt.Errorf("rescan: library %d: %w", libraryID, err)
+	folder, ok := s.cfg.Folders.ByName(scanFolder)
+	if !ok {
+		return stats, fmt.Errorf("rescan: scan folder %q is not configured", scanFolder)
 	}
-	excludes, err := compileExcludes(lib.ExcludePatterns)
+	excludes, err := folder.Excludes()
 	if err != nil {
-		return stats, fmt.Errorf("rescan: library %q: %w", lib.Name, err)
+		return stats, fmt.Errorf("rescan: %w", err)
 	}
 
 	results := make([]tagResult, 0, len(absPaths))
@@ -50,12 +50,11 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		if ctx.Err() != nil {
 			return stats, ctx.Err()
 		}
-		wr, ok := WalkWouldEmit(lib.Path, lib.ID, abs, excludes, lib.FollowSymlinks)
+		wr, ok := WalkWouldEmit(folder, excludes, abs)
 		if !ok {
 			stats.TracksSkipped++
 			continue
 		}
-		wr.ScanFolder = lib.Name
 		meta, rerr := s.tagReader.Read(ctx, abs)
 		if rerr != nil {
 			stats.Errors = append(stats.Errors, fmt.Errorf("read tags %q: %w", abs, rerr))
@@ -81,7 +80,7 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 		return stats, fmt.Errorf("rescan: snapshot aggregates: %w", err)
 	}
 
-	rec, err := s.reconcile(ctx, lib.Path, results, time.Now(), nil, noopProgress{})
+	rec, err := s.reconcile(ctx, folder.Path, results, time.Now(), nil, noopProgress{})
 	stats.TracksProcessed += rec.Processed
 	stats.TracksNew += rec.New
 	stats.TracksUpdated += rec.Updated
@@ -98,9 +97,9 @@ func (s *Scanner) RescanPaths(ctx context.Context, libraryID uint, absPaths []st
 	return stats, nil
 }
 
-// excludedByAnySegment reports whether rel — a path relative to the library
-// root — is excluded, testing every ancestor directory as well as the file
-// itself.
+// excludedByAnySegment reports whether rel — a path relative to the scan
+// folder's root — is excluded, testing every ancestor directory as well as the
+// file itself.
 //
 // Walk prunes a matching *directory* with SkipDir, so an anchored pattern like
 // "^Live$" removes everything under "Artist/Live/" even though neither the full

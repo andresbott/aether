@@ -509,8 +509,8 @@ func TestArtistImageDelete_RemovesFile(t *testing.T) {
 	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != want {
 		t.Fatalf("unexpected reindex paths: %v, want [[%s]]", rx.calls, want)
 	}
-	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
-		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	if len(rx.folders) != 1 || rx.folders[0] != lib.Name {
+		t.Fatalf("expected scan folder %q, got %v", lib.Name, rx.folders)
 	}
 	var resp struct {
 		Reindex *struct {

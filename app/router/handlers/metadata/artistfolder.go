@@ -186,7 +186,7 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, artistImageResult{
 		OK:      true,
 		Path:    filepath.ToSlash(rel),
-		Reindex: h.reindexArtistFolder(r, libModel.ID, abs),
+		Reindex: h.reindexArtistFolder(r, libModel.Name, abs),
 	})
 }
 
@@ -209,7 +209,7 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	out := map[string]any{"ok": true}
-	if rx := h.reindexArtistFolder(r, lib.ID, abs); rx != nil {
+	if rx := h.reindexArtistFolder(r, lib.Name, abs); rx != nil {
 		out["reindex"] = rx
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -220,12 +220,12 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 // the artist and pick up (or drop) the folder image — without re-indexing the
 // whole discography. Returns nil when re-indexing is disabled or the folder
 // has no readable track.
-func (h *ImagesHandler) reindexArtistFolder(r *http.Request, libraryID uint, absDir string) *reindexRef {
+func (h *ImagesHandler) reindexArtistFolder(r *http.Request, scanFolder string, absDir string) *reindexRef {
 	p, ok := metadataedit.FirstAudioPath(absDir, h.Reader)
 	if !ok {
 		return nil
 	}
-	return enqueueReindex(r.Context(), h.Reindex, libraryID, []string{p})
+	return enqueueReindex(r.Context(), h.Reindex, scanFolder, []string{p})
 }
 
 // artistImageSource returns the image bytes and normalized extension from either

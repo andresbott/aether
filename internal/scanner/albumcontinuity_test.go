@@ -10,6 +10,7 @@ import (
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
@@ -73,10 +74,10 @@ func TestReconcileKeepsTheAlbumIDWhenTheWholeAlbumIsRetagged(t *testing.T) {
 		"Apocalyptica/Cult/03.mp3",
 		"Apocalyptica/Cult/cover.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -128,10 +129,10 @@ func TestReconcileKeepsTheAlbumIDWhenTheAlbumGainsAnMBID(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +163,10 @@ func TestRescanPathsSplitsAnAlbumWhenOnlySomeTracksAreRetagged(t *testing.T) {
 		"Apocalyptica/Cult/02.mp3",
 		"Apocalyptica/Cult/03.mp3",
 	})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +175,7 @@ func TestRescanPathsSplitsAnAlbumWhenOnlySomeTracksAreRetagged(t *testing.T) {
 	// The editor moves ONE file to a different album and rescans just that file.
 	edited := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader.album = "Cult (Single)"
-	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{edited}); err != nil {
+	if _, err := s.RescanPaths(context.Background(), folder.Name, []string{edited}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,10 +209,10 @@ func TestReconcileDoesNotRetagWhenTheBatchDisagrees(t *testing.T) {
 		"Apocalyptica/Cult/02.mp3",
 		"Apocalyptica/Cult/03.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestReconcileMergesIntoAnExistingAlbumIdentity(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Other/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	move := filepath.Join(dir, "Apocalyptica/Other/02.mp3")
 	reader := &retagReader{
@@ -263,7 +264,7 @@ func TestReconcileMergesIntoAnExistingAlbumIdentity(t *testing.T) {
 		albumArtist: "Apocalyptica",
 		perPath:     map[string]string{move: "Reflections"},
 	}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +310,7 @@ func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 		"Apocalyptica/CD2/05.mp3",
 		"Apocalyptica/CD3/06.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	cd2a := filepath.Join(dir, "Apocalyptica/CD2/04.mp3")
 	cd2b := filepath.Join(dir, "Apocalyptica/CD2/05.mp3")
@@ -323,7 +324,7 @@ func TestReconcileKeepsTheLargerAlbumWhenTwoAlbumsMerge(t *testing.T) {
 			cd3:  "Cult (Disc 3)",
 		},
 	}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -361,10 +362,10 @@ func TestRescanPathsRetagPreservesStarsAndCreatedAt(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 	})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +381,7 @@ func TestRescanPathsRetagPreservesStarsAndCreatedAt(t *testing.T) {
 		filepath.Join(dir, "Apocalyptica/Cult/01.mp3"),
 		filepath.Join(dir, "Apocalyptica/Cult/02.mp3"),
 	}
-	if _, err := s.RescanPaths(context.Background(), lib.ID, paths); err != nil {
+	if _, err := s.RescanPaths(context.Background(), folder.Name, paths); err != nil {
 		t.Fatal(err)
 	}
 
@@ -418,11 +419,15 @@ func TestReconcileRekeysAlbumImagesWhenTheAlbumIsRetagged(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
 	assets := assetstore.New(assetRoot)
-	cfg := scanner.Config{AssetRekeyer: assets}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := scanner.Config{AssetRekeyer: assets, Folders: set}
 	s := scanner.New(cfg, st, reader)
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -477,11 +482,15 @@ func TestReconcileToleratesAnOccupiedDestinationKey(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
 	assets := assetstore.New(assetRoot)
-	cfg := scanner.Config{AssetRekeyer: assets}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := scanner.Config{AssetRekeyer: assets, Folders: set}
 	s := scanner.New(cfg, st, reader)
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -529,11 +538,11 @@ func TestReconcileRetagsAlbumWithNoAssetRekeyer(t *testing.T) {
 		"Apocalyptica/Cult/01.mp3",
 		"Apocalyptica/Cult/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocaliptica"}
 	// No AssetRekeyer in Config: the hook must be optional.
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
@@ -566,10 +575,10 @@ func TestReconcileKeepsTheAlbumIDWhenAMultiDiscAlbumIsRetagged(t *testing.T) {
 		"Apocalyptica/Cult/CD 1/cover.jpg",
 		"Apocalyptica/Cult/CD 2/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &retagReader{album: "Cult", albumArtist: "Apocalyptica"}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,6 @@ func seedIdentityTrack(t *testing.T, s *store.Store, albumID uint, path string, 
 	t.Helper()
 	track := model.Track{
 		AlbumID:     albumID,
-		LibraryID:   1,
 		Filename:    "old.mp3",
 		FilePath:    path,
 		FileSize:    size,
@@ -62,7 +61,7 @@ func TestTracksByFileSizes(t *testing.T) {
 	}
 	got := rows[0]
 	if got.ID != want.ID || got.FilePath != "/music/a.mp3" || got.Title != "A" ||
-		got.Duration != 180 || got.FileSize != 4 || got.LibraryID != 1 {
+		got.Duration != 180 || got.FileSize != 4 {
 		t.Fatalf("row does not carry the columns the proof needs: %+v", got)
 	}
 	if got.FileModTime.Unix() != mod.Unix() {
@@ -76,7 +75,7 @@ func TestRelinkTrackKeepsTheRow(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/old/a.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/old/a.mp3", "/music/new/b.mp3", 7, "Other")
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/old/a.mp3", "/music/new/b.mp3", "Other")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,9 +92,6 @@ func TestRelinkTrackKeepsTheRow(t *testing.T) {
 	}
 	if after.Filename != "b.mp3" {
 		t.Fatalf("Filename = %q, want the new basename", after.Filename)
-	}
-	if after.LibraryID != 7 {
-		t.Fatalf("LibraryID = %d, want 7 (a move can cross libraries)", after.LibraryID)
 	}
 	if after.ScanFolder != "Other" {
 		t.Fatalf("ScanFolder = %q, want %q (a move can cross scan folders)", after.ScanFolder, "Other")
@@ -114,7 +110,7 @@ func TestRelinkTrackReportsNoChangeWhenThePathMoved(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/current.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/stale.mp3", "/music/new.mp3", 1, "Music")
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/stale.mp3", "/music/new.mp3", "Music")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -221,7 +221,6 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	isNew := result.Error != nil
 
 	track.AlbumID = album.ID
-	track.LibraryID = tr.walk.LibraryID
 	track.ScanFolder = tr.walk.ScanFolder
 	track.Filename = filepath.Base(tr.walk.FilePath)
 	track.Suffix = suffixOf(track.Filename)
@@ -306,12 +305,13 @@ func recordArtistProbes(probes map[uint]*artistImageProbe, trackPath string, art
 	}
 }
 
-// reconcileArtistImages runs once per library after every track is reconciled:
-// for each artist touched this run it records the artist-folder image found on
-// disk (<collection>/<artist>/artist.jpg). A path already on the row is
-// re-checked, not trusted, and kept only when the disk yields nothing — another
-// library's layout may still hold it. Empty detection with no usable stored path
-// clears the row. Failures are logged, never fatal: the field is a soft fallback.
+// reconcileArtistImages runs once per scan folder after every track is
+// reconciled: for each artist touched this run it records the artist-folder
+// image found on disk (<collection>/<artist>/artist.jpg). A path already on the
+// row is re-checked, not trusted, and kept only when the disk yields nothing —
+// another scan folder's layout may still hold it. Empty detection with no
+// usable stored path clears the row. Failures are logged, never fatal: the
+// field is a soft fallback.
 func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistImageProbe) {
 	for id, p := range probes {
 		img := ""

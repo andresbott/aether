@@ -12,11 +12,13 @@ import (
 	"github.com/go-bumbu/http/problemjson"
 )
 
-// librarySummary is the resolved library a request addresses: its id and root
-// path. It is the shared output of every library_id lookup, so the handlers
-// never touch the store model directly.
+// librarySummary is the resolved library a request addresses: its id, its name
+// and its root path. The name is what the post-write re-index is addressed by —
+// a scan folder is identified by name, and until the editor addresses scan
+// folders directly a library stands in for the folder of the same name.
 type librarySummary struct {
 	ID   uint
+	Name string
 	Path string
 }
 
@@ -60,6 +62,7 @@ func resolveLibraryRel(st *store.Store, r *http.Request) (lib *librarySummary, a
 	}
 	return &librarySummary{
 		ID:   libModel.ID,
+		Name: libModel.Name,
 		Path: libModel.Path,
 	}, abs, 0, nil
 }
@@ -104,7 +107,7 @@ func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id 
 		pw.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return nil, false
 	}
-	return &librarySummary{ID: libModel.ID, Path: libModel.Path}, true
+	return &librarySummary{ID: libModel.ID, Name: libModel.Name, Path: libModel.Path}, true
 }
 
 // resolveSelection is the one-call validation path for a decoded selection:

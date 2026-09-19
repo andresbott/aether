@@ -10,7 +10,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 )
 
@@ -33,8 +33,8 @@ func TestWalkWouldEmitRejectsFileUnderUnfollowedSymlinkedDir(t *testing.T) {
 	}
 
 	const follow = false
-	lib := model.Library{ID: 1, Path: libDir}
-	walked, err := scanner.Walk([]model.Library{lib}, nil, follow)
+	folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: follow}
+	walked, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestWalkWouldEmitRejectsFileUnderUnfollowedSymlinkedDir(t *testing.T) {
 	if emitted[underSymlink] {
 		t.Fatalf("test premise broken: no-follow Walk emitted %q", underSymlink)
 	}
-	if _, ok := scanner.WalkWouldEmit(lib.Path, lib.ID, underSymlink, nil, follow); ok {
+	if _, ok := scanner.WalkWouldEmit(folder, nil, underSymlink); ok {
 		t.Errorf("WalkWouldEmit admitted %q, but a no-follow Walk does not emit it — a rescan would index a row the next scan deletes", underSymlink)
 	}
 }
@@ -66,8 +66,8 @@ func TestWalkWouldEmitCanonicalizesFollowedSymlinkPath(t *testing.T) {
 	}
 
 	const follow = true
-	lib := model.Library{ID: 1, Path: libDir}
-	walked, err := scanner.Walk([]model.Library{lib}, nil, follow)
+	folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: follow}
+	walked, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestWalkWouldEmitCanonicalizesFollowedSymlinkPath(t *testing.T) {
 	}
 
 	spelled := filepath.Join(libDir, "album-link", "01.mp3")
-	wr, ok := scanner.WalkWouldEmit(lib.Path, lib.ID, spelled, nil, follow)
+	wr, ok := scanner.WalkWouldEmit(folder, nil, spelled)
 	if !ok {
 		t.Fatalf("WalkWouldEmit rejected %q, but a follow Walk indexes it", spelled)
 	}
@@ -145,8 +145,8 @@ func TestWalkWouldEmitAgreesWithWalk(t *testing.T) {
 
 	for _, follow := range []bool{false, true} {
 		t.Run(fmt.Sprintf("follow=%v", follow), func(t *testing.T) {
-			lib := model.Library{ID: 1, Path: libDir}
-			walked, err := scanner.Walk([]model.Library{lib}, excludes, follow)
+			folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: follow}
+			walked, err := scanner.Walk(folder, excludes)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,7 +157,7 @@ func TestWalkWouldEmitAgreesWithWalk(t *testing.T) {
 
 			admitSet := map[string]bool{}
 			for _, p := range probes {
-				if wr, ok := scanner.WalkWouldEmit(lib.Path, lib.ID, p, excludes, follow); ok {
+				if wr, ok := scanner.WalkWouldEmit(folder, excludes, p); ok {
 					admitSet[wr.FilePath] = true
 				}
 			}

@@ -322,7 +322,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"results": results}
 	// Only the files that were actually written need re-indexing; enqueueReindex
 	// returns nil for an empty list, so an all-failed batch carries no reindex.
-	if rx := enqueueReindex(r.Context(), h.Reindex, libModel.ID, written); rx != nil {
+	if rx := enqueueReindex(r.Context(), h.Reindex, libModel.Name, written); rx != nil {
 		out["reindex"] = rx
 	}
 	// A partial write of an album-identity edit leaves the album inconsistent on

@@ -214,8 +214,8 @@ func TestSearch3GenresRespectMusicFolder(t *testing.T) {
 	libB := model.Library{Name: "B", Path: "/b"}
 	db.Create(&libA)
 	db.Create(&libB)
-	trackA := model.Track{Filename: "a.mp3", FilePath: "/a/a.mp3", LibraryID: libA.ID, ScanFolder: "A"}
-	trackB := model.Track{Filename: "b.mp3", FilePath: "/b/b.mp3", LibraryID: libB.ID, ScanFolder: "B"}
+	trackA := model.Track{Filename: "a.mp3", FilePath: "/a/a.mp3", ScanFolder: "A"}
+	trackB := model.Track{Filename: "b.mp3", FilePath: "/b/b.mp3", ScanFolder: "B"}
 	db.Create(&trackA)
 	db.Create(&trackB)
 	_ = db.Model(&trackA).Association("Genres").Replace([]*model.Genre{&rock})

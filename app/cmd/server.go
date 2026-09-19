@@ -151,6 +151,7 @@ func runServer(configFile string) error {
 	scanCfg := scanner.Config{
 		TagReadWorkers: cfg.TaskRunner.TagReadWorkers,
 		AssetRekeyer:   assets,
+		Folders:        folders,
 	}
 
 	// Task runner

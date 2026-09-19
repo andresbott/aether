@@ -75,8 +75,8 @@ func TestGetStarredByLibrary(t *testing.T) {
 	db.Create(&album1)
 	db.Create(&album2)
 
-	t1 := model.Track{AlbumID: album1.ID, LibraryID: lib1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"}
-	t2 := model.Track{AlbumID: album2.ID, LibraryID: lib2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"}
+	t1 := model.Track{AlbumID: album1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"}
+	t2 := model.Track{AlbumID: album2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
 	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist1})
@@ -111,7 +111,7 @@ func TestGetStarredByLibrary(t *testing.T) {
 	if len(got.Albums) != 1 || got.Albums[0].Name != "Alb1" {
 		t.Fatalf("expected [Alb1], got %+v", got.Albums)
 	}
-	if len(got.Tracks) != 1 || got.Tracks[0].LibraryID != lib1.ID {
+	if len(got.Tracks) != 1 || got.Tracks[0].ScanFolder != lib1.Name {
 		t.Fatalf("expected 1 track in library 1, got %+v", got.Tracks)
 	}
 

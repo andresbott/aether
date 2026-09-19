@@ -9,7 +9,7 @@ import "context"
 // durable without re-indexing inside the request. Shared by the tag and picture
 // handlers (the identify handler never writes, so it has no reindexer).
 type Reindexer interface {
-	EnqueueReindex(ctx context.Context, libraryID uint, absPaths []string) (executionID string, err error)
+	EnqueueReindex(ctx context.Context, scanFolder string, absPaths []string) (executionID string, err error)
 }
 
 // reindexRef is the write handlers' pointer to the enqueued re-index job. The
@@ -25,11 +25,11 @@ type reindexRef struct {
 // runner) — this handler has no logger of its own. Either way the response
 // just omits "reindex": the file write already landed, and the next
 // scheduled scan reconciles it, so callers never fail the write on it.
-func enqueueReindex(ctx context.Context, reindexer Reindexer, libraryID uint, absPaths []string) *reindexRef {
+func enqueueReindex(ctx context.Context, reindexer Reindexer, scanFolder string, absPaths []string) *reindexRef {
 	if reindexer == nil || len(absPaths) == 0 {
 		return nil
 	}
-	id, err := reindexer.EnqueueReindex(ctx, libraryID, absPaths)
+	id, err := reindexer.EnqueueReindex(ctx, scanFolder, absPaths)
 	if err != nil || id == "" {
 		return nil
 	}

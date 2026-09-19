@@ -1262,9 +1262,11 @@ paths:
         here: omitted (or explicit null) keeps the library's current stored
         value instead of resetting it — see LibraryUpdateRequest.
 
-        Changing `path` wipes and re-scans the library's tracks; the
-        response's `path_changed` reports whether that happened, and is
-        present only then (omitempty on the handler's side) — never
+        `path` no longer selects what is scanned — the directories Aether
+        scans come only from `ScanFolders` in the server config file — so
+        changing it here does not wipe or re-scan any tracks. The response's
+        `path_changed` still reports whether this update changed `path`, and
+        is present only then (omitempty on the handler's side) — never
         present-and-false.
 
         Refused with 409 `config_managed` for a config-provisioned library
@@ -1304,10 +1306,13 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       operationId: deleteLibrary
-      summary: Delete a library and its tracks.
+      summary: Delete a library.
       description: >
-        Admin. Refused with 409 `config_managed` for a config-provisioned
-        library, for the same reason as updateLibrary.
+        Admin. Deletes only the library row: a library is a view over the
+        scan folders declared in the server config file, not their owner, so
+        its tracks are untouched and stay indexed regardless of this
+        library's lifecycle. Refused with 409 `config_managed` for a
+        config-provisioned library, for the same reason as updateLibrary.
       tags: [libraries]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -3380,8 +3385,9 @@ components:
           description: >
             Required (400 if blank). Resolved to an absolute path
             server-side; must already exist and be a readable directory, or
-            this is 422. Changing it wipes and re-scans the library's
-            tracks — see updateLibrary's `path_changed` response field.
+            this is 422. No longer selects what is scanned — scan folders
+            come from the server config — but a change is still reported via
+            updateLibrary's `path_changed` response field.
         exclude_patterns:
           type: array
           items: { type: string }

@@ -65,26 +65,8 @@ func (s *Store) UpdateLibrary(lib *model.Library) error {
 	return s.db.Save(lib).Error
 }
 
-func (s *Store) DeleteTracksForLibrary(id uint) error {
-	return s.db.Where("library_id = ?", id).Delete(&model.Track{}).Error
-}
-
-func (s *Store) CountTracksForLibrary(id uint) (int64, error) {
-	var count int64
-	if err := s.db.Model(&model.Track{}).Where("library_id = ?", id).Count(&count).Error; err != nil {
-		return 0, err
-	}
-	return count, nil
-}
-
+// DeleteLibrary removes the library row. A library owns no tracks — they belong
+// to scan folders — so nothing else is touched.
 func (s *Store) DeleteLibrary(ctx context.Context, id uint) error {
-	return s.TransactionContext(ctx, func(tx *Store) error {
-		if err := tx.DeleteTracksForLibrary(id); err != nil {
-			return err
-		}
-		if err := tx.DeleteOrphanedAggregates(); err != nil {
-			return err
-		}
-		return tx.db.Delete(&model.Library{}, id).Error
-	})
+	return s.db.WithContext(ctx).Delete(&model.Library{}, id).Error
 }

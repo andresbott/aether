@@ -148,7 +148,7 @@ func seedAlbum(t *testing.T, s *store.Store, lib *model.Library, trackAbs string
 	t.Helper()
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
 	s.DB().Create(&album)
-	s.DB().Create(&model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: filepath.Base(trackAbs), FilePath: trackAbs})
+	s.DB().Create(&model.Track{AlbumID: album.ID, Filename: filepath.Base(trackAbs), FilePath: trackAbs})
 	return strconv.FormatUint(uint64(album.ID), 10)
 }
 
@@ -898,8 +898,8 @@ func TestRemovals_FolderRemovesEverySelectionDirectory(t *testing.T) {
 	if len(rx.calls) != 1 || len(rx.calls[0]) != 2 || rx.calls[0][0] != wantOne || rx.calls[0][1] != wantTwo {
 		t.Fatalf("unexpected reindex paths: %v, want [[%s %s]]", rx.calls, wantOne, wantTwo)
 	}
-	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
-		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	if len(rx.folders) != 1 || rx.folders[0] != lib.Name {
+		t.Fatalf("expected scan folder %q, got %v", lib.Name, rx.folders)
 	}
 	var resp struct {
 		Reindex *struct {
@@ -1213,8 +1213,8 @@ func TestApplyPicture_EnqueuesReindexOfFolderTracks(t *testing.T) {
 	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != trackAbs {
 		t.Fatalf("unexpected reindex paths: %v", rx.calls)
 	}
-	if len(rx.libs) != 1 || rx.libs[0] != lib.ID {
-		t.Fatalf("expected library %d, got %v", lib.ID, rx.libs)
+	if len(rx.folders) != 1 || rx.folders[0] != lib.Name {
+		t.Fatalf("expected scan folder %q, got %v", lib.Name, rx.folders)
 	}
 	var resp struct {
 		Reindex *struct {

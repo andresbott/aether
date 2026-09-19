@@ -157,12 +157,12 @@ func TestGetAlbumDiscTitles(t *testing.T) {
 	db.Create(&model.Library{Name: "Lib", Path: "/l"})
 	album := &model.Album{Name: "Box Set", NameNorm: "box set", AlbumArtistNorm: "a"}
 	db.Create(album)
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "1.flac", FilePath: "/l/1.flac",
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "1.flac", FilePath: "/l/1.flac",
 		Title: "One", TrackNumber: 1, DiscNumber: 1, DiscSubtitle: "The Album"})
 	// A disc with no subtitle must not produce an entry.
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "2.flac", FilePath: "/l/2.flac",
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "2.flac", FilePath: "/l/2.flac",
 		Title: "Two", TrackNumber: 1, DiscNumber: 2})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "3.flac", FilePath: "/l/3.flac",
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "3.flac", FilePath: "/l/3.flac",
 		Title: "Three", TrackNumber: 1, DiscNumber: 3, DiscSubtitle: "Bonus Tracks"})
 
 	srv := newTestServer(t, s)
@@ -211,8 +211,8 @@ func TestGetArtistAlbumsIncludeSongCountAndDuration(t *testing.T) {
 	album := &model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
 	db.Create(album)
 	_ = db.Model(album).Association("Artists").Replace([]*model.Artist{artist})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "1.flac", FilePath: "/l/1.flac", TrackNumber: 1, Duration: 260})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: 1, Filename: "2.flac", FilePath: "/l/2.flac", TrackNumber: 2, Duration: 240})
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "1.flac", FilePath: "/l/1.flac", TrackNumber: 1, Duration: 260})
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "2.flac", FilePath: "/l/2.flac", TrackNumber: 2, Duration: 240})
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
@@ -332,7 +332,7 @@ func TestGetArtistsOfHiddenLibraryIsEmpty(t *testing.T) {
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "hidden artist"}
 	db.Create(&album)
 	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: hid.ID, ScanFolder: "Hid", Filename: "1.mp3", FilePath: "/hid/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: "Hid", Filename: "1.mp3", FilePath: "/hid/1.mp3"})
 
 	srv := newTestServer(t, s)
 	defer srv.Close()

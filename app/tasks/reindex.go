@@ -19,11 +19,11 @@ const LibraryWriteExclusionGroup = "library-writes"
 const ReindexTaskName = "reindex"
 
 // ReindexParams carries the targeted re-index of the files a metadata edit just
-// wrote: the library they live in and their absolute paths. Enqueued by the
+// wrote: the scan folder they live in and their absolute paths. Enqueued by the
 // /api/v0 metadata write handlers after the file write lands on disk.
 type ReindexParams struct {
-	LibraryID uint     `json:"library_id"`
-	Paths     []string `json:"paths"`
+	ScanFolder string   `json:"scan_folder"`
+	Paths      []string `json:"paths"`
 }
 
 var ReindexTaskDef = TaskDef{
@@ -40,10 +40,10 @@ func NewReindexTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader)
 	sc := scanner.New(cfg, s, tagReader)
 	return func(ctx context.Context, log *slog.Logger, p ReindexParams) error {
 		log.Info("starting metadata re-index",
-			slog.Uint64("library", uint64(p.LibraryID)),
+			slog.String("scan_folder", p.ScanFolder),
 			slog.Int("paths", len(p.Paths)))
 
-		stats, err := sc.RescanPaths(ctx, p.LibraryID, p.Paths)
+		stats, err := sc.RescanPaths(ctx, p.ScanFolder, p.Paths)
 		if err != nil {
 			log.Error("re-index failed", slog.String("error", err.Error()))
 			return err

@@ -743,15 +743,15 @@ func TestUpdateTracks_RejectsAlbumArtistRenameWithMBID(t *testing.T) {
 // fakeReindexer records what the handler asked to re-index. It returns a
 // canned execution id (defaulting to "exec-1"), or the configured error.
 type fakeReindexer struct {
-	calls [][]string
-	libs  []uint
-	id    string
-	err   error
+	calls   [][]string
+	folders []string
+	id      string
+	err     error
 }
 
-func (f *fakeReindexer) EnqueueReindex(_ context.Context, libraryID uint, absPaths []string) (string, error) {
+func (f *fakeReindexer) EnqueueReindex(_ context.Context, scanFolder string, absPaths []string) (string, error) {
 	f.calls = append(f.calls, absPaths)
-	f.libs = append(f.libs, libraryID)
+	f.folders = append(f.folders, scanFolder)
 	if f.id == "" {
 		f.id = "exec-1"
 	}
@@ -854,8 +854,8 @@ func TestUpdateTracks_ReindexesWrittenPaths(t *testing.T) {
 	if len(rx.calls[0]) != 1 || rx.calls[0][0] != dst {
 		t.Fatalf("unexpected reindex paths: %v", rx.calls[0])
 	}
-	if rx.libs[0] != lib.ID {
-		t.Fatalf("expected library %d, got %d", lib.ID, rx.libs[0])
+	if rx.folders[0] != lib.Name {
+		t.Fatalf("expected scan folder %q, got %q", lib.Name, rx.folders[0])
 	}
 
 	var resp struct {

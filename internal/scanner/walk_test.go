@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
 )
@@ -47,7 +47,8 @@ func TestWalk(t *testing.T) {
 		"artist2/album2/01.ogg",
 	})
 
-	results, err := scanner.Walk([]model.Library{{ID: 1, Path: dir}}, nil, true)
+	folder := scanfolder.Folder{Name: "lib1", Path: dir, FollowSymlinks: true}
+	results, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +56,8 @@ func TestWalk(t *testing.T) {
 		t.Fatalf("expected 3 audio files, got %d", len(results))
 	}
 	for _, r := range results {
-		if r.LibraryID != 1 {
-			t.Fatalf("expected LibraryID=1, got %d", r.LibraryID)
+		if r.ScanFolder != "lib1" {
+			t.Fatalf("expected ScanFolder=lib1, got %q", r.ScanFolder)
 		}
 	}
 }
@@ -70,7 +71,8 @@ func TestWalkExcludePattern(t *testing.T) {
 	})
 
 	excludes := []*regexp.Regexp{regexp.MustCompile(`^\..`)}
-	results, err := scanner.Walk([]model.Library{{ID: 1, Path: dir}}, excludes, true)
+	folder := scanfolder.Folder{Name: "lib1", Path: dir, FollowSymlinks: true}
+	results, err := scanner.Walk(folder, excludes)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +107,8 @@ func TestWalkFollowsSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, true)
+	folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: true}
+	results, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +126,8 @@ func TestWalkNoFollowSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, false)
+	folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: false}
+	results, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,25 +142,31 @@ func TestWalkMultipleLibraries(t *testing.T) {
 	createTestFiles(t, dir1, []string{"01.mp3"})
 	createTestFiles(t, dir2, []string{"02.flac"})
 
-	results, err := scanner.Walk([]model.Library{
-		{ID: 1, Path: dir1},
-		{ID: 2, Path: dir2},
-	}, nil, true)
+	folder1 := scanfolder.Folder{Name: "lib1", Path: dir1, FollowSymlinks: true}
+	folder2 := scanfolder.Folder{Name: "lib2", Path: dir2, FollowSymlinks: true}
+	// Walk takes one scan folder; the multi-folder case calls it once per folder
+	// and appends the results, exactly what Scan's preflight loop does.
+	results1, err := scanner.Walk(folder1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	results2, err := scanner.Walk(folder2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := append(results1, results2...)
 	if len(results) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(results))
 	}
-	byLib := map[uint]string{}
+	byFolder := map[string]string{}
 	for _, r := range results {
-		byLib[r.LibraryID] = filepath.Base(r.FilePath)
+		byFolder[r.ScanFolder] = filepath.Base(r.FilePath)
 	}
-	if byLib[1] != "01.mp3" {
-		t.Fatalf("LibraryID=1 should map to 01.mp3, got %q", byLib[1])
+	if byFolder["lib1"] != "01.mp3" {
+		t.Fatalf("lib1 should map to 01.mp3, got %q", byFolder["lib1"])
 	}
-	if byLib[2] != "02.flac" {
-		t.Fatalf("LibraryID=2 should map to 02.flac, got %q", byLib[2])
+	if byFolder["lib2"] != "02.flac" {
+		t.Fatalf("lib2 should map to 02.flac, got %q", byFolder["lib2"])
 	}
 }
 
@@ -179,7 +189,8 @@ func TestWalkRecordsFileSizeThroughSymlinks(t *testing.T) {
 		t.Skipf("symlinks unsupported here: %v", err)
 	}
 
-	results, err := scanner.Walk([]model.Library{{ID: 1, Path: libDir}}, nil, true)
+	folder := scanfolder.Folder{Name: "lib1", Path: libDir, FollowSymlinks: true}
+	results, err := scanner.Walk(folder, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -143,64 +143,28 @@ func TestUpdateLibrary(t *testing.T) {
 	}
 }
 
-func TestDeleteTracksForLibrary(t *testing.T) {
+// A library is a view: deleting it must leave every track in place.
+func TestDeleteLibraryKeepsTracks(t *testing.T) {
 	s := testStore(t)
+	db := s.DB()
 	lib := &model.Library{Name: "L", Path: "/l"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	otherLib := &model.Library{Name: "O", Path: "/o"}
-	if err := s.CreateLibrary(otherLib); err != nil {
-		t.Fatal(err)
-	}
-	db := s.DB()
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "1.mp3", FilePath: "/l/1.mp3"})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "2.mp3", FilePath: "/l/2.mp3"})
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: otherLib.ID, Filename: "3.mp3", FilePath: "/o/3.mp3"})
-
-	if err := s.DeleteTracksForLibrary(lib.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	var count int64
-	db.Model(&model.Track{}).Count(&count)
-	if count != 1 {
-		t.Fatalf("expected 1 surviving track, got %d", count)
-	}
-}
-
-func TestDeleteLibraryCascade(t *testing.T) {
-	s := testStore(t)
-	lib := &model.Library{Name: "L", Path: "/l"}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
-	db := s.DB()
-	artist := model.Artist{Name: "X", NameNorm: "x"}
-	db.Create(&artist)
-	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
-	db.Create(&album)
-	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
-	track := model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "1.mp3", FilePath: "/l/1.mp3"}
-	db.Create(&track)
-	_ = db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist})
-	db.Create(&model.StarredItem{ItemType: "track", ItemID: track.ID})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: "L", Filename: "1.mp3", FilePath: "/l/1.mp3"})
 
 	if err := s.DeleteLibrary(t.Context(), lib.ID); err != nil {
 		t.Fatal(err)
 	}
-
-	var libCount, trackCount, albumCount, artistCount, starCount int64
-	db.Model(&model.Library{}).Count(&libCount)
-	db.Model(&model.Track{}).Count(&trackCount)
-	db.Model(&model.Album{}).Count(&albumCount)
-	db.Model(&model.Artist{}).Count(&artistCount)
-	db.Model(&model.StarredItem{}).Count(&starCount)
-	if libCount != 0 || trackCount != 0 || albumCount != 0 || artistCount != 0 || starCount != 0 {
-		t.Fatalf("expected full cascade, got lib=%d t=%d alb=%d ar=%d star=%d",
-			libCount, trackCount, albumCount, artistCount, starCount)
+	if _, err := s.GetLibrary(lib.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected the library gone, got %v", err)
+	}
+	var n int64
+	db.Model(&model.Track{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("expected the track to survive, got %d", n)
 	}
 }
 

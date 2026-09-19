@@ -68,7 +68,7 @@ func parseBoolParam(raw string) (bool, error) {
 
 func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	patterns, _ := decodeExcludePatterns(lib.ExcludePatterns)
-	count, err := h.Store.CountTracksForLibrary(lib.ID)
+	count, err := h.Store.CountTracks(store.LibraryScope(&lib))
 	if err != nil {
 		return libraryDTO{}, err
 	}
@@ -330,17 +330,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.Icon = icon
 
-	err = h.Store.TransactionContext(r.Context(), func(tx *store.Store) error {
-		if pathChanged {
-			if err := tx.DeleteTracksForLibrary(existing.ID); err != nil {
-				return err
-			}
-			if err := tx.DeleteOrphanedAggregates(); err != nil {
-				return err
-			}
-		}
-		return tx.UpdateLibrary(&existing)
-	})
+	err = h.Store.UpdateLibrary(&existing)
 	if err != nil {
 		status, code := mapStoreError(err)
 		h.Problems.Write(w, r, status, code, err.Error())

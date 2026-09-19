@@ -366,8 +366,8 @@ func TestRebuildReattachesAssetsToTheRightEntities(t *testing.T) {
 
 	// 2. First scan.
 	st1 := testScanStore(t)
-	lib1 := seedLibrary(t, st1, dir, nil)
-	s1 := scanner.New(scanner.Config{}, st1, distinguishableTagReader{})
+	folder := seedFolder(dir, nil)
+	s1 := newScanner(t, st1, distinguishableTagReader{}, folder)
 	if _, err := s1.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -440,17 +440,9 @@ func TestRebuildReattachesAssetsToTheRightEntities(t *testing.T) {
 	seedThrowawayRows(t, db2)
 
 	st2 := store.New(db2)
-	lib2 := &model.Library{
-		Name:           lib1.Name,
-		Path:           lib1.Path,
-		FollowSymlinks: lib1.FollowSymlinks,
-	}
-	if err := st2.CreateLibrary(lib2); err != nil {
-		t.Fatal(err)
-	}
 
-	// Rescan the same directory.
-	s2 := scanner.New(scanner.Config{}, st2, distinguishableTagReader{})
+	// Rescan the same directory: the same scan folder, over the rebuilt store.
+	s2 := newScanner(t, st2, distinguishableTagReader{}, folder)
 	if _, err := s2.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}

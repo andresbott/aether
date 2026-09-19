@@ -32,7 +32,6 @@ func seedTrack(t *testing.T, s *store.Store, al model.Album, libraryID uint, gen
 		Genres:   genres,
 	}
 	if libraryID != 0 {
-		tr.LibraryID = libraryID
 		tr.ScanFolder = scanFolderOf(t, s, libraryID)
 	}
 	if err := s.DB().Create(&tr).Error; err != nil {

@@ -504,7 +504,7 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	// an embedded write changed the tracks' tags directly. Both go through the
 	// same background job now — the folder/embedded distinction no longer
 	// matters for how re-indexing runs.
-	rx := enqueueReindex(r.Context(), h.Reindex, libModel.ID, al.Tracks())
+	rx := enqueueReindex(r.Context(), h.Reindex, libModel.Name, al.Tracks())
 	writeJSON(w, http.StatusOK, applyPictureResult{OK: true, Slot: slot, Type: pt.ID, Reindex: rx})
 }
 
@@ -582,7 +582,7 @@ func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out := map[string]any{"ok": true}
-	if rx := enqueueReindex(r.Context(), h.Reindex, lib.ID, al.Tracks()); rx != nil {
+	if rx := enqueueReindex(r.Context(), h.Reindex, lib.Name, al.Tracks()); rx != nil {
 		out["reindex"] = rx
 	}
 	writeJSON(w, http.StatusOK, out)

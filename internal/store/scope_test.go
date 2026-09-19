@@ -166,7 +166,7 @@ func TestScopeZeroAndNone(t *testing.T) {
 }
 
 // An album is in a scope when at least one of its tracks is — the same
-// "EXISTS a matching track" semantics tracks.library_id had.
+// "EXISTS a matching track" semantics a literal tracks.scan_folder filter had.
 func TestScopeAppliesToAlbums(t *testing.T) {
 	s := seedScopeCatalog(t)
 

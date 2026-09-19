@@ -4,7 +4,6 @@ package scanner_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
@@ -33,23 +33,28 @@ func testScanStore(t *testing.T) *store.Store {
 	return store.New(db)
 }
 
-func seedLibrary(t *testing.T, s *store.Store, path string, excludes []string) *model.Library {
-	t.Helper()
-	excludeJSON := ""
-	if len(excludes) > 0 {
-		b, _ := json.Marshal(excludes)
-		excludeJSON = string(b)
-	}
-	lib := &model.Library{
+// seedFolder declares dir as a scan folder for a test. The name mirrors what the
+// old library fixture used, so expectations on it read the same.
+func seedFolder(path string, excludes []string) scanfolder.Folder {
+	return scanfolder.Folder{
 		Name:            filepath.Base(path) + "-lib",
 		Path:            path,
+		ExcludePatterns: excludes,
 		FollowSymlinks:  true,
-		ExcludePatterns: excludeJSON,
 	}
-	if err := s.CreateLibrary(lib); err != nil {
+}
+
+// newScanner builds a scanner over the given scan folders. The set is immutable,
+// exactly like the config it comes from: a test that adds, removes or moves a
+// folder between two scans builds a NEW scanner, which is what a restart with an
+// edited config does.
+func newScanner(t *testing.T, st *store.Store, reader tags.Reader, folders ...scanfolder.Folder) *scanner.Scanner {
+	t.Helper()
+	set, err := scanfolder.NewSet(folders)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return lib
+	return scanner.New(scanner.Config{Folders: set}, st, reader)
 }
 
 type fakeTagReader struct{}
@@ -91,9 +96,9 @@ func TestScannerFullScan(t *testing.T) {
 		"Test Artist/Album One/02-track.mp3",
 		"Test Artist/Album Two/01-track.flac",
 	})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
 		t.Fatal(err)
@@ -108,15 +113,15 @@ func TestScannerFullScan(t *testing.T) {
 		t.Fatalf("expected 3 tracks in DB, got %d", trackCount)
 	}
 
-	// Every track should carry the library ID.
-	var withLib int64
-	st.DB().Model(&model.Track{}).Where("library_id = ?", lib.ID).Count(&withLib)
-	if withLib != 3 {
-		t.Fatalf("expected 3 tracks attached to library, got %d", withLib)
+	// Every track should carry the scan folder's name.
+	var withFolder int64
+	st.DB().Model(&model.Track{}).Where("scan_folder = ?", folder.Name).Count(&withFolder)
+	if withFolder != 3 {
+		t.Fatalf("expected 3 tracks attached to the scan folder, got %d", withFolder)
 	}
 }
 
-// A scan logs per-library and per-phase milestones plus periodic progress, so
+// A scan logs per-folder and per-phase milestones plus periodic progress, so
 // the per-execution task log is informative instead of going silent between
 // "starting" and "complete".
 func TestScannerLogsProgress(t *testing.T) {
@@ -127,23 +132,23 @@ func TestScannerLogsProgress(t *testing.T) {
 		"Artist/Album/02.mp3",
 		"Artist/Album/03.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true, Log: log}); err != nil {
 		t.Fatal(err)
 	}
 
 	out := buf.String()
 	for _, want := range []string{
-		"library scan planned",
+		"folder scan planned",
 		"scan plan",
-		"reconciling library",
+		"reconciling folder",
 		"scanning song",
 		"indexing song",
-		"library reconciled",
+		"folder reconciled",
 		"running cleanup",
 	} {
 		if !strings.Contains(out, want) {
@@ -162,9 +167,9 @@ func TestScannerRefreshesStaleAlbumCoverPath(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Album/cover.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -211,9 +216,9 @@ func TestScannerCleanupOrphans(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Album/02.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	_, _ = s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 
 	_ = os.Remove(filepath.Join(dir, "Artist/Album/02.mp3"))
@@ -230,9 +235,9 @@ func TestScannerIncrementalSkipsUnchanged(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats1, _ := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if stats1.TracksProcessed != 1 {
 		t.Fatalf("first scan: expected 1 processed, got %d", stats1.TracksProcessed)
@@ -249,17 +254,17 @@ func TestScannerMultipleLibraries(t *testing.T) {
 	dir2 := t.TempDir()
 	createTestFiles(t, dir1, []string{"A/A/01.mp3"})
 	createTestFiles(t, dir2, []string{"B/B/01.flac"})
-	libA := seedLibrary(t, st, dir1, nil)
-	libB := seedLibrary(t, st, dir2, nil)
+	folderA := seedFolder(dir1, nil)
+	folderB := seedFolder(dir2, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folderA, folderB)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
 
 	var aCount, bCount int64
-	st.DB().Model(&model.Track{}).Where("library_id = ?", libA.ID).Count(&aCount)
-	st.DB().Model(&model.Track{}).Where("library_id = ?", libB.ID).Count(&bCount)
+	st.DB().Model(&model.Track{}).Where("scan_folder = ?", folderA.Name).Count(&aCount)
+	st.DB().Model(&model.Track{}).Where("scan_folder = ?", folderB.Name).Count(&bCount)
 	if aCount != 1 || bCount != 1 {
 		t.Fatalf("expected one track per library, got A=%d B=%d", aCount, bCount)
 	}
@@ -283,9 +288,9 @@ func TestScannerKeepsAllTagValues(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, multiTagReader{})
+	s := newScanner(t, st, multiTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -309,9 +314,9 @@ func TestScanFailsWhenTheLibraryRootIsMissing(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -337,9 +342,9 @@ func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -362,9 +367,9 @@ func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
 // with nothing in it yet.
 func TestScanAllowsAnEmptyLibraryWithNothingIndexed(t *testing.T) {
 	st := testScanStore(t)
-	seedLibrary(t, st, t.TempDir(), nil)
+	folder := seedFolder(t.TempDir(), nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
 		t.Fatalf("an empty library with no indexed tracks must scan cleanly: %v", err)
@@ -405,8 +410,8 @@ func (r *recordProgress) hasStagePrefix(p string) bool {
 	return false
 }
 
-// Every indexed track carries the name of the library it was walked under and
-// its lowercase extension — the two markers library scoping matches on.
+// Every indexed track carries the name of the scan folder it was walked under
+// and its lowercase extension — the two markers library scoping matches on.
 func TestScanStampsScanFolderAndSuffix(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
@@ -414,9 +419,9 @@ func TestScanStampsScanFolderAndSuffix(t *testing.T) {
 		"Artist/Album/01-track.mp3",
 		"Artist/Album/02-track.FLAC",
 	})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -429,8 +434,8 @@ func TestScanStampsScanFolderAndSuffix(t *testing.T) {
 		t.Fatalf("expected 2 tracks, got %d", len(tracks))
 	}
 	for _, tr := range tracks {
-		if tr.ScanFolder != lib.Name {
-			t.Errorf("%s: ScanFolder = %q, want %q", tr.Filename, tr.ScanFolder, lib.Name)
+		if tr.ScanFolder != folder.Name {
+			t.Errorf("%s: ScanFolder = %q, want %q", tr.Filename, tr.ScanFolder, folder.Name)
 		}
 	}
 	if tracks[0].Suffix != "mp3" || tracks[1].Suffix != "flac" {
@@ -445,9 +450,9 @@ func TestIncrementalScanRestampsScanFolder(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -467,8 +472,8 @@ func TestIncrementalScanRestampsScanFolder(t *testing.T) {
 	if err := st.DB().First(&got).Error; err != nil {
 		t.Fatal(err)
 	}
-	if got.ScanFolder != lib.Name {
-		t.Fatalf("ScanFolder = %q, want %q after an incremental scan", got.ScanFolder, lib.Name)
+	if got.ScanFolder != folder.Name {
+		t.Fatalf("ScanFolder = %q, want %q after an incremental scan", got.ScanFolder, folder.Name)
 	}
 }
 
@@ -480,9 +485,9 @@ func TestScannerReportsProgress(t *testing.T) {
 		"Artist/Album/02.mp3",
 		"Artist/Album/03.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	rec := &recordProgress{}
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true, Progress: rec}); err != nil {
 		t.Fatal(err)
@@ -524,10 +529,10 @@ func TestScanFolderOwnershipIsStableAcrossScanKinds(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seedLibrary(t, st, rootA, nil)
-	libB := seedLibrary(t, st, rootB, nil)
+	folderA := seedFolder(rootA, nil)
+	folderB := seedFolder(rootB, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folderA, folderB)
 	for _, full := range []bool{true, false, true} {
 		if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: full}); err != nil {
 			t.Fatal(err)
@@ -539,8 +544,123 @@ func TestScanFolderOwnershipIsStableAcrossScanKinds(t *testing.T) {
 		if len(tracks) != 1 {
 			t.Fatalf("full=%v: expected the shared file indexed once, got %d rows", full, len(tracks))
 		}
-		if tracks[0].ScanFolder != libB.Name {
-			t.Fatalf("full=%v: ScanFolder = %q, want %q (last folder in name order)", full, tracks[0].ScanFolder, libB.Name)
+		if tracks[0].ScanFolder != folderB.Name {
+			t.Fatalf("full=%v: ScanFolder = %q, want %q (last folder in name order)", full, tracks[0].ScanFolder, folderB.Name)
 		}
+	}
+}
+
+// With no scan folder configured a scan does nothing at all — in particular it
+// must not reach Cleanup, which would sweep every indexed track.
+func TestScanWithNoFoldersSweepsNothing(t *testing.T) {
+	st := testScanStore(t)
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	st.DB().Create(&album)
+	st.DB().Create(&model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/gone/1.mp3", ScanFolder: "Gone"})
+
+	stats, err := newScanner(t, st, fakeTagReader{}).Scan(context.Background(), scanner.ScanOptions{IsFull: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TracksProcessed != 0 {
+		t.Fatalf("expected nothing processed, got %d", stats.TracksProcessed)
+	}
+	var n int64
+	st.DB().Model(&model.Track{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("expected the indexed track to survive, got %d rows", n)
+	}
+}
+
+// Removing a folder from the config is the deliberate act that removes its
+// tracks: nothing walks them any more, so the next scan's Cleanup sweeps them.
+func TestScanSweepsTracksOfARemovedFolder(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	dirA, dirB := filepath.Join(base, "a"), filepath.Join(base, "b")
+	createTestFiles(t, dirA, []string{"Artist/Album/01.mp3"})
+	createTestFiles(t, dirB, []string{"Artist/Other/01.mp3"})
+	folderA, folderB := seedFolder(dirA, nil), seedFolder(dirB, nil)
+
+	if _, err := newScanner(t, st, fakeTagReader{}, folderA, folderB).Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	// The config now lists only A.
+	if _, err := newScanner(t, st, fakeTagReader{}, folderA).Scan(context.Background(), scanner.ScanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var folders []string
+	st.DB().Model(&model.Track{}).Order("scan_folder").Pluck("scan_folder", &folders)
+	if len(folders) != 1 || folders[0] != folderA.Name {
+		t.Fatalf("remaining tracks belong to %v, want only %q", folders, folderA.Name)
+	}
+}
+
+// Pointing a scan folder at a new path must not wipe anything: the old paths
+// vanish, the new ones appear, and track continuity re-links the rows — so the
+// track id, and with it stars, playlists and play history, survives.
+func TestScanFolderMovedToANewPathKeepsItsRows(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	oldRoot, newRoot := filepath.Join(base, "old"), filepath.Join(base, "new")
+	createTestFiles(t, oldRoot, []string{"Artist/Album/01.mp3"})
+	folder := scanfolder.Folder{Name: "Music", Path: oldRoot, FollowSymlinks: true}
+
+	if _, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var before model.Track
+	if err := st.DB().First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	st.DB().Create(&model.StarredItem{Owner: "admin", ItemType: "track", ItemID: before.ID})
+
+	if err := os.Rename(oldRoot, newRoot); err != nil {
+		t.Fatal(err)
+	}
+	folder.Path = newRoot
+	if _, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var after []model.Track
+	st.DB().Find(&after)
+	if len(after) != 1 || after[0].ID != before.ID {
+		t.Fatalf("expected the same row re-linked, got %+v (was id %d)", after, before.ID)
+	}
+	if after[0].FilePath != filepath.Join(newRoot, "Artist/Album/01.mp3") {
+		t.Fatalf("FilePath = %q, want the new location", after[0].FilePath)
+	}
+	var stars int64
+	st.DB().Model(&model.StarredItem{}).Where("item_type = 'track' AND item_id = ?", before.ID).Count(&stars)
+	if stars != 1 {
+		t.Fatalf("expected the star to survive the move, got %d", stars)
+	}
+}
+
+// The empty-walk guard must still trip when the folder was renamed in the config
+// since its rows were stamped: the rows are found under the root's path range.
+func TestScanEmptyWalkGuardSurvivesARename(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	if _, err := newScanner(t, st, fakeTagReader{}, scanfolder.Folder{Name: "Old Name", Path: dir, FollowSymlinks: true}).
+		Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	// The share drops to a bare mountpoint AND the folder is renamed in config.
+	if err := os.RemoveAll(filepath.Join(dir, "Artist")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newScanner(t, st, fakeTagReader{}, scanfolder.Folder{Name: "New Name", Path: dir, FollowSymlinks: true}).
+		Scan(context.Background(), scanner.ScanOptions{})
+	if err == nil || !strings.Contains(err.Error(), "refusing to delete") {
+		t.Fatalf("err = %v, want the empty-walk guard to refuse", err)
+	}
+	var n int64
+	st.DB().Model(&model.Track{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("the guard must leave the track in place, got %d rows", n)
 	}
 }

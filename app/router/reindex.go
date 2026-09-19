@@ -30,10 +30,10 @@ func (h *MainAppHandler) metadataReindexer() metadataHandler.Reindexer {
 	return reindexEnqueuer{runner: h.taskRunner, logger: h.logger}
 }
 
-func (e reindexEnqueuer) EnqueueReindex(_ context.Context, libraryID uint, absPaths []string) (string, error) {
+func (e reindexEnqueuer) EnqueueReindex(_ context.Context, scanFolder string, absPaths []string) (string, error) {
 	id, _, err := taskrunner.Enqueue[apptasks.ReindexParams](
 		e.runner, apptasks.ReindexTaskName,
-		apptasks.ReindexParams{LibraryID: libraryID, Paths: absPaths},
+		apptasks.ReindexParams{ScanFolder: scanFolder, Paths: absPaths},
 	)
 	if err != nil {
 		// The caller (enqueueReindex) only drops the "reindex" field from the
@@ -42,7 +42,7 @@ func (e reindexEnqueuer) EnqueueReindex(_ context.Context, libraryID uint, absPa
 		// scan) still leaves an operator-visible trace.
 		if e.logger != nil {
 			e.logger.Warn("reindex enqueue failed; edit will be reconciled by the next scan",
-				"library", libraryID, "paths", len(absPaths), "error", err)
+				"scan_folder", scanFolder, "paths", len(absPaths), "error", err)
 		}
 		return "", err
 	}

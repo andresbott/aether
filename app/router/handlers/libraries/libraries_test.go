@@ -253,7 +253,7 @@ func TestUpdateLibraryRename(t *testing.T) {
 	}
 }
 
-func TestUpdateLibraryPathChangeWipesTracks(t *testing.T) {
+func TestUpdateLibraryPathChangeKeepsTracks(t *testing.T) {
 	_, s, r := newTestHandler(t)
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
@@ -264,7 +264,7 @@ func TestUpdateLibraryPathChangeWipesTracks(t *testing.T) {
 	db := s.DB()
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Create(&model.Track{AlbumID: album.ID, LibraryID: lib.ID, Filename: "1.mp3", FilePath: dir1 + "/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: lib.Name, Filename: "1.mp3", FilePath: dir1 + "/1.mp3"})
 
 	body := `{"name":"A","path":"` + dir2 + `"}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
@@ -280,9 +280,9 @@ func TestUpdateLibraryPathChangeWipesTracks(t *testing.T) {
 		t.Fatalf("expected path_changed=true")
 	}
 	var trackCount int64
-	db.Model(&model.Track{}).Where("library_id = ?", lib.ID).Count(&trackCount)
-	if trackCount != 0 {
-		t.Fatalf("expected tracks wiped, got %d", trackCount)
+	db.Model(&model.Track{}).Where("scan_folder = ?", lib.Name).Count(&trackCount)
+	if trackCount != 1 {
+		t.Fatalf("expected the track to survive the path change, got %d", trackCount)
 	}
 }
 

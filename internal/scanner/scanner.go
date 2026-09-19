@@ -5,14 +5,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sync"
 	"time"
 
-	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 )
@@ -58,7 +56,7 @@ type ScanStats struct {
 	TracksProcessed int
 	TracksNew       int
 	TracksUpdated   int
-	// TracksSkipped counts paths a caller supplied that the library does not
+	// TracksSkipped counts paths a caller supplied that the scan folder does not
 	// cover and that were therefore deliberately not indexed (outside the root,
 	// not an audio extension, excluded, unreadable). Only RescanPaths can
 	// produce these — it is handed an explicit path list — so a full Scan, whose
@@ -95,11 +93,11 @@ type tagResult struct {
 	audioHash string
 }
 
-// libraryWalk is one library plus the walk that cleared its guards. It exists so
-// the guards can run for *every* library before *any* library is reconciled
+// folderWalk is one scan folder plus the walk that cleared its guards. It exists
+// so the guards can run for *every* folder before *any* folder is reconciled
 // (see preflight) without walking the tree twice.
-type libraryWalk struct {
-	lib       *model.Library
+type folderWalk struct {
+	folder    scanfolder.Folder
 	walk      []WalkResult
 	toProcess []WalkResult
 }
@@ -113,18 +111,17 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 		log = slog.New(slog.DiscardHandler)
 	}
 
-	libs, err := s.store.ListLibraries()
-	if err != nil {
-		return stats, fmt.Errorf("list libraries: %w", err)
-	}
-	if len(libs) == 0 {
-		log.Info("no libraries configured; nothing to scan")
+	// Name order: it decides who owns a file reachable from two folders (the last
+	// one to walk it), so it must be the same on every run.
+	folders := s.cfg.Folders.All()
+	if len(folders) == 0 {
+		log.Info("no scan folders configured; nothing to scan")
 		return stats, nil
 	}
 
 	// Phase 1: validate and walk everything. Nothing is written yet, so a guard
 	// tripping here aborts the whole run atomically.
-	walks, err := s.preflight(ctx, libs)
+	walks, err := s.preflight(ctx, folders)
 	if err != nil {
 		return stats, err
 	}
@@ -136,18 +133,18 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 
 	// Compute the work total up front so the percentage spans both passes: each
 	// file to process counts twice — once for its tag read, once for its
-	// reconcile save. Selecting toProcess here (not inside scanLibrary) is what
+	// reconcile save. Selecting toProcess here (not inside scanFolder) is what
 	// makes the total known before the first save.
 	var totalFiles int64
 	for i := range walks {
 		walks[i].toProcess = s.selectToProcess(walks[i].walk, opts.IsFull)
 		totalFiles += int64(len(walks[i].toProcess))
-		log.Info("library scan planned",
-			slog.String("library", walks[i].lib.Name),
+		log.Info("folder scan planned",
+			slog.String("scan_folder", walks[i].folder.Name),
 			slog.Int("found", len(walks[i].walk)),
 			slog.Int("to_process", len(walks[i].toProcess)))
 	}
-	log.Info("scan plan", slog.Int("libraries", len(walks)), slog.Int64("files_to_process", totalFiles))
+	log.Info("scan plan", slog.Int("scan_folders", len(walks)), slog.Int64("files_to_process", totalFiles))
 	prog.SetTotal(totalFiles * 2)
 
 	// Phase 2: reconcile.
@@ -156,14 +153,14 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 			return stats, ctx.Err()
 		}
 		before := stats
-		log.Info("reconciling library",
-			slog.String("library", walks[i].lib.Name),
+		log.Info("reconciling folder",
+			slog.String("scan_folder", walks[i].folder.Name),
 			slog.Int("files", len(walks[i].toProcess)))
-		if err := s.scanLibrary(ctx, walks[i], scanStart, log, prog, &stats); err != nil {
+		if err := s.scanFolder(ctx, walks[i], scanStart, log, prog, &stats); err != nil {
 			return stats, err
 		}
-		log.Info("library reconciled",
-			slog.String("library", walks[i].lib.Name),
+		log.Info("folder reconciled",
+			slog.String("scan_folder", walks[i].folder.Name),
 			slog.Int("processed", stats.TracksProcessed-before.TracksProcessed),
 			slog.Int("new", stats.TracksNew-before.TracksNew),
 			slog.Int("updated", stats.TracksUpdated-before.TracksUpdated),
@@ -181,18 +178,19 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 	return stats, nil
 }
 
-// preflight runs both sweep guards and the walk for every library before Scan
-// reconciles the first one, and returns the walk results so phase 2 does not
-// repeat the I/O (walking twice would also risk seeing two different trees).
+// preflight runs both sweep guards and the walk for every scan folder before
+// Scan reconciles the first one, and returns the walk results so phase 2 does
+// not repeat the I/O (walking twice would also risk seeing two different
+// trees).
 //
 // The two-phase split is what makes an aborted run harmless. Scan returns on the
-// first library that fails a guard, but planTrackContinuity's candidate pool is
-// deliberately not library-scoped — a move between two collections has to keep
-// its row — so an unavailable library that is merely *later* in
-// ListLibraries' name order used to have all of its rows stat ENOENT and land in
-// `vanished` while an earlier library was still being reconciled. A single
-// byte-identical new file there was enough to re-link an unreachable library's
-// row, moving its stars, playlist memberships, history and library_id onto a file
+// first scan folder that fails a guard, but planTrackContinuity's candidate pool
+// is deliberately not scan-folder-scoped — a move between two collections has to
+// keep its row — so an unavailable scan folder that is merely *later* in
+// the set's name order used to have all of its rows stat ENOENT and land in
+// `vanished` while an earlier scan folder was still being reconciled. A single
+// byte-identical new file there was enough to re-link an unreachable scan
+// folder's row, moving its stars, playlist memberships and history onto a file
 // it has nothing to do with, and the guard then failed the scan too late to undo
 // any of it. Validating first makes the abort happen before the first write.
 //
@@ -202,68 +200,63 @@ func (s *Scanner) Scan(ctx context.Context, opts ScanOptions) (ScanStats, error)
 // ones, so those rows can be swept — and, since the fingerprint cannot tell the
 // difference either, re-linked onto a byte-identical new file. Requiring a
 // vanished row's parent directory to still exist would break the primary use
-// case, because reorganising a library moves whole directories. The narrowing to
-// fs.ErrNotExist in planTrackContinuity is the only defence, and it only helps
-// when the failure is a permission error rather than an empty mountpoint.
-func (s *Scanner) preflight(ctx context.Context, libs []model.Library) ([]libraryWalk, error) {
-	out := make([]libraryWalk, 0, len(libs))
-	for i := range libs {
+// case, because reorganising a scan folder moves whole directories. The
+// narrowing to fs.ErrNotExist in planTrackContinuity is the only defence, and it
+// only helps when the failure is a permission error rather than an empty
+// mountpoint.
+func (s *Scanner) preflight(ctx context.Context, folders []scanfolder.Folder) ([]folderWalk, error) {
+	out := make([]folderWalk, 0, len(folders))
+	for _, folder := range folders {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		lib := &libs[i]
 
-		if err := checkLibraryRoot(lib.Path); err != nil {
-			return nil, fmt.Errorf("library %q: %w", lib.Name, err)
+		// Walk swallows the root's own stat error (walk.go), so without this an
+		// unmounted folder scans "successfully" with zero results and Cleanup
+		// deletes everything in it.
+		if err := folder.Available(); err != nil {
+			return nil, fmt.Errorf("scan folder %q: %w", folder.Name, err)
 		}
 
-		excludes, err := compileExcludes(lib.ExcludePatterns)
+		excludes, err := folder.Excludes()
 		if err != nil {
-			return nil, fmt.Errorf("library %q: %w", lib.Name, err)
+			return nil, err
 		}
 
-		walkResults, err := Walk([]model.Library{*lib}, excludes, lib.FollowSymlinks)
+		walkResults, err := Walk(folder, excludes)
 		if err != nil {
 			return nil, err
 		}
 
 		// An absent tree is not an empty tree. Walk swallows every error, including
 		// the root's, so a share that is present but unpopulated (a bare mountpoint)
-		// looks exactly like a library the user emptied — and Cleanup would delete
+		// looks exactly like a folder the user emptied — and Cleanup would delete
 		// every track of it, with the playlists, stars, play history and queue
 		// entries attached to them. The DB still holding tracks is the only evidence
 		// available, so it decides.
-		if err := s.checkEmptyScanWithIndexedTracks(lib, walkResults); err != nil {
+		if err := s.checkEmptyScanWithIndexedTracks(folder, walkResults); err != nil {
 			return nil, err
 		}
 
-		out = append(out, libraryWalk{lib: lib, walk: walkResults})
+		out = append(out, folderWalk{folder: folder, walk: walkResults})
 	}
 	return out, nil
 }
 
-// scanLibrary is phase 2: everything from the LastScanStartedAt stamp onwards,
-// for a library preflight has already validated and walked.
-func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart time.Time, log *slog.Logger, prog ProgressReporter, stats *ScanStats) error {
-	lib, walkResults := lw.lib, lw.walk
-
-	// Stamped in phase 2 on purpose: a library whose run aborted in preflight must
-	// not claim it was scanned.
-	now := time.Now()
-	lib.LastScanStartedAt = &now
-	if err := s.store.UpdateLibrary(lib); err != nil {
-		return fmt.Errorf("update library scan timestamp: %w", err)
-	}
+// scanFolder is phase 2: mark, read tags and reconcile one scan folder that
+// preflight has already validated and walked.
+func (s *Scanner) scanFolder(ctx context.Context, fw folderWalk, scanStart time.Time, log *slog.Logger, prog ProgressReporter, stats *ScanStats) error {
+	folder, walkResults := fw.folder, fw.walk
 
 	allPaths := make([]string, len(walkResults))
 	for i, wr := range walkResults {
 		allPaths[i] = wr.FilePath
 	}
-	if err := s.store.BulkMarkSeen(allPaths, lib.Name, scanStart); err != nil {
+	if err := s.store.BulkMarkSeen(allPaths, folder.Name, scanStart); err != nil {
 		return err
 	}
 
-	toProcess := lw.toProcess
+	toProcess := fw.toProcess
 
 	workers := s.cfg.TagReadWorkers
 	if workers <= 0 {
@@ -283,9 +276,9 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 				if ctx.Err() != nil {
 					return
 				}
-				prog.SetStage("Extracting metadata: " + relPath(lib.Path, wr.FilePath))
+				prog.SetStage("Extracting metadata: " + relPath(folder.Path, wr.FilePath))
 				prog.Inc(1)
-				log.Info("scanning song", slog.String("file", relPath(lib.Path, wr.FilePath)))
+				log.Info("scanning song", slog.String("file", relPath(folder.Path, wr.FilePath)))
 				// No separate tagReader.CanRead gate: Walk only admits IsAudioFile
 				// paths, IsAudioFile is tags.Supported, and every supported format is
 				// readable by some reader (enforced by tags.TestSupportedIsReadable),
@@ -325,7 +318,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 		return ctx.Err()
 	}
 
-	rec, err := s.reconcile(ctx, lib.Path, tagResults, scanStart, log, prog)
+	rec, err := s.reconcile(ctx, folder.Path, tagResults, scanStart, log, prog)
 	if err != nil {
 		return err
 	}
@@ -337,9 +330,9 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 	return nil
 }
 
-// selectToProcess is the set of files scanLibrary will read and reconcile: the
+// selectToProcess is the set of files scanFolder will read and reconcile: the
 // whole walk for a full scan, or only the changed files for an incremental one.
-// Hoisted out of scanLibrary so Scan can total it before any library is saved.
+// Hoisted out of scanFolder so Scan can total it before any folder is saved.
 func (s *Scanner) selectToProcess(walkResults []WalkResult, isFull bool) []WalkResult {
 	if isFull {
 		return walkResults
@@ -367,61 +360,25 @@ func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
 	return out
 }
 
-func compileExcludes(jsonPatterns string) ([]*regexp.Regexp, error) {
-	if jsonPatterns == "" {
-		return nil, nil
-	}
-	patterns, err := decodeExcludePatterns(jsonPatterns)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*regexp.Regexp, 0, len(patterns))
-	for _, p := range patterns {
-		re, err := regexp.Compile(p)
-		if err != nil {
-			slog.Warn("invalid exclude pattern, skipping", "pattern", p, "err", err)
-			continue
-		}
-		out = append(out, re)
-	}
-	return out, nil
-}
-
-// checkLibraryRoot refuses to scan a root the walk could not read. filepath.WalkDir
-// reports the root's own stat error to the walk function, which swallows it
-// (walk.go), so without this an unmounted library scans "successfully" with zero
-// results and Cleanup deletes everything in it.
-func checkLibraryRoot(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("root %q is unavailable: %w", path, err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("root %q is not a directory", path)
-	}
-	return nil
-}
-
-// checkEmptyScanWithIndexedTracks refuses to continue when a library walk found
+// checkEmptyScanWithIndexedTracks refuses to continue when a folder's walk found
 // zero files while the database still holds tracks for it, as this indicates an
-// unmounted share or permission issue rather than a genuinely emptied library.
-func (s *Scanner) checkEmptyScanWithIndexedTracks(lib *model.Library, walkResults []WalkResult) error {
+// unmounted share or permission issue rather than a genuinely emptied folder.
+func (s *Scanner) checkEmptyScanWithIndexedTracks(folder scanfolder.Folder, walkResults []WalkResult) error {
 	if len(walkResults) > 0 {
 		return nil
 	}
-	indexed, err := s.store.CountTracksForLibrary(lib.ID)
+	indexed, err := s.store.CountTracksInScanFolder(folder.Name, folder.Path)
 	if err != nil {
-		return fmt.Errorf("library %q: count indexed tracks: %w", lib.Name, err)
+		return fmt.Errorf("scan folder %q: count indexed tracks: %w", folder.Name, err)
 	}
 	if indexed > 0 {
-		// The remedy has a price and has to say so: Track.LibraryID carries
-		// constraint:OnDelete:CASCADE, so deleting the library is exactly the
-		// hard-delete this guard just refused to perform.
-		return fmt.Errorf("library %q: no audio files under %q but %d tracks are indexed; "+
-			"refusing to delete them — check that the path is mounted; if it really is gone, "+
-			"delete the library in Settings → Libraries, which also removes those %d tracks and "+
-			"everything attached to them (playlist entries, stars, play history)",
-			lib.Name, lib.Path, indexed, indexed)
+		// The remedy has a price and has to say so: removing the folder from the
+		// config is exactly the hard-delete this guard just refused to perform.
+		return fmt.Errorf("scan folder %q: no audio files under %q but %d tracks are indexed; "+
+			"refusing to delete them — check that the path is mounted; if the folder really is gone, "+
+			"remove it from ScanFolders in the config file and restart: the next scan then removes those %d tracks "+
+			"and everything attached to them (playlist entries, stars, play history)",
+			folder.Name, folder.Path, indexed, indexed)
 	}
 	return nil
 }

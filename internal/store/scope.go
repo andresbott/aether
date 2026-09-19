@@ -21,7 +21,7 @@ import (
 // albums/genres query, and the `t` alias inside excludeHiddenArtists.
 //
 // An entity other than a track is in a scope when at least one of its tracks
-// is — the semantics `tracks.library_id = ?` always had.
+// is — the semantics a literal `tracks.scan_folder = ?` filter always had.
 type TrackScope struct {
 	clauses []scopeClause
 	// none makes the scope match nothing. It is what an unknown library, or a

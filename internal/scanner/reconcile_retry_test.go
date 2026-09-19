@@ -54,11 +54,11 @@ func TestScanRetriesTransientTrackSaveFailure(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	attempts := failTrackWrites(t, st.DB(), "01.mp3", 1) // fail once, succeed on retry
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
 		t.Fatalf("scan returned error: %v", err)
@@ -88,11 +88,11 @@ func TestScanCountsUnrecoverableTrackSaveFailure(t *testing.T) {
 		"Artist/Album/01.mp3", // saves fine
 		"Artist/Album/02.mp3", // save always fails
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	attempts := failTrackWrites(t, st.DB(), "02.mp3", -1) // fail every attempt
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
 		t.Fatalf("a single unsaveable track must not fail the whole scan: %v", err)
