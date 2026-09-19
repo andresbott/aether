@@ -465,3 +465,53 @@ func TestTouchedAggregatesForPathsCapturesAlbumOnlyCredits(t *testing.T) {
 		t.Fatalf("album-only genre %d must be captured via the album-level pass, got %v", albumGenre.ID, got.GenreIDs)
 	}
 }
+
+// The empty-scan guard asks "does the DB still hold tracks for this folder?".
+// The marker answers it, and the path range backs it up for a folder that was
+// renamed in config since the rows were stamped.
+func TestCountTracksInScanFolder(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	for _, tr := range []model.Track{
+		{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/music/1.mp3", ScanFolder: "Music"},
+		// Reached through a symlink: stamped Music, recorded outside the root.
+		{AlbumID: album.ID, Filename: "2.mp3", FilePath: "/mnt/disk2/2.mp3", ScanFolder: "Music"},
+		// Still carries the folder's previous name, but lies under the root.
+		{AlbumID: album.ID, Filename: "3.mp3", FilePath: "/music/sub/3.mp3", ScanFolder: "Old Name"},
+		// A sibling root that merely shares the prefix.
+		{AlbumID: album.ID, Filename: "4.mp3", FilePath: "/music2/4.mp3", ScanFolder: "Other"},
+	} {
+		if err := db.Create(&tr).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.CountTracksInScanFolder("Music", "/music")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 3 {
+		t.Fatalf("CountTracksInScanFolder = %d, want 3 (two by marker, one by path; not the sibling root)", got)
+	}
+}
+
+func TestTrackCountsByScanFolder(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	for i, folder := range []string{"Music", "Music", "Books", ""} {
+		tr := model.Track{AlbumID: album.ID, Filename: "t.mp3", FilePath: "/t/" + string(rune('a'+i)) + ".mp3", ScanFolder: folder}
+		if err := db.Create(&tr).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.TrackCountsByScanFolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got["Music"] != 2 || got["Books"] != 1 || got[""] != 1 {
+		t.Fatalf("TrackCountsByScanFolder = %v", got)
+	}
+}

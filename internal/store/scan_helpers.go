@@ -290,3 +290,39 @@ func execInChunks(db *gorm.DB, ids []uint, query string) error {
 	}
 	return nil
 }
+
+// CountTracksInScanFolder counts the tracks that belong to a scan folder: the
+// ones stamped with its name, plus the ones recorded under its root. The marker
+// is the truth; the path range backs it up for the one moment the marker lags —
+// a folder renamed in configuration, before the next scan re-stamps its rows.
+// The scan's empty-walk guard relies on this to notice an unmounted share even
+// then.
+func (s *Store) CountTracksInScanFolder(name, root string) (int64, error) {
+	lo, hi := PathRange(root)
+	var n int64
+	err := s.db.Model(&model.Track{}).
+		Where("scan_folder = ? OR (file_path >= ? AND file_path < ?)", name, lo, hi).
+		Count(&n).Error
+	return n, err
+}
+
+// TrackCountsByScanFolder returns how many tracks carry each scan-folder marker.
+// Startup uses it to warn about tracks whose folder is no longer configured.
+func (s *Store) TrackCountsByScanFolder() (map[string]int64, error) {
+	type row struct {
+		ScanFolder string
+		N          int64
+	}
+	var rows []row
+	if err := s.db.Model(&model.Track{}).
+		Select("scan_folder, COUNT(*) AS n").
+		Group("scan_folder").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.ScanFolder] = r.N
+	}
+	return out, nil
+}

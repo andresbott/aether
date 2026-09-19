@@ -98,11 +98,19 @@ func inClause(sql string, values []string) (scopeClause, bool) {
 	return scopeClause{sql: sql, args: []any{values}}, true
 }
 
-// pathClause matches tracks under any of the directories. It is a byte range,
-// not a LIKE: SQLite's LIKE is ASCII case-insensitive and would need % and _
-// escaped, while file_path's BINARY collation makes the range exact. "/" is
-// 0x2F and "0" is 0x30, so [dir+"/", dir+"0") is precisely "everything under
-// dir" — and never its sibling that merely shares the prefix.
+// PathRange returns the half-open byte range [lo, hi) that holds exactly the
+// paths under dir. It is a range, not a LIKE: SQLite's LIKE is ASCII
+// case-insensitive and would need % and _ escaped, while file_path's BINARY
+// collation makes the range exact. "/" is 0x2F and "0" is 0x30, so
+// [dir+"/", dir+"0") is precisely "everything under dir" — and never a sibling
+// that merely shares the prefix. Clean drops a trailing slash; trimming the
+// root's own "/" leaves "", whose range ["/", "0") covers every absolute path.
+func PathRange(dir string) (lo, hi string) {
+	prefix := strings.TrimSuffix(path.Clean(dir), "/")
+	return prefix + "/", prefix + "0"
+}
+
+// pathClause matches tracks under any of the directories (see PathRange).
 func pathClause(dirs []string) (scopeClause, bool) {
 	if len(dirs) == 0 {
 		return scopeClause{}, false
@@ -110,11 +118,9 @@ func pathClause(dirs []string) (scopeClause, bool) {
 	parts := make([]string, 0, len(dirs))
 	args := make([]any, 0, 2*len(dirs))
 	for _, dir := range dirs {
-		// Clean drops a trailing slash; trimming the root's own "/" leaves "",
-		// whose range ["/", "0") covers every absolute path.
-		prefix := strings.TrimSuffix(path.Clean(dir), "/")
+		lo, hi := PathRange(dir)
 		parts = append(parts, "("+tracksAlias+".file_path >= ? AND "+tracksAlias+".file_path < ?)")
-		args = append(args, prefix+"/", prefix+"0")
+		args = append(args, lo, hi)
 	}
 	return scopeClause{sql: strings.Join(parts, " OR "), args: args}, true
 }
@@ -228,4 +234,11 @@ func scopeByAlbum(q *gorm.DB, sc TrackScope, albumCol string) *gorm.DB {
 	}
 	sql, args := sc.where("tracks")
 	return q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = "+albumCol+" AND "+sql+")", args...)
+}
+
+// CountTracks counts the tracks a scope matches.
+func (s *Store) CountTracks(sc TrackScope) (int64, error) {
+	var n int64
+	err := scopeTracks(s.db.Model(&model.Track{}), sc).Count(&n).Error
+	return n, err
 }

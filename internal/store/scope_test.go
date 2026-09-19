@@ -345,3 +345,39 @@ func scanFolderOf(t *testing.T, s *store.Store, libID uint) string {
 	}
 	return lib.Name
 }
+
+func TestPathRange(t *testing.T) {
+	for _, tc := range []struct{ dir, lo, hi string }{
+		{"/music/a", "/music/a/", "/music/a0"},
+		{"/music/a/", "/music/a/", "/music/a0"},
+		{"/music/../music/a", "/music/a/", "/music/a0"},
+		{"/", "/", "0"},
+	} {
+		lo, hi := store.PathRange(tc.dir)
+		if lo != tc.lo || hi != tc.hi {
+			t.Errorf("PathRange(%q) = %q, %q; want %q, %q", tc.dir, lo, hi, tc.lo, tc.hi)
+		}
+	}
+}
+
+func TestCountTracks(t *testing.T) {
+	s := seedScopeCatalog(t)
+	for _, tc := range []struct {
+		name string
+		sc   store.TrackScope
+		want int64
+	}{
+		{"zero scope counts everything", store.TrackScope{}, 6},
+		{"scan folder", scanFolderScope("Books"), 2},
+		{"none", store.NoTracks(), 0},
+		{"album-level clause", store.ScopeOf([]model.LibraryFilter{libFilter(model.FilterCompilation, "true")}), 2},
+	} {
+		got, err := s.CountTracks(tc.sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != tc.want {
+			t.Errorf("%s: CountTracks = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
