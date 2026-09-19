@@ -534,14 +534,12 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testStore(t)
-			if err := s.CreateLibrary(&model.Library{Name: "L", Path: t.TempDir()}); err != nil {
-				t.Fatal(err)
-			}
+			root := t.TempDir()
 			as := assetstore.New(t.TempDir())
 			id := tc.seed(t, s, as)
 
 			r := mux.NewRouter()
-			Register(r, s, as, imagecache.New(t.TempDir()), nil, WithLibraryRoots(s.LibraryRoots))
+			Register(r, s, as, imagecache.New(t.TempDir()), nil, WithMediaRoots(root))
 			srv := httptest.NewServer(r)
 			defer srv.Close()
 
@@ -604,111 +602,6 @@ func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 with no guard configured", resp.StatusCode)
-	}
-}
-
-// Libraries are created at runtime through the settings UI, so the guard cannot
-// be a snapshot taken at registration: a library added afterwards must have its
-// files served without restarting the server.
-func TestMediaGuardPicksUpLibrariesAddedAfterRegistration(t *testing.T) {
-	s := testStore(t)
-	db := s.DB()
-
-	firstRoot := t.TempDir()
-	if err := s.CreateLibrary(&model.Library{Name: "First", Path: firstRoot}); err != nil {
-		t.Fatal(err)
-	}
-
-	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
-		WithLibraryRoots(s.LibraryRoots))
-	srv := httptest.NewServer(r)
-	defer srv.Close()
-
-	// Now a second library appears, with a track in it.
-	lateRoot := t.TempDir()
-	if err := s.CreateLibrary(&model.Library{Name: "Late", Path: lateRoot}); err != nil {
-		t.Fatal(err)
-	}
-	song := filepath.Join(lateRoot, "late.mp3")
-	if err := os.WriteFile(song, []byte("late-bytes"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
-	if err := db.Create(&album).Error; err != nil {
-		t.Fatal(err)
-	}
-	track := model.Track{AlbumID: album.ID, Filename: "late.mp3", FilePath: song}
-	if err := db.Create(&track).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200: a library added after registration must be served", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "late-bytes" {
-		t.Errorf("served %q, want the newly added library's file", body)
-	}
-}
-
-// The dynamic guard must still refuse: a path outside every library, however many
-// times the root set is refreshed, stays refused.
-func TestMediaGuardWithLibraryRootsStillRefusesOutsidePaths(t *testing.T) {
-	s := testStore(t)
-	db := s.DB()
-
-	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CreateLibrary(&model.Library{Name: "L", Path: libRoot}); err != nil {
-		t.Fatal(err)
-	}
-	secret := filepath.Join(base, "secret.env")
-	if err := os.WriteFile(secret, []byte("DB_PASSWORD=hunter2"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
-	if err := db.Create(&album).Error; err != nil {
-		t.Fatal(err)
-	}
-	track := model.Track{AlbumID: album.ID, Filename: "secret.env", FilePath: secret}
-	if err := db.Create(&track).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
-		WithLibraryRoots(s.LibraryRoots))
-	srv := httptest.NewServer(r)
-	defer srv.Close()
-
-	// Twice: the second request exercises the path where the root set has already
-	// been refreshed once, which must not turn into an allow.
-	for i := range 2 {
-		resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(body), "hunter2") {
-			t.Fatalf("request %d served a file outside every library root", i+1)
-		}
 	}
 }
 

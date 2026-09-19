@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
@@ -93,18 +92,10 @@ type Handler struct {
 	// system (auth "none") and requireAdmin passes everyone.
 	admin AdminChecker
 	// mediaGuard confines the files the media handlers will read to the
-	// configured library roots. Paths reach those handlers from the DB, not from
-	// the request, so this enforces that a track/cover row actually points into a
-	// library. nil disables the check (no roots configured).
+	// configured scan-folder roots. Paths reach those handlers from the DB, not
+	// from the request, so this enforces that a track/cover row actually points
+	// into a scan folder. nil disables the check (no roots configured).
 	mediaGuard *pathguard.Guard
-	// libraryRoots reads the current library roots. Set instead of mediaGuard when
-	// the roots can change while the server runs; guarded by guardMu and cached in
-	// mediaGuard between refreshes.
-	libraryRoots func() ([]string, error)
-	guardMu      sync.RWMutex
-	// guardRoots is the root set mediaGuard was built from, so a refresh only
-	// rebuilds the guard when the libraries actually changed.
-	guardRoots []string
 }
 
 // Option customizes the /rest handler at registration time.
@@ -120,27 +111,15 @@ func WithAdminChecker(admin AdminChecker) Option {
 }
 
 // WithMediaRoots confines stream/getCoverArt to files under a fixed set of
-// roots. Called with no usable roots it installs no guard, so a server with no
-// libraries yet keeps serving its own generated covers. Production uses
-// WithLibraryRoots; this is the static form, for tests and embedding.
+// roots — in production the configured scan folders, which cannot change while
+// the server runs, so a snapshot is exact. Called with no usable roots it
+// installs no guard, so a server with no scan folders yet keeps serving its own
+// generated covers.
 func WithMediaRoots(roots ...string) Option {
 	return func(h *Handler) {
 		if g := newGuard(roots); g != nil {
 			h.mediaGuard = g
 		}
-	}
-}
-
-// WithLibraryRoots confines stream/getCoverArt to files under the configured
-// libraries, read through roots on demand. Dynamic rather than a snapshot
-// because libraries are created at runtime through the settings UI: a snapshot
-// taken here would refuse every file in a library added later.
-func WithLibraryRoots(roots func() ([]string, error)) Option {
-	return func(h *Handler) {
-		if roots == nil {
-			return
-		}
-		h.libraryRoots = roots
 	}
 }
 

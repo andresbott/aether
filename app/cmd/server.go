@@ -241,6 +241,7 @@ func runServer(configFile string) error {
 		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
+		ScanFolders:   folders,
 		TagReader:     tagReader,
 		ArtistFetcher: artistFetcher,
 		ArtistImages:  artistImages,

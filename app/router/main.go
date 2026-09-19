@@ -22,6 +22,7 @@ import (
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/identify"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/internal/taskrunner"
@@ -53,6 +54,9 @@ type Cfg struct {
 	Scheduler     *taskrunner.Scheduler
 	Store         *store.Store
 	DataDir       string
+	// ScanFolders is the set of directories the server scans, from the config
+	// file. The /rest media handlers only serve files under their roots.
+	ScanFolders   *scanfolder.Set
 	TagReader     tags.Reader
 	ArtistFetcher artistsHandler.Fetcher
 	// ArtistImages fetches and stores an artist's image (the setMBID auto-fetch);
@@ -346,10 +350,11 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 	if app.store != nil {
 		identity := app.patIdentityResolver()
 		// The media handlers serve files named by DB rows (track file_path, album
-		// cover_path), so they are confined to the configured library roots — read
-		// on demand, since libraries are added while the server runs.
+		// cover_path), so they are confined to the configured scan-folder roots —
+		// a static snapshot, since scan folders cannot change while the server
+		// runs.
 		subsonic.Register(app.router, app.store, app.assets, app.images, identity,
-			subsonic.WithLibraryRoots(app.store.LibraryRoots),
+			subsonic.WithMediaRoots(cfg.ScanFolders.Roots()...),
 			subsonic.WithAdminChecker(app.restAdminChecker()))
 	}
 

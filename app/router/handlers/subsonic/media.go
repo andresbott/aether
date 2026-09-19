@@ -8,14 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/libs/covergen"
 	"github.com/andresbott/aether/libs/covergen/allstyles"
@@ -64,48 +62,14 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 
 // mediaPathAllowed reports whether the handlers may read path. Every path it
 // guards comes from the database — a track's file_path, an album's cover_path —
-// so this enforces that the row actually points into a configured library. With
-// no guard installed and no library source (nothing configured) everything is
-// allowed, which is the behavior the server had before.
+// so this enforces that the row actually points into a configured scan folder.
+// With no guard installed (no scan folders configured) everything is allowed,
+// which is the behavior the server had before.
 func (h *Handler) mediaPathAllowed(path string) bool {
-	guard := h.currentGuard()
-	if guard == nil {
+	if h.mediaGuard == nil {
 		return true
 	}
-	return guard.Allows(path)
-}
-
-// currentGuard returns the guard to check against, refreshing it from the
-// library roots when those are dynamic. The guard is rebuilt only when the root
-// set actually changed, so the common case is one cheap query plus a read lock
-// rather than re-resolving every root's symlinks per request.
-func (h *Handler) currentGuard() *pathguard.Guard {
-	if h.libraryRoots == nil {
-		return h.mediaGuard
-	}
-	roots, err := h.libraryRoots()
-	if err != nil {
-		// The root set is unknown. Fall back to the last good guard rather than
-		// allowing everything: a DB blip must not open the filesystem up.
-		h.guardMu.RLock()
-		defer h.guardMu.RUnlock()
-		return h.mediaGuard
-	}
-	h.guardMu.RLock()
-	if slices.Equal(roots, h.guardRoots) {
-		defer h.guardMu.RUnlock()
-		return h.mediaGuard
-	}
-	h.guardMu.RUnlock()
-
-	h.guardMu.Lock()
-	defer h.guardMu.Unlock()
-	// Re-check: another request may have refreshed while this one waited.
-	if !slices.Equal(roots, h.guardRoots) {
-		h.guardRoots = slices.Clone(roots)
-		h.mediaGuard = newGuard(roots)
-	}
-	return h.mediaGuard
+	return h.mediaGuard.Allows(path)
 }
 
 type coverMeta struct {
