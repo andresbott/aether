@@ -61,23 +61,6 @@ func (s *Store) FindLibraryByPath(path string) (model.Library, error) {
 	return lib, nil
 }
 
-// ListLibrariesBySource returns every library owned by the given source
-// (model.SourceDB / model.SourceConfig), ordered by name.
-func (s *Store) ListLibrariesBySource(source string) ([]model.Library, error) {
-	var libs []model.Library
-	if err := s.db.Where("source = ?", source).Order("name ASC").Find(&libs).Error; err != nil {
-		return nil, err
-	}
-	return libs, nil
-}
-
-// SetLibrarySource changes which source owns a library. Used by the startup
-// reconcile to adopt a UI-created library into config ownership, and to hand a
-// library back to the UI when its config entry disappears.
-func (s *Store) SetLibrarySource(id uint, source string) error {
-	return s.db.Model(&model.Library{}).Where("id = ?", id).Update("source", source).Error
-}
-
 func (s *Store) UpdateLibrary(lib *model.Library) error {
 	return s.db.Save(lib).Error
 }

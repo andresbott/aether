@@ -11,42 +11,35 @@ Observability:
 
 DataDir: "./data"
 
-# Music libraries provisioned from this file. This list and the libraries
-# created in the admin UI are ADDITIVE: the server ends up serving both. A
-# library declared here is materialized into the database at every startup, so:
+# The directories Aether scans for music. They are declared HERE and nowhere
+# else: there is no database row and no UI to add one, so what gets scanned is
+# exactly what this list says. Restart to apply a change.
 #
-#   * it is read-only in the UI (no edit, no delete) — change it here and
-#     restart instead;
-#   * the UI refuses to create a library that reuses a name or path claimed
-#     below;
-#   * removing an entry does NOT delete the library or its scanned tracks; the
-#     library simply becomes an ordinary, editable one in the UI.
+#   Name             identifies the folder: tracks remember the name of the folder
+#                    they were indexed under, and library filters refer to it.
+#                    Renaming a folder takes effect on the next scan.
+#   Path             root directory. Roots must not be equal or nested.
+#   ExcludePatterns  list of Go regexes; matching files/directories are skipped
+#                                                                    (default: none)
+#   FollowSymlinks   follow symlinked folders while scanning         (default: true)
 #
-# A library is identified by its Path (that is what gets scanned), falling back
-# to its Name. Pointing an existing entry at a new Path wipes that library's
-# tracks, exactly as changing the path in the UI does — the next scan refills it.
+# A directory that is missing at startup (a share that mounts late) is only a
+# warning: the server starts, and scans refuse to run until it is back.
 #
-# Every field the UI offers is available. Only Name and Path are required:
+# REMOVING an entry removes its tracks at the next scan — together with their
+# stars, playlist entries and play history. The server warns at startup when
+# indexed tracks belong to a folder that is no longer listed.
 #
-#   ExcludePatterns  list of Go regexes; matching files are skipped   (default: none)
-#   FollowSymlinks   follow symlinked folders while scanning          (default: true)
-#   ShowArtists      list this library's artists in the artist index  (default: true)
-#   DefaultView      "albums" or "artists"                           (default: albums)
-#   Icon             PrimeIcons name without the "pi pi-" prefix      (default: folder)
-#   CoverStyle       generated-cover style: auto, classic, bauhaus,
-#                    rings, waves, poster, remix                      (default: auto)
+# What users browse — "libraries" — is configured in Settings → Libraries.
 #
-# Libraries:
+# ScanFolders:
 #   - Name: "Music"
 #     Path: "/srv/music"
 #   - Name: "Audiobooks"
 #     Path: "/srv/audiobooks"
 #     ExcludePatterns:
 #       - ".*/covers/.*"
-#     ShowArtists: false
-#     DefaultView: "albums"
-#     Icon: "book"
-#     CoverStyle: "poster"
+#     FollowSymlinks: false
 
 # Authentication. Three methods:
 #
