@@ -59,8 +59,8 @@ passes into the task function, which lands in the per-execution log
    use case, since reorganising a scan folder moves whole directories.
    `planTrackContinuity`'s narrowing to `fs.ErrNotExist` only helps when the
    subtree fails with EACCES rather than merely looking empty.
-   Accepted, won't fix, on an explicit assumption — mounts are library *roots*, never
-   directories inside a library — which is what keeps this out of reach, since a
+   Accepted, won't fix, on an explicit assumption — mounts are scan folder *roots*, never
+   directories inside a scan folder — which is what keeps this out of reach, since a
    dropped root mount trips the guards above. Full analysis and the candidate fixes:
    [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
 2. **Change filter** — incremental scans skip files whose size/modtime match
@@ -546,7 +546,7 @@ candidate portrait as a selectable grid rather than auto-picking one:
   `audiohash` covers so an unsupported format is not re-opened on every scan
   (without that filter a one-time repair becomes a permanent per-scan tax). It is
   self-terminating: each file it arms it never sees again, so a steady state does
-  no work. **Deliberately deferred**, because its whole value is arming a library
+  no work. **Deliberately deferred**, because its whole value is arming an install
   whose operator does not know it needed arming, and with nothing shipped there is
   no install to protect — "run one full scan" is free advice today. Note it can
   never recover a *past* move either way: a file that moved before it was hashed

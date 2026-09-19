@@ -17,6 +17,12 @@ section records a decision and this file records the consequence.
 
 ## Vanished sub-trees inside a present library root
 
+*This heading (and the `TODO.md` item title quoted just below) keep their
+original wording because `TODO.md` links this entry by that exact anchor.
+"Library root" there means a **scan folder**'s root — the directory on disk a
+`ScanFolders` entry names, not a `libraries` row — and the rest of this entry
+says "scan folder" throughout.*
+
 **Status:** accepted — out of reach under the mount assumption below. Marked
 *won't implement* in `TODO.md` ("Guarding a vanished or unreadable sub-tree inside a
 present library root"), which merged the separate "unreadable subtree" item into
@@ -28,21 +34,21 @@ step 5 cleanup (`store.Cleanup` → `store.DeleteOrphanedAggregates`).
 
 ### The operating assumption that defers this
 
-**A mount is the library root itself, never a directory inside a library.**
-`mount /music/library1` is expected; `/music/library1/some/mounted/subdir` is not.
+**A mount is the scan folder root itself, never a directory inside a scan folder.**
+`mount /music/collection1` is expected; `/music/collection1/some/mounted/subdir` is not.
 
 That assumption is what makes this caveat theoretical rather than urgent. When the
 mount *is* the root, a dropped mount takes the root with it, and phase 1's guards
-(below) fail the scan for every library before anything is written — the abort is
+(below) fail the scan for every scan folder before anything is written — the abort is
 atomic and no data moves. Every guard Aether has for this class of problem lives at
 the root, so the assumption is precisely the boundary of what is protected.
 
 What would invalidate it, and should send you back here:
 
-- a per-album, per-disc or per-collection mount *inside* a library root
-- a bind mount, junction or symlink pointing a library subdirectory at another volume
+- a per-album, per-disc or per-collection mount *inside* a scan folder root
+- a bind mount, junction or symlink pointing a scan folder subdirectory at another volume
 - an automounted (autofs) subdirectory that mounts on access and unmounts on idle
-- a NAS share attached at a subfolder rather than at the library root
+- a NAS share attached at a subfolder rather than at the scan folder root
 - Windows, if it ever becomes a target: "mount in an empty NTFS folder" volume mount
   points and `mklink /J` junctions reproduce the same shape (see *Portability* below)
 
@@ -75,7 +81,7 @@ and the share offline when a scan runs:
    vanished row: did this file move? Its proof is equal `file_size`, equal `title`,
    `duration` within ±1s, the old path gone from disk, and exactly one vanished row
    and one new file sharing the fingerprint.
-4. If a byte-identical copy of one of those tracks exists elsewhere in the library —
+4. If a byte-identical copy of one of those tracks exists elsewhere in the scan folder —
    a duplicate in a compilation folder, say — the proof succeeds. The row is
    re-pointed at the copy, carrying its `starred_items`, `playlist_tracks`,
    `play_histories` and `play_queue_entries` with it.
@@ -87,7 +93,7 @@ and the share offline when a scan runs:
 ### Why misattribution is ranked above loss
 
 Step 5 is data loss and it is *visible*: a playlist gets shorter, a star disappears.
-Step 4 produces a library that looks completely healthy while a star sits on the
+Step 4 produces a scan folder that looks completely healthy while a star sits on the
 wrong file and a play count is a blend of two files' listening. There is no error, no
 log line, and no way for the user to discover it. A false match also merges two
 tracks' listening history, which the track-identity design already calls worse than
@@ -115,12 +121,12 @@ only ever swept.
 None chosen. Recorded smallest-first, with the objection to each.
 
 1. **Volume tripwire** (portable, blunt, favoured). Refuse to sweep or re-link when a
-   run would affect an implausible share of one library's tracks. This is the
+   run would affect an implausible share of one scan folder's tracks. This is the
    existing zero-files guard generalised from "all of them" to "too many of them",
    so it introduces no new concept. Catches unattached mounts, dropped shares,
    half-finished imports and permission accidents with one mechanism, and needs no
    OS-specific code. *Objection:* threshold policy, and it needs an escape hatch for
-   a user who really did remove most of a library.
+   a user who really did remove most of a scan folder.
 2. **Hollow-directory rule.** Refuse to *re-link* a row whose directory still exists
    but now holds nothing. Narrower than the rejected rule below: a reorganisation
    takes the directory with it, so a legitimate move should not trip it. *Objection:*
@@ -157,14 +163,14 @@ None chosen. Recorded smallest-first, with the objection to each.
    live rows rather than re-point one vanished row.
 
 **Rejected:** requiring a vanished row's parent directory to still exist. That breaks
-the primary use case, since reorganising a library moves whole directories — exactly
+the primary use case, since reorganising a scan folder moves whole directories — exactly
 when re-linking matters most.
 
 ### Portability note
 
 Windows is not a build target today (Debian packaging only, no cross-compile targets,
 no platform-specific sources), but the shape matters for choosing a fix. On Windows
-the common layout puts the *whole* library on the network (`Z:\Music`, `\\nas\music`),
+the common layout puts the *whole* scan folder on the network (`Z:\Music`, `\\nas\music`),
 which is the root — so the existing root guards cover it. Windows also reports a
 distinct error for a dead share rather than "not found", which the `fs.ErrNotExist`
 narrowing already declines on. The exposed case there is the same nested one: a volume
