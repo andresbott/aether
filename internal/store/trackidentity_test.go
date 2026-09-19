@@ -76,7 +76,7 @@ func TestRelinkTrackKeepsTheRow(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/old/a.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/old/a.mp3", "/music/new/b.mp3", 7)
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/old/a.mp3", "/music/new/b.mp3", 7, "Other")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +97,9 @@ func TestRelinkTrackKeepsTheRow(t *testing.T) {
 	if after.LibraryID != 7 {
 		t.Fatalf("LibraryID = %d, want 7 (a move can cross libraries)", after.LibraryID)
 	}
+	if after.ScanFolder != "Other" {
+		t.Fatalf("ScanFolder = %q, want %q (a move can cross scan folders)", after.ScanFolder, "Other")
+	}
 	if !after.CreatedAt.Equal(track.CreatedAt) {
 		t.Fatalf("created_at changed (%v -> %v)", track.CreatedAt, after.CreatedAt)
 	}
@@ -111,7 +114,7 @@ func TestRelinkTrackReportsNoChangeWhenThePathMoved(t *testing.T) {
 	mod := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	track := seedIdentityTrack(t, s, album.ID, "/music/current.mp3", 4, mod, "A")
 
-	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/stale.mp3", "/music/new.mp3", 1)
+	relinked, err := s.RelinkTrack(context.Background(), track.ID, "/music/stale.mp3", "/music/new.mp3", 1, "Music")
 	if err != nil {
 		t.Fatal(err)
 	}

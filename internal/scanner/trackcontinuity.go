@@ -231,7 +231,7 @@ func (s *Scanner) runRelinkPass(ctx context.Context, p relinkPass, files []tagRe
 		if !durationsAgree(row.Duration, int(tr.meta.Duration.Seconds())) {
 			continue
 		}
-		done, err := s.store.RelinkTrack(ctx, row.ID, row.FilePath, tr.walk.FilePath, tr.walk.LibraryID)
+		done, err := s.store.RelinkTrack(ctx, row.ID, row.FilePath, tr.walk.FilePath, tr.walk.LibraryID, tr.walk.ScanFolder)
 		if err != nil {
 			if store.IsUniqueViolation(err) {
 				continue // a concurrent pass got there first

@@ -9,7 +9,7 @@ import (
 )
 
 // chunkSize bounds the IN-clause of the store's bulk lookups: FilterChanged
-// and BulkUpdateLastSeen (scan_helpers.go) and the album/track identity lookups
+// and BulkMarkSeen (scan_helpers.go) and the album/track identity lookups
 // all page long path/id slices through it.
 const chunkSize = 500
 

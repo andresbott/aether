@@ -10,8 +10,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// BulkUpdateLastSeen advances the liveness marker on paths an incremental scan
-// found unchanged on disk.
+// BulkMarkSeen marks paths as seen by the scan that started at scanTime and
+// stamps them with the scan folder they were walked under.
+//
+// It advances the liveness marker on paths an incremental scan found unchanged
+// on disk, and it is the one statement that touches EVERY walked file on EVERY
+// scan — which is why the scan-folder stamp rides along here: a folder renamed
+// in configuration is healed by the next scan, incremental included, at no
+// extra cost.
 //
 // The update is monotonic — `last_seen_at < scanTime` in the WHERE clause — for
 // the same reason reconcileTrack's assignment is: kept as a cheap safety net —
@@ -20,8 +26,9 @@ import (
 // look stale to a scan already in flight, and its Cleanup would delete the row
 // along with the track's playlist memberships, play history and stars. Within a
 // single scan every row is either already at scanTime (no-op) or older
-// (advances), so the added predicate never skips a row that needs the bump.
-func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
+// (advances), so the added predicate never skips a row that needs the bump. A
+// row the predicate skips was stamped by the scan that holds the newer marker.
+func (s *Store) BulkMarkSeen(paths []string, scanFolder string, scanTime time.Time) error {
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {
@@ -29,7 +36,7 @@ func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
 		}
 		if err := s.db.Table("tracks").
 			Where("file_path IN ? AND last_seen_at < ?", paths[i:end], scanTime).
-			Update("last_seen_at", scanTime).Error; err != nil {
+			Updates(map[string]any{"last_seen_at": scanTime, "scan_folder": scanFolder}).Error; err != nil {
 			return err
 		}
 	}

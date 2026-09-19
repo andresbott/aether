@@ -405,6 +405,73 @@ func (r *recordProgress) hasStagePrefix(p string) bool {
 	return false
 }
 
+// Every indexed track carries the name of the library it was walked under and
+// its lowercase extension — the two markers library scoping matches on.
+func TestScanStampsScanFolderAndSuffix(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{
+		"Artist/Album/01-track.mp3",
+		"Artist/Album/02-track.FLAC",
+	})
+	lib := seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	var tracks []model.Track
+	if err := st.DB().Order("filename").Find(&tracks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 2 {
+		t.Fatalf("expected 2 tracks, got %d", len(tracks))
+	}
+	for _, tr := range tracks {
+		if tr.ScanFolder != lib.Name {
+			t.Errorf("%s: ScanFolder = %q, want %q", tr.Filename, tr.ScanFolder, lib.Name)
+		}
+	}
+	if tracks[0].Suffix != "mp3" || tracks[1].Suffix != "flac" {
+		t.Fatalf("suffixes = %q, %q; want mp3, flac (lowercased)", tracks[0].Suffix, tracks[1].Suffix)
+	}
+}
+
+// An incremental scan reads no tags for unchanged files, so the stamp has to
+// come from the pass that touches every walked file. This is what heals a
+// renamed scan folder without a full scan.
+func TestIncrementalScanRestampsScanFolder(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	lib := seedLibrary(t, st, dir, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the row still carrying the folder's previous name.
+	if err := st.DB().Model(&model.Track{}).Where("1 = 1").Update("scan_folder", "Old Name").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TracksProcessed != 0 {
+		t.Fatalf("expected the unchanged file not to be re-read, got %d processed", stats.TracksProcessed)
+	}
+	var got model.Track
+	if err := st.DB().First(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.ScanFolder != lib.Name {
+		t.Fatalf("ScanFolder = %q, want %q after an incremental scan", got.ScanFolder, lib.Name)
+	}
+}
+
 func TestScannerReportsProgress(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()

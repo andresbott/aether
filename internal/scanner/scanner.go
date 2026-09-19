@@ -259,7 +259,7 @@ func (s *Scanner) scanLibrary(ctx context.Context, lw libraryWalk, scanStart tim
 	for i, wr := range walkResults {
 		allPaths[i] = wr.FilePath
 	}
-	if err := s.store.BulkUpdateLastSeen(allPaths, scanStart); err != nil {
+	if err := s.store.BulkMarkSeen(allPaths, lib.Name, scanStart); err != nil {
 		return err
 	}
 

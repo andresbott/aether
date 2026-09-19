@@ -123,13 +123,14 @@ func (s *Store) TracksByAudioHashes(ctx context.Context, hashes []string) ([]Tra
 // filesystem reads it must not hold a write transaction across, so the update
 // itself is the check: a row whose path changed underneath reports
 // relinked=false and is skipped rather than overwritten.
-func (s *Store) RelinkTrack(ctx context.Context, id uint, oldPath, newPath string, libraryID uint) (bool, error) {
+func (s *Store) RelinkTrack(ctx context.Context, id uint, oldPath, newPath string, libraryID uint, scanFolder string) (bool, error) {
 	res := s.db.WithContext(ctx).Model(&model.Track{}).
 		Where("id = ? AND file_path = ?", id, oldPath).
 		Updates(map[string]any{
-			"file_path":  newPath,
-			"filename":   filepath.Base(newPath),
-			"library_id": libraryID,
+			"file_path":   newPath,
+			"filename":    filepath.Base(newPath),
+			"library_id":  libraryID,
+			"scan_folder": scanFolder,
 		})
 	if res.Error != nil {
 		return false, res.Error

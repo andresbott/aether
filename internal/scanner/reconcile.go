@@ -222,7 +222,9 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 
 	track.AlbumID = album.ID
 	track.LibraryID = tr.walk.LibraryID
+	track.ScanFolder = tr.walk.ScanFolder
 	track.Filename = filepath.Base(tr.walk.FilePath)
+	track.Suffix = suffixOf(track.Filename)
 	track.FilePath = tr.walk.FilePath
 	track.FileSize = tr.walk.FileSize
 	track.FileModTime = tr.walk.ModTime
@@ -387,4 +389,10 @@ func (s *Scanner) rekeyArtistImages(rk artistRekey) {
 		slog.Warn("artist image re-key failed; the row moved but the stored images did not",
 			"name_norm", rk.nameNorm, "mbid", rk.mbid, "old_key", oldKey, "new_key", newKey, "err", err)
 	}
+}
+
+// suffixOf is a file name's lowercase extension without the dot ("flac"), or ""
+// when it has none.
+func suffixOf(name string) string {
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 }

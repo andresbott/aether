@@ -9,23 +9,30 @@ import (
 	"github.com/andresbott/aether/internal/store"
 )
 
-func TestBulkUpdateLastSeen(t *testing.T) {
+func TestBulkMarkSeen(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	t1 := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3"}
+	// t1 still carries the folder's previous name; t2 was never stamped.
+	t1 := model.Track{AlbumID: album.ID, Filename: "01.mp3", FilePath: "/music/01.mp3", ScanFolder: "Old Name"}
 	t2 := model.Track{AlbumID: album.ID, Filename: "02.mp3", FilePath: "/music/02.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
 	now := time.Now()
-	if err := s.BulkUpdateLastSeen([]string{"/music/01.mp3", "/music/02.mp3"}, now); err != nil {
+	if err := s.BulkMarkSeen([]string{"/music/01.mp3", "/music/02.mp3"}, "Music", now); err != nil {
 		t.Fatal(err)
 	}
-	var track model.Track
-	db.First(&track, t1.ID)
-	if track.LastSeenAt.Before(now.Add(-time.Second)) {
-		t.Fatal("expected LastSeenAt to be updated")
+	for _, id := range []uint{t1.ID, t2.ID} {
+		var track model.Track
+		db.First(&track, id)
+		if track.LastSeenAt.Before(now.Add(-time.Second)) {
+			t.Fatalf("track %d: expected LastSeenAt to be updated", id)
+		}
+		// Re-stamping on every scan is what heals a renamed scan folder.
+		if track.ScanFolder != "Music" {
+			t.Fatalf("track %d: ScanFolder = %q, want %q", id, track.ScanFolder, "Music")
+		}
 	}
 }
 
@@ -33,7 +40,7 @@ func TestBulkUpdateLastSeen(t *testing.T) {
 // a targeted rescan can overlap it, and lowering a newer marker would make a
 // live track look stale to the other scan's Cleanup — which deletes the row
 // and cascades its playlist entries, play history and stars.
-func TestBulkUpdateLastSeenNeverLowersTheMarker(t *testing.T) {
+func TestBulkMarkSeenNeverLowersTheMarker(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
@@ -50,7 +57,7 @@ func TestBulkUpdateLastSeenNeverLowersTheMarker(t *testing.T) {
 	db.Create(&track)
 
 	// An older scan, still in flight, finds it unchanged on disk.
-	if err := s.BulkUpdateLastSeen([]string{"/music/01.mp3"}, earlier); err != nil {
+	if err := s.BulkMarkSeen([]string{"/music/01.mp3"}, "Music", earlier); err != nil {
 		t.Fatal(err)
 	}
 

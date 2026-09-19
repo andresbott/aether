@@ -274,7 +274,7 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 	// A scheduled scan starts later than the rescan below and marks every walked
 	// path with its own scanStart.
 	laterScanStart := time.Now().Add(time.Hour)
-	if err := st.BulkUpdateLastSeen([]string{edited, other}, laterScanStart); err != nil {
+	if err := st.BulkMarkSeen([]string{edited, other}, lib.Name, laterScanStart); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,5 +365,30 @@ func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
 	db.Model(&model.Artist{}).Where("name = ?", "Ghost").Count(&artists)
 	if albums != 1 || artists != 1 {
 		t.Fatalf("expected the unrelated orphan to survive the targeted rescan, got albums=%d artists=%d", albums, artists)
+	}
+}
+
+// The editor's targeted re-index inserts and updates rows too, so it has to
+// stamp the marker exactly like a scan does.
+func TestRescanPathsStampsScanFolder(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	lib := seedLibrary(t, st, dir, nil)
+
+	file := filepath.Join(dir, "Artist/Album/01.mp3")
+	rescanner := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+		file: meta("Title", "Test Artist", "Album"),
+	}})
+	if _, err := rescanner.RescanPaths(context.Background(), lib.ID, []string{file}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got model.Track
+	if err := st.DB().Where("file_path = ?", file).First(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.ScanFolder != lib.Name || got.Suffix != "mp3" {
+		t.Fatalf("ScanFolder = %q, Suffix = %q; want %q, mp3", got.ScanFolder, got.Suffix, lib.Name)
 	}
 }

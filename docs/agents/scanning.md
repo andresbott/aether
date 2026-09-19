@@ -58,7 +58,9 @@ passes into the task function, which lands in the per-execution log
    [`../architecture/caveats.md`](../architecture/caveats.md#vanished-sub-trees-inside-a-present-library-root).
 2. **Change filter** — incremental scans skip files whose size/modtime match
    the DB (`store.FilterChanged`); unchanged files only get their
-   `last_seen_at` bumped in 500-row chunks (`store.BulkUpdateLastSeen`).
+   `last_seen_at` bumped in 500-row chunks (`store.BulkMarkSeen`, which also
+   re-stamps each row's `scan_folder` — the marker library scoping matches
+   on; see "Identity & normalization rules").
    A **full** scan (`ScanOptions.IsFull`) re-reads every file's tags.
 3. **Tag read** — a worker pool (`Config.TagReadWorkers`, 0 = NumCPU) reads
    tags via `tags.Reader`.
@@ -80,7 +82,7 @@ scans-only for now).
 `LastSeenAt` is the liveness marker — every code path that touches a track
 during a scan must set it to the scan's start time, or cleanup will delete
 live tracks. It is **monotonic in both writers**: `reconcileTrack` guards its
-assignment, and `store.BulkUpdateLastSeen` carries `last_seen_at < scanTime`
+assignment, and `store.BulkMarkSeen` carries `last_seen_at < scanTime`
 in its WHERE clause. Concurrent runs with different `scanStart` values used
 to be normal — before the `reindex` task existed, the metadata editor's
 targeted rescan ran off the request path and could overlap a scheduled scan
@@ -96,13 +98,13 @@ a bump that was needed.
 
 **One deliberate exception.** `store.RelinkTrack` is a third writer that touches
 a track during a scan and does **not** advance `last_seen_at` — it rewrites
-`file_path`, `filename` and `library_id` only. That is safe because the row now
-carries the new path, so `reconcileTrack` finds it moments later in the same
-batch and sets the marker there; and if *that* transaction fails, `Cleanup`
-deletes the row exactly as it would have without the re-link. Writing the marker
-in `RelinkTrack` would instead invent a new way to keep a row alive that no
-reconcile ever confirmed. Anything else that starts touching tracks mid-scan
-still has to advance it.
+`file_path`, `filename`, `library_id` and `scan_folder` only. That is safe
+because the row now carries the new path, so `reconcileTrack` finds it moments
+later in the same batch and sets the marker there; and if *that* transaction
+fails, `Cleanup` deletes the row exactly as it would have without the re-link.
+Writing the marker in `RelinkTrack` would instead invent a new way to keep a
+row alive that no reconcile ever confirmed. Anything else that starts touching
+tracks mid-scan still has to advance it.
 
 ## Targeted re-index (`internal/scanner/rescan.go`, `app/tasks/reindex.go`)
 
@@ -376,6 +378,14 @@ not just any scan, to self-heal.
 - MusicBrainz IDs from tags (`MBArtistID`, `MBReleaseID`, `MBRecordingID`,
   …) are aligned positionally with artist names (`alignMBIDs`) and stored —
   they drive artist-image fetching and album identity.
+- **`tracks.scan_folder` is a name marker, not a foreign key**, and it is not
+  derivable from `file_path`: with `FollowSymlinks` the walker records content
+  reached through a symlink under its *resolved* path (`walkSymlinkEntry`,
+  `followSymlinkEntry`), which can lie outside the root. Three writers keep it
+  current — `reconcileTrack` (files a pass reads), `store.BulkMarkSeen` (every
+  walked file, every scan, so a renamed folder heals on the next incremental
+  scan) and `store.RelinkTrack` (a move across folders). `tracks.suffix` is the
+  lowercase extension, written by `reconcileTrack` only.
 
 ## Tag reading (`internal/tags`)
 
