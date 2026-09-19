@@ -5,6 +5,7 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
 import { useIsPlaylistOwner } from '@/composables/usePlaylistOwnership'
 import { formatDuration } from '@/utils/formatDuration'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 /**
  * One playlist as a list row — the playlist counterpart to `AlbumRow`, and the
@@ -23,7 +24,8 @@ const isOwner = useIsPlaylistOwner(() => props.playlist?.owner)
 const coverUrl = computed(() => {
     const art = props.playlist?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 80)
+    const base = subsonicClient.getCoverArtUrl(art, 80)
+    return versionedCoverUrl(base, art)
 })
 
 const isStarred = computed(() => !!props.playlist?.starred)

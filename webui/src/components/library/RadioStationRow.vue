@@ -4,6 +4,7 @@ import type { InternetRadioStation } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { useSongsDrag } from '@/composables/useSongsDrag'
 import { stationToSong } from '@/utils/radioSong'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{ station?: InternetRadioStation }>()
 
@@ -12,7 +13,8 @@ const songsDrag = useSongsDrag()
 const coverUrl = computed(() => {
     const art = props.station?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 80)
+    const base = subsonicClient.getCoverArtUrl(art, 80)
+    return versionedCoverUrl(base, art)
 })
 
 const onRowDragStart = (event: DragEvent): void => {

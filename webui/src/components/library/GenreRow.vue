@@ -2,13 +2,15 @@
 import { computed } from 'vue'
 import type { Genre } from '@/types/subsonic'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{ genre?: Genre }>()
 
 const coverUrl = computed(() => {
     const art = props.genre?.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 80)
+    const base = subsonicClient.getCoverArtUrl(art, 80)
+    return versionedCoverUrl(base, art)
 })
 </script>
 

@@ -5,6 +5,7 @@ import { subsonicClient } from '@/lib/api/subsonic'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTogglePlaylistStar } from '@/composables/useSubsonicQueries'
 import { useIsPlaylistOwner } from '@/composables/usePlaylistOwnership'
+import { versionedCoverUrl } from '@/composables/useCoverVersion'
 
 const props = defineProps<{ playlist: Playlist }>()
 const player = usePlayer()
@@ -14,7 +15,8 @@ const isOwner = useIsPlaylistOwner(() => props.playlist.owner)
 const coverUrl = computed(() => {
     const art = props.playlist.coverArt
     if (!art || !subsonicClient.isConfigured()) return null
-    return subsonicClient.getCoverArtUrl(art, 200)
+    const base = subsonicClient.getCoverArtUrl(art, 200)
+    return versionedCoverUrl(base, art)
 })
 
 const isStarred = computed(() => !!props.playlist.starred)
