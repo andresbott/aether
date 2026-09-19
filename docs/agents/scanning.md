@@ -386,6 +386,12 @@ not just any scan, to self-heal.
   walked file, every scan, so a renamed folder heals on the next incremental
   scan) and `store.RelinkTrack` (a move across folders). `tracks.suffix` is the
   lowercase extension, written by `reconcileTrack` only.
+  **Ownership when a file is reachable from two scan folders** — nested roots,
+  or two folders reaching one directory through symlinks — **is decided by the
+  last folder that walks it, in name order**, identically for a full and an
+  incremental scan: `store.BulkMarkSeen` stamps `scan_folder` in a statement
+  deliberately not behind the `last_seen_at` liveness guard, so every folder of
+  a scan gets to (re)stamp the row rather than only the first one.
 
 ## Tag reading (`internal/tags`)
 

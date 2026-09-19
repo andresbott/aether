@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -530,6 +531,41 @@ func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 	}
 	if len(artists) != 1 || artists[0].Name != "Visible Artist" {
 		t.Fatalf("expected only Visible Artist, got %+v", artists)
+	}
+}
+
+// Two hide-artists libraries: the visibility predicate carries one bind value
+// per library and appears twice in the SQL, so the args must line up in both.
+func TestGetArtistsExcludesArtistsOfSeveralHiddenLibraries(t *testing.T) {
+	s := testStore(t)
+	vis := &model.Library{Name: "Vis", Path: "/vis"}
+	hid1 := &model.Library{Name: "Hid1", Path: "/hid1", HideArtists: true}
+	hid2 := &model.Library{Name: "Hid2", Path: "/hid2", HideArtists: true}
+	for _, lib := range []*model.Library{vis, hid1, hid2} {
+		if err := s.CreateLibrary(lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedArtistTrack(t, s, vis.ID, "Visible", "/vis/a.mp3")
+	seedArtistTrack(t, s, hid1.ID, "Hidden One", "/hid1/a.mp3")
+	seedArtistTrack(t, s, hid2.ID, "Hidden Two", "/hid2/a.mp3")
+	// Present in both hidden libraries and nowhere else: still hidden.
+	seedArtistTrack(t, s, hid1.ID, "Both Hidden", "/hid1/b.mp3")
+	seedArtistTrack(t, s, hid2.ID, "Both Hidden", "/hid2/b.mp3")
+	// One track in a visible library keeps the artist visible.
+	seedArtistTrack(t, s, hid2.ID, "Shared", "/hid2/c.mp3")
+	seedArtistTrack(t, s, vis.ID, "Shared", "/vis/c.mp3")
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(artists))
+	for _, a := range artists {
+		names = append(names, a.Name)
+	}
+	if want := []string{"Shared", "Visible"}; !slices.Equal(names, want) {
+		t.Fatalf("visible artists = %v, want %v", names, want)
 	}
 }
 

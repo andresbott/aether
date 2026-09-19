@@ -2,6 +2,7 @@ package subsonic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -351,19 +352,26 @@ func paramBoolPtr(r *http.Request, key string) *bool {
 // the library it names, plus that library. Absent or unparseable answers the
 // zero scope and a nil library — cross-library, since the spec makes the
 // parameter optional. An id that names no library answers a scope matching
-// nothing, so the request keeps returning empty lists.
-func (h *Handler) libraryScope(r *http.Request) (store.TrackScope, *model.Library) {
+// nothing, so the request keeps returning empty lists. A store failure is a
+// different thing: it is answered here as an internal error with ok=false (like
+// requireAdmin), because "no tracks" would hand the client a successful empty
+// list to cache.
+func (h *Handler) libraryScope(w http.ResponseWriter, r *http.Request) (scope store.TrackScope, lib *model.Library, ok bool) {
 	s := r.URL.Query().Get("musicFolderId")
 	if s == "" {
-		return store.TrackScope{}, nil
+		return store.TrackScope{}, nil, true
 	}
 	n, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return store.TrackScope{}, nil
+		return store.TrackScope{}, nil, true
 	}
-	lib, err := h.store.GetLibrary(uint(n))
+	found, err := h.store.GetLibrary(uint(n))
+	if errors.Is(err, store.ErrNotFound) {
+		return store.NoTracks(), nil, true
+	}
 	if err != nil {
-		return store.NoTracks(), nil
+		writeError(w, 0, "internal error")
+		return store.TrackScope{}, nil, false
 	}
-	return store.LibraryScope(&lib), &lib
+	return store.LibraryScope(&found), &found, true
 }

@@ -52,7 +52,10 @@ func (h *Handler) getIndexes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeArtistIndex(w http.ResponseWriter, r *http.Request, key string) {
-	scope, lib := h.libraryScope(r)
+	scope, lib, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.ArtistsFilter{Scope: scope}
 	var artists []model.Artist
 	// A library that hides its artists answers an empty index by design. A scope

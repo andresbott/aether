@@ -197,7 +197,7 @@ func TestScopeAppliesToAlbums(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 2 || len(letters) != 2 {
+	if total != 2 || len(letters) != 2 || letters[0].Letter != "C" || letters[1].Letter != "F" {
 		t.Fatalf("letter index = %+v (total %d), want C and F", letters, total)
 	}
 }
@@ -207,6 +207,126 @@ func TestLibraryScopeSelectsTheLibrarysTracks(t *testing.T) {
 	got := tracksIn(t, s, store.LibraryScope(&model.Library{Name: "Books"}))
 	if want := []string{"d", "e"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// The compiler binds values exactly as given: what it matches was stored
+// verbatim by the scanner, so trimming here would make a padded name or tag
+// unselectable.
+func TestScopeBindsValuesVerbatim(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	padded := &model.Genre{Name: "Rock "}
+	if err := db.Create(padded).Error; err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "al", NameNorm: "al", AlbumArtistNorm: "x"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	tr := model.Track{Title: "t", TitleNorm: "t", AlbumID: album.ID, ScanFolder: " Jazz ", FilePath: "/j/1.mp3", Filename: "1.mp3", Suffix: "mp3"}
+	if err := db.Create(&tr).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&tr).Association("Genres").Replace([]*model.Genre{padded}); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name   string
+		filter model.LibraryFilter
+		want   []string
+	}{
+		{"padded scan folder matches verbatim", libFilter(model.FilterScanFolder, " Jazz "), []string{"t"}},
+		{"trimmed scan folder does not", libFilter(model.FilterScanFolder, "Jazz"), []string{}},
+		{"padded genre matches verbatim", libFilter(model.FilterGenre, "Rock "), []string{"t"}},
+		{"trimmed genre does not", libFilter(model.FilterGenre, "Rock"), []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tracksIn(t, s, store.ScopeOf([]model.LibraryFilter{tc.filter}))
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if got := tracksIn(t, s, store.LibraryScope(&model.Library{Name: " Jazz "})); !slices.Equal(got, []string{"t"}) {
+		t.Fatalf("a library with a padded name must match its own tracks, got %v", got)
+	}
+}
+
+// scope.go's header claims one clause shape drops into all three embedding
+// sites, but until now no subquery-bearing clause (genre, release type,
+// compilation) was exercised through a NESTING site — tracksIn only ever runs
+// a scope directly against a tracks query. Phase 3 switches these filters on
+// without touching scope.go again, so the nesting sites need their own
+// coverage now: GetAlbumList's `EXISTS (… FROM tracks …)` under an albums
+// query, and SearchGenres's own `genres g` alias inside a query over genres.
+func TestScopeSubqueryClausesNest(t *testing.T) {
+	s := seedScopeCatalog(t)
+
+	albumNames := func(sc store.TrackScope) []string {
+		albums, err := s.GetAlbumList("alphabeticalByName", 100, 0, &store.AlbumListFilter{Scope: sc})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(albums))
+		for _, al := range albums {
+			out = append(out, al.Name)
+		}
+		return out
+	}
+	albumCases := []struct {
+		name    string
+		filters []model.LibraryFilter
+		want    []string
+	}{
+		{"genre", []model.LibraryFilter{libFilter(model.FilterGenre, "Rock")}, []string{"lp"}},
+		{"release type", []model.LibraryFilter{libFilter(model.FilterReleaseType, "Album")}, []string{"comp", "lp"}},
+		{"untyped release type", []model.LibraryFilter{libFilter(model.FilterReleaseType, "")}, []string{"flagged", "untyped"}},
+		{"compilation true", []model.LibraryFilter{libFilter(model.FilterCompilation, "true")}, []string{"comp", "flagged"}},
+		{"compilation false", []model.LibraryFilter{libFilter(model.FilterCompilation, "false")}, []string{"lp", "single", "untyped"}},
+		{"scan folder + compilation + genre", []model.LibraryFilter{
+			libFilter(model.FilterScanFolder, "Books"),
+			libFilter(model.FilterCompilation, "true"),
+			libFilter(model.FilterGenre, "Jazz"),
+		}, []string{"flagged"}},
+	}
+	for _, tc := range albumCases {
+		t.Run("albums: "+tc.name, func(t *testing.T) {
+			got := albumNames(store.ScopeOf(tc.filters))
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	genreNames := func(sc store.TrackScope) []string {
+		genres, err := s.SearchGenres("", 20, 0, &store.SearchFilter{Scope: sc})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]string, 0, len(genres))
+		for _, g := range genres {
+			out = append(out, g.Name)
+		}
+		return out
+	}
+	genreCases := []struct {
+		name    string
+		filters []model.LibraryFilter
+		want    []string
+	}{
+		{"genre", []model.LibraryFilter{libFilter(model.FilterGenre, "Rock")}, []string{"Live", "Rock"}},
+		{"format", []model.LibraryFilter{libFilter(model.FilterFormat, "flac")}, []string{"Rock"}},
+	}
+	for _, tc := range genreCases {
+		t.Run("genres: "+tc.name, func(t *testing.T) {
+			got := genreNames(store.ScopeOf(tc.filters))
+			if !slices.Equal(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

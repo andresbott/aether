@@ -11,32 +11,47 @@ import (
 )
 
 // BulkMarkSeen marks paths as seen by the scan that started at scanTime and
-// stamps them with the scan folder they were walked under.
+// stamps them with the scan folder they were walked under. The two updates run
+// as separate statements, because they need different guards.
 //
-// It advances the liveness marker on paths an incremental scan found unchanged
-// on disk, and it is the one statement that touches EVERY walked file on EVERY
-// scan — which is why the scan-folder stamp rides along here: a folder renamed
-// in configuration is healed by the next scan, incremental included, at no
-// extra cost.
+// The first statement advances the liveness marker on paths an incremental
+// scan found unchanged on disk. It is monotonic — `last_seen_at < scanTime` in
+// the WHERE clause — for the same reason reconcileTrack's assignment is: kept
+// as a cheap safety net — scan and reindex are serialized by the
+// `library-writes` exclusion group so they don't actually overlap. Lowering a
+// newer marker would make a live track look stale to a scan already in
+// flight, and its Cleanup would delete the row along with the track's
+// playlist memberships, play history and stars.
 //
-// The update is monotonic — `last_seen_at < scanTime` in the WHERE clause — for
-// the same reason reconcileTrack's assignment is: kept as a cheap safety net —
-// scan and reindex are serialized by the `library-writes` exclusion group so
-// they don't actually overlap. Lowering a newer marker would make a live track
-// look stale to a scan already in flight, and its Cleanup would delete the row
-// along with the track's playlist memberships, play history and stars. Within a
-// single scan every row is either already at scanTime (no-op) or older
-// (advances), so the added predicate never skips a row that needs the bump. A
-// row the predicate skips was stamped by the scan that holds the newer marker.
+// The second statement stamps the scan folder and is deliberately NOT behind
+// that guard. Every folder of one scan shares one scanTime, so for a file
+// walked under two folders — nested roots, or two folders reaching one
+// directory through symlinks — a guarded stamp would be skipped for every
+// folder after the first: the first folder would win on an incremental scan
+// while reconcileTrack (which overwrites unconditionally) makes the last one
+// win on a full scan, so the marker would flip with the scan kind. Unguarded,
+// the rule is the same for both kinds: the last folder to walk a file owns
+// it, and folders are scanned in name order. `scan_folder <> ?` keeps the
+// steady state write-free — it only writes after a rename or an ownership
+// change.
+//
+// This is still the one function that touches every walked file on every
+// scan, which is what heals a renamed folder on an incremental scan.
 func (s *Store) BulkMarkSeen(paths []string, scanFolder string, scanTime time.Time) error {
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
+		chunk := paths[i:end]
 		if err := s.db.Table("tracks").
-			Where("file_path IN ? AND last_seen_at < ?", paths[i:end], scanTime).
-			Updates(map[string]any{"last_seen_at": scanTime, "scan_folder": scanFolder}).Error; err != nil {
+			Where("file_path IN ? AND last_seen_at < ?", chunk, scanTime).
+			Update("last_seen_at", scanTime).Error; err != nil {
+			return err
+		}
+		if err := s.db.Table("tracks").
+			Where("file_path IN ? AND scan_folder <> ?", chunk, scanFolder).
+			Update("scan_folder", scanFolder).Error; err != nil {
 			return err
 		}
 	}

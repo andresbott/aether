@@ -505,3 +505,42 @@ func TestScannerReportsProgress(t *testing.T) {
 		t.Fatalf("no cleanup stage; stages=%v", rec.stages)
 	}
 }
+
+// A file reachable from two scan folders must belong to the same one whatever
+// kind of scan ran last: the last folder to walk it, in name order. Two sibling
+// folders reaching one directory through symlinks is the case a nested-path
+// check cannot see, because the walker records the resolved path.
+func TestScanFolderOwnershipIsStableAcrossScanKinds(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	createTestFiles(t, filepath.Join(base, "real"), []string{"Album/01.mp3"})
+	rootA := filepath.Join(base, "a")
+	rootB := filepath.Join(base, "b")
+	for _, root := range []string{rootA, rootB} {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(base, "real"), filepath.Join(root, "link")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedLibrary(t, st, rootA, nil)
+	libB := seedLibrary(t, st, rootB, nil)
+
+	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	for _, full := range []bool{true, false, true} {
+		if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: full}); err != nil {
+			t.Fatal(err)
+		}
+		var tracks []model.Track
+		if err := st.DB().Find(&tracks).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(tracks) != 1 {
+			t.Fatalf("full=%v: expected the shared file indexed once, got %d rows", full, len(tracks))
+		}
+		if tracks[0].ScanFolder != libB.Name {
+			t.Fatalf("full=%v: ScanFolder = %q, want %q (last folder in name order)", full, tracks[0].ScanFolder, libB.Name)
+		}
+	}
+}

@@ -143,7 +143,7 @@ None chosen. Recorded smallest-first, with the objection to each.
    must become live-rows-only (SQLite partial index — `model.Migrate` already
    hand-writes one raw index, so there is precedent); every raw-SQL and
    `Table("tracks")` read must learn to exclude absent rows, because GORM's soft
-   delete does not apply to those (`FilterChanged`, `BulkUpdateLastSeen`,
+   delete does not apply to those (`FilterChanged`, `BulkMarkSeen`,
    `TrackAlbumIDs`, `AlbumTrackCounts`, `GetAlbumList`'s `EXISTS` filter, the
    discovery aggregates, and the fifteen `DELETE`s in `scan_helpers.go`); orphan
    aggregates need a policy (an album whose tracks are all absent must not be

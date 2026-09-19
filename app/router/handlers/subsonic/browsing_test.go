@@ -379,3 +379,24 @@ func TestUnknownMusicFolderAnswersEmptyLists(t *testing.T) {
 		t.Fatalf("expected no albums for an unknown music folder, got %d", n)
 	}
 }
+
+// A store failure while resolving musicFolderId is an error, not "no tracks":
+// an empty successful list is something a client caches.
+func TestMusicFolderLookupFailureIsAnError(t *testing.T) {
+	f := newStarFixture(t)
+	if err := f.store.DB().Exec("DROP TABLE libraries").Error; err != nil {
+		t.Fatal(err)
+	}
+	srv := newTestServer(t, f.store)
+	defer srv.Close()
+
+	var body struct {
+		SubsonicResponse struct {
+			Status string `json:"status"`
+		} `json:"subsonic-response"`
+	}
+	decodeJSON(t, srv.URL+"/rest/getAlbumList2.view?type=alphabeticalByName&musicFolderId=1", &body)
+	if body.SubsonicResponse.Status != "failed" {
+		t.Fatalf("status = %q, want failed", body.SubsonicResponse.Status)
+	}
+}

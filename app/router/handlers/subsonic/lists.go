@@ -20,7 +20,10 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		size = 500
 	}
 	owner := requestOwner(r)
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.AlbumListFilter{
 		Genre:       paramStr(r, "genre"),
 		FromYear:    paramInt(r, "fromYear", 0),
@@ -57,7 +60,10 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 	if size > 500 {
 		size = 500
 	}
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.RandomSongsFilter{
 		Genre:    paramStr(r, "genre"),
 		FromYear: paramInt(r, "fromYear", 0),
@@ -86,7 +92,10 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 	}
 	count := paramInt(r, "count", 10)
 	offset := paramInt(r, "offset", 0)
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.SearchFilter{Scope: scope}
 	tracks, err := h.store.GetSongsByGenre(genre, count, offset, filter)
 	if err != nil {
@@ -104,7 +113,10 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	owner := requestOwner(r)
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	starred, err := h.store.GetStarred(owner, &store.StarredFilter{Scope: scope})
 	if err != nil {
 		writeError(w, 0, "internal error")
@@ -181,7 +193,10 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.AlbumListFilter{
 		Scope:       scope,
 		ReleaseType: paramStr(r, "releaseType"),

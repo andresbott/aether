@@ -37,7 +37,10 @@ func (h *Handler) getDiscovery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	owner := requestOwner(r)
-	scope, _ := h.libraryScope(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.DiscoveryFilter{Scope: scope}
 	items, err := h.store.DiscoveryFeed(owner, size, offset, discoverySeed(r), filter)
 	if err != nil {

@@ -1,7 +1,7 @@
 package store
 
 import (
-	"path/filepath"
+	"path"
 	"strings"
 
 	"github.com/andresbott/aether/internal/model"
@@ -112,7 +112,7 @@ func pathClause(dirs []string) (scopeClause, bool) {
 	for _, dir := range dirs {
 		// Clean drops a trailing slash; trimming the root's own "/" leaves "",
 		// whose range ["/", "0") covers every absolute path.
-		prefix := strings.TrimSuffix(filepath.Clean(dir), "/")
+		prefix := strings.TrimSuffix(path.Clean(dir), "/")
 		parts = append(parts, "("+tracksAlias+".file_path >= ? AND "+tracksAlias+".file_path < ?)")
 		args = append(args, prefix+"/", prefix+"0")
 	}
@@ -130,7 +130,7 @@ func releaseTypeClause(values []string) (scopeClause, bool) {
 	var typed []string
 	untyped := false
 	for _, v := range values {
-		if v = strings.TrimSpace(v); v == "" {
+		if strings.TrimSpace(v) == "" {
 			untyped = true
 		} else {
 			typed = append(typed, strings.ToLower(v))
@@ -169,10 +169,14 @@ func compilationClause(values []string) (scopeClause, bool) {
 	}
 }
 
+// nonBlank drops blank values and keeps the rest VERBATIM. Values are matched
+// against what the scanner stored, and the scanner stores names and tags as it
+// found them, so a genre tagged "Rock " has to stay selectable. Normalizing
+// input belongs to whoever stores filters.
 func nonBlank(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, v := range values {
-		if v = strings.TrimSpace(v); v != "" {
+		if strings.TrimSpace(v) != "" {
 			out = append(out, v)
 		}
 	}
