@@ -111,10 +111,11 @@ func WithAdminChecker(admin AdminChecker) Option {
 }
 
 // WithMediaRoots confines stream/getCoverArt to files under a fixed set of
-// roots — in production the configured scan folders, which cannot change while
-// the server runs, so a snapshot is exact. Called with no usable roots it
-// installs no guard, so a server with no scan folders yet keeps serving its own
-// generated covers.
+// roots — in production the configured scan folder roots, which cannot change
+// while the server runs, so a snapshot is exact. Called with no usable roots
+// it installs no guard: every DB-recorded path is then served unchecked. That
+// is a deliberate, still-open design choice for a server with no scan folder
+// configured yet, not a technical necessity — see newGuard.
 func WithMediaRoots(roots ...string) Option {
 	return func(h *Handler) {
 		if g := newGuard(roots); g != nil {
@@ -124,8 +125,12 @@ func WithMediaRoots(roots ...string) Option {
 }
 
 // newGuard builds a guard over the usable (non-empty) roots, or nil when there
-// are none — "no libraries configured" must not become "deny everything", which
-// would black out every cover on a fresh install.
+// are none. "no scan folders configured" therefore does not become "deny
+// everything": with no guard installed, mediaPathAllowed lets every path
+// through, including whatever a track or album row happens to record. Denying
+// everything instead is not required to protect generated or asset-store-
+// managed covers — those never reach mediaPathAllowed at all (see
+// coverMeta.coverManaged) — it is simply behavior nobody has built yet.
 func newGuard(roots []string) *pathguard.Guard {
 	usable := make([]string, 0, len(roots))
 	for _, r := range roots {

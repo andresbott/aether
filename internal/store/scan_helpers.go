@@ -291,12 +291,14 @@ func execInChunks(db *gorm.DB, ids []uint, query string) error {
 	return nil
 }
 
-// CountTracksInScanFolder counts the tracks that belong to a scan folder: the
-// ones stamped with its name, plus the ones recorded under its root. The marker
-// is the truth; the path range backs it up for the one moment the marker lags —
-// a folder renamed in configuration, before the next scan re-stamps its rows.
-// The scan's empty-walk guard relies on this to notice an unmounted share even
-// then.
+// CountTracksInScanFolder is the empty-walk guard's predicate, not a
+// membership count: it is deliberately OVER-INCLUSIVE, counting tracks
+// stamped with name OR recorded under root. The marker is the truth; the path
+// range backs it up for the one moment the marker lags — a folder renamed in
+// configuration, before the next scan re-stamps its rows. The scan's
+// empty-walk guard relies on that slack to notice an unmounted share even
+// then. Anything that wants "how many tracks does this folder own" must count
+// by the marker alone, not call this.
 func (s *Store) CountTracksInScanFolder(name, root string) (int64, error) {
 	lo, hi := PathRange(root)
 	var n int64

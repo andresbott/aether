@@ -200,7 +200,7 @@ to the same scan. In practice:
 - **Safe:** reorganise the library, then scan. One run sees both halves.
 - **Loses data:** move the files somewhere outside every library root, scan, move them
   back (or onward), scan again.
-- **Loses data:** move tracks between two libraries if those are reconciled as separate
+- **Loses data:** move tracks between two scan folders if those are reconciled as separate
   runs rather than in one `Scan` call.
 
 What goes with the deleted row: `starred_items`, `playlist_tracks`, `play_histories`

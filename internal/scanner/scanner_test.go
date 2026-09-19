@@ -76,7 +76,11 @@ func (fakeTagReader) Read(_ context.Context, absPath string) (tags.Metadata, err
 	}, nil
 }
 
-func TestScannerEmptyLibraries(t *testing.T) {
+// TestScanWithNilFolderSet is the only coverage of a NIL Config.Folders:
+// newScanner (this file's helper) always builds a non-nil set via
+// scanfolder.NewSet, so this must keep constructing the Scanner directly with
+// scanner.New(scanner.Config{}, …) rather than switching to that helper.
+func TestScanWithNilFolderSet(t *testing.T) {
 	st := testScanStore(t)
 	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
@@ -639,6 +643,84 @@ func TestScanFolderMovedToANewPathKeepsItsRows(t *testing.T) {
 	}
 }
 
+// A scan folder whose ROOT is itself a symlink must be refused before any
+// write, not "succeed" with zero files: filepath.WalkDir does not descend a
+// symlink root, and the follow-symlinks walk marks the resolved root seen and
+// then skips it when it meets the root symlink.
+func TestScanRefusesASymlinkedRoot(t *testing.T) {
+	st := testScanStore(t)
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	st.DB().Create(&album)
+	st.DB().Create(&model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/anywhere/1.mp3", ScanFolder: "Music"})
+
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	createTestFiles(t, real, []string{"Artist/Album/01.mp3"})
+	link := filepath.Join(base, "music")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("cannot create symlinks on this platform: %v", err)
+	}
+	folder := scanfolder.Folder{Name: "Music", Path: link, FollowSymlinks: true}
+
+	_, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{IsFull: true})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("err = %v, want it to mention 'symbolic link'", err)
+	}
+
+	var n int64
+	st.DB().Model(&model.Track{}).Count(&n)
+	if n != 1 {
+		t.Fatalf("the pre-existing track must survive (the abort happens before any write), got %d rows", n)
+	}
+}
+
+// The re-link needs the old file to be GONE — that is what tells a move from a
+// copy. Re-pointing a folder at a COPY while the original still exists therefore
+// does not keep the rows: new ones are created and the old ones are swept, with
+// their stars. Pinned so that changing it (treating rows no folder walks any more
+// as re-link candidates) is a deliberate act; the docs state the condition.
+func TestScanFolderRepointedAtACopyDoesNotKeepItsRows(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	oldRoot, newRoot := filepath.Join(base, "old"), filepath.Join(base, "new")
+	createTestFiles(t, oldRoot, []string{"Artist/Album/01.mp3"})
+	folder := scanfolder.Folder{Name: "Music", Path: oldRoot, FollowSymlinks: true}
+
+	if _, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	var before model.Track
+	if err := st.DB().First(&before).Error; err != nil {
+		t.Fatal(err)
+	}
+	st.DB().Create(&model.StarredItem{Owner: "admin", ItemType: "track", ItemID: before.ID})
+
+	// Copy the tree to the new root, keeping the old one in place: the shape of
+	// "rsync to a new disk, repoint Path, verify, delete the old copy later".
+	createTestFiles(t, newRoot, []string{"Artist/Album/01.mp3"})
+	folder.Path = newRoot
+	if _, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var after []model.Track
+	st.DB().Find(&after)
+	if len(after) != 1 {
+		t.Fatalf("expected exactly one track row, got %d: %+v", len(after), after)
+	}
+	if after[0].ID == before.ID {
+		t.Fatalf("expected a NEW row (the old file is still on disk, so nothing is re-linked), got the same id %d", after[0].ID)
+	}
+	if after[0].FilePath != filepath.Join(newRoot, "Artist/Album/01.mp3") {
+		t.Fatalf("FilePath = %q, want the new location", after[0].FilePath)
+	}
+	var stars int64
+	st.DB().Model(&model.StarredItem{}).Where("item_type = 'track' AND item_id = ?", before.ID).Count(&stars)
+	if stars != 0 {
+		t.Fatalf("expected the star on the swept old row to be gone, got %d", stars)
+	}
+}
+
 // The empty-walk guard must still trip when the folder was renamed in the config
 // since its rows were stamped: the rows are found under the root's path range.
 func TestScanEmptyWalkGuardSurvivesARename(t *testing.T) {
@@ -662,5 +744,59 @@ func TestScanEmptyWalkGuardSurvivesARename(t *testing.T) {
 	st.DB().Model(&model.Track{}).Count(&n)
 	if n != 1 {
 		t.Fatalf("the guard must leave the track in place, got %d rows", n)
+	}
+}
+
+// Guard 2's remedy ("remove it from ScanFolders … the next scan then removes
+// those N tracks") is false when this is the LAST scan folder configured:
+// with none left, Scan returns before Cleanup ever runs, so nothing would
+// actually be removed. The message must say so instead of the normal remedy.
+func TestScanEmptyWalkGuardMessageWarnsWhenItIsTheOnlyFolder(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	folder := seedFolder(dir, nil)
+	if _, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, "Artist")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newScanner(t, st, fakeTagReader{}, folder).Scan(context.Background(), scanner.ScanOptions{})
+	if err == nil || !strings.Contains(err.Error(), "refusing to delete") {
+		t.Fatalf("err = %v, want the empty-walk guard to refuse", err)
+	}
+	if !strings.Contains(err.Error(), "only scan folder configured") {
+		t.Fatalf("err = %v, want it to say this is the only scan folder configured", err)
+	}
+}
+
+// The same guard with a SECOND folder still configured: the normal removal
+// remedy stays true (a scan still reaches Cleanup), so the message must not
+// carry the only-folder caveat.
+func TestScanEmptyWalkGuardMessageOmitsTheOnlyFolderCaveatWithOthersConfigured(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	dirA, dirB := filepath.Join(base, "a"), filepath.Join(base, "b")
+	createTestFiles(t, dirA, []string{"Artist/Album/01.mp3"})
+	createTestFiles(t, dirB, []string{"Artist/Other/01.mp3"})
+	folderA, folderB := seedFolder(dirA, nil), seedFolder(dirB, nil)
+	if _, err := newScanner(t, st, fakeTagReader{}, folderA, folderB).Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(dirA, "Artist")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newScanner(t, st, fakeTagReader{}, folderA, folderB).Scan(context.Background(), scanner.ScanOptions{})
+	if err == nil || !strings.Contains(err.Error(), "refusing to delete") {
+		t.Fatalf("err = %v, want the empty-walk guard to refuse", err)
+	}
+	if strings.Contains(err.Error(), "only scan folder configured") {
+		t.Fatalf("err = %v, must not claim to be the only scan folder configured", err)
+	}
+	if !strings.Contains(err.Error(), "remove it from ScanFolders") {
+		t.Fatalf("err = %v, want the normal removal remedy", err)
 	}
 }

@@ -26,11 +26,15 @@ passes into the task function, which lands in the per-execution log
    "Identity & normalization rules" below). Phase 1 collects audio files under
    `Folder.Path`, honoring `Folder.ExcludePatterns` (compiled regexes, via
    `Folder.Excludes`) and `FollowSymlinks`, and applies two guards: it refuses
-   a folder whose root fails `Folder.Available()` (does not stat as a
-   directory), and refuses to *continue* when the walk found no audio files
-   while `store.CountTracksInScanFolder(name, root)` is non-zero — the marker
-   **or** the path range, so the guard still trips even right after a config
-   rename, before the next scan has re-stamped the marker. `makeWalkFn`
+   a folder whose root fails `Folder.Available()` — does not stat as a
+   directory, or is itself a symlink (`filepath.WalkDir` does not descend a
+   symlink root, so the scan would otherwise "succeed" silently with zero
+   files; symlinks *inside* a root are unaffected, and are followed when
+   `FollowSymlinks` is true) — and refuses to *continue* when the walk found
+   no audio files while `store.CountTracksInScanFolder(name, root)` is
+   non-zero — the marker **or** the path range, so the guard still trips even
+   right after a config rename, before the next scan has re-stamped the
+   marker. `makeWalkFn`
    swallows every error including the root's, so an unmounted share would
    otherwise scan "successfully" with zero results and let step 5 delete the
    whole scan folder. Both guards fail the scan task for **every** scan
@@ -84,11 +88,18 @@ existing index by starving `Cleanup`'s liveness check.
 **Changing the config.** Removing a folder's entry from `ScanFolders` does
 not delete anything by itself — its tracks are swept at the *next* scan
 (with the playlist entries, stars and play history attached to them), and a
-startup `WARN` (`warnScanFolders`) gives the operator one restart's notice
-first. Changing a folder's `Path` wipes nothing either: the old paths simply
-vanish from the walk and the new ones appear as unknown paths, and
-`planTrackContinuity` re-links the rows across the two if it can prove the
-move (see "Identity & normalization rules" below). Renaming a folder (its
+startup `WARN` (`warnScanFolders`) keeps giving the operator notice on every
+restart until that next scan runs, not just once. Changing a folder's `Path`
+keeps its rows (ids, stars, playlists, history) **only if the old location is
+gone by the time the next scan runs** — i.e. the directory was moved or
+renamed: the old paths vanish from the walk, the new ones appear as unknown
+paths, and `planTrackContinuity` re-links the rows across the two because it
+can prove the move (see "Identity & normalization rules" below). If the old
+copy still exists at scan time instead — rsync to a new disk, repoint `Path`,
+verify, delete the old copy later — nothing is re-linked: every file at the
+new path gets a new row, and the old rows are swept with everything attached,
+exactly like a removed folder. Move instead of copying, or delete/rename the
+old copy before the first scan with the new `Path`. Renaming a folder (its
 `Name`) heals on the next scan of any kind through `store.BulkMarkSeen`,
 which re-stamps every walked file's `scan_folder` unconditionally.
 
@@ -414,10 +425,11 @@ not just any scan, to self-heal.
   walked file, every scan, so a renamed folder heals on the next incremental
   scan) and `store.RelinkTrack` (a move across folders). `tracks.suffix` is the
   lowercase extension, written by `reconcileTrack` only.
-  **Ownership when a file is reachable from two scan folders** — nested roots,
-  or two folders reaching one directory through symlinks — **is decided by the
-  last folder that walks it, in name order**, identically for a full and an
-  incremental scan: `store.BulkMarkSeen` stamps `scan_folder` in a statement
+  **Ownership when a file is reachable from two scan folders** — nested roots
+  are rejected at config load (`scanfolder.NewSet`), so the only remaining
+  case is two folders reaching one directory through symlinks — **is decided
+  by the last folder that walks it, in name order**, identically for a full
+  and an incremental scan: `store.BulkMarkSeen` stamps `scan_folder` in a statement
   deliberately not behind the `last_seen_at` liveness guard, so every folder of
   a scan gets to (re)stamp the row rather than only the first one.
 

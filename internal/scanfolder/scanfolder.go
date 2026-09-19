@@ -48,11 +48,24 @@ func (f Folder) Excludes() ([]*regexp.Regexp, error) {
 	return out, nil
 }
 
-// Available reports whether the root can be scanned right now: it must stat as
-// a directory. This is runtime state, never a configuration error — a share
-// that is not mounted yet must not keep the server from starting — so NewSet
-// does not check it; the scan preflight and the startup warning do.
+// Available reports whether the root can be scanned right now: it must not be
+// a symlink itself, and it must stat as a directory. This is runtime state,
+// never a configuration error — a share that is not mounted yet must not keep
+// the server from starting — so NewSet does not check it; the scan preflight
+// and the startup warning do.
+//
+// A root that is itself a symlink is refused rather than silently indexing
+// nothing: filepath.WalkDir does not descend a symlink root, and the
+// follow-symlinks walk marks the resolved root seen and then skips it when it
+// meets the root symlink — so either way the scan would "succeed" with zero
+// files. Symlinks INSIDE a root are unaffected; they are followed when
+// FollowSymlinks is true.
 func (f Folder) Available() error {
+	if info, err := os.Lstat(f.Path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		target, _ := os.Readlink(f.Path)
+		return fmt.Errorf("root %q is a symbolic link (to %q): a symlinked root is not walked — set Path to the real directory; "+
+			"symlinks INSIDE a root are followed when FollowSymlinks is true", f.Path, target)
+	}
 	info, err := os.Stat(f.Path)
 	if err != nil {
 		return fmt.Errorf("root %q is unavailable: %w", f.Path, err)

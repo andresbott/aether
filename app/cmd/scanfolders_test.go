@@ -101,6 +101,54 @@ func TestScanFoldersConfigErrorsFailTheLoad(t *testing.T) {
 	}
 }
 
+// A blank FollowSymlinks: key (no value) must be treated as "not declared" —
+// the default (true) — not as an explicit false. go-bumbu/config allocates the
+// bool pointer while decoding either way, so only asking the handler for the
+// key's raw STRING value, and treating a blank one like an absent one, tells
+// the two apart (normalizeScanFolderBools).
+func TestFollowSymlinksBlankValueDefaultsToTrue(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := getAppCfg(writeCfg(t, "ScanFolders:\n  - Name: \"A\"\n    Path: \""+dir+"\"\n    FollowSymlinks:\n"), true)
+	if err != nil {
+		t.Fatalf("getAppCfg: %v", err)
+	}
+	if len(cfg.ScanFolders) != 1 {
+		t.Fatalf("expected 1 scan folder, got %d", len(cfg.ScanFolders))
+	}
+	if cfg.ScanFolders[0].FollowSymlinks != nil {
+		t.Fatalf("a blank FollowSymlinks: must decode as unset (nil), got %v", *cfg.ScanFolders[0].FollowSymlinks)
+	}
+	set, err := scanFolderSet(cfg.ScanFolders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := set.ByName("A")
+	if !f.FollowSymlinks {
+		t.Fatalf("expected the default (true) to apply to a blank value, got FollowSymlinks=%v", f.FollowSymlinks)
+	}
+}
+
+// An EXPLICIT false must still yield false: the blank-value fix must not
+// swallow a deliberate opt-out.
+func TestFollowSymlinksExplicitFalseStaysFalse(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := getAppCfg(writeCfg(t, "ScanFolders:\n  - Name: \"A\"\n    Path: \""+dir+"\"\n    FollowSymlinks: false\n"), true)
+	if err != nil {
+		t.Fatalf("getAppCfg: %v", err)
+	}
+	if cfg.ScanFolders[0].FollowSymlinks == nil || *cfg.ScanFolders[0].FollowSymlinks {
+		t.Fatalf("expected FollowSymlinks=false, got %v", cfg.ScanFolders[0].FollowSymlinks)
+	}
+	set, err := scanFolderSet(cfg.ScanFolders)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := set.ByName("A")
+	if f.FollowSymlinks {
+		t.Fatal("expected an explicit FollowSymlinks: false to be honored")
+	}
+}
+
 // A directory that is not there yet (an unmounted share) is NOT a config error.
 func TestScanFolderWithMissingDirectoryLoads(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "not-mounted")
@@ -122,10 +170,15 @@ func TestWarnScanFolders(t *testing.T) {
 	db.Create(&album)
 	db.Create(&model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/old/1.mp3", ScanFolder: "Removed"})
 	db.Create(&model.Track{AlbumID: album.ID, Filename: "2.mp3", FilePath: "/ok/2.mp3", ScanFolder: "Present"})
+	// An EMPTY marker means "not yet stamped" (a brand new row mid-scan), not
+	// orphaned: the next scan stamps or removes it, so it must never be warned
+	// about either (deferred minor T3).
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "3.mp3", FilePath: "/new/3.mp3", ScanFolder: ""})
 
+	presentPath := t.TempDir()
 	// Two sibling temp dirs: roots must not nest.
 	set, err := scanfolder.NewSet([]scanfolder.Folder{
-		{Name: "Present", Path: t.TempDir()},
+		{Name: "Present", Path: presentPath, ExcludePatterns: []string{`^\.`}, FollowSymlinks: false},
 		{Name: "Unmounted", Path: filepath.Join(t.TempDir(), "missing")},
 	})
 	if err != nil {
@@ -135,14 +188,77 @@ func TestWarnScanFolders(t *testing.T) {
 	var buf bytes.Buffer
 	warnScanFolders(slog.New(slog.NewTextHandler(&buf, nil)), s, set)
 	out := buf.String()
+	warnOut := warnLevelLines(out)
 
-	if !strings.Contains(out, "Unmounted") || !strings.Contains(out, "unavailable") {
+	if !strings.Contains(warnOut, "Unmounted") || !strings.Contains(warnOut, "unavailable") {
 		t.Errorf("expected an unavailable-directory warning for Unmounted, got:\n%s", out)
 	}
-	if !strings.Contains(out, "Removed") || !strings.Contains(out, "no longer configured") {
+	if !strings.Contains(warnOut, "Removed") || !strings.Contains(warnOut, "no longer configured") {
 		t.Errorf("expected an orphaned-marker warning for Removed, got:\n%s", out)
 	}
-	if strings.Contains(out, "scan_folder=Present") {
+	if strings.Contains(warnOut, "scan_folder=Present") {
 		t.Errorf("a configured, available folder must not be warned about, got:\n%s", out)
+	}
+	if strings.Contains(warnOut, `scan_folder=""`) {
+		t.Errorf("a track with an empty (not yet stamped) marker must never be warned about, got:\n%s", out)
+	}
+
+	// One Info line per configured folder — name, path, exclude-pattern count,
+	// follow-symlinks — so a silently misread config is visible.
+	if !strings.Contains(out, "scan folder loaded") ||
+		!strings.Contains(out, "scan_folder=Present") || !strings.Contains(out, "path="+presentPath) ||
+		!strings.Contains(out, "exclude_patterns=1") || !strings.Contains(out, "follow_symlinks=false") {
+		t.Errorf("expected a per-folder Info line for Present, got:\n%s", out)
+	}
+}
+
+// warnLevelLines returns only the WARN-level lines of a slog text-handler
+// dump, so a test can assert something is (or is not) warned about without
+// tripping on the unconditional per-folder Info line, which also names every
+// configured folder.
+func warnLevelLines(out string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "level=WARN") {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// With no scan folder configured at all, warnScanFolders must say so plainly
+// and must not promise a removal that cannot happen — with nothing configured
+// to walk, Scan returns before Cleanup ever runs.
+func TestWarnScanFoldersWithNoneConfigured(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	db.Create(&model.Track{AlbumID: album.ID, Filename: "1.mp3", FilePath: "/old/1.mp3", ScanFolder: "Orphaned"})
+
+	set, err := scanfolder.NewSet(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	warnScanFolders(slog.New(slog.NewTextHandler(&buf, nil)), s, set)
+	out := buf.String()
+
+	if !strings.Contains(out, "no scan folders configured") || !strings.Contains(out, "scans do nothing") {
+		t.Errorf("expected the no-scan-folders-configured Info line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Orphaned") || !strings.Contains(out, "neither re-stamped nor removed") {
+		t.Errorf("expected the orphaned-marker warning to say scans do nothing while unconfigured, got:\n%s", out)
+	}
+	if strings.Contains(out, "will remove") || strings.Contains(out, "removed otherwise") {
+		t.Errorf("with no folder configured, the warning must not promise a removal, got:\n%s", out)
 	}
 }

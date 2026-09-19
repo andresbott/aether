@@ -334,16 +334,23 @@ func isWildcardBind(s string) bool {
 	return addr.IsUnspecified()
 }
 
-// normalizeScanFolderBools resets FollowSymlinks to nil when the key is absent
-// from the loaded config. go-bumbu/config allocates every pointer field it
-// walks, so after unmarshalling an omitted FollowSymlinks is an allocated false
-// — indistinguishable from an explicit "false" — which would silently flip the
-// default (true) for anyone who didn't spell it out. Asking the handler whether
-// the key exists is the only way to tell the two apart, so it happens here,
+// normalizeScanFolderBools resets FollowSymlinks to nil when the key is
+// absent, blank, or explicitly null in the loaded config. go-bumbu/config
+// allocates every pointer field it walks, so after unmarshalling an omitted
+// FollowSymlinks is an allocated false — indistinguishable from an explicit
+// "false" — which would silently flip the default (true) for anyone who
+// didn't spell it out; a key written with no value or with YAML's null (~)
+// decodes the same way, for the same reason. Asking the handler for the key's
+// raw string is the only way to tell "really not there" and "written blank"
+// apart from a deliberate false: a missing key answers an error, and a null
+// value comes back not as an error or an empty string but as the literal
+// string "<nil>" (CfgHandler.GetString falls back to fmt.Sprintf("%v", val)
+// for anything that isn't itself a string) — so both are checked for here,
 // once, right after loading.
 func normalizeScanFolderBools(folders []ScanFolderCfg, handler *config.CfgHandler) {
 	for i := range folders {
-		if _, err := handler.GetString("ScanFolders." + strconv.Itoa(i) + ".FollowSymlinks"); err != nil {
+		v, err := handler.GetString("ScanFolders." + strconv.Itoa(i) + ".FollowSymlinks")
+		if err != nil || strings.TrimSpace(v) == "" || v == "<nil>" {
 			folders[i].FollowSymlinks = nil
 		}
 	}

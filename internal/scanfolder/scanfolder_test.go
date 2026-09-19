@@ -186,6 +186,50 @@ func TestFolderAvailable(t *testing.T) {
 	}
 }
 
+// A root that is ITSELF a symlink must be refused: filepath.WalkDir does not
+// descend a symlink root, and the follow-symlinks walk marks the resolved
+// root seen and then skips it when it meets the root symlink — so either way
+// a scan against it would "succeed" with zero files, silently. The real
+// directory (what the symlink points at) must stay available.
+func TestFolderAvailableRefusesASymlinkedRoot(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("cannot create symlinks on this platform: %v", err)
+	}
+
+	if err := (scanfolder.Folder{Path: link}).Available(); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("symlinked root: err = %v, want it to mention 'symbolic link'", err)
+	}
+	if err := (scanfolder.Folder{Path: real}).Available(); err != nil {
+		t.Fatalf("the real directory a symlink points at must stay available: %v", err)
+	}
+}
+
+// Ride-along (deferred minor T1): "/" is a legitimate root and must obey the
+// same overlap and lookup rules as any other.
+func TestRootSlashOverlapsAndContains(t *testing.T) {
+	if _, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "All", Path: "/"}, {Name: "Music", Path: "/music"}}); err == nil || !strings.Contains(err.Error(), "overlap") {
+		t.Fatalf("\"/\" and \"/music\": err = %v, want it to contain 'overlap'", err)
+	}
+	if _, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: "/music"}, {Name: "All", Path: "/"}}); err == nil || !strings.Contains(err.Error(), "overlap") {
+		t.Fatalf("\"/music\" and \"/\" (reverse order): err = %v, want it to contain 'overlap'", err)
+	}
+
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "All", Path: "/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, ok := set.Containing("/anything/x.mp3")
+	if !ok || f.Name != "All" {
+		t.Fatalf("Containing(%q) = %q, %v; want the \"/\" root to contain it", "/anything/x.mp3", f.Name, ok)
+	}
+}
+
 func TestFolderExcludes(t *testing.T) {
 	res, err := (scanfolder.Folder{Name: "Music", ExcludePatterns: []string{`^\.`, `covers`}}).Excludes()
 	if err != nil || len(res) != 2 || !res[0].MatchString(".hidden") || res[0].MatchString("visible") {

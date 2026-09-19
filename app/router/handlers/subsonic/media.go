@@ -63,8 +63,9 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 // mediaPathAllowed reports whether the handlers may read path. Every path it
 // guards comes from the database — a track's file_path, an album's cover_path —
 // so this enforces that the row actually points into a configured scan folder.
-// With no guard installed (no scan folders configured) everything is allowed,
-// which is the behavior the server had before.
+// With no guard installed (no scan folders configured) every DB-recorded path
+// is served unchecked — the same deliberate, still-open design choice
+// WithMediaRoots/newGuard document, not a technical necessity.
 func (h *Handler) mediaPathAllowed(path string) bool {
 	if h.mediaGuard == nil {
 		return true
@@ -76,9 +77,9 @@ type coverMeta struct {
 	coverPath string
 	// coverManaged marks coverPath as a file aether itself wrote to its asset
 	// store (a manual upload, an auto-fetched artist image) rather than a path
-	// that came out of the library. The library guard only applies to the
-	// latter: the asset store lives under the data dir, outside every library
-	// root, so guarding it would refuse every uploaded cover.
+	// that came out of a scan folder. The media guard only applies to the
+	// latter: the asset store lives under the data dir, outside every scan
+	// folder root, so guarding it would refuse every uploaded cover.
 	coverManaged bool
 	albumID      uint
 	seed         string

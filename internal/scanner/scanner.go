@@ -234,7 +234,7 @@ func (s *Scanner) preflight(ctx context.Context, folders []scanfolder.Folder) ([
 		// every track of it, with the playlists, stars, play history and queue
 		// entries attached to them. The DB still holding tracks is the only evidence
 		// available, so it decides.
-		if err := s.checkEmptyScanWithIndexedTracks(folder, walkResults); err != nil {
+		if err := s.checkEmptyScanWithIndexedTracks(folder, walkResults, len(folders) == 1); err != nil {
 			return nil, err
 		}
 
@@ -363,7 +363,9 @@ func (s *Scanner) filterChanged(results []WalkResult) []WalkResult {
 // checkEmptyScanWithIndexedTracks refuses to continue when a folder's walk found
 // zero files while the database still holds tracks for it, as this indicates an
 // unmounted share or permission issue rather than a genuinely emptied folder.
-func (s *Scanner) checkEmptyScanWithIndexedTracks(folder scanfolder.Folder, walkResults []WalkResult) error {
+// onlyFolder says whether this is the only scan folder configured, which changes
+// the remedy the error message can honestly offer (see below).
+func (s *Scanner) checkEmptyScanWithIndexedTracks(folder scanfolder.Folder, walkResults []WalkResult, onlyFolder bool) error {
 	if len(walkResults) > 0 {
 		return nil
 	}
@@ -371,14 +373,25 @@ func (s *Scanner) checkEmptyScanWithIndexedTracks(folder scanfolder.Folder, walk
 	if err != nil {
 		return fmt.Errorf("scan folder %q: count indexed tracks: %w", folder.Name, err)
 	}
-	if indexed > 0 {
-		// The remedy has a price and has to say so: removing the folder from the
-		// config is exactly the hard-delete this guard just refused to perform.
+	if indexed == 0 {
+		return nil
+	}
+	if onlyFolder {
+		// The usual remedy ("remove it, the next scan removes the tracks") does not
+		// hold here: with no scan folders left configured, Scan returns before
+		// Cleanup ever runs (see Scan), so removing this entry would not itself
+		// remove anything.
 		return fmt.Errorf("scan folder %q: no audio files under %q but %d tracks are indexed; "+
-			"refusing to delete them — check that the path is mounted; if the folder really is gone, "+
-			"remove it from ScanFolders in the config file and restart: the next scan then removes those %d tracks "+
-			"and everything attached to them (playlist entries, stars, play history)",
+			"refusing to delete them — check that the path is mounted; it is the only scan folder configured, so "+
+			"removing it from ScanFolders would leave none, and with no scan folders configured a scan does "+
+			"nothing at all: those %d tracks would stay indexed until another scan folder is configured and scanned",
 			folder.Name, folder.Path, indexed, indexed)
 	}
-	return nil
+	// The remedy has a price and has to say so: removing the folder from the
+	// config is exactly the hard-delete this guard just refused to perform.
+	return fmt.Errorf("scan folder %q: no audio files under %q but %d tracks are indexed; "+
+		"refusing to delete them — check that the path is mounted; if the folder really is gone, "+
+		"remove it from ScanFolders in the config file and restart: the next scan then removes those %d tracks "+
+		"and everything attached to them (playlist entries, stars, play history)",
+		folder.Name, folder.Path, indexed, indexed)
 }

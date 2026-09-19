@@ -302,7 +302,12 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 	}
 }
 
-func TestRescanPathsUnknownLibrary(t *testing.T) {
+// TestRescanPathsWithNoFoldersConfigured is the only test that drives
+// RescanPaths through a scanner with ZERO folders configured (newScanner
+// called with no folders): "unknown" cannot be a configured scan folder's
+// name when the set holds none, so the call fails exactly as it would for any
+// unrecognized name.
+func TestRescanPathsWithNoFoldersConfigured(t *testing.T) {
 	st := testScanStore(t)
 	s := newScanner(t, st, fakeTagReader{})
 	if _, err := s.RescanPaths(context.Background(), "unknown", []string{"/x/y.mp3"}); err == nil {

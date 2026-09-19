@@ -42,7 +42,9 @@ ScanFolders:
 `Name` identifies the folder (tracks remember it); `Path` is the directory to
 scan. Restart the server after editing, then run a scan. Removing an entry
 removes its tracks at the next scan, along with their stars, playlist
-entries and play history.
+entries and play history. Changing a `Path` keeps its tracks only if the old
+location is gone by the next scan (a move); if the old copy still exists,
+new rows are created and the old ones are swept instead.
 
 See `config.yaml` for the full annotated example and every other setting.
 

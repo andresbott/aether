@@ -18,9 +18,17 @@ DataDir: "./data"
 #   Name             identifies the folder: tracks remember the name of the folder
 #                    they were indexed under, and library filters refer to it.
 #                    Renaming a folder takes effect on the next scan.
-#   Path             root directory. Roots must not be equal or nested.
+#   Path             root directory. Roots must not be equal or nested. Must
+#                    be the real directory: a root that is itself a symlink
+#                    is refused (symlinks INSIDE a root are followed when
+#                    FollowSymlinks is true). A relative path resolves
+#                    against the server's working directory, not this
+#                    file's directory — use an absolute path.
 #   ExcludePatterns  list of Go regexes; matching files/directories are skipped
 #                                                                    (default: none)
+#                    A pattern starting with "@" is read as a FILE PATH by the
+#                    config loader, not a regex — write the Synology "@eaDir"
+#                    exclude as "^@eaDir$" or "[@]eaDir".
 #   FollowSymlinks   follow symlinked folders while scanning         (default: true)
 #
 # A directory that is missing at startup (a share that mounts late) is only a
@@ -29,6 +37,12 @@ DataDir: "./data"
 # REMOVING an entry removes its tracks at the next scan — together with their
 # stars, playlist entries and play history. The server warns at startup when
 # indexed tracks belong to a folder that is no longer listed.
+#
+# CHANGING a Path keeps a folder's tracks (ids, stars, playlists, history)
+# only if the old location is gone by the next scan — a move or rename. If
+# the old copy still exists then (e.g. copied to a new disk and repointed),
+# nothing is re-linked: new rows are created and the old ones are swept
+# instead.
 #
 # What users browse — "libraries" — is configured in Settings → Libraries.
 #

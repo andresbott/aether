@@ -479,11 +479,12 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 }
 
 // A manually uploaded cover lives in aether's own asset store, under the data
-// dir and therefore outside every library root by construction. The library
-// guard is about paths that came out of the DB naming user media, so applying it
-// to the asset store would silently fall every upload through to the generated
-// cover. Covers all the entities whose covers can be uploaded through the UI.
-func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
+// dir and therefore outside every scan folder root by construction. The media
+// guard is about paths that came out of the DB naming user media, so applying
+// it to the asset store would silently fall every upload through to the
+// generated cover. Covers all the entities whose covers can be uploaded
+// through the UI.
+func TestGetCoverArtServesUploadedCoverWithMediaGuard(t *testing.T) {
 	// seed stores a 4x4 upload for one entity kind and returns its cover-art id.
 	tests := []struct {
 		name string
@@ -555,7 +556,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			// rather than the 256px generated fallback.
 			cfg, _ := decodeServedCover(t, resp)
 			if cfg.Width != uploadEdge {
-				t.Errorf("served width %d, want %d: the uploaded cover was refused by the library guard", cfg.Width, uploadEdge)
+				t.Errorf("served width %d, want %d: the uploaded cover was refused by the media guard", cfg.Width, uploadEdge)
 			}
 		})
 	}
