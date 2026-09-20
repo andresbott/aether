@@ -134,17 +134,23 @@ describe('FolderPickerDialog', () => {
         expect(w.text()).toContain('Artist')
     })
 
-    it('clears a hidden selection when hidden folders are switched back off', async () => {
-        browseFoldersMock.mockResolvedValue({
-            path: '',
-            folders: [folder('.mnt')]
-        })
+    // A selection is dropped because the rebuilt tree no longer CONTAINS it —
+    // never because of how its path is spelled.
+    it('clears a selection the reloaded tree no longer shows when hidden folders are switched off', async () => {
+        browseFoldersMock.mockImplementation((_path?: string, hidden?: boolean) =>
+            Promise.resolve({
+                path: '',
+                folders: hidden
+                    ? [folder('.hidden', { path: '/mnt/.hidden' }), folder('Music', { path: '/mnt/music' })]
+                    : [folder('Music', { path: '/mnt/music' })]
+            })
+        )
         const w = mountPicker()
         await flushPromises()
         await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(true)
         await flushPromises()
-        await w.find('.p-tree-node-content').trigger('click')
-        expect(w.text()).toContain('/.mnt')
+        await w.findAll('.p-tree-node-content')[0].trigger('click')
+        expect(w.text()).toContain('/mnt/.hidden')
 
         await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(false)
         await flushPromises()
@@ -152,6 +158,39 @@ describe('FolderPickerDialog', () => {
         expect(
             w.find('[data-testid="folder-picker-select"]').attributes('disabled')
         ).toBeDefined()
+    })
+
+    // A scan folder may itself live under a dot-directory — /home/x/.datos/music
+    // is the shape this project's own owner runs — and everything below it is
+    // perfectly visible, whatever "Show hidden folders" is set to.
+    it('keeps a selection under a dot-directory root when hidden folders are toggled', async () => {
+        browseFoldersMock.mockImplementation((path?: string) =>
+            path === undefined
+                ? Promise.resolve({
+                      path: '',
+                      folders: [folder('music', { path: '/home/x/.datos/music', has_subfolders: true })]
+                  })
+                : Promise.resolve({
+                      path,
+                      folders: [folder('Album', { path: '/home/x/.datos/music/Album' })]
+                  })
+        )
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        await w.findAll('.p-tree-node-content')[1].trigger('click')
+        expect(w.text()).toContain('/home/x/.datos/music/Album')
+
+        await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(true)
+        await flushPromises()
+        await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(false)
+        await flushPromises()
+
+        expect(w.text()).toContain('/home/x/.datos/music/Album')
+        expect(
+            w.find('[data-testid="folder-picker-select"]').attributes('disabled')
+        ).toBeUndefined()
     })
 
     it('shows the error banner when expanding an unmounted root, and leaves the tree usable', async () => {
@@ -194,6 +233,50 @@ describe('FolderPickerDialog', () => {
         ).toBeUndefined()
         await w.find('[data-testid="folder-picker-select"]').trigger('click')
         expect(w.emitted('select')).toEqual([['/mnt/music']])
+    })
+
+    // Expanding an unmounted root is a designed flow, not a broken state: the
+    // banner it raises must not outlive the next load that works.
+    it('clears the error banner once another expand succeeds', async () => {
+        browseFoldersMock.mockImplementation((path?: string) => {
+            if (path === undefined) {
+                return Promise.resolve({
+                    path: '',
+                    folders: [
+                        folder('Broken', { path: '/mnt/broken', has_subfolders: true }),
+                        folder('Music', { path: '/mnt/music', has_subfolders: true })
+                    ]
+                })
+            }
+            if (path === '/mnt/broken') {
+                return Promise.reject({
+                    response: {
+                        status: 400,
+                        data: {
+                            type: 'https://aether.local/probs/validation_error',
+                            title: 'Bad Request',
+                            status: 400,
+                            detail: 'scan folder "Broken" is not mounted'
+                        }
+                    }
+                })
+            }
+            return Promise.resolve({
+                path,
+                folders: [folder('Artist', { path: '/mnt/music/Artist' })]
+            })
+        })
+        const w = mountPicker()
+        await flushPromises()
+
+        await w.findAll('.p-tree-node-toggle-button')[0].trigger('click')
+        await flushPromises()
+        expect(w.find('.error-banner').exists()).toBe(true)
+
+        await w.findAll('.p-tree-node-toggle-button')[1].trigger('click')
+        await flushPromises()
+        expect(w.find('.error-banner').exists()).toBe(false)
+        expect(w.text()).toContain('Artist')
     })
 
     it('shows no symlink warning for a plain folder', async () => {
@@ -280,6 +363,49 @@ describe('FolderPickerDialog', () => {
         ).toBeUndefined()
         await w.find('[data-testid="folder-picker-select"]').trigger('click')
         expect(w.emitted('select')).toEqual([['/mnt/music/linked/inside']])
+    })
+
+    // The two features together: symlink ancestry is carried on the nodes, so a
+    // reload that rebuilds every node must rebuild the ancestry with it.
+    it('keeps warning about a selection below a symlink after the tree reloads', async () => {
+        browseFoldersMock.mockImplementation((path?: string) => {
+            if (path === undefined) {
+                return Promise.resolve({
+                    path: '',
+                    folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                })
+            }
+            if (path === '/mnt/music') {
+                return Promise.resolve({
+                    path,
+                    folders: [
+                        folder('linked', {
+                            path: '/mnt/music/linked',
+                            is_symlink: true,
+                            has_subfolders: true
+                        })
+                    ]
+                })
+            }
+            return Promise.resolve({
+                path,
+                folders: [folder('inside', { path: '/mnt/music/linked/inside' })]
+            })
+        })
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        await w.findAll('.p-tree-node-toggle-button')[1].trigger('click')
+        await flushPromises()
+        await w.findAll('.p-tree-node-content')[2].trigger('click')
+        expect(w.find('[data-testid="folder-picker-symlink-warning"]').exists()).toBe(true)
+
+        await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(true)
+        await flushPromises()
+
+        expect(w.text()).toContain('/mnt/music/linked/inside')
+        expect(w.find('[data-testid="folder-picker-symlink-warning"]').exists()).toBe(true)
     })
 
     it('emits select with the chosen path on confirm', async () => {

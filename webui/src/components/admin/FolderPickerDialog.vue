@@ -110,20 +110,23 @@ async function reloadTree() {
     } catch (err: any) {
         loadError.value = apiErrorMessage(err)
     }
-    // Drop a selection the filter no longer shows, so Select can't confirm a
-    // path that has just disappeared from the tree.
-    if (!showHidden.value && isHiddenPath(selectedPath.value)) {
+    // Drop a selection the rebuilt tree no longer CONTAINS, so Select can't
+    // confirm a path that has just disappeared — the filter hid it, or its
+    // branch failed to reload. Asking the tree, rather than judging the path's
+    // spelling, is what keeps a selection under a scan folder that itself
+    // lives in a dot-directory (/home/x/.datos/music): every folder below such
+    // a root is perfectly visible and the server keeps listing it.
+    if (selectedPath.value && !findNode(nodes.value, selectedPath.value)) {
         selectedPath.value = null
         selectionKeys.value = {}
     }
 }
 
-function isHiddenPath(path: string | null): boolean {
-    return !!path && path.split('/').some((seg) => seg.startsWith('.'))
-}
-
 async function onNodeExpand(node: TreeNode) {
     if (node.children && node.children.length > 0) return
+    // Expanding an unmounted root is a designed flow (the API answers 400), so
+    // the banner it leaves must not outlive the next load that works.
+    loadError.value = null
     try {
         node.children = await loadChildren(node.data.path, node)
     } catch (err: any) {
