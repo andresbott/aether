@@ -487,6 +487,9 @@ onUnmounted(() => {
 .filter-error {
     color: var(--p-red-600, #dc2626);
     font-size: 0.8rem;
+    /* The builder spaces its children with `gap`, so the one <p> that carries
+       this class must not add the browser's default paragraph margin on top. */
+    margin: 0;
 }
 .limit-note {
     font-size: 0.8rem;
