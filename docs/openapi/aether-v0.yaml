@@ -1436,8 +1436,8 @@ paths:
       summary: Preview what a set of filters would select (safe/read-only despite POST).
       description: >
         Admin. Reports the track and album counts a set of filters would
-        select, without storing anything — it exists for the admin UI's
-        filter builder (not built yet) to call as the admin edits, before
+        select, without storing anything — the admin UI's filter builder
+        (`LibraryFilterBuilder`) calls it as the admin edits, before
         saving. A read that needs a structured body
         travels as a POST to a named sub-resource, not GET-with-a-body (see
         api-conventions.md); it is safe and idempotent despite the verb.

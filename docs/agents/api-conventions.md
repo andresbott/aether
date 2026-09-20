@@ -91,8 +91,8 @@ the response shape an ordinary read response, not a mutation result.
 - `POST /libraries/preview` (`Handler.preview`,
   `app/router/handlers/libraries/preview.go`) — reports the track/album
   counts a candidate filter set (`{filters[]}`, the same shape a library
-  stores) would select, without storing anything; it exists for the admin
-  UI's filter builder (not built yet) to call as the admin edits, and
+  stores) would select, without storing anything; the admin UI's filter
+  builder (`LibraryFilterBuilder`) calls it as the admin edits, and
   `filters[]` — up to `libraryfilter.MaxFilters` entries,
   each with up to `libraryfilter.MaxValues` values — is exactly the kind of
   variable-length list a bounded `GET` query string cannot carry.

@@ -51,11 +51,6 @@ export interface ListLibrariesResponse {
     libraries: Library[]
 }
 
-export interface ApiError {
-    error: string
-    code: 'validation_error' | 'not_found' | 'conflict' | 'internal'
-}
-
 export interface BrowseFolder {
     name: string
     path: string

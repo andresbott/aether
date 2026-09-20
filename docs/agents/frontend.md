@@ -326,6 +326,21 @@ builder itself before touching it:
   stored-but-stale value (a renamed scan folder, a retagged genre) stays
   visible and removable instead of silently vanishing or silently
   surviving the next save.
+- **"Not loaded" is not "not offered".** While that query is still in
+  flight — which is every first open of the dialog on a page load — or if
+  it failed outright, `optionsFor()` gets `undefined` and returns the row's
+  own values as plain options, never `missing`: otherwise every stored
+  value would read as gone, and an admin who believed the label would
+  delete a perfectly good one. On `isError` the builder says so once, above
+  the rows ("Could not load the values to pick from. Stored values are
+  shown as they are; reload the page to try again."), rather than leaving
+  empty pick-lists that look like an empty catalog.
+- A `missing` `scan_folder` value is worse than cosmetic, and only once
+  the options have loaded does the builder know: the dialog always sends
+  `filters`, so that value is re-sent on every Save and refused with a
+  `422` at `/filters/i/values/j` — the library cannot be saved at all until
+  it is removed. The row says so, per value, instead of letting the first
+  Save be the messenger.
 - A 400ms-debounced call to `previewLibrary()` renders "Matches N tracks in
   M albums" (or "Fix the filters…" on a 422); every external change to
   `modelValue` restarts the debounce, and a superseded response is dropped
@@ -333,7 +348,7 @@ builder itself before touching it:
   for its promise to settle. The very first preview is not debounced at
   all: `onMounted` fires `runPreview()` immediately, separately from that
   400ms timer, so opening the dialog on an existing library shows its
-  match count right away instead of after a blank quarter-second.
+  match count right away instead of after a blank 400ms.
 
 The `path` filter's "Browse…" opens `FolderPickerDialog`, rooted at the
 configured scan folders: calling `browseFolders()` with **no** `path`
@@ -347,9 +362,15 @@ on the link itself would match nothing; the ancestry is tracked per-node
 knows a parent was a link.
 
 `useScanFolders()` (`composables/useScanFolders.ts`) is shared by
-`ScanFoldersPanel`, the filter builder (the scan-folder `MultiSelect`
-options and the "not usable right now" note on a dangling value), and the
-metadata editor (see the `composables/` entry above).
+`ScanFoldersPanel`, the filter builder and the metadata editor (see the
+`composables/` entry above). In the builder it feeds exactly one thing: the
+"not usable right now" note on a `scan_folder` value naming a folder that IS
+configured but reports `available: false` (an unmounted root, say). It does
+**not** feed the `MultiSelect`'s options — those come from
+`useLibraryFilterOptions().scan_folders` via `optionsFor()` — and it says
+nothing about a *dangling* value, one naming a folder that is not configured
+at all: that one gets the `(not configured)` label from `optionsFor()` plus
+the note that it blocks saving (above).
 
 ## Player (`composables/usePlayer.ts`)
 

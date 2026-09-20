@@ -84,8 +84,9 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   /libraries/preview` (the track/album counts a candidate filter set would
   select, without storing it) and `GET /libraries/filter-options` (the
   configured scan-folder names plus the formats/genres/release types actually
-  present in the catalog) — both exist for the admin UI's filter builder,
-  which is not built yet: today nothing in `webui/` calls them — `GET
+  present in the catalog) — both serve the admin UI's filter builder
+  (`webui/src/components/admin/LibraryFilterBuilder.vue`), which previews as
+  the admin edits and offers the values `filter-options` lists — `GET
   /scan-folders` (read-only list of the
   configured scan folders with a bounded availability probe and
   marker-based track counts), tasks/schedules/executions, metadata editor,
