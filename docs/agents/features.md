@@ -44,7 +44,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 | Feature | Status | Where |
 |---|---|---|
 | Libraries CRUD + folder browse | Implemented | `handlers/libraries`; a library no longer owns tracks, so deleting or editing one never touches `tracks` |
-| Scan folders (config-only) | Implemented | The directories actually scanned are declared only in `config.yaml`'s `ScanFolders:` list, validated into an immutable `scanfolder.Set` (`internal/scanfolder`) once at startup (`app/cmd/scanfolders.go`) — no database row, no API. Semantics and rationale in [architecture.md](architecture.md#scan-folders-config-only) |
+| Scan folders (config-only) | Implemented | The directories actually scanned are declared only in `config.yaml`'s `ScanFolders:` list, validated into an immutable `scanfolder.Set` (`internal/scanfolder`) once at startup (`app/cmd/scanfolders.go`) — no database row, no create/edit/delete API, read-only via `GET /api/v0/scan-folders` (`handlers/scanfolders`). Semantics and rationale in [architecture.md](architecture.md#scan-folders-config-only) |
 | Scanning (incremental + full) | Implemented | two parameterless tasks, `scan` (incremental) and `scan-full` (full re-read), each a distinct singleton sharing the `library-writes` group → `internal/scanner`; see [scanning.md](scanning.md) |
 | Task runner, schedules, execution history + logs + cancel | Implemented | `handlers/tasks`, `internal/taskrunner` |
 | Artist image fetching | Implemented, key-gated | task `fetch-artist-images`, `internal/artistimage` (fanart.tv → TheAudioDB chain) |

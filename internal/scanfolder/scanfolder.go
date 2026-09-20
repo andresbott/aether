@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // maxNameLength bounds a scan folder's name.
@@ -74,6 +75,29 @@ func (f Folder) Available() error {
 		return fmt.Errorf("root %q is not a directory", f.Path)
 	}
 	return nil
+}
+
+// AvailableWithin is Available with a deadline. A stat on a dead network mount
+// can block for minutes; anything that probes a root on a request path or at
+// startup must use this, so one hung share cannot hang the server. The scan
+// itself keeps using Available: it runs in a background task, and a scan that
+// cannot read a root has nothing better to do than wait for the answer.
+func (f Folder) AvailableWithin(d time.Duration) error {
+	return bounded(d, fmt.Sprintf("root %q", f.Path), f.Available)
+}
+
+// bounded runs probe aside and stops waiting after d. The goroutine is left to
+// finish on its own — the blocked syscall cannot be cancelled — and the buffered
+// channel lets it exit as soon as the syscall returns.
+func bounded(d time.Duration, what string, probe func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- probe() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(d):
+		return fmt.Errorf("%s did not answer within %s (a hung mount?)", what, d)
+	}
 }
 
 // Set is the immutable collection of configured scan folders, in name order. A

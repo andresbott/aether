@@ -3,10 +3,16 @@ package cmd
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 )
+
+// startupProbeTimeout bounds each scan folder's availability check at
+// startup, so a dead mount costs the boot sequence this long at most, not
+// forever.
+const startupProbeTimeout = 3 * time.Second
 
 // scanFolderSet builds the immutable scan-folder set from the config entries.
 // Every structural rule lives in scanfolder.NewSet, so a typo in the file fails
@@ -33,9 +39,10 @@ func scanFolderSet(cfgs []ScanFolderCfg) (*scanfolder.Set, error) {
 //
 //   - one Info line per configured scan folder (name, path, exclude-pattern
 //     count, follow-symlinks), so a silently misread config is visible.
-//   - a scan folder whose directory is not there. A share that mounts late must
-//     not keep the server down; the scan preflight refuses to run against it, so
-//     nothing is swept in the meantime.
+//   - a scan folder whose root cannot be scanned — missing, not a directory, a
+//     symlink, or a mount that does not answer. A share that mounts late must
+//     not keep the server down; scans refuse to run against it until it is
+//     fixed.
 //   - no scan folder configured at all: scans then do nothing, ever, until the
 //     config names one.
 //   - indexed tracks stamped with a scan folder that is no longer configured.
@@ -53,8 +60,8 @@ func warnScanFolders(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 			slog.String("scan_folder", f.Name), slog.String("path", f.Path),
 			slog.Int("exclude_patterns", len(f.ExcludePatterns)),
 			slog.Bool("follow_symlinks", f.FollowSymlinks))
-		if err := f.Available(); err != nil {
-			l.Warn("scan folder directory is unavailable; scans will refuse to run until it is back",
+		if err := f.AvailableWithin(startupProbeTimeout); err != nil {
+			l.Warn("scan folder is not usable; scans will refuse to run until this is fixed",
 				slog.String("component", "startup"),
 				slog.String("scan_folder", f.Name), slog.String("error", err.Error()))
 		}

@@ -79,6 +79,8 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   *extension* under `/rest` advertised via `getOpenSubsonicExtensions` —
   never a bespoke `/api/v0` music endpoint. See [subsonic-api.md](subsonic-api.md).
 - **`/api/v0` is server management only**: libraries CRUD + folder browse,
+  `GET /scan-folders` (read-only list of the configured scan folders with a
+  bounded availability probe and marker-based track counts),
   tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
   `GET /artists/{id}/image-source` (which of aether's store / the music folder /
   the generated avatar the artist's image comes from — a server filesystem

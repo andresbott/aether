@@ -49,6 +49,8 @@ tags:
     description: Scheduled task management, triggering and execution history (admin).
   - name: libraries
     description: Collection/library CRUD and filesystem browse (admin).
+  - name: scan-folders
+    description: The directories the server scans — read-only, declared in the server config (admin).
   - name: artists
     description: Artist MusicBrainz lookup and image management (admin).
   - name: radiobrowser
@@ -1170,6 +1172,31 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /scan-folders:
+    get:
+      operationId: listScanFolders
+      summary: List the directories the server scans for music.
+      description: >
+        Admin. Read-only: scan folders are declared in the `ScanFolders`
+        section of the server config file and nowhere else, so there is
+        nothing to create, change or delete over this API — edit the file and
+        restart. Listed in name order, the order they are scanned in.
+        `available` (with `problem` saying why not) is probed on every
+        request, each root with a bounded timeout, so a dead mount delays the
+        answer by seconds at most instead of hanging it. `track_count` counts
+        the tracks stamped with the folder's name. Unpaginated, like
+        listLibraries.
+      tags: [scan-folders]
+      responses:
+        '200':
+          description: Every configured scan folder.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanFolderList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /libraries:
@@ -3244,6 +3271,58 @@ components:
           description: >
             Omitted or blank leaves the role unchanged. Demoting the last
             remaining enabled admin is refused with 409 — see `updateUser`.
+
+    ScanFolder:
+      type: object
+      description: >
+        One directory tree the server scans, as declared in the server config
+        file. `name` is the identifier: tracks are stamped with it and the
+        metadata editor's requests address a folder by it (`scan_folder`).
+      properties:
+        name: { type: string, minLength: 1 }
+        path:
+          type: string
+          description: The root directory, absolute.
+        exclude_patterns:
+          type: array
+          items: { type: string }
+          description: >
+            Regex patterns; an entry whose path relative to the root, or whose
+            bare name, matches one is skipped by the scan. Empty when none.
+        follow_symlinks:
+          type: boolean
+          description: Whether the scan descends into symlinked directories inside the root.
+        available:
+          type: boolean
+          description: >
+            False when the root cannot be scanned right now; scans refuse to
+            run until it can.
+        problem:
+          type: string
+          description: >
+            Why the root is not available — missing, not a directory, itself a
+            symbolic link, or a mount that did not answer in time. Present
+            only when `available` is false.
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tracks stamped with this folder's name.
+      required:
+        - name
+        - path
+        - exclude_patterns
+        - follow_symlinks
+        - available
+        - track_count
+
+    ScanFolderList:
+      type: object
+      properties:
+        scan_folders:
+          type: array
+          items: { $ref: '#/components/schemas/ScanFolder' }
+      required: [scan_folders]
 
     Library:
       type: object

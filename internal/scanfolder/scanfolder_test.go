@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andresbott/aether/internal/scanfolder"
 )
@@ -240,6 +241,17 @@ func TestFolderExcludes(t *testing.T) {
 	}
 	if res, err := (scanfolder.Folder{}).Excludes(); err != nil || len(res) != 0 {
 		t.Fatalf("no patterns: %v, %v", res, err)
+	}
+}
+
+func TestAvailableWithinMatchesAvailable(t *testing.T) {
+	dir := t.TempDir()
+	if err := (scanfolder.Folder{Path: dir}).AvailableWithin(time.Second); err != nil {
+		t.Fatalf("an existing directory must be available: %v", err)
+	}
+	err := (scanfolder.Folder{Path: filepath.Join(dir, "missing")}).AvailableWithin(time.Second)
+	if err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("missing dir: err = %v, want 'unavailable'", err)
 	}
 }
 

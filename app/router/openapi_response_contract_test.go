@@ -14,7 +14,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/getkin/kin-openapi/openapi3"
+	"gorm.io/gorm"
 )
 
 // This file is the response-contract test: it drives real /api/v0 requests
@@ -302,6 +304,49 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 		t.Fatalf("GET /libraries = %d, want 200: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "listLibraries", http.StatusOK, w)
+}
+
+// --- Scan folders: the read-only list of what the config declares ---
+
+func TestContractScanFoldersList(t *testing.T) {
+	doc := specDoc(t)
+	music := t.TempDir()
+	// A second, separate temp dir: roots must not nest, so the missing root
+	// cannot live under the first one.
+	offline := filepath.Join(t.TempDir(), "not-mounted")
+	h, _ := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{
+			{Name: "Music", Path: music, ExcludePatterns: []string{`^\.`}, FollowSymlinks: true},
+			// Not there: exercises available:false with a problem.
+			{Name: "Offline", Path: offline},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
+	_, adminAttach := doLogin(t, h, "alice", "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/scan-folders", nil)
+	adminAttach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /scan-folders = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "listScanFolders", http.StatusOK, w)
+
+	// Admin-only, like every management route: a regular user is refused.
+	_, bobAttach := doLogin(t, h, "bob", "secret")
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/scan-folders", nil)
+	bobAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("GET /scan-folders as non-admin = %d, want 403: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "listScanFolders", http.StatusForbidden, w)
 }
 
 // --- Users: create-then-list, the User/UserList envelopes ---

@@ -115,6 +115,7 @@ type MainAppHandler struct {
 	scheduler     *taskrunner.Scheduler
 	store         *store.Store
 	dataDir       string
+	scanFolders   *scanfolder.Set
 	tagReader     tags.Reader
 	artistFetcher artistsHandler.Fetcher
 	artistImages  *artist.ImageService
@@ -269,6 +270,7 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		scheduler:     cfg.Scheduler,
 		store:         cfg.Store,
 		dataDir:       cfg.DataDir,
+		scanFolders:   cfg.ScanFolders,
 		tagReader:     cfg.TagReader,
 		artistFetcher: cfg.ArtistFetcher,
 		artistImages:  cfg.ArtistImages,

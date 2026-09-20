@@ -190,7 +190,7 @@ func TestWarnScanFolders(t *testing.T) {
 	out := buf.String()
 	warnOut := warnLevelLines(out)
 
-	if !strings.Contains(warnOut, "Unmounted") || !strings.Contains(warnOut, "unavailable") {
+	if !strings.Contains(warnOut, "Unmounted") || !strings.Contains(warnOut, "unavailable") || !strings.Contains(warnOut, "not usable") {
 		t.Errorf("expected an unavailable-directory warning for Unmounted, got:\n%s", out)
 	}
 	if !strings.Contains(warnOut, "Removed") || !strings.Contains(warnOut, "no longer configured") {

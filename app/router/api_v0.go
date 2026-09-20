@@ -13,6 +13,7 @@ import (
 	libraryHandler "github.com/andresbott/aether/app/router/handlers/libraries"
 	metadataHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	radiobrowserHandler "github.com/andresbott/aether/app/router/handlers/radiobrowser"
+	scanfoldersHandler "github.com/andresbott/aether/app/router/handlers/scanfolders"
 	taskHandler "github.com/andresbott/aether/app/router/handlers/tasks"
 	tokensHandler "github.com/andresbott/aether/app/router/handlers/tokens"
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
@@ -215,6 +216,8 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	if h.store != nil {
 		lh := &libraryHandler.Handler{Store: h.store, Problems: h.problems}
 		lh.Routes(r)
+
+		(&scanfoldersHandler.Handler{Folders: h.scanFolders, Store: h.store, Problems: h.problems}).Routes(r)
 
 		if h.tagReader != nil {
 			// The metadata editor's endpoints are split across three handlers by
