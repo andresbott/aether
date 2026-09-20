@@ -20,11 +20,11 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: vi.fn() })
     }
 })
-// Two libraries, so the picker shows the library list (no auto-select) and the
-// library can be changed to exercise the clear-on-change behaviour.
-vi.mock('@/composables/useLibraries', () => ({
-    useLibraries: () => ({
-        data: { value: [{ id: 1, name: 'Music' }, { id: 2, name: 'Podcasts' }] }
+// Two scan folders, so the picker shows the scan-folder list (no auto-select)
+// and the scan folder can be changed to exercise the clear-on-change behaviour.
+vi.mock('@/composables/useScanFolders', () => ({
+    useScanFolders: () => ({
+        data: { value: [{ name: 'Music', available: true }, { name: 'Podcasts', available: true }] }
     })
 }))
 vi.mock('@/composables/useViewport', () => ({
@@ -71,7 +71,7 @@ const stubs = {
     },
     FolderTree: {
         name: 'FolderTree',
-        props: ['libraryId', 'filter', 'expandTo'],
+        props: ['scanFolder', 'filter', 'expandTo'],
         template: '<div />'
     },
     TrackList: { name: 'TrackList', template: '<div />' },
@@ -99,7 +99,7 @@ describe('MetadataEditorView folder search', () => {
     it('passes the debounced search text to FolderTree as its filter', async () => {
         const w = mountView()
         await openPicker(w)
-        listbox(w).vm.$emit('update:modelValue', 1)
+        listbox(w).vm.$emit('update:modelValue', 'Music')
         await w.vm.$nextTick()
         await w.find('[data-test="folder-filter"]').setValue('up')
 
@@ -110,17 +110,17 @@ describe('MetadataEditorView folder search', () => {
         expect(folderTree(w).props('filter')).toBe('up')
     })
 
-    it('clears the search when the library changes', async () => {
+    it('clears the search when the scan folder changes', async () => {
         const w = mountView()
         await openPicker(w)
-        listbox(w).vm.$emit('update:modelValue', 1)
+        listbox(w).vm.$emit('update:modelValue', 'Music')
         await w.vm.$nextTick()
         await w.find('[data-test="folder-filter"]').setValue('up')
         await vi.advanceTimersByTimeAsync(400)
         expect(folderTree(w).props('filter')).toBe('up')
 
-        // Switching library resets the picker, filter included.
-        listbox(w).vm.$emit('update:modelValue', 2)
+        // Switching scan folder resets the picker, filter included.
+        listbox(w).vm.$emit('update:modelValue', 'Podcasts')
         await w.vm.$nextTick()
         expect(folderTree(w).props('filter')).toBe('')
     })

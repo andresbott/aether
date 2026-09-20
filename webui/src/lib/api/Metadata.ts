@@ -23,30 +23,30 @@ import type {
     UpdateTracksResponse
 } from '@/types/metadata'
 
-export async function listFolders(libraryId: number, path: string) {
+export async function listFolders(scanFolder: string, path: string) {
     const { data } = await apiClient.get<ListFoldersResponse>('/metadata/folders', {
-        params: { library_id: libraryId, path }
+        params: { scan_folder: scanFolder, path }
     })
     return data.folders
 }
 
-// searchFolders filters the library's folders by name: it returns every folder
-// (at any depth) whose name contains query, so the picker can jump straight to a
-// deep folder without the user expanding to it first. truncated is true when the
-// match set hit the server's cap.
+// searchFolders filters the scan folder's folders by name: it returns every
+// folder (at any depth) whose name contains query, so the picker can jump
+// straight to a deep folder without the user expanding to it first. truncated
+// is true when the match set hit the server's cap.
 export async function searchFolders(
-    libraryId: number,
+    scanFolder: string,
     query: string
 ): Promise<SearchFoldersResponse> {
     const { data } = await apiClient.get<SearchFoldersResponse>('/metadata/folders', {
-        params: { library_id: libraryId, q: query }
+        params: { scan_folder: scanFolder, q: query }
     })
     return { folders: data.folders ?? [], truncated: data.truncated ?? false }
 }
 
-export async function listTracks(libraryId: number, path: string) {
+export async function listTracks(scanFolder: string, path: string) {
     const { data } = await apiClient.get<ListTracksResponse>('/metadata/tracks', {
-        params: { library_id: libraryId, path }
+        params: { scan_folder: scanFolder, path }
     })
     return data.tracks
 }
@@ -65,9 +65,9 @@ export async function updateTracks(body: UpdateTracksRequest): Promise<UpdateTra
 // multi-disc selection as a repeated ?paths= query param overflowed a
 // production reverse proxy's header buffer (HTTP 431) — the same fix as
 // getPictures below.
-export async function getRawTags(libraryId: number, paths: string[]) {
+export async function getRawTags(scanFolder: string, paths: string[]) {
     const { data } = await apiClient.post<RawTagsResponse>('/metadata/tracks/raw-tags', {
-        library_id: libraryId,
+        scan_folder: scanFolder,
         paths
     })
     return data.results
@@ -148,9 +148,9 @@ export async function applyPicture(form: FormData) {
 // multi-disc selection as a repeated ?paths= query param overflowed a
 // production reverse proxy's header buffer (HTTP 431). The image endpoint it
 // returns stays a GET, keyed on one resolved file instead of the selection.
-export async function getPictures(libraryId: number, paths: string[]): Promise<PictureInfo[]> {
+export async function getPictures(scanFolder: string, paths: string[]): Promise<PictureInfo[]> {
     const { data } = await apiClient.post<PicturesResponse>('/metadata/pictures/inventory', {
-        library_id: libraryId,
+        scan_folder: scanFolder,
         paths
     })
     return data.pictures ?? []
@@ -160,11 +160,11 @@ export async function getPictures(libraryId: number, paths: string[]): Promise<P
 // (its albums are tagged with an album artist matching the folder name) and the
 // image it already holds. The editor shows the control only when eligible.
 export async function resolveArtistFolder(
-    libraryId: number,
+    scanFolder: string,
     path: string
 ): Promise<ArtistFolderInfo> {
     const { data } = await apiClient.get<ArtistFolderInfo>('/metadata/artist-folder', {
-        params: { library_id: libraryId, path }
+        params: { scan_folder: scanFolder, path }
     })
     return data
 }
@@ -183,15 +183,17 @@ export async function getArtistImageCandidateInfo(mbid: string, url: string): Pr
 // getArtistImageUrl builds the <img> src for the selected folder's current image.
 // bust forces a reload after a change (the endpoint sends Cache-Control:
 // no-cache but the URL is otherwise unchanged).
-export function getArtistImageUrl(libraryId: number, path: string, bust?: number): string {
+export function getArtistImageUrl(scanFolder: string, path: string, bust?: number): string {
     const base = apiClient.defaults.baseURL ?? ''
-    const params = new URLSearchParams({ library_id: String(libraryId), path })
+    // URLSearchParams does the encoding — the scan folder's name may carry
+    // spaces or non-ASCII characters.
+    const params = new URLSearchParams({ scan_folder: scanFolder, path })
     if (bust !== undefined) params.set('t', String(bust))
     return `${base}/metadata/artist-image?${params.toString()}`
 }
 
 // applyArtistImage writes an artist portrait as artist.<ext> into the selected
-// folder. The form carries library_id, path, and either an uploaded image file
+// folder. The form carries scan_folder, path, and either an uploaded image file
 // ("image") or an online pick ("mbid" + "url").
 export async function applyArtistImage(form: FormData): Promise<ApplyArtistImageResult> {
     const { data } = await apiClient.post<ApplyArtistImageResult>('/metadata/artist-image', form, {
@@ -202,11 +204,11 @@ export async function applyArtistImage(form: FormData): Promise<ApplyArtistImage
 
 // deleteArtistImage removes the selected folder's current artist image.
 export async function deleteArtistImage(
-    libraryId: number,
+    scanFolder: string,
     path: string
 ): Promise<DeleteArtistImageResult> {
     const { data } = await apiClient.delete<DeleteArtistImageResult>('/metadata/artist-image', {
-        params: { library_id: libraryId, path }
+        params: { scan_folder: scanFolder, path }
     })
     return data
 }
@@ -221,13 +223,13 @@ export async function deleteArtistImage(
 // getPictures/getRawTags above — a POST action rather than a DELETE-with-body
 // avoids attaching a payload to a DELETE verb.
 export async function deletePicture(
-    libraryId: number,
+    scanFolder: string,
     paths: string[],
     type: string,
     slot: PictureSlot
 ): Promise<DeletePictureResult> {
     const { data } = await apiClient.post<DeletePictureResult>('/metadata/pictures/removals', {
-        library_id: libraryId,
+        scan_folder: scanFolder,
         paths,
         type,
         slot

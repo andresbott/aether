@@ -21,10 +21,10 @@ import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from './releaseTypes'
 
 const props = defineProps<{
     selection: Track[]
-    libraryId: number | null
+    scanFolder: string | null
     session: EditSession
-    // The selected folder (library-relative), for the folder-scoped artist image
-    // shown when no track is selected. Optional: absent behaves as no folder.
+    // The selected folder (scan-folder-relative), for the folder-scoped artist
+    // image shown when no track is selected. Optional: absent behaves as no folder.
     folderPath?: string | null
     canIdentify: boolean
     // Explanation shown on the disabled Identify button when canIdentify is
@@ -166,7 +166,7 @@ watch(
              the folder resolves to an artist folder (the component self-hides
              otherwise). -->
         <ArtistImageSection
-            :libraryId="libraryId"
+            :scanFolder="scanFolder"
             :session="session"
             :folderPath="folderPath ?? null"
         />
@@ -221,7 +221,7 @@ watch(
         <RawEditPanel
             v-if="rawMode"
             :selection="selection"
-            :libraryId="libraryId"
+            :scanFolder="scanFolder"
             :session="session"
         />
 
@@ -568,7 +568,7 @@ watch(
 
         <PicturesSection
             :selection="selection"
-            :libraryId="libraryId"
+            :scanFolder="scanFolder"
             :session="session"
             :releaseMbid="mbReleaseId"
             :releaseGroupMbid="mbReleaseGroupId"

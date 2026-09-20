@@ -20,8 +20,9 @@ import type {
 
 // Query keys
 export const metadataQueryKeys = {
-    folders: (libraryId: number, path: string) => ['metadata', 'folders', libraryId, path] as const,
-    tracks: (libraryId: number, path: string) => ['metadata', 'tracks', libraryId, path] as const
+    folders: (scanFolder: string, path: string) =>
+        ['metadata', 'folders', scanFolder, path] as const,
+    tracks: (scanFolder: string, path: string) => ['metadata', 'tracks', scanFolder, path] as const
 }
 
 // invalidateAfterMetadataWrite drops every cache a tag or picture write can
@@ -38,20 +39,20 @@ export function invalidateAfterMetadataWrite(qc: QueryClient) {
     qc.invalidateQueries({ queryKey: ['subsonic'] })
 }
 
-export function useFolders(libraryId: () => number | null, path: () => string) {
+export function useFolders(scanFolder: () => string | null, path: () => string) {
     return useQuery<Folder[]>({
-        queryKey: ['metadata', 'folders', libraryId, path],
-        queryFn: () => MetadataApi.listFolders(libraryId() as number, path()),
-        enabled: () => libraryId() !== null,
+        queryKey: ['metadata', 'folders', scanFolder, path],
+        queryFn: () => MetadataApi.listFolders(scanFolder() as string, path()),
+        enabled: () => scanFolder() !== null,
         staleTime: 15_000
     })
 }
 
-export function useTracks(libraryId: () => number | null, path: () => string | null) {
+export function useTracks(scanFolder: () => string | null, path: () => string | null) {
     return useQuery<Track[]>({
-        queryKey: ['metadata', 'tracks', libraryId, path],
-        queryFn: () => MetadataApi.listTracks(libraryId() as number, path() as string),
-        enabled: () => libraryId() !== null && path() !== null,
+        queryKey: ['metadata', 'tracks', scanFolder, path],
+        queryFn: () => MetadataApi.listTracks(scanFolder() as string, path() as string),
+        enabled: () => scanFolder() !== null && path() !== null,
         staleTime: 15_000
     })
 }
@@ -189,14 +190,14 @@ export function useUpdateTracks() {
 // useRawTags loads the complete tag maps of the given paths for the raw
 // editor. Only enabled while the raw view is open.
 export function useRawTags(
-    libraryId: () => number | null,
+    scanFolder: () => string | null,
     paths: () => string[],
     enabled: () => boolean
 ) {
     return useQuery({
-        queryKey: ['metadata', 'raw', libraryId, paths],
-        queryFn: () => MetadataApi.getRawTags(libraryId() as number, paths()),
-        enabled: () => enabled() && libraryId() !== null && paths().length > 0,
+        queryKey: ['metadata', 'raw', scanFolder, paths],
+        queryFn: () => MetadataApi.getRawTags(scanFolder() as string, paths()),
+        enabled: () => enabled() && scanFolder() !== null && paths().length > 0,
         staleTime: 15_000
     })
 }
@@ -342,12 +343,12 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
     onScopeDispose(() => abort.abort(), true)
     return useMutation({
         mutationFn: async (v: {
-            libraryId: number
+            scanFolder: string
             type: string
             slot: PictureSlot
             paths: string[]
         }) => {
-            const out = await MetadataApi.deletePicture(v.libraryId, v.paths, v.type, v.slot)
+            const out = await MetadataApi.deletePicture(v.scanFolder, v.paths, v.type, v.slot)
             // See useApplyPicture: a quiet caller polls the batch itself.
             if (opts.quiet) return { ...out, reindexFailed: false }
             const { failed, pending } = await pollReindex(

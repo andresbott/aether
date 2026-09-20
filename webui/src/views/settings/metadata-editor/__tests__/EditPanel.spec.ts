@@ -28,7 +28,7 @@ vi.mock('@/components/library/MusicBrainzAlbumPicker.vue', () => ({
 vi.mock('@/views/settings/metadata-editor/PicturesSection.vue', () => ({
     default: {
         name: 'PicturesSection',
-        props: ['selection', 'libraryId', 'session', 'releaseMbid', 'releaseGroupMbid'],
+        props: ['selection', 'scanFolder', 'session', 'releaseMbid', 'releaseGroupMbid'],
         template: '<div class="pictures-section-stub" />'
     }
 }))
@@ -38,7 +38,7 @@ vi.mock('@/views/settings/metadata-editor/PicturesSection.vue', () => ({
 vi.mock('@/views/settings/metadata-editor/RawEditPanel.vue', () => ({
     default: {
         name: 'RawEditPanel',
-        props: ['selection', 'libraryId', 'session'],
+        props: ['selection', 'scanFolder', 'session'],
         template: '<div class="raw-edit-panel-stub" />'
     }
 }))
@@ -177,15 +177,19 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
 
 // mountPanel builds a real edit session over the selection and mounts the
 // panel on top of it, mirroring how the view wires them together.
-function mountPanel(selection: Track[], libraryId = 1, extraProps: Record<string, unknown> = {}) {
+function mountPanel(
+    selection: Track[],
+    scanFolder = 'Main',
+    extraProps: Record<string, unknown> = {}
+) {
     const session = useEditSession(
         () => selection,
-        () => libraryId
+        () => scanFolder
     )
     const wrapper = mount(EditPanel, {
         props: {
             selection,
-            libraryId,
+            scanFolder,
             session,
             canIdentify: false,
             isIdentifying: false,
@@ -237,18 +241,18 @@ describe('EditPanel pictures section', () => {
             mb_release_id: 'rel-1',
             mb_release_group_id: 'rg-1'
         })
-        const { wrapper, session } = mountPanel([track], 3)
+        const { wrapper, session } = mountPanel([track], 'Main')
         const section = wrapper.findComponent({ name: 'PicturesSection' })
         expect(section.exists()).toBe(true)
         expect(section.props('selection')).toEqual([track])
-        expect(section.props('libraryId')).toBe(3)
+        expect(section.props('scanFolder')).toBe('Main')
         expect(section.props('session')).toBe(session)
         expect(section.props('releaseMbid')).toBe('rel-1')
         expect(section.props('releaseGroupMbid')).toBe('rg-1')
     })
 
     it('hides PicturesSection in raw mode', async () => {
-        const { wrapper } = mountPanel([mkTrack()], 3)
+        const { wrapper } = mountPanel([mkTrack()], 'Main')
         await wrapper.find('[data-test="raw-toggle"]').trigger('click')
         expect(wrapper.findComponent({ name: 'PicturesSection' }).exists()).toBe(false)
     })
@@ -784,14 +788,14 @@ describe('EditPanel raw mode', () => {
 
 describe('EditPanel identify button', () => {
     it('is visible but disabled when the server lacks the capability', () => {
-        const { wrapper } = mountPanel([mkTrack()], 1, { canIdentify: false })
+        const { wrapper } = mountPanel([mkTrack()], 'Main', { canIdentify: false })
         const btn = wrapper.find('[data-test="identify-button"]')
         expect(btn.exists()).toBe(true)
         expect(btn.attributes('disabled')).toBeDefined()
     })
 
     it('shows the server reason for the disabled state', () => {
-        const { wrapper } = mountPanel([mkTrack()], 1, {
+        const { wrapper } = mountPanel([mkTrack()], 'Main', {
             canIdentify: false,
             identifyUnavailableReason: 'fpcalc is missing; install libchromaprint-tools'
         })
@@ -802,7 +806,7 @@ describe('EditPanel identify button', () => {
 
     it('is disabled when nothing in the selection can be fingerprinted', () => {
         const bad = mkTrack({ path: 'bad.mp3', error: 'read failed' })
-        const { wrapper } = mountPanel([bad], 1, { canIdentify: true })
+        const { wrapper } = mountPanel([bad], 'Main', { canIdentify: true })
         const btn = wrapper.find('[data-test="identify-button"]')
         expect(btn.attributes('disabled')).toBeDefined()
         expect(wrapper.find('.identify-wrap').attributes('data-tooltip')).toContain(
@@ -811,7 +815,7 @@ describe('EditPanel identify button', () => {
     })
 
     it('is hidden while raw mode is active', async () => {
-        const { wrapper } = mountPanel([mkTrack()], 1, { canIdentify: true })
+        const { wrapper } = mountPanel([mkTrack()], 'Main', { canIdentify: true })
         expect(wrapper.find('[data-test="identify-button"]').exists()).toBe(true)
         await wrapper.find('[data-test="raw-toggle"]').trigger('click')
         expect(wrapper.find('[data-test="identify-button"]').exists()).toBe(false)
@@ -822,7 +826,7 @@ describe('EditPanel identify button', () => {
     it('emits identify with the non-error selection', async () => {
         const good = mkTrack({ path: 'good.mp3' })
         const bad = mkTrack({ path: 'bad.mp3', error: 'read failed' })
-        const { wrapper } = mountPanel([good, bad], 1, { canIdentify: true })
+        const { wrapper } = mountPanel([good, bad], 'Main', { canIdentify: true })
         await wrapper.find('[data-test="identify-button"]').trigger('click')
         const emitted = wrapper.emitted('identify')
         expect(emitted).toHaveLength(1)
@@ -848,7 +852,7 @@ describe('EditPanel album identify', () => {
         const good = mkTrack({ path: 'a.mp3' })
         const other = mkTrack({ path: 'b.mp3' })
         const broken = mkTrack({ path: 'c.mp3', error: 'unreadable' })
-        const { wrapper } = mountPanel([good, other, broken], 1, { canIdentify: true })
+        const { wrapper } = mountPanel([good, other, broken], 'Main', { canIdentify: true })
 
         await wrapper.find('[data-test="identify-album-button"]').trigger('click')
         const emitted = wrapper.emitted('identify-album')![0][0] as Track[]
@@ -858,7 +862,7 @@ describe('EditPanel album identify', () => {
     it('disables the album button when the server cannot identify', () => {
         const { wrapper } = mountPanel(
             [mkTrack({ path: 'a.mp3' }), mkTrack({ path: 'b.mp3' })],
-            1,
+            'Main',
             { canIdentify: false }
         )
         expect(

@@ -10,9 +10,9 @@ import type { ArtistImagePick } from '@/types/artists'
 import type { EditSession } from '@/composables/useEditSession'
 
 const props = defineProps<{
-    libraryId: number | null
+    scanFolder: string | null
     session: EditSession
-    // The currently selected folder (library-relative), or null. The section
+    // The currently selected folder (scan-folder-relative), or null. The section
     // appears only when this folder resolves to an artist folder (itself, or an
     // ancestor when an album/disc is selected).
     folderPath: string | null
@@ -24,19 +24,19 @@ const serverInfo = ref<ArtistFolderInfo | null>(null)
 let refreshSeq = 0
 async function refresh() {
     const seq = ++refreshSeq
-    if (props.libraryId === null || !props.folderPath) {
+    if (props.scanFolder === null || !props.folderPath) {
         serverInfo.value = null
         return
     }
     try {
-        const info = await resolveArtistFolder(props.libraryId, props.folderPath)
+        const info = await resolveArtistFolder(props.scanFolder, props.folderPath)
         if (seq === refreshSeq) serverInfo.value = info
     } catch {
         if (seq === refreshSeq) serverInfo.value = null
     }
 }
 watch(
-    [() => props.libraryId, () => props.folderPath, () => props.session.picturesSavedAt.value],
+    [() => props.scanFolder, () => props.folderPath, () => props.session.picturesSavedAt.value],
     refresh,
     { immediate: true }
 )
@@ -55,8 +55,8 @@ const cellPreview = computed<string | null>(() => {
     const o = op.value
     if (o?.kind === 'set') return o.preview
     if (o?.kind === 'remove') return null
-    if (hasCurrent.value && props.libraryId !== null && folderKey.value) {
-        return getArtistImageUrl(props.libraryId, folderKey.value, props.session.picturesSavedAt.value)
+    if (hasCurrent.value && props.scanFolder !== null && folderKey.value) {
+        return getArtistImageUrl(props.scanFolder, folderKey.value, props.session.picturesSavedAt.value)
     }
     return null
 })
@@ -137,7 +137,7 @@ function undo() {
             :pending="op?.kind === 'set'"
             :removing="op?.kind === 'remove'"
             :can-remove="hasCurrent"
-            :disabled="libraryId === null"
+            :disabled="scanFolder === null"
             change-test-id="artist-image-change"
             remove-test-id="artist-image-remove"
             undo-test-id="artist-image-undo"

@@ -78,10 +78,10 @@ function mountRaw(selection: Track[], results: RawTagsResult[]) {
     rawTagsData.current = ref(results)
     const session = useEditSession(
         () => selection,
-        () => 1
+        () => 'Main'
     )
     const wrapper = mount(RawEditPanel, {
-        props: { selection, libraryId: 1, session },
+        props: { selection, scanFolder: 'Main', session },
         global: { stubs, directives: { tooltip: {} } }
     })
     return { wrapper, session }

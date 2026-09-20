@@ -24,20 +24,21 @@ import type { IdentifyAlbumResponse, IdentifyTrackResult } from '@/types/metadat
 export const MAX_TRACK_ENTRIES = 2000
 export const MAX_ALBUM_ENTRIES = 50
 
-// Key separator. A tab cannot appear in a library-relative path the server
+// Key separator. A tab cannot appear in a scan-folder-relative path the server
 // hands out, so it can never be confused with path content.
 const SEP = '\t'
 
-// A path is only unique within its library, so the key carries the library id.
-function trackKey(libraryId: number, path: string): string {
-    return `${libraryId}${SEP}${path}`
+// A path is only unique within its scan folder, so the key carries the folder's
+// name — two scan folders may hold the same relative path.
+function trackKey(scanFolder: string, path: string): string {
+    return `${scanFolder}${SEP}${path}`
 }
 
 // The album lookup answers a question about a SET of files ("which release are
 // these?"), so the whole set is the key — sorted, because the same selection in
 // a different order is the same question.
-function albumKey(libraryId: number, paths: string[]): string {
-    return `${libraryId}${SEP}${[...paths].sort().join(SEP)}`
+function albumKey(scanFolder: string, paths: string[]): string {
+    return `${scanFolder}${SEP}${[...paths].sort().join(SEP)}`
 }
 
 const trackResults = new Map<string, IdentifyTrackResult>()
@@ -93,11 +94,11 @@ export interface CachedTrackResults {
  * to be watched.
  */
 export function useIdentifyCache() {
-    function getTrackResults(libraryId: number, paths: string[]): CachedTrackResults {
+    function getTrackResults(scanFolder: string, paths: string[]): CachedTrackResults {
         const cached: IdentifyTrackResult[] = []
         const missing: string[] = []
         for (const path of paths) {
-            const key = trackKey(libraryId, path)
+            const key = trackKey(scanFolder, path)
             const hit = trackResults.get(key)
             if (hit === undefined) {
                 missing.push(path)
@@ -115,19 +116,19 @@ export function useIdentifyCache() {
     // and no error IS stored — "this file matches nothing" is a real answer, and
     // re-running a full fingerprint pass to hear it again is the waste this
     // cache exists to avoid.
-    function putTrackResults(libraryId: number, results: IdentifyTrackResult[]) {
+    function putTrackResults(scanFolder: string, results: IdentifyTrackResult[]) {
         for (const r of results) {
             if (r.error) continue
-            touch(trackResults, trackKey(libraryId, r.path), r)
+            touch(trackResults, trackKey(scanFolder, r.path), r)
         }
         evict(trackResults, MAX_TRACK_ENTRIES)
     }
 
     function getAlbumResponse(
-        libraryId: number,
+        scanFolder: string,
         paths: string[]
     ): IdentifyAlbumResponse | undefined {
-        const key = albumKey(libraryId, paths)
+        const key = albumKey(scanFolder, paths)
         const hit = albumResponses.get(key)
         if (hit === undefined) return undefined
         touch(albumResponses, key, hit)
@@ -138,11 +139,11 @@ export function useIdentifyCache() {
     // partial reuse to be had, and the per-path errors are part of the answer
     // the dialog renders. A response with no options at all is still an answer.
     function putAlbumResponse(
-        libraryId: number,
+        scanFolder: string,
         paths: string[],
         response: IdentifyAlbumResponse
     ) {
-        touch(albumResponses, albumKey(libraryId, paths), response)
+        touch(albumResponses, albumKey(scanFolder, paths), response)
         evict(albumResponses, MAX_ALBUM_ENTRIES)
     }
 

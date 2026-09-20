@@ -8,7 +8,7 @@ import { apiErrorMessage } from '@/lib/apiError'
 import { buildFilteredFolderTree } from './folderFilter'
 
 const props = defineProps<{
-    libraryId: number | null
+    scanFolder: string | null
     expandTo?: string | null
     // A non-blank filter switches the tree to server-side search mode.
     filter?: string | null
@@ -30,15 +30,16 @@ const treeContainer = ref<HTMLElement | null>(null)
 // branches, fully expanded, so a deep folder is reachable without expanding to
 // it. Clearing the filter falls straight back to the lazy `nodes`.
 const filterQuery = computed(() => (props.filter ?? '').trim())
-const filtering = computed(() => filterQuery.value !== '' && props.libraryId !== null)
+const filtering = computed(() => filterQuery.value !== '' && props.scanFolder !== null)
 const filteredNodes = ref<TreeNode[]>([])
 const filteredExpandedKeys = ref<TreeExpandedKeys>({})
 const searching = ref(false)
 const searchTruncated = ref(false)
 
-// Monotonic tickets guarding against out-of-order responses when the library or
-// filter changes while a request is in flight: each async load grabs a ticket
-// and only commits its result if it is still the latest (see PicturesSection).
+// Monotonic tickets guarding against out-of-order responses when the scan
+// folder or filter changes while a request is in flight: each async load grabs
+// a ticket and only commits its result if it is still the latest (see
+// PicturesSection).
 let searchSeq = 0
 let treeSeq = 0
 
@@ -59,7 +60,7 @@ async function runSearch() {
     loadError.value = null
     try {
         const { folders, truncated } = await searchFolders(
-            props.libraryId as number,
+            props.scanFolder as string,
             filterQuery.value
         )
         if (seq !== searchSeq) return
@@ -78,7 +79,7 @@ async function runSearch() {
     }
 }
 
-watch([filterQuery, () => props.libraryId], runSearch, { immediate: true })
+watch([filterQuery, () => props.scanFolder], runSearch, { immediate: true })
 
 function makeNode(name: string, path: string, leaf: boolean): TreeNode {
     return {
@@ -92,8 +93,8 @@ function makeNode(name: string, path: string, leaf: boolean): TreeNode {
 }
 
 async function loadChildren(parentPath: string): Promise<TreeNode[]> {
-    if (props.libraryId === null) return []
-    const folders = await listFolders(props.libraryId, parentPath)
+    if (props.scanFolder === null) return []
+    const folders = await listFolders(props.scanFolder, parentPath)
     return folders.map((f) =>
         makeNode(
             f.name,
@@ -140,7 +141,7 @@ function scrollToNode(nodeKey: string) {
 // at the deepest folder that does — expanding what it reached.
 // After expanding, scrolls the target node into view.
 async function expandToPath(target: string, seq = treeSeq) {
-    if (!target || props.libraryId === null) return
+    if (!target || props.scanFolder === null) return
     const parts = target.split('/')
     let level = nodes.value
     let acc = ''
@@ -175,7 +176,7 @@ async function resetTree() {
     expandedKeys.value = {}
     selectionKeys.value = {}
     loadError.value = null
-    if (props.libraryId === null) return
+    if (props.scanFolder === null) return
     try {
         const loaded = await loadChildren('')
         if (seq !== treeSeq) return
@@ -200,7 +201,7 @@ function onNodeSelect(node: TreeNode) {
     emit('select', node.data.path)
 }
 
-watch(() => props.libraryId, resetTree, { immediate: true })
+watch(() => props.scanFolder, resetTree, { immediate: true })
 
 // A new target while the tree is already mounted (the picker stays open and the
 // user picks another breadcrumb) re-walks without reloading the root.
@@ -227,7 +228,7 @@ watch(
             @node-expand="onNodeExpand"
             @node-select="onNodeSelect"
         />
-        <div v-if="libraryId === null" class="empty">Pick a library above.</div>
+        <div v-if="scanFolder === null" class="empty">Pick a scan folder above.</div>
         <div
             v-else-if="filtering && searching && filteredNodes.length === 0"
             class="empty"

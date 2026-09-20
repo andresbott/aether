@@ -34,7 +34,7 @@ const TreeStub = {
 
 async function mountTree(filter?: string) {
     const w = mount(FolderTree, {
-        props: { libraryId: 1, filter },
+        props: { scanFolder: 'Main', filter },
         global: { stubs: { Tree: TreeStub } }
     })
     await flushPromises()
@@ -45,7 +45,7 @@ const tree = (w: ReturnType<typeof mount>) => w.findComponent(TreeStub)
 describe('FolderTree filter mode', () => {
     it('shows only the branches leading to a match, fully expanded', async () => {
         const w = await mountTree('up')
-        expect(searchFolders).toHaveBeenCalledWith(1, 'up')
+        expect(searchFolders).toHaveBeenCalledWith('Main', 'up')
         const nodes = tree(w).props('value') as any[]
         expect(nodes).toHaveLength(1)
         expect(nodes[0].key).toBe('Alexia dixon')

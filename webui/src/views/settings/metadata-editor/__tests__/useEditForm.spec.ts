@@ -29,7 +29,7 @@ function useForm(selection: Track[]) {
     let api!: ReturnType<typeof useEditForm>
     const Harness = defineComponent({
         setup() {
-            const session = useEditSession(() => selection, () => 1)
+            const session = useEditSession(() => selection, () => 'Main')
             api = useEditForm(() => selection, session)
             return () => h('div')
         }

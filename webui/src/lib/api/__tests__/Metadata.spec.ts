@@ -22,9 +22,9 @@ describe('Metadata API — searchFolders', () => {
                 truncated: true
             }
         })
-        const res = await Metadata.searchFolders(7, 'up')
+        const res = await Metadata.searchFolders('Music', 'up')
         expect(get).toHaveBeenCalledWith('/metadata/folders', {
-            params: { library_id: 7, q: 'up' }
+            params: { scan_folder: 'Music', q: 'up' }
         })
         expect(res.folders.map((f) => f.path)).toEqual(['Alexia dixon/fire up'])
         expect(res.truncated).toBe(true)
@@ -32,7 +32,7 @@ describe('Metadata API — searchFolders', () => {
 
     it('defaults truncated to false when the server omits it', async () => {
         get.mockResolvedValue({ data: { folders: [] } })
-        const res = await Metadata.searchFolders(1, 'x')
+        const res = await Metadata.searchFolders('Music', 'x')
         expect(res.truncated).toBe(false)
     })
 })

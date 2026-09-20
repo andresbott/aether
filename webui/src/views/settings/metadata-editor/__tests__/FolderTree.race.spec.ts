@@ -35,26 +35,26 @@ const labels = (w: ReturnType<typeof mount>) =>
     (tree(w).props('value') as { label: string }[]).map((n) => n.label)
 
 describe('FolderTree stale-response races', () => {
-    it('discards a slow root load from the previous library', async () => {
+    it('discards a slow root load from the previous scan folder', async () => {
         const libA = deferred<Folder[]>()
         const libB = deferred<Folder[]>()
-        listFolders.mockImplementation((id: number) =>
-            id === 1 ? libA.promise : libB.promise
+        listFolders.mockImplementation((name: string) =>
+            name === 'A' ? libA.promise : libB.promise
         )
 
         const w = mount(FolderTree, {
-            props: { libraryId: 1 },
+            props: { scanFolder: 'A' },
             global: { stubs: { Tree: TreeStub } }
         })
-        // Switch to library 2 while library 1's root load is still in flight.
-        await w.setProps({ libraryId: 2 })
+        // Switch to scan folder B while A's root load is still in flight.
+        await w.setProps({ scanFolder: 'B' })
 
-        // Library 2 lands first and paints its folders.
+        // Scan folder B lands first and paints its folders.
         libB.resolve([f('OnlyInB')])
         await flushPromises()
         expect(labels(w)).toEqual(['OnlyInB'])
 
-        // The stale library-1 response arrives afterwards and must be dropped.
+        // The stale scan-folder-A response arrives afterwards and must be dropped.
         libA.resolve([f('OnlyInA')])
         await flushPromises()
         expect(labels(w)).toEqual(['OnlyInB'])
@@ -69,7 +69,7 @@ describe('FolderTree stale-response races', () => {
             .mockImplementationOnce(() => second.promise)
 
         const w = mount(FolderTree, {
-            props: { libraryId: 1, filter: 'foo' },
+            props: { scanFolder: 'Main', filter: 'foo' },
             global: { stubs: { Tree: TreeStub } }
         })
         await flushPromises()

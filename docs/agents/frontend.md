@@ -53,10 +53,14 @@ When a view diverges from these registries, the registry wins.
   source (a genre filter, say) there rather than branching inside a body.
 - `composables/` — all non-trivial logic. Server state goes through
   TanStack query composables (`useSubsonicQueries.ts` with a central
-  `queryKeys` map — add new keys there, don't inline key arrays).
+  `queryKeys` map — add new keys there, don't inline key arrays). The metadata
+  editor lists the server's configured scan folders via `useScanFolders`
+  (`GET /api/v0/scan-folders`) and addresses every editor request — folders,
+  tracks, pictures, identify, artist image — by the chosen folder's `name`,
+  not a numeric id.
   `usePlayer.ts` is module-scoped singleton state, as is
   `useIdentifyCache.ts` — the metadata editor's identify answers are cached
-  per (library, path) and per selection set, LRU-capped, so reopening an
+  per (scan folder, path) and per selection set, LRU-capped, so reopening an
   identify dialog costs no fingerprint pass. It is deliberately not a
   vue-query cache: identification is a POST over a path list with no stable
   query key, and reuse is per path, not per request. `useIdentifyRuns.ts`

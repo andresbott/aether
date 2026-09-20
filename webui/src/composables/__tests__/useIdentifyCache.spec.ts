@@ -49,101 +49,101 @@ beforeEach(() => {
 
 describe('useIdentifyCache track results', () => {
     it('reports every path as missing when nothing is cached', () => {
-        const { cached, missing } = cache.getTrackResults(1, ['a.mp3', 'b.mp3'])
+        const { cached, missing } = cache.getTrackResults('Main', ['a.mp3', 'b.mp3'])
         expect(cached).toEqual([])
         expect(missing).toEqual(['a.mp3', 'b.mp3'])
     })
 
     it('serves a stored result without a missing path', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3')])
-        const { cached, missing } = cache.getTrackResults(1, ['a.mp3'])
+        cache.putTrackResults('Main', [mkResult('a.mp3')])
+        const { cached, missing } = cache.getTrackResults('Main', ['a.mp3'])
         expect(missing).toEqual([])
         expect(cached).toHaveLength(1)
         expect(cached[0].candidates[0].recording_mbid).toBe('rec-a.mp3')
     })
 
     it('serves the cached subset and reports only the uncached paths as missing', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3')])
-        const { cached, missing } = cache.getTrackResults(1, ['a.mp3', 'b.mp3'])
+        cache.putTrackResults('Main', [mkResult('a.mp3')])
+        const { cached, missing } = cache.getTrackResults('Main', ['a.mp3', 'b.mp3'])
         expect(cached.map((r) => r.path)).toEqual(['a.mp3'])
         expect(missing).toEqual(['b.mp3'])
     })
 
     it('does not store a result that failed, so the path can be retried', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3', { candidates: [], error: 'fpcalc failed' })])
-        expect(cache.getTrackResults(1, ['a.mp3']).missing).toEqual(['a.mp3'])
+        cache.putTrackResults('Main', [mkResult('a.mp3', { candidates: [], error: 'fpcalc failed' })])
+        expect(cache.getTrackResults('Main', ['a.mp3']).missing).toEqual(['a.mp3'])
     })
 
     it('stores a result that matched nothing, so an empty answer is not looked up twice', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3', { candidates: [] })])
-        const { cached, missing } = cache.getTrackResults(1, ['a.mp3'])
+        cache.putTrackResults('Main', [mkResult('a.mp3', { candidates: [] })])
+        const { cached, missing } = cache.getTrackResults('Main', ['a.mp3'])
         expect(missing).toEqual([])
         expect(cached[0].candidates).toEqual([])
     })
 
-    it('keys results by library, so the same path in another library is a miss', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3')])
-        expect(cache.getTrackResults(2, ['a.mp3']).missing).toEqual(['a.mp3'])
+    it('keys results by scan folder, so the same path in another scan folder is a miss', () => {
+        cache.putTrackResults('Main', [mkResult('a.mp3')])
+        expect(cache.getTrackResults('Other', ['a.mp3']).missing).toEqual(['a.mp3'])
     })
 
     it('drops the least recently used result once the cap is reached', () => {
         for (let i = 0; i < MAX_TRACK_ENTRIES; i++) {
-            cache.putTrackResults(1, [mkResult(`t-${i}.mp3`)])
+            cache.putTrackResults('Main', [mkResult(`t-${i}.mp3`)])
         }
         // Reading the oldest makes it recently used, so the next one is evicted.
-        expect(cache.getTrackResults(1, ['t-0.mp3']).missing).toEqual([])
-        cache.putTrackResults(1, [mkResult('overflow.mp3')])
-        expect(cache.getTrackResults(1, ['t-0.mp3']).missing).toEqual([])
-        expect(cache.getTrackResults(1, ['t-1.mp3']).missing).toEqual(['t-1.mp3'])
-        expect(cache.getTrackResults(1, ['overflow.mp3']).missing).toEqual([])
+        expect(cache.getTrackResults('Main', ['t-0.mp3']).missing).toEqual([])
+        cache.putTrackResults('Main', [mkResult('overflow.mp3')])
+        expect(cache.getTrackResults('Main', ['t-0.mp3']).missing).toEqual([])
+        expect(cache.getTrackResults('Main', ['t-1.mp3']).missing).toEqual(['t-1.mp3'])
+        expect(cache.getTrackResults('Main', ['overflow.mp3']).missing).toEqual([])
     })
 })
 
 describe('useIdentifyCache album responses', () => {
     it('has nothing for a set it has not seen', () => {
-        expect(cache.getAlbumResponse(1, ['a.mp3', 'b.mp3'])).toBeUndefined()
+        expect(cache.getAlbumResponse('Main', ['a.mp3', 'b.mp3'])).toBeUndefined()
     })
 
     it('serves a stored response for the same set of files', () => {
-        cache.putAlbumResponse(1, ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
-        expect(cache.getAlbumResponse(1, ['a.mp3', 'b.mp3'])?.options[0].album).toBe('Album A')
+        cache.putAlbumResponse('Main', ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
+        expect(cache.getAlbumResponse('Main', ['a.mp3', 'b.mp3'])?.options[0].album).toBe('Album A')
     })
 
     it('ignores the order the paths are given in', () => {
-        cache.putAlbumResponse(1, ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
-        expect(cache.getAlbumResponse(1, ['b.mp3', 'a.mp3'])?.options[0].album).toBe('Album A')
+        cache.putAlbumResponse('Main', ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
+        expect(cache.getAlbumResponse('Main', ['b.mp3', 'a.mp3'])?.options[0].album).toBe('Album A')
     })
 
     it('misses for a different set of files', () => {
-        cache.putAlbumResponse(1, ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
-        expect(cache.getAlbumResponse(1, ['a.mp3', 'b.mp3', 'c.mp3'])).toBeUndefined()
+        cache.putAlbumResponse('Main', ['a.mp3', 'b.mp3'], mkAlbumResponse('Album A'))
+        expect(cache.getAlbumResponse('Main', ['a.mp3', 'b.mp3', 'c.mp3'])).toBeUndefined()
     })
 
-    it('keys responses by library', () => {
-        cache.putAlbumResponse(1, ['a.mp3'], mkAlbumResponse('Album A'))
-        expect(cache.getAlbumResponse(2, ['a.mp3'])).toBeUndefined()
+    it('keys responses by scan folder', () => {
+        cache.putAlbumResponse('Main', ['a.mp3'], mkAlbumResponse('Album A'))
+        expect(cache.getAlbumResponse('Other', ['a.mp3'])).toBeUndefined()
     })
 
     it('drops the least recently used response once the cap is reached', () => {
         for (let i = 0; i < MAX_ALBUM_ENTRIES; i++) {
-            cache.putAlbumResponse(1, [`set-${i}.mp3`], mkAlbumResponse(`Album ${i}`))
+            cache.putAlbumResponse('Main', [`set-${i}.mp3`], mkAlbumResponse(`Album ${i}`))
         }
         // Touch the oldest so it is no longer the least recently used.
-        expect(cache.getAlbumResponse(1, ['set-0.mp3'])).toBeDefined()
-        cache.putAlbumResponse(1, ['overflow.mp3'], mkAlbumResponse('Overflow'))
-        expect(cache.getAlbumResponse(1, ['set-0.mp3'])).toBeDefined()
-        expect(cache.getAlbumResponse(1, ['set-1.mp3'])).toBeUndefined()
-        expect(cache.getAlbumResponse(1, ['overflow.mp3'])).toBeDefined()
+        expect(cache.getAlbumResponse('Main', ['set-0.mp3'])).toBeDefined()
+        cache.putAlbumResponse('Main', ['overflow.mp3'], mkAlbumResponse('Overflow'))
+        expect(cache.getAlbumResponse('Main', ['set-0.mp3'])).toBeDefined()
+        expect(cache.getAlbumResponse('Main', ['set-1.mp3'])).toBeUndefined()
+        expect(cache.getAlbumResponse('Main', ['overflow.mp3'])).toBeDefined()
     })
 })
 
 describe('useIdentifyCache clear', () => {
     it('empties both track results and album responses', () => {
-        cache.putTrackResults(1, [mkResult('a.mp3')])
-        cache.putAlbumResponse(1, ['a.mp3'], mkAlbumResponse('Album A'))
+        cache.putTrackResults('Main', [mkResult('a.mp3')])
+        cache.putAlbumResponse('Main', ['a.mp3'], mkAlbumResponse('Album A'))
         cache.clear()
-        expect(cache.getTrackResults(1, ['a.mp3']).missing).toEqual(['a.mp3'])
-        expect(cache.getAlbumResponse(1, ['a.mp3'])).toBeUndefined()
+        expect(cache.getTrackResults('Main', ['a.mp3']).missing).toEqual(['a.mp3'])
+        expect(cache.getAlbumResponse('Main', ['a.mp3'])).toBeUndefined()
     })
 })
 

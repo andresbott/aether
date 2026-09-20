@@ -10,8 +10,8 @@ export interface ListFoldersResponse {
 
 // SearchFoldersResponse is the folder endpoint's shape when a `q` query is
 // given: every folder (at any depth) whose name matches, each carrying its full
-// library-relative path. `truncated` is true when the match set hit the server's
-// cap and more folders would match.
+// scan-folder-relative path. `truncated` is true when the match set hit the
+// server's cap and more folders would match.
 export interface SearchFoldersResponse {
     folders: Folder[]
     truncated: boolean
@@ -205,7 +205,7 @@ export interface IdentifyPick {
 }
 
 export interface IdentifyRequest {
-    library_id: number
+    scan_folder: string
     paths: string[]
 }
 
@@ -261,16 +261,16 @@ export interface AlbumOption {
 }
 
 export interface IdentifyAlbumRequest {
-    library_id: number
+    scan_folder: string
     paths: string[]
 }
 
 export interface IdentifyAlbumResponse {
     options: AlbumOption[]
     // Files this identification did not cover, of both kinds: paths the server
-    // refused before identification (outside the library) and files that reached
-    // the resolver but could not be fingerprinted or looked up. `error` is a
-    // short user-facing reason, never a raw server error.
+    // refused before identification (outside the scan folder) and files that
+    // reached the resolver but could not be fingerprinted or looked up. `error`
+    // is a short user-facing reason, never a raw server error.
     errors: { path: string; error: string }[]
 }
 
@@ -287,7 +287,7 @@ export interface AlbumIdentifyPick {
 }
 
 export interface UpdateTracksRequest {
-    library_id: number
+    scan_folder: string
     paths: string[]
     fields: PatchFields
 }
@@ -403,7 +403,7 @@ export interface ArtistFolderInfo {
     eligible: boolean
     // The artist name (the folder's own basename); '' when not eligible.
     artist: string
-    // Library-relative path of the folder; '' when not eligible.
+    // Scan-folder-relative path of the folder; '' when not eligible.
     path: string
     // Filename of the current artist image, or '' when none.
     current_image: string
@@ -413,7 +413,7 @@ export interface ArtistFolderInfo {
 
 export interface ApplyArtistImageResult {
     ok: boolean
-    // Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+    // Scan-folder-relative path of the written file, e.g. "Radiohead/artist.jpg".
     path: string
     reindex?: ReindexRef
 }

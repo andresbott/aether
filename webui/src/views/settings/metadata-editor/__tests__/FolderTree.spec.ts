@@ -19,7 +19,7 @@ const byParent: Record<string, Folder[]> = {
 
 beforeEach(() => {
     listFolders.mockReset()
-    listFolders.mockImplementation((_id: number, parent: string) =>
+    listFolders.mockImplementation((_scanFolder: string, parent: string) =>
         Promise.resolve(byParent[parent] ?? [])
     )
 })
@@ -35,7 +35,7 @@ const TreeStub = {
 
 async function mountTree(expandTo?: string | null) {
     const w = mount(FolderTree, {
-        props: { libraryId: 1, expandTo },
+        props: { scanFolder: 'Main', expandTo },
         global: { stubs: { Tree: TreeStub } }
     })
     await flushPromises()
@@ -47,9 +47,9 @@ const tree = (w: ReturnType<typeof mount>) => w.findComponent(TreeStub)
 describe('FolderTree expand-to-path', () => {
     it('expands every ancestor and the target folder without selecting anything', async () => {
         const w = await mountTree('Artist/Album')
-        expect(listFolders).toHaveBeenCalledWith(1, '')
-        expect(listFolders).toHaveBeenCalledWith(1, 'Artist')
-        expect(listFolders).toHaveBeenCalledWith(1, 'Artist/Album')
+        expect(listFolders).toHaveBeenCalledWith('Main', '')
+        expect(listFolders).toHaveBeenCalledWith('Main', 'Artist')
+        expect(listFolders).toHaveBeenCalledWith('Main', 'Artist/Album')
         expect(tree(w).props('expandedKeys')).toEqual({ Artist: true, 'Artist/Album': true })
         // The target must NOT be pre-selected: PrimeVue single-select toggles the
         // selected node OFF on first click, so a pre-selected target needs two
@@ -59,8 +59,8 @@ describe('FolderTree expand-to-path', () => {
 
     it('stops at the deepest folder that still exists and selects nothing', async () => {
         const w = await mountTree('Artist/Ghost')
-        expect(listFolders).toHaveBeenCalledWith(1, 'Artist')
-        expect(listFolders).not.toHaveBeenCalledWith(1, 'Artist/Ghost')
+        expect(listFolders).toHaveBeenCalledWith('Main', 'Artist')
+        expect(listFolders).not.toHaveBeenCalledWith('Main', 'Artist/Ghost')
         expect(tree(w).props('expandedKeys')).toEqual({ Artist: true })
         expect(tree(w).props('selectionKeys')).toEqual({})
     })
@@ -68,7 +68,7 @@ describe('FolderTree expand-to-path', () => {
     it('loads only the root and expands nothing without a target', async () => {
         const w = await mountTree()
         expect(listFolders).toHaveBeenCalledTimes(1)
-        expect(listFolders).toHaveBeenCalledWith(1, '')
+        expect(listFolders).toHaveBeenCalledWith('Main', '')
         expect(tree(w).props('expandedKeys')).toEqual({})
         expect(tree(w).props('selectionKeys')).toEqual({})
     })

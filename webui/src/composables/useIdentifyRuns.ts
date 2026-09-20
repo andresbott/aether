@@ -18,7 +18,7 @@ export interface RunOptions {
  * cached never touches the network, so `isIdentifying` stays false and the
  * dialog opens straight onto the results rather than flashing its progress note.
  */
-export function useIdentifyRuns(libraryId: () => number | null) {
+export function useIdentifyRuns(scanFolder: () => string | null) {
     const cache = useIdentifyCache()
     const identifyMutation = useIdentifyTracks()
     const identifyAlbumMutation = useIdentifyAlbum()
@@ -40,8 +40,8 @@ export function useIdentifyRuns(libraryId: () => number | null) {
     let identifyAbort: AbortController | null = null
 
     async function identify(tracks: Track[], opts: RunOptions = {}) {
-        const lib = libraryId()
-        if (lib === null || tracks.length === 0) return
+        const folder = scanFolder()
+        if (folder === null || tracks.length === 0) return
 
         // A new run supersedes any in-flight one: abort it so its fingerprint
         // pass and rate-limited AcoustID lookups stop, and its late response
@@ -51,7 +51,7 @@ export function useIdentifyRuns(libraryId: () => number | null) {
         const paths = tracks.map((t) => t.path)
         const { cached, missing } = opts.force
             ? { cached: [], missing: paths }
-            : cache.getTrackResults(lib, paths)
+            : cache.getTrackResults(folder, paths)
 
         // Open on click, before any request resolves: each uncached file costs a
         // fingerprint run plus a rate-limited AcoustID call, so a button that
@@ -68,14 +68,14 @@ export function useIdentifyRuns(libraryId: () => number | null) {
         isIdentifying.value = true
         try {
             const fresh = await identifyMutation.mutateAsync({
-                body: { library_id: lib, paths: missing },
+                body: { scan_folder: folder, paths: missing },
                 signal: abort.signal
             })
             // A response that arrives after the user cancelled (or started
             // another run) must not repopulate a dialog they already dismissed —
             // nor land in the cache under this run's paths.
             if (identifyAbort !== abort) return
-            cache.putTrackResults(lib, fresh)
+            cache.putTrackResults(folder, fresh)
             trackResults.value = mergeTrackResults(paths, cached, fresh)
         } catch {
             // The mutation toasts real failures and stays silent on a cancel;
@@ -110,16 +110,16 @@ export function useIdentifyRuns(libraryId: () => number | null) {
     let albumAbort: AbortController | null = null
 
     async function identifyAlbum(tracks: Track[], opts: RunOptions = {}) {
-        const lib = libraryId()
+        const folder = scanFolder()
         // Album identification maps a SET onto one release, so a lone file has
         // nothing to map; per-track Identify is strictly better there.
-        if (lib === null || tracks.length < 2) return
+        if (folder === null || tracks.length < 2) return
 
         // Supersede any in-flight album run (see identify()).
         cancelAlbumIdentify()
 
         const paths = tracks.map((t) => t.path)
-        const hit = opts.force ? undefined : cache.getAlbumResponse(lib, paths)
+        const hit = opts.force ? undefined : cache.getAlbumResponse(folder, paths)
 
         albumTracks.value = tracks
         albumOptions.value = hit?.options ?? []
@@ -132,11 +132,11 @@ export function useIdentifyRuns(libraryId: () => number | null) {
         isIdentifyingAlbum.value = true
         try {
             const out = await identifyAlbumMutation.mutateAsync({
-                body: { library_id: lib, paths },
+                body: { scan_folder: folder, paths },
                 signal: abort.signal
             })
             if (albumAbort !== abort) return
-            cache.putAlbumResponse(lib, paths, out)
+            cache.putAlbumResponse(folder, paths, out)
             albumOptions.value = out.options
             albumPathErrors.value = out.errors
         } catch {
