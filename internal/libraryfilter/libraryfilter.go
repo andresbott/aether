@@ -5,6 +5,15 @@
 // each field and against the configured scan folders, normalizes what it
 // accepts, and names every problem by JSON Pointer so a form can put the message
 // on the row it belongs to.
+//
+// Normalizing stops where a value is matched against data the scanner
+// recorded: genre, release_type and path values are stored verbatim, with
+// whitespace deciding only blankness, because store.ScopeOf binds them exactly
+// against what the scanner found (see the note on nonBlank in store/scope.go) —
+// trimming one here would let a value the filter-options endpoint offers back
+// verbatim be silently unmatchable once saved. scan_folder, format and
+// compilation are vocabularies this package defines itself, so those keep being
+// trimmed and normalized outright.
 package libraryfilter
 
 import (
@@ -36,11 +45,16 @@ type Issue struct {
 // formatRe is a file extension as the scanner stores it: lowercase, no dot.
 var formatRe = regexp.MustCompile(`^[a-z0-9]{1,8}$`)
 
-// Validate checks filters and returns them normalized: values trimmed and
-// de-duplicated, paths cleaned, formats lowercased. It reports every problem it
-// finds, not just the first; the returned filters are only meaningful when
-// there are none. No filters at all is valid — such a library is the whole
-// catalog.
+// Validate checks filters and returns them normalized, then de-duplicated. It
+// reports every problem it finds, not just the first; the returned filters are
+// only meaningful when there are none. No filters at all is valid — such a
+// library is the whole catalog.
+//
+// Normalization is field-specific (see valueChecks): genre, release_type and
+// path are matched against data the scanner recorded, so they are trimmed only
+// to decide blankness and are otherwise kept exactly as given. scan_folder,
+// format and compilation name a vocabulary this package owns, so those are
+// trimmed and normalized outright.
 func Validate(filters []model.LibraryFilter, folders *scanfolder.Set) ([]model.LibraryFilter, []Issue) {
 	if len(filters) > MaxFilters {
 		return nil, []Issue{{Pointer: "/filters", Detail: fmt.Sprintf("a library takes at most %d filters", MaxFilters)}}
@@ -51,25 +65,28 @@ func Validate(filters []model.LibraryFilter, folders *scanfolder.Set) ([]model.L
 		base := fmt.Sprintf("/filters/%d", i)
 		check, known := valueChecks[f.Field]
 		if !known {
-			issues = append(issues, Issue{base + "/field", fmt.Sprintf("unknown filter field %q", f.Field)})
+			issues = append(issues, Issue{Pointer: base + "/field", Detail: fmt.Sprintf("unknown filter field %q", f.Field)})
 			continue
 		}
 		switch {
 		case len(f.Values) == 0:
-			issues = append(issues, Issue{base + "/values", "a filter needs at least one value"})
+			issues = append(issues, Issue{Pointer: base + "/values", Detail: "a filter needs at least one value"})
 			continue
 		case len(f.Values) > MaxValues:
-			issues = append(issues, Issue{base + "/values", fmt.Sprintf("a filter takes at most %d values", MaxValues)})
+			issues = append(issues, Issue{Pointer: base + "/values", Detail: fmt.Sprintf("a filter takes at most %d values", MaxValues)})
 			continue
 		case f.Field == model.FilterCompilation && len(f.Values) != 1:
-			issues = append(issues, Issue{base + "/values", "a compilation filter takes exactly one value, true or false"})
+			issues = append(issues, Issue{Pointer: base + "/values", Detail: "a compilation filter takes exactly one value, true or false"})
 			continue
 		}
 		values := make([]string, 0, len(f.Values))
 		for j, raw := range f.Values {
-			v, err := check(strings.TrimSpace(raw), folders)
+			// raw, not pre-trimmed: whether and how much to trim is each
+			// field's own call (see valueChecks), because some fields must
+			// match scanned data verbatim.
+			v, err := check(raw, folders)
 			if err != nil {
-				issues = append(issues, Issue{fmt.Sprintf("%s/values/%d", base, j), err.Error()})
+				issues = append(issues, Issue{Pointer: fmt.Sprintf("%s/values/%d", base, j), Detail: err.Error()})
 				continue
 			}
 			if !slices.Contains(values, v) {
@@ -80,52 +97,6 @@ func Validate(filters []model.LibraryFilter, folders *scanfolder.Set) ([]model.L
 	}
 	return out, issues
 }
-
-// valueChecks holds, per field, the rule one trimmed value must pass; it returns
-// the value as it is stored.
-var valueChecks = map[model.LibraryFilterField]func(string, *scanfolder.Set) (string, error){
-	model.FilterScanFolder: func(v string, folders *scanfolder.Set) (string, error) {
-		if v == "" {
-			return "", errEmpty
-		}
-		if _, ok := folders.ByName(v); !ok {
-			return "", fmt.Errorf("scan folder %q is not configured", v)
-		}
-		return v, nil
-	},
-	model.FilterPath: func(v string, _ *scanfolder.Set) (string, error) {
-		if v == "" {
-			return "", errEmpty
-		}
-		if !filepath.IsAbs(v) {
-			return "", fmt.Errorf("path %q must be absolute", v)
-		}
-		return filepath.Clean(v), nil
-	},
-	model.FilterFormat: func(v string, _ *scanfolder.Set) (string, error) {
-		v = strings.ToLower(v)
-		if !formatRe.MatchString(v) {
-			return "", fmt.Errorf("%q is not a file extension (expected something like flac or mp3)", v)
-		}
-		return v, nil
-	},
-	// The empty string is a real value here: it selects albums with no release type.
-	model.FilterReleaseType: func(v string, _ *scanfolder.Set) (string, error) { return v, nil },
-	model.FilterCompilation: func(v string, _ *scanfolder.Set) (string, error) {
-		if v != "true" && v != "false" {
-			return "", fmt.Errorf("a compilation filter is true or false, not %q", v)
-		}
-		return v, nil
-	},
-	model.FilterGenre: func(v string, _ *scanfolder.Set) (string, error) {
-		if v == "" {
-			return "", errEmpty
-		}
-		return v, nil
-	},
-}
-
-var errEmpty = errors.New("a value must not be empty")
 
 // Dangling reports the scan_folder values that name no configured folder. It is
 // what a stored library looks like after its folder was renamed or removed in
@@ -148,3 +119,72 @@ func Dangling(filters []model.LibraryFilter, folders *scanfolder.Set) []Issue {
 	}
 	return out
 }
+
+// valueChecks holds, per field, the rule one raw value must pass before it is
+// stored; it returns the value as it is stored. scan_folder, format and
+// compilation are vocabularies this package defines, so their checks trim and
+// normalize the input outright. genre, release_type and path are matched
+// against data the scanner recorded (see the verbatim-binding note on nonBlank
+// in store/scope.go), so their checks trim only to decide blankness and
+// otherwise return the value unchanged.
+var valueChecks = map[model.LibraryFilterField]func(string, *scanfolder.Set) (string, error){
+	model.FilterScanFolder: func(v string, folders *scanfolder.Set) (string, error) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return "", errEmpty
+		}
+		if _, ok := folders.ByName(v); !ok {
+			return "", fmt.Errorf("scan folder %q is not configured", v)
+		}
+		return v, nil
+	},
+	// path is matched against file_path as the scanner recorded it (see
+	// pathClause), so only blankness is decided on the trimmed value: IsAbs is
+	// checked on the RAW value, so a leading space is honestly reported as
+	// "not absolute" instead of silently accepted, and Clean is applied to the
+	// raw value too — it collapses "." segments and slashes but never strips
+	// whitespace, since a directory may legitimately end in a space.
+	model.FilterPath: func(v string, _ *scanfolder.Set) (string, error) {
+		if strings.TrimSpace(v) == "" {
+			return "", errEmpty
+		}
+		if !filepath.IsAbs(v) {
+			return "", fmt.Errorf("path %q must be absolute", v)
+		}
+		return filepath.Clean(v), nil
+	},
+	model.FilterFormat: func(v string, _ *scanfolder.Set) (string, error) {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if !formatRe.MatchString(v) {
+			return "", fmt.Errorf("%q is not a file extension (expected something like flac or mp3)", v)
+		}
+		return v, nil
+	},
+	// The empty string is a real value here: it selects albums with no release
+	// type (releaseTypeClause). A typed value is matched against the album's
+	// tag verbatim, so it is trimmed only to decide blankness.
+	model.FilterReleaseType: func(v string, _ *scanfolder.Set) (string, error) {
+		if strings.TrimSpace(v) == "" {
+			return "", nil
+		}
+		return v, nil
+	},
+	model.FilterCompilation: func(v string, _ *scanfolder.Set) (string, error) {
+		v = strings.TrimSpace(v)
+		if v != "true" && v != "false" {
+			return "", fmt.Errorf("a compilation filter is true or false, not %q", v)
+		}
+		return v, nil
+	},
+	// genre is matched against the track's tag exactly as the scanner stored
+	// it (nonBlank in store/scope.go keeps it verbatim), so a genre really
+	// tagged "Rock " must stay selectable: trim only to decide blankness.
+	model.FilterGenre: func(v string, _ *scanfolder.Set) (string, error) {
+		if strings.TrimSpace(v) == "" {
+			return "", errEmpty
+		}
+		return v, nil
+	},
+}
+
+var errEmpty = errors.New("a value must not be empty")

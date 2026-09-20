@@ -57,6 +57,42 @@ func TestValidateNormalizes(t *testing.T) {
 	}
 }
 
+// genre, release_type and path are matched against data the scanner recorded,
+// so Validate must not trim them beyond deciding blankness: store.ScopeOf
+// binds them verbatim (see the nonBlank note in store/scope.go), so a genre
+// really tagged "Rock " has to stay selectable, exactly as stored. scan_folder,
+// format and compilation are vocabularies this package owns, so those keep
+// being trimmed and normalized.
+func TestValidateKeepsScannedValuesVerbatim(t *testing.T) {
+	got, issues := libraryfilter.Validate([]model.LibraryFilter{
+		f(model.FilterGenre, "Rock ", "Rock"),
+		f(model.FilterReleaseType, " Live ", "  "),
+		f(model.FilterPath, "/srv/Music/Album ", "/srv/Music/Jazz/"),
+		f(model.FilterScanFolder, " Music "),
+		f(model.FilterFormat, " FLAC "),
+		f(model.FilterCompilation, " true "),
+	}, folders(t, "Music"))
+	if len(issues) != 0 {
+		t.Fatalf("unexpected issues: %+v", issues)
+	}
+	want := []model.LibraryFilter{
+		f(model.FilterGenre, "Rock ", "Rock"),                       // untrimmed; both kept distinct
+		f(model.FilterReleaseType, " Live ", ""),                    // untrimmed; all-blank collapses to "" (untyped)
+		f(model.FilterPath, "/srv/Music/Album ", "/srv/Music/Jazz"), // trailing space kept; Clean still applies
+		f(model.FilterScanFolder, "Music"),                          // own vocabulary: trimmed
+		f(model.FilterFormat, "flac"),                               // own vocabulary: trimmed + lowercased
+		f(model.FilterCompilation, "true"),                          // own vocabulary: trimmed
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d filters, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].Field != want[i].Field || !slices.Equal(got[i].Values, want[i].Values) {
+			t.Errorf("filter %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 // Zero filters is a valid library: the whole catalog.
 func TestValidateAcceptsNoFilters(t *testing.T) {
 	got, issues := libraryfilter.Validate(nil, folders(t))
@@ -80,6 +116,7 @@ func TestValidateReportsEveryProblemWithItsPointer(t *testing.T) {
 		f(model.FilterCompilation, "maybe"),         // 6: not a boolean
 		f(model.FilterGenre, "Jazz", "  "),          // 7: blank value
 		f(model.FilterGenre, many...),               // 8: too many values
+		f(model.FilterPath, " /srv/x"),              // 9: leading space is not absolute
 	}, folders(t, "Music"))
 
 	want := map[string]string{
@@ -92,6 +129,7 @@ func TestValidateReportsEveryProblemWithItsPointer(t *testing.T) {
 		"/filters/6/values/0": "true or false",
 		"/filters/7/values/1": "empty",
 		"/filters/8/values":   "at most",
+		"/filters/9/values/0": "absolute",
 	}
 	got := map[string]string{}
 	for _, is := range issues {
@@ -120,6 +158,18 @@ func TestValidateCapsTheNumberOfFilters(t *testing.T) {
 	_, issues := libraryfilter.Validate(in, folders(t))
 	if len(issues) != 1 || issues[0].Pointer != "/filters" || !strings.Contains(issues[0].Detail, "at most") {
 		t.Fatalf("issues = %+v, want one at /filters", issues)
+	}
+}
+
+// A nil *scanfolder.Set is a valid empty set (see scanfolder.Set.ByName), so
+// Validate must not panic on it — a scan_folder value just fails to resolve,
+// exactly as if no folder by that name were configured.
+func TestValidateNilFolders(t *testing.T) {
+	_, issues := libraryfilter.Validate([]model.LibraryFilter{
+		f(model.FilterScanFolder, "Music"),
+	}, nil)
+	if len(issues) != 1 || issues[0].Pointer != "/filters/0/values/0" || !strings.Contains(issues[0].Detail, "not configured") {
+		t.Fatalf("issues = %+v, want one at /filters/0/values/0 mentioning \"not configured\"", issues)
 	}
 }
 
