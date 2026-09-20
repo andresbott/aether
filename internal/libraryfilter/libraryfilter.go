@@ -34,6 +34,12 @@ const (
 	MaxFilters = 20
 	// MaxValues bounds the values of one filter.
 	MaxValues = 100
+	// MaxTotalValues bounds the values of all of a library's filters together,
+	// because the cost of a scope compounds per filter: measured at 100k tracks
+	// with 100-value path filters, CountTracks — which runs on every
+	// GET /libraries and every /rest call scoped to the library — goes from 3 ms
+	// with one such filter to 0.77 s with five and 11.5 s with twenty.
+	MaxTotalValues = 200
 )
 
 // Issue is one problem with a filter list. Pointer is a JSON Pointer relative to
@@ -95,6 +101,16 @@ func Validate(filters []model.LibraryFilter, folders *scanfolder.Set) ([]model.L
 			}
 		}
 		out = append(out, model.LibraryFilter{Field: f.Field, Values: values})
+	}
+	// Each filter is cheap on its own but they compound (see MaxTotalValues), so
+	// the request is bounded as a whole too. Counted on what was SENT, not on
+	// out, so de-duplication cannot hide an oversized body.
+	total := 0
+	for _, f := range filters {
+		total += len(f.Values)
+	}
+	if total > MaxTotalValues {
+		issues = append(issues, Issue{Pointer: "/filters", Detail: fmt.Sprintf("a library takes at most %d filter values in total", MaxTotalValues)})
 	}
 	return out, issues
 }

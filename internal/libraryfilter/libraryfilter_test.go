@@ -2,6 +2,7 @@ package libraryfilter_test
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -158,6 +159,30 @@ func TestValidateCapsTheNumberOfFilters(t *testing.T) {
 	_, issues := libraryfilter.Validate(in, folders(t))
 	if len(issues) != 1 || issues[0].Pointer != "/filters" || !strings.Contains(issues[0].Detail, "at most") {
 		t.Fatalf("issues = %+v, want one at /filters", issues)
+	}
+}
+
+// The per-filter cap does not bound a library on its own: twenty maximal
+// filters are a scope SQLite spends seconds on, and that scope is evaluated on
+// every GET /libraries and every /rest call scoped to the library. The total is
+// counted on the REQUEST, so de-duplication cannot hide an oversized body.
+func TestValidateCapsTheTotalNumberOfValues(t *testing.T) {
+	full := func(prefix string) model.LibraryFilter {
+		values := make([]string, libraryfilter.MaxValues)
+		for i := range values {
+			values[i] = prefix + strconv.Itoa(i)
+		}
+		return f(model.FilterGenre, values...)
+	}
+	// 3 × 100 = 300 values. No single filter is over its own cap, so the total
+	// is the only thing wrong with this request.
+	_, issues := libraryfilter.Validate([]model.LibraryFilter{full("a"), full("b"), full("c")}, folders(t))
+	if len(issues) != 1 || issues[0].Pointer != "/filters" || !strings.Contains(issues[0].Detail, "in total") {
+		t.Fatalf(`issues = %+v, want exactly one at /filters mentioning "in total"`, issues)
+	}
+	// 2 × 100 = 200 is exactly the cap, not over it.
+	if _, issues := libraryfilter.Validate([]model.LibraryFilter{full("a"), full("b")}, folders(t)); len(issues) != 0 {
+		t.Fatalf("unexpected issues at exactly the cap: %+v", issues)
 	}
 }
 

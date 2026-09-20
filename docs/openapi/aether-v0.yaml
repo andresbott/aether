@@ -3585,7 +3585,9 @@ components:
             Optional; AND-ed together (see LibraryFilter for the per-field
             value rules). Omitted or null means no filters — the whole catalog
             — on createLibrary, and "keep the stored filters" on
-            updateLibrary; an explicit `[]` clears them.
+            updateLibrary; an explicit `[]` clears them. All the filters
+            together may carry at most 200 values, so one library's scope
+            stays cheap to evaluate; over that answers 422 at `/filters`.
       required: [name]
 
     LibraryPreviewRequest:
@@ -3601,7 +3603,9 @@ components:
           maxItems: 20
           description: >
             Optional; AND-ed together (see LibraryFilter). Omitted means no
-            filters — the whole catalog.
+            filters — the whole catalog. All the filters together may carry
+            at most 200 values, the same cap createLibrary enforces; over
+            that answers 422 at `/filters`.
 
     LibraryPreview:
       type: object
