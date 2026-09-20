@@ -91,8 +91,9 @@ the response shape an ordinary read response, not a mutation result.
 - `POST /libraries/preview` (`Handler.preview`,
   `app/router/handlers/libraries/preview.go`) — reports the track/album
   counts a candidate filter set (`{filters[]}`, the same shape a library
-  stores) would select, without storing anything; the filter builder calls it
-  on every edit, and `filters[]` — up to `libraryfilter.MaxFilters` entries,
+  stores) would select, without storing anything; it exists for the admin
+  UI's filter builder (not built yet) to call as the admin edits, and
+  `filters[]` — up to `libraryfilter.MaxFilters` entries,
   each with up to `libraryfilter.MaxValues` values — is exactly the kind of
   variable-length list a bounded `GET` query string cannot carry.
 
@@ -154,7 +155,7 @@ addressed the same way regardless of wire format.
 `Pointer` follows the shape of the *request's own JSON*, not the stored
 model — so a caller can walk the array and mark every offending field at
 once, instead of fixing one, resubmitting, and discovering the next. The
-libraries filter builder is the worked example:
+libraries filter validation is the worked example:
 `internal/libraryfilter.Validate` returns every issue across a `filters[]`
 array in one pass, each pointer rooted at the offending element —
 `/filters/1/values/0` for the first value of the second filter — and

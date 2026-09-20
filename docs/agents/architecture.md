@@ -82,10 +82,11 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   (`GET /libraries/browse`, confined to the configured scan folders — a path
   must be spelled under one of their roots, else `422` at `/path`), `POST
   /libraries/preview` (the track/album counts a candidate filter set would
-  select, without storing it — the filter builder calls it live) and `GET
-  /libraries/filter-options` (the configured scan-folder names plus the
-  formats/genres/release types actually present in the catalog, so the
-  builder offers real values), `GET /scan-folders` (read-only list of the
+  select, without storing it) and `GET /libraries/filter-options` (the
+  configured scan-folder names plus the formats/genres/release types actually
+  present in the catalog) — both exist for the admin UI's filter builder,
+  which is not built yet: today nothing in `webui/` calls them — `GET
+  /scan-folders` (read-only list of the
   configured scan folders with a bounded availability probe and
   marker-based track counts), tasks/schedules/executions, metadata editor,
   artist MBID/MusicBrainz search,
@@ -105,12 +106,16 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   the filters into a `TrackScope`: filters are AND-ed, one filter's values are
   OR-ed, and no filters selects the whole catalog. `internal/libraryfilter`
   is the friendly layer in front of that compiler: `Validate` normalizes and
-  rejects an unusable filter on write (and refuses a `HideArtists` library
-  with none, which would hide every artist), and `Dangling` reports a stored
+  rejects an unusable filter on write, and `Dangling` reports a stored
   `scan_folder` value that no longer names a configured folder — surfaced as
   a `warnings[]` entry on `GET /libraries`/`GET /libraries/{id}` and as a
   startup `WARN` (`warnDanglingLibraryFilters`, `app/cmd/scanfolders.go`,
-  called right after `warnScanFolders`). See [Scan folders
+  called right after `warnScanFolders`). One rule spans fields and therefore
+  lives in the `/api/v0` handler, not in `libraryfilter`: a `HideArtists`
+  library must have at least one filter (`libraries.validateFilters`, `422` at
+  `/show_artists`) — with none it is the whole catalog and would hide every
+  artist; `store.hiddenArtistScopes` also skips such a row if one ever reaches
+  the table. See [Scan folders
   (config-only)](#scan-folders-config-only) for where scanning actually reads
   its directories from.
 - `Track` — `FilePath` unique; `LastSeenAt` drives scan cleanup;
