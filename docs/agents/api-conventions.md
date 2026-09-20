@@ -77,13 +77,13 @@ safe/idempotent in its `description` even though the verb is `POST`, and keep
 the response shape an ordinary read response, not a mutation result.
 
 **Worked examples:**
-- `POST /metadata/pictures/inventory` (`Handler.inventory`) — reports which
-  picture slots are populated for a track selection; body is
+- `POST /metadata/pictures/inventory` (`ImagesHandler.inventory`) — reports
+  which picture slots are populated for a track selection; body is
   `{scan_folder, paths[]}`.
-- `POST /metadata/tracks/raw-tags` (`Handler.rawTags`) — reads the complete,
-  unfiltered tag map of a set of files; same `{scan_folder, paths[]}` body,
-  decoded by the shared `Handler.decodeSelection`
-  (`app/router/handlers/metadata/metadata.go`), which also enforces the
+- `POST /metadata/tracks/raw-tags` (`TagsHandler.rawTags`) — reads the
+  complete, unfiltered tag map of a set of files; same `{scan_folder, paths[]}`
+  body, decoded by the shared package-level `decodeSelection`
+  (`app/router/handlers/metadata/selection.go`), which also enforces the
   selection cap (`maxSelectionPaths = 50`,
   `app/router/handlers/metadata/limits.go`) as defense-in-depth — the body
   already removes the 431 risk; the cap bounds the work a single request can
@@ -91,7 +91,7 @@ the response shape an ordinary read response, not a mutation result.
 
 **The same reasoning extends to selection-shaped mutations that would
 otherwise be `DELETE`-with-body:** `POST /metadata/pictures/removals`
-(`Handler.removals`) clears a picture cell across a selection. It is a named
+(`ImagesHandler.removals`) clears a picture cell across a selection. It is a named
 batch-action `POST`, not `DELETE` with a body, so a client never has to
 attach a payload to a verb that isn't specified to reliably carry one.
 

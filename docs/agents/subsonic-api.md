@@ -381,10 +381,17 @@ A file whose only embedded picture is typed `Other` counts as having no cover �
 deliberate: it falls through to folder art, then the generated cover.
 
 gosec path-traversal findings on these handlers are suppressed in
-`.golangci.yaml` **with a documented justification**: served paths come from
-the trusted DB or are validated by `metadataedit.ResolveInLibrary`. If you
-change where a served path comes from, that justification must still hold —
-otherwise validate against the library roots first (also an open TODO).
+`.golangci.yaml` **with a documented justification**, and the justification is
+enforced, not merely asserted: the paths `stream` and `getCoverArt` serve come
+from DB rows, and `mediaPathAllowed` (`subsonic/media.go`) confines them to the
+configured scan-folder roots through `internal/pathguard`, which fails closed —
+with no scan folder configured the guard has no roots and allows nothing.
+Asset-store and generated covers bypass the guard by construction
+(`coverMeta.coverManaged`): aether wrote them under the data dir, outside every
+scan folder root, so guarding them would refuse every uploaded cover. The
+metadata editor's paths are the other case — request-supplied and relative, so
+they are validated by `metadataedit.ResolveInLibrary` instead. If you change
+where a served path comes from, that justification must still hold.
 
 ## Authentication (current state)
 

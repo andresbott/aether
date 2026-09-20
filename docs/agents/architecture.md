@@ -188,7 +188,10 @@ equal or nested are rejected, and every exclude pattern must compile as a
 regex — a typo fails loudly at load, naming the offending folder. The
 resulting immutable `scanfolder.Set` is handed to everything that needs to
 know where music lives: the scanner (`scanner.Config.Folders`), the
-`reindex` task, and the `/rest` media path guard (`router.Cfg.ScanFolders` →
+`reindex` task, the `/api/v0` handlers through
+`MainAppHandler.scanFolders` (the three metadata-editor handlers —
+`TagsHandler`, `ImagesHandler`, `IdentifyHandler` — and `GET /scan-folders`),
+and the `/rest` media path guard (`router.Cfg.ScanFolders` →
 `subsonic.WithMediaRoots`). The option is always given, so a server with no
 scan folders serves no on-disk media even if its index is still populated.
 
@@ -197,9 +200,10 @@ exists — a share that mounts late must not keep the server from starting.
 Two things instead get a startup `WARN` (`warnScanFolders`,
 `app/cmd/scanfolders.go`), never a failure:
 
-- a scan folder whose directory is unavailable right now — the scan
-  preflight already refuses to run against it, so nothing is swept in the
-  meantime;
+- a scan folder whose root cannot be scanned right now — missing, not a
+  directory, itself a symlink, or a mount that does not answer within the
+  startup probe's 3 s — the scan preflight already refuses to run against it,
+  so nothing is swept in the meantime;
 - indexed tracks whose `scan_folder` marker names a folder no longer listed
   in `ScanFolders` — the next scan removes them, with their stars, playlist
   entries and play history, so this is the window to notice a mistyped or

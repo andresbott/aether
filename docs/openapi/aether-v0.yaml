@@ -196,15 +196,17 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The resolved cell could not be opened (a stale link: the embedded
-            picture was removed, or the folder file no longer exists). The
-            handler itself answers with Go's plain `http.NotFound`, but the
-            router-level error envelope (see `app/router/errors.go`) wraps
-            every bare `/api/v0` error — this one included — into the same
-            `application/problem+json` Problem shape every other response on
-            this surface uses, so it is not documented via the shared
-            NotFound response only because its Detail text differs
-            ("404 page not found" rather than a handler-authored message).
+            Either `scan_folder` names a folder that is not configured — a
+            handler-authored `not_found` Problem — or the resolved cell could
+            not be opened (a stale link: the embedded picture was removed, or
+            the folder file no longer exists). The stale-link case answers with
+            Go's plain `http.NotFound`, but the router-level error envelope
+            (see `app/router/errors.go`) wraps every bare `/api/v0` error —
+            that one included — into the same `application/problem+json`
+            Problem shape every other response on this surface uses, so this
+            status is not documented via the shared NotFound response only
+            because its Detail text differs ("404 page not found" rather than
+            a handler-authored message).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -1363,7 +1365,7 @@ paths:
         library. Unlike `listMetadataFolders`, this is not confined to any
         scan folder's root — it has to work before a library exists — so `path`
         here is an arbitrary absolute path on the server filesystem,
-        distinct from the metadata-browsing surface's library-relative
+        distinct from the metadata-browsing surface's scan-folder-relative
         `path` (the shared `ScanFolderPath` parameter, confined to a scan
         folder's root). Symlinked directories are listed and navigable
         (`is_symlink`); the reported path is the one typed/followed, not
