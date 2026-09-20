@@ -30,8 +30,8 @@ type Guard struct {
 // Roots are kept as given and resolved on every Allows call, not here: a root
 // may sit behind a symlink whose target appears later (a share that mounts
 // after the server started), and resolving it once would freeze the "not there
-// yet" spelling until a restart. The cost is a handful of lstat calls per root
-// per check.
+// yet" spelling until a restart. Allows keeps that affordable and keeps one dead
+// mount from stalling the others: see there.
 func New(roots ...string) *Guard {
 	g := &Guard{roots: make([]string, 0, len(roots))}
 	for _, r := range roots {
@@ -44,18 +44,43 @@ func New(roots ...string) *Guard {
 }
 
 // Allows reports whether path lies inside one of the Guard's roots.
+//
+// Roots are resolved here, per call, so a root behind a late mount works (see
+// New). But resolving is a filesystem probe, and a probe on a hung mount blocks
+// until the mount answers. So the root the path is SPELLED under is resolved
+// first, and the check stops there when it matches: a file in a healthy folder
+// is served without ever touching another folder's (possibly dead) root. The
+// other roots are only probed for a path spelled under none of them, or one that
+// resolves out of the root it is spelled under — a row recorded under its
+// resolved spelling, or one the guard is about to refuse. The answer is the same
+// either way; only the order of the probes changes.
 func (g *Guard) Allows(path string) bool {
-	if !filepath.IsAbs(path) {
-		return false
+	if !filepath.IsAbs(path) || len(g.roots) == 0 {
+		return false // and with no roots, without touching the filesystem at all
 	}
-	resolved := resolve(path)
+	clean := filepath.Clean(path)
+	resolved := resolve(clean)
+	var rest []string
 	for _, root := range g.roots {
-		if contains(resolve(root), resolved) {
+		if !contains(root, clean) {
+			rest = append(rest, root)
+			continue
+		}
+		if contains(resolveRoot(root), resolved) {
+			return true
+		}
+	}
+	for _, root := range rest {
+		if contains(resolveRoot(root), resolved) {
 			return true
 		}
 	}
 	return false
 }
+
+// resolveRoot resolves one root. A variable so a test can see which roots a
+// check touched.
+var resolveRoot = resolve
 
 // Within reports whether path lies inside root. Both are resolved through
 // symlinks first, so a link pointing out of the root does not smuggle a file
