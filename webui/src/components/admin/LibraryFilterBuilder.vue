@@ -118,6 +118,20 @@ function onBrowseSelect(path: string) {
     onValuesChange(idx, [...row.values, path])
 }
 
+// --- Scan folders that are gone -------------------------------------------------
+// A stored scan_folder value naming a folder that is no longer configured is
+// refused by the server (422 at /filters/i/values/j), and the dialog always
+// sends `filters` — so it blocks saving the whole library, not just that row,
+// with nothing to say so before the first Save. While the options are still
+// loading nothing is flagged `missing` at all (see optionsFor), so this is
+// silent until they have landed.
+function danglingFolders(row: LibraryFilter): string[] {
+    if (row.field !== 'scan_folder') return []
+    return optionsForRow(row)
+        .filter((o) => o.missing)
+        .map((o) => o.value)
+}
+
 // --- Scan folders that are no longer usable -----------------------------------
 interface UnavailableNote {
     name: string
@@ -144,6 +158,14 @@ function rowError(idx: number) {
 function rowValueErrors(idx: number): { index: number; detail: string }[] {
     const perValue = errorInfo.value.rows[idx]?.value ?? {}
     return Object.entries(perValue).map(([i, detail]) => ({ index: Number(i), detail }))
+}
+
+// Whichever control holds the values of a complained-about row shows the error
+// state — whether the server named the list (/filters/i/values) or one value
+// inside it (/filters/i/values/j), the admin has to fix it in the same place.
+function rowInvalid(idx: number): boolean {
+    const err = rowError(idx)
+    return !!err.values || Object.keys(err.value).length > 0
 }
 
 // --- Limits (advisory only: the server still has the last word) -----------------
@@ -271,7 +293,7 @@ onUnmounted(() => {
                         :filter="row.field === 'genre'"
                         :show-toggle-all="false"
                         :aria-label="`${fieldMeta(row.field).label} values`"
-                        :invalid="!!rowError(idx).values"
+                        :invalid="rowInvalid(idx)"
                     >
                         <template #option="slotProps">
                             <span :class="{ 'option-missing': slotProps.option.missing }">
@@ -288,6 +310,7 @@ onUnmounted(() => {
                             :typeahead="false"
                             placeholder="Add path and press Enter"
                             :aria-label="`${fieldMeta(row.field).label} values`"
+                            :invalid="rowInvalid(idx)"
                             class="paths-input"
                         />
                         <Button label="Browse…" text data-test="browse-path" @click="openBrowseFor(idx)" />
@@ -301,6 +324,7 @@ onUnmounted(() => {
                         optionLabel="label"
                         optionValue="value"
                         :aria-label="`${fieldMeta(row.field).label} value`"
+                        :invalid="rowInvalid(idx)"
                     />
                 </div>
 
@@ -329,6 +353,16 @@ onUnmounted(() => {
                 data-test="row-value-error"
             >
                 {{ valueLabel(row.field, row.values[ve.index]) }}: {{ ve.detail }}
+            </small>
+
+            <small
+                v-for="name in danglingFolders(row)"
+                :key="name"
+                class="filter-error"
+                data-test="dangling-folder-note"
+            >
+                {{ name }} is not configured any more — the server refuses to save this library
+                until you remove it or pick the folder's new name.
             </small>
 
             <small

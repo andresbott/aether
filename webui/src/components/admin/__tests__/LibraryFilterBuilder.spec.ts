@@ -82,7 +82,16 @@ const stubs = {
     },
     MultiSelect: {
         name: 'MultiSelect',
-        props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'display', 'filter', 'showToggleAll'],
+        props: [
+            'modelValue',
+            'options',
+            'optionLabel',
+            'optionValue',
+            'display',
+            'filter',
+            'showToggleAll',
+            'invalid'
+        ],
         emits: ['update:modelValue'],
         template:
             '<div class="multiselect-stub">' +
@@ -100,7 +109,13 @@ const stubs = {
         // pattern (see GenreChips.vue) — casts to `true` rather than the
         // empty-string Vue gives an undeclared-type prop for a valueless
         // attribute.
-        props: { modelValue: { type: Array }, multiple: { type: Boolean }, typeahead: { type: Boolean }, placeholder: { type: String } },
+        props: {
+            modelValue: { type: Array },
+            multiple: { type: Boolean },
+            typeahead: { type: Boolean },
+            placeholder: { type: String },
+            invalid: { type: Boolean }
+        },
         emits: ['update:modelValue'],
         template:
             '<input class="autocomplete-stub" :placeholder="placeholder" ' +
@@ -108,7 +123,7 @@ const stubs = {
     },
     SelectButton: {
         name: 'SelectButton',
-        props: ['modelValue', 'options', 'optionLabel', 'optionValue'],
+        props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'invalid'],
         emits: ['update:modelValue'],
         template:
             '<div class="selectbutton-stub">' +
@@ -421,6 +436,35 @@ describe('LibraryFilterBuilder', () => {
             expect(w.find('[data-test="row-values-error"]').exists()).toBe(false)
             expect(w.find('[data-test="row-value-error"]').exists()).toBe(false)
         })
+
+        // The control an admin has to fix must look wrong, whether the server
+        // complained about the value list or about one value inside it.
+        it('marks the value control invalid when the only error names one of its values', () => {
+            const w = mountBuilder([mkRow('genre', ['Rock'])], {
+                '/filters/0/values/0': 'not a real genre'
+            })
+            expect(multiSelectIn(w, 0).props('invalid')).toBe(true)
+        })
+
+        it('marks the paths and yes/no controls invalid as well, not only the MultiSelect', () => {
+            const wPaths = mountBuilder([mkRow('path', ['/a'])], {
+                '/filters/0/values/0': 'no such folder'
+            })
+            expect(autoCompleteIn(wPaths, 0).props('invalid')).toBe(true)
+
+            const wYesNo = mountBuilder([mkRow('compilation', ['true'])], {
+                '/filters/0/values': 'pick one'
+            })
+            expect(selectButtonIn(wYesNo, 0).props('invalid')).toBe(true)
+        })
+
+        it('leaves a row the server did not complain about valid', () => {
+            const w = mountBuilder([mkRow('genre', ['Rock']), mkRow('format', ['flac'])], {
+                '/filters/0/values': 'too many values'
+            })
+            expect(multiSelectIn(w, 0).props('invalid')).toBe(true)
+            expect(multiSelectIn(w, 1).props('invalid')).toBe(false)
+        })
     })
 
     // ---- Behaviour 7: limits ------------------------------------------------------
@@ -614,6 +658,40 @@ describe('LibraryFilterBuilder', () => {
             const w = mountBuilder([mkRow('scan_folder', ['Gone'])])
             expect(w.find('[data-test="filter-options-error"]').exists()).toBe(false)
             expect(w.text()).toContain('not configured')
+        })
+    })
+
+    // ---- Behaviour 10: a scan folder that is gone blocks every save ---------------
+    // The dialog always sends `filters`, so a stored scan_folder value whose
+    // folder is no longer configured is re-sent on every Save and refused with
+    // a 422 — the library cannot be saved at all until it is dealt with, which
+    // the admin has no way of knowing before trying.
+    describe('behaviour 10: a dangling scan folder blocks saving', () => {
+        it('names the gone folder and says the server refuses to save until it is dealt with', () => {
+            const w = mountBuilder([mkRow('scan_folder', ['Music', 'Gone'])])
+            const notes = row(w, 0).findAll('[data-test="dangling-folder-note"]')
+            expect(notes).toHaveLength(1)
+            expect(notes[0].text()).toBe(
+                "Gone is not configured any more — the server refuses to save this library until you remove it or pick the folder's new name."
+            )
+        })
+
+        it('shows no such note while the options have not loaded', () => {
+            filterOptionsRef.value = undefined
+            const w = mountBuilder([mkRow('scan_folder', ['Gone'])])
+            expect(w.find('[data-test="dangling-folder-note"]').exists()).toBe(false)
+        })
+
+        it('shows no such note for a configured folder', () => {
+            const w = mountBuilder([mkRow('scan_folder', ['Music'])])
+            expect(w.find('[data-test="dangling-folder-note"]').exists()).toBe(false)
+        })
+
+        it('shows no such note for another field whose value the catalog no longer has', () => {
+            // Only a scan_folder value is refused on save; a genre the catalog
+            // lost is merely unmatched, and saving it back is allowed.
+            const w = mountBuilder([mkRow('genre', ['Disco'])])
+            expect(w.find('[data-test="dangling-folder-note"]').exists()).toBe(false)
         })
     })
 })
