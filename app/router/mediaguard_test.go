@@ -107,3 +107,53 @@ func TestMediaGuardWiredFromConfiguredScanFolders(t *testing.T) {
 		t.Fatalf("served %q, want the track's file bytes", w.Body.String())
 	}
 }
+
+// With no scan folder configured the router still gives the media option, so the
+// guard exists and denies: a populated index must not turn into "serve any file a
+// row names" just because the config lists no folders (e.g. an old Libraries: key
+// that is now ignored).
+func TestMediaGuardDeniesEverythingWithNoScanFolders(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+
+	path := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(path, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: path}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	h, err := New(Cfg{Store: s, DataDir: t.TempDir(), AuthMethod: "none"}) // no ScanFolders
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, fmt.Sprintf("/rest/stream.view?f=json&id=tr-%d", track.ID), nil))
+	var body struct {
+		SubsonicResponse struct {
+			Status string `json:"status"`
+			Error  *struct {
+				Code int `json:"code"`
+			} `json:"error"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad body %q: %v", w.Body.String(), err)
+	}
+	if body.SubsonicResponse.Status != "failed" || body.SubsonicResponse.Error == nil || body.SubsonicResponse.Error.Code != 70 {
+		t.Fatalf("stream with no scan folder configured = %+v (http %d), want status failed / code 70", body.SubsonicResponse, w.Code)
+	}
+}

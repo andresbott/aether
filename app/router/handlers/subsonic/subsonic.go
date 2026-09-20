@@ -94,7 +94,8 @@ type Handler struct {
 	// mediaGuard confines the files the media handlers will read to the
 	// configured scan-folder roots. Paths reach those handlers from the DB, not
 	// from the request, so this enforces that a track/cover row actually points
-	// into a scan folder. nil disables the check (no roots configured).
+	// into a scan folder. nil only when WithMediaRoots was not given at all —
+	// this package's tests; production always gives it.
 	mediaGuard *pathguard.Guard
 }
 
@@ -111,37 +112,17 @@ func WithAdminChecker(admin AdminChecker) Option {
 }
 
 // WithMediaRoots confines stream/getCoverArt to files under a fixed set of
-// roots — in production the configured scan folder roots, which cannot change
-// while the server runs, so a snapshot is exact. Called with no usable roots
-// it installs no guard: every DB-recorded path is then served unchecked. That
-// is a deliberate, still-open design choice for a server with no scan folder
-// configured yet, not a technical necessity — see newGuard.
+// roots — in production the configured scan-folder roots, which cannot change
+// while the server runs. Giving the option ALWAYS installs a guard: with no
+// usable roots it denies every on-disk media path, because "no scan folder
+// configured" does not mean "no tracks indexed" (an ignored old config key
+// leaves the index alone) and every indexed row names a file the process can
+// read. Generated and asset-store covers are unaffected — they never reach
+// mediaPathAllowed (see coverMeta.coverManaged).
 func WithMediaRoots(roots ...string) Option {
 	return func(h *Handler) {
-		if g := newGuard(roots); g != nil {
-			h.mediaGuard = g
-		}
+		h.mediaGuard = pathguard.New(roots...)
 	}
-}
-
-// newGuard builds a guard over the usable (non-empty) roots, or nil when there
-// are none. "no scan folders configured" therefore does not become "deny
-// everything": with no guard installed, mediaPathAllowed lets every path
-// through, including whatever a track or album row happens to record. Denying
-// everything instead is not required to protect generated or asset-store-
-// managed covers — those never reach mediaPathAllowed at all (see
-// coverMeta.coverManaged) — it is simply behavior nobody has built yet.
-func newGuard(roots []string) *pathguard.Guard {
-	usable := make([]string, 0, len(roots))
-	for _, r := range roots {
-		if r != "" {
-			usable = append(usable, r)
-		}
-	}
-	if len(usable) == 0 {
-		return nil
-	}
-	return pathguard.New(usable...)
 }
 
 func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver, opts ...Option) {

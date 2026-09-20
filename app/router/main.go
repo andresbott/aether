@@ -354,7 +354,8 @@ func New(cfg Cfg) (*MainAppHandler, error) {
 		// The media handlers serve files named by DB rows (track file_path, album
 		// cover_path), so they are confined to the configured scan-folder roots —
 		// a static snapshot, since scan folders cannot change while the server
-		// runs.
+		// runs. With no scan folder configured Roots() is empty and the guard
+		// denies every on-disk media path.
 		subsonic.Register(app.router, app.store, app.assets, app.images, identity,
 			subsonic.WithMediaRoots(cfg.ScanFolders.Roots()...),
 			subsonic.WithAdminChecker(app.restAdminChecker()))

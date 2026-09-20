@@ -573,10 +573,67 @@ func putUpload(t *testing.T, as *assetstore.Store, kind, key string) {
 	}
 }
 
-// With no roots configured the guard is not installed at all — auth method
-// "none" style single-user setups and every existing test construct the handler
-// that way, and a server with no libraries yet must not 404 its own covers.
-func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
+// Giving the option with no roots is what production does when no scan folder is
+// configured. It must deny, not disable the check: the index can be populated
+// (an old config key that is now ignored leaves it alone), and every row in it
+// names a file the server process can read.
+func TestMediaGuardDeniesEverythingWhenGivenNoRoots(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	song := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for name, roots := range map[string][]string{"none": nil, "only blank": {"", ""}} {
+		t.Run(name, func(t *testing.T) {
+			srv := newGuardedTestServer(t, s, roots...)
+			defer srv.Close()
+
+			resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?f=json&id=tr-%d", srv.URL, track.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(body), "song-bytes") {
+				t.Fatal("the file was served although no root allows it")
+			}
+			var parsed struct {
+				SubsonicResponse struct {
+					Status string `json:"status"`
+					Error  *struct {
+						Code int `json:"code"`
+					} `json:"error"`
+				} `json:"subsonic-response"`
+			}
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				t.Fatalf("bad body %q: %v", body, err)
+			}
+			if parsed.SubsonicResponse.Error == nil || parsed.SubsonicResponse.Error.Code != 70 {
+				t.Fatalf("want a Subsonic not-found (code 70), got %s", body)
+			}
+		})
+	}
+}
+
+// Registering /rest WITHOUT WithMediaRoots installs no guard. That is the seam
+// this package's tests build on (most of them serve files from t.TempDir() with
+// no roots to declare); production always gives the option — see router.New —
+// and giving it with no roots denies everything (the test above).
+func TestNoMediaGuardWithoutTheOption(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
@@ -602,7 +659,7 @@ func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 with no guard configured", resp.StatusCode)
+		t.Fatalf("status = %d, want 200 when the option is not given", resp.StatusCode)
 	}
 }
 

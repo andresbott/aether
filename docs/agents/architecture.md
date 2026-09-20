@@ -189,7 +189,8 @@ regex — a typo fails loudly at load, naming the offending folder. The
 resulting immutable `scanfolder.Set` is handed to everything that needs to
 know where music lives: the scanner (`scanner.Config.Folders`), the
 `reindex` task, and the `/rest` media path guard (`router.Cfg.ScanFolders` →
-`subsonic.WithMediaRoots`).
+`subsonic.WithMediaRoots`). The option is always given, so a server with no
+scan folders serves no on-disk media even if its index is still populated.
 
 `scanfolder.NewSet` deliberately does not check that a root's directory
 exists — a share that mounts late must not keep the server from starting.

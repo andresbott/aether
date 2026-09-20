@@ -63,9 +63,9 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 // mediaPathAllowed reports whether the handlers may read path. Every path it
 // guards comes from the database — a track's file_path, an album's cover_path —
 // so this enforces that the row actually points into a configured scan folder.
-// With no guard installed (no scan folders configured) every DB-recorded path
-// is served unchecked — the same deliberate, still-open design choice
-// WithMediaRoots/newGuard document, not a technical necessity.
+// No guard at all (the option was not given) allows everything; that is the
+// test seam, never production — router.New always gives WithMediaRoots, and
+// with no roots the guard denies.
 func (h *Handler) mediaPathAllowed(path string) bool {
 	if h.mediaGuard == nil {
 		return true
