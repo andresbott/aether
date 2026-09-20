@@ -1229,9 +1229,16 @@ paths:
         view, an unusable icon name) is unconditionally 422 — never 400 —
         itemising the failing pointer.
 
-        A newly created library has no filters, i.e. it selects the whole
-        catalog — filters are not yet accepted over this API. A duplicate
-        `name` answers 409 (conflict).
+        `filters` is optional (omitted or empty selects the whole catalog)
+        and validated as a whole: EVERY problem is reported, not just the
+        first, each itemised at its own pointer — `/filters/<i>/field` for an
+        unknown field, `/filters/<i>/values` for a missing or oversized value
+        list, `/filters/<i>/values/<j>` for a bad value — so a single 422 can
+        carry more than one `errors[]` entry. A library with `show_artists:
+        false` must carry at least one filter, or it would hide every artist;
+        violating this answers 422 at `/show_artists`.
+
+        A duplicate `name` answers 409 (conflict).
       tags: [libraries]
       requestBody:
         required: true
@@ -1282,6 +1289,16 @@ paths:
         partial update. `show_artists` is the one true tri-state field here:
         omitted (or explicit null) keeps the library's current stored value
         instead of resetting it — see LibraryWriteRequest.
+
+        `filters` is replaced the same way `name` is: a request with no
+        `filters` key clears whatever was stored, it does not merge with it.
+        Validated exactly as createLibrary's — every problem itemised, one
+        `errors[]` entry each, at the same `/filters/<i>/field`,
+        `/filters/<i>/values` and `/filters/<i>/values/<j>` pointers — and
+        judged against the EFFECTIVE `show_artists` (the request's value when
+        present, else the one already stored): if that resolves to `false`
+        the library must keep at least one filter, or the update answers 422
+        at `/show_artists`.
 
         A duplicate `name` answers 409 (conflict).
       tags: [libraries]
@@ -3300,14 +3317,60 @@ components:
           items: { $ref: '#/components/schemas/ScanFolder' }
       required: [scan_folders]
 
+    LibraryFilter:
+      type: object
+      description: >
+        One condition of a library, AND-ed with a library's other filters;
+        the values inside a single filter are OR-ed (a `genre` filter with
+        two values matches either genre), and the same `field` may repeat
+        (two `genre` filters means a track must carry both). What `field`
+        tests: `scan_folder` — one of the configured scan-folder names;
+        `path` — an absolute directory a track's file lies under; `format` —
+        a lowercase file extension such as "flac" or "mp3"; `release_type` —
+        an album's MusicBrainz release type, matched case-insensitively; the
+        empty string `""` is legal ONLY for this field, and selects an album
+        with no release type at all; `compilation` — takes exactly one
+        value, the string `"true"` or `"false"`, and matches the same
+        compilation flag `/rest` reports as `isCompilation`; `genre` — one of
+        the track's genre names. Values are validated and normalized on
+        write (see createLibrary/updateLibrary); a `scan_folder` value
+        naming a folder later removed from the server config is left stored
+        as-is and reported back as a warning, not silently dropped — see
+        `Library.warnings`.
+      properties:
+        field:
+          type: string
+          enum: [scan_folder, path, format, release_type, compilation, genre]
+        values:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 100
+      required: [field, values]
+
+    LibraryWarning:
+      type: object
+      description: >
+        Something about a stored library's filters that is not an error —
+        today, a `scan_folder` value whose folder is no longer configured
+        (renamed or removed from the server config since the library was
+        saved). The filter itself is left exactly as stored; it just matches
+        nothing until edited.
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer (RFC 6901) to the affected value, e.g. "/filters/0/values/0".
+        detail:
+          type: string
+      required: [pointer, detail]
+
     Library:
       type: object
       description: >
         A named, filtered view over the catalog, as returned by
         listLibraries, getLibrary, createLibrary and updateLibrary — what
-        `/rest` exposes as a music folder. Filters (and any per-filter
-        warnings) are not yet part of this shape; a library with none
-        selects the whole catalog.
+        `/rest` exposes as a music folder. `filters` selects its tracks (see
+        LibraryFilter); no filters selects the whole catalog.
       properties:
         id: { type: integer, format: int64, minimum: 0 }
         name: { type: string }
@@ -3323,6 +3386,18 @@ components:
         icon:
           type: string
           description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
+          description: >
+            Always present, even when empty — an empty list selects the
+            whole catalog.
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryWarning' }
+          description: >
+            Present only when at least one stored filter has something to
+            flag; absent otherwise (never an empty array).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         track_count:
@@ -3335,6 +3410,7 @@ components:
         - show_artists
         - default_view
         - icon
+        - filters
         - created_at
         - updated_at
         - track_count
@@ -3351,12 +3427,21 @@ components:
       type: object
       description: >
         Used by both createLibrary and updateLibrary. `name` is required;
-        `show_artists`, `default_view` and `icon` are always optional. The
-        two operations give an omitted `show_artists` different meanings:
-        on create it defaults to true (a new library starts visible); on
-        update it keeps the library's current stored value instead of
-        resetting it. The response always echoes the resolved value back as
-        a plain, always-present boolean (see `Library`).
+        `show_artists`, `default_view`, `icon` and `filters` are always
+        optional. The two operations give an omitted `show_artists`
+        different meanings: on create it defaults to true (a new library
+        starts visible); on update it keeps the library's current stored
+        value instead of resetting it. The response always echoes the
+        resolved value back as a plain, always-present boolean (see
+        `Library`).
+
+        A missing `filters` key means no filters — the library selects the
+        whole catalog. Like every other field here, a write REPLACES
+        whatever filters were stored rather than merging with them, so
+        updateLibrary with no `filters` key clears them. A library whose
+        EFFECTIVE `show_artists` (the submitted value, or the stored one when
+        omitted) is `false` must carry at least one filter — otherwise it
+        would hide every artist.
       properties:
         name:
           type: string
@@ -3380,6 +3465,13 @@ components:
           description: >
             A PrimeIcons name without the "pi pi-" prefix, e.g.
             "folder-open". Omitted or empty falls back to "folder".
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
+          maxItems: 20
+          description: >
+            Optional; AND-ed together (see LibraryFilter for the per-field
+            value rules). Omitted means no filters — the whole catalog.
       required: [name]
 
     LibraryBrowseResult:

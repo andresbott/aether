@@ -278,12 +278,34 @@ func TestContractErrorShapes(t *testing.T) {
 
 // --- Libraries: create-then-list, the Library/LibraryList envelopes ---
 
+// TestContractLibrariesCreateAndList also asserts BY CONTENT, not just
+// schema, that a scan_folder filter naming a configured folder round-trips
+// through createLibrary into listLibraries, and that the same filter naming
+// an unconfigured folder is refused with 422 at the exact libraryfilter
+// pointer. That 201-vs-422 difference is the proof that Folders reaches
+// libraryHandler.Handler through router.New/attachApiV0: with the
+// `Folders: h.scanFolders` line removed from api_v0.go, h.Folders is nil,
+// every scan_folder value fails Validate's folders.ByName lookup, and BOTH
+// requests below would answer 422 instead of 201-then-422.
 func TestContractLibrariesCreateAndList(t *testing.T) {
 	doc := specDoc(t)
-	h, _ := newNativeAuthRouter(t)
+	music := t.TempDir()
+	h, _ := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: music}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
-	body := mustJSON(t, map[string]any{"name": "Contract Test Library"})
+	body := mustJSON(t, map[string]any{
+		"name": "Contract Test Library",
+		"filters": []map[string]any{
+			{"field": "scan_folder", "values": []string{"Music"}},
+		},
+	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w := httptest.NewRecorder()
@@ -301,6 +323,65 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 		t.Fatalf("GET /libraries = %d, want 200: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "listLibraries", http.StatusOK, w)
+
+	// The schema validates a library with no filters (or a nil Folders that
+	// dropped them) just as happily, so checking it alone would keep this
+	// test green even if the filter never reached storage — assert the
+	// round trip by content instead.
+	var list struct {
+		Libraries []struct {
+			Name    string `json:"name"`
+			Filters []struct {
+				Field  string   `json:"field"`
+				Values []string `json:"values"`
+			} `json:"filters"`
+		} `json:"libraries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decoding the list body: %v: %s", err, w.Body.String())
+	}
+	var found bool
+	for _, lib := range list.Libraries {
+		if lib.Name != "Contract Test Library" {
+			continue
+		}
+		found = true
+		if len(lib.Filters) != 1 || lib.Filters[0].Field != "scan_folder" ||
+			len(lib.Filters[0].Values) != 1 || lib.Filters[0].Values[0] != "Music" {
+			t.Fatalf("listLibraries filters = %+v, want [{scan_folder [Music]}]", lib.Filters)
+		}
+	}
+	if !found {
+		t.Fatalf("listLibraries did not report the created library: %s", w.Body.String())
+	}
+
+	// The same filter shape, naming a scan folder that is NOT configured:
+	// 422, itemising the exact pointer libraryfilter.Validate reports.
+	body = mustJSON(t, map[string]any{
+		"name": "Contract Test Library (unconfigured folder)",
+		"filters": []map[string]any{
+			{"field": "scan_folder", "values": []string{"Nope"}},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /libraries with an unconfigured scan_folder = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "createLibrary", http.StatusUnprocessableEntity, w)
+	var problem struct {
+		Errors []struct {
+			Pointer string `json:"pointer"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("decoding the 422 body: %v: %s", err, w.Body.String())
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("errors[0].pointer = %+v, want a single entry at /filters/0/values/0", problem.Errors)
+	}
 }
 
 // --- Scan folders: the read-only list of what the config declares ---

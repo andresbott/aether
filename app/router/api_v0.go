@@ -214,7 +214,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 	}
 
 	if h.store != nil {
-		lh := &libraryHandler.Handler{Store: h.store, Problems: h.problems}
+		lh := &libraryHandler.Handler{Store: h.store, Folders: h.scanFolders, Problems: h.problems}
 		lh.Routes(r)
 
 		(&scanfoldersHandler.Handler{Folders: h.scanFolders, Store: h.store, Problems: h.problems}).Routes(r)

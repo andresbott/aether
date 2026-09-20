@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/libraries"
 	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/http/problemjson"
@@ -18,6 +20,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// newTestHandler builds a handler backed by an in-memory DB and a scan-folder
+// set of two folders, Music and Books, so filter tests have real configured
+// names to validate scan_folder values against.
 func newTestHandler(t *testing.T) (*libraries.Handler, *store.Store, *mux.Router) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -28,7 +33,14 @@ func newTestHandler(t *testing.T) (*libraries.Handler, *store.Store, *mux.Router
 		t.Fatal(err)
 	}
 	s := store.New(db)
-	h := &libraries.Handler{Store: s, Problems: problems.New(false)}
+	folders, err := scanfolder.NewSet([]scanfolder.Folder{
+		{Name: "Music", Path: t.TempDir()},
+		{Name: "Books", Path: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &libraries.Handler{Store: s, Folders: folders, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 	return h, s, r
@@ -318,7 +330,10 @@ func TestUpdateLibraryDefaultView(t *testing.T) {
 
 func TestCreateLibraryShowArtistsRoundTrip(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	body := `{"name":"Main","show_artists":false}`
+	// A hide-artists library needs at least one filter (TestHideArtistsNeedsAFilter);
+	// carrying one here keeps this test proving what it says — the show_artists
+	// round trip — rather than tripping over that unrelated rule.
+	body := `{"name":"Main","show_artists":false,"filters":[{"field":"scan_folder","values":["Music"]}]}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -354,11 +369,17 @@ func TestCreateLibraryShowArtistsOmitted(t *testing.T) {
 
 func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	lib := &model.Library{Name: "Main", HideArtists: true}
+	lib := &model.Library{Name: "Main", HideArtists: true, Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+	}}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"Updated"}`
+	// A write replaces filters wholesale (TestUpdateLibraryReplacesFilters), so
+	// this hide-artists library's PUT must keep carrying one — the point of
+	// this test is that omitting show_artists preserves the CURRENT hidden
+	// state, not the unrelated has-a-filter rule.
+	body := `{"name":"Updated","filters":[{"field":"scan_folder","values":["Music"]}]}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -371,5 +392,353 @@ func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
 	v, ok := got["show_artists"].(bool)
 	if !ok || v {
 		t.Fatalf("expected show_artists=false (hidden state preserved on omitted key), got %v", got["show_artists"])
+	}
+}
+
+// assertNoWarningsKey fails if body carries a top-level "warnings" key.
+// Warnings is emitted with omitempty, so decoding into a Go slice cannot
+// distinguish "absent" from "present but empty" — only a check on the raw
+// JSON object can.
+func assertNoWarningsKey(t *testing.T, body []byte) {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := raw["warnings"]; ok {
+		t.Fatalf(`expected no "warnings" key, got %s`, v)
+	}
+}
+
+func TestCreateLibraryRoundTripsNormalizedFilters(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	body := `{"name":"Main","filters":[{"field":"scan_folder","values":[" Music "]},{"field":"format","values":["FLAC"]}]}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	want := []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+		{Field: model.FilterFormat, Values: []string{"flac"}},
+	}
+	var created struct {
+		ID      uint                  `json:"id"`
+		Filters []model.LibraryFilter `json:"filters"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(created.Filters, want) {
+		t.Fatalf("create response filters = %+v, want %+v", created.Filters, want)
+	}
+	assertNoWarningsKey(t, w.Body.Bytes())
+
+	req = httptest.NewRequest("GET", "/libraries/"+itoa(created.ID), nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Filters []model.LibraryFilter `json:"filters"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Filters, want) {
+		t.Fatalf("get response filters = %+v, want %+v", got.Filters, want)
+	}
+	assertNoWarningsKey(t, w.Body.Bytes())
+}
+
+func TestCreateLibraryWithoutFiltersIsValid(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	body := `{"name":"Main"}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	filtersRaw, ok := raw["filters"]
+	if !ok {
+		t.Fatalf(`expected a "filters" key, body=%s`, w.Body.String())
+	}
+	// Compared as raw JSON text, not decoded into a Go slice: unmarshaling
+	// either "null" or "[]" into a []T gives an empty slice in Go, so only
+	// the wire text can prove this is really an array and not null.
+	if string(filtersRaw) != "[]" {
+		t.Fatalf(`expected filters to be the JSON array "[]", got %s`, filtersRaw)
+	}
+}
+
+func TestCreateLibraryReportsEveryFilterProblem(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	body := `{"name":"Main","filters":[` +
+		`{"field":"bogus","values":["x"]},` +
+		`{"field":"scan_folder","values":["Nope"]},` +
+		`{"field":"path","values":["relative/dir"]}` +
+		`]}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var problem problemjson.ValidationDetails
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	wantPointers := []string{"/filters/0/field", "/filters/1/values/0", "/filters/2/values/0"}
+	if len(problem.Errors) != len(wantPointers) {
+		t.Fatalf("expected %d errors, got %d: %+v", len(wantPointers), len(problem.Errors), problem.Errors)
+	}
+	for i, want := range wantPointers {
+		if problem.Errors[i].Pointer != want {
+			t.Errorf("errors[%d].pointer = %q, want %q", i, problem.Errors[i].Pointer, want)
+		}
+	}
+}
+
+func TestHideArtistsNeedsAFilter(t *testing.T) {
+	_, _, r := newTestHandler(t)
+
+	// No filters at all: refused at /show_artists.
+	body := `{"name":"Main","show_artists":false}`
+	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var problem problemjson.ValidationDetails
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/show_artists" {
+		t.Fatalf("expected a /show_artists field error, got %+v", problem.Errors)
+	}
+
+	// One filter: accepted.
+	body = `{"name":"Main","show_artists":false,"filters":[{"field":"scan_folder","values":["Music"]}]}`
+	req = httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	// A PUT that clears the filters of that hide-artists library is refused:
+	// show_artists is omitted here, so its EFFECTIVE value stays the stored
+	// false, and a hide-artists library with no filters would hide every
+	// artist.
+	body = `{"name":"Main"}`
+	req = httptest.NewRequest("PUT", "/libraries/"+itoa(created.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/show_artists" {
+		t.Fatalf("expected a /show_artists field error, got %+v", problem.Errors)
+	}
+}
+
+func TestUpdateLibraryReplacesFilters(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	lib := &model.Library{Name: "Main", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+	}}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"name":"Main","filters":[{"field":"scan_folder","values":["Books"]}]}`
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Filters []model.LibraryFilter `json:"filters"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []model.LibraryFilter{{Field: model.FilterScanFolder, Values: []string{"Books"}}}
+	if !reflect.DeepEqual(got.Filters, want) {
+		t.Fatalf("filters = %+v, want %+v", got.Filters, want)
+	}
+
+	// PUT without a "filters" key: the write request is the whole library,
+	// like name, so this clears the stored filters rather than leaving them
+	// untouched.
+	body = `{"name":"Main"}`
+	req = httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Filters) != 0 {
+		t.Fatalf("expected filters cleared, got %+v", got.Filters)
+	}
+}
+
+// TestLibraryWarnsAboutAScanFolderThatIsGone stores its library directly
+// through the store, bypassing libraryfilter.Validate (which would refuse
+// "Gone" outright) — this is what a library looks like after its scan folder
+// was removed from the config AFTER the library was saved.
+func TestLibraryWarnsAboutAScanFolderThatIsGone(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	lib := &model.Library{Name: "Ghost", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Gone"}},
+	}}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/libraries/"+itoa(lib.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Warnings []struct {
+			Pointer string `json:"pointer"`
+			Detail  string `json:"detail"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Warnings) != 1 || got.Warnings[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("expected one warning at /filters/0/values/0, got %+v", got.Warnings)
+	}
+	if got.Warnings[0].Detail == "" {
+		t.Fatal("expected a non-empty warning detail")
+	}
+
+	req = httptest.NewRequest("GET", "/libraries", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var list struct {
+		Libraries []struct {
+			Warnings []struct {
+				Pointer string `json:"pointer"`
+			} `json:"warnings"`
+		} `json:"libraries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Libraries) != 1 || len(list.Libraries[0].Warnings) != 1 || list.Libraries[0].Warnings[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("expected the list to report the same warning, got %+v", list.Libraries)
+	}
+}
+
+func TestTrackCountFollowsTheFilters(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	db := s.DB()
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	db.Create(&album)
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: "Music", Suffix: "flac", Filename: "1.flac", FilePath: "/music/1.flac"})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: "Music", Suffix: "mp3", Filename: "2.mp3", FilePath: "/music/2.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: "Books", Suffix: "mp3", Filename: "3.mp3", FilePath: "/books/3.mp3"})
+
+	scoped := &model.Library{Name: "Music FLAC", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+		{Field: model.FilterFormat, Values: []string{"flac"}},
+	}}
+	if err := s.CreateLibrary(scoped); err != nil {
+		t.Fatal(err)
+	}
+	whole := &model.Library{Name: "Everything"}
+	if err := s.CreateLibrary(whole); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/libraries/"+itoa(scoped.ID), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		TrackCount int64 `json:"track_count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TrackCount != 1 {
+		t.Fatalf("expected track_count 1 for the scoped library, got %d", got.TrackCount)
+	}
+
+	req = httptest.NewRequest("GET", "/libraries/"+itoa(whole.ID), nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.TrackCount != 3 {
+		t.Fatalf("expected track_count 3 for the filterless library, got %d", got.TrackCount)
+	}
+}
+
+// TestCreateLibraryWithoutANameIs400 pins the 400-vs-422 mapping at the HTTP
+// layer (today only proven at the ValidateName unit level, validate_test.go):
+// a missing required field is a malformed request, not a well-formed-but-invalid
+// one, whether the key is absent or present-but-blank.
+func TestCreateLibraryWithoutANameIs400(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	for _, body := range []string{`{}`, `{"name":"   "}`} {
+		req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s: expected 400, got %d, resp=%s", body, w.Code, w.Body.String())
+		}
+		var problem problemjson.Details
+		if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+			t.Fatal(err)
+		}
+		if slug := problemjson.Slug(problem.Type); slug != "validation_error" {
+			t.Fatalf("body=%s: expected slug validation_error, got %q", body, slug)
+		}
 	}
 }

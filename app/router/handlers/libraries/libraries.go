@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/andresbott/aether/internal/libraryfilter"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
@@ -15,8 +17,18 @@ import (
 
 type Handler struct {
 	Store *store.Store
+	// Folders is the set of configured scan folders: what a scan_folder filter may
+	// name, and where the folder picker may look.
+	Folders *scanfolder.Set
 	// Problems writes this handler's application/problem+json error responses.
 	Problems *problemjson.Writer
+}
+
+// warningDTO flags something about a stored library that is not an error —
+// today a scan_folder value whose folder is no longer configured.
+type warningDTO struct {
+	Pointer string `json:"pointer"`
+	Detail  string `json:"detail"`
 }
 
 type libraryDTO struct {
@@ -24,12 +36,20 @@ type libraryDTO struct {
 	Name string `json:"name"`
 	// ShowArtists is a pointer so an omitted key keeps its default (true on
 	// create) instead of reading as false.
-	ShowArtists *bool     `json:"show_artists"`
-	DefaultView string    `json:"default_view"`
-	Icon        string    `json:"icon"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	TrackCount  int64     `json:"track_count"`
+	ShowArtists *bool  `json:"show_artists"`
+	DefaultView string `json:"default_view"`
+	Icon        string `json:"icon"`
+	// Filters selects the library's tracks; always emitted as an array (see
+	// modelToDTO), never null. On a write, a missing key means no filters —
+	// the whole catalog — and, like every other field here, replaces
+	// whatever was stored rather than merging with it.
+	Filters []model.LibraryFilter `json:"filters"`
+	// Warnings flags something about a stored library's filters that is not
+	// an error; empty/omitted when there is nothing to report.
+	Warnings   []warningDTO `json:"warnings,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	TrackCount int64        `json:"track_count"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -73,12 +93,25 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
 	// HideArtists=true means artists are hidden, so ShowArtists=false.
 	showArtists := !lib.HideArtists
+	// The serializer stores a nil slice as JSON null, and a library created
+	// with no filters has one — coerce to a non-nil empty slice so the API
+	// always emits an array.
+	filters := lib.Filters
+	if filters == nil {
+		filters = []model.LibraryFilter{}
+	}
+	var warnings []warningDTO
+	for _, is := range libraryfilter.Dangling(lib.Filters, h.Folders) {
+		warnings = append(warnings, warningDTO{Pointer: is.Pointer, Detail: is.Detail})
+	}
 	return libraryDTO{
 		ID:          lib.ID,
 		Name:        lib.Name,
 		ShowArtists: &showArtists,
 		DefaultView: dv,
 		Icon:        icon,
+		Filters:     filters,
+		Warnings:    warnings,
 		CreatedAt:   lib.CreatedAt,
 		UpdatedAt:   lib.UpdatedAt,
 		TrackCount:  count,
@@ -171,6 +204,30 @@ func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer str
 	pw.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
+// validateFilters checks the request's filters and the one rule that spans
+// fields: a library that hides its artists must select something narrower than
+// the whole catalog, or it would hide every artist. It answers the 422 itself,
+// itemising EVERY problem so the form can mark each row; ok is false when the
+// request is done.
+func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in libraryDTO, hideArtists bool) (filters []model.LibraryFilter, ok bool) {
+	filters, issues := libraryfilter.Validate(in.Filters, h.Folders)
+	fields := make([]problemjson.FieldError, 0, len(issues)+1)
+	for _, is := range issues {
+		fields = append(fields, problemjson.FieldError{Pointer: is.Pointer, Detail: is.Detail})
+	}
+	if len(issues) == 0 && hideArtists && len(filters) == 0 {
+		fields = append(fields, problemjson.FieldError{
+			Pointer: "/show_artists",
+			Detail:  "a library that hides its artists needs at least one filter: without any it covers the whole catalog and would hide every artist",
+		})
+	}
+	if len(fields) > 0 {
+		h.Problems.WriteValidation(w, r, "the library's filters are not valid", fields...)
+		return nil, false
+	}
+	return filters, true
+}
+
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var in libraryDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -192,13 +249,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
 	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
-	// A newly created library has no filters, i.e. it selects the whole
-	// catalog: filters are not yet accepted over this API.
+	filters, ok := h.validateFilters(w, r, in, hideArtists)
+	if !ok {
+		return
+	}
 	lib := &model.Library{
 		Name:        in.Name,
 		HideArtists: hideArtists,
 		DefaultView: dv,
 		Icon:        icon,
+		Filters:     filters,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -235,6 +295,20 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The effective hideArtists is the request's show_artists when present,
+	// else whatever is already stored: an update that omits show_artists
+	// keeps that value (see the ShowArtists assignment below), so the
+	// has-a-filter rule must be judged against the value that will actually
+	// be saved, not against a field the caller never touched.
+	effectiveHideArtists := existing.HideArtists
+	if in.ShowArtists != nil {
+		effectiveHideArtists = !*in.ShowArtists
+	}
+	filters, ok := h.validateFilters(w, r, in, effectiveHideArtists)
+	if !ok {
+		return
+	}
+
 	existing.Name = in.Name
 	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
 	if in.ShowArtists != nil {
@@ -250,6 +324,10 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		icon = "folder"
 	}
 	existing.Icon = icon
+	// The write request is the whole library, like every other field here: a
+	// request with no "filters" key replaces the stored filters with none,
+	// it does not merge with what was there.
+	existing.Filters = filters
 
 	if err := h.Store.UpdateLibrary(&existing); err != nil {
 		status, code := mapStoreError(err)
