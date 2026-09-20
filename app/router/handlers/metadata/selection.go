@@ -27,24 +27,33 @@ type pictureSelection struct {
 	Slot       string   `json:"slot,omitempty"`
 }
 
-// resolveFolderRel resolves the {scan_folder, path} query pair to the scan
-// folder and the absolute path of `path` within it. It is the query-string
-// counterpart to the selection body helpers, shared by the folder/track browse
-// endpoints and the single-file image serves.
-func resolveFolderRel(folders *scanfolder.Set, r *http.Request) (folder *scanfolder.Folder, absPath string, httpStatus int, err error) {
-	name := r.URL.Query().Get("scan_folder")
+// lookupFolder is the single owner of the scan_folder lookup mapping: a missing
+// name is a missing required field (400), a name that is not configured is 404.
+func lookupFolder(folders *scanfolder.Set, name string) (*scanfolder.Folder, int, error) {
 	if name == "" {
-		return nil, "", http.StatusBadRequest, errors.New("scan_folder required")
+		return nil, http.StatusBadRequest, errors.New("scan_folder required")
 	}
 	f, ok := folders.ByName(name)
 	if !ok {
-		return nil, "", http.StatusNotFound, fmt.Errorf("scan folder %q is not configured", name)
+		return nil, http.StatusNotFound, fmt.Errorf("scan folder %q is not configured", name)
+	}
+	return &f, 0, nil
+}
+
+// resolveFolderRel resolves the {scan_folder, path} query pair to the scan
+// folder (via lookupFolder) and the absolute path of `path` within it. It is the
+// query-string counterpart to the selection body helpers, shared by the
+// folder/track browse endpoints and the single-file image serves.
+func resolveFolderRel(folders *scanfolder.Set, r *http.Request) (folder *scanfolder.Folder, absPath string, httpStatus int, err error) {
+	f, status, err := lookupFolder(folders, r.URL.Query().Get("scan_folder"))
+	if err != nil {
+		return nil, "", status, err
 	}
 	abs, rerr := metadataedit.ResolveInLibrary(f.Path, r.URL.Query().Get("path"))
 	if rerr != nil {
 		return nil, "", http.StatusBadRequest, rerr
 	}
-	return &f, abs, 0, nil
+	return f, abs, 0, nil
 }
 
 // checkPaths is the single owner of the paths[] bounds shared by every
@@ -71,20 +80,16 @@ func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths
 	return true
 }
 
-// resolveFolder is the single owner of the scan_folder lookup error mapping: a
-// missing name is a missing required field (400), a name that is not configured
-// is 404. It writes the failure itself and returns ok=false.
+// resolveFolder is lookupFolder's write-the-response form, for the endpoints
+// that take the name from a body or a form rather than the query string. The
+// mapping itself lives in lookupFolder; this only renders its failure.
 func resolveFolder(folders *scanfolder.Set, w http.ResponseWriter, r *http.Request, name string, pw *problemjson.Writer) (*scanfolder.Folder, bool) {
-	if name == "" {
-		pw.Write(w, r, http.StatusBadRequest, "validation_error", "scan_folder required")
+	f, status, err := lookupFolder(folders, name)
+	if err != nil {
+		pw.Write(w, r, status, codeFor(status), err.Error())
 		return nil, false
 	}
-	f, ok := folders.ByName(name)
-	if !ok {
-		pw.Write(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("scan folder %q is not configured", name))
-		return nil, false
-	}
-	return &f, true
+	return f, true
 }
 
 // resolveSelection is the one-call validation path for a decoded selection:
