@@ -175,7 +175,7 @@ describe('MetadataEditorView scan folder list', () => {
         expect(treeScanFolder(w)).toBe('Podcasts')
     })
 
-    it('says why an unusable scan folder cannot be browsed', async () => {
+    it('says why a scan folder is not usable', async () => {
         scanFoldersRef.value = [
             { name: 'Music', available: false, problem: 'root "/mnt/music" is unavailable' }
         ]
@@ -185,6 +185,7 @@ describe('MetadataEditorView scan folder list', () => {
         const problem = w.find('[data-test="scan-folder-problem"]')
         expect(problem.exists()).toBe(true)
         expect(problem.text()).toContain('root "/mnt/music" is unavailable')
+        expect(problem.text()).toContain('refuse it')
     })
 
     it('points at the config file when no scan folder is configured', async () => {

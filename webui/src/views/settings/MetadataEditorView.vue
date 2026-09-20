@@ -103,9 +103,10 @@ const crumbs = computed<{ label: string; path: string }[]>(() => {
     return out
 })
 
-// The selected folder's problem, when the server reports its root unusable
-// (not mounted, not a directory, a symlinked root): browsing it can only fail,
-// so say why.
+// The selected folder's problem, when the server reports its root unusable (not
+// mounted, not a directory, a symlinked root, a mount that does not answer).
+// Browsing may still work — a symlinked root lists fine — but scans and the
+// re-index after a save refuse the folder, so say so before the user edits.
 const selectedFolderProblem = computed(() => {
     const f = scanFolders.value?.find((x) => x.name === selectedScanFolder.value)
     return f && !f.available ? (f.problem ?? 'its directory is not available') : null
@@ -428,7 +429,8 @@ function onAlbumReidentify() {
                         :closable="false"
                         data-test="scan-folder-problem"
                     >
-                        This scan folder cannot be browsed right now: {{ selectedFolderProblem }}
+                        This scan folder is not usable right now, so scans and the re-index
+                        after a save refuse it: {{ selectedFolderProblem }}
                     </Message>
                     <template v-if="noScanFolders">
                         <div class="empty" data-test="no-scan-folders">
