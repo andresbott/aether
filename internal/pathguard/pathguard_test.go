@@ -139,3 +139,36 @@ func TestGuardIgnoresEmptyRoots(t *testing.T) {
 		t.Error("an empty root must not widen the guard")
 	}
 }
+
+// The guard is built once at startup, but a root may sit behind a symlink whose
+// target only appears later (a share that mounts late). Resolving roots when the
+// guard is built would freeze the "not there yet" spelling and refuse the root
+// until a restart.
+func TestGuardSeesARootThatAppearsAfterItWasBuilt(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "mounted-later")
+	link := filepath.Join(base, "music") // music -> mounted-later (dangling for now)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	g := pathguard.New(filepath.Join(link, "library"))
+
+	if err := os.MkdirAll(filepath.Join(target, "library", "Album"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(target, "library", "Album", "01.mp3")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if !g.Allows(filepath.Join(link, "library", "Album", "01.mp3")) {
+		t.Fatal("a path under the root must be allowed once the root's target exists")
+	}
+	if !g.Allows(file) {
+		t.Fatal("the resolved spelling of the same file must be allowed too")
+	}
+	if g.Allows(filepath.Join(base, "elsewhere.mp3")) {
+		t.Fatal("a path outside the root must still be refused")
+	}
+}

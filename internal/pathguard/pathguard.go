@@ -26,13 +26,19 @@ type Guard struct {
 // New returns a Guard allowing paths inside any of roots. Empty roots are
 // ignored; a Guard with no usable roots allows nothing, because failing open
 // would disable the check exactly when the configuration is broken.
+//
+// Roots are kept as given and resolved on every Allows call, not here: a root
+// may sit behind a symlink whose target appears later (a share that mounts
+// after the server started), and resolving it once would freeze the "not there
+// yet" spelling until a restart. The cost is a handful of lstat calls per root
+// per check.
 func New(roots ...string) *Guard {
 	g := &Guard{roots: make([]string, 0, len(roots))}
 	for _, r := range roots {
 		if r == "" {
 			continue
 		}
-		g.roots = append(g.roots, resolve(r))
+		g.roots = append(g.roots, filepath.Clean(r))
 	}
 	return g
 }
@@ -44,7 +50,7 @@ func (g *Guard) Allows(path string) bool {
 	}
 	resolved := resolve(path)
 	for _, root := range g.roots {
-		if contains(root, resolved) {
+		if contains(resolve(root), resolved) {
 			return true
 		}
 	}
