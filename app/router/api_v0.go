@@ -222,7 +222,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 		if h.tagReader != nil {
 			// The metadata editor's endpoints are split across three handlers by
 			// concern — tag edits, on-disk pictures, and acoustic identify — that
-			// share only the library store and the post-write reindexer. Mounting
+			// share only the scan-folder set and the post-write reindexer. Mounting
 			// them separately keeps each handler's dependency set to exactly what it
 			// uses.
 			reindexer := h.metadataReindexer()
