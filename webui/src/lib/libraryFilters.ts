@@ -38,12 +38,22 @@ export function valueLabel(field: LibraryFilterField, value: string): string {
  * `missing`, so it stays visible and can be removed instead of silently
  * surviving (or silently vanishing) on the next save. Values are compared and
  * kept EXACTLY as they are: the server matches them against scanned data.
+ *
+ * With `offered` undefined nothing is known yet about what the field offers —
+ * "not loaded" is not "not offered", so the row's own values are returned
+ * plainly, never flagged `missing` (and no `''` release type is invented
+ * either). Otherwise every value would read as gone on the first dialog open
+ * of a page load, and forever if `GET /libraries/filter-options` failed, and
+ * an admin who trusted that label would delete a perfectly valid value.
  */
 export function optionsFor(
     field: LibraryFilterField,
     current: string[],
     offered: LibraryFilterOptions | undefined
 ): ValueOption[] {
+    if (offered === undefined) {
+        return current.map((v) => ({ label: valueLabel(field, v), value: v, missing: false }))
+    }
     const base: string[] =
         field === 'scan_folder' ? (offered?.scan_folders ?? [])
         : field === 'format' ? (offered?.formats ?? [])

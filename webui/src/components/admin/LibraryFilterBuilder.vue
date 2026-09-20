@@ -35,7 +35,7 @@ const emit = defineEmits<{
     (e: 'update:modelValue', value: LibraryFilter[]): void
 }>()
 
-const { data: filterOptions } = useLibraryFilterOptions()
+const { data: filterOptions, isError: filterOptionsFailed } = useLibraryFilterOptions()
 const { data: scanFolders } = useScanFolders()
 
 const yesNoOptions = [
@@ -60,6 +60,13 @@ function isChipControl(field: LibraryFilterField): boolean {
 function optionsForRow(row: LibraryFilter): ValueOption[] {
     return optionsFor(row.field, row.values, filterOptions.value)
 }
+
+// Until the lists arrive nothing is known about what a field offers, so
+// optionsFor() shows the stored values plainly instead of calling them gone
+// (see lib/libraryFilters.ts). A failure never delivers them at all, and then
+// the empty pick-lists need saying out loud rather than looking like an empty
+// catalog.
+const optionsFailed = computed(() => filterOptionsFailed.value === true)
 
 function addFilter() {
     if (props.modelValue.length >= LIMITS.filters) return
@@ -219,6 +226,16 @@ onUnmounted(() => {
 
         <p v-if="totalValues > LIMITS.valuesTotal" class="hint limit-note" data-test="total-limit-note">
             At most {{ LIMITS.valuesTotal }} values across all filters.
+        </p>
+
+        <p
+            v-if="optionsFailed"
+            class="filter-error"
+            role="alert"
+            data-test="filter-options-error"
+        >
+            Could not load the values to pick from. Stored values are shown as they are; reload
+            the page to try again.
         </p>
 
         <!-- Rows are keyed by position, not identity: a filter has no id of its

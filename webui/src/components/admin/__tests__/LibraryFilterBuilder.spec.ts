@@ -9,8 +9,9 @@ const previewSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/Libraries', () => ({ previewLibrary: previewSpy }))
 
 const filterOptionsRef = vi.hoisted(() => ({ value: undefined as LibraryFilterOptions | undefined }))
+const filterOptionsErrorRef = vi.hoisted(() => ({ value: false }))
 vi.mock('@/composables/useLibraries', () => ({
-    useLibraryFilterOptions: () => ({ data: filterOptionsRef })
+    useLibraryFilterOptions: () => ({ data: filterOptionsRef, isError: filterOptionsErrorRef })
 }))
 
 const scanFoldersRef = vi.hoisted(() => ({ value: undefined as ScanFolder[] | undefined }))
@@ -174,6 +175,7 @@ beforeEach(() => {
     previewSpy.mockReset()
     previewSpy.mockResolvedValue({ track_count: 0, album_count: 0 })
     filterOptionsRef.value = defaultOptions
+    filterOptionsErrorRef.value = false
     scanFoldersRef.value = defaultScanFolders
 })
 
@@ -571,6 +573,47 @@ describe('LibraryFilterBuilder', () => {
             w.unmount()
             await vi.advanceTimersByTimeAsync(400)
             expect(previewSpy).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    // ---- Behaviour 9: the pick-lists are loading, or failed to load ---------------
+    // "Not loaded" is not "not offered": every open of the dialog on a fresh
+    // page load renders once before the options arrive, and a failed
+    // GET /libraries/filter-options never delivers them at all.
+    describe('behaviour 9: the value pick-lists are still loading or failed to load', () => {
+        it('shows the stored values plainly while the options have not loaded', () => {
+            filterOptionsRef.value = undefined
+            const w = mountBuilder([mkRow('scan_folder', ['Music']), mkRow('genre', ['Rock'])])
+            expect(multiSelectIn(w, 0).props('options')).toEqual([
+                { label: 'Music', value: 'Music', missing: false }
+            ])
+            expect(w.text()).not.toContain('not configured')
+            expect(w.text()).not.toContain('not in the catalog')
+            expect(w.find('.option-missing').exists()).toBe(false)
+        })
+
+        it('renders one line saying the values could not be loaded when the query failed', () => {
+            filterOptionsRef.value = undefined
+            filterOptionsErrorRef.value = true
+            const w = mountBuilder([mkRow('scan_folder', ['Music'])])
+            const line = w.get('[data-test="filter-options-error"]')
+            expect(line.text()).toBe(
+                'Could not load the values to pick from. Stored values are shown as they are; reload the page to try again.'
+            )
+            expect(line.attributes('role')).toBe('alert')
+            expect(w.text()).not.toContain('not configured')
+        })
+
+        it('shows no such line while the options are merely still loading', () => {
+            filterOptionsRef.value = undefined
+            const w = mountBuilder([mkRow('scan_folder', ['Music'])])
+            expect(w.find('[data-test="filter-options-error"]').exists()).toBe(false)
+        })
+
+        it('shows no such line, and flags a gone value again, once the options arrive', () => {
+            const w = mountBuilder([mkRow('scan_folder', ['Gone'])])
+            expect(w.find('[data-test="filter-options-error"]').exists()).toBe(false)
+            expect(w.text()).toContain('not configured')
         })
     })
 })

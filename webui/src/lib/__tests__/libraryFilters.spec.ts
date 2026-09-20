@@ -51,6 +51,22 @@ describe('optionsFor', () => {
     it('returns no options when they have not loaded yet, without throwing', () => {
         expect(optionsFor('genre', [], undefined)).toEqual([])
     })
+
+    // "Not loaded" is not "not offered": before the server's lists arrive (or
+    // if they never do) nothing is known about what a field offers, so a
+    // stored value must not be labelled gone — an admin who believed that
+    // label would remove a perfectly valid value.
+    it('shows a stored value plainly while the options have not loaded, never as missing', () => {
+        expect(optionsFor('scan_folder', ['Music'], undefined)).toEqual([
+            { label: 'Music', value: 'Music', missing: false }
+        ])
+    })
+
+    it('does not invent the "(none)" release type before the options load', () => {
+        expect(optionsFor('release_type', [''], undefined)).toEqual([
+            { label: '(none)', value: '', missing: false }
+        ])
+    })
 })
 
 describe('summarize', () => {
