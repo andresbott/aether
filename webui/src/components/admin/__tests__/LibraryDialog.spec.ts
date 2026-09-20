@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { toRaw } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import InputText from 'primevue/inputtext'
@@ -137,8 +138,14 @@ describe('LibraryDialog edit mode', () => {
 
         const modelValue = filterBuilder(w).props('modelValue') as LibraryFilter[]
         expect(modelValue).toEqual(libWithFilters.filters)
-        expect(modelValue).not.toBe(libWithFilters.filters)
-        expect(modelValue[0]).not.toBe(libWithFilters.filters[0])
+        // The form holds these in a ref, so what the builder receives is a
+        // reactive PROXY of them: comparing the proxy to the library's own
+        // object can never be equal, whether it aliases it or not. toRaw()
+        // reaches the objects the form really holds — including the innermost
+        // `values` array, the one an edit replaces — so aliasing fails here.
+        expect(toRaw(modelValue)).not.toBe(libWithFilters.filters)
+        expect(toRaw(modelValue[0])).not.toBe(libWithFilters.filters[0])
+        expect(toRaw(modelValue[0].values)).not.toBe(libWithFilters.filters[0].values)
     })
 })
 
