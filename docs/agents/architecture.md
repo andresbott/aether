@@ -209,8 +209,12 @@ resulting immutable `scanfolder.Set` is handed to everything that needs to
 know where music lives: the scanner (`scanner.Config.Folders`), the
 `reindex` task, the `/api/v0` handlers through
 `MainAppHandler.scanFolders` (the three metadata-editor handlers —
-`TagsHandler`, `ImagesHandler`, `IdentifyHandler` — and `GET /scan-folders`),
-and the `/rest` media path guard (`router.Cfg.ScanFolders` →
+`TagsHandler`, `ImagesHandler`, `IdentifyHandler` — `GET /scan-folders`, and
+the **libraries handler**, which needs it for all four of its scan-folder
+duties: validating a `scan_folder` filter value against the configured names,
+warning about one that dangles, offering those names in
+`GET /libraries/filter-options`, and confining `GET /libraries/browse` to the
+roots), and the `/rest` media path guard (`router.Cfg.ScanFolders` →
 `subsonic.WithMediaRoots`). The option is always given, so a server with no
 scan folders serves no on-disk media even if its index is still populated.
 

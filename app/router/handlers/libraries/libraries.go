@@ -107,9 +107,10 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if icon == "" {
 		icon = "folder"
 	}
-	// The serializer stores a nil slice as JSON null, and a library created
-	// with no filters has one — coerce to a non-nil empty slice so the API
-	// always emits an array.
+	// The serializer stores a nil slice as JSON null. A library created through
+	// this API never has one — libraryfilter.Validate answers a non-nil slice,
+	// so "no filters" is stored as [] — but a row written straight through the
+	// store can; coerce it so the API always emits an array.
 	filters := lib.Filters
 	if filters == nil {
 		filters = []model.LibraryFilter{}

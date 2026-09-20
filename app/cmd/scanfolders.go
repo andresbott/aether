@@ -105,8 +105,10 @@ func warnScanFolders(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 
 // warnDanglingLibraryFilters names the libraries whose scan_folder filters point
 // at a folder the config no longer declares — what a renamed or removed scan
-// folder leaves behind. Nothing is broken: that value matches nothing until the
-// library is edited, which is exactly why it is worth a line at startup.
+// folder leaves behind. Nothing is broken yet: the tracks still carry the old
+// marker, so the filter still selects them, and it is the next scan — which
+// re-stamps or removes them — that empties the library. That window is exactly
+// why this is worth a line at startup.
 func warnDanglingLibraryFilters(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 	libs, err := s.ListLibraries()
 	if err != nil {
@@ -116,7 +118,7 @@ func warnDanglingLibraryFilters(l *slog.Logger, s *store.Store, folders *scanfol
 	}
 	for _, lib := range libs {
 		for _, issue := range libraryfilter.Dangling(lib.Filters, folders) {
-			l.Warn("a library filter names a scan folder that is not configured; that value matches nothing until the library is edited",
+			l.Warn("a library filter names a scan folder that is not configured; after the next scan that value matches nothing",
 				slog.String("component", "startup"),
 				slog.String("library", lib.Name), slog.String("filter", issue.Pointer), slog.String("detail", issue.Detail))
 		}

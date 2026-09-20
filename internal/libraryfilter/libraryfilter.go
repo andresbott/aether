@@ -117,8 +117,9 @@ func Validate(filters []model.LibraryFilter, folders *scanfolder.Set) ([]model.L
 
 // Dangling reports the scan_folder values that name no configured folder. It is
 // what a stored library looks like after its folder was renamed or removed in
-// the config file: nothing is wrong with the row, that value just matches
-// nothing until the filter is edited.
+// the config file: nothing is wrong with the row, and the value still selects
+// the tracks that carry the old marker — until the next scan re-stamps or
+// removes them, after which it matches nothing.
 func Dangling(filters []model.LibraryFilter, folders *scanfolder.Set) []Issue {
 	var out []Issue
 	for i, f := range filters {
@@ -129,7 +130,7 @@ func Dangling(filters []model.LibraryFilter, folders *scanfolder.Set) []Issue {
 			if _, ok := folders.ByName(v); !ok {
 				out = append(out, Issue{
 					Pointer: fmt.Sprintf("/filters/%d/values/%d", i, j),
-					Detail:  fmt.Sprintf("scan folder %q is not configured any more; this value matches nothing", v),
+					Detail:  fmt.Sprintf("scan folder %q is not configured any more; after the next scan this value matches nothing", v),
 				})
 			}
 		}
