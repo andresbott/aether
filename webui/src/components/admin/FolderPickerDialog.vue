@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import Tree from 'primevue/tree'
 import Checkbox from 'primevue/checkbox'
+import Message from 'primevue/message'
 import type { TreeNode } from 'primevue/treenode'
 import { browseFolders } from '@/lib/api/Libraries'
 import { apiErrorMessage } from '@/lib/apiError'
 import type { BrowseFolder } from '@/types/libraries'
 
+// Picks a directory for a library's `path` filter — "tracks whose file lies
+// under this directory" — not a library's root: a library is a filtered view
+// over the whole catalog, and path is just one of its filter fields. The
+// server confines browsing to the configured scan folders: calling
+// browseFolders with no path answers their roots, and nothing outside them
+// is reachable.
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{
     (e: 'update:visible', v: boolean): void
@@ -22,23 +29,37 @@ const selectedPath = ref<string | null>(null)
 const showHidden = ref(false)
 const loadError = ref<string | null>(null)
 
-function makeNode(f: BrowseFolder): TreeNode {
+function makeNode(f: BrowseFolder, parent: TreeNode | null): TreeNode {
     const leaf = !f.has_subfolders
+    // A symlinked ancestor makes every folder below it symlinked too: the
+    // scanner records tracks under the real location a link points to, so a
+    // path filter anywhere below a link is just as broken as one on the link
+    // itself. That ancestry is carried on the node so a descendant loaded
+    // later — even after a reload — still knows about it.
+    const symlinked = f.is_symlink || !!parent?.data?.symlinked
     return {
         key: f.path,
         label: f.name,
-        // Symlinked directories are navigable like any other folder, but get
-        // their own icon so an admin can tell what they are picking.
-        icon: f.is_symlink ? 'pi pi-link' : 'pi pi-folder',
+        // The scan-folder roots get their own icon; below them, a symlinked
+        // directory gets its own icon so an admin can tell what they are
+        // picking.
+        icon: parent === null ? 'pi pi-database' : f.is_symlink ? 'pi pi-link' : 'pi pi-folder',
         leaf,
-        data: { path: f.path },
+        data: { path: f.path, symlinked },
         children: leaf ? undefined : []
     }
 }
 
-async function loadChildren(path: string): Promise<TreeNode[]> {
+// `path` undefined asks the server for the scan-folder roots — the only
+// folders this picker may ever start from; `parent` is the node being
+// expanded (null at the roots), passed through to `makeNode` for symlink
+// ancestry.
+async function loadChildren(
+    path: string | undefined,
+    parent: TreeNode | null = null
+): Promise<TreeNode[]> {
     const res = await browseFolders(path, showHidden.value)
-    return res.folders.map(makeNode)
+    return res.folders.map((f) => makeNode(f, parent))
 }
 
 function findNode(list: TreeNode[], key: string): TreeNode | null {
@@ -50,6 +71,14 @@ function findNode(list: TreeNode[], key: string): TreeNode | null {
     return null
 }
 
+// The node currently backing `selectedPath`, looked up live in `nodes` so it
+// always reflects the tree's current shape (e.g. after a reload) rather than
+// a snapshot taken at selection time.
+const selectedNode = computed(() =>
+    selectedPath.value ? findNode(nodes.value, selectedPath.value) : null
+)
+const selectedSymlinked = computed(() => !!selectedNode.value?.data?.symlinked)
+
 async function resetTree() {
     nodes.value = []
     selectionKeys.value = {}
@@ -58,25 +87,25 @@ async function resetTree() {
     showHidden.value = false
     loadError.value = null
     try {
-        nodes.value = await loadChildren('/')
+        nodes.value = await loadChildren(undefined)
     } catch (err: any) {
         loadError.value = apiErrorMessage(err)
     }
 }
 
 // Toggling "show hidden" changes what every already-fetched level contains, so
-// the tree is rebuilt from the root and the open branches are re-fetched.
+// the tree is rebuilt from the roots and the open branches are re-fetched.
 async function reloadTree() {
     const wasExpanded = Object.keys(expandedKeys.value).filter((k) => expandedKeys.value[k])
     loadError.value = null
     try {
-        nodes.value = await loadChildren('/')
+        nodes.value = await loadChildren(undefined)
         // Shallowest first: a path is always shorter than the paths below it, so
         // this guarantees a node's parent is loaded before we look the node up.
         for (const key of wasExpanded.sort((a, b) => a.length - b.length)) {
             const node = findNode(nodes.value, key)
             if (!node || node.leaf) continue
-            node.children = await loadChildren(node.data.path)
+            node.children = await loadChildren(node.data.path, node)
         }
     } catch (err: any) {
         loadError.value = apiErrorMessage(err)
@@ -96,7 +125,7 @@ function isHiddenPath(path: string | null): boolean {
 async function onNodeExpand(node: TreeNode) {
     if (node.children && node.children.length > 0) return
     try {
-        node.children = await loadChildren(node.data.path)
+        node.children = await loadChildren(node.data.path, node)
     } catch (err: any) {
         loadError.value = apiErrorMessage(err)
     }
@@ -153,6 +182,16 @@ watch(
         <div class="selected-path">
             {{ selectedPath ?? 'No folder selected' }}
         </div>
+        <Message
+            v-if="selectedSymlinked"
+            severity="warn"
+            :closable="false"
+            class="symlink-warning"
+            data-testid="folder-picker-symlink-warning"
+        >
+            A library path filter on or below a symbolic link matches nothing today: tracks are
+            recorded under the real location the link points to. Pick the real folder instead.
+        </Message>
         <template #footer>
             <Button label="Cancel" text @click="emit('update:visible', false)" />
             <Button
@@ -195,6 +234,9 @@ watch(
     font-size: 0.85rem;
     color: var(--app-text-secondary);
     word-break: break-all;
+}
+.symlink-warning {
+    margin-top: 0.75rem;
 }
 .error-banner {
     background: var(--p-red-50, #fee2e2);

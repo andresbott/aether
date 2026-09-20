@@ -35,39 +35,108 @@ beforeEach(() => {
 })
 
 describe('FolderPickerDialog', () => {
-    it('loads the filesystem root when opened', async () => {
+    it('loads the scan-folder roots when opened, one node per root labelled with its name', async () => {
         browseFoldersMock.mockResolvedValue({
-            path: '/',
-            folders: [folder('srv', { has_subfolders: true })]
+            path: '',
+            folders: [
+                folder('Music', { path: '/mnt/music', has_subfolders: true }),
+                folder('Podcasts', { path: '/data/podcasts', has_subfolders: true })
+            ]
         })
         const w = mountPicker()
         await flushPromises()
-        expect(browseFoldersMock).toHaveBeenCalledWith('/', false)
-        expect(w.text()).toContain('srv')
+        expect(browseFoldersMock).toHaveBeenCalledWith(undefined, false)
+        expect(browseFoldersMock).not.toHaveBeenCalledWith('/', expect.anything())
+        const rows = w.findAll('.p-tree-node')
+        expect(rows).toHaveLength(2)
+        expect(rows[0].text()).toContain('Music')
+        expect(rows[1].text()).toContain('Podcasts')
     })
 
-    it('re-fetches with show_hidden when the checkbox is ticked', async () => {
-        browseFoldersMock.mockResolvedValueOnce({
-            path: '/',
-            folders: [folder('srv')]
-        })
-        browseFoldersMock.mockResolvedValueOnce({
-            path: '/',
-            folders: [folder('.mnt'), folder('srv')]
+    it('marks the roots with the database icon, and symlinked folders below them with the link icon', async () => {
+        browseFoldersMock.mockImplementation((path?: string) =>
+            path === undefined
+                ? Promise.resolve({
+                      path: '',
+                      folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                  })
+                : Promise.resolve({
+                      path,
+                      folders: [
+                          folder('linked', { path: '/mnt/music/linked', is_symlink: true }),
+                          folder('real', { path: '/mnt/music/real' })
+                      ]
+                  })
+        )
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        const rows = w.findAll('.p-tree-node')
+        expect(rows).toHaveLength(3)
+        expect(rows[0].find('.p-tree-node-icon').classes()).toContain('pi-database')
+        expect(rows[1].find('.p-tree-node-icon').classes()).toContain('pi-link')
+        expect(rows[2].find('.p-tree-node-icon').classes()).toContain('pi-folder')
+    })
+
+    it("expanding a root asks the server for that root's own path", async () => {
+        browseFoldersMock.mockImplementation((path?: string) =>
+            path === undefined
+                ? Promise.resolve({
+                      path: '',
+                      folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                  })
+                : Promise.resolve({ path, folders: [] })
+        )
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        expect(browseFoldersMock).toHaveBeenLastCalledWith('/mnt/music', false)
+    })
+
+    it('reloads from the roots and re-expands open branches when "Show hidden folders" is toggled', async () => {
+        browseFoldersMock.mockImplementation((path?: string, hidden?: boolean) => {
+            if (path === undefined) {
+                return Promise.resolve({
+                    path: '',
+                    folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                })
+            }
+            if (path === '/mnt/music') {
+                return Promise.resolve({
+                    path,
+                    folders: hidden
+                        ? [
+                              folder('.hidden', { path: '/mnt/music/.hidden' }),
+                              folder('Artist', { path: '/mnt/music/Artist' })
+                          ]
+                        : [folder('Artist', { path: '/mnt/music/Artist' })]
+                })
+            }
+            return Promise.resolve({ path, folders: [] })
         })
         const w = mountPicker()
         await flushPromises()
-        expect(w.text()).not.toContain('.mnt')
+        expect(browseFoldersMock).toHaveBeenCalledWith(undefined, false)
+
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        expect(browseFoldersMock).toHaveBeenLastCalledWith('/mnt/music', false)
+        expect(w.text()).toContain('Artist')
+        expect(w.text()).not.toContain('.hidden')
 
         await w.find('[data-testid="folder-picker-show-hidden"] input').setValue(true)
         await flushPromises()
-        expect(browseFoldersMock).toHaveBeenLastCalledWith('/', true)
-        expect(w.text()).toContain('.mnt')
+        expect(browseFoldersMock).toHaveBeenCalledWith(undefined, true)
+        expect(browseFoldersMock).toHaveBeenLastCalledWith('/mnt/music', true)
+        expect(w.text()).toContain('.hidden')
+        expect(w.text()).toContain('Artist')
     })
 
     it('clears a hidden selection when hidden folders are switched back off', async () => {
         browseFoldersMock.mockResolvedValue({
-            path: '/',
+            path: '',
             folders: [folder('.mnt')]
         })
         const w = mountPicker()
@@ -85,50 +154,137 @@ describe('FolderPickerDialog', () => {
         ).toBeDefined()
     })
 
-    it('marks symlinked folders with the link icon, plain folders without', async () => {
-        browseFoldersMock.mockResolvedValue({
-            path: '/',
-            folders: [folder('linked', { is_symlink: true }), folder('real')]
+    it('shows the error banner when expanding an unmounted root, and leaves the tree usable', async () => {
+        browseFoldersMock.mockImplementation((path?: string) => {
+            if (path === undefined) {
+                return Promise.resolve({
+                    path: '',
+                    folders: [
+                        folder('Broken', { path: '/mnt/broken', has_subfolders: true }),
+                        folder('Music', { path: '/mnt/music', has_subfolders: true })
+                    ]
+                })
+            }
+            if (path === '/mnt/broken') {
+                return Promise.reject({
+                    response: {
+                        status: 400,
+                        data: {
+                            type: 'https://aether.local/probs/validation_error',
+                            title: 'Bad Request',
+                            status: 400,
+                            detail: 'scan folder "Broken" is not mounted'
+                        }
+                    }
+                })
+            }
+            return Promise.resolve({ path, folders: [] })
         })
         const w = mountPicker()
         await flushPromises()
-        const rows = w.findAll('.p-tree-node')
-        expect(rows).toHaveLength(2)
-        expect(rows[0].find('.p-tree-node-icon').classes()).toContain('pi-link')
-        expect(rows[1].find('.p-tree-node-icon').classes()).toContain('pi-folder')
+
+        await w.findAll('.p-tree-node-toggle-button')[0].trigger('click')
+        await flushPromises()
+        expect(w.find('.error-banner').text()).toContain('scan folder "Broken" is not mounted')
+
+        // The tree stays usable: the other root can still be selected and confirmed.
+        await w.findAll('.p-tree-node-content')[1].trigger('click')
+        expect(
+            w.find('[data-testid="folder-picker-select"]').attributes('disabled')
+        ).toBeUndefined()
+        await w.find('[data-testid="folder-picker-select"]').trigger('click')
+        expect(w.emitted('select')).toEqual([['/mnt/music']])
     })
 
-    it('expands a symlinked folder and selects a path under it', async () => {
-        browseFoldersMock.mockImplementation((path: string) =>
-            Promise.resolve(
-                path === '/'
-                    ? {
-                          path: '/',
-                          folders: [
-                              folder('linked', { is_symlink: true, has_subfolders: true })
-                          ]
-                      }
-                    : {
-                          path,
-                          folders: [folder('child', { path: '/linked/child' })]
-                      }
-            )
+    it('shows no symlink warning for a plain folder', async () => {
+        browseFoldersMock.mockResolvedValue({
+            path: '',
+            folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+        })
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-content').trigger('click')
+        expect(w.find('[data-testid="folder-picker-symlink-warning"]').exists()).toBe(false)
+        expect(
+            w.find('[data-testid="folder-picker-select"]').attributes('disabled')
+        ).toBeUndefined()
+    })
+
+    it('warns when the selected folder is itself a symlink, and still allows Select', async () => {
+        browseFoldersMock.mockImplementation((path?: string) =>
+            path === undefined
+                ? Promise.resolve({
+                      path: '',
+                      folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                  })
+                : Promise.resolve({
+                      path,
+                      folders: [folder('linked', { path: '/mnt/music/linked', is_symlink: true })]
+                  })
         )
         const w = mountPicker()
         await flushPromises()
         await w.find('.p-tree-node-toggle-button').trigger('click')
         await flushPromises()
-        expect(browseFoldersMock).toHaveBeenLastCalledWith('/linked', false)
-        expect(w.text()).toContain('child')
-
         await w.findAll('.p-tree-node-content')[1].trigger('click')
+
+        const warning = w.find('[data-testid="folder-picker-symlink-warning"]')
+        expect(warning.exists()).toBe(true)
+        expect(warning.text()).toBe(
+            'A library path filter on or below a symbolic link matches nothing today: tracks are recorded under the real location the link points to. Pick the real folder instead.'
+        )
+        expect(
+            w.find('[data-testid="folder-picker-select"]').attributes('disabled')
+        ).toBeUndefined()
         await w.find('[data-testid="folder-picker-select"]').trigger('click')
-        expect(w.emitted('select')).toEqual([['/linked/child']])
+        expect(w.emitted('select')).toEqual([['/mnt/music/linked']])
+    })
+
+    it('warns when the selected folder lies below a symlink, even though it is not one itself', async () => {
+        browseFoldersMock.mockImplementation((path?: string) => {
+            if (path === undefined) {
+                return Promise.resolve({
+                    path: '',
+                    folders: [folder('Music', { path: '/mnt/music', has_subfolders: true })]
+                })
+            }
+            if (path === '/mnt/music') {
+                return Promise.resolve({
+                    path,
+                    folders: [
+                        folder('linked', {
+                            path: '/mnt/music/linked',
+                            is_symlink: true,
+                            has_subfolders: true
+                        })
+                    ]
+                })
+            }
+            return Promise.resolve({
+                path,
+                folders: [folder('inside', { path: '/mnt/music/linked/inside' })]
+            })
+        })
+        const w = mountPicker()
+        await flushPromises()
+        await w.find('.p-tree-node-toggle-button').trigger('click')
+        await flushPromises()
+        await w.findAll('.p-tree-node-toggle-button')[1].trigger('click')
+        await flushPromises()
+        await w.findAll('.p-tree-node-content')[2].trigger('click')
+
+        const warning = w.find('[data-testid="folder-picker-symlink-warning"]')
+        expect(warning.exists()).toBe(true)
+        expect(
+            w.find('[data-testid="folder-picker-select"]').attributes('disabled')
+        ).toBeUndefined()
+        await w.find('[data-testid="folder-picker-select"]').trigger('click')
+        expect(w.emitted('select')).toEqual([['/mnt/music/linked/inside']])
     })
 
     it('emits select with the chosen path on confirm', async () => {
         browseFoldersMock.mockResolvedValue({
-            path: '/',
+            path: '',
             folders: [folder('srv')]
         })
         const w = mountPicker()
