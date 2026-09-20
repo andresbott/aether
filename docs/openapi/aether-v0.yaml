@@ -1290,15 +1290,20 @@ paths:
         omitted (or explicit null) keeps the library's current stored value
         instead of resetting it — see LibraryWriteRequest.
 
-        `filters` is replaced the same way `name` is: a request with no
-        `filters` key clears whatever was stored, it does not merge with it.
-        Validated exactly as createLibrary's — every problem itemised, one
+        `filters` is the one collection an update may leave alone: absent (or
+        explicit null) KEEPS the stored filters untouched and does NOT
+        re-validate them — omission must never widen a curated library to the
+        whole catalog, and a library whose `scan_folder` value no longer names
+        a configured folder stays renameable, still reporting its `warnings`.
+        An explicit `[]` clears them; a non-empty array replaces them and is
+        validated exactly as createLibrary's — every problem itemised, one
         `errors[]` entry each, at the same `/filters/<i>/field`,
-        `/filters/<i>/values` and `/filters/<i>/values/<j>` pointers — and
-        judged against the EFFECTIVE `show_artists` (the request's value when
-        present, else the one already stored): if that resolves to `false`
-        the library must keep at least one filter, or the update answers 422
-        at `/show_artists`.
+        `/filters/<i>/values` and `/filters/<i>/values/<j>` pointers. The
+        has-a-filter rule is judged against the EFFECTIVE values: the filters
+        that end up stored (kept or replaced) and the effective `show_artists`
+        (the request's value when present, else the one already stored). If
+        that resolves to `false` the library must end up with at least one
+        filter, or the update answers 422 at `/show_artists`.
 
         A duplicate `name` answers 409 (conflict).
       tags: [libraries]
@@ -3535,13 +3540,14 @@ components:
         resolved value back as a plain, always-present boolean (see
         `Library`).
 
-        A missing `filters` key means no filters — the library selects the
-        whole catalog. Like every other field here, a write REPLACES
-        whatever filters were stored rather than merging with them, so
-        updateLibrary with no `filters` key clears them. A library whose
-        EFFECTIVE `show_artists` (the submitted value, or the stored one when
-        omitted) is `false` must carry at least one filter — otherwise it
-        would hide every artist.
+        An omitted `filters` key is read the same tri-state way: on create it
+        means no filters — the library selects the whole catalog — while on
+        update it keeps whatever is stored, untouched and not re-validated. An
+        explicit `[]` always means no filters, and a non-empty array always
+        replaces. A library whose EFFECTIVE `show_artists` (the submitted
+        value, or the stored one when omitted) is `false` must end up with at
+        least one EFFECTIVE filter — submitted, or kept by an update that
+        omits the key — otherwise it would hide every artist.
       properties:
         name:
           type: string
@@ -3571,7 +3577,9 @@ components:
           maxItems: 20
           description: >
             Optional; AND-ed together (see LibraryFilter for the per-field
-            value rules). Omitted means no filters — the whole catalog.
+            value rules). Omitted or null means no filters — the whole catalog
+            — on createLibrary, and "keep the stored filters" on
+            updateLibrary; an explicit `[]` clears them.
       required: [name]
 
     LibraryPreviewRequest:

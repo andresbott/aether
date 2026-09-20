@@ -2,6 +2,7 @@ package libraries_test
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -375,10 +376,11 @@ func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	// A write replaces filters wholesale (TestUpdateLibraryReplacesFilters), so
-	// this hide-artists library's PUT must keep carrying one — the point of
-	// this test is that omitting show_artists preserves the CURRENT hidden
-	// state, not the unrelated has-a-filter rule.
+	// A write that MENTIONS filters replaces them wholesale
+	// (TestUpdateLibraryReplacesFilters), so this hide-artists library's PUT
+	// must keep carrying one — the point of this test is that omitting
+	// show_artists preserves the CURRENT hidden state, not the unrelated
+	// has-a-filter rule.
 	body := `{"name":"Updated","filters":[{"field":"scan_folder","values":["Music"]}]}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -545,11 +547,51 @@ func TestHideArtistsNeedsAFilter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A PUT that clears the filters of that hide-artists library is refused:
-	// show_artists is omitted here, so its EFFECTIVE value stays the stored
-	// false, and a hide-artists library with no filters would hide every
-	// artist.
+	// A PUT that explicitly clears the filters of that hide-artists library is
+	// refused: show_artists is omitted here, so its EFFECTIVE value stays the
+	// stored false, and a hide-artists library with no filters would hide
+	// every artist.
+	body = `{"name":"Main","filters":[]}`
+	req = httptest.NewRequest("PUT", "/libraries/"+itoa(created.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/show_artists" {
+		t.Fatalf("expected a /show_artists field error, got %+v", problem.Errors)
+	}
+
+	// The same PUT without a "filters" key keeps the stored filter, and the
+	// rule is satisfied by what the library still selects.
 	body = `{"name":"Main"}`
+	req = httptest.NewRequest("PUT", "/libraries/"+itoa(created.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+
+	// Kept filters are judged, never waved through: hiding the artists of a
+	// library that has no filters is refused even though the request does not
+	// mention any.
+	body = `{"name":"Open"}`
+	req = httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	body = `{"name":"Open","show_artists":false}`
 	req = httptest.NewRequest("PUT", "/libraries/"+itoa(created.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
@@ -593,10 +635,10 @@ func TestUpdateLibraryReplacesFilters(t *testing.T) {
 		t.Fatalf("filters = %+v, want %+v", got.Filters, want)
 	}
 
-	// PUT without a "filters" key: the write request is the whole library,
-	// like name, so this clears the stored filters rather than leaving them
-	// untouched.
-	body = `{"name":"Main"}`
+	// An explicit empty array is the way to clear them: the key is mentioned,
+	// so the request really does ask for no filters (omitting it keeps them —
+	// TestUpdateLibraryWithoutAFiltersKeyKeepsThem).
+	body = `{"name":"Main","filters":[]}`
 	req = httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
@@ -609,6 +651,158 @@ func TestUpdateLibraryReplacesFilters(t *testing.T) {
 	}
 	if len(got.Filters) != 0 {
 		t.Fatalf("expected filters cleared, got %+v", got.Filters)
+	}
+}
+
+// TestUpdateLibraryWithoutAFiltersKeyKeepsThem pins the one asymmetry of the
+// write DTO: an update that never mentions "filters" leaves the stored ones
+// alone. Omission is the single path in this feature that could fail OPEN —
+// a PUT shaped like a plain rename silently widening a curated library to the
+// whole catalog — so it is pinned on the response, on a following GET, and on
+// track_count, which is what actually proves the stored scope did not change.
+func TestUpdateLibraryWithoutAFiltersKeyKeepsThem(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	db := s.DB()
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, track := range []model.Track{
+		{AlbumID: album.ID, ScanFolder: "Music", Suffix: "flac", Filename: "1.flac", FilePath: "/music/1.flac"},
+		{AlbumID: album.ID, ScanFolder: "Music", Suffix: "mp3", Filename: "2.mp3", FilePath: "/music/2.mp3"},
+		{AlbumID: album.ID, ScanFolder: "Books", Suffix: "flac", Filename: "3.flac", FilePath: "/books/3.flac"},
+	} {
+		if err := db.Create(&track).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest("POST", "/libraries",
+		strings.NewReader(`{"name":"Curated","filters":[{"field":"scan_folder","values":["Music"]},{"field":"format","values":["flac"]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	want := []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+		{Field: model.FilterFormat, Values: []string{"flac"}},
+	}
+
+	type libraryBody struct {
+		Filters    []model.LibraryFilter `json:"filters"`
+		TrackCount int64                 `json:"track_count"`
+	}
+	do := func(t *testing.T, method, body string) libraryBody {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, "/libraries/"+itoa(created.ID), rdr)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d, body=%s", method, w.Code, w.Body.String())
+		}
+		var got libraryBody
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	if got := do(t, "GET", ""); got.TrackCount != 1 {
+		t.Fatalf("seeded track_count = %d, want 1 (one flac in Music)", got.TrackCount)
+	}
+
+	for _, tc := range []struct{ name, body string }{
+		{"no filters key", `{"name":"Renamed","default_view":"artists","icon":"heart"}`},
+		{"explicit null", `{"name":"Renamed","default_view":"artists","icon":"heart","filters":null}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := do(t, "PUT", tc.body)
+			if !reflect.DeepEqual(got.Filters, want) {
+				t.Fatalf("update response filters = %+v, want the stored %+v", got.Filters, want)
+			}
+			if got.TrackCount != 1 {
+				t.Fatalf("update response track_count = %d, want 1 — the scope must not have widened", got.TrackCount)
+			}
+			got = do(t, "GET", "")
+			if !reflect.DeepEqual(got.Filters, want) {
+				t.Fatalf("stored filters = %+v, want %+v", got.Filters, want)
+			}
+			if got.TrackCount != 1 {
+				t.Fatalf("stored track_count = %d, want 1", got.TrackCount)
+			}
+		})
+	}
+}
+
+// TestRenamingALibraryWithADanglingFilterWorks is why kept filters are not
+// re-validated: a library whose scan folder left the config still has to be
+// renameable, and it keeps reporting the warning that says so. Sending those
+// same values explicitly is a different request — it names an unconfigured
+// folder — and is still refused.
+func TestRenamingALibraryWithADanglingFilterWorks(t *testing.T) {
+	_, s, r := newTestHandler(t)
+	lib := &model.Library{Name: "Ghost", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Gone"}},
+	}}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(`{"name":"Ghost Renamed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got struct {
+		Name     string                `json:"name"`
+		Filters  []model.LibraryFilter `json:"filters"`
+		Warnings []struct {
+			Pointer string `json:"pointer"`
+		} `json:"warnings"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Ghost Renamed" {
+		t.Fatalf("name = %q, want the new one", got.Name)
+	}
+	wantFilters := []model.LibraryFilter{{Field: model.FilterScanFolder, Values: []string{"Gone"}}}
+	if !reflect.DeepEqual(got.Filters, wantFilters) {
+		t.Fatalf("filters = %+v, want the stored %+v", got.Filters, wantFilters)
+	}
+	if len(got.Warnings) != 1 || got.Warnings[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("expected the dangling-folder warning to survive the rename, got %+v", got.Warnings)
+	}
+
+	req = httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID),
+		strings.NewReader(`{"name":"Ghost Renamed","filters":[{"field":"scan_folder","values":["Gone"]}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var problem problemjson.ValidationDetails
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if len(problem.Errors) != 1 || problem.Errors[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("expected one error at /filters/0/values/0, got %+v", problem.Errors)
 	}
 }
 
