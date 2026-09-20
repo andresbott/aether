@@ -10,7 +10,7 @@ import (
 
 func TestCreateAndGetLibrary(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Main", Path: "/srv/music"}
+	lib := &model.Library{Name: "Main"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestCreateAndGetLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "Main" || got.Path != "/srv/music" {
+	if got.Name != "Main" {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -35,28 +35,12 @@ func TestGetLibraryNotFound(t *testing.T) {
 	}
 }
 
-func TestFindLibraryByNameNotFound(t *testing.T) {
-	s := testStore(t)
-	_, err := s.FindLibraryByName("nope")
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected store.ErrNotFound, got %v", err)
-	}
-}
-
-func TestFindLibraryByPathNotFound(t *testing.T) {
-	s := testStore(t)
-	_, err := s.FindLibraryByPath("/nope")
-	if !errors.Is(err, store.ErrNotFound) {
-		t.Fatalf("expected store.ErrNotFound, got %v", err)
-	}
-}
-
 func TestListLibraries(t *testing.T) {
 	s := testStore(t)
-	if err := s.CreateLibrary(&model.Library{Name: "A", Path: "/a"}); err != nil {
+	if err := s.CreateLibrary(&model.Library{Name: "A"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateLibrary(&model.Library{Name: "B", Path: "/b"}); err != nil {
+	if err := s.CreateLibrary(&model.Library{Name: "B"}); err != nil {
 		t.Fatal(err)
 	}
 	libs, err := s.ListLibraries()
@@ -70,34 +54,23 @@ func TestListLibraries(t *testing.T) {
 
 func TestCreateLibraryDuplicateName(t *testing.T) {
 	s := testStore(t)
-	if err := s.CreateLibrary(&model.Library{Name: "Main", Path: "/a"}); err != nil {
+	if err := s.CreateLibrary(&model.Library{Name: "Main"}); err != nil {
 		t.Fatal(err)
 	}
-	err := s.CreateLibrary(&model.Library{Name: "Main", Path: "/b"})
+	err := s.CreateLibrary(&model.Library{Name: "Main"})
 	if err == nil {
 		t.Fatal("expected duplicate-name error")
 	}
 }
 
-func TestCreateLibraryDuplicatePath(t *testing.T) {
-	s := testStore(t)
-	if err := s.CreateLibrary(&model.Library{Name: "A", Path: "/a"}); err != nil {
-		t.Fatal(err)
-	}
-	err := s.CreateLibrary(&model.Library{Name: "B", Path: "/a"})
-	if err == nil {
-		t.Fatal("expected duplicate-path error")
-	}
-}
-
 func TestUpdateLibrary(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Main", Path: "/a", FollowSymlinks: false}
+	lib := &model.Library{Name: "Main", DefaultView: "albums"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
 	lib.Name = "Renamed"
-	lib.FollowSymlinks = true
+	lib.DefaultView = "artists"
 	if err := s.UpdateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +78,7 @@ func TestUpdateLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "Renamed" || !got.FollowSymlinks {
+	if got.Name != "Renamed" || got.DefaultView != "artists" {
 		t.Fatalf("update did not persist: %+v", got)
 	}
 }
@@ -114,7 +87,7 @@ func TestUpdateLibrary(t *testing.T) {
 func TestDeleteLibraryKeepsTracks(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	lib := &model.Library{Name: "L", Path: "/l"}
+	lib := &model.Library{Name: "L", Filters: scanFolderFilter("L")}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +110,7 @@ func TestDeleteLibraryKeepsTracks(t *testing.T) {
 
 func TestCreateLibraryHideArtistsRoundTrip(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Main", Path: "/a", HideArtists: true}
+	lib := &model.Library{Name: "Main", Filters: scanFolderFilter("Main"), HideArtists: true}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}

@@ -204,7 +204,7 @@ func TestScopeAppliesToAlbums(t *testing.T) {
 
 func TestLibraryScopeSelectsTheLibrarysTracks(t *testing.T) {
 	s := seedScopeCatalog(t)
-	got := tracksIn(t, s, store.LibraryScope(&model.Library{Name: "Books"}))
+	got := tracksIn(t, s, store.LibraryScope(&model.Library{Name: "Books", Filters: scanFolderFilter("Books")}))
 	if want := []string{"d", "e"}; !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -250,8 +250,10 @@ func TestScopeBindsValuesVerbatim(t *testing.T) {
 			}
 		})
 	}
-	if got := tracksIn(t, s, store.LibraryScope(&model.Library{Name: " Jazz "})); !slices.Equal(got, []string{"t"}) {
-		t.Fatalf("a library with a padded name must match its own tracks, got %v", got)
+	// LibraryScope must not add its own normalization on top of ScopeOf: a
+	// padded filter value still binds verbatim when reached through a library.
+	if got := tracksIn(t, s, store.LibraryScope(&model.Library{Filters: scanFolderFilter(" Jazz ")})); !slices.Equal(got, []string{"t"}) {
+		t.Fatalf("a library's filter values must bind verbatim through LibraryScope, got %v", got)
 	}
 }
 
@@ -357,6 +359,64 @@ func TestPathRange(t *testing.T) {
 		if lo != tc.lo || hi != tc.hi {
 			t.Errorf("PathRange(%q) = %q, %q; want %q, %q", tc.dir, lo, hi, tc.lo, tc.hi)
 		}
+	}
+}
+
+// A library is its filters, not its name: renaming one must not change what it
+// selects. (Until this phase a library selected the scan folder called like it,
+// so a rename emptied it until the next scan.)
+func TestLibraryScopeComesFromTheFiltersNotTheName(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range []model.Track{
+		{AlbumID: album.ID, Filename: "m.flac", FilePath: "/m/m.flac", ScanFolder: "Music", Suffix: "flac", Title: "m.flac", TitleNorm: "m.flac"},
+		{AlbumID: album.ID, Filename: "b.mp3", FilePath: "/b/b.mp3", ScanFolder: "Books", Suffix: "mp3", Title: "b.mp3", TitleNorm: "b.mp3"},
+	} {
+		if err := db.Create(&tr).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	lib := model.Library{
+		Name:    "Whatever I Like",
+		Filters: []model.LibraryFilter{{Field: model.FilterScanFolder, Values: []string{"Music"}}},
+	}
+	if err := s.CreateLibrary(&lib); err != nil {
+		t.Fatal(err)
+	}
+	if got := tracksIn(t, s, store.LibraryScope(&lib)); !slices.Equal(got, []string{"m.flac"}) {
+		t.Fatalf("scope = %v, want the Music track", got)
+	}
+
+	lib.Name = "Renamed"
+	if err := s.UpdateLibrary(&lib); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := s.GetLibrary(lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tracksIn(t, s, store.LibraryScope(&reloaded)); !slices.Equal(got, []string{"m.flac"}) {
+		t.Fatalf("after a rename the scope = %v, want it unchanged", got)
+	}
+}
+
+// No filters is the whole catalog — and the filters survive the JSON column.
+func TestLibraryWithNoFiltersIsTheWholeCatalog(t *testing.T) {
+	s := testStore(t)
+	lib := model.Library{Name: "Everything"}
+	if err := s.CreateLibrary(&lib); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := s.GetLibrary(lib.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.LibraryScope(&reloaded).IsZero() {
+		t.Fatal("a library without filters must compile to the zero scope")
 	}
 }
 

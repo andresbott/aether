@@ -47,10 +47,10 @@ func NoTracks() TrackScope { return TrackScope{none: true} }
 // IsZero reports whether the scope matches every track, i.e. needs no SQL.
 func (sc TrackScope) IsZero() bool { return !sc.none && len(sc.clauses) == 0 }
 
-// LibraryScope is the scope a library selects. Until libraries carry their own
-// filters that is every track indexed under the library's name.
+// LibraryScope is the scope a library selects: its filters, compiled. A library
+// without filters is the whole catalog (the zero scope).
 func LibraryScope(lib *model.Library) TrackScope {
-	return ScopeOf([]model.LibraryFilter{{Field: model.FilterScanFolder, Values: []string{lib.Name}}})
+	return ScopeOf(lib.Filters)
 }
 
 // ScopeOf compiles a library's filters. It is pure — no database, no

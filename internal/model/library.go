@@ -2,51 +2,23 @@ package model
 
 import "time"
 
+// Library is a named, filtered view over the catalog — what users browse and
+// what Subsonic calls a music folder. It owns no tracks and names no directory:
+// the directories the server scans are the scan folders of the config file
+// (internal/scanfolder), and a library merely selects from what they index.
 type Library struct {
-	ID              uint   `gorm:"primaryKey"`
-	Name            string `gorm:"not null;uniqueIndex"`
-	Path            string `gorm:"not null;uniqueIndex"`
-	ExcludePatterns string `gorm:"type:text"` // JSON-encoded []string
-	// FollowSymlinks deliberately carries no DB-level default:true. GORM skips
-	// zero values on insert when a default is declared, so "follow: false"
-	// would silently persist as true. The default lives in application code
-	// (the libraries API and the config reconcile both set it explicitly).
-	FollowSymlinks bool `gorm:"not null;default:false"`
+	ID   uint   `gorm:"primaryKey"`
+	Name string `gorm:"not null;uniqueIndex"`
 	// HideArtists, when set, removes this library's artists from the artist
 	// index. Albums/tracks/search are unaffected. Zero value = visible.
-	// default:false is safe with GORM zero-value handling (omitting false
-	// yields false) and lets SQLite ALTER TABLE add the NOT NULL column.
 	HideArtists bool   `gorm:"not null;default:false"`
 	DefaultView string `gorm:"not null;default:'albums'"` // "albums" | "artists"
 	Icon        string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
-	// Source records who owns this library's configuration: SourceDB for one
-	// created through the admin UI, SourceConfig for one declared in the
-	// config file's Libraries list and materialized here at startup. A config
-	// library is read-only over the API — startup rewrites its fields from the
-	// file on every boot, so an API write would be silently reverted.
-	Source string `gorm:"not null;default:'db';index"`
-	// LastScanStartedAt is a legacy column nothing writes any more: the
-	// scanner reads scan folders from the config file instead of library
-	// rows, so no scan is ever attributed to a library. It goes away together
-	// with the library's other disk-era fields (Path, ExcludePatterns,
-	// FollowSymlinks, Source) once libraries become purely filter-based.
-	LastScanStartedAt *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-}
-
-// Library.Source values.
-const (
-	// SourceDB is a library created and owned through the admin UI.
-	SourceDB = "db"
-	// SourceConfig is a library declared in the config file.
-	SourceConfig = "config"
-)
-
-// IsConfigManaged reports whether the library is owned by the config file and
-// therefore not editable through the API.
-func (l Library) IsConfigManaged() bool {
-	return l.Source == SourceConfig
+	// Filters select the library's tracks: they are AND-ed, and the values of
+	// one filter are OR-ed (see store.ScopeOf). None means the whole catalog.
+	Filters   []LibraryFilter `gorm:"serializer:json"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // LibraryFilterField names what a LibraryFilter tests.

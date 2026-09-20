@@ -33,12 +33,11 @@ import (
 // Validator choice: github.com/getkin/kin-openapi (openapi3), confirmed by a
 // feasibility spike to load and correctly VALIDATE this spec's OpenAPI
 // 3.1-only constructs — `type: [string, 'null']` (TokenInfo.lastUsedAt/
-// expiresAt, Library.last_scan_started_at, ...), `oneOf: [$ref, {type:
-// 'null'}]` (MeResponse.user) and `allOf` composition (ValidationProblem)
-// — accepting a valid body under each shape and REJECTING an
-// invalid one (wrong type, missing required field, a oneOf value matching
-// neither branch). EnableJSONSchema2020() is passed to VisitJSON per
-// kin-openapi's own guidance for 3.1+ documents.
+// expiresAt, ...), `oneOf: [$ref, {type: 'null'}]` (MeResponse.user) and
+// `allOf` composition (ValidationProblem) — accepting a valid body under
+// each shape and REJECTING an invalid one (wrong type, missing required
+// field, a oneOf value matching neither branch). EnableJSONSchema2020() is
+// passed to VisitJSON per kin-openapi's own guidance for 3.1+ documents.
 
 // specDoc parses and OpenAPI-validates docs/openapi/aether-v0.yaml once for
 // the whole test binary (loading + validating a ~3700 line document on every
@@ -264,9 +263,9 @@ func TestContractErrorShapes(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "createLibrary", http.StatusBadRequest, w)
 
-	// 422: well-formed but invalid — a name over LibraryCreateRequest's
+	// 422: well-formed but invalid — a name over LibraryWriteRequest's
 	// 200-char maxLength — itemising /name via ValidationProblem.
-	body := mustJSON(t, map[string]any{"name": strings.Repeat("x", 201), "path": t.TempDir()})
+	body := mustJSON(t, map[string]any{"name": strings.Repeat("x", 201)})
 	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w = httptest.NewRecorder()
@@ -284,7 +283,7 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	h, _ := newNativeAuthRouter(t)
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
-	body := mustJSON(t, map[string]any{"name": "Contract Test Library", "path": t.TempDir()})
+	body := mustJSON(t, map[string]any{"name": "Contract Test Library"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w := httptest.NewRecorder()
@@ -292,8 +291,6 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("POST /libraries = %d, want 201: %s", w.Code, w.Body.String())
 	}
-	// The freshly created Library exercises last_scan_started_at:null — one
-	// of the spec's `type: [string, 'null']` fields.
 	assertJSONResponse(t, doc, "createLibrary", http.StatusCreated, w)
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries", nil)

@@ -50,7 +50,7 @@ tags:
   - name: tasks
     description: Scheduled task management, triggering and execution history (admin).
   - name: libraries
-    description: Collection/library CRUD and filesystem browse (admin).
+    description: Library (filtered view) CRUD, filter preview/options and the scan-folder browser (admin).
   - name: scan-folders
     description: The directories the server scans — read-only, declared in the server config (admin).
   - name: artists
@@ -1205,12 +1205,9 @@ paths:
   /libraries:
     get:
       operationId: listLibraries
-      summary: List every configured collection/library.
+      summary: List every library.
       description: >
-        Admin. Includes both API-managed ("db") and config-file-provisioned
-        ("config") libraries — the two sources are additive, not exclusive,
-        so the UI can render config-provisioned rows locked (no edit/delete)
-        alongside editable ones. Unpaginated, like listUsers.
+        Admin. Unpaginated, like listUsers.
       tags: [libraries]
       responses:
         '200':
@@ -1223,29 +1220,24 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
       operationId: createLibrary
-      summary: Create a library owned by this API (source "db").
+      summary: Create a library.
       description: >
-        Admin. `name` and `path` are required: a missing value answers 400
-        (validation_error); a present-but-invalid one (name too long, or a
-        path that isn't an existing, readable directory) answers 422,
-        itemising `/name` or `/path`. `path` is resolved to an absolute
-        path server-side before being stored. `exclude_patterns`,
-        `default_view` and `icon` are always optional, so any failure on
-        them (a regex that fails to compile, an unknown view, an unusable
-        icon name) is unconditionally 422 — never 400 — itemising the
-        failing pointer.
+        Admin. `name` is required: a missing value answers 400
+        (validation_error); a present-but-invalid one (over 200 characters)
+        answers 422, itemising `/name`. `show_artists`, `default_view` and
+        `icon` are always optional, so any failure on them (an unknown
+        view, an unusable icon name) is unconditionally 422 — never 400 —
+        itemising the failing pointer.
 
-        Refused with 409 `config_managed` when the submitted `name` or
-        `path` is already owned by a config-provisioned library, distinct
-        from the plain 409 a duplicate against a db-owned library also
-        answers with (both share the `Conflict` response's generic Problem
-        shape).
+        A newly created library has no filters, i.e. it selects the whole
+        catalog — filters are not yet accepted over this API. A duplicate
+        `name` answers 409 (conflict).
       tags: [libraries]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LibraryCreateRequest' }
+            schema: { $ref: '#/components/schemas/LibraryWriteRequest' }
       responses:
         '201':
           description: Created.
@@ -1284,23 +1276,14 @@ paths:
       operationId: updateLibrary
       summary: Replace a library's editable fields.
       description: >
-        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon` are
-        always fully replaced by the submitted value (empty/omitted
-        `default_view` and `icon` fall back the same way createLibrary's do)
-        — this is a full replace, not a partial update.
-        `follow_symlinks`/`show_artists` are the only true tri-state fields
-        here: omitted (or explicit null) keeps the library's current stored
-        value instead of resetting it — see LibraryUpdateRequest.
+        Admin. `name`/`default_view`/`icon` are always fully replaced by the
+        submitted value (empty/omitted `default_view` and `icon` fall back
+        the same way createLibrary's do) — this is a full replace, not a
+        partial update. `show_artists` is the one true tri-state field here:
+        omitted (or explicit null) keeps the library's current stored value
+        instead of resetting it — see LibraryWriteRequest.
 
-        `path` no longer selects what is scanned — the directories Aether
-        scans come only from `ScanFolders` in the server config file — so
-        changing it here does not wipe or re-scan any tracks. The response's
-        `path_changed` still reports whether this update changed `path`, and
-        is present only then (omitempty on the handler's side) — never
-        present-and-false.
-
-        Refused with 409 `config_managed` for a config-provisioned library
-        — edit the Libraries section of config.yaml and restart instead.
+        A duplicate `name` answers 409 (conflict).
       tags: [libraries]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1308,25 +1291,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LibraryUpdateRequest' }
+            schema: { $ref: '#/components/schemas/LibraryWriteRequest' }
       responses:
         '200':
-          description: >
-            Updated. The Library shape plus `path_changed` — see the
-            operation description.
+          description: Updated.
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Library'
-                  - type: object
-                    properties:
-                      path_changed:
-                        type: boolean
-                        description: >
-                          True when this update changed `path`. Omitted
-                          entirely — not present-and-false — when the path
-                          was unchanged.
+              schema: { $ref: '#/components/schemas/Library' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1338,11 +1309,10 @@ paths:
       operationId: deleteLibrary
       summary: Delete a library.
       description: >
-        Admin. Deletes only the library row: a library is a view over the
-        scan folders declared in the server config file, not their owner, so
-        its tracks are untouched and stay indexed regardless of this
-        library's lifecycle. Refused with 409 `config_managed` for a
-        config-provisioned library, for the same reason as updateLibrary.
+        Admin. Deletes only the library row: a library is a filtered view
+        over the catalog, not an owner of it, so no track, star or play
+        history is touched — they stay exactly as they were, just no longer
+        grouped under this view.
       tags: [libraries]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -3333,50 +3303,26 @@ components:
     Library:
       type: object
       description: >
-        A collection/library row, as returned by listLibraries, getLibrary
-        and createLibrary; updateLibrary's response is this shape plus
-        `path_changed` (modeled inline on that operation, not here).
+        A named, filtered view over the catalog, as returned by
+        listLibraries, getLibrary, createLibrary and updateLibrary — what
+        `/rest` exposes as a music folder. Filters (and any per-filter
+        warnings) are not yet part of this shape; a library with none
+        selects the whole catalog.
       properties:
         id: { type: integer, format: int64, minimum: 0 }
         name: { type: string }
-        path: { type: string }
-        exclude_patterns:
-          type: array
-          items: { type: string }
-          description: Regex patterns matched against each entry name during a scan.
-        follow_symlinks:
-          type: boolean
-          description: >
-            Always present here (unlike LibraryCreateRequest/
-            LibraryUpdateRequest, where the same field is an optional
-            tri-state pointer).
         show_artists:
           type: boolean
           description: >
             Positive-sense wire form of the store's inverted HideArtists
-            column. Always present here — see `follow_symlinks`.
+            column. Always present here (unlike LibraryWriteRequest, where
+            the same field is an optional tri-state pointer).
         default_view:
           type: string
           enum: [albums, artists]
         icon:
           type: string
           description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
-        source:
-          type: string
-          enum: [db, config]
-          description: >
-            "db": created and owned through this API. "config": declared in
-            the server config file and materialized here at startup —
-            read-only over this API (updateLibrary/deleteLibrary answer 409
-            `config_managed`).
-        last_scan_started_at:
-          type: [string, 'null']
-          format: date-time
-          description: >
-            Always null. Libraries no longer own a scan — what gets scanned
-            is the server's configured scan folders — so nothing stamps this
-            field any more. Kept only so the response shape is unchanged;
-            scan history is available through the tasks endpoints.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         track_count:
@@ -3386,14 +3332,9 @@ components:
       required:
         - id
         - name
-        - path
-        - exclude_patterns
-        - follow_symlinks
         - show_artists
         - default_view
         - icon
-        - source
-        - last_scan_started_at
         - created_at
         - updated_at
         - track_count
@@ -3406,90 +3347,26 @@ components:
           items: { $ref: '#/components/schemas/Library' }
       required: [libraries]
 
-    LibraryCreateRequest:
+    LibraryWriteRequest:
       type: object
       description: >
-        `follow_symlinks`/`show_artists` are optional pointers: omitting
-        either here takes the create-time default (both true) — unlike
-        LibraryUpdateRequest, where omitting them means "keep current"
-        instead. The response always echoes the resolved value back as a
-        plain, always-present boolean (see `Library`).
+        Used by both createLibrary and updateLibrary. `name` is required;
+        `show_artists`, `default_view` and `icon` are always optional. The
+        two operations give an omitted `show_artists` different meanings:
+        on create it defaults to true (a new library starts visible); on
+        update it keeps the library's current stored value instead of
+        resetting it. The response always echoes the resolved value back as
+        a plain, always-present boolean (see `Library`).
       properties:
         name:
           type: string
           maxLength: 200
           description: Required (400 if blank); over 200 characters is 422.
-        path:
-          type: string
-          description: >
-            Required (400 if blank). Resolved to an absolute path
-            server-side; must already exist and be a readable directory, or
-            this is 422.
-        exclude_patterns:
-          type: array
-          items: { type: string }
-          description: >
-            Regex patterns matched against each entry name during a scan.
-            Omitted defaults to none. Each must compile as a Go regexp (422
-            itemising `/exclude_patterns` otherwise).
-        follow_symlinks:
-          type: boolean
-          description: Omitted defaults to true.
         show_artists:
           type: boolean
-          description: Omitted defaults to true.
-        default_view:
-          type: string
-          enum: [albums, artists]
-          default: albums
-          description: Omitted or empty defaults to "albums".
-        icon:
-          type: string
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-          maxLength: 100
-          default: folder
           description: >
-            A PrimeIcons name without the "pi pi-" prefix, e.g.
-            "folder-open". Omitted or empty defaults to "folder".
-      required: [name, path]
-
-    LibraryUpdateRequest:
-      type: object
-      description: >
-        A full replace, not a partial update: `name`/`path`/
-        `exclude_patterns`/`default_view`/`icon` are always overwritten by
-        the submitted value (empty/omitted `default_view`/`icon` fall back
-        the same way LibraryCreateRequest's do). `follow_symlinks`/
-        `show_artists` are the only true tri-state fields: omitted (or
-        explicit null) keeps the library's current stored value instead of
-        resetting it. Refused with 409 `config_managed` for a
-        config-provisioned library.
-      properties:
-        name:
-          type: string
-          maxLength: 200
-          description: Required (400 if blank); over 200 characters is 422.
-        path:
-          type: string
-          description: >
-            Required (400 if blank). Resolved to an absolute path
-            server-side; must already exist and be a readable directory, or
-            this is 422. No longer selects what is scanned — scan folders
-            come from the server config — but a change is still reported via
-            updateLibrary's `path_changed` response field.
-        exclude_patterns:
-          type: array
-          items: { type: string }
-          description: >
-            Replaces the stored patterns entirely; omitted clears them to
-            none (this field is not tri-state). Each must compile as a Go
-            regexp (422 itemising `/exclude_patterns` otherwise).
-        follow_symlinks:
-          type: boolean
-          description: Omitted (or explicit null) keeps the library's current value.
-        show_artists:
-          type: boolean
-          description: Omitted (or explicit null) keeps the library's current value.
+            Omitted on create defaults to true; omitted (or explicit null)
+            on update keeps the library's current value.
         default_view:
           type: string
           enum: [albums, artists]
@@ -3500,8 +3377,10 @@ components:
           pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
           maxLength: 100
           default: folder
-          description: Omitted or empty falls back to "folder".
-      required: [name, path]
+          description: >
+            A PrimeIcons name without the "pi pi-" prefix, e.g.
+            "folder-open". Omitted or empty falls back to "folder".
+      required: [name]
 
     LibraryBrowseResult:
       type: object

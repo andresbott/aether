@@ -25,7 +25,7 @@ func newStarFixture(t *testing.T) starFixture {
 	t.Helper()
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	db.Create(&model.Library{Name: "Lib", Filters: scanFolderFilter("Lib")})
 
 	f := starFixture{store: s, at: time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)}
 	f.artist = model.Artist{Name: "Starred Artist", NameNorm: "starred artist"}
@@ -358,7 +358,7 @@ func TestGetStarred2EnrichesAlbumsAndArtists(t *testing.T) {
 func TestGetStarred2ScopesByLibrary(t *testing.T) {
 	f := newStarFixture(t)
 	db := f.store.DB()
-	db.Create(&model.Library{Name: "Other", Path: "/o"})
+	db.Create(&model.Library{Name: "Other", Filters: scanFolderFilter("Other")})
 	// album2 is starred but has no tracks at all, so no library claims it.
 	db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
 

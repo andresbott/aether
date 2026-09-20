@@ -208,8 +208,8 @@ func TestGetArtistsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -238,8 +238,8 @@ func TestGetArtistAlbumCountsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -269,8 +269,8 @@ func TestSearchArtistsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -426,7 +426,7 @@ func seedGuestAppearance(t *testing.T, s *store.Store, libID uint, albumName, ow
 
 func TestGetArtistsExcludesTrackOnlyGuestArtists(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "L1", Path: "/l1"}
+	lib := &model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -451,7 +451,7 @@ func TestGetArtistsExcludesTrackOnlyGuestArtists(t *testing.T) {
 
 func TestGetArtistsByLibraryIncludesAlbumArtistWithoutTrackCredits(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "L1", Path: "/l1"}
+	lib := &model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestGetArtistsByLibraryIncludesAlbumArtistWithoutTrackCredits(t *testing.T)
 
 func TestGetArtistReturnsAlbumsTheArtistAppearsOn(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "L1", Path: "/l1"}
+	lib := &model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestGetArtistReturnsAlbumsTheArtistAppearsOn(t *testing.T) {
 
 func TestGetArtistAlbumCountsIncludesAppearances(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "L1", Path: "/l1"}
+	lib := &model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -514,8 +514,8 @@ func TestGetArtistAlbumCountsIncludesAppearances(t *testing.T) {
 
 func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 	s := testStore(t)
-	vis := &model.Library{Name: "Vis", Path: "/vis"}
-	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
+	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
+	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}
@@ -538,9 +538,9 @@ func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 // per library and appears twice in the SQL, so the args must line up in both.
 func TestGetArtistsExcludesArtistsOfSeveralHiddenLibraries(t *testing.T) {
 	s := testStore(t)
-	vis := &model.Library{Name: "Vis", Path: "/vis"}
-	hid1 := &model.Library{Name: "Hid1", Path: "/hid1", HideArtists: true}
-	hid2 := &model.Library{Name: "Hid2", Path: "/hid2", HideArtists: true}
+	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
+	hid1 := &model.Library{Name: "Hid1", Filters: scanFolderFilter("Hid1"), HideArtists: true}
+	hid2 := &model.Library{Name: "Hid2", Filters: scanFolderFilter("Hid2"), HideArtists: true}
 	for _, lib := range []*model.Library{vis, hid1, hid2} {
 		if err := s.CreateLibrary(lib); err != nil {
 			t.Fatal(err)
@@ -569,10 +569,50 @@ func TestGetArtistsExcludesArtistsOfSeveralHiddenLibraries(t *testing.T) {
 	}
 }
 
+// A hide-artists library with no filters covers the whole catalog; honouring it
+// would blank the entire artist index. Validation refuses to store one, and the
+// store ignores one that slipped past it.
+func TestHideArtistsLibraryWithoutFiltersHidesNobody(t *testing.T) {
+	s := testStore(t)
+	lib := &model.Library{Name: "All", HideArtists: true}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	seedArtistTrack(t, s, lib.ID, "Visible Artist", "/all/a.mp3")
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 1 || artists[0].Name != "Visible Artist" {
+		t.Fatalf("expected the artist to remain visible, got %+v", artists)
+	}
+}
+
+// A failing lookup must not turn into "show every artist": that is failing open
+// on the one privacy-ish knob libraries have.
+func TestGetArtistsFailsWhenTheHiddenLibrariesCannotBeRead(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	artist := model.Artist{Name: "Radiohead", NameNorm: "radiohead"}
+	db.Create(&artist)
+	album := model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
+	db.Create(&album)
+	_ = db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist})
+
+	if err := db.Migrator().DropTable(&model.Library{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.GetArtists(nil); err == nil {
+		t.Fatal("expected an error when the hidden-artist libraries table cannot be read")
+	}
+}
+
 func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
 	s := testStore(t)
-	vis := &model.Library{Name: "Vis", Path: "/vis"}
-	hid := &model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
+	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
+	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}

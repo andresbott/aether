@@ -60,8 +60,8 @@ func TestGetStarredByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 

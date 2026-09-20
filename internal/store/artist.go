@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/andresbott/aether/internal/model"
@@ -186,10 +187,16 @@ func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFil
 // excludeHiddenArtists drops artists whose entire presence (as track artist or
 // album artist) falls inside libraries that hide their artists. An artist with
 // at least one track outside every such library stays visible. No-op when no
-// library hides its artists.
+// library hides its artists; fails the query, instead of showing every artist,
+// when the hidden-artist libraries cannot be read.
 func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	hidden, err := s.hiddenArtistScopes()
-	if err != nil || len(hidden) == 0 {
+	if err != nil {
+		// Failing open here would list every hidden artist; fail the query instead.
+		_ = q.AddError(fmt.Errorf("hidden-artist libraries: %w", err))
+		return q
+	}
+	if len(hidden) == 0 {
 		return q
 	}
 	// A track counts as visible when it matches none of the hidden scopes.
@@ -220,7 +227,10 @@ func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	return q.Where(visiblePresence, both...)
 }
 
-// hiddenArtistScopes returns the scope of every library that hides its artists.
+// hiddenArtistScopes returns the scope of every library that hides its
+// artists, skipping one with no filters: such a library covers the whole
+// catalog, and honouring it would hide every artist rather than the ones it
+// actually names.
 func (s *Store) hiddenArtistScopes() ([]TrackScope, error) {
 	var libs []model.Library
 	if err := s.db.Where("hide_artists = ?", true).Find(&libs).Error; err != nil {
@@ -228,7 +238,14 @@ func (s *Store) hiddenArtistScopes() ([]TrackScope, error) {
 	}
 	scopes := make([]TrackScope, 0, len(libs))
 	for i := range libs {
-		scopes = append(scopes, LibraryScope(&libs[i]))
+		sc := LibraryScope(&libs[i])
+		if sc.IsZero() {
+			// No filters = the whole catalog: hiding "its" artists would hide every
+			// artist. The API refuses to store such a library; ignore one that
+			// reached the table anyway.
+			continue
+		}
+		scopes = append(scopes, sc)
 	}
 	return scopes, nil
 }

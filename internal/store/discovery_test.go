@@ -340,8 +340,8 @@ func TestDiscoveryFeedIsStableForOneSeed(t *testing.T) {
 
 func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	s := testStore(t)
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	if err := s.DB().Create(&lib1).Error; err != nil {
 		t.Fatal(err)
 	}

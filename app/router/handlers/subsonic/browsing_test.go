@@ -28,6 +28,13 @@ func testStore(t *testing.T) *store.Store {
 	return store.New(db)
 }
 
+// scanFolderFilter builds the filters of a library that selects tracks from
+// the named scan folders — the shape most test libraries use to stand in for
+// "the tracks stamped with this scan folder".
+func scanFolderFilter(names ...string) []model.LibraryFilter {
+	return []model.LibraryFilter{{Field: model.FilterScanFolder, Values: names}}
+}
+
 func newTestServer(t *testing.T, s *store.Store) *httptest.Server {
 	t.Helper()
 	as := assetstore.New(t.TempDir())
@@ -92,8 +99,8 @@ func TestBrowsingRejectsWrongKindID(t *testing.T) {
 func TestGetMusicFoldersFromDB(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Zulu", Path: "/z", DefaultView: "artists", HideArtists: true, Icon: "heart"})
-	db.Create(&model.Library{Name: "Alpha", Path: "/a", DefaultView: "albums", HideArtists: false})
+	db.Create(&model.Library{Name: "Zulu", DefaultView: "artists", HideArtists: true, Icon: "heart"})
+	db.Create(&model.Library{Name: "Alpha", DefaultView: "albums", HideArtists: false})
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
@@ -154,7 +161,7 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 func TestGetAlbumDiscTitles(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	db.Create(&model.Library{Name: "Lib"})
 	album := &model.Album{Name: "Box Set", NameNorm: "box set", AlbumArtistNorm: "a"}
 	db.Create(album)
 	db.Create(&model.Track{AlbumID: album.ID, Filename: "1.flac", FilePath: "/l/1.flac",
@@ -205,7 +212,7 @@ func TestGetAlbumDiscTitles(t *testing.T) {
 func TestGetArtistAlbumsIncludeSongCountAndDuration(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	db.Create(&model.Library{Name: "Lib"})
 	artist := &model.Artist{Name: "Radiohead", NameNorm: "radiohead"}
 	db.Create(artist)
 	album := &model.Album{Name: "Kid A", NameNorm: "kid a", AlbumArtistNorm: "radiohead"}
@@ -253,7 +260,7 @@ func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	// Explicitly insert a library with empty DefaultView to simulate legacy rows.
-	db.Exec("INSERT INTO libraries (name, path, default_view, hide_artists) VALUES (?, ?, ?, ?)", "Legacy", "/l", "", false)
+	db.Exec("INSERT INTO libraries (name, default_view, hide_artists) VALUES (?, ?, ?)", "Legacy", "", false)
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
@@ -325,7 +332,7 @@ func TestAlbumToMapIsCompilation(t *testing.T) {
 func TestGetArtistsOfHiddenLibraryIsEmpty(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	hid := model.Library{Name: "Hid", Path: "/hid", HideArtists: true}
+	hid := model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
 	db.Create(&hid)
 	artist := model.Artist{Name: "Hidden Artist", NameNorm: "hidden artist"}
 	db.Create(&artist)

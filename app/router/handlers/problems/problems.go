@@ -27,7 +27,6 @@ var titles = map[string]string{ //nolint:gosec // G101: human-readable titles, n
 	"too_many_tokens":       "Too many tokens",
 	"usertoken_unavailable": "User token unavailable",
 	"not_configured":        "Not configured",
-	"config_managed":        "Config managed",
 	"last_admin":            "Last admin",
 	"queue_full":            "Queue full",
 }

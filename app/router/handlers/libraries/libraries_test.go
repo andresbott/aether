@@ -63,7 +63,7 @@ func TestGetLibraryNotFound(t *testing.T) {
 
 func TestGetLibraryOK(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	lib := &model.Library{Name: "Main", Path: "/srv/music", FollowSymlinks: true}
+	lib := &model.Library{Name: "Main"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +86,7 @@ func itoa(n uint) string {
 
 func TestCreateLibraryOK(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"Main","path":"` + dir + `","exclude_patterns":["^\\..*"],"follow_symlinks":true}`
+	body := `{"name":"Main"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -97,50 +96,12 @@ func TestCreateLibraryOK(t *testing.T) {
 	}
 }
 
-// A path that does not exist is a well-formed but invalid value (422), unlike
-// an outright missing path, which stays 400.
-func TestCreateLibraryBadPath(t *testing.T) {
-	_, _, r := newTestHandler(t)
-	body := `{"name":"X","path":"/nonexistent-aether-test-xyz"}`
-	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
-		t.Fatalf("Content-Type = %q, want application/problem+json", ct)
-	}
-	var problem problemjson.ValidationDetails
-	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
-		t.Fatal(err)
-	}
-	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/path" {
-		t.Fatalf("expected a /path field error, got %+v", problem.Errors)
-	}
-}
-
-func TestCreateLibraryBadRegex(t *testing.T) {
-	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"X","path":"` + dir + `","exclude_patterns":["["]}`
-	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422, got %d", w.Code)
-	}
-}
-
 func TestCreateLibraryDuplicate(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	if err := s.CreateLibrary(&model.Library{Name: "X", Path: dir}); err != nil {
+	if err := s.CreateLibrary(&model.Library{Name: "X"}); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"X","path":"` + dir + `"}`
+	body := `{"name":"X"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -152,8 +113,7 @@ func TestCreateLibraryDuplicate(t *testing.T) {
 
 func TestCreateLibraryIcon(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"X","path":"` + dir + `","icon":"headphones"}`
+	body := `{"name":"X","icon":"headphones"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -170,8 +130,7 @@ func TestCreateLibraryIcon(t *testing.T) {
 
 func TestCreateLibraryIconDefaultsToFolder(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"X","path":"` + dir + `"}`
+	body := `{"name":"X"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -188,8 +147,7 @@ func TestCreateLibraryIconDefaultsToFolder(t *testing.T) {
 
 func TestCreateLibraryBadIcon(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"X","path":"` + dir + `","icon":"not a valid icon!"}`
+	body := `{"name":"X","icon":"not a valid icon!"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -208,12 +166,11 @@ func TestCreateLibraryBadIcon(t *testing.T) {
 
 func TestUpdateLibraryIcon(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	lib := &model.Library{Name: "A", Path: dir, Icon: "folder"}
+	lib := &model.Library{Name: "A", Icon: "folder"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"A","path":"` + dir + `","icon":"heart"}`
+	body := `{"name":"A","icon":"heart"}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -230,12 +187,11 @@ func TestUpdateLibraryIcon(t *testing.T) {
 
 func TestUpdateLibraryRename(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	lib := &model.Library{Name: "A", Path: dir}
+	lib := &model.Library{Name: "A"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"B","path":"` + dir + `"}`
+	body := `{"name":"B"}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -248,51 +204,21 @@ func TestUpdateLibraryRename(t *testing.T) {
 	if got["name"] != "B" {
 		t.Fatalf("expected name=B, got %v", got["name"])
 	}
-	if got["path_changed"] == true {
-		t.Fatalf("path_changed should be false on rename")
-	}
 }
 
-func TestUpdateLibraryPathChangeKeepsTracks(t *testing.T) {
+// A library is a view: deleting it must leave every track (and, by extension,
+// anything derived from it) untouched — only the row that grouped them goes.
+func TestDeleteLibrary(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir1 := t.TempDir()
-	dir2 := t.TempDir()
-	lib := &model.Library{Name: "A", Path: dir1}
+	lib := &model.Library{Name: "A"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
 	db := s.DB()
 	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "x"}
 	db.Create(&album)
-	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: lib.Name, Filename: "1.mp3", FilePath: dir1 + "/1.mp3"})
+	db.Create(&model.Track{AlbumID: album.ID, ScanFolder: lib.Name, Filename: "1.mp3", FilePath: "/a/1.mp3"})
 
-	body := `{"name":"A","path":"` + dir2 + `"}`
-	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d, body=%s", w.Code, w.Body.String())
-	}
-	var got map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &got)
-	if got["path_changed"] != true {
-		t.Fatalf("expected path_changed=true")
-	}
-	var trackCount int64
-	db.Model(&model.Track{}).Where("scan_folder = ?", lib.Name).Count(&trackCount)
-	if trackCount != 1 {
-		t.Fatalf("expected the track to survive the path change, got %d", trackCount)
-	}
-}
-
-func TestDeleteLibrary(t *testing.T) {
-	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	lib := &model.Library{Name: "A", Path: dir}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
 	req := httptest.NewRequest("DELETE", "/libraries/"+itoa(lib.ID), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -304,6 +230,11 @@ func TestDeleteLibrary(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("expected library deleted, %d remaining", count)
 	}
+	var trackCount int64
+	db.Model(&model.Track{}).Count(&trackCount)
+	if trackCount != 1 {
+		t.Fatalf("expected the track to survive, got %d", trackCount)
+	}
 }
 
 func TestDeleteLibraryNotFound(t *testing.T) {
@@ -311,8 +242,8 @@ func TestDeleteLibraryNotFound(t *testing.T) {
 	req := httptest.NewRequest("DELETE", "/libraries/999", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	// The handler loads the library first (to refuse config-provisioned ones),
-	// so a missing ID is reported as 404 rather than gorm's no-op delete.
+	// The handler loads the library first: the store's delete does not error
+	// on a missing row, so without this a missing ID would 204 instead of 404.
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", w.Code)
 	}
@@ -320,8 +251,7 @@ func TestDeleteLibraryNotFound(t *testing.T) {
 
 func TestCreateLibraryWithDefaultView(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"Classical","path":"` + dir + `","default_view":"artists"}`
+	body := `{"name":"Classical","default_view":"artists"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -338,8 +268,7 @@ func TestCreateLibraryWithDefaultView(t *testing.T) {
 
 func TestCreateLibraryDefaultsToAlbums(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"Main","path":"` + dir + `"}`
+	body := `{"name":"Main"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -356,8 +285,7 @@ func TestCreateLibraryDefaultsToAlbums(t *testing.T) {
 
 func TestCreateLibraryRejectsBadDefaultView(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"X","path":"` + dir + `","default_view":"songs"}`
+	body := `{"name":"X","default_view":"songs"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -369,12 +297,11 @@ func TestCreateLibraryRejectsBadDefaultView(t *testing.T) {
 
 func TestUpdateLibraryDefaultView(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	lib := &model.Library{Name: "A", Path: dir, DefaultView: "albums"}
+	lib := &model.Library{Name: "A", DefaultView: "albums"}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"A","path":"` + dir + `","default_view":"artists"}`
+	body := `{"name":"A","default_view":"artists"}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -391,8 +318,7 @@ func TestUpdateLibraryDefaultView(t *testing.T) {
 
 func TestCreateLibraryShowArtistsRoundTrip(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"Main","path":"` + dir + `","follow_symlinks":true,"show_artists":false}`
+	body := `{"name":"Main","show_artists":false}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -410,8 +336,7 @@ func TestCreateLibraryShowArtistsRoundTrip(t *testing.T) {
 
 func TestCreateLibraryShowArtistsOmitted(t *testing.T) {
 	_, _, r := newTestHandler(t)
-	dir := t.TempDir()
-	body := `{"name":"Main","path":"` + dir + `","follow_symlinks":true}`
+	body := `{"name":"Main"}`
 	req := httptest.NewRequest("POST", "/libraries", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -429,12 +354,11 @@ func TestCreateLibraryShowArtistsOmitted(t *testing.T) {
 
 func TestUpdateLibraryShowArtistsOmittedPreservesCurrent(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	dir := t.TempDir()
-	lib := &model.Library{Name: "Main", Path: dir, HideArtists: true}
+	lib := &model.Library{Name: "Main", HideArtists: true}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"name":"Updated","path":"` + dir + `"}`
+	body := `{"name":"Updated"}`
 	req := httptest.NewRequest("PUT", "/libraries/"+itoa(lib.ID), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
