@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // maxNameLength bounds a scan folder's name.
@@ -77,24 +79,29 @@ func (f Folder) Available() error {
 	return nil
 }
 
+// probes shares one in-flight availability probe per root (see bounded).
+var probes singleflight.Group
+
 // AvailableWithin is Available with a deadline. A stat on a dead network mount
 // can block for minutes; anything that probes a root on a request path or at
 // startup must use this, so one hung share cannot hang the server. The scan
 // itself keeps using Available: it runs in a background task, and a scan that
 // cannot read a root has nothing better to do than wait for the answer.
 func (f Folder) AvailableWithin(d time.Duration) error {
-	return bounded(d, fmt.Sprintf("root %q", f.Path), f.Available)
+	return bounded(d, f.Path, fmt.Sprintf("root %q", f.Path), f.Available)
 }
 
-// bounded runs probe aside and stops waiting after d. The goroutine is left to
-// finish on its own — the blocked syscall cannot be cancelled — and the buffered
-// channel lets it exit as soon as the syscall returns.
-func bounded(d time.Duration, what string, probe func() error) error {
-	done := make(chan error, 1)
-	go func() { done <- probe() }()
+// bounded runs probe aside and stops waiting after d. A probe blocked on a dead
+// mount cannot be cancelled, and it pins an OS thread for as long as it blocks,
+// so probes are shared per key: while one is in flight, later callers wait on IT
+// instead of starting another. A hung root therefore costs one thread however
+// often it is asked about. Nothing is cached past completion: the first call
+// after a probe returns starts a fresh one.
+func bounded(d time.Duration, key, what string, probe func() error) error {
+	done := probes.DoChan(key, func() (any, error) { return nil, probe() })
 	select {
-	case err := <-done:
-		return err
+	case res := <-done:
+		return res.Err
 	case <-time.After(d):
 		return fmt.Errorf("%s did not answer within %s (a hung mount?)", what, d)
 	}
