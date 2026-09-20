@@ -304,11 +304,20 @@ builder itself before touching it:
   save (add/remove/change a row) — they return only with the next failed
   submit — because a stale error would otherwise attach to the wrong row;
   field-level errors (`/name`, `/show_artists`, …) are unaffected.
-- Values are never trimmed, lowercased or otherwise normalized client-side:
-  `genre` / `release_type` / `path` are matched verbatim against scanned
-  data by the server, so a client-side rewrite could turn a matching value
-  into one that matches nothing. `""` for `release_type` is a real selector
-  ("(none)"), not a blank.
+- The app's own code never trims, lowercases or otherwise normalizes a
+  value: `genre` / `release_type` / `path` are matched verbatim against
+  scanned data by the server, so a client-side rewrite could turn a matching
+  value into one that matches nothing. `""` for `release_type` is a real
+  selector ("(none)"), not a blank. One thing is *not* verbatim, and it is
+  PrimeVue's doing rather than ours: the `path` row's `AutoComplete` chips
+  input commits `event.target.value.trim()` on Enter, so a **typed** path is
+  trimmed — a directory whose real name is padded can only be added with
+  "Browse…", which appends the server's own path unchanged (the server then
+  `filepath.Clean`s a path value and rejects a relative one). Every other
+  field's values are picked from a list, never typed, so nothing there is
+  retyped or trimmed. `LibraryFilterBuilder.spec.ts` drives the real
+  `AutoComplete` for that one case, so a PrimeVue upgrade that changes it
+  fails the suite rather than silently contradicting this paragraph.
 - A row's value options come from `useLibraryFilterOptions()`
   (`GET /libraries/filter-options`) plus, via `optionsFor()`, every value
   the row already holds that the server no longer offers — flagged

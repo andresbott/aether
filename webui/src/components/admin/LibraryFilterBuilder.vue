@@ -303,6 +303,15 @@ onUnmounted(() => {
                     </MultiSelect>
 
                     <div v-else-if="fieldMeta(row.field).control === 'paths'" class="paths-control">
+                        <!-- Typed entry is NOT verbatim: PrimeVue's chips input
+                             commits event.target.value.trim() on Enter, so a
+                             path whose real name is padded can only be added
+                             with "Browse…", which appends the server's own path
+                             unchanged. What this component must never do is
+                             rewrite a value itself (see lib/libraryFilters.ts);
+                             the server then Cleans a path and rejects a
+                             relative one. LibraryFilterBuilder.spec.ts pins the
+                             trimming against the real AutoComplete. -->
                         <AutoComplete
                             :modelValue="row.values"
                             @update:modelValue="onValuesChange(idx, $event)"

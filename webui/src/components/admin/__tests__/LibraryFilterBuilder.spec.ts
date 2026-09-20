@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import PrimeVue from 'primevue/config'
 import type { LibraryFilter, LibraryFilterField, LibraryFilterOptions } from '@/types/libraries'
 import type { ScanFolder } from '@/types/scanFolders'
 
@@ -158,6 +159,17 @@ function mountBuilder(modelValue: LibraryFilter[], errors: Record<string, string
     return mount(LibraryFilterBuilder, {
         props: { modelValue, errors },
         global: { stubs }
+    })
+}
+
+// The paths control's real PrimeVue component, for the one case that is about
+// what PrimeVue itself does with typed text; everything else keeps the stub.
+const { AutoComplete: _autoCompleteStub, ...stubsWithRealAutoComplete } = stubs
+
+function mountBuilderWithRealPathsControl(modelValue: LibraryFilter[]) {
+    return mount(LibraryFilterBuilder, {
+        props: { modelValue, errors: {} },
+        global: { plugins: [PrimeVue], stubs: stubsWithRealAutoComplete }
     })
 }
 
@@ -350,8 +362,8 @@ describe('LibraryFilterBuilder', () => {
         })
     })
 
-    // ---- Behaviour 4: values are never trimmed or re-cased ---------------------
-    describe('behaviour 4: values are never trimmed or re-cased', () => {
+    // ---- Behaviour 4: the app itself never rewrites a value ---------------------
+    describe('behaviour 4: the app never rewrites a value, though typed chips are trimmed', () => {
         it('emits a selected value with a trailing space exactly as given', async () => {
             filterOptionsRef.value = { ...defaultOptions, genres: ['Rock '] }
             const w = mountBuilder([mkRow('genre')])
@@ -359,12 +371,17 @@ describe('LibraryFilterBuilder', () => {
             expect(lastEmittedFilters(w)[0].values).toEqual(['Rock '])
         })
 
-        it('emits a typed path exactly as typed, untrimmed', async () => {
-            const w = mountBuilder([mkRow('path')])
-            const input = row(w, 0).get('.autocomplete-stub')
-            await input.setValue('  /music/needs space/  ')
-            await input.trigger('keyup.enter')
-            expect(lastEmittedFilters(w)[0].values).toEqual(['  /music/needs space/  '])
+        // This one mounts the REAL AutoComplete, because what it pins is
+        // PrimeVue's own behaviour: its chips input commits
+        // event.target.value.trim() on Enter, so a TYPED path is trimmed and
+        // only "Browse…" can add one verbatim. If a PrimeVue upgrade changes
+        // that, this case fails and docs/agents/frontend.md must follow.
+        it('commits a typed path trimmed, because PrimeVue trims what is typed into a chips input', async () => {
+            const w = mountBuilderWithRealPathsControl([mkRow('path')])
+            const input = row(w, 0).get('.p-autocomplete input')
+            await input.setValue('  /srv/music/x  ')
+            await input.trigger('keydown', { code: 'Enter', key: 'Enter' })
+            expect(lastEmittedFilters(w)[0].values).toEqual(['/srv/music/x'])
         })
     })
 
