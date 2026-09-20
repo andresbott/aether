@@ -589,6 +589,147 @@ func TestHideArtistsLibraryWithoutFiltersHidesNobody(t *testing.T) {
 	}
 }
 
+// filteredArtist describes one artist's whole presence in the catalog: one
+// album — whose compilation flag and release types the album-level clauses of a
+// scope reach through a correlated subquery — and one track per file, whose
+// path and genre the track-level clauses test directly.
+type filteredArtist struct {
+	name         string
+	compilation  bool
+	releaseTypes []string
+	genre        *model.Genre // nil = untagged
+	files        []string
+}
+
+// seedFilteredArtist inserts that shape, crediting the artist on the album
+// (album_artists, what the artist index joins) and on every track
+// (track_artists) — the two halves excludeHiddenArtists tests separately.
+func seedFilteredArtist(t *testing.T, s *store.Store, spec filteredArtist) {
+	t.Helper()
+	db := s.DB()
+	artist := model.Artist{Name: spec.name, NameNorm: unidecode.Normalize(spec.name)}
+	if err := db.Create(&artist).Error; err != nil {
+		t.Fatal(err)
+	}
+	albumName := spec.name + " LP"
+	album := model.Album{
+		Name:            albumName,
+		NameNorm:        unidecode.Normalize(albumName),
+		AlbumArtistNorm: unidecode.Normalize(spec.name),
+		Compilation:     spec.compilation,
+		ReleaseTypes:    spec.releaseTypes,
+	}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&album).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range spec.files {
+		track := model.Track{AlbumID: album.ID, Title: file, Filename: file, FilePath: file}
+		if err := db.Create(&track).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Model(&track).Association("Artists").Replace([]*model.Artist{&artist}); err != nil {
+			t.Fatal(err)
+		}
+		if spec.genre == nil {
+			continue
+		}
+		if err := db.Model(&track).Association("Genres").Replace([]*model.Genre{spec.genre}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestHiddenArtistsWithMultiClauseFilters drives excludeHiddenArtists with the
+// arbitrary SQL a library scope really compiles to, not the single scan_folder
+// clause every other hidden-artist test uses: correlated album subqueries, a
+// json_each release-type test, a two-directory path range — and, crucially, an
+// UNEVEN number of bind values per library (six for Curated, two for Plain).
+// The visibility predicate is rendered twice, once per presence join, so its
+// args have to be appended twice in the same order; getting that wrong shifts
+// every value and either errors or silently hides the wrong artists.
+//
+//	Curated = {genre: [Jazz]} AND {compilation: true} AND {path: [/vault/a, /vault/b]}
+//	Plain   = {compilation: false} AND {release_type: ["", "Single"]}
+func TestHiddenArtistsWithMultiClauseFilters(t *testing.T) {
+	s := testStore(t)
+	jazz := model.Genre{Name: "Jazz"}
+	if err := s.DB().Create(&jazz).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, lib := range []*model.Library{
+		{Name: "Curated", HideArtists: true, Filters: []model.LibraryFilter{
+			{Field: model.FilterGenre, Values: []string{"Jazz"}},
+			{Field: model.FilterCompilation, Values: []string{"true"}},
+			{Field: model.FilterPath, Values: []string{"/vault/a", "/vault/b"}},
+		}},
+		{Name: "Plain", HideArtists: true, Filters: []model.LibraryFilter{
+			{Field: model.FilterCompilation, Values: []string{"false"}},
+			{Field: model.FilterReleaseType, Values: []string{"", "Single"}},
+		}},
+	} {
+		if err := s.CreateLibrary(lib); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, spec := range []filteredArtist{
+		// Everything this artist has is inside Curated: all three clauses hold.
+		{name: "Hidden Comp", compilation: true, genre: &jazz, files: []string{"/vault/a/1.flac"}},
+		// Inside Plain by its typed release type, and by its untyped one — the
+		// branch of releaseTypeClause that contributes SQL but no bind value.
+		{name: "Hidden Single", releaseTypes: []string{"Single"}, files: []string{"/elsewhere/2.mp3"}},
+		{name: "Hidden Untyped", files: []string{"/elsewhere/3.mp3"}},
+		// One track inside Curated, one outside every scope: still visible.
+		{name: "Visible Outside", compilation: true, genre: &jazz, files: []string{"/vault/b/4.flac", "/other/4.flac"}},
+		// Matches Curated's genre and path but not its compilation clause, and
+		// Plain's compilation clause but not its release type: a scope is the
+		// AND of its filters, so matching some of them selects nothing.
+		{name: "Visible Partial", releaseTypes: []string{"Album"}, genre: &jazz, files: []string{"/vault/a/5.flac"}},
+	} {
+		seedFilteredArtist(t, s, spec)
+	}
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(artists))
+	for _, a := range artists {
+		names = append(names, a.Name)
+	}
+	if want := []string{"Visible Outside", "Visible Partial"}; !slices.Equal(names, want) {
+		t.Fatalf("visible artists = %v, want %v", names, want)
+	}
+}
+
+// A hide-artists library whose filters the compiler cannot honor resolves to
+// NoTracks, not to the whole catalog — ScopeOf fails closed. Negated, that is
+// "NOT (1 = 0)", so such a library hides nobody. Validation refuses to store
+// one; this is what happens to one that reached the table anyway, and it is the
+// opposite failure mode from the zero-filter case
+// (TestHideArtistsLibraryWithoutFiltersHidesNobody), which is skipped outright.
+func TestHideArtistsLibraryThatCompilesToNothingHidesNobody(t *testing.T) {
+	s := testStore(t)
+	lib := &model.Library{Name: "Broken", HideArtists: true, Filters: []model.LibraryFilter{
+		{Field: "mood", Values: []string{"x"}},
+	}}
+	if err := s.CreateLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	seedArtistTrack(t, s, lib.ID, "Visible Artist", "/broken/a.mp3")
+
+	artists, err := s.GetArtists(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artists) != 1 || artists[0].Name != "Visible Artist" {
+		t.Fatalf("expected the artist to remain visible, got %+v", artists)
+	}
+}
+
 // A failing lookup must not turn into "show every artist": that is failing open
 // on the one privacy-ish knob libraries have.
 func TestGetArtistsFailsWhenTheHiddenLibrariesCannotBeRead(t *testing.T) {
