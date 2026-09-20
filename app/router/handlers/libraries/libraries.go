@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/andresbott/aether/internal/libraryfilter"
@@ -291,7 +292,10 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lib := &model.Library{
-		Name:        in.Name,
+		// ValidateName judges the TRIMMED name, so that is what is stored:
+		// otherwise " Music" and "Music" are two libraries the /rest music
+		// folder list shows under one visible name.
+		Name:        strings.TrimSpace(in.Name),
 		HideArtists: hideArtists,
 		DefaultView: dv,
 		Icon:        icon,
@@ -358,7 +362,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing.Name = in.Name
+	existing.Name = strings.TrimSpace(in.Name) // stored trimmed, as on create
 	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
 	if in.ShowArtists != nil {
 		existing.HideArtists = !*in.ShowArtists

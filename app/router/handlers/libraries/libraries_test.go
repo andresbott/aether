@@ -109,6 +109,39 @@ func TestCreateLibraryOK(t *testing.T) {
 	}
 }
 
+// TestCreateLibraryStoresTheNameTrimmed: ValidateName judges the TRIMMED name,
+// so the trimmed one is what gets stored. Storing the raw value would let
+// "  Padded  " and "Padded" be two libraries — two music folders a /rest client
+// cannot tell apart — and would ship the padding to every one of them.
+func TestCreateLibraryStoresTheNameTrimmed(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	post := func(name string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/libraries", strings.NewReader(`{"name":"`+name+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	w := post("  Padded  ")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["name"] != "Padded" {
+		t.Fatalf("expected name=Padded, got %v", got["name"])
+	}
+
+	// The unique index is on the stored name, so the padded one must not have
+	// left room for a second library that reads identically.
+	if w := post("Padded"); w.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for the same name unpadded, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateLibraryDuplicate(t *testing.T) {
 	_, s, r := newTestHandler(t)
 	if err := s.CreateLibrary(&model.Library{Name: "X"}); err != nil {
