@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import PrimeVue from 'primevue/config'
 import type { ViewportTier } from '@/composables/useViewport'
 import type { Library } from '@/types/libraries'
+import type { ScanFolder } from '@/types/scanFolders'
 import type { User } from '@/types/users'
 import type { ExecutionInfo } from '@/types/tasks'
 
@@ -30,6 +31,18 @@ vi.mock('@/composables/useLibraries', async () => {
         useCreateLibrary: mutation,
         useUpdateLibrary: mutation,
         useDeleteLibrary: mutation
+    }
+})
+
+// ======== ScanFoldersPanel mocks ========
+const scanFolders = vi.hoisted(() => {
+    return { current: [] as ScanFolder[] }
+})
+
+vi.mock('@/composables/useScanFolders', async () => {
+    const { ref: vueRef } = await import('vue')
+    return {
+        useScanFolders: () => ({ data: vueRef(scanFolders.current), isLoading: vueRef(false) })
     }
 })
 
@@ -79,6 +92,7 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
 })
 
 import LibrariesPanel from '@/components/admin/LibrariesPanel.vue'
+import ScanFoldersPanel from '@/components/admin/ScanFoldersPanel.vue'
 import UsersPanel from '@/components/admin/UsersPanel.vue'
 import ExecutionHistory from '@/components/admin/ExecutionHistory.vue'
 import TasksView from '@/views/settings/TasksView.vue'
@@ -93,6 +107,18 @@ function library(over: Partial<Library>): Library {
         filters: [],
         created_at: '',
         updated_at: '',
+        track_count: 1234,
+        ...over
+    }
+}
+
+function scanFolder(over: Partial<ScanFolder>): ScanFolder {
+    return {
+        name: 'Music',
+        path: '/mnt/music',
+        exclude_patterns: ['*.tmp'],
+        follow_symlinks: true,
+        available: true,
         track_count: 1234,
         ...over
     }
@@ -171,6 +197,72 @@ describe('Settings tables hide low-value columns on phones', () => {
             expect(w.text()).not.toContain('Tracks')
             // Should still show Name header
             expect(w.text()).toContain('Name')
+        })
+
+        it('shows the Filters column on desktop', async () => {
+            tier.value = 'desktop'
+            libraries.current = [library({ filters: [{ field: 'genre', values: ['Rock'] }] })]
+            const w = mount(LibrariesPanel, {
+                global: {
+                    plugins: [PrimeVue],
+                    directives: { tooltip: {} },
+                    stubs: { teleport: true, ConfirmDialog: true, LibraryDialog: true }
+                }
+            })
+            await flushPromises()
+            expect(w.text()).toContain('Filters')
+            expect(w.text()).toContain('Genre: Rock')
+        })
+
+        it('hides the Filters column header on phone but keeps the summary under the name', async () => {
+            tier.value = 'phone'
+            libraries.current = [library({ filters: [{ field: 'genre', values: ['Rock'] }] })]
+            const w = mount(LibrariesPanel, {
+                global: {
+                    plugins: [PrimeVue],
+                    directives: { tooltip: {} },
+                    stubs: { teleport: true, ConfirmDialog: true, LibraryDialog: true }
+                }
+            })
+            await flushPromises()
+            expect(w.text()).not.toContain('Filters')
+            // The filter summary that would sit in the hidden column still
+            // reaches the phone admin, moved under the library's name.
+            expect(w.text()).toContain('Genre: Rock')
+            expect(w.text()).toContain('Name')
+        })
+    })
+
+    describe('ScanFoldersPanel', () => {
+        it('shows the Path, Excludes and Symlinks columns on desktop', async () => {
+            tier.value = 'desktop'
+            scanFolders.current = [scanFolder({})]
+            const w = mount(ScanFoldersPanel, {
+                global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+            })
+            await flushPromises()
+            expect(w.text()).toContain('Path')
+            expect(w.text()).toContain('Excludes')
+            expect(w.text()).toContain('Symlinks')
+            expect(w.text()).toContain('/mnt/music')
+        })
+
+        it('hides the Path, Excludes and Symlinks columns on phone but keeps the path under the name', async () => {
+            tier.value = 'phone'
+            scanFolders.current = [scanFolder({})]
+            const w = mount(ScanFoldersPanel, {
+                global: { plugins: [PrimeVue], directives: { tooltip: {} } }
+            })
+            await flushPromises()
+            expect(w.text()).not.toContain('Path')
+            expect(w.text()).not.toContain('Excludes')
+            expect(w.text()).not.toContain('Symlinks')
+            // The path that would sit in the hidden column still reaches the
+            // phone admin, moved under the folder's name.
+            expect(w.text()).toContain('/mnt/music')
+            // Tracks and Status are not in the brief's hide list: they stay.
+            expect(w.text()).toContain('Tracks')
+            expect(w.text()).toContain('Available')
         })
     })
 

@@ -170,14 +170,15 @@ renders its sidebar as a horizontally-scrolling icon bar below 768px —
 collapse is a desktop concept with no room on a bar, so the collapse button
 and width machinery are hidden entirely. Settings tables use `useViewport().tier`
 to hide secondary columns on phones (via `Column :hidden` binding); hidden data
-either moves into a visible cell (the library path renders under the name on
-phone) or stays reachable through an icon-only button (the schedule calendar
-icon) or the row's edit dialog. The metadata editor (`MetadataEditorView`)
-stacks its split panels vertically and shows an info notice ("works best on a
-larger screen") on phone tier. **The `ContentScaffold` header wraps at any width
-and its title never shrinks below 12rem** (empty titles exempt) — this ensures
-the back button, title, and actions stay readable when the header reflows across
-narrow viewports.
+either moves into a visible cell (the libraries table's filter summary and
+the scan folders table's path both render under the name on phone — see
+"Admin — libraries and scan folders" below) or stays reachable through an
+icon-only button (the schedule calendar icon) or the row's edit dialog. The
+metadata editor (`MetadataEditorView`) stacks its split panels vertically and
+shows an info notice ("works best on a larger screen") on phone tier. **The
+`ContentScaffold` header wraps at any width and its title never shrinks below
+12rem** (empty titles exempt) — this ensures the back button, title, and
+actions stay readable when the header reflows across narrow viewports.
 
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
@@ -238,6 +239,90 @@ plus artwork at 96/256/512px), mirrors `isPlaying` into `playbackState`, wires
 play/pause/previoustrack/nexttrack/seekto actions, and updates `setPositionState`
 on duration/seek changes — not on every `currentTime` tick (the browser
 extrapolates between updates).
+
+## Admin — libraries and scan folders
+
+`LibrariesView` (`views/settings/LibrariesView.vue`, `/settings/libraries`)
+renders two independent panels: `LibrariesPanel` (create/edit/delete) then
+`ScanFoldersPanel` (read-only). A library owns no directory — it is a named,
+**filtered view** over the whole catalog (see
+[architecture.md](architecture.md#scan-folders-config-only)) — so neither
+panel shows a path, a last-scan time, or a config-provisioned badge; the
+directories actually scanned live only in the server's config file.
+
+**`LibrariesPanel`** columns: name (icon + name, plus a `severity="warn"`
+"Needs attention" `Tag` — tooltip is the joined `warnings[].detail` — shown
+only when the library has any), Filters (one `Tag` per
+`lib/libraryFilters.ts`'s `summarize(filters)` line, or a single "Whole
+catalog" tag when `filters` is empty), Tracks, actions. Deleting asks "Delete
+library "<name>"? Only this view is removed — no track, star or play history
+is touched." — deleting a library never touches `tracks`. On phone
+(`useViewport().tier === 'phone'`) the Filters and Tracks columns hide and
+the filter summary renders a second time under the name instead (the
+"Settings on phones" pattern above); `settingsTables.phone.spec.ts` pins both
+tiers for this table.
+
+**`ScanFoldersPanel`** is genuinely read-only — no buttons, no dialogs, no
+mutations — over `useScanFolders()` (`GET /api/v0/scan-folders`): Name, Path,
+Excludes (a count; the patterns themselves are the tooltip), Symlinks
+("Followed"/"Not followed"), Tracks, Status (a `Tag`, `success` "Available"
+or `danger` "Not usable" with the server's raw `problem` string as tooltip).
+Its hint, shown above the table regardless of data: "Defined in the server's
+config file under ScanFolders; restart the server to apply changes." With
+zero scan folders configured, the empty state spells out the consequence
+rather than just the fact: "No scan folders are configured — nothing is
+scanned and no on-disk media is served. Add them under ScanFolders in the
+server's config file and restart." — the media guard fails closed with no
+scan folders configured (see [subsonic-api.md](subsonic-api.md)). On phone,
+Path/Excludes/Symlinks hide and the path renders under the name instead;
+Tracks and Status stay on every width.
+
+**`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
+inside `LibraryDialog`) is the one place filters are edited. Rules worth
+knowing before touching it:
+
+- A row's position IS its identity: the server's `422` pointers
+  (`/filters/i/field`, `/filters/i/values`, `/filters/i/values/j`) index the
+  filters array as it was last **sent**, so `lib/libraryFilters.ts`'s
+  `rowErrors()` maps purely by array index. `LibraryDialog` hides every
+  `/filters…` error the moment the admin edits the filters after a failed
+  save (add/remove/change a row) — they return only with the next failed
+  submit — because a stale error would otherwise attach to the wrong row;
+  field-level errors (`/name`, `/show_artists`, …) are unaffected.
+- Values are never trimmed, lowercased or otherwise normalized client-side:
+  `genre` / `release_type` / `path` are matched verbatim against scanned
+  data by the server, so a client-side rewrite could turn a matching value
+  into one that matches nothing. `""` for `release_type` is a real selector
+  ("(none)"), not a blank.
+- A row's value options come from `useLibraryFilterOptions()`
+  (`GET /libraries/filter-options`) plus, via `optionsFor()`, every value
+  the row already holds that the server no longer offers — flagged
+  `missing` and labeled with why (`(not configured)` for a `scan_folder`
+  value, `(not in the catalog)` for everything else) — so a
+  stored-but-stale value (a renamed scan folder, a retagged genre) stays
+  visible and removable instead of silently vanishing or silently
+  surviving the next save.
+- A 400ms-debounced call to `previewLibrary()` renders "Matches N tracks in
+  M albums" (or "Fix the filters…" on a 422); every external change to
+  `modelValue` restarts the debounce, and a superseded response is dropped
+  by identity-checking the in-flight `AbortController`, not just waiting
+  for its promise to settle.
+
+The `path` filter's "Browse…" opens `FolderPickerDialog`, rooted at the
+configured scan folders: calling `browseFolders()` with **no** `path`
+answers their roots, and nothing outside them is reachable — it is a
+directory picker for one filter value, not a library-root picker. Selecting
+a folder at or below a symlink shows a `severity="warn"` `Message` ("tracks
+are recorded under the real location the link points to") because the
+scanner indexes a symlinked tree under its resolved path, so a `path` filter
+on the link itself would match nothing; the ancestry is tracked per-node
+(`data.symlinked` on each `TreeNode`) so a descendant loaded later still
+knows a parent was a link.
+
+`useScanFolders()` (`composables/useScanFolders.ts`) is shared by
+`ScanFoldersPanel`, the filter builder (the scan-folder `MultiSelect`
+options and the "not usable right now" note on a dangling value), and the
+metadata editor (see the `composables/` entry above).
 
 ## Player (`composables/usePlayer.ts`)
 

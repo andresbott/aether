@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import { useConfirm } from 'primevue/useconfirm'
@@ -12,6 +13,7 @@ import {
     useDeleteLibrary
 } from '@/composables/useLibraries'
 import type { Library, LibraryInput } from '@/types/libraries'
+import { summarize } from '@/lib/libraryFilters'
 import LibraryDialog from './LibraryDialog.vue'
 import { useViewport } from '@/composables/useViewport'
 
@@ -75,6 +77,20 @@ const { tier } = useViewport()
 // Spec §5: settings tables must not overflow a phone; these columns are the
 // ones a phone admin can live without (the row's dialog still shows all).
 const phoneCols = computed(() => tier.value === 'phone')
+
+// A library owns no directory — it is a named filter over the catalog — so the
+// table summarizes what it selects rather than a path. No filters at all
+// means the whole catalog, same sentinel LibraryFilterBuilder shows.
+function filterSummary(lib: Library): string[] {
+    return lib.filters.length > 0 ? summarize(lib.filters) : ['Whole catalog']
+}
+
+// `warnings` is the server's signal that a stored filter value (today only a
+// `scan_folder` name) no longer matches anything configured — surfaced next
+// to the name rather than silently dropped or silently kept.
+function warningsTooltip(lib: Library): string {
+    return (lib.warnings ?? []).map((w) => w.detail).join('\n')
+}
 </script>
 
 <template>
@@ -89,8 +105,10 @@ const phoneCols = computed(() => tier.value === 'phone')
         </div>
 
         <div v-else-if="!libraries || libraries.length === 0" class="empty-state">
-            <p>No libraries configured yet.</p>
-            <p>Add a library to start scanning music.</p>
+            <p>
+                No libraries yet. A library is a filtered view over your music — add one to give
+                clients a music folder to browse.
+            </p>
         </div>
 
         <div v-else class="table-fit">
@@ -100,7 +118,36 @@ const phoneCols = computed(() => tier.value === 'phone')
                         <span class="library-name">
                             <i :class="`pi pi-${data.icon || 'folder'}`"></i>
                             {{ data.name }}
+                            <Tag
+                                v-if="data.warnings?.length"
+                                severity="warn"
+                                value="Needs attention"
+                                v-tooltip.top="warningsTooltip(data)"
+                                data-test="warnings-tag"
+                            />
                         </span>
+                        <div v-if="phoneCols" class="library-filters-summary">
+                            <Tag
+                                v-for="(line, i) in filterSummary(data)"
+                                :key="i"
+                                :value="line"
+                                severity="secondary"
+                                data-test="filter-summary-tag"
+                            />
+                        </div>
+                    </template>
+                </Column>
+                <Column header="Filters" :hidden="phoneCols">
+                    <template #body="{ data }">
+                        <div class="library-filters-summary">
+                            <Tag
+                                v-for="(line, i) in filterSummary(data)"
+                                :key="i"
+                                :value="line"
+                                severity="secondary"
+                                data-test="filter-summary-tag"
+                            />
+                        </div>
                     </template>
                 </Column>
                 <Column
@@ -172,6 +219,14 @@ const phoneCols = computed(() => tier.value === 'phone')
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
+}
+.library-filters-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.library-name + .library-filters-summary {
+    margin-top: 0.35rem;
 }
 .table-fit {
     overflow-x: auto;
