@@ -337,6 +337,38 @@ func TestContractScanFoldersList(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "listScanFolders", http.StatusOK, w)
 
+	// The schema validates an EMPTY list just as happily, so checking it alone
+	// would keep this test green with the configured set never reaching the
+	// handler. Assert the two entries by content instead.
+	var body struct {
+		ScanFolders []struct {
+			Name      string `json:"name"`
+			Available bool   `json:"available"`
+			Problem   string `json:"problem"`
+		} `json:"scan_folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding the body: %v: %s", err, w.Body.String())
+	}
+	if len(body.ScanFolders) != 2 {
+		t.Fatalf("got %d scan folders, want the 2 configured ones: %s", len(body.ScanFolders), w.Body.String())
+	}
+	if got := body.ScanFolders[0].Name; got != "Music" {
+		t.Errorf("scan_folders[0].name = %q, want \"Music\" (the set is in name order)", got)
+	}
+	if !body.ScanFolders[0].Available {
+		t.Errorf("scan_folders[0].available = false, want true: %q exists", music)
+	}
+	if got := body.ScanFolders[1].Name; got != "Offline" {
+		t.Errorf("scan_folders[1].name = %q, want \"Offline\" (the set is in name order)", got)
+	}
+	if body.ScanFolders[1].Available {
+		t.Errorf("scan_folders[1].available = true, want false: %q is not there", offline)
+	}
+	if body.ScanFolders[1].Problem == "" {
+		t.Error("scan_folders[1].problem is empty; an unavailable root must say why")
+	}
+
 	// Admin-only, like every management route: a regular user is refused.
 	_, bobAttach := doLogin(t, h, "bob", "secret")
 	req = httptest.NewRequest(http.MethodGet, "/api/v0/scan-folders", nil)
