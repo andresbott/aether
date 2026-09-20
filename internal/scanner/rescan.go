@@ -12,7 +12,9 @@ import (
 
 // RescanPaths re-reads the tags of absPaths and reconciles them into the store,
 // so files the metadata editor just wrote are reflected in the library index
-// without a full scan. Paths that are not inside the scan folder, not audio
+// without a full scan. It applies the scan preflight's availability guard first,
+// so a folder the scan refuses is refused here too rather than being indexed one
+// edit at a time. Paths that are not inside the scan folder, not audio
 // files, excluded by the folder's patterns, or unreadable are silently skipped
 // and counted in ScanStats.TracksSkipped; only tag-read failures appear in
 // ScanStats.Errors. A run indexed everything it was supposed to when
@@ -39,6 +41,15 @@ func (s *Scanner) RescanPaths(ctx context.Context, scanFolder string, absPaths [
 	folder, ok := s.cfg.Folders.ByName(scanFolder)
 	if !ok {
 		return stats, fmt.Errorf("rescan: scan folder %q is not configured", scanFolder)
+	}
+	// The same guard the scan preflight applies: a root that cannot be scanned —
+	// unmounted, not a directory, itself a symlink — is not re-indexed either.
+	// Without it an edit under a symlinked root indexes the file under a spelling
+	// the scanner refuses, one row at a time, and those rows are swept — with
+	// their stars, playlist entries and play history — the day the root is
+	// pointed at the real directory.
+	if err := folder.Available(); err != nil {
+		return stats, fmt.Errorf("rescan: scan folder %q: %w", scanFolder, err)
 	}
 	excludes, err := folder.Excludes()
 	if err != nil {

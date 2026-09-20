@@ -142,7 +142,10 @@ tracks mid-scan still has to advance it.
 
 `Scanner.RescanPaths(ctx, scanFolder, absPaths)` re-indexes an explicit list
 of files: it looks up `scanFolder` by name in `scanner.Config.Folders` — an
-unknown name fails the job outright — then admits each path via
+unknown name fails the job outright — applies the scan preflight's availability
+guard (`Folder.Available`), so a folder whose root is unmounted, not a directory
+or itself a symlink is refused instead of being indexed piecemeal, then admits
+each path via
 `WalkWouldEmit`, the same predicate `Walk` uses (inside that folder's root,
 an audio extension, not excluded, resolved through any followed symlinks),
 reads its tags serially — always fresh, with no `filterChanged` mtime gate —

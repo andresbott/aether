@@ -674,6 +674,55 @@ func TestScanRefusesASymlinkedRoot(t *testing.T) {
 	}
 }
 
+// The editor's post-save re-index must refuse the same roots the scan above
+// refuses. Otherwise a folder the scanner will never walk gets indexed one edit
+// at a time, under a spelling that stops resolving the day the operator applies
+// the documented workaround (point Path at the real directory) — and those rows
+// are then swept with their stars, playlist entries and play history.
+func TestRescanPathsRefusesASymlinkedRoot(t *testing.T) {
+	st := testScanStore(t)
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	createTestFiles(t, real, []string{"Artist/Album/01.mp3"})
+	link := filepath.Join(base, "music")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("cannot create symlinks on this platform: %v", err)
+	}
+	folder := scanfolder.Folder{Name: "Music", Path: link, FollowSymlinks: true}
+
+	s := newScanner(t, st, fakeTagReader{}, folder)
+	_, err := s.RescanPaths(context.Background(), folder.Name, []string{filepath.Join(link, "Artist/Album/01.mp3")})
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("err = %v, want it to mention 'symbolic link'", err)
+	}
+
+	var n int64
+	st.DB().Model(&model.Track{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("a folder the scan refuses must not be indexed piecemeal, got %d rows", n)
+	}
+}
+
+// The same guard's other half: a root that is not there — a share that has not
+// mounted — is not re-indexed either.
+func TestRescanPathsRefusesAnUnavailableRoot(t *testing.T) {
+	st := testScanStore(t)
+	missing := filepath.Join(t.TempDir(), "not-mounted")
+	folder := scanfolder.Folder{Name: "Music", Path: missing}
+
+	s := newScanner(t, st, fakeTagReader{}, folder)
+	_, err := s.RescanPaths(context.Background(), folder.Name, []string{filepath.Join(missing, "Artist/Album/01.mp3")})
+	if err == nil || !strings.Contains(err.Error(), "unavailable") {
+		t.Fatalf("err = %v, want it to mention 'unavailable'", err)
+	}
+
+	var n int64
+	st.DB().Model(&model.Track{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("a folder the scan refuses must not be indexed piecemeal, got %d rows", n)
+	}
+}
+
 // The re-link needs the old file to be GONE — that is what tells a move from a
 // copy. Re-pointing a folder at a COPY while the original still exists therefore
 // does not keep the rows: new ones are created and the old ones are swept, with
