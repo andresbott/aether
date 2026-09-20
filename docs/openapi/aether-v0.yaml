@@ -3332,11 +3332,17 @@ components:
         with no release type at all; `compilation` — takes exactly one
         value, the string `"true"` or `"false"`, and matches the same
         compilation flag `/rest` reports as `isCompilation`; `genre` — one of
-        the track's genre names. Values are validated and normalized on
-        write (see createLibrary/updateLibrary); a `scan_folder` value
-        naming a folder later removed from the server config is left stored
-        as-is and reported back as a warning, not silently dropped — see
-        `Library.warnings`.
+        the track's genre names, matched EXACTLY (case and whitespace
+        included) against the name as tagged. `path` is likewise an exact
+        prefix of the recorded file path. Values are validated on write (see
+        createLibrary/updateLibrary): `scan_folder`, `format` and
+        `compilation` values are normalized (trimmed; `format` lowercased),
+        while `genre`, `release_type` and `path` values are stored as sent —
+        they are compared with what the scanner recorded, so take them from
+        `getLibraryFilterOptions` rather than retyping them. A `scan_folder`
+        value naming a folder later removed from the server config is left
+        stored as-is and reported back as a warning, not silently dropped —
+        see `Library.warnings`.
       properties:
         field:
           type: string

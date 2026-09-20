@@ -7,13 +7,14 @@
 // on the row it belongs to.
 //
 // Normalizing stops where a value is matched against data the scanner
-// recorded: genre, release_type and path values are stored verbatim, with
-// whitespace deciding only blankness, because store.ScopeOf binds them exactly
-// against what the scanner found (see the note on nonBlank in store/scope.go) —
-// trimming one here would let a value the filter-options endpoint offers back
-// verbatim be silently unmatchable once saved. scan_folder, format and
-// compilation are vocabularies this package defines itself, so those keep being
-// trimmed and normalized outright.
+// recorded: genre, release_type and path values are stored as given, with
+// whitespace deciding only blankness. store.ScopeOf compares them with what the
+// scanner found — genre and path exactly (see the note on nonBlank in
+// store/scope.go), release_type case-insensitively (releaseTypeClause) — and the
+// scanner stores names and tags as it found them, so trimming one here would let
+// a value the filter-options endpoint offers be silently unmatchable once saved.
+// scan_folder, format and compilation are vocabularies this package defines
+// itself, so those keep being trimmed and normalized outright.
 package libraryfilter
 
 import (
@@ -161,8 +162,9 @@ var valueChecks = map[model.LibraryFilterField]func(string, *scanfolder.Set) (st
 		return v, nil
 	},
 	// The empty string is a real value here: it selects albums with no release
-	// type (releaseTypeClause). A typed value is matched against the album's
-	// tag verbatim, so it is trimmed only to decide blankness.
+	// type (releaseTypeClause). A typed value is compared with the album's tags
+	// case-insensitively but otherwise as recorded — padding included — so it is
+	// stored as given and trimmed only to decide blankness.
 	model.FilterReleaseType: func(v string, _ *scanfolder.Set) (string, error) {
 		if strings.TrimSpace(v) == "" {
 			return "", nil
