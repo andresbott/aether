@@ -4,14 +4,24 @@ import PrimeVue from 'primevue/config'
 import type { ScanFolder } from '@/types/scanFolders'
 
 // The panel destructures useScanFolders()'s return, so the mock must hand back
-// real refs — a plain { value } object does not unwrap in the template. Both
-// `current` and `loading` are read fresh on every useScanFolders() call (i.e.
-// every mount), so a test sets them before mounting.
-const state = vi.hoisted(() => ({ current: [] as ScanFolder[], loading: false }))
+// real refs — a plain { value } object does not unwrap in the template. All
+// three of `current`, `loading` and `isError` are read fresh on every
+// useScanFolders() call (i.e. every mount), so a test sets them before
+// mounting. `current` can be undefined — that's the real TanStack Query shape
+// of a failed query (data stays undefined, isLoading goes back to false).
+const state = vi.hoisted(() => ({
+    current: [] as ScanFolder[] | undefined,
+    loading: false,
+    isError: false
+}))
 vi.mock('@/composables/useScanFolders', async () => {
     const { ref: vueRef } = await import('vue')
     return {
-        useScanFolders: () => ({ data: vueRef(state.current), isLoading: vueRef(state.loading) })
+        useScanFolders: () => ({
+            data: vueRef(state.current),
+            isLoading: vueRef(state.loading),
+            isError: vueRef(state.isError)
+        })
     }
 })
 
@@ -45,9 +55,10 @@ function scanFolder(over: Partial<ScanFolder> = {}): ScanFolder {
     }
 }
 
-const mountPanel = (folders: ScanFolder[], loading = false) => {
+const mountPanel = (folders: ScanFolder[] | undefined, loading = false, isError = false) => {
     state.current = folders
     state.loading = loading
+    state.isError = isError
     return mount(ScanFoldersPanel, {
         global: {
             plugins: [PrimeVue],
@@ -136,5 +147,27 @@ describe('ScanFoldersPanel', () => {
     it('shows a loading indicator while the folders are still loading', () => {
         const w = mountPanel([], true)
         expect(w.find('.pi-spinner').exists()).toBe(true)
+    })
+})
+
+// A failed request must never be mistaken for "nothing is configured" — that
+// would tell the admin a false thing about the server's own config file.
+describe('ScanFoldersPanel load error', () => {
+    it('shows an error message instead of the empty state when the request fails', async () => {
+        const w = mountPanel(undefined, false, true)
+        await flushPromises()
+        const err = w.find('[data-test="scan-folders-error"]')
+        expect(err.exists()).toBe(true)
+        expect(err.text()).toBe(
+            'Could not load the scan folders. Check that the server is reachable and reload the page.'
+        )
+        expect(w.text()).not.toContain('No scan folders are configured')
+    })
+
+    it('shows the empty state, not the error, once the folders load empty', async () => {
+        const w = mountPanel([])
+        await flushPromises()
+        expect(w.find('[data-test="scan-folders-error"]').exists()).toBe(false)
+        expect(w.text()).toContain('No scan folders are configured')
     })
 })

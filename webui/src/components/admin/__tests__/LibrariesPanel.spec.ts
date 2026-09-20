@@ -12,10 +12,12 @@ const confirmRequire = vi.hoisted(() => vi.fn())
 vi.mock('primevue/useconfirm', () => ({ useConfirm: () => ({ require: confirmRequire }) }))
 
 // The panel destructures these, so the mocks must hand back real refs —
-// a plain { value } object does not unwrap in the template.
+// a plain { value } object does not unwrap in the template. `current` can be
+// undefined — that's the real TanStack Query shape of a failed query (data
+// stays undefined, isLoading goes back to false).
 const libraries = vi.hoisted(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { current: [] as any[] }
+    return { current: [] as any[] | undefined, isError: false }
 })
 
 // The mutation doubles are shared so a test can drive .error and assert .reset,
@@ -31,7 +33,11 @@ vi.mock('@/composables/useLibraries', async () => {
     mutations.create = { mutate: vi.fn(), isPending: vueRef(false), error: vueRef(null), reset: vi.fn() }
     mutations.update = { mutate: vi.fn(), isPending: vueRef(false), error: vueRef(null), reset: vi.fn() }
     return {
-        useLibraries: () => ({ data: vueRef(libraries.current), isLoading: vueRef(false) }),
+        useLibraries: () => ({
+            data: vueRef(libraries.current),
+            isLoading: vueRef(false),
+            isError: vueRef(libraries.isError)
+        }),
         useCreateLibrary: () => mutations.create,
         useUpdateLibrary: () => mutations.update,
         useDeleteLibrary: () => ({ mutate: vi.fn(), isPending: vueRef(false), error: vueRef(null), reset: vi.fn() })
@@ -77,10 +83,12 @@ beforeEach(() => {
     mutations.create.reset.mockClear()
     mutations.update.reset.mockClear()
     confirmRequire.mockClear()
+    libraries.isError = false
 })
 
-const mountPanel = (libs: Library[]) => {
+const mountPanel = (libs: Library[] | undefined, isError = false) => {
     libraries.current = libs
+    libraries.isError = isError
     return mount(LibrariesPanel, {
         global: {
             plugins: [PrimeVue],
@@ -134,8 +142,10 @@ describe('LibrariesPanel filter summary', () => {
             })
         ])
         await flushPromises()
-        expect(w.text()).toContain('Release type: (none)')
-        expect(w.text()).toContain('Compilation: No')
+        // Compare the actual rendered order, not just presence — two
+        // toContain() checks would still pass with the lines swapped.
+        const tags = w.findAll('[data-test="filter-summary-tag"]').map((t) => t.text())
+        expect(tags).toEqual(['Release type: (none)', 'Compilation: No'])
     })
 
     it('shows "Whole catalog" when a library has no filters', async () => {
@@ -227,5 +237,33 @@ describe('LibrariesPanel empty state', () => {
         expect(w.text()).toContain(
             'No libraries yet. A library is a filtered view over your music — add one to give clients a music folder to browse.'
         )
+    })
+})
+
+// A failed request must never be mistaken for "there are no libraries yet" —
+// that would tell the admin a false thing and invite them to just add one.
+describe('LibrariesPanel load error', () => {
+    it('shows an error message instead of the empty state when the request fails', async () => {
+        const w = mountPanel(undefined, true)
+        await flushPromises()
+        const err = w.find('[data-test="libraries-error"]')
+        expect(err.exists()).toBe(true)
+        expect(err.text()).toBe(
+            'Could not load the libraries. Check that the server is reachable and reload the page.'
+        )
+        expect(w.text()).not.toContain('No libraries yet')
+    })
+
+    it('shows the empty state, not the error, once the libraries load empty', async () => {
+        const w = mountPanel([])
+        await flushPromises()
+        expect(w.find('[data-test="libraries-error"]').exists()).toBe(false)
+        expect(w.text()).toContain('No libraries yet')
+    })
+
+    it('keeps the Add library button available even when the load failed', async () => {
+        const w = mountPanel(undefined, true)
+        await flushPromises()
+        expect(w.findAll('button').some((b) => b.text().includes('Add library'))).toBe(true)
     })
 })

@@ -277,9 +277,24 @@ scan folders configured (see [subsonic-api.md](subsonic-api.md)). On phone,
 Path/Excludes/Symlinks hide and the path renders under the name instead;
 Tracks and Status stay on every width.
 
+Both panels distinguish a failed request from a genuinely empty one: the
+empty-state copy above renders only once the query actually resolved to an
+empty list (`scanFolders && scanFolders.length === 0` /
+`libraries && libraries.length === 0`) — on `isError` a red `.error-state`
+block ("Could not load the scan folders"/"Could not load the libraries…
+Check that the server is reachable and reload the page.") takes that slot
+instead, so a failed fetch is never reported as "nothing is configured" or
+"no libraries yet". `LibrariesPanel`'s "Add library" button stays available
+in that error state; it lives in the section header, outside the
+loading/error/empty/table switch.
+
 **`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
-inside `LibraryDialog`) is the one place filters are edited. Rules worth
-knowing before touching it:
+inside `LibraryDialog`) is the one place filters are edited. `LibraryDialog`
+always sends `filters` on both create and update — never omits the key: on
+`PUT /libraries/{id}` an absent `filters` key means "keep what's stored" and
+`[]` means "clear them", so round-tripping exactly what the builder shows is
+what makes an update mean what it looks like. Rules worth knowing about the
+builder itself before touching it:
 
 - A row's position IS its identity: the server's `422` pointers
   (`/filters/i/field`, `/filters/i/values`, `/filters/i/values/j`) index the
@@ -306,7 +321,10 @@ knowing before touching it:
   M albums" (or "Fix the filters…" on a 422); every external change to
   `modelValue` restarts the debounce, and a superseded response is dropped
   by identity-checking the in-flight `AbortController`, not just waiting
-  for its promise to settle.
+  for its promise to settle. The very first preview is not debounced at
+  all: `onMounted` fires `runPreview()` immediately, separately from that
+  400ms timer, so opening the dialog on an existing library shows its
+  match count right away instead of after a blank quarter-second.
 
 The `path` filter's "Browse…" opens `FolderPickerDialog`, rooted at the
 configured scan folders: calling `browseFolders()` with **no** `path`

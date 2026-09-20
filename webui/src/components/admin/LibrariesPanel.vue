@@ -17,7 +17,7 @@ import { summarize } from '@/lib/libraryFilters'
 import LibraryDialog from './LibraryDialog.vue'
 import { useViewport } from '@/composables/useViewport'
 
-const { data: libraries, isLoading } = useLibraries()
+const { data: libraries, isLoading, isError } = useLibraries()
 const createMutation = useCreateLibrary()
 const updateMutation = useUpdateLibrary()
 const deleteMutation = useDeleteLibrary()
@@ -104,7 +104,11 @@ function warningsTooltip(lib: Library): string {
             <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
         </div>
 
-        <div v-else-if="!libraries || libraries.length === 0" class="empty-state">
+        <div v-else-if="isError" class="error-state" data-test="libraries-error">
+            Could not load the libraries. Check that the server is reachable and reload the page.
+        </div>
+
+        <div v-else-if="libraries && libraries.length === 0" class="empty-state">
             <p>
                 No libraries yet. A library is a filtered view over your music — add one to give
                 clients a music folder to browse.
@@ -214,6 +218,11 @@ function warningsTooltip(lib: Library): string {
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
+}
+.error-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--p-red-700, #b91c1c);
 }
 .library-name {
     display: inline-flex;

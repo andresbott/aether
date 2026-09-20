@@ -10,7 +10,7 @@ import type { ScanFolder } from '@/types/scanFolders'
 // Read-only: scan folders are declared only in the server's config file (see
 // docs/agents/architecture.md#scan-folders-config-only) — there is nothing to
 // create, edit or delete here, so this panel has no buttons and no dialogs.
-const { data: scanFolders, isLoading } = useScanFolders()
+const { data: scanFolders, isLoading, isError } = useScanFolders()
 
 const { tier } = useViewport()
 // Spec §5: settings tables must not overflow a phone; the path, excludes and
@@ -38,7 +38,12 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
             <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
         </div>
 
-        <div v-else-if="!scanFolders || scanFolders.length === 0" class="empty-state">
+        <div v-else-if="isError" class="error-state" data-test="scan-folders-error">
+            Could not load the scan folders. Check that the server is reachable and reload the
+            page.
+        </div>
+
+        <div v-else-if="scanFolders && scanFolders.length === 0" class="empty-state">
             <p>
                 No scan folders are configured — nothing is scanned and no on-disk media is
                 served. Add them under ScanFolders in the server's config file and restart.
@@ -116,6 +121,11 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
     text-align: center;
     padding: 2rem;
     color: var(--app-text-secondary);
+}
+.error-state {
+    text-align: center;
+    padding: 2rem;
+    color: var(--p-red-700, #b91c1c);
 }
 .folder-name {
     display: inline-flex;
