@@ -177,7 +177,7 @@ const defaultViewOptions = [
         </Message>
 
         <div class="form-grid">
-            <label>Name</label>
+            <label for="library-name">Name</label>
             <InputText
                 id="library-name"
                 v-model="form.name"

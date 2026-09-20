@@ -84,6 +84,16 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
                             v-tooltip.top="data.available ? undefined : data.problem"
                             data-test="scan-folder-status"
                         />
+                        <!-- The tooltip alone is unreachable by touch and by
+                             keyboard, and this read-only panel has no row
+                             dialog to read the reason in instead. -->
+                        <div
+                            v-if="!data.available && data.problem"
+                            class="status-problem"
+                            data-test="scan-folder-problem"
+                        >
+                            {{ data.problem }}
+                        </div>
                     </template>
                 </Column>
             </DataTable>
@@ -130,6 +140,11 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
 .folder-name {
     display: inline-flex;
     align-items: center;
+}
+.status-problem {
+    margin-top: 0.25rem;
+    font-size: 0.8rem;
+    color: var(--app-text-secondary);
 }
 .name-path {
     display: block;

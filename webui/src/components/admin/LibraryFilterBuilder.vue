@@ -343,22 +343,33 @@ onUnmounted(() => {
                     rounded
                     size="small"
                     severity="danger"
-                    aria-label="Remove filter"
+                    :aria-label="`Remove filter ${idx + 1}`"
                     data-test="remove-filter"
                     @click="removeFilter(idx)"
                 />
             </div>
 
-            <small v-if="rowError(idx).field" class="filter-error" data-test="row-field-error">
+            <small
+                v-if="rowError(idx).field"
+                class="filter-error"
+                role="alert"
+                data-test="row-field-error"
+            >
                 {{ rowError(idx).field }}
             </small>
-            <small v-if="rowError(idx).values" class="filter-error" data-test="row-values-error">
+            <small
+                v-if="rowError(idx).values"
+                class="filter-error"
+                role="alert"
+                data-test="row-values-error"
+            >
                 {{ rowError(idx).values }}
             </small>
             <small
                 v-for="ve in rowValueErrors(idx)"
                 :key="ve.index"
                 class="filter-error"
+                role="alert"
                 data-test="row-value-error"
             >
                 {{ valueLabel(row.field, row.values[ve.index]) }}: {{ ve.detail }}
@@ -400,7 +411,12 @@ onUnmounted(() => {
             @click="addFilter"
         />
 
-        <div v-if="previewState.status !== 'none'" class="filter-preview" data-test="filter-preview">
+        <div
+            v-if="previewState.status !== 'none'"
+            class="filter-preview"
+            role="status"
+            data-test="filter-preview"
+        >
             <template v-if="previewState.status === 'ok'">
                 Matches {{ previewState.trackCount }} tracks in {{ previewState.albumCount }} albums.
             </template>
@@ -434,20 +450,29 @@ onUnmounted(() => {
     border: 1px solid var(--app-border);
     border-radius: 6px;
 }
+/* On a phone the three controls do not fit side by side: the value control is
+   allowed to take its own line (14rem basis) rather than being squeezed to a
+   few characters. */
 .filter-row-main {
     display: flex;
     align-items: flex-start;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 .field-select {
     flex: 0 0 10rem;
 }
 .value-control {
-    flex: 1;
+    flex: 1 1 14rem;
     min-width: 0;
 }
 .value-control :deep(.p-multiselect),
 .value-control :deep(.p-autocomplete) {
+    width: 100%;
+}
+/* The chips input inside the AutoComplete is its own element and does not
+   inherit that width — the same rule GenreChips.vue needs. */
+.value-control :deep(.p-autocomplete-input-multiple) {
     width: 100%;
 }
 .paths-control {

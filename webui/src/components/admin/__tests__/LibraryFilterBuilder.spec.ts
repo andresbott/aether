@@ -243,7 +243,15 @@ describe('LibraryFilterBuilder', () => {
         it('gives the field select and the remove button accessible names', () => {
             const w = mountBuilder([mkRow('scan_folder')])
             expect(row(w, 0).find('[aria-label="Filter field"]').exists()).toBe(true)
-            expect(row(w, 0).find('[aria-label="Remove filter"]').exists()).toBe(true)
+            expect(row(w, 0).find('[aria-label="Remove filter 1"]').exists()).toBe(true)
+        })
+
+        // Several identical "Remove filter" buttons are indistinguishable to a
+        // screen reader; the 1-based row number says which row each removes.
+        it('numbers each remove button by its row, counting from one', () => {
+            const w = mountBuilder([mkRow('scan_folder'), mkRow('genre')])
+            expect(row(w, 1).find('[aria-label="Remove filter 2"]').exists()).toBe(true)
+            expect(w.findAll('[aria-label="Remove filter"]')).toHaveLength(0)
         })
 
         it("resets that row's values to [] and emits when the field changes", async () => {

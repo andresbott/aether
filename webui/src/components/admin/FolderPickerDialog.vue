@@ -159,7 +159,7 @@ watch(
         @update:visible="emit('update:visible', $event)"
         modal
         header="Select folder"
-        :style="{ width: '28rem' }"
+        :style="{ width: 'min(92vw, 28rem)' }"
     >
         <div v-if="loadError" class="error-banner">{{ loadError }}</div>
         <div class="tree-wrap">

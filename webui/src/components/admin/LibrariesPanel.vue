@@ -166,6 +166,7 @@ function warningsTooltip(lib: Library): string {
                             icon="pi pi-pencil"
                             text
                             rounded
+                            :aria-label="`Edit library ${data.name}`"
                             @click="openEdit(data)"
                         />
                         <Button
@@ -173,6 +174,7 @@ function warningsTooltip(lib: Library): string {
                             text
                             rounded
                             severity="danger"
+                            :aria-label="`Delete library ${data.name}`"
                             @click="onDelete(data)"
                         />
                     </template>

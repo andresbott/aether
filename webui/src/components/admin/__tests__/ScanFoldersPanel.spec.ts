@@ -136,6 +136,22 @@ describe('ScanFoldersPanel', () => {
         expect(tag.attributes('data-tooltip')).toBe('root does not exist')
     })
 
+    // A tooltip is unreachable by touch and by keyboard, and this panel is
+    // read-only — there is no row dialog to read the reason in instead.
+    it('also renders the problem as text in the row, not only as a tooltip', async () => {
+        const w = mountPanel([scanFolder({ available: false, problem: 'root does not exist' })])
+        await flushPromises()
+        const problem = w.find('[data-test="scan-folder-problem"]')
+        expect(problem.exists()).toBe(true)
+        expect(problem.text()).toBe('root does not exist')
+    })
+
+    it('renders no problem text for a usable folder', async () => {
+        const w = mountPanel([scanFolder({ available: true, problem: undefined })])
+        await flushPromises()
+        expect(w.find('[data-test="scan-folder-problem"]').exists()).toBe(false)
+    })
+
     it('shows the empty-state copy when no scan folders are configured', async () => {
         const w = mountPanel([])
         await flushPromises()
