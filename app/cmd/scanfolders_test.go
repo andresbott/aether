@@ -212,6 +212,18 @@ func TestWarnScanFolders(t *testing.T) {
 	}
 }
 
+// lineContaining returns the first line of a slog dump that contains want, so a
+// test can assert what ONE message says rather than what the whole dump does —
+// the zero-folders Info line and the orphan WARN share phrases.
+func lineContaining(out, want string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	return ""
+}
+
 // warnLevelLines returns only the WARN-level lines of a slog text-handler
 // dump, so a test can assert something is (or is not) warned about without
 // tripping on the unconditional per-folder Info line, which also names every
@@ -252,11 +264,19 @@ func TestWarnScanFoldersWithNoneConfigured(t *testing.T) {
 	warnScanFolders(slog.New(slog.NewTextHandler(&buf, nil)), s, set)
 	out := buf.String()
 
-	if !strings.Contains(out, "no scan folders configured") || !strings.Contains(out, "scans do nothing") {
+	info := lineContaining(out, "no scan folders configured")
+	if !strings.Contains(info, "scans do nothing") {
 		t.Errorf("expected the no-scan-folders-configured Info line, got:\n%s", out)
 	}
-	if !strings.Contains(out, "Orphaned") || !strings.Contains(out, "neither re-stamped nor removed") {
-		t.Errorf("expected the orphaned-marker warning to say scans do nothing while unconfigured, got:\n%s", out)
+	// Failing closed must not be silent: an operator whose config names no scan
+	// folder gets a server that lists everything and plays nothing, so the line
+	// that says scans do nothing must say that too.
+	if !strings.Contains(info, "no on-disk media is served") {
+		t.Errorf("the no-scan-folders Info line must say no on-disk media is served, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Orphaned") || !strings.Contains(out, "neither re-stamped nor removed") ||
+		!strings.Contains(out, "cannot be played") {
+		t.Errorf("expected the orphaned-marker warning to say scans do nothing and the tracks cannot be played, got:\n%s", out)
 	}
 	if strings.Contains(out, "will remove") || strings.Contains(out, "removed otherwise") {
 		t.Errorf("with no folder configured, the warning must not promise a removal, got:\n%s", out)

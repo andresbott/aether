@@ -34,6 +34,9 @@ DataDir: "./data"
 # A directory that is missing at startup (a share that mounts late) is only a
 # warning: the server starts, and scans refuse to run until it is back.
 #
+# With NO scan folder configured at all nothing is scanned and no on-disk media
+# is served: a populated index is still listed, but nothing plays.
+#
 # REMOVING an entry removes its tracks at the next scan — together with their
 # stars, playlist entries and play history. The server warns at startup when
 # indexed tracks belong to a folder that is no longer listed.

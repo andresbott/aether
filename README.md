@@ -44,7 +44,9 @@ scan. Restart the server after editing, then run a scan. Removing an entry
 removes its tracks at the next scan, along with their stars, playlist
 entries and play history. Changing a `Path` keeps its tracks only if the old
 location is gone by the next scan (a move); if the old copy still exists,
-new rows are created and the old ones are swept instead.
+new rows are created and the old ones are swept instead. With no scan folder
+configured at all nothing is scanned and no on-disk media is served: a
+populated index is still listed, but nothing plays.
 
 See `config.yaml` for the full annotated example and every other setting.
 

@@ -44,7 +44,8 @@ func scanFolderSet(cfgs []ScanFolderCfg) (*scanfolder.Set, error) {
 //     not keep the server down; scans refuse to run against it until it is
 //     fixed.
 //   - no scan folder configured at all: scans then do nothing, ever, until the
-//     config names one.
+//     config names one, and the /rest media guard refuses every on-disk file, so
+//     an index that is still populated lists but does not play.
 //   - indexed tracks stamped with a scan folder that is no longer configured.
 //     At the next scan they are re-stamped if a configured folder still reaches
 //     their files (that is what a rename looks like), and removed otherwise —
@@ -67,7 +68,8 @@ func warnScanFolders(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 		}
 	}
 	if len(all) == 0 {
-		l.Info("no scan folders configured; scans do nothing (nothing is indexed and nothing is removed) until ScanFolders is set in the config file",
+		l.Info("no scan folders configured; scans do nothing (nothing is indexed and nothing is removed) and no on-disk "+
+			"media is served (streams, folder art and embedded covers are refused) until ScanFolders is set in the config file",
 			slog.String("component", "startup"))
 	}
 
@@ -86,7 +88,8 @@ func warnScanFolders(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 		}
 		if len(all) == 0 {
 			l.Warn("indexed tracks carry a scan-folder name that is no longer configured; scans do nothing while no "+
-				"folder is configured, so they are neither re-stamped nor removed",
+				"folder is configured, so they are neither re-stamped nor removed — and they are listed but cannot be "+
+				"played, because no on-disk media is served without a scan folder",
 				slog.String("component", "startup"),
 				slog.String("scan_folder", name), slog.Int64("tracks", n))
 			continue
