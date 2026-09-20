@@ -1366,10 +1366,16 @@ paths:
         with `has_subfolders: true` and `is_symlink: false` assumed rather
         than probed (probing every root on a request path risks hanging on
         a dead network mount). Symlinked directories under a root are listed
-        and navigable (`is_symlink`); the reported path is the one
-        typed/followed, not resolved, so pointing a library's path filter at
-        a symlink keeps that symlink as the stored value. Dot-directories
-        are omitted unless `show_hidden` is set.
+        and navigable, and flagged `is_symlink` so a picker can warn — the
+        flag marks the link itself, not what lies below it. The reported path
+        is the one typed/followed, never resolved, and a `path` filter value
+        at or below a symlink matches NOTHING today, because the scanner
+        records such content under its resolved path (and does not index it
+        at all when that folder's `FollowSymlinks` is off); recording the
+        logical, as-spelled path is a planned follow-up. `previewLibrary` is
+        the safety net — it reports the resulting (zero) count before
+        anything is saved. Dot-directories are omitted unless `show_hidden`
+        is set.
       tags: [libraries]
       parameters:
         - name: path

@@ -36,9 +36,14 @@ type browseFolderDTO struct {
 // symlink: this offers what is spelled under a root without resolving
 // anything, so a symlink INSIDE a root stays listed and navigable even
 // though it may resolve elsewhere, rather than being refused for pointing
-// outside. The reported path is the one typed/followed, not resolved, so
-// pointing a library's path filter at a symlink keeps that symlink as the
-// stored value.
+// outside. Such an entry is flagged is_symlink so a picker can warn — only
+// the link itself is flagged, not what lies below it — because a path filter
+// value at or below a symlink matches NOTHING today: with FollowSymlinks the
+// scanner records what it reaches through a symlinked directory under the
+// RESOLVED path (internal/scanner/walk.go), and without it that content is
+// not indexed at all. Recording the logical, as-spelled path is a planned
+// follow-up; until then POST /libraries/preview is the safety net that shows
+// the empty selection before anything is saved.
 func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	showHidden, err := parseBoolParam(r.URL.Query().Get("show_hidden"))
