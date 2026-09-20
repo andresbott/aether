@@ -10,14 +10,10 @@ import type { Library, LibraryInput } from '@/types/libraries'
 const baseLibrary: Library = {
     id: 1,
     name: 'Main',
-    path: '/srv/music',
-    exclude_patterns: [],
-    follow_symlinks: true,
     show_artists: true,
     default_view: 'albums',
     icon: 'folder',
-    source: 'db',
-    last_scan_started_at: null,
+    filters: [],
     created_at: '',
     updated_at: '',
     track_count: 0
@@ -49,14 +45,6 @@ const mountWithError = (error: unknown) =>
 describe('LibraryDialog validation errors', () => {
     const problem = (pointer: string, detail: string) => ({
         response: { status: 422, data: { title: 'Unprocessable Entity', status: 422, detail, errors: [{ pointer, detail }] } }
-    })
-
-    it('shows the server message on the field its pointer names and marks it invalid', async () => {
-        const w = mountWithError(problem('/path', 'path is not a usable directory'))
-        await flushPromises()
-        expect(w.find('.field-error').exists()).toBe(true)
-        expect(w.find('.field-error').text()).toContain('path is not a usable directory')
-        expect(w.find('.p-invalid').exists()).toBe(true)
     })
 
     it('surfaces a field error whose pointer maps to no field, so none is ever swallowed', async () => {

@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
-import Tag from 'primevue/tag'
 import { useConfirm } from 'primevue/useconfirm'
 import ConfirmDialog from 'primevue/confirmdialog'
 import {
@@ -58,7 +57,7 @@ function onSubmit(input: LibraryInput) {
 }
 function onDelete(lib: Library) {
     confirm.require({
-        message: `Delete library "${lib.name}" (${lib.path})? This will remove ${lib.track_count} tracks and any related stars/play history. This cannot be undone.`,
+        message: `Delete library "${lib.name}"? Only this view is removed — no track, star or play history is touched.`,
         header: 'Delete library?',
         icon: 'pi pi-exclamation-triangle',
         rejectLabel: 'Cancel',
@@ -66,21 +65,6 @@ function onDelete(lib: Library) {
         acceptClass: 'p-button-danger',
         accept: () => deleteMutation.mutate(lib.id)
     })
-}
-
-// Libraries declared in the server's config file are read-only here: the server
-// rewrites them from the file on every startup, so the API refuses edits (409
-// config_managed) rather than accepting a change that would silently revert.
-function isConfigManaged(lib: Library): boolean {
-    return lib.source === 'config'
-}
-
-const configManagedHint =
-    'Declared in the server config file. Edit the Libraries section of config.yaml and restart to change it.'
-
-function formatDate(s: string | null): string {
-    if (!s) return '—'
-    return new Date(s).toLocaleString()
 }
 
 const submitting = computed(
@@ -116,50 +100,30 @@ const phoneCols = computed(() => tier.value === 'phone')
                         <span class="library-name">
                             <i :class="`pi pi-${data.icon || 'folder'}`"></i>
                             {{ data.name }}
-                            <Tag
-                                v-if="isConfigManaged(data)"
-                                class="config-badge"
-                                value="From config"
-                                severity="secondary"
-                                v-tooltip.top="configManagedHint"
-                            />
                         </span>
-                        <span v-if="phoneCols" class="name-path">{{ data.path }}</span>
                     </template>
                 </Column>
-                <Column field="path" header="Path" :hidden="phoneCols" />
                 <Column
                     field="track_count"
                     header="Tracks"
                     :hidden="phoneCols"
                     style="width: 7rem; text-align: right"
                 />
-                <Column header="Last scan" :hidden="phoneCols" style="width: 14rem">
-                    <template #body="{ data }">{{ formatDate(data.last_scan_started_at) }}</template>
-                </Column>
                 <Column header="" style="width: 11rem; text-align: right">
                     <template #body="{ data }">
-                        <!-- Config-provisioned libraries have no actions: the server
-                             rewrites them from config.yaml on every startup, so an
-                             edit here would be reverted on the next restart. -->
-                        <span v-if="isConfigManaged(data)" class="config-hint">
-                            Managed in config.yaml
-                        </span>
-                        <template v-else>
-                            <Button
-                                icon="pi pi-pencil"
-                                text
-                                rounded
-                                @click="openEdit(data)"
-                            />
-                            <Button
-                                icon="pi pi-trash"
-                                text
-                                rounded
-                                severity="danger"
-                                @click="onDelete(data)"
-                            />
-                        </template>
+                        <Button
+                            icon="pi pi-pencil"
+                            text
+                            rounded
+                            @click="openEdit(data)"
+                        />
+                        <Button
+                            icon="pi pi-trash"
+                            text
+                            rounded
+                            severity="danger"
+                            @click="onDelete(data)"
+                        />
                     </template>
                 </Column>
             </DataTable>
@@ -208,22 +172,6 @@ const phoneCols = computed(() => tier.value === 'phone')
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-}
-.config-badge {
-    font-size: 0.75rem;
-}
-.config-hint {
-    font-size: 0.8rem;
-    color: var(--app-text-secondary);
-}
-.name-path {
-    display: block;
-    margin-top: 0.25rem;
-    font-size: 0.8rem;
-    color: var(--app-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 .table-fit {
     overflow-x: auto;

@@ -87,14 +87,10 @@ function library(over: Partial<Library>): Library {
     return {
         id: 1,
         name: 'Main',
-        path: '/srv/music',
-        exclude_patterns: [],
-        follow_symlinks: true,
         show_artists: true,
         default_view: 'albums',
         icon: 'folder',
-        source: 'db',
-        last_scan_started_at: '2026-01-01T10:00:00Z',
+        filters: [],
         created_at: '',
         updated_at: '',
         track_count: 1234,
@@ -147,7 +143,7 @@ describe('Settings tables hide low-value columns on phones', () => {
     })
 
     describe('LibrariesPanel', () => {
-        it('shows Path, Tracks and Last scan columns on desktop', async () => {
+        it('shows the Tracks column on desktop', async () => {
             tier.value = 'desktop'
             libraries.current = [library({})]
             const w = mount(LibrariesPanel, {
@@ -158,14 +154,12 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             await flushPromises()
-            expect(w.text()).toContain('Path')
             expect(w.text()).toContain('Tracks')
-            expect(w.text()).toContain('Last scan')
         })
 
-        it('hides Path, Tracks and Last scan column headers on phone but shows path in the name cell', async () => {
+        it('hides the Tracks column header on phone', async () => {
             tier.value = 'phone'
-            libraries.current = [library({ path: '/srv/music' })]
+            libraries.current = [library({})]
             const w = mount(LibrariesPanel, {
                 global: {
                     plugins: [PrimeVue],
@@ -174,13 +168,9 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             await flushPromises()
-            expect(w.text()).not.toContain('Path')
             expect(w.text()).not.toContain('Tracks')
-            expect(w.text()).not.toContain('Last scan')
             // Should still show Name header
             expect(w.text()).toContain('Name')
-            // Path data should appear within the name cell
-            expect(w.text()).toContain('/srv/music')
         })
     })
 

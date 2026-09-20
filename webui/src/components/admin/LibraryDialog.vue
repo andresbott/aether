@@ -4,10 +4,8 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
-import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Message from 'primevue/message'
-import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
 import type { Library, LibraryInput } from '@/types/libraries'
@@ -29,9 +27,6 @@ const emit = defineEmits<{
 
 interface FormState {
     name: string
-    path: string
-    excludesText: string
-    follow_symlinks: boolean
     show_artists: boolean
     default_view: 'albums' | 'artists'
     icon: string
@@ -40,9 +35,6 @@ interface FormState {
 function emptyForm(): FormState {
     return {
         name: '',
-        path: '',
-        excludesText: '',
-        follow_symlinks: true,
         show_artists: true,
         default_view: 'albums',
         icon: 'folder'
@@ -50,8 +42,6 @@ function emptyForm(): FormState {
 }
 
 const form = ref<FormState>(emptyForm())
-const initialPath = ref('')
-const pickerVisible = ref(false)
 
 watch(
     () => [props.visible, props.library],
@@ -61,33 +51,25 @@ watch(
             const lib = props.library
             form.value = {
                 name: lib.name,
-                path: lib.path,
-                excludesText: (lib.exclude_patterns ?? []).join('\n'),
-                follow_symlinks: lib.follow_symlinks,
                 show_artists: lib.show_artists,
                 default_view: lib.default_view,
                 icon: lib.icon || 'folder'
             }
-            initialPath.value = lib.path
         } else {
             form.value = emptyForm()
-            initialPath.value = ''
         }
     },
     { immediate: true }
 )
 
 const isEditMode = computed(() => props.library !== null)
-const pathChanged = computed(() => isEditMode.value && form.value.path !== initialPath.value)
 
 // A failed submit's per-field validation errors, keyed by the JSON Pointer the
-// backend names (validateDTO in the libraries handler): /name, /path,
-// /exclude_patterns, /default_view, /icon.
+// backend names (validateDTO in the libraries handler): /name, /default_view,
+// /icon.
 const fieldErrors = computed(() => apiFieldErrorMap(props.error))
 const KNOWN_POINTERS = [
     '/name',
-    '/path',
-    '/exclude_patterns',
     '/default_view',
     '/icon'
 ]
@@ -99,19 +81,15 @@ const otherErrors = computed(() =>
         .map(([, detail]) => detail)
 )
 
+// The filter UI doesn't exist yet (later tasks build it) — an edit round-trips
+// the library's stored filters unchanged so nothing is lost on save.
 function buildInput(): LibraryInput {
-    const excludes = form.value.excludesText
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
     return {
         name: form.value.name.trim(),
-        path: form.value.path.trim(),
-        exclude_patterns: excludes,
-        follow_symlinks: form.value.follow_symlinks,
         show_artists: form.value.show_artists,
         default_view: form.value.default_view,
-        icon: form.value.icon
+        icon: form.value.icon,
+        filters: props.library?.filters ?? []
     }
 }
 
@@ -166,38 +144,6 @@ const defaultViewOptions = [
                 {{ fieldErrors['/name'] }}
             </Message>
 
-            <label>Path</label>
-            <div class="path-row">
-                <InputText
-                    v-model="form.path"
-                    placeholder="/srv/music"
-                    :invalid="!!fieldErrors['/path']"
-                />
-                <Button
-                    icon="pi pi-folder-open"
-                    outlined
-                    aria-label="Browse server folders"
-                    @click="pickerVisible = true"
-                />
-            </div>
-            <Message
-                v-if="fieldErrors['/path']"
-                class="field-error"
-                severity="error"
-                size="small"
-                variant="simple"
-            >
-                {{ fieldErrors['/path'] }}
-            </Message>
-
-            <Message v-if="pathChanged" severity="warn" :closable="false">
-                Changing the path will wipe existing tracks under the old path.
-                The library will be empty until the next scan.
-            </Message>
-
-            <label>Follow symlinks</label>
-            <ToggleSwitch v-model="form.follow_symlinks" />
-
             <label>Show artists</label>
             <ToggleSwitch v-model="form.show_artists" />
 
@@ -230,23 +176,6 @@ const defaultViewOptions = [
             >
                 {{ fieldErrors['/icon'] }}
             </Message>
-
-            <label>Exclude patterns</label>
-            <Textarea
-                v-model="form.excludesText"
-                rows="4"
-                placeholder="One Go regex per line"
-                :invalid="!!fieldErrors['/exclude_patterns']"
-            />
-            <Message
-                v-if="fieldErrors['/exclude_patterns']"
-                class="field-error"
-                severity="error"
-                size="small"
-                variant="simple"
-            >
-                {{ fieldErrors['/exclude_patterns'] }}
-            </Message>
         </div>
 
         <template #footer>
@@ -257,11 +186,6 @@ const defaultViewOptions = [
                 @click="onSubmit"
             />
         </template>
-
-        <FolderPickerDialog
-            v-model:visible="pickerVisible"
-            @select="form.path = $event"
-        />
     </Dialog>
 </template>
 
@@ -277,13 +201,6 @@ const defaultViewOptions = [
 }
 .form-grid > .p-message {
     grid-column: 2 / 3;
-}
-.path-row {
-    display: flex;
-    gap: 0.5rem;
-}
-.path-row .p-inputtext {
-    flex: 1;
 }
 .field-error {
     grid-column: 2 / 3;

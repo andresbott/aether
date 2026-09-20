@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import type { Library, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryInput, LibraryFilterOptions } from '@/types/libraries'
 
 const updateLibraryMock = vi.fn()
 const createLibraryMock = vi.fn()
+const getLibraryFilterOptionsMock = vi.fn()
 
 vi.mock('@/lib/api/Libraries', () => ({
     updateLibrary: (...args: unknown[]) => updateLibraryMock(...args),
     createLibrary: (...args: unknown[]) => createLibraryMock(...args),
     listLibraries: vi.fn(),
-    deleteLibrary: vi.fn()
+    deleteLibrary: vi.fn(),
+    getLibraryFilterOptions: (...args: unknown[]) => getLibraryFilterOptionsMock(...args)
 }))
 
 const toastAdd = vi.hoisted(() => vi.fn())
@@ -19,20 +21,16 @@ vi.mock('primevue/usetoast', () => ({
     useToast: () => ({ add: toastAdd })
 }))
 
-import { useUpdateLibrary, useCreateLibrary } from '@/composables/useLibraries'
+import { useUpdateLibrary, useCreateLibrary, useLibraryFilterOptions } from '@/composables/useLibraries'
 
 function sampleLibrary(): Library {
     return {
         id: 1,
         name: 'Main',
-        path: '/srv/music',
-        exclude_patterns: [],
-        follow_symlinks: true,
         show_artists: true,
         default_view: 'artists',
         icon: 'folder',
-        source: 'db',
-        last_scan_started_at: null,
+        filters: [],
         created_at: '',
         updated_at: '',
         track_count: 0
@@ -41,12 +39,10 @@ function sampleLibrary(): Library {
 
 const sampleInput: LibraryInput = {
     name: 'Main',
-    path: '/srv/music',
-    exclude_patterns: [],
-    follow_symlinks: true,
     show_artists: true,
     default_view: 'artists',
-    icon: 'folder'
+    icon: 'folder',
+    filters: []
 }
 
 /** Mounts a mutation composable inside a real vue-query context and returns the mutation + the invalidate spy. */
@@ -70,6 +66,7 @@ function mountMutation<T>(composable: () => T) {
 beforeEach(() => {
     updateLibraryMock.mockReset()
     createLibraryMock.mockReset()
+    getLibraryFilterOptionsMock.mockReset()
     toastAdd.mockReset()
 })
 
@@ -81,6 +78,17 @@ describe('useUpdateLibrary', () => {
         await mutation.mutateAsync({ id: 1, input: sampleInput })
 
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['subsonic'] })
+    })
+
+    it('toasts "Library updated" on success', async () => {
+        updateLibraryMock.mockResolvedValue(sampleLibrary())
+        const { mutation } = mountMutation(useUpdateLibrary)
+
+        await mutation.mutateAsync({ id: 1, input: sampleInput })
+
+        expect(toastAdd).toHaveBeenCalledWith(
+            expect.objectContaining({ severity: 'success', summary: 'Library updated' })
+        )
     })
 })
 
@@ -125,5 +133,32 @@ describe('validation errors are left for the form, not toasted', () => {
         const { mutation } = mountMutation(useCreateLibrary)
         await mutation.mutateAsync(sampleInput).catch(() => {})
         expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({ severity: 'error' }))
+    })
+})
+
+describe('useLibraryFilterOptions', () => {
+    it('calls getLibraryFilterOptions once and exposes the data', async () => {
+        const sample: LibraryFilterOptions = {
+            scan_folders: ['Music'],
+            formats: ['flac', 'mp3'],
+            genres: ['Rock'],
+            release_types: ['Album']
+        }
+        getLibraryFilterOptionsMock.mockResolvedValue(sample)
+
+        let query!: ReturnType<typeof useLibraryFilterOptions>
+        const Comp = defineComponent({
+            setup() {
+                query = useLibraryFilterOptions()
+                return () => h('div')
+            }
+        })
+        mount(Comp, {
+            global: { plugins: [[VueQueryPlugin, { queryClient: new QueryClient() }]] }
+        })
+        await flushPromises()
+
+        expect(getLibraryFilterOptionsMock).toHaveBeenCalledTimes(1)
+        expect(query.data.value).toEqual(sample)
     })
 })

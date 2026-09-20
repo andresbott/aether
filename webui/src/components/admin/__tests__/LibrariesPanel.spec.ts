@@ -43,25 +43,6 @@ beforeEach(() => {
     mutations.update.reset.mockClear()
 })
 
-function library(over: Partial<Library>): Library {
-    return {
-        id: 1,
-        name: 'Main',
-        path: '/srv/music',
-        exclude_patterns: [],
-        follow_symlinks: true,
-        show_artists: true,
-        default_view: 'albums',
-        icon: 'folder',
-        source: 'db',
-        last_scan_started_at: null,
-        created_at: '',
-        updated_at: '',
-        track_count: 0,
-        ...over
-    }
-}
-
 const mountPanel = (libs: Library[]) => {
     libraries.current = libs
     return mount(LibrariesPanel, {
@@ -72,34 +53,6 @@ const mountPanel = (libs: Library[]) => {
         }
     })
 }
-
-describe('LibrariesPanel config-provisioned libraries', () => {
-    it('lists libraries from both sources', async () => {
-        const w = mountPanel([
-            library({ id: 1, name: 'Jazz', source: 'db' }),
-            library({ id: 2, name: 'Rock', path: '/music/rock', source: 'config' })
-        ])
-        await flushPromises()
-        expect(w.text()).toContain('Jazz')
-        expect(w.text()).toContain('Rock')
-    })
-
-    it('badges a config-provisioned library and offers no edit or delete action', async () => {
-        const w = mountPanel([library({ id: 2, name: 'Rock', source: 'config' })])
-        await flushPromises()
-        expect(w.text()).toContain('From config')
-        expect(w.find('.pi-pencil').exists()).toBe(false)
-        expect(w.find('.pi-trash').exists()).toBe(false)
-    })
-
-    it('keeps edit and delete actions for a UI-created library', async () => {
-        const w = mountPanel([library({ id: 1, name: 'Jazz', source: 'db' })])
-        await flushPromises()
-        expect(w.text()).not.toContain('From config')
-        expect(w.find('.pi-pencil').exists()).toBe(true)
-        expect(w.find('.pi-trash').exists()).toBe(true)
-    })
-})
 
 // A failed create/update leaves its error on the mutation; the panel forwards
 // that to the dialog so the field-level message shows on the offending input,
