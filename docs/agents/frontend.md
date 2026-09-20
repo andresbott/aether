@@ -266,7 +266,9 @@ tiers for this table.
 mutations — over `useScanFolders()` (`GET /api/v0/scan-folders`): Name, Path,
 Excludes (a count; the patterns themselves are the tooltip), Symlinks
 ("Followed"/"Not followed"), Tracks, Status (a `Tag`, `success` "Available"
-or `danger` "Not usable" with the server's raw `problem` string as tooltip).
+or `danger` "Not usable" with the server's raw `problem` string as tooltip
+AND as small secondary text under the tag — a tooltip alone is unreachable by
+touch and keyboard, and this read-only panel has no dialog to show it in).
 Its hint, shown above the table regardless of data: "Defined in the server's
 config file under ScanFolders; restart the server to apply changes." With
 zero scan folders configured, the empty state spells out the consequence
