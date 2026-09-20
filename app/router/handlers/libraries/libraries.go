@@ -24,6 +24,11 @@ type Handler struct {
 	Problems *problemjson.Writer
 }
 
+// maxLibraryBodyBytes caps the JSON bodies this handler decodes, so a
+// pathologically large one is cut short instead of buffered whole — the same
+// defense in depth the metadata editor's POST-reads apply (maxSelectionBodyBytes).
+const maxLibraryBodyBytes = 1 << 20
+
 // warningDTO flags something about a stored library that is not an error —
 // today a scan_folder value whose folder is no longer configured.
 type warningDTO struct {
@@ -254,6 +259,7 @@ func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in []m
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
 	var in libraryWriteDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
@@ -317,6 +323,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
 	var in libraryWriteDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())

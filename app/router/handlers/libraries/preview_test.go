@@ -85,6 +85,30 @@ func TestPreviewRejectsAnInvalidFilter(t *testing.T) {
 	}
 }
 
+// TestPreviewRejectsAnOversizedBody proves the decode is bounded. Nothing
+// about the payload is otherwise wrong — a genre value has no length rule — so
+// without the cap this body would be read whole and answered 200. Over the cap
+// the reader cuts the stream short, json.Decode fails, and the existing
+// malformed-JSON branch answers 400 validation_error.
+func TestPreviewRejectsAnOversizedBody(t *testing.T) {
+	_, _, r := newTestHandler(t)
+	body := `{"filters":[{"field":"genre","values":["` + strings.Repeat("x", 2<<20) + `"]}]}`
+	req := httptest.NewRequest("POST", "/libraries/preview", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d, body=%s", w.Code, w.Body.String())
+	}
+	var problem problemjson.Details
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatal(err)
+	}
+	if slug := problemjson.Slug(problem.Type); slug != "validation_error" {
+		t.Fatalf("expected slug validation_error, got %q", slug)
+	}
+}
+
 func TestPreviewRejectsMalformedJSON(t *testing.T) {
 	_, _, r := newTestHandler(t)
 	req := httptest.NewRequest("POST", "/libraries/preview", strings.NewReader(`{`))

@@ -22,6 +22,7 @@ type previewDTO struct {
 // the filter builder calls it as the admin edits. It is a read that travels as
 // POST because the filters are a structured body (see api-conventions.md).
 func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
 	var in previewRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
