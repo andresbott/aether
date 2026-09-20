@@ -7,8 +7,9 @@ import ToggleSwitch from 'primevue/toggleswitch'
 import Select from 'primevue/select'
 import Message from 'primevue/message'
 import IconSelect from '@/components/common/IconSelect.vue'
+import LibraryFilterBuilder from '@/components/admin/LibraryFilterBuilder.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
-import type { Library, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryFilter, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
@@ -30,6 +31,7 @@ interface FormState {
     show_artists: boolean
     default_view: 'albums' | 'artists'
     icon: string
+    filters: LibraryFilter[]
 }
 
 function emptyForm(): FormState {
@@ -37,11 +39,16 @@ function emptyForm(): FormState {
         name: '',
         show_artists: true,
         default_view: 'albums',
-        icon: 'folder'
+        icon: 'folder',
+        filters: []
     }
 }
 
 const form = ref<FormState>(emptyForm())
+
+// Whether the admin has edited the filters since the last failed submit — see
+// the errors-visibility comment below, by the `builderErrors` computed.
+const filtersTouchedSinceError = ref(false)
 
 watch(
     () => [props.visible, props.library],
@@ -53,11 +60,18 @@ watch(
                 name: lib.name,
                 show_artists: lib.show_artists,
                 default_view: lib.default_view,
-                icon: lib.icon || 'folder'
+                icon: lib.icon || 'folder',
+                // Copied, never the vue-query cache's own arrays: editing (even
+                // abandoning an edit to) this form must not mutate objects other
+                // views are reading.
+                filters: lib.filters.map((f) => ({ field: f.field, values: [...f.values] }))
             }
         } else {
             form.value = emptyForm()
         }
+        // A freshly (re)opened dialog is a new editing session: any stale-error
+        // suppression left over from a previous visit no longer applies.
+        filtersTouchedSinceError.value = false
     },
     { immediate: true }
 )
@@ -66,30 +80,65 @@ const isEditMode = computed(() => props.library !== null)
 
 // A failed submit's per-field validation errors, keyed by the JSON Pointer the
 // backend names (validateDTO in the libraries handler): /name, /default_view,
-// /icon.
+// /icon, /show_artists, plus the /filters family (handled entirely by the
+// builder — see isFilterPointer below).
 const fieldErrors = computed(() => apiFieldErrorMap(props.error))
 const KNOWN_POINTERS = [
     '/name',
     '/default_view',
-    '/icon'
+    '/icon',
+    '/show_artists'
 ]
+
+function isFilterPointer(pointer: string): boolean {
+    return pointer === '/filters' || pointer.startsWith('/filters/')
+}
+
 // Any field error whose pointer we don't render inline (e.g. a future field) is
 // shown as a general message so a validation failure is never swallowed silently.
 const otherErrors = computed(() =>
     Object.entries(fieldErrors.value)
-        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer))
+        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer) && !isFilterPointer(pointer))
         .map(([, detail]) => detail)
 )
 
-// The filter UI doesn't exist yet (later tasks build it) — an edit round-trips
-// the library's stored filters unchanged so nothing is lost on save.
+// The server's /filters… pointers are POSITIONAL — they index the filters as
+// they were last SENT. If the admin edits the filters after a failed submit
+// (removes a row, changes a row's field or values), a leftover /filters… error
+// would attach to the wrong row, so it is hidden from the builder as soon as
+// that happens; it returns only with the next failed submit (a new `error`
+// prop, which resets the flag below). Errors of other fields are unaffected.
+watch(
+    () => props.error,
+    () => {
+        filtersTouchedSinceError.value = false
+    }
+)
+
+const builderErrors = computed<Record<string, string>>(() => {
+    if (!filtersTouchedSinceError.value) return fieldErrors.value
+    const out: Record<string, string> = {}
+    for (const [pointer, detail] of Object.entries(fieldErrors.value)) {
+        if (!isFilterPointer(pointer)) out[pointer] = detail
+    }
+    return out
+})
+
+function onFiltersUpdate(filters: LibraryFilter[]) {
+    form.value.filters = filters
+    filtersTouchedSinceError.value = true
+}
+
+// The dialog always sends `filters` exactly as the builder holds it: on an
+// update an absent key would keep the stored filters and `[]` would clear
+// them, so round-tripping precisely what is shown avoids that ambiguity.
 function buildInput(): LibraryInput {
     return {
         name: form.value.name.trim(),
         show_artists: form.value.show_artists,
         default_view: form.value.default_view,
         icon: form.value.icon,
-        filters: props.library?.filters ?? []
+        filters: form.value.filters
     }
 }
 
@@ -114,7 +163,7 @@ const defaultViewOptions = [
         @update:visible="emit('update:visible', $event)"
         modal
         :header="isEditMode ? 'Edit Library' : 'Add Library'"
-        :style="{ width: '32rem' }"
+        :style="{ width: 'min(92vw, 44rem)' }"
     >
         <Message
             v-if="otherErrors.length"
@@ -130,6 +179,7 @@ const defaultViewOptions = [
         <div class="form-grid">
             <label>Name</label>
             <InputText
+                id="library-name"
                 v-model="form.name"
                 placeholder="e.g. Main"
                 :invalid="!!fieldErrors['/name']"
@@ -145,7 +195,16 @@ const defaultViewOptions = [
             </Message>
 
             <label>Show artists</label>
-            <ToggleSwitch v-model="form.show_artists" />
+            <ToggleSwitch v-model="form.show_artists" :invalid="!!fieldErrors['/show_artists']" />
+            <Message
+                v-if="fieldErrors['/show_artists']"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ fieldErrors['/show_artists'] }}
+            </Message>
 
             <label>Default view</label>
             <Select
@@ -176,6 +235,18 @@ const defaultViewOptions = [
             >
                 {{ fieldErrors['/icon'] }}
             </Message>
+        </div>
+
+        <div class="filters-section">
+            <label class="filters-heading">Filters</label>
+            <LibraryFilterBuilder
+                :modelValue="form.filters"
+                :errors="builderErrors"
+                @update:modelValue="onFiltersUpdate"
+            />
+            <p class="filters-help">
+                Filters narrow the library: every filter must match; inside one filter any value may.
+            </p>
         </div>
 
         <template #footer>
@@ -212,5 +283,19 @@ const defaultViewOptions = [
 .form-error-list {
     margin: 0;
     padding-left: 1.1rem;
+}
+.filters-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+.filters-heading {
+    font-weight: 500;
+}
+.filters-help {
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
+    margin: 0;
 }
 </style>
