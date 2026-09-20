@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
@@ -19,8 +19,9 @@ import (
 // without the request blocking on it; it never writes to the library index
 // directly.
 type TagsHandler struct {
-	Store  *store.Store
-	Reader tags.Reader
+	// Folders is the set of configured scan folders the editor can address.
+	Folders *scanfolder.Set
+	Reader  tags.Reader
 	// Reindex enqueues a background re-index of the files a write touched; nil
 	// disables it.
 	Reindex Reindexer
@@ -50,18 +51,18 @@ type folderDTO struct {
 }
 
 // maxFolderSearchResults bounds a folder search so a one-letter query on a huge
-// library returns a manageable response; the UI shows a "refine your search"
+// scan folder returns a manageable response; the UI shows a "refine your search"
 // hint when the result is truncated.
 const maxFolderSearchResults = 500
 
 func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
-	_, abs, status, err := resolveLibraryRel(h.Store, r)
+	_, abs, status, err := resolveFolderRel(h.Folders, r)
 	if err != nil {
 		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
 	// A `q` turns the endpoint into a filter: instead of one directory level it
-	// walks the whole subtree under `abs` (the library root when no path is
+	// walks the whole subtree under `abs` (the scan folder root when no path is
 	// given) and returns every folder whose name matches, so the picker can find
 	// a deep folder without the user expanding to it first.
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
@@ -79,8 +80,8 @@ func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// No symlinks here, unlike the library path picker: this tree is confined to
-	// the library root by ResolveInLibrary, which checks paths lexically, so a
-	// followed link would be a way out of the root.
+	// the scan folder root by ResolveInLibrary, which checks paths lexically, so
+	// a followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
@@ -116,12 +117,12 @@ type trackDTO struct {
 }
 
 func (h *TagsHandler) tracks(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := resolveLibraryRel(h.Store, r)
+	folder, abs, status, err := resolveFolderRel(h.Folders, r)
 	if err != nil {
 		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
 	}
-	rows, err := metadataedit.ListTracks(r.Context(), lib.Path, abs, h.Reader)
+	rows, err := metadataedit.ListTracks(r.Context(), folder.Path, abs, h.Reader)
 	if err != nil {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
@@ -154,9 +155,9 @@ func (h *TagsHandler) tracks(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateRequest struct {
-	LibraryID uint     `json:"library_id"`
-	Paths     []string `json:"paths"`
-	Fields    fields   `json:"fields"`
+	ScanFolder string   `json:"scan_folder"`
+	Paths      []string `json:"paths"`
+	Fields     fields   `json:"fields"`
 }
 
 type fields struct {
@@ -192,7 +193,7 @@ type updateResult struct {
 }
 
 // validateUpdateFields returns a validation error message ("" = valid) for the
-// endpoint-specific `fields` payload of an update request. The {library_id,
+// endpoint-specific `fields` payload of an update request. The {scan_folder,
 // paths[]} selection is validated separately by resolveSelection; this checks
 // only what is unique to updateTracks.
 func validateUpdateFields(f fields) string {
@@ -238,14 +239,15 @@ func validateUpdateFields(f fields) string {
 
 // updateTracks applies one structured patch to every file in the selection
 // and reports one outcome per row. HTTP status describes the request, the
-// body describes the work: a malformed body, an unknown library, an over-cap
-// selection or an escaping path is rejected before any row is attempted and
-// answers problem+json; once the request is accepted the response is always
-// 200 — a file that cannot be written is that row's error, never a transport
-// status, even when every row failed. Files are written incrementally, so the
-// per-row ledger is the only honest report of what is now on disk; a 5xx
-// would invite a retry that re-writes the files that did land. Same rule as
-// rawTags; see docs/agents/api-conventions.md, "Batch endpoints".
+// body describes the work: a malformed body, a scan folder that is not
+// configured, an over-cap selection or an escaping path is rejected before
+// any row is attempted and answers problem+json; once the request is
+// accepted the response is always 200 — a file that cannot be written is
+// that row's error, never a transport status, even when every row failed.
+// Files are written incrementally, so the per-row ledger is the only honest
+// report of what is now on disk; a 5xx would invite a retry that re-writes
+// the files that did land. Same rule as rawTags; see
+// docs/agents/api-conventions.md, "Batch endpoints".
 func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var body updateRequest
@@ -257,7 +259,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", msg)
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1, h.Problems)
+	folder, ok := resolveSelection(h.Folders, w, r, body.ScanFolder, body.Paths, 1, h.Problems)
 	if !ok {
 		return
 	}
@@ -287,7 +289,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 
 	resolved := make([]string, 0, len(body.Paths))
 	for _, p := range body.Paths {
-		abs, err := metadataedit.ResolveInLibrary(libModel.Path, p)
+		abs, err := metadataedit.ResolveInLibrary(folder.Path, p)
 		if err != nil {
 			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return
@@ -322,7 +324,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"results": results}
 	// Only the files that were actually written need re-indexing; enqueueReindex
 	// returns nil for an empty list, so an all-failed batch carries no reindex.
-	if rx := enqueueReindex(r.Context(), h.Reindex, libModel.Name, written); rx != nil {
+	if rx := enqueueReindex(r.Context(), h.Reindex, folder.Name, written); rx != nil {
 		out["reindex"] = rx
 	}
 	// A partial write of an album-identity edit leaves the album inconsistent on

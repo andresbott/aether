@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/andresbott/aether/internal/artistimage"
@@ -54,12 +53,12 @@ func (c *countingArtistFetcher) Download(context.Context, string, string) ([]byt
 // buildPictureImageURLForm builds a POST /metadata/pictures body that saves from
 // a provider URL ("image_url") rather than an uploaded file.
 func buildPictureImageURLForm(
-	t *testing.T, libID uint, target, pictureType string, paths []string, imgURL string,
+	t *testing.T, scanFolder, target, pictureType string, paths []string, imgURL string,
 ) (*bytes.Buffer, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(libID), 10))
+	_ = mw.WriteField("scan_folder", scanFolder)
 	_ = mw.WriteField("slot", target)
 	if pictureType != "" {
 		_ = mw.WriteField("type", pictureType)
@@ -83,7 +82,7 @@ func TestPictureProbeThenSave_DownloadsOnce(t *testing.T) {
 	}
 	const imgURL = "https://coverart.example/full.png"
 	ca := &countingCoverArt{data: pngBytes, ext: "png"}
-	_, r, lib := newPictureHandler(t, root, ca)
+	r, folder := newPictureHandler(t, root, ca)
 
 	if w, _ := fetchPictureCandidateInfo(t, r, imgURL); w.Code != http.StatusOK {
 		t.Fatalf("probe 1 status %d", w.Code)
@@ -91,7 +90,7 @@ func TestPictureProbeThenSave_DownloadsOnce(t *testing.T) {
 	if w, _ := fetchPictureCandidateInfo(t, r, imgURL); w.Code != http.StatusOK {
 		t.Fatalf("probe 2 status %d", w.Code)
 	}
-	body, ct := buildPictureImageURLForm(t, lib.ID, "folder", "Back Cover", []string{"album/01.flac"}, imgURL)
+	body, ct := buildPictureImageURLForm(t, folder.Name, "folder", "Back Cover", []string{"album/01.flac"}, imgURL)
 	if w := postPicture(t, r, body, ct); w.Code != http.StatusOK {
 		t.Fatalf("save status %d: %s", w.Code, w.Body.String())
 	}
@@ -114,7 +113,7 @@ func TestArtistProbeThenSave_DownloadsAndListsOnce(t *testing.T) {
 		data:       pngBytes,
 		ext:        "jpg",
 	}
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
 
 	probe := func() int {
 		reqURL := "/metadata/artist-image/candidate-info?mbid=" +
@@ -129,7 +128,7 @@ func TestArtistProbeThenSave_DownloadsAndListsOnce(t *testing.T) {
 	if code := probe(); code != http.StatusOK {
 		t.Fatalf("probe 2 status %d", code)
 	}
-	body, ct := buildArtistImagePick(t, lib.ID, "Radiohead", testMBID, imgURL)
+	body, ct := buildArtistImagePick(t, folder.Name, "Radiohead", testMBID, imgURL)
 	if w := postArtistImage(t, r, body, ct); w.Code != http.StatusOK {
 		t.Fatalf("save status %d: %s", w.Code, w.Body.String())
 	}

@@ -227,14 +227,14 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			// uses.
 			reindexer := h.metadataReindexer()
 			(&metadataHandler.TagsHandler{
-				Store:    h.store,
+				Folders:  h.scanFolders,
 				Reader:   h.tagReader,
 				Reindex:  reindexer,
 				Problems: h.problems,
 			}).Routes(r)
 
 			(&metadataHandler.ImagesHandler{
-				Store:    h.store,
+				Folders:  h.scanFolders,
 				Reader:   h.tagReader,
 				Reindex:  reindexer,
 				CoverArt: coverart.New(userAgent),
@@ -253,7 +253,7 @@ func (h *MainAppHandler) attachApiV0(r *mux.Router) {
 			}).Routes(r)
 
 			ih := &metadataHandler.IdentifyHandler{
-				Store:                     h.store,
+				Folders:                   h.scanFolders,
 				Reader:                    h.tagReader,
 				IdentifyUnavailableReason: h.identifyOff,
 				Problems:                  h.problems,

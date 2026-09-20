@@ -159,15 +159,14 @@ like `NewScanTaskFn` does, and just calls `RescanPaths`) through the
 `metadata.Reindexer` interface — implemented by the router's `reindexEnqueuer`
 over `*taskrunner.Runner` — and reports it as `reindex: {execution_id}` in the
 response (`enqueueReindex`; omitted when nothing was written, or re-indexing
-is disabled because no task runner is configured). The metadata API still
-addresses the selection by `library_id` (the request shape is unchanged —
-see [api-conventions.md](api-conventions.md)); the write handlers resolve
-that to the library row and hand `enqueueReindex` its **name** as the scan
-folder to re-index — a later phase is planned to have the editor address
-scan folders directly instead. The artist-folder handlers
-re-index only one representative track under the folder
-(`metadataedit.FirstAudioPath`) — enough for the per-artist reconcile pass to
-re-probe the image, not the whole discography.
+is disabled because no task runner is configured). The metadata API
+addresses the selection by `scan_folder` (the configured folder's name)
+directly, and `RescanPaths` stamps the ADDRESSED folder's name, so for a
+file reachable from two folders an edit made through the non-owning folder
+stamps that folder until the next scan re-applies the ownership rule. The
+artist-folder handlers re-index only one representative track under the
+folder (`metadataedit.FirstAudioPath`) — enough for the per-artist reconcile
+pass to re-probe the image, not the whole discography.
 
 **`scan`, `scan-full` and `reindex` share tempo's `library-writes` exclusion
 group** (`tasks.LibraryWriteExclusionGroup`, joined via

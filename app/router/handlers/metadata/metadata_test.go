@@ -7,22 +7,19 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/tags"
-	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
 	_taglib "go.senan.xyz/taglib"
-	"gorm.io/gorm"
 )
 
 type nullReader struct{}
@@ -45,24 +42,17 @@ func (r taggedReader) Read(context.Context, string) (tags.Metadata, error) {
 	return tags.Metadata{AlbumArtist: []string{r.albumArtist}}, nil
 }
 
-func newTestHandler(t *testing.T, libRoot string) (*store.Store, *mux.Router, *model.Library) {
+func newTestHandler(t *testing.T, libRoot string) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return s, r, lib
+	return r, folder
 }
 
 func TestFolders_ListsImmediateSubdirs(t *testing.T) {
@@ -70,9 +60,9 @@ func TestFolders_ListsImmediateSubdirs(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "Beatles"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib := newTestHandler(t, root)
-	url := "/metadata/folders?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&path="
-	req := httptest.NewRequest("GET", url, nil)
+	r, folder := newTestHandler(t, root)
+	reqURL := "/metadata/folders?scan_folder=" + url.QueryEscape(folder.Name) + "&path="
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -89,9 +79,9 @@ func TestFolders_ListsImmediateSubdirs(t *testing.T) {
 
 func TestFolders_RejectsTraversal(t *testing.T) {
 	root := t.TempDir()
-	_, r, lib := newTestHandler(t, root)
-	url := "/metadata/folders?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&path=../"
-	req := httptest.NewRequest("GET", url, nil)
+	r, folder := newTestHandler(t, root)
+	reqURL := "/metadata/folders?scan_folder=" + url.QueryEscape(folder.Name) + "&path=../"
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -99,13 +89,41 @@ func TestFolders_RejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestFolders_UnknownLibrary404(t *testing.T) {
-	_, r, _ := newTestHandler(t, t.TempDir())
-	req := httptest.NewRequest("GET", "/metadata/folders?library_id=999&path=", nil)
+// TestFolders_UnknownScanFolder404 confirms an unconfigured scan folder name
+// answers 404 with a detail that says so, not merely a bare status.
+func TestFolders_UnknownScanFolder404(t *testing.T) {
+	r, _ := newTestHandler(t, t.TempDir())
+	reqURL := "/metadata/folders?scan_folder=" + url.QueryEscape("No Such Folder") + "&path="
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d", w.Code)
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "is not configured") {
+		t.Fatalf("expected detail to say the scan folder is not configured, got %s", w.Body.String())
+	}
+}
+
+// A folder name with a space and a non-ASCII letter must round-trip through the
+// query string: names are identifiers, and they are written by humans.
+func TestFoldersAddressesAFolderWithANonTrivialName(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "Artist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Música Clásica", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := mux.NewRouter()
+	(&metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/folders?scan_folder="+url.QueryEscape("Música Clásica"), nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Artist") {
+		t.Fatalf("got %d %s, want 200 listing Artist", rec.Code, rec.Body.String())
 	}
 }
 
@@ -117,11 +135,11 @@ func TestFolders_SearchByQueryFindsDeepMatch(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "Other", "thing"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, r, lib := newTestHandler(t, root)
-	// A search query returns matching folders from anywhere in the library, not
-	// just the immediate children the plain listing would return.
-	url := "/metadata/folders?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&q=up"
-	req := httptest.NewRequest("GET", url, nil)
+	r, folder := newTestHandler(t, root)
+	// A search query returns matching folders from anywhere in the scan folder,
+	// not just the immediate children the plain listing would return.
+	reqURL := "/metadata/folders?scan_folder=" + url.QueryEscape(folder.Name) + "&q=up"
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -169,17 +187,17 @@ func TestTracks_ListsFilesWithTags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: stubTagReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: stubTagReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
-	url := "/metadata/tracks?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&path=alb"
-	req := httptest.NewRequest("GET", url, nil)
+	reqURL := "/metadata/tracks?scan_folder=" + url.QueryEscape(folder.Name) + "&path=alb"
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -199,9 +217,9 @@ func TestTracks_ListsFilesWithTags(t *testing.T) {
 
 func TestTracks_RejectsTraversal(t *testing.T) {
 	root := t.TempDir()
-	_, r, lib := newTestHandler(t, root)
-	url := "/metadata/tracks?library_id=" + strconv.FormatUint(uint64(lib.ID), 10) + "&path=../"
-	req := httptest.NewRequest("GET", url, nil)
+	r, folder := newTestHandler(t, root)
+	reqURL := "/metadata/tracks?scan_folder=" + url.QueryEscape(folder.Name) + "&path=../"
+	req := httptest.NewRequest("GET", reqURL, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -234,17 +252,17 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 	dst := filepath.Join(root, "ok.flac")
 	copyTestFile(t, fx, dst)
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["ok.flac", "missing.flac"],
 		"fields": { "title": "New Title" }
 	}`
@@ -279,9 +297,9 @@ func TestUpdateTracks_PartialFailureCollected(t *testing.T) {
 }
 
 // warnHandler builds an updateTracks handler over a real fixture copied into the
-// library, so a save can partially fail (a missing sibling path) while one real
+// scan folder, so a save can partially fail (a missing sibling path) while one real
 // file writes.
-func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
+func warnHandler(t *testing.T) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
 	root := t.TempDir()
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"
@@ -290,15 +308,15 @@ func warnHandler(t *testing.T) (*mux.Router, *model.Library) {
 	}
 	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
 func warnFromUpdate(t *testing.T, r *mux.Router, body string) string {
@@ -325,9 +343,9 @@ func warnFromUpdate(t *testing.T, r *mux.Router, body string) string {
 // row's manual cover, stars and created_at on a remnant. The user must be warned
 // that those may have moved. See internal/scanner/albumcontinuity.go.
 func TestUpdateTracks_PartialIdentityEditWarnsAlbumMoved(t *testing.T) {
-	r, lib := warnHandler(t)
+	r, folder := warnHandler(t)
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["ok.flac", "missing.flac"],
 		"fields": { "album": "New Album Name" }
 	}`
@@ -343,9 +361,9 @@ func TestUpdateTracks_PartialIdentityEditWarnsAlbumMoved(t *testing.T) {
 // A partial failure on a non-identity field (title) cannot strand an album, so
 // it must not raise the album-moved warning.
 func TestUpdateTracks_PartialNonIdentityEditDoesNotWarn(t *testing.T) {
-	r, lib := warnHandler(t)
+	r, folder := warnHandler(t)
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["ok.flac", "missing.flac"],
 		"fields": { "title": "New Title" }
 	}`
@@ -357,9 +375,9 @@ func TestUpdateTracks_PartialNonIdentityEditDoesNotWarn(t *testing.T) {
 // An identity edit where every file wrote is consistent on disk: continuity
 // retags the album in place and nothing moves, so there is no warning.
 func TestUpdateTracks_CompleteIdentityEditDoesNotWarn(t *testing.T) {
-	r, lib := warnHandler(t)
+	r, folder := warnHandler(t)
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["ok.flac"],
 		"fields": { "album": "New Album Name" }
 	}`
@@ -374,10 +392,10 @@ func TestUpdateTracks_CompleteIdentityEditDoesNotWarn(t *testing.T) {
 // which made axios throw and lose the per-row detail in the SPA.
 func TestUpdateTracks_AllRowsFailStill200(t *testing.T) {
 	root := t.TempDir()
-	_, r, lib := newTestHandler(t, root)
+	r, folder := newTestHandler(t, root)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["missing-a.flac", "missing-b.flac"],
 		"fields": { "title": "New Title" }
 	}`
@@ -421,8 +439,8 @@ func TestUpdateTracks_AllRowsFailStill200(t *testing.T) {
 
 func TestUpdateTracks_RejectsTraversalPerPath(t *testing.T) {
 	root := t.TempDir()
-	_, r, lib := newTestHandler(t, root)
-	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `, "paths": ["../escape.mp3"], "fields": {"title": "x"}}`
+	r, folder := newTestHandler(t, root)
+	body := `{"scan_folder": "` + folder.Name + `", "paths": ["../escape.mp3"], "fields": {"title": "x"}}`
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -442,17 +460,17 @@ func TestUpdateTracks_OnlyProvidedFieldsWritten(t *testing.T) {
 	copyTestFile(t, fx, dst)
 	_ = taglibWrite(dst, map[string][]string{"TITLE": {"Original"}, "ALBUM": {"Old"}})
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "album": "New" }
 	}`
@@ -486,17 +504,17 @@ func TestUpdateTracks_AlbumReleaseIDsWritten(t *testing.T) {
 	copyTestFile(t, fx, dst)
 	_ = taglibWrite(dst, map[string][]string{"ALBUM": {"Keep"}})
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "mb_release_id": "rel-uuid", "mb_release_group_id": "rg-uuid" }
 	}`
@@ -533,17 +551,17 @@ func TestUpdateTracks_GenresAndTrackNumberWritten(t *testing.T) {
 	dst := filepath.Join(root, "a.flac")
 	copyTestFile(t, fx, dst)
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "genres": ["Rock", "Jazz"], "track_number": 7 }
 	}`
@@ -576,17 +594,17 @@ func TestUpdateTracks_ReleaseTypesWritten(t *testing.T) {
 	dst := filepath.Join(root, "a.flac")
 	copyTestFile(t, fx, dst)
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "release_types": ["Album", "Compilation"] }
 	}`
@@ -626,17 +644,17 @@ func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: tags.TaglibReader{}, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: tags.TaglibReader{}, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["t1.flac", "t2.flac"],
 		"fields": { "artist_mbids": {"Daft Punk": "id-dp", "Pharrell": "id-ph"} }
 	}`
@@ -666,7 +684,7 @@ func TestUpdateTracks_ArtistMBID_AlignsPerTrack(t *testing.T) {
 }
 
 func TestUpdateTracks_MalformedJSON(t *testing.T) {
-	_, r, _ := newTestHandler(t, t.TempDir())
+	r, _ := newTestHandler(t, t.TempDir())
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString("{bad json"))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -681,9 +699,9 @@ func TestUpdateTracks_MalformedJSON(t *testing.T) {
 // /paths, not a 400. The field validation still runs first, so a non-empty
 // fields object is supplied to reach the selection check.
 func TestUpdateTracks_EmptySelectionIs422(t *testing.T) {
-	_, r, lib := newTestHandler(t, t.TempDir())
+	r, folder := newTestHandler(t, t.TempDir())
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": [],
 		"fields": { "title": "x" }
 	}`
@@ -709,9 +727,9 @@ func TestUpdateTracks_EmptySelectionIs422(t *testing.T) {
 // the whole request so a corrupt tag is never written; the user saves them
 // separately.
 func TestUpdateTracks_RejectsArtistRenameWithMBID(t *testing.T) {
-	_, r, lib := newTestHandler(t, t.TempDir())
+	r, folder := newTestHandler(t, t.TempDir())
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "artists": ["New Name"], "artist_mbids": {"Old Name": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
 	}`
@@ -725,9 +743,9 @@ func TestUpdateTracks_RejectsArtistRenameWithMBID(t *testing.T) {
 }
 
 func TestUpdateTracks_RejectsAlbumArtistRenameWithMBID(t *testing.T) {
-	_, r, lib := newTestHandler(t, t.TempDir())
+	r, folder := newTestHandler(t, t.TempDir())
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["a.flac"],
 		"fields": { "album_artists": ["New"], "album_artist_mbids": {"Old": "056e4f3e-d505-4dad-8ec1-d04f521cbb56"} }
 	}`
@@ -758,9 +776,9 @@ func (f *fakeReindexer) EnqueueReindex(_ context.Context, scanFolder string, abs
 	return f.id, f.err
 }
 
-// reindexTestHandler builds a handler over a real in-memory store whose library
-// root is a temp dir holding one writable flac fixture.
-func reindexTestHandler(t *testing.T, rx *fakeReindexer) (*mux.Router, *model.Library) {
+// reindexTestHandler builds a handler over a real scan folder whose root is a
+// temp dir holding one writable flac fixture.
+func reindexTestHandler(t *testing.T, rx *fakeReindexer) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
 	root := t.TempDir()
 	fx := "../../../../internal/metadataedit/testdata/empty.flac"
@@ -769,15 +787,15 @@ func reindexTestHandler(t *testing.T, rx *fakeReindexer) (*mux.Router, *model.Li
 	}
 	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
 // reindexResponse is the slice of an update response the reindex assertions
@@ -793,10 +811,9 @@ type reindexResponse struct {
 
 // putTitle saves a title to ok.flac and decodes the response, asserting the
 // write itself succeeded with a 200.
-func putTitle(t *testing.T, r *mux.Router, libID uint) reindexResponse {
+func putTitle(t *testing.T, r *mux.Router, scanFolder string) reindexResponse {
 	t.Helper()
-	body := `{"library_id": ` + strconv.FormatUint(uint64(libID), 10) +
-		`, "paths": ["ok.flac"], "fields": {"title": "T"}}`
+	body := `{"scan_folder": "` + scanFolder + `", "paths": ["ok.flac"], "fields": {"title": "T"}}`
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -824,18 +841,18 @@ func TestUpdateTracks_ReindexesWrittenPaths(t *testing.T) {
 	dst := filepath.Join(root, "ok.flac")
 	copyTestFile(t, fx, dst)
 
-	db, _ := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	_ = model.Migrate(db)
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: root}
-	_ = s.CreateLibrary(lib)
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, _ := set.ByName("Main")
 	rx := &fakeReindexer{}
-	h := &metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
+	h := &metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Reindex: rx, Problems: problems.New(false)}
 	r := mux.NewRouter()
 	h.Routes(r)
 
 	body := `{
-		"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) + `,
+		"scan_folder": "` + folder.Name + `",
 		"paths": ["ok.flac", "missing.flac"],
 		"fields": { "title": "New Title" }
 	}`
@@ -854,8 +871,8 @@ func TestUpdateTracks_ReindexesWrittenPaths(t *testing.T) {
 	if len(rx.calls[0]) != 1 || rx.calls[0][0] != dst {
 		t.Fatalf("unexpected reindex paths: %v", rx.calls[0])
 	}
-	if rx.folders[0] != lib.Name {
-		t.Fatalf("expected scan folder %q, got %q", lib.Name, rx.folders[0])
+	if rx.folders[0] != folder.Name {
+		t.Fatalf("expected scan folder %q, got %q", folder.Name, rx.folders[0])
 	}
 
 	var resp struct {
@@ -876,8 +893,8 @@ func TestUpdateTracks_ReindexesWrittenPaths(t *testing.T) {
 // response simply carries no "reindex" field.
 func TestUpdateTracks_ReindexEnqueueFailureStillSucceeds(t *testing.T) {
 	rx := &fakeReindexer{err: errors.New("db is on fire")}
-	r, lib := reindexTestHandler(t, rx)
-	resp := putTitle(t, r, lib.ID)
+	r, folder := reindexTestHandler(t, rx)
+	resp := putTitle(t, r, folder.Name)
 	if resp.Reindex != nil {
 		t.Fatalf("expected no reindex reference when enqueue fails, got %+v", resp.Reindex)
 	}
@@ -890,10 +907,9 @@ func TestUpdateTracks_NoReindexerOmitsTheField(t *testing.T) {
 		t.Skipf("no fixture: %v", err)
 	}
 	copyTestFile(t, fx, filepath.Join(root, "ok.flac"))
-	_, r, lib := newTestHandler(t, root)
+	r, folder := newTestHandler(t, root)
 
-	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) +
-		`, "paths": ["ok.flac"], "fields": {"title": "T"}}`
+	body := `{"scan_folder": "` + folder.Name + `", "paths": ["ok.flac"], "fields": {"title": "T"}}`
 	req := httptest.NewRequest("PUT", "/metadata/tracks", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

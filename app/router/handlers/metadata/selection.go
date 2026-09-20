@@ -5,25 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/go-bumbu/http/problemjson"
 )
 
-// librarySummary is the resolved library a request addresses: its id, its name
-// and its root path. The name is what the post-write re-index is addressed by —
-// a scan folder is identified by name, and until the editor addresses scan
-// folders directly a library stands in for the folder of the same name.
-type librarySummary struct {
-	ID   uint
-	Name string
-	Path string
-}
-
 // pictureSelection is the request body of a picture-selection POST endpoint:
-// the library and the selected track paths (library-relative), carried in
+// the scan folder and the selected track paths (folder-relative), carried in
 // the body rather than the URL so a large multi-disc selection can never
 // overflow a header buffer (the production 431 this redesign fixes). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
@@ -32,43 +21,34 @@ type librarySummary struct {
 // sets them, defaulting Type to Front Cover like the other picture endpoints
 // when empty — inventory and raw-tags leave both at their zero value.
 type pictureSelection struct {
-	LibraryID uint     `json:"library_id"`
-	Paths     []string `json:"paths"`
-	Type      string   `json:"type,omitempty"`
-	Slot      string   `json:"slot,omitempty"`
+	ScanFolder string   `json:"scan_folder"`
+	Paths      []string `json:"paths"`
+	Type       string   `json:"type,omitempty"`
+	Slot       string   `json:"slot,omitempty"`
 }
 
-// resolveLibraryRel resolves the {library_id, path} query pair to the library
-// and the absolute path of `path` within it. It is the query-string counterpart
-// to the selection body helpers, shared by the folder/track browse endpoints
-// and the single-file image serves.
-func resolveLibraryRel(st *store.Store, r *http.Request) (lib *librarySummary, absPath string, httpStatus int, err error) {
-	idStr := r.URL.Query().Get("library_id")
-	id, perr := strconv.ParseUint(idStr, 10, 64)
-	if perr != nil {
-		return nil, "", http.StatusBadRequest, errors.New("library_id required")
+// resolveFolderRel resolves the {scan_folder, path} query pair to the scan
+// folder and the absolute path of `path` within it. It is the query-string
+// counterpart to the selection body helpers, shared by the folder/track browse
+// endpoints and the single-file image serves.
+func resolveFolderRel(folders *scanfolder.Set, r *http.Request) (folder *scanfolder.Folder, absPath string, httpStatus int, err error) {
+	name := r.URL.Query().Get("scan_folder")
+	if name == "" {
+		return nil, "", http.StatusBadRequest, errors.New("scan_folder required")
 	}
-	libModel, gerr := st.GetLibrary(uint(id))
-	if gerr != nil {
-		if errors.Is(gerr, store.ErrNotFound) {
-			return nil, "", http.StatusNotFound, gerr
-		}
-		return nil, "", http.StatusInternalServerError, gerr
+	f, ok := folders.ByName(name)
+	if !ok {
+		return nil, "", http.StatusNotFound, fmt.Errorf("scan folder %q is not configured", name)
 	}
-	rel := r.URL.Query().Get("path")
-	abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, rel)
+	abs, rerr := metadataedit.ResolveInLibrary(f.Path, r.URL.Query().Get("path"))
 	if rerr != nil {
 		return nil, "", http.StatusBadRequest, rerr
 	}
-	return &librarySummary{
-		ID:   libModel.ID,
-		Name: libModel.Name,
-		Path: libModel.Path,
-	}, abs, 0, nil
+	return &f, abs, 0, nil
 }
 
 // checkPaths is the single owner of the paths[] bounds shared by every
-// endpoint that accepts a {library_id, paths[]} selection. An empty selection
+// endpoint that accepts a {scan_folder, paths[]} selection. An empty selection
 // (below minPaths) or one over maxSelectionPaths is well-formed-but-invalid
 // input: it answers a 422 ValidationProblem itemising /paths, writes that
 // response, and returns false. A valid paths[] returns true and writes
@@ -91,35 +71,32 @@ func checkPaths(w http.ResponseWriter, r *http.Request, paths []string, minPaths
 	return true
 }
 
-// resolveLibrary is the single owner of the library_id lookup error mapping: a
-// missing library is 404, any other store failure 500. It writes the failure
-// itself and returns ok=false. library_id == 0 is not special-cased — no
-// library has id 0, so the lookup answers 404, which matches the schema
-// (library_id has minimum 0 and is therefore a well-formed value: "no such
-// library" is a 404, not a 400).
-func resolveLibrary(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, pw *problemjson.Writer) (*librarySummary, bool) {
-	libModel, err := st.GetLibrary(id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			pw.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return nil, false
-		}
-		pw.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+// resolveFolder is the single owner of the scan_folder lookup error mapping: a
+// missing name is a missing required field (400), a name that is not configured
+// is 404. It writes the failure itself and returns ok=false.
+func resolveFolder(folders *scanfolder.Set, w http.ResponseWriter, r *http.Request, name string, pw *problemjson.Writer) (*scanfolder.Folder, bool) {
+	if name == "" {
+		pw.Write(w, r, http.StatusBadRequest, "validation_error", "scan_folder required")
 		return nil, false
 	}
-	return &librarySummary{ID: libModel.ID, Name: libModel.Name, Path: libModel.Path}, true
+	f, ok := folders.ByName(name)
+	if !ok {
+		pw.Write(w, r, http.StatusNotFound, "not_found", fmt.Sprintf("scan folder %q is not configured", name))
+		return nil, false
+	}
+	return &f, true
 }
 
 // resolveSelection is the one-call validation path for a decoded selection:
-// paths[] shape (checkPaths) then the library_id lookup (resolveLibrary). It
-// owns every failure response and returns the resolved library with ok=true
-// only when the caller may proceed. Every {library_id, paths[]} endpoint runs
+// paths[] shape (checkPaths) then the scan_folder lookup (resolveFolder). It
+// owns every failure response and returns the resolved folder with ok=true only
+// when the caller may proceed. Every {scan_folder, paths[]} endpoint runs
 // through here so status code and error-body shape are defined in one place.
-func resolveSelection(st *store.Store, w http.ResponseWriter, r *http.Request, id uint, paths []string, minPaths int, pw *problemjson.Writer) (*librarySummary, bool) {
+func resolveSelection(folders *scanfolder.Set, w http.ResponseWriter, r *http.Request, name string, paths []string, minPaths int, pw *problemjson.Writer) (*scanfolder.Folder, bool) {
 	if !checkPaths(w, r, paths, minPaths, pw) {
 		return nil, false
 	}
-	return resolveLibrary(st, w, r, id, pw)
+	return resolveFolder(folders, w, r, name, pw)
 }
 
 // decodeSelection decodes a picture-selection POST body and validates it
@@ -130,16 +107,16 @@ func resolveSelection(st *store.Store, w http.ResponseWriter, r *http.Request, i
 // reported through the same malformed-JSON 400 branch as any other unparseable
 // body. On any failure it has already written the response and returns
 // ok=false; callers only check ok.
-func decodeSelection(st *store.Store, w http.ResponseWriter, r *http.Request, pw *problemjson.Writer) (*librarySummary, pictureSelection, bool) {
+func decodeSelection(folders *scanfolder.Set, w http.ResponseWriter, r *http.Request, pw *problemjson.Writer) (*scanfolder.Folder, pictureSelection, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSelectionBodyBytes)
 	var sel pictureSelection
 	if derr := json.NewDecoder(r.Body).Decode(&sel); derr != nil {
 		pw.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+derr.Error())
 		return nil, pictureSelection{}, false
 	}
-	lib, ok := resolveSelection(st, w, r, sel.LibraryID, sel.Paths, 1, pw)
+	folder, ok := resolveSelection(folders, w, r, sel.ScanFolder, sel.Paths, 1, pw)
 	if !ok {
 		return nil, pictureSelection{}, false
 	}
-	return lib, sel, true
+	return folder, sel, true
 }

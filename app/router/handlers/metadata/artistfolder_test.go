@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -47,9 +46,9 @@ type artistFolderBody struct {
 	CurrentImageMeta *imageMetaBody `json:"current_image_meta"`
 }
 
-func fetchArtistFolder(t *testing.T, r http.Handler, libID, path string) (*httptest.ResponseRecorder, artistFolderBody) {
+func fetchArtistFolder(t *testing.T, r http.Handler, scanFolder, path string) (*httptest.ResponseRecorder, artistFolderBody) {
 	t.Helper()
-	reqURL := "/metadata/artist-folder?library_id=" + libID + "&path=" + url.QueryEscape(path)
+	reqURL := "/metadata/artist-folder?scan_folder=" + url.QueryEscape(scanFolder) + "&path=" + url.QueryEscape(path)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest("GET", reqURL, nil))
 	var body artistFolderBody
@@ -67,9 +66,9 @@ func TestArtistFolder_EligibleWhenAlbumArtistMatches(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	w, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	w, body := fetchArtistFolder(t, r, folder.Name, "Radiohead")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -93,9 +92,9 @@ func TestArtistFolder_ReportsExistingImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Radiohead")
 	if !body.Eligible || body.CurrentImage != "artist.jpg" {
 		t.Errorf("got %+v, want eligible with current_image artist.jpg", body)
 	}
@@ -111,9 +110,9 @@ func TestArtistFolder_ReportsCurrentImageMeta(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Radiohead")
 	if body.CurrentImage != "artist.png" {
 		t.Fatalf("current_image = %q, want artist.png", body.CurrentImage)
 	}
@@ -132,9 +131,9 @@ func TestArtistFolder_NoImageMetaWhenAbsent(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Radiohead")
 	if body.CurrentImageMeta != nil {
 		t.Errorf("current_image_meta = %+v, want nil when no image", body.CurrentImageMeta)
 	}
@@ -146,22 +145,22 @@ func TestArtistFolder_NotEligibleWhenNameMismatch(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Rock", "OK Computer") // folder "Rock", tags say "Radiohead"
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Rock")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Rock")
 	if body.Eligible {
 		t.Errorf("expected eligible=false, got %+v", body)
 	}
 }
 
-// TestArtistFolder_NotEligibleForRoot: the library root is never an artist folder.
+// TestArtistFolder_NotEligibleForRoot: the scan folder root is never an artist folder.
 func TestArtistFolder_NotEligibleForRoot(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "")
+	_, body := fetchArtistFolder(t, r, folder.Name, "")
 	if body.Eligible {
 		t.Errorf("expected eligible=false for root, got %+v", body)
 	}
@@ -173,9 +172,9 @@ func TestArtistFolder_EligibleWhenSelectingAlbum(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead/OK Computer")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Radiohead/OK Computer")
 	if !body.Eligible || body.Path != "Radiohead" || body.Artist != "Radiohead" {
 		t.Errorf("got %+v; want eligible resolving to Radiohead", body)
 	}
@@ -193,9 +192,9 @@ func TestArtistFolder_EligibleWhenSelectingDisc(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, nil)
 
-	_, body := fetchArtistFolder(t, r, libIDStr(lib), "Radiohead/OK Computer/CD 1")
+	_, body := fetchArtistFolder(t, r, folder.Name, "Radiohead/OK Computer/CD 1")
 	if !body.Eligible || body.Path != "Radiohead" {
 		t.Errorf("got %+v; want eligible resolving to Radiohead from a disc", body)
 	}
@@ -203,11 +202,11 @@ func TestArtistFolder_EligibleWhenSelectingDisc(t *testing.T) {
 
 // ----- write / serve / delete -----
 
-func buildArtistImageForm(t *testing.T, libID uint, path, filename string, data []byte) (*bytes.Buffer, string) {
+func buildArtistImageForm(t *testing.T, scanFolder, path, filename string, data []byte) (*bytes.Buffer, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(libID), 10))
+	_ = mw.WriteField("scan_folder", scanFolder)
 	_ = mw.WriteField("path", path)
 	fw, err := mw.CreateFormFile("image", filename)
 	if err != nil {
@@ -222,11 +221,11 @@ func buildArtistImageForm(t *testing.T, libID uint, path, filename string, data 
 	return &buf, mw.FormDataContentType()
 }
 
-func buildArtistImagePick(t *testing.T, libID uint, path, mbid, imgURL string) (*bytes.Buffer, string) {
+func buildArtistImagePick(t *testing.T, scanFolder, path, mbid, imgURL string) (*bytes.Buffer, string) {
 	t.Helper()
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("library_id", strconv.FormatUint(uint64(libID), 10))
+	_ = mw.WriteField("scan_folder", scanFolder)
 	_ = mw.WriteField("path", path)
 	_ = mw.WriteField("mbid", mbid)
 	_ = mw.WriteField("url", imgURL)
@@ -245,9 +244,9 @@ func postArtistImage(t *testing.T, r http.Handler, body *bytes.Buffer, contentTy
 	return w
 }
 
-func reqArtistImage(t *testing.T, r http.Handler, method, libID, path string) *httptest.ResponseRecorder {
+func reqArtistImage(t *testing.T, r http.Handler, method, scanFolder, path string) *httptest.ResponseRecorder {
 	t.Helper()
-	reqURL := "/metadata/artist-image?library_id=" + libID + "&path=" + url.QueryEscape(path)
+	reqURL := "/metadata/artist-image?scan_folder=" + url.QueryEscape(scanFolder) + "&path=" + url.QueryEscape(path)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(method, reqURL, nil))
 	return w
@@ -261,9 +260,9 @@ func TestSetArtistImage_WritesUploadedFile(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil)
 
-	body, ct := buildArtistImageForm(t, lib.ID, "Radiohead", "x.png", pngBytes)
+	body, ct := buildArtistImageForm(t, folder.Name, "Radiohead", "x.png", pngBytes)
 	w := postArtistImage(t, r, body, ct)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
@@ -280,8 +279,8 @@ func TestSetArtistImage_WritesUploadedFile(t *testing.T) {
 // TestSetArtistImage_RequiresPath: without a folder there is nowhere to write.
 func TestSetArtistImage_RequiresPath(t *testing.T) {
 	root := t.TempDir()
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
-	body, ct := buildArtistImageForm(t, lib.ID, "", "x.png", pngBytes)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	body, ct := buildArtistImageForm(t, folder.Name, "", "x.png", pngBytes)
 	w := postArtistImage(t, r, body, ct)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400: %s", w.Code, w.Body.String())
@@ -300,9 +299,9 @@ func TestSetArtistImage_DownloadsOnlinePick(t *testing.T) {
 		data:       pngBytes,
 		ext:        "jpg",
 	}
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
 
-	body, ct := buildArtistImagePick(t, lib.ID, "Radiohead", testMBID, imgURL)
+	body, ct := buildArtistImagePick(t, folder.Name, "Radiohead", testMBID, imgURL)
 	w := postArtistImage(t, r, body, ct)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
@@ -326,9 +325,9 @@ func TestSetArtistImage_RejectsUrlNotInCandidates(t *testing.T) {
 		data:       pngBytes,
 		ext:        "jpg",
 	}
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
 
-	body, ct := buildArtistImagePick(t, lib.ID, "Radiohead", testMBID, "https://evil.example/x.jpg")
+	body, ct := buildArtistImagePick(t, folder.Name, "Radiohead", testMBID, "https://evil.example/x.jpg")
 	w := postArtistImage(t, r, body, ct)
 	var eb struct {
 		Detail string `json:"detail"`
@@ -345,9 +344,9 @@ func TestSetArtistImage_OnlinePickRequiresFetcher(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil) // no fetcher
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil) // no fetcher
 
-	body, ct := buildArtistImagePick(t, lib.ID, "Radiohead", testMBID, "https://provider.example/a.jpg")
+	body, ct := buildArtistImagePick(t, folder.Name, "Radiohead", testMBID, "https://provider.example/a.jpg")
 	w := postArtistImage(t, r, body, ct)
 	if w.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503: %s", w.Code, w.Body.String())
@@ -361,9 +360,9 @@ func TestSetArtistImage_EnqueuesReindexOfRepresentativeTrack(t *testing.T) {
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
 	rx := &fakeReindexer{}
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
 
-	body, ct := buildArtistImageForm(t, lib.ID, "Radiohead", "x.png", pngBytes)
+	body, ct := buildArtistImageForm(t, folder.Name, "Radiohead", "x.png", pngBytes)
 	if w := postArtistImage(t, r, body, ct); w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -403,7 +402,7 @@ func TestArtistImageCandidateInfo_ReturnsMeta(t *testing.T) {
 		data:       pngBytes,
 		ext:        "jpg",
 	}
-	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
+	r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
 
 	w, m := fetchArtistImageCandidateInfo(t, r, testMBID, imgURL)
 	if w.Code != http.StatusOK {
@@ -421,7 +420,7 @@ func TestArtistImageCandidateInfo_RejectsUrlNotInCandidates(t *testing.T) {
 		candidates: []artistimage.ImageCandidate{{FullURL: "https://provider.example/a.jpg", Provider: "fanart"}},
 		data:       pngBytes,
 	}
-	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
+	r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, fetcher, nil)
 
 	w, _ := fetchArtistImageCandidateInfo(t, r, testMBID, "https://evil.example/x.jpg")
 	if w.Code != http.StatusBadRequest {
@@ -432,7 +431,7 @@ func TestArtistImageCandidateInfo_RejectsUrlNotInCandidates(t *testing.T) {
 // TestArtistImageCandidateInfo_RequiresFetcher: with no provider configured, a
 // probe is unavailable.
 func TestArtistImageCandidateInfo_RequiresFetcher(t *testing.T) {
-	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, nil, nil)
+	r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, nil, nil)
 
 	w, _ := fetchArtistImageCandidateInfo(t, r, testMBID, "https://provider.example/a.jpg")
 	if w.Code != http.StatusServiceUnavailable {
@@ -442,7 +441,7 @@ func TestArtistImageCandidateInfo_RequiresFetcher(t *testing.T) {
 
 // TestArtistImageCandidateInfo_RequiresParams: mbid and url are both required.
 func TestArtistImageCandidateInfo_RequiresParams(t *testing.T) {
-	_, r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, stubArtistFetcher{}, nil)
+	r, _ := newArtistImageHandler(t, t.TempDir(), nullReader{}, stubArtistFetcher{}, nil)
 
 	w, _ := fetchArtistImageCandidateInfo(t, r, "", "")
 	if w.Code != http.StatusBadRequest {
@@ -458,9 +457,9 @@ func TestArtistImageServe_ReturnsFileBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil)
 
-	w := reqArtistImage(t, r, "GET", libIDStr(lib), "Radiohead")
+	w := reqArtistImage(t, r, "GET", folder.Name, "Radiohead")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -474,9 +473,9 @@ func TestArtistImageServe_NotFoundWhenNoImage(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil)
 
-	w := reqArtistImage(t, r, "GET", libIDStr(lib), "Radiohead")
+	w := reqArtistImage(t, r, "GET", folder.Name, "Radiohead")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404: %s", w.Code, w.Body.String())
 	}
@@ -495,9 +494,9 @@ func TestArtistImageDelete_RemovesFile(t *testing.T) {
 	}
 
 	rx := &fakeReindexer{}
-	_, r, lib := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
+	r, folder := newArtistImageHandler(t, root, taggedReader{"Radiohead"}, nil, rx)
 
-	w := reqArtistImage(t, r, "DELETE", libIDStr(lib), "Radiohead")
+	w := reqArtistImage(t, r, "DELETE", folder.Name, "Radiohead")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
@@ -509,8 +508,8 @@ func TestArtistImageDelete_RemovesFile(t *testing.T) {
 	if len(rx.calls) != 1 || len(rx.calls[0]) != 1 || rx.calls[0][0] != want {
 		t.Fatalf("unexpected reindex paths: %v, want [[%s]]", rx.calls, want)
 	}
-	if len(rx.folders) != 1 || rx.folders[0] != lib.Name {
-		t.Fatalf("expected scan folder %q, got %v", lib.Name, rx.folders)
+	if len(rx.folders) != 1 || rx.folders[0] != folder.Name {
+		t.Fatalf("expected scan folder %q, got %v", folder.Name, rx.folders)
 	}
 	var resp struct {
 		Reindex *struct {
@@ -530,9 +529,9 @@ func TestArtistImageDelete_NotFoundWhenNoImage(t *testing.T) {
 	root := t.TempDir()
 	mkAlbumTrack(t, root, "Radiohead", "OK Computer")
 
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, nil, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, nil, nil)
 
-	w := reqArtistImage(t, r, "DELETE", libIDStr(lib), "Radiohead")
+	w := reqArtistImage(t, r, "DELETE", folder.Name, "Radiohead")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404: %s", w.Code, w.Body.String())
 	}
@@ -576,17 +575,17 @@ func TestSetArtistImage_CachedUrlNotServedForDifferentMBID(t *testing.T) {
 		data: pngBytes,
 		ext:  "jpg",
 	}
-	_, r, lib := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
+	r, folder := newArtistImageHandler(t, root, nullReader{}, fetcher, nil)
 
 	// Artist A legitimately writes the portrait, caching its bytes.
-	bodyA, ctA := buildArtistImagePick(t, lib.ID, "Radiohead", mbidA, sharedURL)
+	bodyA, ctA := buildArtistImagePick(t, folder.Name, "Radiohead", mbidA, sharedURL)
 	if w := postArtistImage(t, r, bodyA, ctA); w.Code != http.StatusOK {
 		t.Fatalf("artist A write status %d: %s", w.Code, w.Body.String())
 	}
 
 	// Artist B, for whom that URL is not a candidate, must be rejected by the
 	// SSRF guard — the cache must not hand back A's image on a bare URL match.
-	bodyB, ctB := buildArtistImagePick(t, lib.ID, "Muse", mbidB, sharedURL)
+	bodyB, ctB := buildArtistImagePick(t, folder.Name, "Muse", mbidB, sharedURL)
 	w := postArtistImage(t, r, bodyB, ctB)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("artist B write status = %d, want 400 (URL not a candidate for B): %s", w.Code, w.Body.String())

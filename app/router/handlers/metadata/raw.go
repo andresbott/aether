@@ -21,13 +21,13 @@ type rawTagsResultDTO struct {
 // rawTags serves the complete tag map of the requested files, unfiltered —
 // including keys the structured editor does not manage (legacy frames,
 // ReplayGain, encoder tags, custom fields). The selection travels in the POST
-// body (library_id + paths[]), decoded the same way as the picture-selection
+// body (scan_folder + paths[]), decoded the same way as the picture-selection
 // endpoints: this was one of the endpoints the production 431 was reported
 // against (a large multi-disc selection as a repeated ?paths= query param
 // overflowed a reverse proxy's header buffer). See
 // docs/superpowers/specs/2026-08-22-metadata-picture-api-header-safe-redesign.md.
 func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
-	lib, sel, ok := decodeSelection(h.Store, w, r, h.Problems)
+	folder, sel, ok := decodeSelection(h.Folders, w, r, h.Problems)
 	if !ok {
 		return
 	}
@@ -42,7 +42,7 @@ func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
 	}
 	results := make([]rawTagsResultDTO, 0, len(sel.Paths))
 	for _, p := range sel.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(lib.Path, p)
+		abs, rerr := metadataedit.ResolveInLibrary(folder.Path, p)
 		if rerr != nil {
 			results = append(results, rawTagsResultDTO{Path: p, Tags: map[string][]string{}, Unsupported: []string{}, Error: rerr.Error()})
 			continue

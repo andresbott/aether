@@ -14,13 +14,10 @@ import (
 	"github.com/andresbott/aether/internal/albumidentify"
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/identify"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/andresbott/aether/libs/fpcalc"
-	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 // This file covers the seam the two endpoints share: both /metadata/identify and
@@ -84,7 +81,7 @@ func (c *countingReleaseLookup) Release(
 // Identifier, exactly as app/router/api_v0.go does.
 func newSharedIdentifyHandler(
 	t *testing.T, libRoot string, ident *identify.Identifier,
-) (*mux.Router, *model.Library) {
+) (*mux.Router, scanfolder.Folder) {
 	return newSharedIdentifyHandlerWithReleases(t, libRoot, ident, &countingReleaseLookup{}, 0)
 }
 
@@ -97,22 +94,15 @@ func newSharedIdentifyHandlerWithReleases(
 	ident *identify.Identifier,
 	releases albumidentify.ReleaseLookup,
 	releaseCacheSize int,
-) (*mux.Router, *model.Library) {
+) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
+	folder, _ := set.ByName("Main")
 	h := &metaHandler.IdentifyHandler{
-		Store:      s,
+		Folders:    set,
 		Reader:     nullReader{},
 		Identifier: ident,
 		// The same instance behind both endpoints — this is what makes the cache
@@ -125,7 +115,7 @@ func newSharedIdentifyHandlerWithReleases(
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
 func countingAcoustIDServer(t *testing.T, calls *atomic.Int32) *httptest.Server {
@@ -173,9 +163,9 @@ func TestIdentifyAndIdentifyAlbumShareOneFingerprintPass(t *testing.T) {
 	bin := fakeFpcalcBin(t)
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
-	r, lib := newSharedIdentifyHandler(t, root, ident)
+	r, folder := newSharedIdentifyHandler(t, root, ident)
 
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": paths})
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths})
 	if w.Code != http.StatusOK {
 		t.Fatalf("identify: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -187,7 +177,7 @@ func TestIdentifyAndIdentifyAlbumShareOneFingerprintPass(t *testing.T) {
 		t.Fatalf("expected %d AcoustID lookups, got %d", len(paths), got)
 	}
 
-	w = postIdentifyAlbum(t, r, map[string]any{"library_id": lib.ID, "paths": paths})
+	w = postIdentifyAlbum(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths})
 	if w.Code != http.StatusOK {
 		t.Fatalf("identify-album: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -213,15 +203,15 @@ func TestIdentifyAlbumThenIdentifyReusesTheCache(t *testing.T) {
 	bin := fakeFpcalcBin(t)
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
-	r, lib := newSharedIdentifyHandler(t, root, ident)
+	r, folder := newSharedIdentifyHandler(t, root, ident)
 
-	w := postIdentifyAlbum(t, r, map[string]any{"library_id": lib.ID, "paths": paths})
+	w := postIdentifyAlbum(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths})
 	if w.Code != http.StatusOK {
 		t.Fatalf("identify-album: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	afterAlbum := fpcalcRuns(t, bin)
 
-	w = postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": paths})
+	w = postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths})
 	if w.Code != http.StatusOK {
 		t.Fatalf("identify: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -249,12 +239,12 @@ func TestWithoutACacheBothFlowsFingerprintSeparately(t *testing.T) {
 	bin := fakeFpcalcBin(t)
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, nil)
-	r, lib := newSharedIdentifyHandler(t, root, ident)
+	r, folder := newSharedIdentifyHandler(t, root, ident)
 
-	if w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": paths}); w.Code != http.StatusOK {
+	if w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths}); w.Code != http.StatusOK {
 		t.Fatalf("identify: got %d: %s", w.Code, w.Body.String())
 	}
-	if w := postIdentifyAlbum(t, r, map[string]any{"library_id": lib.ID, "paths": paths}); w.Code != http.StatusOK {
+	if w := postIdentifyAlbum(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths}); w.Code != http.StatusOK {
 		t.Fatalf("identify-album: got %d: %s", w.Code, w.Body.String())
 	}
 
@@ -283,9 +273,9 @@ func TestRepeatedIdentifyAlbumRefetchesNoTracklists(t *testing.T) {
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
 	releases := &countingReleaseLookup{}
-	r, lib := newSharedIdentifyHandlerWithReleases(t, root, ident, releases, 100)
+	r, folder := newSharedIdentifyHandlerWithReleases(t, root, ident, releases, 100)
 
-	body := map[string]any{"library_id": lib.ID, "paths": paths}
+	body := map[string]any{"scan_folder": folder.Name, "paths": paths}
 	if w := postIdentifyAlbum(t, r, body); w.Code != http.StatusOK {
 		t.Fatalf("first identify-album: got %d: %s", w.Code, w.Body.String())
 	}
@@ -323,9 +313,9 @@ func TestRepeatedIdentifyAlbumWithoutAReleaseCacheRefetches(t *testing.T) {
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
 	releases := &countingReleaseLookup{}
 	// Size 0 disables the release cache.
-	r, lib := newSharedIdentifyHandlerWithReleases(t, root, ident, releases, 0)
+	r, folder := newSharedIdentifyHandlerWithReleases(t, root, ident, releases, 0)
 
-	body := map[string]any{"library_id": lib.ID, "paths": paths}
+	body := map[string]any{"scan_folder": folder.Name, "paths": paths}
 	if w := postIdentifyAlbum(t, r, body); w.Code != http.StatusOK {
 		t.Fatalf("first: got %d", w.Code)
 	}
@@ -356,10 +346,10 @@ func TestIdentifyOneSongThenAlbumReusesThatSongsAnswer(t *testing.T) {
 	bin := fakeFpcalcBin(t)
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
-	r, lib := newSharedIdentifyHandlerWithReleases(t, root, ident, &countingReleaseLookup{}, 100)
+	r, folder := newSharedIdentifyHandlerWithReleases(t, root, ident, &countingReleaseLookup{}, 100)
 
 	// One song, on its own.
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"01.mp3"}})
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{"01.mp3"}})
 	if w.Code != http.StatusOK {
 		t.Fatalf("single identify: got %d: %s", w.Code, w.Body.String())
 	}
@@ -371,7 +361,7 @@ func TestIdentifyOneSongThenAlbumReusesThatSongsAnswer(t *testing.T) {
 	}
 
 	// Now the whole album, which includes that song.
-	w = postIdentifyAlbum(t, r, map[string]any{"library_id": lib.ID, "paths": paths})
+	w = postIdentifyAlbum(t, r, map[string]any{"scan_folder": folder.Name, "paths": paths})
 	if w.Code != http.StatusOK {
 		t.Fatalf("album identify: got %d: %s", w.Code, w.Body.String())
 	}
@@ -397,9 +387,9 @@ func TestSavingTagsBetweenRunsInvalidatesThatFile(t *testing.T) {
 	bin := fakeFpcalcBin(t)
 	srv := countingAcoustIDServer(t, &lookups)
 	ident := newRealIdentifier(t, bin, srv, identify.NewCache(100))
-	r, lib := newSharedIdentifyHandlerWithReleases(t, root, ident, &countingReleaseLookup{}, 100)
+	r, folder := newSharedIdentifyHandlerWithReleases(t, root, ident, &countingReleaseLookup{}, 100)
 
-	body := map[string]any{"library_id": lib.ID, "paths": []string{"01.mp3"}}
+	body := map[string]any{"scan_folder": folder.Name, "paths": []string{"01.mp3"}}
 	if w := postIdentify(t, r, body); w.Code != http.StatusOK {
 		t.Fatalf("first: got %d", w.Code)
 	}

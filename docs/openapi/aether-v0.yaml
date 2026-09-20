@@ -32,7 +32,9 @@ tags:
   - name: metadata-tags
     description: Raw, unfiltered tag access for the metadata editor.
   - name: metadata-browse
-    description: Folder/track browsing that backs the metadata editor's file picker.
+    description: >
+      Folder/track browsing that backs the metadata editor's file picker,
+      scoped to the configured scan folders.
   - name: metadata-identify
     description: Audio-fingerprint identification of tracks and whole-album releases.
   - name: metadata-artist-image
@@ -108,12 +110,12 @@ paths:
         rather than constructing this URL by hand.
       tags: [metadata-pictures]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/ScanFolderName'
         - name: file
           in: query
           required: true
           description: >
-            The picture cell's resolved Source (its library-relative file),
+            The picture cell's resolved Source (its folder-relative file),
             exactly as encoded inside an inventory cell's `image.url` /
             `image.thumb_url`. A single scalar, **never** a repeated/array
             parameter: that is the deliberate, load-bearing property that
@@ -318,7 +320,7 @@ paths:
       description: >
         Proxies the Cover Art Archive image listing. Pre-existing endpoint,
         not reshaped by the header-safe redesign: unlike every other picture
-        endpoint here it takes no `library_id` and is not selection-scoped —
+        endpoint here it takes no `scan_folder` and is not selection-scoped —
         it is a stateless lookup by MusicBrainz id. Answers an empty array,
         never an error, when no Cover Art Archive client is configured.
       tags: [metadata-pictures]
@@ -354,9 +356,9 @@ paths:
   /metadata/folders:
     get:
       operationId: listMetadataFolders
-      summary: Immediate subfolders of a library directory (the editor's folder-tree picker).
+      summary: Immediate subfolders of a scan folder directory (the editor's folder-tree picker).
       description: >
-        Confined lexically to the library root (no symlink traversal), unlike
+        Confined lexically to the scan folder root (no symlink traversal), unlike
         the library path picker elsewhere in the app. A non-blank `q`
         switches the endpoint from a one-level listing to a recursive
         name search of the whole subtree under `path`, capped at 500
@@ -365,8 +367,8 @@ paths:
         carries neither.
       tags: [metadata-browse]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
         - name: q
           in: query
           required: false
@@ -393,13 +395,13 @@ paths:
   /metadata/tracks:
     get:
       operationId: listMetadataTracks
-      summary: Tracks in a library directory, with their current tags.
+      summary: Tracks in a scan folder directory, with their current tags.
       description: >
         The structured editor's read side.
       tags: [metadata-browse]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: The directory's tracks and their current tags.
@@ -418,14 +420,13 @@ paths:
         Applies one structured patch to every file in the selection and
         reports one outcome per row. HTTP status describes the request, the
         body describes the work. A malformed request (bad JSON, an invalid
-        field combination, an unknown library, a path outside the library
-        root) fails before any row is attempted and answers the normal
-        `application/problem+json` 400/404 below; a `paths` selection over
-        the shared `maxSelectionPaths` cap (50, the same bound the
-        picture-selection endpoints enforce) answers 422
-        `ValidationProblem`, itemising `/paths`; the library lookup failing
-        for a reason other than "not found" answers the standard 500
-        Problem. Once the request is accepted the response is always `200`
+        field combination, a scan folder that is not configured, a path
+        outside the scan folder root) fails before any row is attempted and
+        answers the normal `application/problem+json` 400/404 below; a `paths`
+        selection over the shared `maxSelectionPaths` cap (50, the same bound
+        the picture-selection endpoints enforce) answers 422
+        `ValidationProblem`, itemising `/paths`. Once the request is accepted
+        the response is always `200`
         — like its read-only sibling `batchReadRawTags` — whatever happened
         to the rows: a file that could not be written is reported on its
         own row's `error`, and a batch where every row failed is still a
@@ -468,8 +469,8 @@ paths:
       description: >
         Backs the editor's Identify button: when `identify` is `false` the
         UI disables it and shows `identify_unavailable_reason` instead of
-        silently hiding the feature. Never fails — no parameters, no library
-        lookup.
+        silently hiding the feature. Never fails — no parameters, no scan
+        folder lookup.
       tags: [metadata-identify]
       responses:
         '200':
@@ -490,7 +491,7 @@ paths:
         Fingerprints each file (fpcalc) and looks it up against AcoustID,
         sequentially — fingerprinting is CPU-bound and the AcoustID client
         is rate-limited, so concurrency buys nothing. A per-file failure (an
-        unreadable file, a path outside the library, an upstream lookup
+        unreadable file, a path outside the scan folder, an upstream lookup
         failure) is reported on that file's own result row, verbatim, and
         never fails the whole request; the request itself only fails
         validation (a bad selection) or answers 503 when no identification
@@ -570,8 +571,8 @@ paths:
         artist-image detection).
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: >
@@ -600,8 +601,8 @@ paths:
         bytes.
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: >
@@ -622,7 +623,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The library does not exist, or the selected folder holds no
+            The scan folder is not configured, or the selected folder holds no
             artist image. The latter case answers with Go's plain
             `http.NotFound`; like `getPictureImage`'s stale-link 404, the
             router-level error envelope (`app/router/errors.go`) still
@@ -679,8 +680,8 @@ paths:
         entirely, meaningless for an artist-folder image.
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: Removed.
@@ -692,7 +693,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The library does not exist, or the selected folder holds no
+            The scan folder is not configured, or the selected folder holds no
             artist image to remove (Go's plain `http.NotFound`, wrapped the
             same way as `getArtistImage`'s 404 — see its description).
           content:
@@ -1360,11 +1361,11 @@ paths:
       description: >
         Admin. Backs the filesystem picker shown when creating or editing a
         library. Unlike `listMetadataFolders`, this is not confined to any
-        library root — it has to work before a library exists — so `path`
+        scan folder's root — it has to work before a library exists — so `path`
         here is an arbitrary absolute path on the server filesystem,
         distinct from the metadata-browsing surface's library-relative
-        `path` (the shared `LibraryPath` parameter, confined to a library
-        root). Symlinked directories are listed and navigable
+        `path` (the shared `ScanFolderPath` parameter, confined to a scan
+        folder's root). Symlinked directories are listed and navigable
         (`is_symlink`); the reported path is the one typed/followed, not
         resolved, so pointing a library at a symlink keeps that symlink as
         its stored path. Dot-directories are omitted unless `show_hidden`
@@ -1377,7 +1378,7 @@ paths:
           description: >
             An absolute server filesystem path to list; defaults to "/".
             See the operation description for how this differs from the
-            shared `LibraryPath` parameter.
+            shared `ScanFolderPath` parameter.
           schema: { type: string }
         - name: show_hidden
           in: query
@@ -2083,20 +2084,23 @@ components:
         represented by a scheme nothing in the protocol actually sends.
 
   parameters:
-    LibraryId:
-      name: library_id
+    ScanFolderName:
+      name: scan_folder
       in: query
       required: true
-      description: The collection/library id to resolve paths against.
-      schema: { type: integer, format: int64, minimum: 0 }
-    LibraryPath:
+      description: >
+        The name of the configured scan folder to resolve paths against — one of
+        the names `listScanFolders` returns. A name that is not configured
+        answers 404.
+      schema: { type: string, minLength: 1 }
+    ScanFolderPath:
       name: path
       in: query
       required: false
       description: >
-        A directory, library-relative; empty/omitted defaults to the library
-        root. Resolved lexically against the library root — an absolute path,
-        or one that escapes the root, answers 400.
+        A directory, relative to the scan folder's root; empty/omitted
+        defaults to the root. Resolved lexically against the root — an
+        absolute path, or one that escapes the root, answers 400.
       schema: { type: string }
     ResourceId:
       name: id
@@ -2264,23 +2268,23 @@ components:
     PictureSelection:
       type: object
       description: >
-        The library and the selected track paths (library-relative), carried
+        The scan folder and the selected track paths (folder-relative), carried
         in the body rather than the URL so a large multi-disc selection can
         never overflow a header buffer — the production 431 this redesign
         fixes. The JSON request body is capped at 1 MiB; a larger body is
         rejected as a malformed-request 400.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
-          description: Selected track paths, library-relative.
-      required: [library_id, paths]
+          description: Selected track paths, folder-relative.
+      required: [scan_folder, paths]
 
     RawTagsRequest:
-      description: The same `{library_id, paths[]}` shape as the other selection endpoints.
+      description: The same `{scan_folder, paths[]}` shape as the other selection endpoints.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
 
@@ -2342,13 +2346,13 @@ components:
         answers 422, itemising `/paths` — and the whole request is additionally
         bounded by a 12 MiB size cap.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
-          description: Selected track paths, library-relative; one repeated form field per path.
+          description: Selected track paths, folder-relative; one repeated form field per path.
         slot: { $ref: '#/components/schemas/PictureSlot' }
         type: { $ref: '#/components/schemas/PictureType' }
         image:
@@ -2362,7 +2366,7 @@ components:
           type: string
           format: uri
           description: A Cover Art Archive image URL to download instead of an upload.
-      required: [library_id, paths, slot]
+      required: [scan_folder, paths, slot]
 
     ReindexRef:
       type: object
@@ -2542,18 +2546,18 @@ components:
     UpdateTracksRequest:
       type: object
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
           description: >
-            Selected track paths, library-relative. Capped at the same
+            Selected track paths, folder-relative. Capped at the same
             `maxSelectionPaths` (50) as the picture-selection endpoints — an
             oversized selection answers 422, itemising `/paths`.
         fields: { $ref: '#/components/schemas/UpdateTracksFields' }
-      required: [library_id, paths, fields]
+      required: [scan_folder, paths, fields]
 
     UpdateTracksResult:
       type: object
@@ -2656,14 +2660,14 @@ components:
           type: string
           description: >
             Set instead of (an empty) `candidates` when this file could not
-            be resolved (outside the library, unreadable, or the AcoustID
+            be resolved (outside the scan folder, unreadable, or the AcoustID
             lookup failed) — the raw error text, since this endpoint has no
             `albumidentify`-style fixed-sentence policy.
       required: [path, candidates]
 
     IdentifyRequest:
       description: >
-        The same `{library_id, paths[]}` shape as the picture-selection
+        The same `{scan_folder, paths[]}` shape as the picture-selection
         endpoints; at least one path is required.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
@@ -2788,7 +2792,7 @@ components:
       type: object
       description: >
         One requested file `/metadata/identify-album` did not cover: either
-        refused before identification (outside the library) or a file that
+        refused before identification (outside the scan folder) or a file that
         reached the resolver but could not be fingerprinted/looked up.
         `error` is always one of `albumidentify`'s fixed, short sentences —
         never a raw error, since this is rendered verbatim in the dialog.
@@ -2799,7 +2803,7 @@ components:
 
     IdentifyAlbumRequest:
       description: >
-        The same `{library_id, paths[]}` shape as the picture-selection
+        The same `{scan_folder, paths[]}` shape as the picture-selection
         endpoints. Identifying "the album" needs more than one file to
         place: the handler requires **at least two** paths — a single path
         is better served by `/metadata/identify` — and answers 422
@@ -2825,7 +2829,7 @@ components:
           description: >
             Candidate releases, best first. Always an array, never `null`
             — including the empty-selection case (every path was outside
-            the library) and the no-release-matched-anything case.
+            the scan folder) and the no-release-matched-anything case.
         errors:
           type: array
           items: { $ref: '#/components/schemas/IdentifyPathError' }
@@ -2850,7 +2854,7 @@ components:
         path:
           type: string
           description: >
-            Library-relative path of the resolved artist folder — the
+            Folder-relative path of the resolved artist folder — the
             selected folder itself, or the nearest ancestor that
             qualifies. Present only when eligible.
         current_image:
@@ -2888,10 +2892,10 @@ components:
         file wins and `mbid`/`url` are never consulted. Writes
         `artist.<ext>` (jpg or png) into the folder named by `path`.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         path:
           type: string
-          description: The artist folder, library-relative.
+          description: The artist folder, folder-relative.
         image:
           type: string
           format: binary
@@ -2906,7 +2910,7 @@ components:
             The provider-offered candidate URL to download. Must be one of
             the URLs currently offered for `mbid` — the SSRF guard rejects
             any other with 400.
-      required: [library_id, path]
+      required: [scan_folder, path]
 
     ApplyArtistImageResult:
       type: object
@@ -2914,7 +2918,7 @@ components:
         ok: { type: boolean }
         path:
           type: string
-          description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+          description: Folder-relative path of the written file, e.g. "Radiohead/artist.jpg".
         reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok, path]
 
@@ -3513,7 +3517,7 @@ components:
       description: >
         One subdirectory found by browseLibraryPath. Distinct from the
         metadata-browsing surface's `Folder` schema: that one is
-        library-relative and has no `is_symlink`, since it never crosses
+        folder-relative and has no `is_symlink`, since it never crosses
         one; this one browses arbitrary absolute server paths and does.
       properties:
         name: { type: string }

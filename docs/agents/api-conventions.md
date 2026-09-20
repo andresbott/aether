@@ -36,7 +36,7 @@ client got from a prior response — never a variable-length list — may ride
 along as a `GET`/`DELETE` query param. `GET /metadata/pictures/image` is the
 worked example: it stays a GET with a query because a browser can only `GET`
 an image for an `<img src>`. It is still O(1) and header-safe: it carries a
-single already-resolved `file` (a library-relative path, picked out of an
+single already-resolved `file` (a folder-relative path, picked out of an
 inventory response), never the selection that produced it. `GET
 /radiobrowser/favicon?url=` and the two `candidate-info?url=` endpoints
 (`/metadata/pictures/candidate-info`, `/metadata/artist-image/candidate-info`)
@@ -79,9 +79,9 @@ the response shape an ordinary read response, not a mutation result.
 **Worked examples:**
 - `POST /metadata/pictures/inventory` (`Handler.inventory`) — reports which
   picture slots are populated for a track selection; body is
-  `{library_id, paths[]}`.
+  `{scan_folder, paths[]}`.
 - `POST /metadata/tracks/raw-tags` (`Handler.rawTags`) — reads the complete,
-  unfiltered tag map of a set of files; same `{library_id, paths[]}` body,
+  unfiltered tag map of a set of files; same `{scan_folder, paths[]}` body,
   decoded by the shared `Handler.decodeSelection`
   (`app/router/handlers/metadata/metadata.go`), which also enforces the
   selection cap (`maxSelectionPaths = 50`,
@@ -250,12 +250,12 @@ a layering rule rather than a formatting one:
 - Everything the *request* needs in order to be processable is checked
   before any row is attempted, and a failure there is an ordinary
   problem+json rejection: malformed JSON or an invalid field combination
-  (`400`), a selection over `maxSelectionPaths` (`422`), an unknown library
-  (`404`), the `GetLibrary` lookup failing for any other reason (`500`).
+  (`400`), a missing `scan_folder` (`400`), a selection over
+  `maxSelectionPaths` (`422`), a scan folder that is not configured (`404`).
   Those are the only non-2xx responses these endpoints produce.
 - Once the request is accepted the response is **always `200`**, whatever
   happened to the rows — one failed, some failed, or every one of them. A
-  per-file failure (unreadable, unwritable, outside the library root) is
+  per-file failure (unreadable, unwritable, outside the scan folder root) is
   that row's `error`; it never escalates to a transport status, not even
   when the whole batch failed. `updateTracks` writes files incrementally,
   so "N of M written" is the true state of the system after the call, and a
