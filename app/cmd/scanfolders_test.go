@@ -212,6 +212,45 @@ func TestWarnScanFolders(t *testing.T) {
 	}
 }
 
+// TestWarnDanglingLibraryFilters proves the startup WARN that names a library
+// whose scan_folder filter no longer matches a configured folder — what a
+// renamed or removed scan folder leaves behind (see Dangling in
+// internal/libraryfilter). A library filtered on a folder that IS configured
+// must stay silent.
+func TestWarnDanglingLibraryFilters(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+	db.Create(&model.Library{Name: "Ghosts", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Gone"}},
+	}})
+	db.Create(&model.Library{Name: "Healthy", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Present"}},
+	}})
+
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Present", Path: t.TempDir()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	warnDanglingLibraryFilters(slog.New(slog.NewTextHandler(&buf, nil)), s, set)
+	out := buf.String()
+
+	ghostLine := lineContaining(out, "library=Ghosts")
+	if ghostLine == "" || !strings.Contains(ghostLine, "Gone") || !strings.Contains(ghostLine, "matches nothing") {
+		t.Errorf("expected a WARN naming Ghosts and its dangling Gone filter, got:\n%s", out)
+	}
+	if strings.Contains(out, "Healthy") {
+		t.Errorf("a library whose filter matches a configured folder must not be warned about, got:\n%s", out)
+	}
+}
+
 // lineContaining returns the first line of a slog dump that contains want, so a
 // test can assert what ONE message says rather than what the whole dump does —
 // the zero-folders Info line and the orphan WARN share phrases.

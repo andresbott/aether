@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/andresbott/aether/internal/libraryfilter"
 	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 )
@@ -99,5 +100,25 @@ func warnScanFolders(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
 			"removed otherwise, with their stars, playlist entries and play history",
 			slog.String("component", "startup"),
 			slog.String("scan_folder", name), slog.Int64("tracks", n))
+	}
+}
+
+// warnDanglingLibraryFilters names the libraries whose scan_folder filters point
+// at a folder the config no longer declares — what a renamed or removed scan
+// folder leaves behind. Nothing is broken: that value matches nothing until the
+// library is edited, which is exactly why it is worth a line at startup.
+func warnDanglingLibraryFilters(l *slog.Logger, s *store.Store, folders *scanfolder.Set) {
+	libs, err := s.ListLibraries()
+	if err != nil {
+		l.Warn("could not check library filters against the configured scan folders",
+			slog.String("component", "startup"), slog.String("error", err.Error()))
+		return
+	}
+	for _, lib := range libs {
+		for _, issue := range libraryfilter.Dangling(lib.Filters, folders) {
+			l.Warn("a library filter names a scan folder that is not configured; that value matches nothing until the library is edited",
+				slog.String("component", "startup"),
+				slog.String("library", lib.Name), slog.String("filter", issue.Pointer), slog.String("detail", issue.Detail))
+		}
 	}
 }

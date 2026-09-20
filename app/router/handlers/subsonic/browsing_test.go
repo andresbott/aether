@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -405,5 +407,356 @@ func TestMusicFolderLookupFailureIsAnError(t *testing.T) {
 	decodeJSON(t, srv.URL+"/rest/getAlbumList2.view?type=alphabeticalByName&musicFolderId=1", &body)
 	if body.SubsonicResponse.Status != "failed" {
 		t.Fatalf("status = %q, want failed", body.SubsonicResponse.Status)
+	}
+}
+
+// TestGetMusicFoldersShapeIsUnchanged pins getMusicFolders to exactly the
+// fields OpenSubsonic plus its three advertised extensions define. A
+// library's filters are a purely internal, server-side detail
+// (store.LibraryScope) and must never leak onto the wire.
+func TestGetMusicFoldersShapeIsUnchanged(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Library{
+		Name: "Filtered", DefaultView: "artists", HideArtists: true, Icon: "heart",
+		Filters: []model.LibraryFilter{{Field: model.FilterFormat, Values: []string{"flac"}}},
+	})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/rest/getMusicFolders.view")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	var body struct {
+		SubsonicResponse struct {
+			MusicFolders struct {
+				MusicFolder []map[string]json.RawMessage `json:"musicFolder"`
+			} `json:"musicFolders"`
+		} `json:"subsonic-response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	folders := body.SubsonicResponse.MusicFolders.MusicFolder
+	if len(folders) != 1 {
+		t.Fatalf("expected 1 folder, got %d", len(folders))
+	}
+	got := make([]string, 0, len(folders[0]))
+	for k := range folders[0] {
+		got = append(got, k)
+	}
+	slices.Sort(got)
+	want := []string{"defaultView", "icon", "id", "name", "showArtists"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("musicFolder keys = %v, want exactly %v — no filter may leak into /rest", got, want)
+	}
+}
+
+// narrowEnvelope decodes whichever /rest endpoint
+// TestMusicFolderIdNarrowsByFilters is currently calling; each request
+// populates only its own field and leaves the rest at their zero value.
+type narrowEnvelope struct {
+	SubsonicResponse struct {
+		AlbumList2 struct {
+			Album []starredItem `json:"album"`
+		} `json:"albumList2"`
+		AlbumList2Index struct {
+			Total int `json:"total"`
+			Index []struct {
+				Name string `json:"name"`
+			} `json:"index"`
+		} `json:"albumList2Index"`
+		Artists struct {
+			Index []struct {
+				Artist []starredItem `json:"artist"`
+			} `json:"index"`
+		} `json:"artists"`
+		SearchResult3 struct {
+			Artist []starredItem `json:"artist"`
+			Album  []starredItem `json:"album"`
+			Song   []starredItem `json:"song"`
+			Genre  []struct {
+				Value string `json:"value"`
+			} `json:"genre"`
+		} `json:"searchResult3"`
+		Starred2 struct {
+			Artist []starredItem `json:"artist"`
+			Album  []starredItem `json:"album"`
+			Song   []starredItem `json:"song"`
+		} `json:"starred2"`
+		RandomSongs struct {
+			Song []starredItem `json:"song"`
+		} `json:"randomSongs"`
+		SongsByGenre struct {
+			Song []starredItem `json:"song"`
+		} `json:"songsByGenre"`
+		Discovery struct {
+			Album []starredItem `json:"album"`
+		} `json:"discovery"`
+	} `json:"subsonic-response"`
+}
+
+// idsOf pulls the id out of a starredItem slice — every Subsonic entity this
+// file decodes carries one.
+func idsOf(items []starredItem) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.ID)
+	}
+	return out
+}
+
+// assertIDSet compares two id lists as SETS: several of the endpoints under
+// test (getRandomSongs, search3, the discovery/searchGenres extensions) make
+// no ordering promise, so membership is all a caller may rely on.
+func assertIDSet(t *testing.T, what string, got, want []string) {
+	t.Helper()
+	g, w := slices.Clone(got), slices.Clone(want)
+	slices.Sort(g)
+	slices.Sort(w)
+	if !slices.Equal(g, w) {
+		t.Errorf("%s ids = %v, want %v", what, g, w)
+	}
+}
+
+// TestMusicFolderIdNarrowsByFilters proves musicFolderId narrows every /rest
+// list and search endpoint to a library's compiled filters — the contract
+// libraryScope promises via store.LibraryScope(&found) (subsonic.go). One
+// catalog is shared by every case: two scan folders, a flac and an mp3 track,
+// three release-type shapes (Single, Album, untyped) plus a compilation, and
+// two genres. Four libraries slice it differently:
+//
+//	Lossless    = {format: [flac]}
+//	Singles     = {release_type: [Single]}
+//	JazzInMusic = {scan_folder: [Music]} AND {genre: [Jazz]}
+//	Everything  = no filters (the whole catalog)
+func TestMusicFolderIdNarrowsByFilters(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	rock := model.Genre{Name: "Rock"}
+	jazz := model.Genre{Name: "Jazz"}
+	db.Create(&rock)
+	db.Create(&jazz)
+
+	// single: release type Single, mp3, Music folder, Rock.
+	artistSingle := model.Artist{Name: "Artist Aardvark", NameNorm: "artist aardvark"}
+	db.Create(&artistSingle)
+	single := model.Album{Name: "Aardvark", NameNorm: "aardvark", AlbumArtistNorm: "artist aardvark", ReleaseTypes: []string{"Single"}}
+	db.Create(&single)
+	trackSingle := model.Track{AlbumID: single.ID, ScanFolder: "Music", Suffix: "mp3", Filename: "1.mp3", FilePath: "/music/1.mp3", Title: "One"}
+	db.Create(&trackSingle)
+
+	// lp: release type Album, flac, Music folder, Jazz.
+	artistLP := model.Artist{Name: "Artist Bebop", NameNorm: "artist bebop"}
+	db.Create(&artistLP)
+	lp := model.Album{Name: "Bebop", NameNorm: "bebop", AlbumArtistNorm: "artist bebop", ReleaseTypes: []string{"Album"}}
+	db.Create(&lp)
+	trackLP := model.Track{AlbumID: lp.ID, ScanFolder: "Music", Suffix: "flac", Filename: "2.flac", FilePath: "/music/2.flac", Title: "Two"}
+	db.Create(&trackLP)
+
+	// untyped: no release type, mp3, Vinyl folder, Jazz.
+	artistUntyped := model.Artist{Name: "Artist Crate", NameNorm: "artist crate"}
+	db.Create(&artistUntyped)
+	untyped := model.Album{Name: "Crate", NameNorm: "crate", AlbumArtistNorm: "artist crate"}
+	db.Create(&untyped)
+	trackUntyped := model.Track{AlbumID: untyped.ID, ScanFolder: "Vinyl", Suffix: "mp3", Filename: "3.mp3", FilePath: "/vinyl/3.mp3", Title: "Three"}
+	db.Create(&trackUntyped)
+
+	// comp: a compilation, flac, Vinyl folder, Rock.
+	artistComp := model.Artist{Name: "Artist Disco", NameNorm: "artist disco"}
+	db.Create(&artistComp)
+	comp := model.Album{Name: "Disco", NameNorm: "disco", AlbumArtistNorm: "artist disco", ReleaseTypes: []string{"Compilation"}, Compilation: true}
+	db.Create(&comp)
+	trackComp := model.Track{AlbumID: comp.ID, ScanFolder: "Vinyl", Suffix: "flac", Filename: "4.flac", FilePath: "/vinyl/4.flac", Title: "Four"}
+	db.Create(&trackComp)
+
+	// Credit each artist on its album (album_artists — what getArtists joins)
+	// and its track (track_artists — what search3 joins), and tag each
+	// track's genre.
+	_ = db.Model(&single).Association("Artists").Replace([]*model.Artist{&artistSingle})
+	_ = db.Model(&trackSingle).Association("Artists").Replace([]*model.Artist{&artistSingle})
+	_ = db.Model(&trackSingle).Association("Genres").Replace([]*model.Genre{&rock})
+
+	_ = db.Model(&lp).Association("Artists").Replace([]*model.Artist{&artistLP})
+	_ = db.Model(&trackLP).Association("Artists").Replace([]*model.Artist{&artistLP})
+	_ = db.Model(&trackLP).Association("Genres").Replace([]*model.Genre{&jazz})
+
+	_ = db.Model(&untyped).Association("Artists").Replace([]*model.Artist{&artistUntyped})
+	_ = db.Model(&trackUntyped).Association("Artists").Replace([]*model.Artist{&artistUntyped})
+	_ = db.Model(&trackUntyped).Association("Genres").Replace([]*model.Genre{&jazz})
+
+	_ = db.Model(&comp).Association("Artists").Replace([]*model.Artist{&artistComp})
+	_ = db.Model(&trackComp).Association("Artists").Replace([]*model.Artist{&artistComp})
+	_ = db.Model(&trackComp).Association("Genres").Replace([]*model.Genre{&rock})
+
+	// Star everything so getStarred2 has content to narrow.
+	for _, al := range []model.Album{single, lp, untyped, comp} {
+		db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: al.ID})
+	}
+	for _, ar := range []model.Artist{artistSingle, artistLP, artistUntyped, artistComp} {
+		db.Create(&model.StarredItem{Owner: "admin", ItemType: "artist", ItemID: ar.ID})
+	}
+	for _, tr := range []model.Track{trackSingle, trackLP, trackUntyped, trackComp} {
+		db.Create(&model.StarredItem{Owner: "admin", ItemType: "track", ItemID: tr.ID})
+	}
+
+	libLossless := model.Library{Name: "Lossless", Filters: []model.LibraryFilter{
+		{Field: model.FilterFormat, Values: []string{"flac"}},
+	}}
+	libSingles := model.Library{Name: "Singles", Filters: []model.LibraryFilter{
+		{Field: model.FilterReleaseType, Values: []string{"Single"}},
+	}}
+	libJazzInMusic := model.Library{Name: "JazzInMusic", Filters: []model.LibraryFilter{
+		{Field: model.FilterScanFolder, Values: []string{"Music"}},
+		{Field: model.FilterGenre, Values: []string{"Jazz"}},
+	}}
+	libEverything := model.Library{Name: "Everything"}
+	for _, lib := range []*model.Library{&libLossless, &libSingles, &libJazzInMusic, &libEverything} {
+		db.Create(lib)
+	}
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	cases := []struct {
+		name        string
+		hasLib      bool // false = no musicFolderId param at all
+		libID       uint
+		wantAlbums  []string
+		wantArtists []string
+		wantSongs   []string
+		wantJazz    []string // getSongsByGenre?genre=Jazz membership
+		wantGenres  []string // search3's searchGenres extension, by value
+		wantLetters []string // getAlbumList2Index letter buckets
+	}{
+		{
+			name: "Lossless", hasLib: true, libID: libLossless.ID,
+			wantAlbums:  []string{encodeAlbumID(lp.ID), encodeAlbumID(comp.ID)},
+			wantArtists: []string{encodeArtistID(artistLP.ID), encodeArtistID(artistComp.ID)},
+			wantSongs:   []string{encodeTrackID(trackLP.ID), encodeTrackID(trackComp.ID)},
+			wantJazz:    []string{encodeTrackID(trackLP.ID)},
+			wantGenres:  []string{"Jazz", "Rock"},
+			wantLetters: []string{"B", "D"},
+		},
+		{
+			name: "Singles", hasLib: true, libID: libSingles.ID,
+			wantAlbums:  []string{encodeAlbumID(single.ID)},
+			wantArtists: []string{encodeArtistID(artistSingle.ID)},
+			wantSongs:   []string{encodeTrackID(trackSingle.ID)},
+			wantJazz:    nil,
+			wantGenres:  []string{"Rock"},
+			wantLetters: []string{"A"},
+		},
+		{
+			name: "JazzInMusic", hasLib: true, libID: libJazzInMusic.ID,
+			wantAlbums:  []string{encodeAlbumID(lp.ID)},
+			wantArtists: []string{encodeArtistID(artistLP.ID)},
+			wantSongs:   []string{encodeTrackID(trackLP.ID)},
+			wantJazz:    []string{encodeTrackID(trackLP.ID)},
+			wantGenres:  []string{"Jazz"},
+			wantLetters: []string{"B"},
+		},
+		{
+			name: "Everything", hasLib: true, libID: libEverything.ID,
+			wantAlbums: []string{encodeAlbumID(single.ID), encodeAlbumID(lp.ID), encodeAlbumID(untyped.ID), encodeAlbumID(comp.ID)},
+			wantArtists: []string{
+				encodeArtistID(artistSingle.ID), encodeArtistID(artistLP.ID),
+				encodeArtistID(artistUntyped.ID), encodeArtistID(artistComp.ID),
+			},
+			wantSongs: []string{
+				encodeTrackID(trackSingle.ID), encodeTrackID(trackLP.ID),
+				encodeTrackID(trackUntyped.ID), encodeTrackID(trackComp.ID),
+			},
+			wantJazz:    []string{encodeTrackID(trackLP.ID), encodeTrackID(trackUntyped.ID)},
+			wantGenres:  []string{"Jazz", "Rock"},
+			wantLetters: []string{"A", "B", "C", "D"},
+		},
+		{
+			// No musicFolderId at all must answer exactly what Everything
+			// does: both compile to the same zero-value scope
+			// (store.ScopeOf(nil) — see store/scope.go).
+			name: "no musicFolderId", hasLib: false,
+			wantAlbums: []string{encodeAlbumID(single.ID), encodeAlbumID(lp.ID), encodeAlbumID(untyped.ID), encodeAlbumID(comp.ID)},
+			wantArtists: []string{
+				encodeArtistID(artistSingle.ID), encodeArtistID(artistLP.ID),
+				encodeArtistID(artistUntyped.ID), encodeArtistID(artistComp.ID),
+			},
+			wantSongs: []string{
+				encodeTrackID(trackSingle.ID), encodeTrackID(trackLP.ID),
+				encodeTrackID(trackUntyped.ID), encodeTrackID(trackComp.ID),
+			},
+			wantJazz:    []string{encodeTrackID(trackLP.ID), encodeTrackID(trackUntyped.ID)},
+			wantGenres:  []string{"Jazz", "Rock"},
+			wantLetters: []string{"A", "B", "C", "D"},
+		},
+		{
+			// A musicFolderId naming no library must answer empty lists
+			// everywhere — not an error, and not the whole catalog.
+			name: "unknown musicFolderId", hasLib: true, libID: 999999,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fetch := func(path string, params url.Values) narrowEnvelope {
+				if tc.hasLib {
+					params.Set("musicFolderId", strconv.FormatUint(uint64(tc.libID), 10))
+				}
+				var body narrowEnvelope
+				decodeJSON(t, srv.URL+"/rest/"+path+".view?"+params.Encode(), &body)
+				return body
+			}
+
+			albumList := fetch("getAlbumList2", url.Values{"type": {"alphabeticalByName"}, "size": {"50"}})
+			assertIDSet(t, "getAlbumList2", idsOf(albumList.SubsonicResponse.AlbumList2.Album), tc.wantAlbums)
+
+			letterIdx := fetch("getAlbumList2Index", url.Values{})
+			var gotLetters []string
+			for _, l := range letterIdx.SubsonicResponse.AlbumList2Index.Index {
+				gotLetters = append(gotLetters, l.Name)
+			}
+			assertIDSet(t, "getAlbumList2Index letters", gotLetters, tc.wantLetters)
+			if got, want := letterIdx.SubsonicResponse.AlbumList2Index.Total, len(tc.wantAlbums); got != want {
+				t.Errorf("getAlbumList2Index total = %d, want %d", got, want)
+			}
+
+			artistsResp := fetch("getArtists", url.Values{})
+			var gotArtists []string
+			for _, idx := range artistsResp.SubsonicResponse.Artists.Index {
+				gotArtists = append(gotArtists, idsOf(idx.Artist)...)
+			}
+			assertIDSet(t, "getArtists", gotArtists, tc.wantArtists)
+
+			search := fetch("search3", url.Values{
+				"query": {""}, "artistCount": {"50"}, "albumCount": {"50"}, "songCount": {"50"}, "genreCount": {"10"},
+			})
+			assertIDSet(t, "search3 artist", idsOf(search.SubsonicResponse.SearchResult3.Artist), tc.wantArtists)
+			assertIDSet(t, "search3 album", idsOf(search.SubsonicResponse.SearchResult3.Album), tc.wantAlbums)
+			assertIDSet(t, "search3 song", idsOf(search.SubsonicResponse.SearchResult3.Song), tc.wantSongs)
+			var gotGenres []string
+			for _, g := range search.SubsonicResponse.SearchResult3.Genre {
+				gotGenres = append(gotGenres, g.Value)
+			}
+			assertIDSet(t, "search3 searchGenres extension", gotGenres, tc.wantGenres)
+
+			starred := fetch("getStarred2", url.Values{})
+			assertIDSet(t, "getStarred2 album", idsOf(starred.SubsonicResponse.Starred2.Album), tc.wantAlbums)
+			assertIDSet(t, "getStarred2 artist", idsOf(starred.SubsonicResponse.Starred2.Artist), tc.wantArtists)
+			assertIDSet(t, "getStarred2 song", idsOf(starred.SubsonicResponse.Starred2.Song), tc.wantSongs)
+
+			random := fetch("getRandomSongs", url.Values{"size": {"50"}})
+			assertIDSet(t, "getRandomSongs", idsOf(random.SubsonicResponse.RandomSongs.Song), tc.wantSongs)
+
+			byGenre := fetch("getSongsByGenre", url.Values{"genre": {"Jazz"}, "count": {"50"}})
+			assertIDSet(t, "getSongsByGenre", idsOf(byGenre.SubsonicResponse.SongsByGenre.Song), tc.wantJazz)
+
+			disc := fetch("getDiscovery", url.Values{"size": {"50"}})
+			assertIDSet(t, "getDiscovery", idsOf(disc.SubsonicResponse.Discovery.Album), tc.wantAlbums)
+		})
 	}
 }

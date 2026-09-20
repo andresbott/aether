@@ -126,6 +126,7 @@ func runServer(configFile string) error {
 		return err
 	}
 	warnScanFolders(l, dataStore, folders)
+	warnDanglingLibraryFilters(l, dataStore, folders)
 
 	auth, err := setupAuth(db, cfg.DataDir, cfg.Auth, l)
 	if err != nil {

@@ -88,6 +88,13 @@ the response shape an ordinary read response, not a mutation result.
   `app/router/handlers/metadata/limits.go`) as defense-in-depth — the body
   already removes the 431 risk; the cap bounds the work a single request can
   demand.
+- `POST /libraries/preview` (`Handler.preview`,
+  `app/router/handlers/libraries/preview.go`) — reports the track/album
+  counts a candidate filter set (`{filters[]}`, the same shape a library
+  stores) would select, without storing anything; the filter builder calls it
+  on every edit, and `filters[]` — up to `libraryfilter.MaxFilters` entries,
+  each with up to `libraryfilter.MaxValues` values — is exactly the kind of
+  variable-length list a bounded `GET` query string cannot carry.
 
 **The same reasoning extends to selection-shaped mutations that would
 otherwise be `DELETE`-with-body:** `POST /metadata/pictures/removals`
@@ -116,9 +123,9 @@ explicitly from there. It configures only:
 - the stable, **never-fetched** base URI every problem's `type` is built
   from, `https://aether.local/probs` — unchanged from the original ad hoc
   error package, so every `type` URI is byte-identical across the migration;
-- the human titles for aether's own seven slugs —
+- the human titles for aether's own six slugs —
   `identify_unavailable`, `too_many_tokens`, `usertoken_unavailable`,
-  `not_configured`, `config_managed`, `last_admin`, `queue_full` — the
+  `not_configured`, `last_admin`, `queue_full` — the
   generic slugs (`not_found`, `validation_error`, `internal`,
   `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `unavailable`,
   `upstream_error`, `upstream_rate_limited`, `upstream_timeout`) ship as
@@ -141,6 +148,21 @@ so a client can tell which call failed without re-reading its own request.
 — e.g. `/paths` or `/paths/0` — whether the request was JSON, a query
 string, or multipart form: a caller only needs to know which field failed,
 addressed the same way regardless of wire format.
+
+**A 422 itemizes every problem, not just the first.** `WriteValidation`'s
+`errors[]` carries one `FieldError` per thing wrong with the request, and each
+`Pointer` follows the shape of the *request's own JSON*, not the stored
+model — so a caller can walk the array and mark every offending field at
+once, instead of fixing one, resubmitting, and discovering the next. The
+libraries filter builder is the worked example:
+`internal/libraryfilter.Validate` returns every issue across a `filters[]`
+array in one pass, each pointer rooted at the offending element —
+`/filters/1/values/0` for the first value of the second filter — and
+`libraries.validateFilters` (`app/router/handlers/libraries/libraries.go`)
+appends one more, `/show_artists`, when a hide-artists library's filters
+resolve to none. `POST /libraries/preview` (above) answers the identical
+`errors[]` shape for the same request-shaped reason: a candidate filter set
+can be wrong in more than one place before it is ever saved.
 
 **Status convention, confirmed across every handler:** `422` is
 `Writer.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,

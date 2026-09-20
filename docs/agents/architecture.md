@@ -78,10 +78,17 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   OpenSubsonic-compliant. Missing capability? Add a proper OpenSubsonic
   *extension* under `/rest` advertised via `getOpenSubsonicExtensions` —
   never a bespoke `/api/v0` music endpoint. See [subsonic-api.md](subsonic-api.md).
-- **`/api/v0` is server management only**: libraries CRUD + folder browse,
-  `GET /scan-folders` (read-only list of the configured scan folders with a
-  bounded availability probe and marker-based track counts),
-  tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
+- **`/api/v0` is server management only**: libraries CRUD + folder browse
+  (`GET /libraries/browse`, confined to the configured scan folders — a path
+  must be spelled under one of their roots, else `422` at `/path`), `POST
+  /libraries/preview` (the track/album counts a candidate filter set would
+  select, without storing it — the filter builder calls it live) and `GET
+  /libraries/filter-options` (the configured scan-folder names plus the
+  formats/genres/release types actually present in the catalog, so the
+  builder offers real values), `GET /scan-folders` (read-only list of the
+  configured scan folders with a bounded availability probe and
+  marker-based track counts), tasks/schedules/executions, metadata editor,
+  artist MBID/MusicBrainz search,
   `GET /artists/{id}/image-source` (which of aether's store / the music folder /
   the generated avatar the artist's image comes from — a server filesystem
   detail, not a Subsonic field), artist image candidate listing + pick from the
@@ -91,14 +98,21 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 
 ## Key domain types (internal/model)
 
-- `Library` — now *a named view over the catalog*: `store.LibraryScope`
-  selects the tracks whose `scan_folder` matches its name, rather than the
-  row owning a directory. Per-library `HideArtists`, `DefaultView`, `Icon`.
-  Its rows still carry legacy disk columns — `Path`, `ExcludePatterns`,
-  `FollowSymlinks`, `Source`, `LastScanStartedAt` — that nothing reads for
-  scanning any more; a later phase is planned to replace them with stored
-  filters. See [Scan folders (config-only)](#scan-folders-config-only) for
-  where scanning actually reads its directories from.
+- `Library` — a named, **filtered view** over the catalog, not a directory: a
+  row is `Name`, `DefaultView`, `Icon`, `HideArtists` and `Filters
+  []LibraryFilter` (`internal/model/library.go`) — nothing else, and it owns
+  no tracks. `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)` compiles
+  the filters into a `TrackScope`: filters are AND-ed, one filter's values are
+  OR-ed, and no filters selects the whole catalog. `internal/libraryfilter`
+  is the friendly layer in front of that compiler: `Validate` normalizes and
+  rejects an unusable filter on write (and refuses a `HideArtists` library
+  with none, which would hide every artist), and `Dangling` reports a stored
+  `scan_folder` value that no longer names a configured folder — surfaced as
+  a `warnings[]` entry on `GET /libraries`/`GET /libraries/{id}` and as a
+  startup `WARN` (`warnDanglingLibraryFilters`, `app/cmd/scanfolders.go`,
+  called right after `warnScanFolders`). See [Scan folders
+  (config-only)](#scan-folders-config-only) for where scanning actually reads
+  its directories from.
 - `Track` — `FilePath` unique; `LastSeenAt` drives scan cleanup;
   `ScanFolder` names the scan folder the file was indexed under (a marker,
   not a foreign key — see [scanning.md](scanning.md)); `Suffix` is the
@@ -212,9 +226,11 @@ Two things instead get a startup `WARN` (`warnScanFolders`,
 Identity is the **name**, not the path: every track is stamped with the name
 of the scan folder it was indexed under (`tracks.scan_folder`, see
 [scanning.md](scanning.md)), and renaming a folder in the config heals on the
-next scan of any kind, full or incremental. Until libraries carry their own
-stored filters, a `libraries` row selects tracks the same way: `scan_folder
-IN (its name)`, compiled by `store.LibraryScope`.
+next scan of any kind, full or incremental. A library's own `scan_folder`
+filter, when it has one, names this same identity — so renaming or removing a
+folder in `ScanFolders:` leaves a stored filter value that matches nothing
+until the library is edited; `internal/libraryfilter.Dangling` is what notices
+(see "Key domain types" above).
 
 ## External services (all optional)
 

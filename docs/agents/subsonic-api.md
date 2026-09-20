@@ -232,16 +232,24 @@ response shape was a deliberate design decision, so the reasoning is recorded he
 Helpers in `subsonic.go` — use them instead of raw query reads:
 `paramStr`, `paramInt(default)`, `paramStrSlice`, `paramBoolPtr` (nil =
 absent, distinguishes "not provided" from `false`), and the handler method
-`libraryScope(w, r) (scope, library, ok)` (`musicFolderId` → the
-`store.TrackScope` of the library it names, plus the library; absent = the
-zero, cross-library scope; an unknown id = a scope matching nothing, so the
-request answers empty lists). A store failure while resolving the id is
-answered here as an internal error with `ok=false` — like `requireAdmin` —
-because "no tracks" would hand the client a successful empty list to cache;
-every call site checks `ok` and returns immediately when it's false. The
-artist index is the one caller that reads the returned library: a library
-with `HideArtists` answers an empty index there, because a scope carries no
-library identity for the store to check.
+`libraryScope(w, r) (scope, library, ok)` (`musicFolderId` → the library's
+*compiled filters* — `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)`
+— plus the library itself; absent = the zero, cross-library scope; an unknown
+id = a scope matching nothing, so the request answers empty lists). A store
+failure while resolving the id is answered here as an internal error with
+`ok=false` — like `requireAdmin` — because "no tracks" would hand the client a
+successful empty list to cache; every call site checks `ok` and returns
+immediately when it's false. The artist index is the one caller that reads the
+returned library: a library with `HideArtists` answers an empty index there,
+because a scope carries no library identity for the store to check. A
+`HideArtists` library with no filters is refused at the write path
+(`libraries.validateFilters`, `/api/v0` — it would hide every artist) and,
+belt-and-braces, skipped by `store.hiddenArtistScopes` if one ever reached the
+table anyway, rather than hiding every artist in the unscoped index (see
+[architecture.md](architecture.md)'s "Key domain types"). None of this reaches
+`getMusicFolders` itself: its shape (`id`, `name`, `defaultView`,
+`showArtists`, `icon`) is unchanged — a library's filters are a purely
+internal, server-side detail (`TestGetMusicFoldersShapeIsUnchanged`).
 
 ## Media serving
 
