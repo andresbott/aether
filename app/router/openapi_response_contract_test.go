@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/getkin/kin-openapi/openapi3"
 	"gorm.io/gorm"
@@ -382,6 +383,115 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/filters/0/values/0" {
 		t.Fatalf("errors[0].pointer = %+v, want a single entry at /filters/0/values/0", problem.Errors)
 	}
+}
+
+// TestContractLibraryFilterOptionsPreviewAndBrowse asserts BY CONTENT, not
+// just schema, that Folders and Store both reach getLibraryFilterOptions,
+// previewLibrary and browseLibraryPath through router.New/attachApiV0:
+// filter-options lists the configured "Music" folder, browse with no path
+// lists its root at the configured directory, and preview's 200-vs-422 split
+// on a configured vs. unconfigured scan_folder name (with a real track_count
+// for the configured one) is the same proof TestContractLibrariesCreateAndList
+// uses for createLibrary — a schema-only assertion would pass just as
+// happily with h.Folders or h.Store never reaching these handlers.
+func TestContractLibraryFilterOptionsPreviewAndBrowse(t *testing.T) {
+	doc := specDoc(t)
+	music := t.TempDir()
+	h, db := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: music}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
+	_, adminAttach := doLogin(t, h, "alice", "secret")
+
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, ScanFolder: "Music", Suffix: "flac", Filename: "1.flac", FilePath: filepath.Join(music, "1.flac")}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// getLibraryFilterOptions: scan_folders must name the configured folder.
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/libraries/filter-options", nil)
+	adminAttach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /libraries/filter-options = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "getLibraryFilterOptions", http.StatusOK, w)
+	var options struct {
+		ScanFolders []string `json:"scan_folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &options); err != nil {
+		t.Fatalf("decoding filter-options: %v: %s", err, w.Body.String())
+	}
+	if len(options.ScanFolders) != 1 || options.ScanFolders[0] != "Music" {
+		t.Fatalf("scan_folders = %v, want [Music]", options.ScanFolders)
+	}
+
+	// browseLibraryPath with no path: lists the configured root, not the
+	// filesystem root, and without erroring even though nothing else about
+	// the path was given.
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries/browse", nil)
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /libraries/browse = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "browseLibraryPath", http.StatusOK, w)
+	var browsed struct {
+		Path    string `json:"path"`
+		Folders []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &browsed); err != nil {
+		t.Fatalf("decoding browse: %v: %s", err, w.Body.String())
+	}
+	if len(browsed.Folders) != 1 || browsed.Folders[0].Name != "Music" || browsed.Folders[0].Path != music {
+		t.Fatalf("browse folders = %+v, want a single Music root at %q", browsed.Folders, music)
+	}
+
+	// previewLibrary, a configured scan_folder: 200, and the counts reflect
+	// the one seeded track (proving Store, not just Folders, reaches preview).
+	body := mustJSON(t, map[string]any{"filters": []map[string]any{{"field": "scan_folder", "values": []string{"Music"}}}})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries/preview", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /libraries/preview (Music) = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "previewLibrary", http.StatusOK, w)
+	var preview struct {
+		TrackCount int64 `json:"track_count"`
+		AlbumCount int64 `json:"album_count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("decoding preview: %v: %s", err, w.Body.String())
+	}
+	if preview.TrackCount != 1 || preview.AlbumCount != 1 {
+		t.Fatalf("preview = %+v, want track_count=1 album_count=1", preview)
+	}
+
+	// previewLibrary, an unconfigured scan_folder name: 422.
+	body = mustJSON(t, map[string]any{"filters": []map[string]any{{"field": "scan_folder", "values": []string{"Nope"}}}})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries/preview", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /libraries/preview (Nope) = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "previewLibrary", http.StatusUnprocessableEntity, w)
 }
 
 // --- Scan folders: the read-only list of what the config declares ---

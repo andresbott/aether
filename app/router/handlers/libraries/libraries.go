@@ -120,6 +120,8 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/libraries/browse").Methods(http.MethodGet).HandlerFunc(h.browse)
+	r.Path("/libraries/filter-options").Methods(http.MethodGet).HandlerFunc(h.filterOptions)
+	r.Path("/libraries/preview").Methods(http.MethodPost).HandlerFunc(h.preview)
 	r.Path("/libraries").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/libraries").Methods(http.MethodPost).HandlerFunc(h.create)
 	r.Path("/libraries/{id:[0-9]+}").Methods(http.MethodGet).HandlerFunc(h.get)
@@ -204,6 +206,17 @@ func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer str
 	pw.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
+// fieldErrors converts libraryfilter issues into problemjson field errors, at
+// the same pointers Validate reported them at. Shared by validateFilters and
+// preview: both turn a []libraryfilter.Issue into a 422's []FieldError.
+func fieldErrors(issues []libraryfilter.Issue) []problemjson.FieldError {
+	fields := make([]problemjson.FieldError, 0, len(issues))
+	for _, is := range issues {
+		fields = append(fields, problemjson.FieldError{Pointer: is.Pointer, Detail: is.Detail})
+	}
+	return fields
+}
+
 // validateFilters checks the request's filters and the one rule that spans
 // fields: a library that hides its artists must select something narrower than
 // the whole catalog, or it would hide every artist. It answers the 422 itself,
@@ -211,10 +224,7 @@ func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer str
 // request is done.
 func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in libraryDTO, hideArtists bool) (filters []model.LibraryFilter, ok bool) {
 	filters, issues := libraryfilter.Validate(in.Filters, h.Folders)
-	fields := make([]problemjson.FieldError, 0, len(issues)+1)
-	for _, is := range issues {
-		fields = append(fields, problemjson.FieldError{Pointer: is.Pointer, Detail: is.Detail})
-	}
+	fields := fieldErrors(issues)
 	if len(issues) == 0 && hideArtists && len(filters) == 0 {
 		fields = append(fields, problemjson.FieldError{
 			Pointer: "/show_artists",

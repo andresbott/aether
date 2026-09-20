@@ -1346,28 +1346,35 @@ paths:
   /libraries/browse:
     get:
       operationId: browseLibraryPath
-      summary: List the immediate subdirectories of an absolute server path (the library path picker).
+      summary: List the immediate subdirectories of an absolute server path, confined to the scan folders (the library path filter's picker).
       description: >
-        Admin. Backs the filesystem picker shown when creating or editing a
-        library. Unlike `listMetadataFolders`, this is not confined to any
-        scan folder's root — it has to work before a library exists — so `path`
-        here is an arbitrary absolute path on the server filesystem,
-        distinct from the metadata-browsing surface's scan-folder-relative
-        `path` (the shared `ScanFolderPath` parameter, confined to a scan
-        folder's root). Symlinked directories are listed and navigable
-        (`is_symlink`); the reported path is the one typed/followed, not
-        resolved, so pointing a library at a symlink keeps that symlink as
-        its stored path. Dot-directories are omitted unless `show_hidden`
-        is set.
+        Admin. Backs the folder picker for a library's `path` filter (see
+        LibraryFilter) — distinct from the metadata-browsing surface's
+        scan-folder-relative `path` (the shared `ScanFolderPath` parameter).
+        `path` must be spelled under one of the configured scan folders'
+        roots — checked LEXICALLY (symlinks not resolved), so a symlink
+        INSIDE a root stays listed and navigable even though it may resolve
+        elsewhere; a path outside every root answers 422, itemising `/path`.
+        An omitted or empty `path` lists the roots themselves — taken
+        straight from the server's configuration WITHOUT touching the
+        filesystem, so a root that is not mounted right now is still listed,
+        with `has_subfolders: true` and `is_symlink: false` assumed rather
+        than probed (probing every root on a request path risks hanging on
+        a dead network mount). Symlinked directories under a root are listed
+        and navigable (`is_symlink`); the reported path is the one
+        typed/followed, not resolved, so pointing a library's path filter at
+        a symlink keeps that symlink as the stored value. Dot-directories
+        are omitted unless `show_hidden` is set.
       tags: [libraries]
       parameters:
         - name: path
           in: query
           required: false
           description: >
-            An absolute server filesystem path to list; defaults to "/".
-            See the operation description for how this differs from the
-            shared `ScanFolderPath` parameter.
+            An absolute path under one of the configured scan folders.
+            Omitted or empty lists the scan-folder roots themselves. A
+            relative path answers 400; an absolute path outside every scan
+            folder answers 422 at `/path`.
           schema: { type: string }
         - name: show_hidden
           in: query
@@ -1376,13 +1383,72 @@ paths:
           schema: { type: boolean }
       responses:
         '200':
-          description: The requested directory's immediate subdirectories, sorted by name.
+          description: >
+            The requested directory's immediate subdirectories, sorted by
+            name — or, for an omitted/empty `path`, the configured
+            scan-folder roots themselves.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LibraryBrowseResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/filter-options:
+    get:
+      operationId: getLibraryFilterOptions
+      summary: The values a library filter builder can offer.
+      description: >
+        Admin. Lists the configured scan-folder names alongside the
+        formats, genres and release types actually present in the catalog
+        today, so a filter builder can offer real values instead of free
+        text. `genre`, `release_type` and `path` filter values are matched
+        against what the scanner recorded (see LibraryFilter), so picking a
+        value from here — rather than retyping it — is the only way to be
+        sure it will actually match something. Every list is always an
+        array, even when the catalog is empty — never null.
+      tags: [libraries]
+      responses:
+        '200':
+          description: The catalog's current filter vocabulary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryFilterOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/preview:
+    post:
+      operationId: previewLibrary
+      summary: Preview what a set of filters would select (safe/read-only despite POST).
+      description: >
+        Admin. Reports the track and album counts a set of filters would
+        select, without storing anything — the filter builder calls this as
+        the admin edits, before saving. A read that needs a structured body
+        travels as a POST to a named sub-resource, not GET-with-a-body (see
+        api-conventions.md); it is safe and idempotent despite the verb.
+        Filters are validated exactly as createLibrary's — every problem
+        itemised, one `errors[]` entry per pointer — and an empty or
+        omitted `filters` list previews the whole catalog.
+      tags: [libraries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryPreviewRequest' }
+      responses:
+        '200':
+          description: The counts the filters would select.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /radiobrowser/search:
@@ -3354,6 +3420,34 @@ components:
           maxItems: 100
       required: [field, values]
 
+    LibraryFilterOptions:
+      type: object
+      description: >
+        The values getLibraryFilterOptions offers a filter builder: the
+        configured scan-folder names, and the formats/genres/release types
+        actually present in the catalog. Every property is always an array,
+        even when empty — never null.
+      properties:
+        scan_folders:
+          type: array
+          items: { type: string }
+          description: The configured scan-folder names, in name order.
+        formats:
+          type: array
+          items: { type: string }
+          description: Distinct lowercase file extensions present in the catalog, sorted.
+        genres:
+          type: array
+          items: { type: string }
+          description: Genre names that tag at least one track, sorted.
+        release_types:
+          type: array
+          items: { type: string }
+          description: >
+            Release types present on at least one album, de-duplicated
+            case-insensitively and sorted.
+      required: [scan_folders, formats, genres, release_types]
+
     LibraryWarning:
       type: object
       description: >
@@ -3480,12 +3574,45 @@ components:
             value rules). Omitted means no filters — the whole catalog.
       required: [name]
 
+    LibraryPreviewRequest:
+      type: object
+      description: >
+        The filters to preview, for previewLibrary. Same shape and
+        validation rules as `LibraryWriteRequest.filters`; an empty or
+        omitted list previews the whole catalog.
+      properties:
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
+          maxItems: 20
+          description: >
+            Optional; AND-ed together (see LibraryFilter). Omitted means no
+            filters — the whole catalog.
+
+    LibraryPreview:
+      type: object
+      description: The track and album counts a set of filters would select.
+      properties:
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+        album_count:
+          type: integer
+          format: int64
+          minimum: 0
+      required: [track_count, album_count]
+
     LibraryBrowseResult:
       type: object
       properties:
         path:
           type: string
-          description: The requested directory, echoed back cleaned but not symlink-resolved.
+          description: >
+            The requested directory, echoed back cleaned but not
+            symlink-resolved; the empty string for an omitted/empty `path`
+            (the scan-folder roots were listed instead of one directory's
+            children).
         folders:
           type: array
           items: { $ref: '#/components/schemas/BrowseFolder' }

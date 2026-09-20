@@ -441,3 +441,52 @@ func TestCountTracks(t *testing.T) {
 		}
 	}
 }
+
+// TestCountAlbums seeds two albums, each with one track in a different scan
+// folder, so a scope naming only one folder counts only that album, the zero
+// scope counts both (scopeByAlbum's "return q unchanged" branch), and
+// NoTracks counts neither (its EXISTS (... AND 1 = 0) branch).
+func TestCountAlbums(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	albumA := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	albumB := model.Album{Name: "B", NameNorm: "b", AlbumArtistNorm: "x"}
+	if err := db.Create(&albumA).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&albumB).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Track{
+		AlbumID: albumA.ID, ScanFolder: "Music", Suffix: "flac",
+		Filename: "a.flac", FilePath: "/music/a.flac", Title: "a", TitleNorm: "a",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&model.Track{
+		AlbumID: albumB.ID, ScanFolder: "Books", Suffix: "mp3",
+		Filename: "b.mp3", FilePath: "/books/b.mp3", Title: "b", TitleNorm: "b",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		sc   store.TrackScope
+		want int64
+	}{
+		{"scope matching only one album's track", scanFolderScope("Music"), 1},
+		{"zero scope counts every album", store.TrackScope{}, 2},
+		{"NoTracks counts none", store.NoTracks(), 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.CountAlbums(tc.sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("CountAlbums = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

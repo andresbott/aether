@@ -242,3 +242,10 @@ func (s *Store) CountTracks(sc TrackScope) (int64, error) {
 	err := scopeTracks(s.db.Model(&model.Track{}), sc).Count(&n).Error
 	return n, err
 }
+
+// CountAlbums counts the albums with at least one track in the scope.
+func (s *Store) CountAlbums(sc TrackScope) (int64, error) {
+	var n int64
+	err := scopeByAlbum(s.db.Model(&model.Album{}), sc, "albums.id").Count(&n).Error
+	return n, err
+}
