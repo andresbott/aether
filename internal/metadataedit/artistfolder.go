@@ -39,7 +39,7 @@ func ArtistFolderFor(ctx context.Context, root, absDir string, reader tags.Reade
 // attach a folder artist image, which probes both sets (recordArtistProbes). So a
 // folder judged eligible is one where an artist.jpg written here would actually be
 // picked up, while a genre/collection folder (whose name matches no credit) stays
-// out. Checking the track artist too matters because many catalogs name the
+// out. Checking the track artist too matters because many collections name the
 // folder after the performer without setting a separate album-artist tag.
 //
 // It reads at most one tag per immediate sub-folder and stops at the first match,
