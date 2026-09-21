@@ -347,12 +347,13 @@ logical path replaces it.
 ## Libraries are filters: the edges that come with it
 
 **Status:** accepted — consequences of libraries being dynamic predicates over
-`tracks` (`store.ScopeOf`) with no materialized membership. Two items are open
-decisions in `TODO.md`, as noted.
+`tracks` (`store.ScopeOf`) with no materialized membership. Edge 2 is an open
+decision in `TODO.md`.
 **Affects:** `internal/store/scope.go`, `internal/store/artist.go`
 (`excludeHiddenArtists`), `subsonic` (`libraryScope`), `internal/libraryfilter`,
 `handlers/libraries`, webui `LibraryFilterBuilder` / `LibraryDialog`.
-**Failure mode:** a library shows more, or less, than its name promises. Never an error.
+**Failure mode:** a library silently shows more, or less, than its name promises —
+except edge 8, which fails outright instead.
 
 ### The edges
 
@@ -395,8 +396,9 @@ decisions in `TODO.md`, as noted.
    sqlite3 <DataDir>/aether.db "UPDATE libraries SET filters = '[]' WHERE id = <id>;"
    ```
 
-   The query finds invalid JSON and non-arrays; an array whose elements have the wrong
-   shape needs the same `UPDATE` by id. A library reset to `[]` is the whole catalog —
+   The query finds invalid JSON and non-arrays (a JSON `null` too, which decodes fine
+   and is harmless to reset); an array whose elements have the wrong shape needs the
+   same `UPDATE` by id. A library reset to `[]` is the whole catalog —
    and if it hides its artists it is ignored by the artist index until it has a filter.
 
 **Revisit when:** libraries need to be exact at album or artist granularity (edge 1),
