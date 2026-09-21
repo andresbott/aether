@@ -6,8 +6,9 @@ info:
     name: Andres Bott
     url: https://github.com/andresbott/aether
   description: >
-    Internal, admin-only server-management API — collections/libraries,
-    scanning, tasks/scheduling, and other administration concerns. This is
+    Internal, admin-only server-management API — libraries (saved filters) and
+    the read-only scan-folder list, scanning, tasks/scheduling, and other
+    administration concerns. This is
     NOT the music-client API: browsing, playback, playlists, album/artist
     navigation and search live exclusively under `/rest`, which must stay
     OpenSubsonic-compliant and has no OpenAPI document of its own (a Subsonic
@@ -17,8 +18,8 @@ info:
     **Scope.** This document describes the full `/api/v0` surface as mounted
     in `app/router/api_v0.go`: the metadata editor (pictures, raw tags,
     folder/track browsing, identify and identify-album, artist images),
-    artists, users, tasks, tokens, radiobrowser, auth, libraries, and
-    health/version/me.
+    artists, users, tasks, tokens, radiobrowser, auth, libraries, scan
+    folders, and health/version/me.
 servers:
   - url: /api/v0
     description: >
@@ -360,8 +361,10 @@ paths:
       operationId: listMetadataFolders
       summary: Immediate subfolders of a scan folder directory (the editor's folder-tree picker).
       description: >
-        Confined lexically to the scan folder root (no symlink traversal), unlike
-        the library path picker elsewhere in the app. A non-blank `q`
+        Confined lexically to the scan folder's root, and it never lists or
+        traverses a symlinked directory — unlike `browseLibraryPath`, which is
+        confined to the same roots but does list symlinked directories
+        (flagged `is_symlink`). A non-blank `q`
         switches the endpoint from a one-level listing to a recursive
         name search of the whole subtree under `path`, capped at 500
         matches; `q` and the response's `truncated` field are both
