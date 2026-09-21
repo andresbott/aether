@@ -315,11 +315,21 @@ not. The same recorded-as-resolved rule has **four** more consequences:
 - a scan folder whose **root itself** is a symlink is refused outright by
   `Folder.Available()` — deliberately loud (scan and re-index refuse it, startup warns,
   `GET /api/v0/scan-folders` reports `available:false` with the reason);
-- the scan's second guard cannot see a folder that consists only of symlinks;
+- the scan's second guard loses its path-range backup for such rows: it still sees
+  them through the `scan_folder` marker, but right after the folder was RENAMED in
+  the config — the one window the range exists for — an empty walk of a folder whose
+  content is all reached through symlinks is not refused;
 - the **metadata editor** never lists or traverses a symlinked directory
   (`metadataedit.ListFolders` without `IncludeSymlinks`, `metadataedit.SearchFolders`;
   only the library folder picker's `browse` asks for symlinks), so tracks reached
   through a link cannot be edited in the browser at all.
+
+All of the above is `FollowSymlinks: true`. With `false` a symlinked DIRECTORY is
+not indexed at all, but a symlinked FILE still is — under the link's OWN path
+(`walk.go` runs a plain `filepath.WalkDir`, and `appendAudio` / `audioFileInfo`
+take the link's path while stat-ing through it for size and mtime). The guard
+refuses that row the same way once the target leaves every root, so the failure
+mode is identical; only the recorded path differs.
 
 ### The workaround
 
@@ -327,7 +337,9 @@ List the link's target directory as a scan folder of its own. That works unless 
 target directory CONTAINS another scan folder's root — roots may not be equal or
 nested (`scanfolder.NewSet`) — in which case there is no workaround short of moving
 the content. The files are then walked under a path inside a root, the guard allows
-them, and — the recorded path being the same — no row is duplicated. For a symlinked
+them, and — the recorded path being the same — no row is duplicated (with
+`FollowSymlinks: true`; with `false` the file was recorded under the LINK's path, so
+the second folder indexes it a second time under its real one). For a symlinked
 root: point `Path` at the real directory.
 
 ### The fix that was chosen
@@ -362,8 +374,9 @@ except edge 8, which fails outright instead.
    "Lossless" library still shows its MP3 tracks, and an artist page shows every album.
    Changing that needs an OpenSubsonic extension, not a server-side guess.
 2. **A filtered library's artist list ignores OTHER hide-artists libraries.**
-   `excludeHiddenArtists` runs for the all-libraries index only. Open decision in
-   `TODO.md`.
+   `excludeHiddenArtists` runs only for a zero scope — the all-libraries index, and
+   a library without filters addressed by id — never inside a filtered library. Open
+   decision in `TODO.md`.
 3. **Saved values are not re-checked against the catalog.** Retagging a genre, or
    moving a scan folder's `Path` under a `path` filter, makes the library match less
    with no warning: only `scan_folder` values produce `warnings[]` and a startup

@@ -48,8 +48,9 @@ removes its tracks at the next scan, along with their stars, playlist
 entries and play history. Changing a `Path` keeps its tracks only if the old
 location is gone by the next scan (a move); if the old copy still exists,
 new rows are created and the old ones are swept instead. Content reached
-through a symbolic link is stored under the link's target; if that target
-lies outside every listed `Path`, those tracks are listed but do not play —
+through a symbolic link is stored under the link's target (with
+`FollowSymlinks`, the default); if that target lies outside every listed
+`Path`, those tracks are listed but do not play —
 list the target directory as a scan folder of its own (it must not contain
 another scan folder: roots cannot nest). With no scan folder configured at
 all nothing is scanned and no on-disk media is served: a populated index is
