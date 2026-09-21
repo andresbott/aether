@@ -353,7 +353,8 @@ describe('LibraryDialog chrome', () => {
         // 2. the microtask checkpoint a trusted dispatch performs here: Vue
         //    flushes and `hide` is emitted. nextTick, never flushPromises —
         //    flushPromises awaits a macrotask, which would let the fix's
-        //    setTimeout(0) run and make this pass for the wrong reason.
+        //    setTimeout(0) run and release the guard before step 3: the case
+        //    would then go red although the fix is right.
         await nextTick()
         await nextTick()
 
