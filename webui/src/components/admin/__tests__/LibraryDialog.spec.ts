@@ -77,6 +77,15 @@ function filterBuilder(w: ReturnType<typeof mountDialog>) {
     return w.findComponent(FilterBuilderStub)
 }
 
+// PrimeVue's Popover keeps its open state in a private `visible` data property
+// its public type does not expose, and in jsdom the leave transition never
+// finishes, so the overlay element outlives the close. Its `show`/`hide` events
+// are the public, observable signal.
+function popoverEvents(w: ReturnType<typeof mountDialog>) {
+    const p = w.findComponent(Popover)
+    return { shown: p.emitted('show')?.length ?? 0, hidden: p.emitted('hide')?.length ?? 0 }
+}
+
 describe('LibraryDialog create mode', () => {
     it('always sends filters, defaulting to [] alongside the other defaults', async () => {
         const w = mountDialog(null)
@@ -322,7 +331,7 @@ describe('LibraryDialog chrome', () => {
 
         await w.get('.icon-select-trigger').trigger('click')
         await flushPromises()
-        expect(w.findComponent(Popover).vm.visible).toBe(true)
+        expect(popoverEvents(w)).toEqual({ shown: 1, hidden: 0 })
 
         document.dispatchEvent(
             new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })
@@ -331,7 +340,7 @@ describe('LibraryDialog chrome', () => {
 
         // Asserted first, so a failure names the defect rather than the picker.
         expect(w.emitted('update:visible')).toBeUndefined()
-        expect(w.findComponent(Popover).vm.visible).toBe(false)
+        expect(popoverEvents(w)).toEqual({ shown: 1, hidden: 1 })
 
         // and the NEXT Escape still closes the dialog: the fix must not leave it deaf
         document.dispatchEvent(
