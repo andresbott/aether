@@ -346,7 +346,8 @@ builder itself before touching it:
   it is removed. The row says so, per value, instead of letting the first
   Save be the messenger.
 - A 400ms-debounced call to `previewLibrary()` renders "Matches N tracks in
-  M albums" (or "Fix the filters…" on a 422); every external change to
+  M albums" (`countLabel` — singular for exactly one) (or "Fix the
+  filters…" on a 422); every external change to
   `modelValue` restarts the debounce, and a superseded response is dropped
   by identity-checking the in-flight `AbortController`, not just waiting
   for its promise to settle. The very first preview is not debounced at
@@ -371,7 +372,10 @@ top, so one Escape closes every open dialog. `LibraryFilterBuilder`
 therefore emits `update:browsing` while its folder picker is open, `IconSelect`
 emits `update:open` while its icon `Popover` is, and `LibraryDialog` passes
 `:closeOnEscape="!pickerOpen && !iconPickerOpen"` — `closeOnEscape` is
-read at event time, so this is independent of where focus sits. Any dialog or
+read at event time, so this is independent of where focus sits. The listener
+itself is bound once, when the dialog enters, and only if `closeOnEscape` is
+true at that moment (`bindGlobalListeners`) — so the flag must be reset BEFORE
+the dialog opens, as `LibraryDialog`'s form-reset watch does. Any dialog or
 `Popover` opened from inside a dialog needs the same treatment (`IconSelect` in
 `LibraryDialog` is the second case: PrimeVue's `Popover` hides on Escape
 without stopping propagation, and binds its own document listener besides).
@@ -584,6 +588,9 @@ SCSS under `assets/scss/`; shared tokens in `_variables.scss` — notably
 app-wide (never restyle). PrimeVue theme via `@primeuix/themes` (`theme.js`);
 Inter variable font. One deliberate global dialog-footer rule in `_main.scss`
 (confirm-first ordering — see registry 2 before touching dialog footers).
+Error text uses `--app-danger` (defined per theme in
+`assets/scss/_variables.scss`): PrimeVue's `--p-red-*` do not flip with the
+theme and no single red passes AA on both grounds.
 
 **Hidden themes (easter egg).** `_hidden-themes.scss` holds two unlockable
 palettes — Winamp, CRT. They are token-only repaints layered over
