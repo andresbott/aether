@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { toRaw } from 'vue'
+import { nextTick, toRaw } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import InputText from 'primevue/inputtext'
@@ -325,6 +325,16 @@ describe('LibraryDialog chrome', () => {
     // The harness has to use real transitions and attach to the document: Vue
     // Test Utils' default <transition> stub never fires the @enter hook in
     // which PrimeVue binds that listener, so the default harness cannot see it.
+    // Built in three explicit steps because ONE synthetic `dispatchEvent` can
+    // never fail for this bug, and a real browser showed that it does fail: the
+    // browser runs a microtask checkpoint after EACH listener of a trusted
+    // event (the JS stack is empty between them), while a script's
+    // `dispatchEvent` keeps the dispatching script on the stack throughout. In
+    // between, Vue flushes and PrimeVue's Popover emits `hide` from the
+    // <transition>'s @leave — at the START of the leave — so the host's
+    // "picker open" flag would drop and hand `closeOnEscape` back to the Dialog
+    // before the SAME Escape reaches its document listener. The three steps
+    // replay exactly that ordering.
     it('keeps the dialog open when Escape closes the icon picker, and closes it on the next one', async () => {
         const w = mountEscapeDialog()
         await flushPromises()
@@ -333,20 +343,33 @@ describe('LibraryDialog chrome', () => {
         await flushPromises()
         expect(popoverEvents(w)).toEqual({ shown: 1, hidden: 0 })
 
-        document.dispatchEvent(
-            new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })
-        )
-        await flushPromises()
+        const escape = () =>
+            new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: false })
+
+        // 1. the popover's OWN element-level handler runs first (bubbles: false
+        //    so nothing else sees this one).
+        document.querySelector('.p-popover-content')!.dispatchEvent(escape())
+
+        // 2. the microtask checkpoint a trusted dispatch performs here: Vue
+        //    flushes and `hide` is emitted. nextTick, never flushPromises —
+        //    flushPromises awaits a macrotask, which would let the fix's
+        //    setTimeout(0) run and make this pass for the wrong reason.
+        await nextTick()
+        await nextTick()
+
+        // 3. the same event arriving at the document-level listeners.
+        document.dispatchEvent(escape())
+        await nextTick()
 
         // Asserted first, so a failure names the defect rather than the picker.
         expect(w.emitted('update:visible')).toBeUndefined()
         expect(popoverEvents(w)).toEqual({ shown: 1, hidden: 1 })
 
-        // and the NEXT Escape still closes the dialog: the fix must not leave it deaf
-        document.dispatchEvent(
-            new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })
-        )
+        // and the NEXT Escape still closes the dialog: the fix must not leave it
+        // deaf. Timers run first, so the guard has been released by then.
         await flushPromises()
+        document.dispatchEvent(escape())
+        await nextTick()
         expect(w.emitted('update:visible')![0]).toEqual([false])
         w.unmount()
     })

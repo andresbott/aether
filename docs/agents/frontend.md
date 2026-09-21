@@ -379,6 +379,14 @@ the dialog opens, as `LibraryDialog`'s form-reset watch does. Any dialog or
 `Popover` opened from inside a dialog needs the same treatment (`IconSelect` in
 `LibraryDialog` is the second case: PrimeVue's `Popover` hides on Escape
 without stopping propagation, and binds its own document listener besides).
+A `Popover` needs one thing more than a nested `Dialog`: PrimeVue emits its
+`hide` at the START of the leave, and a trusted key press lets microtasks run
+between the popover's own keydown handler and the document-level listeners — so
+the host must clear its "overlay open" flag in a macrotask (`setTimeout(…, 0)`),
+or the same Escape reaches the Dialog with `closeOnEscape` already back to
+`true`. jsdom cannot show this with one synthetic `dispatchEvent` (no microtask
+checkpoint between listeners): the spec emulates the trusted ordering in three
+steps, and the behaviour was verified with a real key press.
 A spec for it must mount
 with `transition: false`: Vue Test Utils' default transition stub never
 fires the `@enter` hook in which PrimeVue binds that listener, so the

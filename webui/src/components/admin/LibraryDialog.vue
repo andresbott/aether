@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
@@ -54,9 +54,27 @@ const filtersTouchedSinceError = ref(false)
 // `update:browsing` emit for why the Dialog below must then ignore Escape.
 const pickerOpen = ref(false)
 
-// The same for the icon picker: a PrimeVue Popover, which hides on Escape
-// without stopping propagation — see IconSelect's `update:open` emit.
+// True while the icon picker (a PrimeVue Popover) is open — and until the key
+// event that closed it has finished. A TRUSTED key press lets microtasks run
+// between the popover's own keydown handler and the document-level listeners,
+// and PrimeVue emits `hide` at the start of the leave: clearing this flag
+// synchronously would hand `closeOnEscape` back to the Dialog before the same
+// Escape reaches it. A macrotask cannot run mid-dispatch.
 const iconPickerOpen = ref(false)
+let iconPickerCloseTimer: ReturnType<typeof setTimeout> | undefined
+
+function onIconPickerOpenChange(open: boolean) {
+    clearTimeout(iconPickerCloseTimer)
+    if (open) {
+        iconPickerOpen.value = true
+        return
+    }
+    iconPickerCloseTimer = setTimeout(() => {
+        iconPickerOpen.value = false
+    }, 0)
+}
+
+onBeforeUnmount(() => clearTimeout(iconPickerCloseTimer))
 
 watch(
     () => [props.visible, props.library],
@@ -83,6 +101,7 @@ watch(
         // cannot report themselves closed on the way out; reset both here too.
         filtersTouchedSinceError.value = false
         pickerOpen.value = false
+        clearTimeout(iconPickerCloseTimer)
         iconPickerOpen.value = false
     },
     { immediate: true }
@@ -238,7 +257,7 @@ const defaultViewOptions = [
             </Message>
 
             <label>Icon</label>
-            <IconSelect v-model="form.icon" @update:open="iconPickerOpen = $event" />
+            <IconSelect v-model="form.icon" @update:open="onIconPickerOpenChange" />
             <Message
                 v-if="fieldErrors['/icon']"
                 class="field-error"
