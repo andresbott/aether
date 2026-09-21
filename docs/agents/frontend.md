@@ -363,6 +363,17 @@ on the link itself would match nothing; the ancestry is tracked per-node
 (`data.symlinked` on each `TreeNode`) so a descendant loaded later still
 knows a parent was a link.
 
+**Nested dialogs and Escape.** PrimeVue's `Dialog` binds a document-level
+`keydown` listener per visible dialog and none checks which dialog is on
+top, so one Escape closes every open dialog. `LibraryFilterBuilder`
+therefore emits `update:browsing` while its folder picker is open and
+`LibraryDialog` passes `:closeOnEscape="!pickerOpen"` — `closeOnEscape` is
+read at event time, so this is independent of where focus sits. Any new
+dialog-inside-a-dialog needs the same treatment. A spec for it must mount
+with `transition: false`: Vue Test Utils' default transition stub never
+fires the `@enter` hook in which PrimeVue binds that listener, so the
+default harness cannot see the bug.
+
 `useScanFolders()` (`composables/useScanFolders.ts`) is shared by
 `ScanFoldersPanel`, the filter builder and the metadata editor (see the
 `composables/` entry above). In the builder it feeds exactly one thing: the

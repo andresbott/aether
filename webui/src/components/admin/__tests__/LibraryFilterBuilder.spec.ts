@@ -346,6 +346,18 @@ describe('LibraryFilterBuilder', () => {
             expect(w.emitted('update:modelValue')).toBeUndefined()
         })
 
+        it('emits update:browsing true when Browse opens the picker and false when it closes', async () => {
+            const w = mountBuilder([mkRow('path')])
+            expect(w.emitted('update:browsing')).toBeUndefined()
+
+            await row(w, 0).get('[data-test="browse-path"]').trigger('click')
+            expect(w.emitted('update:browsing')?.map((e) => e[0])).toEqual([true])
+
+            w.findComponent({ name: 'FolderPickerDialog' }).vm.$emit('update:visible', false)
+            await w.vm.$nextTick()
+            expect(w.emitted('update:browsing')?.map((e) => e[0])).toEqual([true, false])
+        })
+
         it("uses a SelectButton mapping Yes/No to ['true']/['false'] for compilation", () => {
             const w = mountBuilder([mkRow('compilation', ['true'])])
             const sb = selectButtonIn(w, 0)

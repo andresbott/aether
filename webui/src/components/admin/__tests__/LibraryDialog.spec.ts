@@ -30,7 +30,7 @@ const baseLibrary: Library = {
 const FilterBuilderStub = {
     name: 'LibraryFilterBuilder',
     props: ['modelValue', 'errors'],
-    emits: ['update:modelValue'],
+    emits: ['update:modelValue', 'update:browsing'],
     template: '<div class="filter-builder-stub" />'
 }
 
@@ -275,6 +275,41 @@ describe('LibraryDialog chrome', () => {
         const w = mountDialog(baseLibrary)
         await flushPromises()
         expect(w.findComponent(Dialog).props('header')).toBe('Edit Library')
+    })
+
+    // PrimeVue binds one document-level Escape listener per visible Dialog and
+    // none checks which one is on top, so while the builder's folder picker is
+    // open this Dialog has to stop closing on Escape — see the builder's
+    // update:browsing emit.
+    it('ignores Escape while the builder reports the picker open and listens again after it closes', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+        expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(true)
+
+        filterBuilder(w).vm.$emit('update:browsing', true)
+        await flushPromises()
+        expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(false)
+
+        filterBuilder(w).vm.$emit('update:browsing', false)
+        await flushPromises()
+        expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(true)
+    })
+
+    // The builder unmounts with the dialog's content, so it cannot report
+    // "closed" on the way out: a dialog re-opened after being closed with the
+    // picker open must start listening to Escape again on its own.
+    it('starts a re-opened dialog listening to Escape again', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+        filterBuilder(w).vm.$emit('update:browsing', true)
+        await flushPromises()
+        expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(false)
+
+        await w.setProps({ visible: false })
+        await flushPromises()
+        await w.setProps({ visible: true })
+        await flushPromises()
+        expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(true)
     })
 
     it('shows the filters help text directly under the builder', async () => {

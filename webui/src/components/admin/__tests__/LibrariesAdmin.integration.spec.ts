@@ -32,6 +32,8 @@ const listScanFolders = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/api/ScanFolders', () => ({ listScanFolders }))
 
 import LibrariesPanel from '@/components/admin/LibrariesPanel.vue'
+import LibraryDialog from '@/components/admin/LibraryDialog.vue'
+import FolderPickerDialog from '@/components/admin/FolderPickerDialog.vue'
 
 // --- Fixtures -----------------------------------------------------------------
 // 'Gone' is a scan folder the server no longer offers, and 'Rock ' a genre whose
@@ -59,15 +61,20 @@ const filterOptions: LibraryFilterOptions = {
     release_types: []
 }
 
-function mountAdmin() {
+function mountAdmin(opts: { realTransitions?: boolean } = {}) {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } }
     })
     return mount(LibrariesPanel, {
+        attachTo: opts.realTransitions ? document.body : undefined,
         global: {
             plugins: [PrimeVue, [VueQueryPlugin, { queryClient }]],
             directives: { tooltip: {} },
-            stubs: { teleport: true }
+            // Vue Test Utils' default <transition> stub never fires the JS @enter
+            // hook, and that hook is where PrimeVue's Dialog binds its
+            // document-level Escape listener: without real transitions an Escape
+            // case passes whether or not the bug exists.
+            stubs: opts.realTransitions ? { teleport: true, transition: false } : { teleport: true }
         }
     })
 }
@@ -198,5 +205,33 @@ describe('libraries admin, end to end through the real components', () => {
             { field: 'scan_folder', values: ['Music'] },
             { field: 'genre', values: ['Rock '] }
         ])
+    })
+
+    it('Escape inside the folder picker closes the picker and leaves the library dialog open', async () => {
+        api.browseFolders.mockResolvedValue([
+            { name: 'Music', path: '/srv/music', has_subfolders: true, is_symlink: false }
+        ])
+        const w = mountAdmin({ realTransitions: true })
+        await flushPromises()
+        await buttonWithText(w, 'Add library').trigger('click')
+        await flushPromises()
+        await buttonWithText(w, 'Add filter').trigger('click')
+        filterRow(w, 0).findComponent(Select).vm.$emit('update:modelValue', 'path')
+        await flushPromises()
+        await w.get('[data-test="browse-path"]').trigger('click')
+        await flushPromises()
+        expect(w.findComponent(FolderPickerDialog).props('visible')).toBe(true)
+
+        document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }))
+        await flushPromises()
+
+        expect(w.findComponent(FolderPickerDialog).props('visible')).toBe(false)
+        expect(w.findComponent(LibraryDialog).props('visible')).toBe(true)
+
+        // and the NEXT Escape still closes the library dialog: the fix must not leave it deaf
+        document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }))
+        await flushPromises()
+        expect(w.findComponent(LibraryDialog).props('visible')).toBe(false)
+        w.unmount()
     })
 })

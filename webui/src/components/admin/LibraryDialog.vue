@@ -50,6 +50,10 @@ const form = ref<FormState>(emptyForm())
 // the errors-visibility comment below, by the `builderErrors` computed.
 const filtersTouchedSinceError = ref(false)
 
+// True while the builder's folder picker is open — see the builder's
+// `update:browsing` emit for why the Dialog below must then ignore Escape.
+const pickerOpen = ref(false)
+
 watch(
     () => [props.visible, props.library],
     () => {
@@ -70,8 +74,11 @@ watch(
             form.value = emptyForm()
         }
         // A freshly (re)opened dialog is a new editing session: any stale-error
-        // suppression left over from a previous visit no longer applies.
+        // suppression left over from a previous visit no longer applies. The
+        // builder unmounts with the dialog's content and so cannot report the
+        // picker closed on the way out; reset that here too.
         filtersTouchedSinceError.value = false
+        pickerOpen.value = false
     },
     { immediate: true }
 )
@@ -163,6 +170,7 @@ const defaultViewOptions = [
         @update:visible="emit('update:visible', $event)"
         modal
         :header="isEditMode ? 'Edit Library' : 'Add Library'"
+        :closeOnEscape="!pickerOpen"
         :style="{ width: 'min(92vw, 44rem)' }"
     >
         <Message
@@ -243,6 +251,7 @@ const defaultViewOptions = [
                 :modelValue="form.filters"
                 :errors="builderErrors"
                 @update:modelValue="onFiltersUpdate"
+                @update:browsing="pickerOpen = $event"
             />
             <p class="filters-help">
                 Filters narrow the library: every filter must match; inside one filter any value may.

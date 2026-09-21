@@ -33,6 +33,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: LibraryFilter[]): void
+    // Whether the folder picker is open. PrimeVue binds one document-level
+    // Escape listener per visible Dialog and none checks which one is on top,
+    // so the dialog that hosts this builder must stop closing on Escape while
+    // the picker is open — or one key press closes both and the form is lost.
+    (e: 'update:browsing', open: boolean): void
 }>()
 
 const { data: filterOptions, isError: filterOptionsFailed } = useLibraryFilterOptions()
@@ -102,6 +107,11 @@ function onYesNoChange(idx: number, value: string | null) {
 // One dialog instance shared by every path row; `browsingRowIndex` says which
 // row a confirmed pick is appended to.
 const browsingRowIndex = ref<number | null>(null)
+
+watch(
+    () => browsingRowIndex.value !== null,
+    (open) => emit('update:browsing', open)
+)
 
 function openBrowseFor(idx: number) {
     browsingRowIndex.value = idx
