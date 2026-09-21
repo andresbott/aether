@@ -374,6 +374,13 @@ with `transition: false`: Vue Test Utils' default transition stub never
 fires the `@enter` hook in which PrimeVue binds that listener, so the
 default harness cannot see the bug.
 
+**A focused `Select` swallows Escape.** PrimeVue 4.5.5's `Select.onEscapeKey`
+calls `event.stopPropagation()` even when its overlay is closed (their source
+marks it `@todo`), so while a `Select` holds focus Escape never reaches any
+`Dialog`'s document-level listener — in every dialog of the app, not only this
+one. (`MultiSelect` stops propagation only while its overlay is open.) Seen in
+a real browser; deliberately not worked around. Re-check on a PrimeVue upgrade.
+
 `useScanFolders()` (`composables/useScanFolders.ts`) is shared by
 `ScanFoldersPanel`, the filter builder and the metadata editor (see the
 `composables/` entry above). In the builder it feeds exactly one thing: the
