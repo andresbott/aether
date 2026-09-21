@@ -824,7 +824,9 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
     align-self: flex-start;
 }
 
-.pw-error {
+/* Selector kept above `.profile-body p`, which would otherwise win on
+   specificity and paint this validation message as ordinary secondary text. */
+.profile-body p.pw-error {
     margin: 0;
     color: var(--app-danger, #d32f2f);
     font-size: 0.85rem;
