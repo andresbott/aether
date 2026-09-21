@@ -163,7 +163,11 @@ array in one pass, each pointer rooted at the offending element —
 appends one more, `/show_artists`, when a hide-artists library's filters
 resolve to none. `POST /libraries/preview` (above) answers the identical
 `errors[]` shape for the same request-shaped reason: a candidate filter set
-can be wrong in more than one place before it is ever saved.
+can be wrong in more than one place before it is ever saved. It is the
+filters that itemize, not the whole payload: `libraries.validateDTO` answers
+the FIRST of `/name`, `/default_view` and `/icon` alone and returns before
+filters are looked at, and `libraryfilter.Validate` answers `/filters` alone
+when a request sends more than `MaxFilters` of them.
 
 **Status convention, confirmed across every handler:** `422` is
 `Writer.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
@@ -274,11 +278,14 @@ a layering rule rather than a formatting one:
   before any row is attempted, and a failure there is an ordinary
   problem+json rejection: malformed JSON or an invalid field combination
   (`400`), a missing `scan_folder` (`400`), a selection over
-  `maxSelectionPaths` (`422`), a scan folder that is not configured (`404`).
+  `maxSelectionPaths` (`422`), a scan folder that is not configured (`404`),
+  and, for `updateTracks`, a path outside the scan folder root (`400`, all
+  paths are resolved before any file is written).
   Those are the only non-2xx responses these endpoints produce.
 - Once the request is accepted the response is **always `200`**, whatever
   happened to the rows — one failed, some failed, or every one of them. A
-  per-file failure (unreadable, unwritable, outside the scan folder root) is
+  per-file failure (unreadable, unwritable — and for `rawTags` only, outside
+  the scan folder root) is
   that row's `error`; it never escalates to a transport status, not even
   when the whole batch failed. `updateTracks` writes files incrementally,
   so "N of M written" is the true state of the system after the call, and a
