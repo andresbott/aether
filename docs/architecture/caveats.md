@@ -287,3 +287,118 @@ insertion order and a hand-uploaded cover silently comes back on a different ent
 
 **Revisit when:** renaming artists in the metadata editor becomes a routine operation
 rather than an occasional typo fix.
+
+---
+
+## Content reached through a symlink that leaves every scan folder
+
+**Status:** known defect, SCHEDULED in `TODO.md` ("Record a logical (as-spelled) path
+per track"). Recorded here because it is silent and because its fix was analysed.
+**Affects:** `internal/scanner/walk.go` (`walkSymlinkEntry`, `followSymlinkEntry`,
+`symWalk` — they record the RESOLVED path), `internal/pathguard` (`Guard.Allows`),
+`subsonic/media.go` (`mediaPathAllowed`), `internal/store/scope.go` (`pathClause`).
+**Failure mode:** tracks are listed but do not play, and their embedded / on-disk art
+is replaced by a generated cover. Nothing at scan time; "song not found" at play time.
+
+### The gap
+
+With `FollowSymlinks: true` the walker follows a symlinked directory or file and
+records what it finds under the link's TARGET path. The target may lie outside every
+configured root. The track's `scan_folder` marker still names the folder that walked
+it — that is why the marker is a name and not derived from `file_path` — so the row is
+indexed, counted and listed. But `pathguard` resolves a path and requires it to sit
+inside a resolved root before `stream` or `getCoverArt` may read it, and this one does
+not. The same recorded-as-resolved rule has **four** more consequences:
+
+- a library **`path` filter** on, or below, a symlink matches nothing (the folder
+  picker warns when such a directory is selected);
+- a scan folder whose **root itself** is a symlink is refused outright by
+  `Folder.Available()` — deliberately loud (scan and re-index refuse it, startup warns,
+  `GET /api/v0/scan-folders` reports `available:false` with the reason);
+- the scan's second guard cannot see a folder that consists only of symlinks;
+- the **metadata editor** never lists or traverses a symlinked directory
+  (`metadataedit.ListFolders` without `IncludeSymlinks`, `metadataedit.SearchFolders`;
+  only the library folder picker's `browse` asks for symlinks), so tracks reached
+  through a link cannot be edited in the browser at all.
+
+### The workaround
+
+List the link's target directory as a scan folder of its own. That works unless the
+target directory CONTAINS another scan folder's root — roots may not be equal or
+nested (`scanfolder.NewSet`) — in which case there is no workaround short of moving
+the content. The files are then walked under a path inside a root, the guard allows
+them, and — the recorded path being the same — no row is duplicated. For a symlinked
+root: point `Path` at the real directory.
+
+### The fix that was chosen
+
+Record the path as spelled next to the resolved one (the "logical path" column the
+design deferred). For follow-symlinks folders the media guard becomes lexical
+containment of the spelled path, `path` filters match what the admin sees in the
+picker, the editor stops mapping spelled to resolved paths, and the second scan guard
+gets a range that covers symlink-only folders. Rejected as an interim: a per-folder
+scan warning — counting correctly needs the guard's per-file symlink resolution
+(about a million syscalls per scan at 100k files) unless the walker flags
+symlink-reached results. `RescanPaths` must keep its availability guard until the
+logical path replaces it.
+
+---
+
+## Libraries are filters: the edges that come with it
+
+**Status:** accepted — consequences of libraries being dynamic predicates over
+`tracks` (`store.ScopeOf`) with no materialized membership. Two items are open
+decisions in `TODO.md`, as noted.
+**Affects:** `internal/store/scope.go`, `internal/store/artist.go`
+(`excludeHiddenArtists`), `subsonic` (`libraryScope`), `internal/libraryfilter`,
+`handlers/libraries`, webui `LibraryFilterBuilder` / `LibraryDialog`.
+**Failure mode:** a library shows more, or less, than its name promises. Never an error.
+
+### The edges
+
+1. **Lists narrow, detail views do not.** `musicFolderId` exists only on list
+   endpoints. `getAlbum` and `getArtist` take none, so an album found through a
+   "Lossless" library still shows its MP3 tracks, and an artist page shows every album.
+   Changing that needs an OpenSubsonic extension, not a server-side guess.
+2. **A filtered library's artist list ignores OTHER hide-artists libraries.**
+   `excludeHiddenArtists` runs for the all-libraries index only. Open decision in
+   `TODO.md`.
+3. **Saved values are not re-checked against the catalog.** Retagging a genre, or
+   moving a scan folder's `Path` under a `path` filter, makes the library match less
+   with no warning: only `scan_folder` values produce `warnings[]` and a startup
+   warning. The edit dialog marks `genre` / `format` / `release_type` values that the
+   catalog no longer offers "(not in the catalog)"; a `path` value has no such marker —
+   the live match count is the signal.
+4. **`release_type` is matched case-insensitively but offered exactly.** A stored
+   `Album` can read "(not in the catalog)" beside an offered `album` and still match.
+5. **A library with a dangling `scan_folder` value cannot be saved from the admin UI**
+   — not even renamed — until the value is removed or replaced: the dialog always sends
+   `filters` and the server validates what it is sent. (An API client that omits
+   `filters` on `PUT` keeps them unvalidated, which is what keeps such a library
+   renameable at all.) Sending filters only when changed was rejected: it needs
+   dirty-tracking whose failure mode is a silently unsaved edit.
+6. **Values are picked, not typed** (except `path`), because `genre` and
+   `release_type` are matched against what the scanner recorded, verbatim. A library
+   for a genre that is not in the catalog yet cannot be built in the UI; the API
+   accepts any value.
+7. **The `path` control commits on Enter and trims.** PrimeVue's chips input drops
+   surrounding spaces, so a directory whose name begins or ends with a space can only
+   be chosen with *Browse…*, which passes the path through untouched.
+8. **One unreadable `libraries.filters` value fails every library.** The column is
+   JSON; a hand-edited value that does not decode makes `ListLibraries` fail, so
+   `getMusicFolders` and the admin page fail for ALL libraries, and the API cannot
+   delete the row because reading comes first. Only a hand edit can cause it. Repair
+   with the server stopped:
+
+   ```sh
+   sqlite3 <DataDir>/aether.db "SELECT id, name FROM libraries WHERE NOT json_valid(filters) OR json_type(filters) <> 'array';"
+   sqlite3 <DataDir>/aether.db "UPDATE libraries SET filters = '[]' WHERE id = <id>;"
+   ```
+
+   The query finds invalid JSON and non-arrays; an array whose elements have the wrong
+   shape needs the same `UPDATE` by id. A library reset to `[]` is the whole catalog —
+   and if it hides its artists it is ignored by the artist index until it has a filter.
+
+**Revisit when:** libraries need to be exact at album or artist granularity (edge 1),
+or a per-user library model arrives — both want a materialized membership table,
+which the design kept as its escape hatch.
