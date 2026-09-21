@@ -4,11 +4,11 @@
 // It exists because the media handlers serve files whose paths come from the
 // database rather than from the request — a track's file_path, an album's
 // cover_path. Nothing enforces that those rows point inside a configured
-// library, so a stale row, a hand-edited one, or a metadata-editor bug can name
+// scan folder, so a stale row, a hand-edited one, or a metadata-editor bug can name
 // any file the server process can read. This turns that assumption into an
 // enforced check.
 //
-// metadataedit.ResolveInLibrary solves the adjacent problem — joining a
+// metadataedit.ResolveInRoot solves the adjacent problem — joining a
 // request-supplied *relative* path onto a root without escaping it. This one
 // takes an already-absolute path of unknown provenance and asks where it lives.
 package pathguard

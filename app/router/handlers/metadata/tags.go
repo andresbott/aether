@@ -16,7 +16,7 @@ import (
 // metadata editor: browsing folders, reading a selection's tracks, writing a
 // structured patch, and the raw tag map. Every write enqueues a background
 // re-index of the touched files so the edit becomes visible in the music UI
-// without the request blocking on it; it never writes to the library index
+// without the request blocking on it; it never writes to the index
 // directly.
 type TagsHandler struct {
 	// Folders is the set of configured scan folders the editor can address.
@@ -80,7 +80,7 @@ func (h *TagsHandler) folders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// No symlinks here, unlike the library path picker: this tree is confined to
-	// the scan folder root by ResolveInLibrary, which checks paths lexically, so
+	// the scan folder root by ResolveInRoot, which checks paths lexically, so
 	// a followed link would be a way out of the root.
 	folders, err := metadataedit.ListFolders(abs, metadataedit.ListFoldersOptions{})
 	if err != nil {
@@ -289,7 +289,7 @@ func (h *TagsHandler) updateTracks(w http.ResponseWriter, r *http.Request) {
 
 	resolved := make([]string, 0, len(body.Paths))
 	for _, p := range body.Paths {
-		abs, err := metadataedit.ResolveInLibrary(folder.Path, p)
+		abs, err := metadataedit.ResolveInRoot(folder.Path, p)
 		if err != nil {
 			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 			return

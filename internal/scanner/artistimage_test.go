@@ -69,7 +69,7 @@ func TestScannerRecordsArtistFolderImage(t *testing.T) {
 	}
 }
 
-// A library that is not laid out as <collection>/<artist>/<album> must leave
+// A collection that is not laid out as <collection>/<artist>/<album> must leave
 // ImagePath empty rather than adopt the album's own folder image.
 func TestScannerLeavesArtistImageEmptyWithoutArtistFolder(t *testing.T) {
 	st := testScanStore(t)
@@ -126,7 +126,7 @@ func TestScannerClearsStaleArtistImagePath(t *testing.T) {
 
 // An artist-folder image already on record is KEPT, not cleared, when a later
 // run detects nothing but the recorded file still exists (another directory or
-// library layout supplied it). Here an incremental scan only re-processes a new
+// collection layout supplied it). Here an incremental scan only re-processes a new
 // track that lives outside any artist folder, so this run's detection is empty
 // while the original artist.jpg is untouched on disk.
 func TestScannerKeepsUsableArtistImageWhenRunDetectsNothing(t *testing.T) {

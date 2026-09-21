@@ -3,7 +3,7 @@
 // <collection>/<artist>/<album>[/<disc>] layout at any depth: an artist folder is
 // a strict ancestor of the track's own directory whose basename matches the
 // artist name. Matching is by name and position only — never an album's own
-// folder art — so a library laid out some other way yields nothing rather than a
+// folder art — so a collection laid out some other way yields nothing rather than a
 // wrong image. It has no scanner or store dependencies, so callers outside the
 // scanner (e.g. the metadata editor, to create an artist image file) can reuse it.
 package artistimage
@@ -95,16 +95,16 @@ func BestInDir(dir string) string {
 }
 
 // artistDirs returns every strict ancestor of startDir (excluding startDir itself
-// and the library root, never crossing above it) whose basename matches
+// and the scan folder root, never crossing above it) whose basename matches
 // artistName, deepest first. startDir is a directory at or below the album level —
 // typically the directory a track file sits in — so an album's own folder art is
 // never mistaken for a portrait and a flat <artist>/<track> layout yields nothing.
-func artistDirs(libRoot, startDir, artistName string) []string {
+func artistDirs(root, startDir, artistName string) []string {
 	want := unidecode.Normalize(artistName)
 	if want == "" {
 		return nil
 	}
-	root := filepath.Clean(libRoot)
+	root = filepath.Clean(root)
 	var out []string
 	dir := filepath.Dir(filepath.Clean(startDir))
 	for dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)) {
@@ -125,8 +125,8 @@ func artistDirs(libRoot, startDir, artistName string) []string {
 // image yet. ok is false when the layout has no such folder. Callers that need to
 // create an artist image (e.g. the metadata editor) use this to decide where to
 // write it.
-func FindDir(libRoot, startDir, artistName string) (string, bool) {
-	dirs := artistDirs(libRoot, startDir, artistName)
+func FindDir(root, startDir, artistName string) (string, bool) {
+	dirs := artistDirs(root, startDir, artistName)
 	if len(dirs) == 0 {
 		return "", false
 	}
@@ -137,8 +137,8 @@ func FindDir(libRoot, startDir, artistName string) (string, bool) {
 // track living under startDir, or "" when the layout has no artist folder or the
 // folder holds no usable image. When several ancestors share the artist's name it
 // returns the image from the nearest one that has any.
-func Detect(libRoot, startDir, artistName string) string {
-	for _, dir := range artistDirs(libRoot, startDir, artistName) {
+func Detect(root, startDir, artistName string) string {
+	for _, dir := range artistDirs(root, startDir, artistName) {
 		if img := BestInDir(dir); img != "" {
 			return img
 		}

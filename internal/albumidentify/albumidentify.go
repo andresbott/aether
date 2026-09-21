@@ -140,10 +140,10 @@ const (
 	// failed for it. Worth retrying, unlike the above. (When EVERY file fails
 	// this way the whole request fails instead — see upstreamFailure.)
 	ReasonLookupFailed = "could not be looked up — the identification service failed"
-	// ReasonOutsideLibrary: the path never reached identification at all because
-	// it resolved outside the library root. Set by the API layer, which is where
+	// ReasonOutsideFolder: the path never reached identification at all because
+	// it resolved outside the scan folder root. Set by the API layer, which is where
 	// paths are resolved.
-	ReasonOutsideLibrary = "is outside the library"
+	ReasonOutsideFolder = "is outside the scan folder"
 )
 
 // FileError is one file that produced no identification, with the short reason

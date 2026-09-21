@@ -102,7 +102,7 @@ func TestWalkFollowsSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(realDir, "missing"), filepath.Join(libDir, "broken.mp3")); err != nil {
 		t.Fatal(err)
 	}
-	// Cycle: a symlink back to the library root must not recurse forever.
+	// Cycle: a symlink back to the scan folder root must not recurse forever.
 	if err := os.Symlink(libDir, filepath.Join(libDir, "self-link")); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestWalkNoFollowSymlinks(t *testing.T) {
 	}
 }
 
-func TestWalkMultipleLibraries(t *testing.T) {
+func TestWalkMultipleScanFolders(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
 	createTestFiles(t, dir1, []string{"01.mp3"})

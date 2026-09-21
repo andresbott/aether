@@ -82,7 +82,7 @@ func TestWithinRejectsSymlinkEscapingRoot(t *testing.T) {
 	}
 }
 
-// A symlink that stays inside the root is legitimate — some libraries are built
+// A symlink that stays inside the root is legitimate — some collections are built
 // out of them — and must keep working.
 func TestWithinAcceptsSymlinkInsideRoot(t *testing.T) {
 	root := t.TempDir()
@@ -115,7 +115,7 @@ func TestGuardAllowsAnyConfiguredRoot(t *testing.T) {
 	}
 }
 
-// A Guard with no roots is the "no libraries configured" state. It must deny,
+// A Guard with no roots is the "no scan folders configured" state. It must deny,
 // not allow: failing open would make the guard useless exactly when the config
 // is broken.
 func TestGuardWithNoRootsDeniesEverything(t *testing.T) {

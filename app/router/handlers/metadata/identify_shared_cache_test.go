@@ -80,9 +80,9 @@ func (c *countingReleaseLookup) Release(
 // newSharedIdentifyHandler wires both identify endpoints onto one real
 // Identifier, exactly as app/router/api_v0.go does.
 func newSharedIdentifyHandler(
-	t *testing.T, libRoot string, ident *identify.Identifier,
+	t *testing.T, root string, ident *identify.Identifier,
 ) (*mux.Router, scanfolder.Folder) {
-	return newSharedIdentifyHandlerWithReleases(t, libRoot, ident, &countingReleaseLookup{}, 0)
+	return newSharedIdentifyHandlerWithReleases(t, root, ident, &countingReleaseLookup{}, 0)
 }
 
 // newSharedIdentifyHandlerWithReleases is newSharedIdentifyHandler with an
@@ -90,13 +90,13 @@ func newSharedIdentifyHandler(
 // MusicBrainz fetches a run performs.
 func newSharedIdentifyHandlerWithReleases(
 	t *testing.T,
-	libRoot string,
+	root string,
 	ident *identify.Identifier,
 	releases albumidentify.ReleaseLookup,
 	releaseCacheSize int,
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

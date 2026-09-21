@@ -31,7 +31,7 @@ type artistRekey struct {
 	mbid     string
 }
 
-func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time, log *slog.Logger, prog ProgressReporter) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, root string, results []tagResult, scanStart time.Time, log *slog.Logger, prog ProgressReporter) (reconcileStats, error) {
 	var stats reconcileStats
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -72,8 +72,8 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			return stats, ctx.Err()
 		}
 
-		prog.SetStage("Saving: " + relPath(libRoot, tr.walk.FilePath))
-		log.Info("indexing song", slog.String("file", relPath(libRoot, tr.walk.FilePath)))
+		prog.SetStage("Saving: " + relPath(root, tr.walk.FilePath))
+		log.Info("indexing song", slog.String("file", relPath(root, tr.walk.FilePath)))
 
 		// A per-track transaction that fails is retried once before being given
 		// up on. The likeliest cause is a lost SQLite write lock under
@@ -103,7 +103,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 
 	// Every artist folder is listed at most once per run here, instead of once
 	// per track inside the loop above.
-	s.reconcileArtistImages(libRoot, probes)
+	s.reconcileArtistImages(root, probes)
 
 	return stats, nil
 }
@@ -312,13 +312,13 @@ func recordArtistProbes(probes map[uint]*artistImageProbe, trackPath string, art
 // another scan folder's layout may still hold it. Empty detection with no
 // usable stored path clears the row. Failures are logged, never fatal: the
 // field is a soft fallback.
-func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistImageProbe) {
+func (s *Scanner) reconcileArtistImages(root string, probes map[uint]*artistImageProbe) {
 	for id, p := range probes {
 		img := ""
 		// First directory that yields an image wins (deterministic, first-seen
 		// order) — the old per-track code instead let the last-processed track win.
 		for _, dir := range p.dirs {
-			if got := artistimage.Detect(libRoot, dir, p.name); got != "" {
+			if got := artistimage.Detect(root, dir, p.name); got != "" {
 				img = got
 				break
 			}

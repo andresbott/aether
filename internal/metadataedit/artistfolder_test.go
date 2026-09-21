@@ -65,7 +65,7 @@ func TestIsArtistFolder_FalseForAlbumFolder(t *testing.T) {
 }
 
 // artistOnlyReader tags files with a track artist but no album artist — the
-// common case in libraries that never set an album-artist tag.
+// common case in catalogs that never set an album-artist tag.
 type artistOnlyReader struct{ artist string }
 
 func (artistOnlyReader) CanRead(p string) bool {
@@ -139,7 +139,7 @@ func TestArtistFolderFor_RootNotEligible(t *testing.T) {
 	mkfile(t, filepath.Join(root, "Radiohead", "OK Computer", "a.flac"))
 	if _, ok := metadataedit.ArtistFolderFor(
 		context.Background(), root, root, fakeReader{"Radiohead"}); ok {
-		t.Fatal("expected the library root itself to be ineligible")
+		t.Fatal("expected the scan folder root itself to be ineligible")
 	}
 }
 

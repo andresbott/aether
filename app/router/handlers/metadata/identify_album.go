@@ -61,12 +61,12 @@ func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) 
 	inputs := make([]albumidentify.Input, 0, len(body.Paths))
 	pathErrors := make([]pathErrorDTO, 0)
 	for _, p := range body.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(folder.Path, p)
+		abs, rerr := metadataedit.ResolveInRoot(folder.Path, p)
 		if rerr != nil {
 			// The resolution error quotes the rejected path and the scan folder
 			// root; the user only needs to know the file is not eligible.
 			pathErrors = append(pathErrors, pathErrorDTO{
-				Path: p, Error: albumidentify.ReasonOutsideLibrary,
+				Path: p, Error: albumidentify.ReasonOutsideFolder,
 			})
 			continue
 		}

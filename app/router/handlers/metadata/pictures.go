@@ -36,7 +36,7 @@ type CoverArtClient interface {
 // embedded and folder cover-art cells of a track selection, the artist-folder
 // image, and the online candidate proxies (Cover Art Archive, artist image
 // providers). Every write lands on disk and enqueues a background re-index of
-// the touched files; the library index is never written directly.
+// the touched files; the index is never written directly.
 type ImagesHandler struct {
 	// Folders is the set of configured scan folders the editor can address.
 	Folders *scanfolder.Set
@@ -317,7 +317,7 @@ func (h *ImagesHandler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rp.filePath != "" {
-		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInLibrary — confined lexically to the scan folder root (rejects absolute paths and ".." escapes via filepath.Rel; does not resolve symlinks)
+		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInRoot — confined lexically to the scan folder root (rejects absolute paths and ".." escapes via filepath.Rel; does not resolve symlinks)
 		return
 	}
 	writeImage(w, rp.data)
@@ -482,7 +482,7 @@ func (h *ImagesHandler) applyPicture(w http.ResponseWriter, r *http.Request) {
 	// itself is lenient — it skips an unresolvable entry rather than failing
 	// the whole call — so that leniency is not relied on here.
 	for _, p := range paths {
-		if _, rerr := metadataedit.ResolveInLibrary(folder.Path, p); rerr != nil {
+		if _, rerr := metadataedit.ResolveInRoot(folder.Path, p); rerr != nil {
 			h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 			return
 		}

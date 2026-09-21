@@ -272,7 +272,7 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 
 // An unreadable directory is not a deletion. planTrackContinuity narrows its
 // "the old file is gone" test to fs.ErrNotExist exactly so an EACCES stat cannot
-// put a live row into `vanished` — and since Scan's preflight only guards library
+// put a live row into `vanished` — and since Scan's preflight only guards scan folder
 // *roots*, that narrowing is the last defence for a subtree that became
 // unreachable inside a root that is present (a permission change, a per-directory
 // mount that went away). Widening the check to "any stat error means gone" passes
@@ -304,7 +304,7 @@ func TestScanDoesNotRelinkWhenTheOldDirectoryIsUnreadable(t *testing.T) {
 		t.Skip("this process stats through mode 0000 (running as root); the EACCES path is unreachable here")
 	}
 
-	// A byte-identical file with the same title elsewhere in the same library:
+	// A byte-identical file with the same title elsewhere in the same scan folder:
 	// every part of the proof except the stat says "this is where 01.mp3 moved
 	// to". It also keeps the walk non-empty, so the sweep guard does not fire
 	// first and mask the case under test.
@@ -543,7 +543,7 @@ func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
 // byte-identical new file was enough to move an unreachable folder's stars,
 // playlists, history and scan_folder onto it, and the guard then failed the
 // scan too late to undo any of it.
-func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
+func TestScanValidatesEveryScanFolderBeforeReconcilingAny(t *testing.T) {
 	st := testScanStore(t)
 	musicDir := t.TempDir()
 	archiveDir := t.TempDir()
@@ -580,15 +580,15 @@ func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
 	reader.titles[bait] = "Path Of Glory"
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
-		t.Fatal("expected the scan to fail on the unavailable library")
+		t.Fatal("expected the scan to fail on the unavailable scan folder")
 	}
 
 	var after model.Track
 	if err := st.DB().First(&after, before.ID).Error; err != nil {
-		t.Fatalf("the unavailable library's row must survive untouched: %v", err)
+		t.Fatalf("the unavailable scan folder's row must survive untouched: %v", err)
 	}
 	if after.FilePath != archived {
-		t.Fatalf("row %d was re-linked to %q by an earlier library's pass; it belongs to a library "+
+		t.Fatalf("row %d was re-linked to %q by an earlier scan folder's pass; it belongs to a scan folder "+
 			"whose guard had not run yet", before.ID, after.FilePath)
 	}
 	if after.ScanFolder != archiveFolder.Name {
@@ -599,7 +599,7 @@ func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
 		t.Fatal(err)
 	}
 	if count != 0 {
-		t.Fatalf("no library may be reconciled when a later one fails its guard, but %q was indexed", bait)
+		t.Fatalf("no scan folder may be reconciled when a later one fails its guard, but %q was indexed", bait)
 	}
 }
 
@@ -668,7 +668,7 @@ func TestScanMoveKeepsPlaylistsStarsHistoryAndQueue(t *testing.T) {
 // The source folder keeps a second file so the move does not empty it — an
 // emptied folder is a different case, and the sweep guard (Task 6) stops the
 // scan there on purpose.
-func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
+func TestScanKeepsTheTrackIDWhenAFileMovesBetweenScanFolders(t *testing.T) {
 	st := testScanStore(t)
 	dirA := t.TempDir()
 	dirB := t.TempDir()
@@ -705,7 +705,7 @@ func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after.ID != before.ID {
-		t.Fatalf("track id changed on a cross-library move: was %d, now %d", before.ID, after.ID)
+		t.Fatalf("track id changed on a cross-scan-folder move: was %d, now %d", before.ID, after.ID)
 	}
 	if after.ScanFolder != folderB.Name {
 		t.Fatalf("ScanFolder = %q, want the destination folder %q", after.ScanFolder, folderB.Name)

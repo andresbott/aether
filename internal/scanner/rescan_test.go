@@ -145,7 +145,7 @@ func TestRescanPathsPrunesOrphanedArtist(t *testing.T) {
 // stub serves perfectly good metadata for every one of them: a path that slips
 // through the guard would be *successfully* indexed and fail the assertions.
 // An admission rejection is also not an error: it is a caller passing something
-// the library does not cover, which must not show up as a rescan failure.
+// the scan folder does not cover, which must not show up as a rescan failure.
 func TestRescanPathsSkipsInadmissiblePaths(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
@@ -176,7 +176,7 @@ func TestRescanPathsSkipsInadmissiblePaths(t *testing.T) {
 		notes,       // not audio
 		skipme,      // excluded by filename
 		gone,        // does not exist
-		outside,     // outside the library
+		outside,     // outside the scan folder
 		inPrunedDir, // inside a directory the walk prunes
 	})
 	if err != nil {
@@ -311,7 +311,7 @@ func TestRescanPathsWithNoFoldersConfigured(t *testing.T) {
 	st := testScanStore(t)
 	s := newScanner(t, st, fakeTagReader{})
 	if _, err := s.RescanPaths(context.Background(), "unknown", []string{"/x/y.mp3"}); err == nil {
-		t.Fatal("expected an error for an unknown library")
+		t.Fatal("expected an error for an unknown scan folder")
 	}
 }
 

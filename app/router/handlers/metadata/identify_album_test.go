@@ -16,6 +16,7 @@ import (
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/albumidentify"
+	"github.com/andresbott/aether/internal/metadataedit"
 	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/go-bumbu/http/outbound"
 	"github.com/go-bumbu/http/problemjson"
@@ -39,10 +40,10 @@ func (f *fakeAlbumIdentifier) Resolve(
 }
 
 func newAlbumIdentifyHandler(
-	t *testing.T, libRoot string, svc metaHandler.AlbumIdentifyService,
+	t *testing.T, root string, svc metaHandler.AlbumIdentifyService,
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,10 +200,14 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 	}
 	// A short reason, not the resolution error: that one quotes the rejected path
 	// and the scan folder root back at the client.
-	if body.Errors[0].Error != albumidentify.ReasonOutsideLibrary {
-		t.Fatalf("expected %q, got %q", albumidentify.ReasonOutsideLibrary, body.Errors[0].Error)
+	if body.Errors[0].Error != albumidentify.ReasonOutsideFolder {
+		t.Fatalf("expected %q, got %q", albumidentify.ReasonOutsideFolder, body.Errors[0].Error)
 	}
-	for _, leak := range []string{"resolves outside library root", root} {
+	_, rerr := metadataedit.ResolveInRoot(root, "../outside.mp3")
+	if rerr == nil || !strings.Contains(rerr.Error(), metadataedit.ErrOutsideRoot.Error()) {
+		t.Fatalf("the leak needle does not occur in a real resolution error: %v", rerr)
+	}
+	for _, leak := range []string{metadataedit.ErrOutsideRoot.Error(), root} {
 		if strings.Contains(w.Body.String(), leak) {
 			t.Fatalf("server detail %q leaked into the body: %s", leak, w.Body.String())
 		}
@@ -252,16 +257,16 @@ func TestIdentifyAlbum_AllPathsRejected(t *testing.T) {
 }
 
 // assertResolvedPathsAreValid verifies every input in the call has an absolute
-// AbsPath that lies inside libRoot (the scan folder the handler looked up).
-func assertResolvedPathsAreValid(t *testing.T, libRoot string, inputs []albumidentify.Input) {
+// AbsPath that lies inside root (the scan folder the handler looked up).
+func assertResolvedPathsAreValid(t *testing.T, root string, inputs []albumidentify.Input) {
 	t.Helper()
 	for _, input := range inputs {
 		if !filepath.IsAbs(input.AbsPath) {
 			t.Fatalf("expected absolute path, got %q", input.AbsPath)
 		}
-		relPath, err := filepath.Rel(libRoot, input.AbsPath)
+		relPath, err := filepath.Rel(root, input.AbsPath)
 		if err != nil || filepath.IsAbs(relPath) || len(relPath) >= 3 && relPath[:3] == ".."+string(filepath.Separator) {
-			t.Fatalf("path %q is not inside scan folder root %q", input.AbsPath, libRoot)
+			t.Fatalf("path %q is not inside scan folder root %q", input.AbsPath, root)
 		}
 	}
 }

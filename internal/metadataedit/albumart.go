@@ -35,8 +35,9 @@ type Album struct {
 	dirs   []string
 }
 
-// ResolveAlbum resolves relTrackPaths — library-relative, as returned by
-// ListTracks or supplied by a client — against libRoot into an Album.
+// ResolveAlbum resolves relTrackPaths — relative to the scan folder, as
+// returned by ListTracks or supplied by a client — against root into an
+// Album.
 //
 // Each entry becomes a track (contributing itself to Tracks() and its parent
 // directory to Dirs()), unless it names an existing directory, in which case
@@ -45,7 +46,7 @@ type Album struct {
 // album folder — by passing the folder's own path, so folder-art lookups
 // still resolve against it.
 //
-// An entry that fails to resolve (an absolute path, or one escaping libRoot)
+// An entry that fails to resolve (an absolute path, or one escaping root)
 // is skipped, not fatal — mirroring the lenient behaviour of the
 // selectionPaths/selectionDirs helpers this replaces, so a stray malformed
 // entry degrades the selection instead of failing the whole request. A
@@ -60,7 +61,7 @@ type Album struct {
 // Note that a non-empty relTrackPaths whose entries all fail to resolve is
 // not an error: it yields an Album with no tracks and no dirs, exactly like
 // passing none at all would if this function allowed it.
-func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
+func ResolveAlbum(root string, relTrackPaths []string) (Album, error) {
 	if len(relTrackPaths) == 0 {
 		return Album{}, errNoSelection
 	}
@@ -68,7 +69,7 @@ func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
 	dirs := make([]string, 0, 2)
 	seenDir := map[string]bool{}
 	for _, rel := range relTrackPaths {
-		abs, err := ResolveInLibrary(libRoot, rel)
+		abs, err := ResolveInRoot(root, rel)
 		if err != nil {
 			continue
 		}
@@ -85,7 +86,7 @@ func ResolveAlbum(libRoot string, relTrackPaths []string) (Album, error) {
 			dirs = append(dirs, dir)
 		}
 	}
-	return Album{root: filepath.Clean(libRoot), tracks: tracks, dirs: dirs}, nil
+	return Album{root: filepath.Clean(root), tracks: tracks, dirs: dirs}, nil
 }
 
 // Tracks returns the absolute paths of the selected track files — the
@@ -96,7 +97,7 @@ func (a Album) Tracks() []string { return a.tracks }
 // folder-picture fan-out — in first-seen order.
 func (a Album) Dirs() []string { return a.dirs }
 
-// relOf returns abs as a library-relative, forward-slash path.
+// relOf returns abs as a folder-relative, forward-slash path.
 func (a Album) relOf(abs string) string {
 	return toForwardRel(a.root, abs)
 }
@@ -128,7 +129,7 @@ type SlotState struct {
 	Source Source
 }
 
-// Source is a bounded, library-relative locator for one resolved picture:
+// Source is a bounded, folder-relative locator for one resolved picture:
 // the file, which slot it was found in, and which picture type it
 // represents. It round-trips through Values/DecodeSource so the picture
 // image endpoint can address a single resolved file without re-resolving an
@@ -155,13 +156,13 @@ func (s Source) Values() url.Values {
 }
 
 // DecodeSource decodes a Source from query parameters (the inverse of
-// Values) and resolves its file against libRoot.
-func DecodeSource(libRoot string, q url.Values) (absFile string, s Source, err error) {
+// Values) and resolves its file against root.
+func DecodeSource(root string, q url.Values) (absFile string, s Source, err error) {
 	if v := q.Get("sv"); v != "" && v != sourceVersion {
 		return "", Source{}, fmt.Errorf("metadataedit: unsupported source version %q", v)
 	}
 	s = Source{RelPath: q.Get("file"), Slot: q.Get("slot"), TypeID: q.Get("type")}
-	abs, rerr := ResolveInLibrary(libRoot, s.RelPath)
+	abs, rerr := ResolveInRoot(root, s.RelPath)
 	if rerr != nil {
 		return "", Source{}, rerr
 	}
@@ -230,19 +231,19 @@ func (a Album) Open(s Source) (data []byte, filePath, fingerprint string, err er
 	return OpenSource(a.root, s)
 }
 
-// OpenSource is Open without an Album in hand: given a library root and a
+// OpenSource is Open without an Album in hand: given a root and a
 // Source, it resolves and opens that one file directly. The picture image
 // endpoint has exactly one resolved Source to serve and no reason to
 // reconstruct a whole album selection just to open it.
-func OpenSource(libRoot string, s Source) (data []byte, filePath, fingerprint string, err error) {
-	abs, rerr := ResolveInLibrary(libRoot, s.RelPath)
+func OpenSource(root string, s Source) (data []byte, filePath, fingerprint string, err error) {
+	abs, rerr := ResolveInRoot(root, s.RelPath)
 	if rerr != nil {
 		return nil, "", "", rerr
 	}
 	switch s.Slot {
 	case "folder":
 		// A client-supplied file= that is empty (DecodeSource resolves an
-		// omitted file= to the library root — ResolveInLibrary treats "" as
+		// omitted file= to the scan folder root — ResolveInRoot treats "" as
 		// valid) or that names a directory must not reach http.ServeFile: a
 		// directory path there redirects (301) before it has anything to say
 		// about existing, then 404s on the missing index — a confusing detour

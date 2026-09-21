@@ -54,7 +54,7 @@ type artistFolderDTO struct {
 // artistFolder reports whether the selected folder is an artist folder — one
 // whose sub-folders hold albums tagged with an album artist matching the folder's
 // own name (metadataedit.IsArtistFolder). This is a pure filesystem+tags question
-// (no library index), so the editor can offer an artist image for a folder the
+// (no index), so the editor can offer an artist image for a folder the
 // moment it is selected, independent of any track selection.
 func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	folder, abs, status, err := resolveFolderRel(h.Folders, r)
@@ -111,7 +111,7 @@ func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
 	// The editor busts this URL explicitly after each change, so no-cache keeps a
 	// replaced image from lingering in the browser cache.
 	w.Header().Set("Cache-Control", "no-cache")
-	//nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInLibrary, not a request path
+	//nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInRoot, not a request path
 	http.ServeFile(w, r, img)
 }
 
@@ -125,7 +125,7 @@ type artistImageResult struct {
 // setArtistImage writes an artist portrait as artist.<ext> into the SELECTED
 // folder. The image is either an uploaded file ("image") or an online pick
 // ("mbid" + "url") downloaded from the providers. Nothing is written to the
-// library index: the DB catches up through a targeted re-index of one track
+// index: the DB catches up through a targeted re-index of one track
 // under the folder, whose reconcile pass detects the file as the artist's
 // image (a soft fallback — a managed/DB image still wins).
 func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	abs, rerr := metadataedit.ResolveInLibrary(folder.Path, r.FormValue("path"))
+	abs, rerr := metadataedit.ResolveInRoot(folder.Path, r.FormValue("path"))
 	if rerr != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 		return
@@ -192,7 +192,7 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInLibrary
+	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInRoot
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}

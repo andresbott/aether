@@ -469,7 +469,7 @@ depth (intermediate and disc folders such as
 `<collection>/<label>/<artist>/<album>/CD1` are handled). Detection lives in the
 reusable `internal/artistimage` package so callers outside the scanner (the
 metadata editor, to create an artist image file) can share it.
-`artistimage.Detect(libRoot, startDir, artistName)` walks from `startDir`'s
+`artistimage.Detect(root, startDir, artistName)` walks from `startDir`'s
 parent up to (excluding) the scan folder root and accepts a directory only when it is
 **both** above the album directory **and** named after the artist
 (`unidecode.Normalize` on both sides). That double condition is deliberate: file

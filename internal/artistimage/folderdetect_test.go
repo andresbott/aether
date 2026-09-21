@@ -72,7 +72,7 @@ func TestIsUsablePath(t *testing.T) {
 }
 
 // Detect accepts an image only in a directory that is both above the album
-// directory and named after the artist, so a library not laid out as
+// directory and named after the artist, so a collection not laid out as
 // <collection>/<artist>/<album> never gets a wrong image. startDir is the
 // directory the track file sits in.
 func TestDetect(t *testing.T) {
@@ -186,16 +186,16 @@ func TestFindDir(t *testing.T) {
 	}
 }
 
-// Detection must never resolve an image by walking above the library root.
-func TestDetectStaysInsideLibrary(t *testing.T) {
+// Detection must never resolve an image by walking above the scan folder root.
+func TestDetectStaysInsideRoot(t *testing.T) {
 	root := t.TempDir()
 	createTestFiles(t, root, []string{
 		"artist.jpg",
 		"lib/Pink Floyd/The Wall/01.flac",
 	})
-	libRoot := filepath.Join(root, "lib")
-	startDir := filepath.Dir(filepath.Join(libRoot, "Pink Floyd/The Wall/01.flac"))
-	if got := artistimage.Detect(libRoot, startDir, "lib"); got != "" {
-		t.Errorf("Detect crossed the library root, got %q", got)
+	scanRoot := filepath.Join(root, "lib")
+	startDir := filepath.Dir(filepath.Join(scanRoot, "Pink Floyd/The Wall/01.flac"))
+	if got := artistimage.Detect(scanRoot, startDir, "lib"); got != "" {
+		t.Errorf("Detect crossed the scan folder root, got %q", got)
 	}
 }

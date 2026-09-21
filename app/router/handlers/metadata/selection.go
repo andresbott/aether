@@ -49,7 +49,7 @@ func resolveFolderRel(folders *scanfolder.Set, r *http.Request) (folder *scanfol
 	if err != nil {
 		return nil, "", status, err
 	}
-	abs, rerr := metadataedit.ResolveInLibrary(f.Path, r.URL.Query().Get("path"))
+	abs, rerr := metadataedit.ResolveInRoot(f.Path, r.URL.Query().Get("path"))
 	if rerr != nil {
 		return nil, "", http.StatusBadRequest, rerr
 	}

@@ -42,9 +42,9 @@ func (r taggedReader) Read(context.Context, string) (tags.Metadata, error) {
 	return tags.Metadata{AlbumArtist: []string{r.albumArtist}}, nil
 }
 
-func newTestHandler(t *testing.T, libRoot string) (*mux.Router, scanfolder.Folder) {
+func newTestHandler(t *testing.T, root string) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

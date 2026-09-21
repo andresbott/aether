@@ -42,7 +42,7 @@ func (h *TagsHandler) rawTags(w http.ResponseWriter, r *http.Request) {
 	}
 	results := make([]rawTagsResultDTO, 0, len(sel.Paths))
 	for _, p := range sel.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(folder.Path, p)
+		abs, rerr := metadataedit.ResolveInRoot(folder.Path, p)
 		if rerr != nil {
 			results = append(results, rawTagsResultDTO{Path: p, Tags: map[string][]string{}, Unsupported: []string{}, Error: rerr.Error()})
 			continue

@@ -34,7 +34,7 @@ func testScanStore(t *testing.T) *store.Store {
 }
 
 // seedFolder declares dir as a scan folder for a test. The name mirrors what the
-// old library fixture used, so expectations on it read the same.
+// old fixture used, so expectations on it read the same.
 func seedFolder(path string, excludes []string) scanfolder.Folder {
 	return scanfolder.Folder{
 		Name:            filepath.Base(path) + "-lib",
@@ -252,7 +252,7 @@ func TestScannerIncrementalSkipsUnchanged(t *testing.T) {
 	}
 }
 
-func TestScannerMultipleLibraries(t *testing.T) {
+func TestScannerMultipleScanFolders(t *testing.T) {
 	st := testScanStore(t)
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
@@ -270,7 +270,7 @@ func TestScannerMultipleLibraries(t *testing.T) {
 	st.DB().Model(&model.Track{}).Where("scan_folder = ?", folderA.Name).Count(&aCount)
 	st.DB().Model(&model.Track{}).Where("scan_folder = ?", folderB.Name).Count(&bCount)
 	if aCount != 1 || bCount != 1 {
-		t.Fatalf("expected one track per library, got A=%d B=%d", aCount, bCount)
+		t.Fatalf("expected one track per scan folder, got A=%d B=%d", aCount, bCount)
 	}
 }
 
@@ -311,10 +311,10 @@ func TestScannerKeepsAllTagValues(t *testing.T) {
 	}
 }
 
-// A library root that is gone (an unmounted share) must fail the scan. Walking
+// A scan folder root that is gone (an unmounted share) must fail the scan. Walking
 // it yields zero files and no error, which store.Cleanup would read as "the user
-// deleted their whole library" and act on.
-func TestScanFailsWhenTheLibraryRootIsMissing(t *testing.T) {
+// deleted their whole catalog" and act on.
+func TestScanFailsWhenTheScanFolderRootIsMissing(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
@@ -329,7 +329,7 @@ func TestScanFailsWhenTheLibraryRootIsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
-		t.Fatal("expected an error when the library root is gone")
+		t.Fatal("expected an error when the scan folder root is gone")
 	}
 
 	var count int64
@@ -341,8 +341,8 @@ func TestScanFailsWhenTheLibraryRootIsMissing(t *testing.T) {
 
 // The mountpoint case: the directory exists and is empty, so it stats fine. The
 // only evidence that this is not a deletion is that the DB still holds tracks
-// for the library.
-func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
+// for the scan folder.
+func TestScanFailsWhenTheScanFolderRootIsEmptyButTracksAreIndexed(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
@@ -357,7 +357,7 @@ func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
-		t.Fatal("expected an error when a library with indexed tracks holds no audio files")
+		t.Fatal("expected an error when a scan folder with indexed tracks holds no audio files")
 	}
 
 	var count int64
@@ -367,16 +367,16 @@ func TestScanFailsWhenTheLibraryRootIsEmptyButTracksAreIndexed(t *testing.T) {
 	}
 }
 
-// The guard must not block the legitimate empty case: a freshly added library
+// The guard must not block the legitimate empty case: a freshly added scan folder
 // with nothing in it yet.
-func TestScanAllowsAnEmptyLibraryWithNothingIndexed(t *testing.T) {
+func TestScanAllowsAnEmptyScanFolderWithNothingIndexed(t *testing.T) {
 	st := testScanStore(t)
 	folder := seedFolder(t.TempDir(), nil)
 
 	s := newScanner(t, st, fakeTagReader{}, folder)
 	stats, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
-		t.Fatalf("an empty library with no indexed tracks must scan cleanly: %v", err)
+		t.Fatalf("an empty scan folder with no indexed tracks must scan cleanly: %v", err)
 	}
 	if stats.TracksProcessed != 0 {
 		t.Fatalf("expected 0 tracks processed, got %d", stats.TracksProcessed)

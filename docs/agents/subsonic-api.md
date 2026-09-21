@@ -398,7 +398,7 @@ Asset-store and generated covers bypass the guard by construction
 (`coverMeta.coverManaged`): aether wrote them under the data dir, outside every
 scan folder root, so guarding them would refuse every uploaded cover. The
 metadata editor's paths are the other case — request-supplied and relative, so
-they are validated by `metadataedit.ResolveInLibrary` instead. If you change
+they are validated by `metadataedit.ResolveInRoot` instead. If you change
 where a served path comes from, that justification must still hold.
 
 ## Authentication (current state)

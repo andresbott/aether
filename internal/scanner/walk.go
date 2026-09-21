@@ -25,7 +25,7 @@ type WalkResult struct {
 
 // IsAudioFile reports whether name is a file Aether indexes. It delegates to
 // tags.Supported so the scanner holds no extension list of its own: what gets
-// walked into the library and what the metadata editor offers to edit are the
+// walked into the catalog and what the metadata editor offers to edit are the
 // same set by construction.
 func IsAudioFile(name string) bool {
 	return tags.Supported(name)
@@ -120,11 +120,11 @@ func WalkWouldEmit(folder scanfolder.Folder, excludes []*regexp.Regexp, abs stri
 }
 
 // anySegmentIsSymlink reports whether any of the given path segments, joined
-// onto libRoot in order, is a symlink. It underpins two rules: a no-follow walk
+// onto root in order, is a symlink. It underpins two rules: a no-follow walk
 // skips a file whose ancestor directory is a symlink, and a follow walk records
 // a symlinked file by its resolved path.
-func anySegmentIsSymlink(libRoot string, segments []string) bool {
-	prefix := filepath.Clean(libRoot)
+func anySegmentIsSymlink(root string, segments []string) bool {
+	prefix := filepath.Clean(root)
 	for _, seg := range segments {
 		prefix = filepath.Join(prefix, seg)
 		fi, err := os.Lstat(prefix)

@@ -15,9 +15,9 @@ import (
 // itself when it is an artist folder, otherwise the nearest ancestor that is one.
 // So selecting the artist folder, one of its albums, or a disc sub-folder like
 // "CD 1" all resolve to the same artist folder. ok is false when no folder from
-// absDir up to (but excluding) the library root qualifies.
-func ArtistFolderFor(ctx context.Context, libRoot, absDir string, reader tags.Reader) (string, bool) {
-	root := filepath.Clean(libRoot)
+// absDir up to (but excluding) the scan folder root qualifies.
+func ArtistFolderFor(ctx context.Context, root, absDir string, reader tags.Reader) (string, bool) {
+	root = filepath.Clean(root)
 	dir := filepath.Clean(absDir)
 	for dir != root && strings.HasPrefix(dir, root+string(filepath.Separator)) {
 		if IsArtistFolder(ctx, dir, reader) {
@@ -39,7 +39,7 @@ func ArtistFolderFor(ctx context.Context, libRoot, absDir string, reader tags.Re
 // attach a folder artist image, which probes both sets (recordArtistProbes). So a
 // folder judged eligible is one where an artist.jpg written here would actually be
 // picked up, while a genre/collection folder (whose name matches no credit) stays
-// out. Checking the track artist too matters because many libraries name the
+// out. Checking the track artist too matters because many catalogs name the
 // folder after the performer without setting a separate album-artist tag.
 //
 // It reads at most one tag per immediate sub-folder and stops at the first match,

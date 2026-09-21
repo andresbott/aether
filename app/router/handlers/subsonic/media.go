@@ -37,9 +37,9 @@ func (h *Handler) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The path comes from the DB, not the request, so a row pointing outside every
-	// configured library is a data defect rather than an attack — but serving it
+	// configured scan folder is a data defect rather than an attack — but serving it
 	// would hand out an arbitrary readable file, so it is refused as "not found"
-	// (no oracle for what exists outside the library).
+	// (no oracle for what exists outside the scan folders).
 	if !h.mediaPathAllowed(filePath) {
 		writeError(w, 70, "song not found")
 		return
@@ -280,7 +280,7 @@ func (h *Handler) getCoverArt(w http.ResponseWriter, r *http.Request) {
 	size := quantizeCoverSize(paramInt(r, "size", maxCoverSize))
 
 	// Walk the candidates in precedence order, falling through when one cannot
-	// be turned into an image. A library holds truncated cover files and tracks
+	// be turned into an image. A collection holds truncated cover files and tracks
 	// re-tagged since the scan; answering 500 would leave a broken image in
 	// every grid cell the entity appears in, so a lower-precedence source — in
 	// the worst case the generated cover — takes over.
@@ -338,7 +338,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 	var out []coverSource
 
 	// Managed covers skip the guard: the asset store is aether's own directory
-	// under the data dir, so it is outside every library root by construction.
+	// under the data dir, so it is outside every scan folder root by construction.
 	if meta.coverPath != "" && (meta.coverManaged || h.mediaPathAllowed(meta.coverPath)) {
 		if info, err := os.Stat(meta.coverPath); err == nil {
 			path := meta.coverPath
@@ -351,7 +351,7 @@ func (h *Handler) coverSources(meta coverMeta) []coverSource {
 				// (removing an upload uncovers the folder image) must still
 				// invalidate the cached derivative.
 				fingerprint: fmt.Sprintf("file|%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()),
-				load:        func(int) ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver, never from the request — either aether's own asset store or a scanner-detected image confined to the library roots by mediaPathAllowed above
+				load:        func(int) ([]byte, error) { return os.ReadFile(path) }, //nolint:gosec // G304: path comes from the cover resolver, never from the request — either aether's own asset store or a scanner-detected image confined to the scan folder roots by mediaPathAllowed above
 			})
 		}
 	}
@@ -477,7 +477,7 @@ func serveETaggedFile(w http.ResponseWriter, r *http.Request, path string, info 
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano())))
 	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
 
-	f, err := os.Open(path) //nolint:gosec // G304: path is never request-supplied (cover resolver, imagecache derivative, or a track path), and DB-sourced paths are confined to the library roots by mediaPathAllowed before reaching here
+	f, err := os.Open(path) //nolint:gosec // G304: path is never request-supplied (cover resolver, imagecache derivative, or a track path), and DB-sourced paths are confined to the scan folder roots by mediaPathAllowed before reaching here
 	if err != nil {
 		http.NotFound(w, r)
 		return

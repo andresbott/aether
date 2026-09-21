@@ -15,21 +15,21 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func newRawHandler(t *testing.T, libRoot string, read func(string) (map[string][]string, error)) (*mux.Router, scanfolder.Folder) {
+func newRawHandler(t *testing.T, root string, read func(string) (map[string][]string, error)) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	return newRawHandlerUnsupported(t, libRoot, read, func(string) ([]string, error) {
+	return newRawHandlerUnsupported(t, root, read, func(string) ([]string, error) {
 		return []string{}, nil
 	})
 }
 
 func newRawHandlerUnsupported(
 	t *testing.T,
-	libRoot string,
+	root string,
 	read func(string) (map[string][]string, error),
 	readUnsupported func(string) ([]string, error),
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -203,7 +203,7 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 }
 
 // newGuardedTestServer registers /rest with the media path guard restricted to
-// the given roots, standing in for the configured libraries.
+// the given roots, standing in for the configured scan folders.
 func newGuardedTestServer(t *testing.T, s *store.Store, roots ...string) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
@@ -212,18 +212,18 @@ func newGuardedTestServer(t *testing.T, s *store.Store, roots ...string) *httpte
 	return httptest.NewServer(r)
 }
 
-// A track row whose file_path points outside every configured library must not be
+// A track row whose file_path points outside every configured scan folder must not be
 // served. Nothing in the request supplies that path — it comes from the DB — so
 // this is the enforcement of an assumption the //nolint:gosec on the file open
 // previously only asserted: a stale row or a metadata-editor bug is enough to
 // name any file the server process can read.
-func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
+func TestStreamRefusesFileOutsideEveryScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	secret := filepath.Join(base, "secret.env")
@@ -240,7 +240,7 @@ func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
@@ -253,18 +253,18 @@ func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(body), "hunter2") {
-		t.Fatal("stream served a file outside every library root")
+		t.Fatal("stream served a file outside every scan folder root")
 	}
 }
 
 // The guard must not break the normal case: a track inside a configured root
 // streams as before.
-func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
+func TestStreamServesFileInsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
-	song := filepath.Join(libRoot, "a.mp3")
+	root := t.TempDir()
+	song := filepath.Join(root, "a.mp3")
 	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
@@ -306,8 +306,8 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
-	song := filepath.Join(libRoot, "a.mp3")
+	root := t.TempDir()
+	song := filepath.Join(root, "a.mp3")
 	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	// A radio-station id whose number matches the track must not serve the track.
@@ -346,19 +346,19 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 	}
 }
 
-// An album cover_path outside every library root is the same defect on the cover
+// An album cover_path outside every scan folder root is the same defect on the cover
 // path: the bytes of an arbitrary file would be re-encoded into a JPEG and
 // served. The request must fall through to the generated cover instead.
-func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtRefusesCoverPathOutsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	// A real PNG living outside the library: if the guard is missing, its 4x4
+	// A real PNG living outside every scan folder: if the guard is missing, its 4x4
 	// dimensions come back instead of the 256px generated cover.
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
@@ -374,7 +374,7 @@ func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -387,25 +387,25 @@ func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
 	}
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width == 4 {
-		t.Fatal("served a derivative of a file outside every library root")
+		t.Fatal("served a derivative of a file outside every scan folder root")
 	}
 	if cfg.Width != 256 {
 		t.Errorf("served width %d, want the 256px generated cover", cfg.Width)
 	}
 }
 
-// A cover file inside the library must still be served — the guard is about
+// A cover file inside the scan folder must still be served — the guard is about
 // provenance, not about disabling folder covers.
-func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtServesCoverPathInsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
+	root := t.TempDir()
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
 		t.Fatal(err)
 	}
-	cover := filepath.Join(libRoot, "cover.png")
+	cover := filepath.Join(root, "cover.png")
 	if err := os.WriteFile(cover, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -429,23 +429,23 @@ func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
 	// Never upscaled, so 4x4 proves the real cover was used, not the generated one.
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width != 4 {
-		t.Errorf("served width %d, want 4 (a derivative of the in-library cover)", cfg.Width)
+		t.Errorf("served width %d, want 4 (a derivative of the cover inside the scan folder)", cfg.Width)
 	}
 }
 
 // An album's embedded-cover source is an audio file path from the DB too, so it
 // needs the same containment check as cover_path.
-func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtRefusesEmbeddedSourceOutsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	// A real audio file with a real embedded front cover, living outside the
-	// library: its distinctive 2:1 shape is what proves whether it was read.
+	// scan folder: its distinctive 2:1 shape is what proves whether it was read.
 	outside := embeddedFixture(t, base, "outside.flac",
 		embeddedPic{"Front Cover", realPNG(t, 300, 150)})
 
@@ -458,7 +458,7 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -469,12 +469,12 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (the generated cover)", resp.StatusCode)
 	}
-	// Generated covers are square; the out-of-library fixture's art is 2:1, so
+	// Generated covers are square; the out-of-scan-folder fixture's art is 2:1, so
 	// the aspect ratio says which source was actually read regardless of the
 	// size bucket the derivative was scaled into.
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width != cfg.Height {
-		t.Fatalf("served a %dx%d (non-square) cover: the embedded art of a file outside every library root was read", cfg.Width, cfg.Height)
+		t.Fatalf("served a %dx%d (non-square) cover: the embedded art of a file outside every scan folder root was read", cfg.Width, cfg.Height)
 	}
 }
 

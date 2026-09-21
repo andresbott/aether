@@ -9,7 +9,7 @@ import (
 
 // Fallbacks applied when the corresponding tag is empty. They are part of the
 // identity contract: two files with no album tag land in the same "Unknown
-// Album" row, so changing a value here re-buckets existing libraries.
+// Album" row, so changing a value here re-buckets existing catalogs.
 const (
 	unknownArtistName = "Unknown Artist"
 	variousArtistName = "Various Artists"

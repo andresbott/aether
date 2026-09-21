@@ -47,12 +47,12 @@ func bigPNG(t *testing.T, w, h int) []byte {
 // album whose front cover lives in the folder as cover.png.
 func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, scanfolder.Folder, string) {
 	t.Helper()
-	libRoot := t.TempDir()
-	trackAbs := filepath.Join(libRoot, "a.flac")
+	root := t.TempDir()
+	trackAbs := filepath.Join(root, "a.flac")
 	if err := os.WriteFile(trackAbs, []byte("audio"), 0o600); err != nil {
 		t.Fatalf("write track: %v", err)
 	}
-	coverAbs := filepath.Join(libRoot, "cover.png")
+	coverAbs := filepath.Join(root, "cover.png")
 	if err := os.WriteFile(coverAbs, src, 0o600); err != nil {
 		t.Fatalf("write cover: %v", err)
 	}
@@ -67,7 +67,7 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, scanfolder.
 	s := store.New(db)
 	key := seedAlbum(t, s, trackAbs)
 
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

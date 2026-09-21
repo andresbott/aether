@@ -4,7 +4,7 @@ import "context"
 
 // Reindexer enqueues a background re-index of the files a metadata write just
 // touched and returns the job's execution id, which the client polls to know
-// when the library index has caught up. Satisfied by the router's
+// when the index has caught up. Satisfied by the router's
 // reindexEnqueuer (over the task runner). It exists so the editor makes an edit
 // durable without re-indexing inside the request. Shared by the tag and picture
 // handlers (the identify handler never writes, so it has no reindexer).

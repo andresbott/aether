@@ -74,7 +74,7 @@ Contents and lifecycle (assets in `zarf/packaging/`):
   and leave it down after every upgrade.
 - `postremove` on `purge` drops the config and the system user, and
   deliberately **keeps `/var/lib/aether`** (prints a notice instead) so a purge
-  never destroys someone's library database.
+  never destroys someone's catalog database.
 
 Dependency policy: no libc dependency (static binary). Both optional runtime
 dependencies are **Recommends**, since apt installs recommends by default and a
@@ -117,8 +117,8 @@ working directory cannot shadow the packaged one.
   makes everything outside `ReadWritePaths=/var/lib/aether` read-only. Scanning
   works anywhere (reads are unrestricted except `/home`, which
   `ProtectHome=read-only` still allows for reads), but the **metadata editor
-  writes tags back into library files** and needs the library root added to
-  `ReadWritePaths` via `systemctl edit aether.service`. `MemoryDenyWriteExecute`
+  writes tags back into the scanned files** and needs every scan folder's
+  `Path` added to `ReadWritePaths` via `systemctl edit aether.service`. `MemoryDenyWriteExecute`
   must stay `false` — wazero JITs the taglib wasm module.
 - **`go.mod` replaces taglib with a fork**
   (`go.senan.xyz/taglib` → `github.com/andresbott/go-taglib`). This is a

@@ -11,7 +11,7 @@ import (
 )
 
 // RescanPaths re-reads the tags of absPaths and reconciles them into the store,
-// so files the metadata editor just wrote are reflected in the library index
+// so files the metadata editor just wrote are reflected in the index
 // without a full scan. It applies the scan preflight's availability guard first,
 // so a folder the scan refuses is refused here too rather than being indexed one
 // edit at a time. Paths that are not inside the scan folder, not audio
@@ -25,8 +25,8 @@ import (
 //
 // It deliberately does NOT run the scan cleanup: store.Cleanup deletes every
 // track whose last_seen_at predates the run, which on a targeted rescan is the
-// entire library. Nor does it run the exhaustive DeleteOrphanedAggregates sweep,
-// whose cost scales with the whole library. Instead it snapshots the aggregate
+// entire catalog. Nor does it run the exhaustive DeleteOrphanedAggregates sweep,
+// whose cost scales with the whole catalog. Instead it snapshots the aggregate
 // ids the touched tracks belonged to before reconcile and prunes only those with
 // store.PruneOrphanedAggregates — an edit can only empty an album/artist/genre it
 // moved a track away from. Anything that snapshot misses (a moved-and-retagged

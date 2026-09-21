@@ -59,16 +59,16 @@ func (s stubCoverArt) DownloadImage(context.Context, string) ([]byte, string, er
 	return s.downloadData, s.downloadExt, nil
 }
 
-func newPictureHandler(t *testing.T, libRoot string, ca metaHandler.CoverArtClient) (*mux.Router, scanfolder.Folder) {
+func newPictureHandler(t *testing.T, root string, ca metaHandler.CoverArtClient) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	return newPictureHandlerWithReindex(t, libRoot, ca, nil)
+	return newPictureHandlerWithReindex(t, root, ca, nil)
 }
 
 func newPictureHandlerWithReindex(
-	t *testing.T, libRoot string, ca metaHandler.CoverArtClient, rx metaHandler.Reindexer,
+	t *testing.T, root string, ca metaHandler.CoverArtClient, rx metaHandler.Reindexer,
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,11 +104,11 @@ func (s stubArtistFetcher) Download(context.Context, string, string) ([]byte, st
 // artist-image fetcher (and optional reindexer), for the artist-folder image
 // tests.
 func newArtistImageHandler(
-	t *testing.T, libRoot string, reader tags.Reader,
+	t *testing.T, root string, reader tags.Reader,
 	fetcher metaHandler.ArtistImageFetcher, rx metaHandler.Reindexer,
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1285,7 +1285,7 @@ func TestPictureImage_RejectsTraversalFile(t *testing.T) {
 // TestPictureImage_MalformedFolderFileIs404 confirms an otherwise-valid
 // request (known scan folder, valid slot=folder) whose file= is empty (an
 // omitted file= — DecodeSource resolves "" to the scan folder root itself,
-// since ResolveInLibrary treats an empty relative path as valid) or names a
+// since ResolveInRoot treats an empty relative path as valid) or names a
 // directory answers a clean 404. Before OpenSource's folder-branch hardening
 // this passed os.Stat (the scan folder root/directory exists) and fell through
 // to http.ServeFile on a directory, which redirects (301) before it has

@@ -27,16 +27,16 @@ func (f fakeIdentifier) IdentifyFile(context.Context, string) ([]acoustid.Record
 	return f.recs, f.err
 }
 
-func newIdentifyHandler(t *testing.T, libRoot string, ident metaHandler.IdentifyService) (*mux.Router, scanfolder.Folder) {
+func newIdentifyHandler(t *testing.T, root string, ident metaHandler.IdentifyService) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	return newIdentifyHandlerWithReason(t, libRoot, ident, "")
+	return newIdentifyHandlerWithReason(t, root, ident, "")
 }
 
 func newIdentifyHandlerWithReason(
-	t *testing.T, libRoot string, ident metaHandler.IdentifyService, reason string,
+	t *testing.T, root string, ident metaHandler.IdentifyService, reason string,
 ) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: libRoot, FollowSymlinks: true}})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -128,7 +128,7 @@ func (h *IdentifyHandler) identify(w http.ResponseWriter, r *http.Request) {
 	// are reported per row, not as a request failure.
 	results := make([]identifyResultDTO, 0, len(body.Paths))
 	for _, p := range body.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(folder.Path, p)
+		abs, rerr := metadataedit.ResolveInRoot(folder.Path, p)
 		if rerr != nil {
 			results = append(results, identifyResultDTO{Path: p, Candidates: []identifyCandidateDTO{}, Error: rerr.Error()})
 			continue

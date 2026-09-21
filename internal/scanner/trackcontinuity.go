@@ -294,7 +294,7 @@ func durationsAgree(a, b int) bool {
 
 // matchOne returns the single pair a key group proves. One vanished row and one
 // new file is the whole common case. When either side has several entries the
-// group is ambiguous — real libraries hold byte-identical duplicates of the same
+// group is ambiguous — real collections hold byte-identical duplicates of the same
 // track, and those share an audio hash as well as a size — and only an exact mod
 // time can still single one out, because a move on one filesystem preserves it.
 // Anything else is skipped: merging two tracks' history is worse than losing
