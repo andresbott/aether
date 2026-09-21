@@ -44,7 +44,7 @@ const maxHashBytes = 256 << 10
 // File returns the metadata-invariant hash of the audio file at path. It is a
 // convenience wrapper that opens the file and delegates to Reader.
 func File(path string) (string, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: hashing the caller's file is the entire purpose of this function; the path is supplied by the caller, which in aether is a library file the scanner already admitted and opened to read tags.
+	f, err := os.Open(path) //nolint:gosec // G304: hashing the caller's file is the entire purpose of this function; the path is supplied by the caller, which in aether is a file the scanner already admitted and opened to read tags.
 	if err != nil {
 		return "", err
 	}
