@@ -100,6 +100,81 @@ func TestALibraryCreatedThroughTheAPINarrowsRest(t *testing.T) {
 	}
 }
 
+// TestRenamingALibraryKeepsItsContents pins what phase 1 could not promise: a
+// library's contents come from its FILTERS, never from its name. The names are
+// chosen so that a name-derived scope would visibly break — the library starts
+// out named like one scan folder and is renamed to the name of ANOTHER one; if
+// membership followed the name, the album list would flip from "In Music" to
+// "In Other".
+func TestRenamingALibraryKeepsItsContents(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Migrate(db); err != nil {
+		t.Fatal(err)
+	}
+	s := store.New(db)
+
+	inMusic := model.Album{Name: "In Music", NameNorm: "in music", AlbumArtistNorm: "someone"}
+	inOther := model.Album{Name: "In Other", NameNorm: "in other", AlbumArtistNorm: "someone"}
+	seedRows(t, db, &inMusic, &inOther)
+	seedRows(t, db,
+		&model.Track{AlbumID: inMusic.ID, ScanFolder: "Music", Suffix: "flac", Filename: "1.flac", FilePath: "/music/1.flac", Title: "One"},
+		&model.Track{AlbumID: inOther.ID, ScanFolder: "Other", Suffix: "flac", Filename: "2.flac", FilePath: "/other/2.flac", Title: "Two"},
+	)
+
+	set, err := scanfolder.NewSet([]scanfolder.Folder{
+		{Name: "Music", Path: t.TempDir()},
+		{Name: "Other", Path: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := New(Cfg{Store: s, DataDir: t.TempDir(), ScanFolders: set, AuthMethod: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	send := func(method, path, body string, want int) []byte {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		if w.Code != want {
+			t.Fatalf("%s %s: expected %d, got %d, body=%s", method, path, want, w.Code, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+
+	var created struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(send(http.MethodPost, "/api/v0/libraries",
+		`{"name":"Music","filters":[{"field":"scan_folder","values":["Music"]}]}`, http.StatusCreated), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := strconv.FormatUint(uint64(created.ID), 10)
+	contents := func(when string) {
+		t.Helper()
+		if got := restAlbumNames(t, h, "musicFolderId="+id); len(got) != 1 || got[0] != "In Music" {
+			t.Fatalf("%s: albums in the library = %v, want only [In Music]", when, got)
+		}
+	}
+	contents("as created")
+
+	// Filters omitted: the stored ones are kept. The new name is another scan
+	// folder's, which is exactly what a name-derived scope would trip over.
+	send(http.MethodPut, "/api/v0/libraries/"+id, `{"name":"Other"}`, http.StatusOK)
+	contents("after a rename that omits filters")
+
+	// Filters sent back, as the admin dialog always does.
+	send(http.MethodPut, "/api/v0/libraries/"+id,
+		`{"name":"Third","filters":[{"field":"scan_folder","values":["Music"]}]}`, http.StatusOK)
+	contents("after a rename that re-sends the filters")
+}
+
 // seedRows inserts fixture rows, failing the test on the first refusal.
 func seedRows(t *testing.T, db *gorm.DB, rows ...any) {
 	t.Helper()
