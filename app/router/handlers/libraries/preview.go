@@ -19,8 +19,8 @@ type previewDTO struct {
 }
 
 // preview answers what a set of filters would select, without storing anything:
-// it exists for the admin UI's filter builder (not built yet) to call as the
-// admin edits. It is a read that travels as POST because the filters are a
+// the admin UI's filter builder (LibraryFilterBuilder) calls it as the admin
+// edits. It is a read that travels as POST because the filters are a
 // structured body (see api-conventions.md).
 func (h *Handler) preview(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
