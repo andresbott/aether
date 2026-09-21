@@ -229,18 +229,23 @@ Two things instead get a startup `WARN` (`warnScanFolders`,
   startup probe's 3 s — the scan preflight already refuses to run against it,
   so nothing is swept in the meantime;
 - indexed tracks whose `scan_folder` marker names a folder no longer listed
-  in `ScanFolders` — the next scan removes them, with their stars, playlist
-  entries and play history, so this is the window to notice a mistyped or
-  commented-out entry before that happens.
+  in `ScanFolders` — at the next scan they are re-stamped if a configured
+  folder still reaches their files (that is what a rename looks like) and
+  removed otherwise, with their stars, playlist entries and play history;
+  with NO folder configured scans do nothing, so neither happens. This is
+  the window to notice a mistyped or commented-out entry.
 
 Identity is the **name**, not the path: every track is stamped with the name
 of the scan folder it was indexed under (`tracks.scan_folder`, see
 [scanning.md](scanning.md)), and renaming a folder in the config heals on the
 next scan of any kind, full or incremental. A library's own `scan_folder`
 filter, when it has one, names this same identity — so renaming or removing a
-folder in `ScanFolders:` leaves a stored filter value that matches nothing
-until the library is edited; `internal/libraryfilter.Dangling` is what notices
-(see "Key domain types" above).
+folder in `ScanFolders:` leaves a stored filter value that names no configured
+folder. Nothing breaks at once: it keeps selecting the tracks that still carry
+the old marker until the next scan re-stamps or removes them, and matches
+nothing from then on until the library is edited;
+`internal/libraryfilter.Dangling` is what notices (see "Key domain types"
+above).
 
 ## External services (all optional)
 
