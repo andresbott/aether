@@ -228,10 +228,10 @@ wins at serve time (`subsonic/media.go`, `albumCoverMeta`).
 
 **A run indexed everything it should when `TracksProcessed ==
 len(absPaths) - TracksSkipped` and `Errors` is empty.** Never compare
-`TracksProcessed` to `len(absPaths)`: the editor's file listing is deliberately
-*wider* than the scanner's admission — `metadataedit.ListTracks` ignores
-`lib.ExcludePatterns` entirely and `tags.Reader.CanRead` accepts extensions
-(`.oga`, `.mpc`, `.tak`, ...) absent from `walk.go`'s `audioExtensions`. A
+`TracksProcessed` to `len(absPaths)`: the editor's file listing is *wider* than
+the scanner's admission in one respect: `metadataedit.ListTracks` ignores the
+scan folder's `ExcludePatterns` entirely (the extension set is the same on both
+sides — both gate on `tags.Supported`). A
 perfectly correct save therefore routinely hands `RescanPaths` paths it will
 not index, and the picture endpoints do so on the *normal* path
 (`selectionPaths` → `folderTrackPaths` lists the whole album dir recursively
@@ -261,7 +261,8 @@ Two invariants:
 
 **A successful `reindex` job does not mean every touched track reconciled.**
 `NewReindexTaskFn` fails the job only when `RescanPaths` itself returns an
-error (an unconfigured scan folder name, unparsable exclude patterns, a
+error (an unconfigured scan folder name, a scan folder whose root is not
+available (`Folder.Available`), unparsable exclude patterns, a
 canceled context, or a DB error snapshotting/pruning aggregates); a non-empty `ScanStats.Errors`
 (tag-read failures) or a `TracksProcessed` shortfall against
 `len(paths)-TracksSkipped` is only logged, exactly like the scheduled `scan`
@@ -497,7 +498,7 @@ track, so a large scan folder lists each artist folder at most once per run.
 those slots won — `"upload"` / `"fetched"` / `"folder"` (+ `path`) / `"none"`,
 plus a `filename` for everything but `"none"`. `ArtistView`'s cover editor uses
 it for the status line under the file picker (PrimeVue's FileUpload only ever
-says "No file chosen") and to disable Remove for a folder image. The
+says "No file chosen") and to hide Remove for a folder image. The
 upload-vs-fetched split comes from `assetstore.GetEntry`, which surfaces the
 manual/auto filename encoding (`cover.png` vs `cover.auto.png`).
 
@@ -572,6 +573,14 @@ candidate portrait as a selectable grid rather than auto-picking one:
 - `store.GetArtist` combines `Preload("Artists")` with a manual join on the
   same m2m and can return empty `Artists` (GORM gotcha; worked around in
   `ArtistView.vue`).
+- Three items virtual libraries added, all in `TODO.md` under "Backend — Data
+  Integrity & Scanning": a **per-root health gate** (one cached, single-flight
+  "is this root answering" state for the media handlers, the editor, the scan
+  preflight and `/api/v0/libraries/browse`); **re-linking rows no scan folder
+  walks any more** (a careful repoint-then-delete migration re-links nothing,
+  because the move proof needs ENOENT at the old path); and a **logical
+  (as-spelled) path per track**, which carries a confirmed defect — see
+  [`caveats.md`](../architecture/caveats.md#content-reached-through-a-symlink-that-leaves-every-scan-folder).
 
 See [architecture.md](architecture.md) for how scans are scheduled and
 [testing.md](testing.md) for scanner test fixtures (`internal/*/testdata`).
