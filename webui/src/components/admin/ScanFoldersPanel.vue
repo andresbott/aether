@@ -150,7 +150,9 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
     align-items: center;
 }
 /* The reason quotes a filesystem path, and a long path is one unbreakable
-   token: left to itself it widens the Status column rather than wrapping. */
+   token: left to itself it widens the Status column rather than wrapping.
+   Deliberately NOT limited to the phone tier: it adds no width on desktop
+   either, it only lets an over-long reason break. */
 .status-problem {
     margin-top: 0.25rem;
     font-size: 0.8rem;

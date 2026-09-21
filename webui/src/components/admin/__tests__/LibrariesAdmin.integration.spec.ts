@@ -225,8 +225,12 @@ describe('libraries admin, end to end through the real components', () => {
         document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }))
         await flushPromises()
 
-        expect(w.findComponent(FolderPickerDialog).props('visible')).toBe(false)
+        // The library dialog first: when the bug is back BOTH dialogs close, the
+        // dialog's content unmounts and the picker can no longer be found at
+        // all — asserted in this order, the failure names the defect instead of
+        // "Cannot call props on an empty VueWrapper".
         expect(w.findComponent(LibraryDialog).props('visible')).toBe(true)
+        expect(w.findComponent(FolderPickerDialog).props('visible')).toBe(false)
 
         // and the NEXT Escape still closes the library dialog: the fix must not leave it deaf
         document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }))
