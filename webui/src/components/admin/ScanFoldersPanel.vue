@@ -16,7 +16,9 @@ const { tier } = useViewport()
 // Spec §5: settings tables must not overflow a phone; the path, excludes and
 // symlink policy have no other surface on this read-only panel (no row
 // dialog), so only the path follows the name below — excludes/symlinks are
-// simply not shown on phone.
+// simply not shown on phone. The path it moves there must wrap (see
+// `.name-path`), or the widest row stretches the table and pushes Status off
+// the screen.
 const phoneCols = computed(() => tier.value === 'phone')
 
 function excludesTooltip(folder: ScanFolder): string | undefined {
@@ -71,12 +73,18 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
                         {{ data.follow_symlinks ? 'Followed' : 'Not followed' }}
                     </template>
                 </Column>
+                <!-- Narrower on a phone: Name has to keep enough room for the
+                     wrapped path it carries there, and Status for the reason. -->
                 <Column
                     field="track_count"
                     header="Tracks"
-                    style="width: 7rem; text-align: right"
+                    :style="
+                        phoneCols
+                            ? 'width: 4rem; text-align: right'
+                            : 'width: 7rem; text-align: right'
+                    "
                 />
-                <Column header="Status" style="width: 10rem">
+                <Column header="Status" :style="phoneCols ? 'width: 8rem' : 'width: 10rem'">
                     <template #body="{ data }">
                         <Tag
                             :severity="data.available ? 'success' : 'danger'"
@@ -141,19 +149,25 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
     display: inline-flex;
     align-items: center;
 }
+/* The reason quotes a filesystem path, and a long path is one unbreakable
+   token: left to itself it widens the Status column rather than wrapping. */
 .status-problem {
     margin-top: 0.25rem;
     font-size: 0.8rem;
     color: var(--app-text-secondary);
+    overflow-wrap: anywhere;
 }
+/* The path wraps instead of being clipped: a table cell with no width
+   constraint grows to fit nowrap content, so an ellipsis never triggers —
+   the cell simply widened the whole table until the Status column (and an
+   unusable folder's reason with it) sat off the side of a phone screen. */
 .name-path {
     display: block;
     margin-top: 0.25rem;
     font-size: 0.8rem;
     color: var(--app-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 .table-fit {
     overflow-x: auto;
