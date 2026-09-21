@@ -50,9 +50,10 @@ location is gone by the next scan (a move); if the old copy still exists,
 new rows are created and the old ones are swept instead. Content reached
 through a symbolic link is stored under the link's target; if that target
 lies outside every listed `Path`, those tracks are listed but do not play —
-list the target directory as a scan folder of its own. With no scan folder
-configured at all nothing is scanned and no on-disk media is served: a
-populated index is still listed, but nothing plays.
+list the target directory as a scan folder of its own (it must not contain
+another scan folder: roots cannot nest). With no scan folder configured at
+all nothing is scanned and no on-disk media is served: a populated index is
+still listed, but nothing plays.
 
 See `config.yaml` for the full annotated example and every other setting.
 
@@ -61,7 +62,7 @@ See `config.yaml` for the full annotated example and every other setting.
 A **library** is what you browse — a named, saved filter over everything that
 was scanned, not a directory. Create one under **Settings → Libraries → Add
 library**: a name, an icon, the view it opens on, whether it has an Artists
-tab, and any number of filters:
+tab, and up to 20 filters:
 
 | Filter | Matches tracks… |
 |---|---|
@@ -79,20 +80,22 @@ dialog shows how many tracks and albums the filters match.
 Worth knowing:
 
 - **Scan first.** Formats, genres and release types are picked from what the
-  catalog already holds; before the first scan there is nothing to pick.
+  catalog already holds, so before the first scan the pick-lists are empty
+  (release type offers only "(none)").
 - **Libraries overlap, and deleting one deletes no music.** The same album can
   sit in several libraries; removing a library removes only the view.
 - **Lists narrow, detail pages do not.** A "Lossless" library lists only albums
   that have a FLAC track — but an album page shows all of its tracks, MP3
   included, and an artist page shows all of the artist's albums.
 - **Renaming a scan folder orphans the filters that name it.** Settings →
-  Libraries marks such a library "Needs attention": it matches nothing for the
-  old name, and the dialog cannot save it until that value is removed or
-  replaced.
-- **Retagging can shrink a library silently.** A genre, format or release-type
-  filter keeps the value it was saved with; when no track carries it any more
-  the library just matches less, and the edit dialog marks the value "(not in
-  the catalog)".
+  Libraries marks such a library "Needs attention" right away. The filter
+  keeps matching the old name's tracks until the next scan re-labels them,
+  then matches nothing — and the dialog cannot save the library until that
+  value is removed or replaced.
+- **A value that leaves the catalog shrinks a library silently.** A genre,
+  format or release-type filter keeps the value it was saved with; when no
+  track carries it any more — after a retag, say — the library just matches
+  less, and the edit dialog marks the value "(not in the catalog)".
 - **Folder paths are matched as stored.** Pick directories with *Browse…*. A
   typed path counts only after Enter, and spaces around it are dropped. A
   directory that is a symbolic link, or sits below one, matches nothing:

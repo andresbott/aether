@@ -29,7 +29,8 @@ DataDir: "/var/lib/aether"
 #   Name             identifies the folder: tracks remember the name of the folder
 #                    they were indexed under, and library filters refer to it.
 #                    Renaming a folder takes effect on the next scan. Libraries
-#                    whose filters name the OLD name match nothing for it until
+#                    whose filters name the OLD name keep matching its tracks
+#                    until that scan re-labels them, then match nothing until
 #                    they are edited: Settings → Libraries marks them "Needs
 #                    attention" and the server warns at startup.
 #   Path             root directory. Roots must not be equal or nested. Must
@@ -47,7 +48,8 @@ DataDir: "/var/lib/aether"
 #                    Content reached through a link is stored under the link's
 #                    TARGET. If that target lies outside every Path listed here,
 #                    those tracks are listed but do not play (known limitation):
-#                    list the target directory as a scan folder of its own.
+#                    list the target directory as a scan folder of its own (it
+#                    must not contain another scan folder: roots cannot nest).
 #
 # A directory that is missing at startup (a share that mounts late) is only a
 # warning: the server starts, and scans refuse to run until it is back.
