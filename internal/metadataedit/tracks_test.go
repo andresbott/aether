@@ -52,7 +52,7 @@ func TestListTracks_RecursiveAndFiltered(t *testing.T) {
 		t.Fatalf("expected 2 audio files, got %d: %+v", len(got), got)
 	}
 	if got[0].Path != "album/01.flac" || got[1].Path != "album/02.mp3" {
-		t.Fatalf("paths should be library-relative and sorted: %+v", got)
+		t.Fatalf("paths should be relative to the scan folder and sorted: %+v", got)
 	}
 	if got[0].Title != "One" || got[1].Title != "Two" {
 		t.Fatalf("titles mismatch: %+v", got)

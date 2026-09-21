@@ -9,54 +9,56 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/tags"
 )
 
 type WalkResult struct {
-	FilePath  string
-	LibraryID uint
-	FileSize  int64
-	ModTime   time.Time
-	Dir       string
+	FilePath string
+	// ScanFolder is the name of the scan folder this file was walked under; reconcile
+	// stamps it on the track (model.Track.ScanFolder).
+	ScanFolder string
+	FileSize   int64
+	ModTime    time.Time
+	Dir        string
 }
 
 // IsAudioFile reports whether name is a file Aether indexes. It delegates to
 // tags.Supported so the scanner holds no extension list of its own: what gets
-// walked into the library and what the metadata editor offers to edit are the
+// walked into the catalog and what the metadata editor offers to edit are the
 // same set by construction.
 func IsAudioFile(name string) bool {
 	return tags.Supported(name)
 }
 
-func Walk(libs []model.Library, excludes []*regexp.Regexp, followSymlinks bool) ([]WalkResult, error) {
+// Walk collects the audio files under one scan folder.
+func Walk(folder scanfolder.Folder, excludes []*regexp.Regexp) ([]WalkResult, error) {
 	var results []WalkResult
-	for _, lib := range libs {
-		walkFn := makeWalkFn(lib, excludes, followSymlinks, &results)
-		var err error
-		if followSymlinks {
-			err = symWalk(lib.Path, walkFn)
-		} else {
-			err = filepath.WalkDir(lib.Path, walkFn)
-		}
-		if err != nil {
-			return nil, err
-		}
+	walkFn := makeWalkFn(folder, excludes, &results)
+	var err error
+	if folder.FollowSymlinks {
+		err = symWalk(folder.Path, walkFn)
+	} else {
+		err = filepath.WalkDir(folder.Path, walkFn)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return results, nil
 }
 
-// WalkWouldEmit reports whether a full Walk of libRoot would index abs and, if
+// WalkWouldEmit reports whether a full Walk of folder would index abs and, if
 // so, the WalkResult it would produce. It is the single admission predicate the
 // editor's targeted rescan shares with the crawling Walk, so a rescan can never
-// insert a track the next scan would immediately delete. followSymlinks must
-// carry the library's setting, because whether abs is even reachable — and the
-// canonical path the walk would record it under — depends on it.
-func WalkWouldEmit(libRoot string, libID uint, abs string, excludes []*regexp.Regexp, followSymlinks bool) (WalkResult, bool) {
-	root := filepath.Clean(libRoot)
+// insert a track the next scan would immediately delete. Whether abs is even
+// reachable — and the canonical path the walk would record it under — depends on
+// folder.FollowSymlinks.
+func WalkWouldEmit(folder scanfolder.Folder, excludes []*regexp.Regexp, abs string) (WalkResult, bool) {
+	root := filepath.Clean(folder.Path)
+	followSymlinks := folder.FollowSymlinks
 	clean := filepath.Clean(abs)
 
-	// The spelled path must live inside the library: the crawl only reaches a
+	// The spelled path must live inside the scan folder: the crawl only reaches a
 	// file by descending from the root, so a path lexically outside it is one no
 	// walk could visit. (A followed symlink may point the resolved file outside
 	// the root; that is judged below, on the resolved path.)
@@ -109,20 +111,20 @@ func WalkWouldEmit(libRoot string, libID uint, abs string, excludes []*regexp.Re
 	// every supported format is readable by some reader (enforced by
 	// tags.TestSupportedIsReadable), so admission asks one question, not two.
 	return WalkResult{
-		FilePath:  path,
-		LibraryID: libID,
-		FileSize:  info.Size(),
-		ModTime:   info.ModTime(),
-		Dir:       filepath.Dir(path),
+		FilePath:   path,
+		ScanFolder: folder.Name,
+		FileSize:   info.Size(),
+		ModTime:    info.ModTime(),
+		Dir:        filepath.Dir(path),
 	}, true
 }
 
 // anySegmentIsSymlink reports whether any of the given path segments, joined
-// onto libRoot in order, is a symlink. It underpins two rules: a no-follow walk
+// onto root in order, is a symlink. It underpins two rules: a no-follow walk
 // skips a file whose ancestor directory is a symlink, and a follow walk records
 // a symlinked file by its resolved path.
-func anySegmentIsSymlink(libRoot string, segments []string) bool {
-	prefix := filepath.Clean(libRoot)
+func anySegmentIsSymlink(root string, segments []string) bool {
+	prefix := filepath.Clean(root)
 	for _, seg := range segments {
 		prefix = filepath.Join(prefix, seg)
 		fi, err := os.Lstat(prefix)
@@ -138,14 +140,14 @@ func anySegmentIsSymlink(libRoot string, segments []string) bool {
 	return false
 }
 
-// makeWalkFn builds the WalkDirFunc for one library: it applies excludes,
+// makeWalkFn builds the WalkDirFunc for one scan folder: it applies excludes,
 // optionally follows symlinks, and appends audio files to results.
-func makeWalkFn(lib model.Library, excludes []*regexp.Regexp, followSymlinks bool, results *[]WalkResult) fs.WalkDirFunc {
+func makeWalkFn(folder scanfolder.Folder, excludes []*regexp.Regexp, results *[]WalkResult) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
-		if skip, skipDir := matchExcludes(lib.Path, path, d, excludes); skip {
+		if skip, skipDir := matchExcludes(folder.Path, path, d, excludes); skip {
 			if skipDir {
 				return filepath.SkipDir
 			}
@@ -154,10 +156,10 @@ func makeWalkFn(lib model.Library, excludes []*regexp.Regexp, followSymlinks boo
 		if d.IsDir() {
 			return nil
 		}
-		if followSymlinks && d.Type()&fs.ModeSymlink != 0 {
-			return walkSymlinkEntry(path, d, lib.ID, results)
+		if folder.FollowSymlinks && d.Type()&fs.ModeSymlink != 0 {
+			return walkSymlinkEntry(path, d, folder.Name, results)
 		}
-		appendAudio(path, d, lib.ID, results)
+		appendAudio(path, d, folder.Name, results)
 		return nil
 	}
 }
@@ -174,9 +176,9 @@ func matchExcludes(root, path string, d fs.DirEntry, excludes []*regexp.Regexp) 
 }
 
 // matchesExclude is the per-entry exclude test the walk applies: an entry is
-// excluded when a pattern matches either its path relative to the library root
-// or its bare name. Shared with the rescan's admission check so the two cannot
-// drift apart.
+// excluded when a pattern matches either its path relative to the scan folder's
+// root or its bare name. Shared with the rescan's admission check so the two
+// cannot drift apart.
 func matchesExclude(excludes []*regexp.Regexp, relPath, name string) bool {
 	for _, ex := range excludes {
 		if ex.MatchString(relPath) || ex.MatchString(name) {
@@ -189,7 +191,7 @@ func matchesExclude(excludes []*regexp.Regexp, relPath, name string) bool {
 // walkSymlinkEntry handles a symlink encountered during a top-level walk:
 // target directories are recursed into, regular-file targets are appended as
 // the symlink path itself, and broken or unreadable links are skipped.
-func walkSymlinkEntry(path string, d fs.DirEntry, libID uint, results *[]WalkResult) error {
+func walkSymlinkEntry(path string, d fs.DirEntry, scanFolder string, results *[]WalkResult) error {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return nil
@@ -199,26 +201,26 @@ func walkSymlinkEntry(path string, d fs.DirEntry, libID uint, results *[]WalkRes
 		return nil
 	}
 	if info.IsDir() {
-		return symWalk(resolved, collectAudioFn(libID, results))
+		return symWalk(resolved, collectAudioFn(scanFolder, results))
 	}
-	appendAudio(path, d, libID, results)
+	appendAudio(path, d, scanFolder, results)
 	return nil
 }
 
 // collectAudioFn returns a WalkDirFunc that appends every audio file it visits.
-func collectAudioFn(libID uint, results *[]WalkResult) fs.WalkDirFunc {
+func collectAudioFn(scanFolder string, results *[]WalkResult) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		appendAudio(path, d, libID, results)
+		appendAudio(path, d, scanFolder, results)
 		return nil
 	}
 }
 
 // appendAudio appends path to results when it is an audio file whose info can
 // be read.
-func appendAudio(path string, d fs.DirEntry, libID uint, results *[]WalkResult) {
+func appendAudio(path string, d fs.DirEntry, scanFolder string, results *[]WalkResult) {
 	if !IsAudioFile(d.Name()) {
 		return
 	}
@@ -227,11 +229,11 @@ func appendAudio(path string, d fs.DirEntry, libID uint, results *[]WalkResult) 
 		return
 	}
 	*results = append(*results, WalkResult{
-		FilePath:  path,
-		LibraryID: libID,
-		FileSize:  info.Size(),
-		ModTime:   info.ModTime(),
-		Dir:       filepath.Dir(path),
+		FilePath:   path,
+		ScanFolder: scanFolder,
+		FileSize:   info.Size(),
+		ModTime:    info.ModTime(),
+		Dir:        filepath.Dir(path),
 	})
 }
 

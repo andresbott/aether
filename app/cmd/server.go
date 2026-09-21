@@ -30,14 +30,10 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/andresbott/aether/libs/fpcalc"
-	"github.com/glebarez/sqlite"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
-	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
-
-const dbFile = "aether.db"
 
 func serverCmd() *cobra.Command {
 	var configFile string
@@ -92,24 +88,10 @@ func runServer(configFile string) error {
 			LogLevel:                  gormlogger.Warn,
 		},
 	)
-	// busy_timeout is per-connection state, so it must be set in the DSN: a PRAGMA
-	// issued via db.Exec runs on a single pooled connection and leaves the other
-	// nine at the default of 0, which returns SQLITE_BUSY immediately under write
-	// contention instead of waiting. journal_mode=WAL is recorded in the database
-	// file, so the one-off Exec below suffices for it.
-	dsn := filepath.Join(cfg.DataDir, dbFile) + "?_pragma=busy_timeout(5000)"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: gormLog,
-	})
+	db, err := openDB(cfg.DataDir, gormLog)
 	if err != nil {
 		return err
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		return err
-	}
-	sqlDB.SetMaxOpenConns(10)
-	db.Exec("PRAGMA journal_mode=WAL")
 
 	// Migrate domain models
 	if err := model.Migrate(db); err != nil {
@@ -118,12 +100,15 @@ func runServer(configFile string) error {
 
 	dataStore := store.New(db)
 
-	// Config-declared libraries are materialized into the libraries table before
-	// anything reads it, so the scanner, the task runner and both APIs see the
-	// full set from the first request.
-	if err := reconcileLibraries(dataStore, cfg.Libraries, l); err != nil {
-		return fmt.Errorf("libraries from config: %w", err)
+	// Scan folders live only in the config file. getAppCfg already validated
+	// them, so this cannot fail on a config typo; it builds the set every
+	// consumer below shares.
+	folders, err := scanFolderSet(cfg.ScanFolders)
+	if err != nil {
+		return err
 	}
+	warnScanFolders(l, dataStore, folders)
+	warnDanglingLibraryFilters(l, dataStore, folders)
 
 	auth, err := setupAuth(db, cfg.DataDir, cfg.Auth, l)
 	if err != nil {
@@ -149,6 +134,7 @@ func runServer(configFile string) error {
 	scanCfg := scanner.Config{
 		TagReadWorkers: cfg.TaskRunner.TagReadWorkers,
 		AssetRekeyer:   assets,
+		Folders:        folders,
 	}
 
 	// Task runner
@@ -202,7 +188,7 @@ func runServer(configFile string) error {
 	// user-triggered tasks. scan and scan-full are separate singleton tasks so
 	// a full run never coalesces onto an in-flight incremental one (the runner
 	// dedupes by task name); both share the library-writes exclusion group, so
-	// they — and the reindex below — never touch the library index at once.
+	// they — and the reindex below — never touch the index at once.
 	// Reindex is the metadata editor's targeted re-index, enqueued by its write
 	// handlers rather than run on demand.
 	runner.RegisterWithProgress(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,
@@ -238,6 +224,7 @@ func runServer(configFile string) error {
 		Scheduler:     scheduler,
 		Store:         dataStore,
 		DataDir:       cfg.DataDir,
+		ScanFolders:   folders,
 		TagReader:     tagReader,
 		ArtistFetcher: artistFetcher,
 		ArtistImages:  artistImages,

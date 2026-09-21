@@ -39,7 +39,7 @@ const stubs = {
 function mountSection(props: Record<string, unknown>, session = mkSession()) {
     const wrapper = mount(ArtistImageSection, {
         props: {
-            libraryId: 1,
+            scanFolder: 'Main',
             session: session as unknown as EditSession,
             folderPath: 'Radiohead',
             ...props
@@ -106,7 +106,7 @@ describe('ArtistImageSection', () => {
         })
         const { wrapper, session } = mountSection({ folderPath: 'Radiohead/OK Computer/CD 1' })
         await flushPromises()
-        expect(resolveArtistFolderSpy).toHaveBeenCalledWith(1, 'Radiohead/OK Computer/CD 1')
+        expect(resolveArtistFolderSpy).toHaveBeenCalledWith('Main', 'Radiohead/OK Computer/CD 1')
         await wrapper.find('[data-test="artist-image-change"]').trigger('click')
         wrapper.findComponent({ name: 'ArtistImageSearchDialog' }).vm.$emit('select', {
             mbid: 'mb',

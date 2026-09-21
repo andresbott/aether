@@ -2,14 +2,15 @@ package subsonic
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/imagecache"
+	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/pathguard"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/gorilla/mux"
@@ -91,18 +92,11 @@ type Handler struct {
 	// system (auth "none") and requireAdmin passes everyone.
 	admin AdminChecker
 	// mediaGuard confines the files the media handlers will read to the
-	// configured library roots. Paths reach those handlers from the DB, not from
-	// the request, so this enforces that a track/cover row actually points into a
-	// library. nil disables the check (no roots configured).
+	// configured scan-folder roots. Paths reach those handlers from the DB, not
+	// from the request, so this enforces that a track/cover row actually points
+	// into a scan folder. nil only when WithMediaRoots was not given at all —
+	// this package's tests; production always gives it.
 	mediaGuard *pathguard.Guard
-	// libraryRoots reads the current library roots. Set instead of mediaGuard when
-	// the roots can change while the server runs; guarded by guardMu and cached in
-	// mediaGuard between refreshes.
-	libraryRoots func() ([]string, error)
-	guardMu      sync.RWMutex
-	// guardRoots is the root set mediaGuard was built from, so a refresh only
-	// rebuilds the guard when the libraries actually changed.
-	guardRoots []string
 }
 
 // Option customizes the /rest handler at registration time.
@@ -118,44 +112,17 @@ func WithAdminChecker(admin AdminChecker) Option {
 }
 
 // WithMediaRoots confines stream/getCoverArt to files under a fixed set of
-// roots. Called with no usable roots it installs no guard, so a server with no
-// libraries yet keeps serving its own generated covers. Production uses
-// WithLibraryRoots; this is the static form, for tests and embedding.
+// roots — in production the configured scan-folder roots, which cannot change
+// while the server runs. Giving the option ALWAYS installs a guard: with no
+// usable roots it denies every on-disk media path, because "no scan folder
+// configured" does not mean "no tracks indexed" (an ignored old config key
+// leaves the index alone) and every indexed row names a file the process can
+// read. Generated and asset-store covers are unaffected — they never reach
+// mediaPathAllowed (see coverMeta.coverManaged).
 func WithMediaRoots(roots ...string) Option {
 	return func(h *Handler) {
-		if g := newGuard(roots); g != nil {
-			h.mediaGuard = g
-		}
+		h.mediaGuard = pathguard.New(roots...)
 	}
-}
-
-// WithLibraryRoots confines stream/getCoverArt to files under the configured
-// libraries, read through roots on demand. Dynamic rather than a snapshot
-// because libraries are created at runtime through the settings UI: a snapshot
-// taken here would refuse every file in a library added later.
-func WithLibraryRoots(roots func() ([]string, error)) Option {
-	return func(h *Handler) {
-		if roots == nil {
-			return
-		}
-		h.libraryRoots = roots
-	}
-}
-
-// newGuard builds a guard over the usable (non-empty) roots, or nil when there
-// are none — "no libraries configured" must not become "deny everything", which
-// would black out every cover on a fresh install.
-func newGuard(roots []string) *pathguard.Guard {
-	usable := make([]string, 0, len(roots))
-	for _, r := range roots {
-		if r != "" {
-			usable = append(usable, r)
-		}
-	}
-	if len(usable) == 0 {
-		return nil
-	}
-	return pathguard.New(usable...)
 }
 
 func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *imagecache.Cache, identity IdentityResolver, opts ...Option) {
@@ -234,6 +201,8 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
 	register("getAlbumList2Index", h.getAlbumList2Index)
+	// releaseTypeFilter v2: which release types the album lists can filter by
+	register("getReleaseTypes", h.getReleaseTypes)
 	register("getRandomSongs", h.getRandomSongs)
 	register("getSongsByGenre", h.getSongsByGenre)
 	register("getStarred2", h.getStarred2)
@@ -346,18 +315,30 @@ func paramBoolPtr(r *http.Request, key string) *bool {
 	return &b
 }
 
-// paramLibraryID parses the optional musicFolderId query parameter.
-// Returns nil when absent or unparseable — treated as "cross-library"
-// per the Subsonic spec (param is optional).
-func paramLibraryID(r *http.Request) *uint {
+// libraryScope resolves the optional musicFolderId parameter to the scope of
+// the library it names, plus that library. Absent or unparseable answers the
+// zero scope and a nil library — cross-library, since the spec makes the
+// parameter optional. An id that names no library answers a scope matching
+// nothing, so the request keeps returning empty lists. A store failure is a
+// different thing: it is answered here as an internal error with ok=false (like
+// requireAdmin), because "no tracks" would hand the client a successful empty
+// list to cache.
+func (h *Handler) libraryScope(w http.ResponseWriter, r *http.Request) (scope store.TrackScope, lib *model.Library, ok bool) {
 	s := r.URL.Query().Get("musicFolderId")
 	if s == "" {
-		return nil
+		return store.TrackScope{}, nil, true
 	}
 	n, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
-		return nil
+		return store.TrackScope{}, nil, true
 	}
-	u := uint(n)
-	return &u
+	found, err := h.store.GetLibrary(uint(n))
+	if errors.Is(err, store.ErrNotFound) {
+		return store.NoTracks(), nil, true
+	}
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return store.TrackScope{}, nil, false
+	}
+	return store.LibraryScope(&found), &found, true
 }

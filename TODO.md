@@ -37,8 +37,8 @@ Notes for editors:
 
 - [x] Proper playlist editing
 - [x] multi user playlists
-- [ ] detach scaned folders from libraries
-  use metaadata queries insetd of folders for sources of songs
+- [x] detach scaned folders from libraries
+  use metaadata queries insetd of folders for sources of songs — **Shipped** (branch `feat/virtual-libraries`): scan folders are config-only (`ScanFolders:`), libraries are saved filters (scan folder, path, format, release type, compilation, genre) served to `/rest` as music folders.
 - [ ] Migrate into own GH org
 - [ ] new icon theme
 - [x] migrate httperr and upstrem to bunbu http
@@ -46,11 +46,15 @@ Notes for editors:
 ## Backend
 
 - [x] does the artist image job still make sense?
+- [ ] Upstream a "key present and non-null" accessor to `go-bumbu/config`
+  `normalizeScanFolderBools` (`app/cmd`) tells a blank `FollowSymlinks:` from an explicit `false` by comparing `GetString`'s result with the literal `"<nil>"` — how `go-bumbu/config` v0.4.0 renders a null scalar (`fmt.Sprintf("%v", nil)`; verified against that version's source; a typo such as `FollowSymlinks: nope` still fails the load). Re-check on ANY bump of that module; a proper accessor upstream removes the coupling.
 
 ### Backend — API Surface
 
 - [ ] Extend the OpenAPI response-contract test to the upstream-mocked and still-uncovered endpoints
   `app/router/openapi_response_contract_test.go`'s kin-openapi response-contract test (the `TestContract*` functions) validates real handler responses against `docs/openapi/aether-v0.yaml`'s schemas, but only for endpoints reachable with just an in-memory store — bootstrap, auth/tokens, libraries, users, tasks. Closing the gap REQUIRES mocking the radio-browser and MusicBrainz upstreams (`internal/radiobrowser`, `internal/artistimage.MusicBrainzSearch`) so `searchRadioStations`, `getRadioFavicon`, `searchMusicBrainzArtists`, `searchMusicBrainzReleases`, `getReleaseGroupGenres`, `listArtistImageCandidates` and `setArtistImageFromSearch` can be asserted without hitting the real internet. Still uncovered beyond that: fixtures for identify/identify-album audio-fingerprint identification (needs sample audio plus a fake AcoustID backend), the whole `metadata` group (folders/tracks browsing, pictures inventory/apply/removals, artist-folder/artist-image), binary responses (image bytes from `getPictureImage`/`getArtistImage`/`getRadioFavicon` — schema validation only applies to their JSON error paths), and the update/delete/patch mutation variants (`updateTracks`, `clearPictureSelection`, `deleteArtistImage`, `deleteToken`, `deleteUser`, `deleteLibrary`, `patchTaskSchedule`, `deleteTaskSchedule`, `cancelTaskExecution`) whose response shapes are never exercised today.
+- [ ] `image-source` can report `folder` while `/rest` serves the generated avatar
+  `GET /api/v0/artists/{id}/image-source` inspects the disk itself, while `/rest/getCoverArt` goes through the media path guard. When the on-disk artist image is refused by the guard — always with zero scan folders configured, and when the image FILE itself is a symlink that resolves outside every root (tracks reached through such a link never get a folder image at all: `artistimage.Detect` only looks below the scan folder's root) — the endpoint says `folder`, so the artist page's edit note reads e.g. "artist.jpg — from music folder" while the image actually shown is the generated avatar (Remove stays correctly hidden for a `folder` source, per `canRemoveImage`). Make `image-source` ask the same guard (or fold it into the per-root health gate).
 
 ### Backend — OpenSubsonic Compliance
 
@@ -63,6 +67,12 @@ Notes for editors:
   **Blocked on** first establishing a proper user-facing documentation model — there is no limitations/caveats home in the user docs yet (`README.md` has no such section). Do this once that model exists.
   The eight formats `libs/audiohash` does not cover are now a deliberate non-goal (see "Won't implement" → "Audio-hash coverage for the remaining eight audio formats"), and that decision is **user-visible**: on a library of FLAC/MP3/M4A/WAV/AIFF/Ogg/Opus, an external tagger that retags and re-files in one pass (Picard, beets) keeps every track's playlists, stars, play history and queue position; on a WMA, APE, WavPack, raw AAC, Matroska/WebM, TTA or DSF library the same operation silently loses them. Today that is written down only in agent-facing docs (`docs/agents/scanning.md`, `planTrackContinuity`'s doc comment), which no user reads. It needs a home in `README.md`: which formats survive an external retag-and-move with their library data intact, and that the rest fall back to a size-and-title heuristic that a retag defeats. `README.md` has no limitations section today, so this either adds one or extends "Features" with the honest caveat — decide which when writing it. Worth stating the same way the auth caveat already is: plainly, near the top, not buried.
   Same doc owes the operator **one full scan after any release that widens hash coverage**, and says why: the move proof needs the *old* row to already carry a hash, an incremental scan only re-reads files that changed, and a release that adds a format changes the server, not the files — so newly-supported files stay unarmed until something force-reads them. Widening coverage is therefore inert on an existing library until that scan runs. Applies to the WAV/AIFF/Ogg/Opus release specifically, and to any future one.
+- [ ] Per-root health gate for scan folders
+  A cached, single-flight "is this root answering" state that everything consults before touching a scan folder's directory: the media handlers (`stream`, `getCoverArt`), the metadata-editor handlers, the scan preflight and `/api/v0/libraries/browse`. Today only `GET /api/v0/scan-folders` and the startup warning are bounded (`Folder.AvailableWithin`, single-flight per root); everything else stats a dead mount directly, so a hung NFS/SMB share costs one blocked request per call, the scan preflight's `Available()` is unbounded — a wedged scan cannot be cancelled and holds the `library-writes` exclusion group, so editor re-indexes and `prune` queue behind it — and the editor spins forever. One gate closes all three. Rule to keep: bound the RESOURCE, not only the wait (goroutine + timeout alone pins one OS thread per timed-out probe).
+- [ ] Re-link rows that no scan folder walks any more
+  Changing a scan folder's `Path` keeps its rows (ids, stars, playlists, history) only if the OLD location is gone when the next scan runs — the move proof needs ENOENT at the old path. The careful migration (copy to a new disk, repoint, verify, delete the old copy later) therefore re-links nothing: new rows are created and the old ones are swept, silently. Fix: treat rows that no configured folder walks any more as re-link candidates — after preflight every walk is in memory, so every folder's `BulkMarkSeen` can run before the first reconcile; a row still at `last_seen_at < scanStart` is doomed whether or not its file exists, which makes it a sound candidate. The condition is documented in `README.md`, `config.yaml` and `docs/agents/scanning.md` and pinned by a scanner test.
+- [ ] Record a logical (as-spelled) path per track — a CONFIRMED defect sits behind it
+  With `FollowSymlinks`, content reached through a symlink is recorded under its RESOLVED path. When that path lies outside every scan folder root the track is indexed but does not play: `stream` answers "song not found" and on-disk/embedded cover art is refused, because `pathguard` resolves the path and checks containment (reproduced; pre-existing). The same missing column is behind: a library `path` filter on or below a symlink matching nothing; a scan folder whose ROOT is a symlink being refused outright (`Folder.Available()` — loud on purpose; workaround: point `Path` at the real directory); the editor's spelled→resolved mapping; the metadata editor not listing symlinked directories at all, so such tracks cannot be edited in the browser; and the scan's second guard having no path-range backup for symlink-reached rows (right after a config rename, an empty walk of a symlink-only folder is not refused). Fix: store the path as spelled next to the resolved one; for follow-symlinks folders the guard becomes lexical containment of the spelled path. `RescanPaths`' availability guard must stay until this replaces it. Workaround today: list the link's target as a scan folder of its own (impossible when that directory contains another root). Analysis: [`docs/architecture/caveats.md#content-reached-through-a-symlink-that-leaves-every-scan-folder`](docs/architecture/caveats.md#content-reached-through-a-symlink-that-leaves-every-scan-folder).
 
 ## Frontend
 
@@ -113,8 +123,14 @@ Notes for editors:
 
 - [ ] Add library statistics
   e.g. albums, artists, songs, genres, disk space used.
-- [ ] Rework libraries: scan folders + metadata-composed
-  Stop filtering filesystem concerns into the app. Keep a list of folders to scan (config- or DB-stored); compose libraries from track metadata rather than mapping each library 1:1 to a filesystem path.
+- [x] Rework libraries: scan folders + metadata-composed
+  Stop filtering filesystem concerns into the app. Keep a list of folders to scan (config- or DB-stored); compose libraries from track metadata rather than mapping each library 1:1 to a filesystem path. **Shipped** with "detach scaned folders from libraries": folders are config-stored, libraries compile to a dynamic track predicate (`store.TrackScope`), no membership table.
+- [ ] Index `track_artists` / `album_artists` by `artist_id` (the cost of hide-artists libraries)
+  The all-libraries artist index with any hide-artists library takes ~6.7 s at 100k tracks (measured; the pre-virtual-libraries `library_id NOT IN` SQL measured the same 6.86 s with an identical plan). Cause: a `SCAN` of `track_artists`, which only has its `(track_id, artist_id)` autoindex. Fix: an index leading with `artist_id` on both join tables (`model.Migrate` already hand-writes one raw index).
+- [ ] Negated library filters (`not in`)
+  Every filter but `compilation` is positive only (`compilation: false` already compiles to `NOT (…)`, `compilationClause`): "everything except audiobooks" needs every other genre listed. Add a per-filter `negate` flag (`ScopeOf` wraps the clause in `NOT (…)`); revisit the "a hide-artists library needs at least one filter" rule and the dangling-scan-folder warning with it. Shape changes are free pre-1.0.
+- [ ] Decide: should a filtered library's Artists tab honour OTHER hide-artists libraries?
+  `excludeHiddenArtists` runs only for a zero scope — the all-libraries index, and a library without filters addressed by id — never inside a filtered library. Inside a FILTERED library, artists whose every track sits in some other hide-artists library are still listed when the two views overlap. Either apply the exclusion there too, or state that "hide artists" means "hide from the global index only". Recorded in [`docs/architecture/caveats.md#libraries-are-filters-the-edges-that-come-with-it`](docs/architecture/caveats.md#libraries-are-filters-the-edges-that-come-with-it).
 
 ## Frontend — Music Browsing & Features
 
@@ -139,6 +155,11 @@ Notes for editors:
 - [ ] Relay — like jukebox, but loading songs from another instance
 
 ## Frontend — Layout
+
+- [ ] Adopt `--app-danger` for the remaining hard-coded error reds (dark-theme contrast)
+  Error text is coloured per component with PrimeVue palette tokens or a literal hex (`--p-red-500` / `-600` / `-700`), which do not flip with the theme — and no single red passes WCAG AA on both of the app's grounds: red-600 measures 3.8:1 and red-700 about 2.9:1 on the dark background, red-500 stays under 3.8:1 on the light surface (4.5:1 is the floor for normal text). The virtual-libraries work added a per-theme token, `--app-danger` (`#b91c1c` light / `#f87171` dark, `webui/src/assets/scss/_variables.scss`), and moved the libraries admin components to it (measured in a browser: 5.4–6.8:1 in both themes). Still hard-coded — TEXT rules only (grep `--p-red-` and `#ef4444` under `webui/src` for the current list): `ScheduleDialog.vue`, `metadata-editor/TrackList.vue`, `RawEditPanel.vue`, `IdentifyReviewDialog.vue`, `IdentifyAlbumDialog.vue`, `UserSettingsView.vue`'s `.tone-stale`, `UserMenu.vue`'s `.menu-item.danger`, and the literal `#ef4444` of `.error` in `AlbumView.vue`, `ArtistView.vue`, `GenreDetailView.vue`, `PlaylistDetailView.vue` plus `.clear-btn:hover` in `MusicBrainzAlbumPicker.vue` and `MusicBrainzArtistPicker.vue`. `UserSettingsView.vue`'s `.pw-error` uses the token since its selector was raised above `.profile-body p` (it used to lose to it and render as secondary grey). Not bugs, leave them: a banner that carries its own light background (`FolderPickerDialog.vue`, `FolderTree.vue`), and a light red on a ground that is dark in BOTH themes (`LoginView.vue`'s `.login-error` on the login card, which mirrors the navigation rail).
+- [ ] Re-check the PrimeVue `Select` Escape quirk on the next PrimeVue upgrade
+  PrimeVue 4.5.5's `Select.onEscapeKey` calls `stopPropagation()` even when its overlay is closed (their source marks it `@todo`), so while a `Select` holds focus Escape never reaches a hosting `Dialog` — in every dialog of the app. Documented in `docs/agents/frontend.md` ("A focused `Select` swallows Escape"), deliberately not worked around. When PrimeVue is upgraded, check whether upstream fixed it and delete that paragraph if so.
 
 ## Metadata & External Integrations
 

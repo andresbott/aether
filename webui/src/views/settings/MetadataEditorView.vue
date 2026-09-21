@@ -10,7 +10,7 @@ import Message from 'primevue/message'
 import Splitter from 'primevue/splitter'
 import SplitterPanel from 'primevue/splitterpanel'
 import { useConfirm } from 'primevue/useconfirm'
-import { useLibraries } from '@/composables/useLibraries'
+import { useScanFolders } from '@/composables/useScanFolders'
 import { useTracks, useMetadataCapabilities } from '@/composables/useMetadataEditor'
 import { useEditSession, candidateToOverlay, albumPickToOverlay } from '@/composables/useEditSession'
 import { useIdentifyRuns } from '@/composables/useIdentifyRuns'
@@ -23,14 +23,14 @@ import IdentifyAlbumDialog from './metadata-editor/IdentifyAlbumDialog.vue'
 import { pickOverlayFields, type IdentifyFieldId } from '@/lib/identifyFields'
 import type { AlbumIdentifyPick, IdentifyPick, Track, TrackOverlay } from '@/types/metadata'
 
-const { data: libraries } = useLibraries()
-const selectedLibraryId = ref<number | null>(null)
+const { data: scanFolders } = useScanFolders()
+const selectedScanFolder = ref<string | null>(null)
 const selectedPath = ref<string | null>(null)
 const selection = ref<Track[]>([])
 const dialogVisible = ref(false)
 // The path FolderTree should expand to when the picker opens (a clicked
-// breadcrumb segment); null opens at the library root. Cleared when the picker
-// closes so re-picking the same segment re-triggers the expand.
+// breadcrumb segment); null opens at the scan folder root. Cleared when the
+// picker closes so re-picking the same segment re-triggers the expand.
 const pendingExpandPath = ref<string | null>(null)
 
 // Folder search: `folderSearch` is the raw text field; `folderFilter` is the
@@ -65,38 +65,34 @@ const confirm = useConfirm()
 const { tier } = useViewport()
 const stacked = computed(() => tier.value === 'phone')
 
-const libraryOptions = computed(
-    () => libraries.value?.map((l) => ({ label: l.name, value: l.id })) ?? []
+const folderOptions = computed(
+    () => scanFolders.value?.map((f) => ({ label: f.name, value: f.name })) ?? []
 )
 
-// The library picker list only appears when there is a real choice to make.
-// With a single library it is redundant — that library is auto-selected below.
-const showLibraryList = computed(() => libraryOptions.value.length > 1)
+// The scan-folder picker list only appears when there is a real choice to make.
+// With a single scan folder it is redundant — that folder is auto-selected below.
+const showFolderList = computed(() => folderOptions.value.length > 1)
 
-// A single configured library gets no picker list, so select it up front —
-// otherwise the folder tree has no library to browse and nothing to pick it
+// A single configured scan folder gets no picker list, so select it up front —
+// otherwise the folder tree has no scan folder to browse and nothing to pick it
 // with. Only fires while nothing is selected yet, so it never fights a choice.
 watch(
-    libraryOptions,
+    folderOptions,
     (opts) => {
-        if (opts.length === 1 && selectedLibraryId.value === null) {
-            selectedLibraryId.value = opts[0].value
+        if (opts.length === 1 && selectedScanFolder.value === null) {
+            selectedScanFolder.value = opts[0].value
         }
     },
     { immediate: true }
 )
 
-const currentLibraryLabel = computed(() => {
-    if (selectedLibraryId.value === null) return null
-    return libraries.value?.find((l) => l.id === selectedLibraryId.value)?.name ?? null
-})
-
-// crumbs is the selected library + path as clickable breadcrumb segments: the
-// library (path '') then one per path part, each carrying the path accumulated
-// up to it, so a click can expand the picker straight there.
+// crumbs is the selected scan folder + path as clickable breadcrumb segments:
+// the scan folder (path '') then one per path part, each carrying the path
+// accumulated up to it, so a click can expand the picker straight there. The
+// folder's name IS the label — a selected folder always has a name.
 const crumbs = computed<{ label: string; path: string }[]>(() => {
-    if (selectedLibraryId.value === null) return []
-    const out = [{ label: currentLibraryLabel.value ?? 'Library root', path: '' }]
+    if (selectedScanFolder.value === null) return []
+    const out = [{ label: selectedScanFolder.value, path: '' }]
     if (selectedPath.value) {
         let acc = ''
         for (const part of selectedPath.value.split('/')) {
@@ -107,14 +103,29 @@ const crumbs = computed<{ label: string; path: string }[]>(() => {
     return out
 })
 
+// The selected folder's problem, when the server reports its root unusable (not
+// mounted, not a directory, a symlinked root, a mount that does not answer).
+// Browsing may still work — a symlinked root lists fine — but scans and the
+// re-index after a save refuse the folder, so say so before the user edits.
+const selectedFolderProblem = computed(() => {
+    const f = scanFolders.value?.find((x) => x.name === selectedScanFolder.value)
+    return f && !f.available ? (f.problem ?? 'its directory is not available') : null
+})
+
+// Nothing configured: the picker has nothing to offer and no folder can be
+// auto-selected.
+const noScanFolders = computed(
+    () => scanFolders.value !== undefined && scanFolders.value.length === 0
+)
+
 const tracksQuery = useTracks(
-    () => selectedLibraryId.value,
+    () => selectedScanFolder.value,
     () => selectedPath.value
 )
 
 const session = useEditSession(
     () => tracksQuery.data.value,
-    () => selectedLibraryId.value
+    () => selectedScanFolder.value
 )
 
 // A save (and any reload/invalidation) refetches the tracks into brand-new
@@ -140,7 +151,7 @@ watch(
 // Both identify flows (and the in-memory cache behind them) live in
 // useIdentifyRuns: the dialog state, the abort controllers and the cache reads
 // are one concern, and the view only wires them to its children.
-const runs = useIdentifyRuns(() => selectedLibraryId.value)
+const runs = useIdentifyRuns(() => selectedScanFolder.value)
 
 // guardUnsaved runs the action directly, or behind a discard confirmation when
 // the session holds staged changes. Cancel leaves everything as-is.
@@ -163,13 +174,13 @@ function guardUnsaved(action: () => void) {
     })
 }
 
-function onLibraryChange(val: number | null) {
+function onScanFolderChange(val: string | null) {
     guardUnsaved(() => {
-        // A different library invalidates any pending expand target and any
-        // active folder filter (its matches were scoped to the old library).
+        // A different scan folder invalidates any pending expand target and any
+        // active folder filter (its matches were scoped to the old scan folder).
         pendingExpandPath.value = null
         clearFolderSearch()
-        selectedLibraryId.value = val
+        selectedScanFolder.value = val
         selectedPath.value = null
         selection.value = []
     })
@@ -184,8 +195,8 @@ function onFolderSelect(path: string) {
 }
 
 // openFolderPicker opens the folder dialog. expandTo tells FolderTree to expand
-// straight to a path (a clicked breadcrumb segment); null opens at the library
-// root. Opening is unguarded — only committing a new folder discards edits.
+// straight to a path (a clicked breadcrumb segment); null opens at the scan
+// folder root. Opening is unguarded — only committing a new folder discards edits.
 function openFolderPicker(expandTo: string | null) {
     pendingExpandPath.value = expandTo
     dialogVisible.value = true
@@ -380,7 +391,7 @@ function onAlbumReidentify() {
             <SplitterPanel :size="40" :minSize="20">
                 <EditPanel
                     :selection="selection"
-                    :libraryId="selectedLibraryId"
+                    :scanFolder="selectedScanFolder"
                     :session="session"
                     :folderPath="selectedPath"
                     :canIdentify="canIdentify"
@@ -400,36 +411,53 @@ function onAlbumReidentify() {
             :style="{ width: 'min(92vw, 60rem)' }"
         >
             <div class="dialog-content">
-                <div v-if="showLibraryList" class="library-column" data-test="library-column">
-                    <label class="library-label">Library</label>
+                <div v-if="showFolderList" class="scan-folder-column" data-test="scan-folder-column">
+                    <label class="scan-folder-label">Scan folder</label>
                     <Listbox
-                        :modelValue="selectedLibraryId"
-                        @update:modelValue="onLibraryChange"
-                        :options="libraryOptions"
+                        :modelValue="selectedScanFolder"
+                        @update:modelValue="onScanFolderChange"
+                        :options="folderOptions"
                         optionLabel="label"
                         optionValue="value"
-                        class="library-listbox"
+                        class="scan-folder-listbox"
                     />
                 </div>
                 <div class="tree-column">
-                    <div class="tree-search">
-                        <label class="tree-search-label" for="folder-filter">Search folders</label>
-                        <InputText
-                            id="folder-filter"
-                            v-model="folderSearch"
-                            placeholder="Filter folders by name"
-                            class="tree-search-input"
-                            :disabled="selectedLibraryId === null"
-                        />
-                    </div>
-                    <div class="tree-body">
-                        <FolderTree
-                            :libraryId="selectedLibraryId"
-                            :filter="folderFilter"
-                            :expandTo="pendingExpandPath"
-                            @select="onFolderSelect"
-                        />
-                    </div>
+                    <Message
+                        v-if="selectedFolderProblem"
+                        severity="warn"
+                        :closable="false"
+                        data-test="scan-folder-problem"
+                    >
+                        This scan folder is not usable right now, so scans and the re-index
+                        after a save refuse it: {{ selectedFolderProblem }}
+                    </Message>
+                    <template v-if="noScanFolders">
+                        <div class="empty" data-test="no-scan-folders">
+                            No scan folders are configured. Add them under <code>ScanFolders</code>
+                            in the server's config file and restart the server.
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div class="tree-search">
+                            <label class="tree-search-label" for="folder-filter">Search folders</label>
+                            <InputText
+                                id="folder-filter"
+                                v-model="folderSearch"
+                                placeholder="Filter folders by name"
+                                class="tree-search-input"
+                                :disabled="selectedScanFolder === null"
+                            />
+                        </div>
+                        <div class="tree-body">
+                            <FolderTree
+                                :scanFolder="selectedScanFolder"
+                                :filter="folderFilter"
+                                :expandTo="pendingExpandPath"
+                                @select="onFolderSelect"
+                            />
+                        </div>
+                    </template>
                 </div>
             </div>
         </Dialog>
@@ -571,7 +599,7 @@ function onAlbumReidentify() {
     height: min(70vh, 34rem);
 }
 
-.library-column {
+.scan-folder-column {
     flex: 0 0 15rem;
     display: flex;
     flex-direction: column;
@@ -579,12 +607,12 @@ function onAlbumReidentify() {
     min-height: 0;
 }
 
-.library-label {
+.scan-folder-label {
     font-size: 0.85rem;
     font-weight: 600;
 }
 
-.library-listbox {
+.scan-folder-listbox {
     flex: 1;
     min-height: 0;
 }
@@ -597,8 +625,8 @@ function onAlbumReidentify() {
     gap: 0.5rem;
 }
 
-/* The search sits at the top of the tree column, level with the Library label
-   in the left column. */
+/* The search sits at the top of the tree column, level with the Scan folder
+   label in the left column. */
 .tree-search {
     display: flex;
     flex-direction: column;
@@ -619,6 +647,14 @@ function onAlbumReidentify() {
     min-height: 0;
 }
 
+/* Matches FolderTree.vue's own .empty rule: this view has none of its own,
+   and the no-scan-folders notice replaces the tree here rather than inside it. */
+.empty {
+    padding: 1rem;
+    color: var(--app-text-secondary);
+    font-size: 0.9rem;
+}
+
 @media (max-width: 767.98px) {
     .editor-header {
         flex-wrap: wrap;
@@ -632,7 +668,7 @@ function onAlbumReidentify() {
         max-height: 80vh;
     }
 
-    .library-column {
+    .scan-folder-column {
         flex: 0 0 auto;
         max-height: 10rem;
     }

@@ -21,16 +21,18 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
             |            |                    |
     app/tasks (task defs)|                    |
             |            v                    v
-    internal/* ── store (GORM/SQLite) ── scanner ── tags ── model
+    internal/* ── scanfolder ── store (GORM/SQLite) ── scanner ── tags ── model
                   taskrunner · assetstore · artistimage · coverart ·
                   covergen · identify · albumidentify · metadataedit ·
                   radiobrowser · unidecode
     libs/ ── acoustid, fpcalc (standalone clients, no aether imports)
 
 - **`app/cmd` is the only composition root.** `server.go` builds everything —
-  DB (SQLite WAL, `busy_timeout=5000`, max 10 conns), store, scanner config,
-  task runner + scheduler, optional identify/artist-image services — and hands
-  it to `router.Cfg`. Optional dependencies stay `nil` and handlers degrade
+  DB (SQLite WAL, `busy_timeout=5000`, max 10 conns), the scan-folder set
+  (`scanFolderSet`, validated once from `config.yaml`'s `ScanFolders` and
+  shared by the scanner and the router), store, scanner config, task runner +
+  scheduler, optional identify/artist-image services — and hands it to
+  `router.Cfg`. Optional dependencies stay `nil` and handlers degrade
   gracefully (e.g. `Identifier: nil` disables audio identification; no
   provider API keys means the fetch task reports "not configured").
 - **`app/router` owns routing only.** Three surfaces on one gorilla/mux
@@ -45,8 +47,12 @@ Read next, per area: [subsonic-api.md](subsonic-api.md) ·
   `notFound` maps it at the boundary; internal `FindOrCreate*` logic still
   checks the gorm sentinel directly). `Store.Transaction(fn)` yields a
   tx-scoped `*Store`. Query filters are small structs in `filters.go`
-  (`SearchFilter`, `ArtistsFilter`, `StarredFilter` — all `LibraryID *uint`,
-  nil = cross-library).
+  (`SearchFilter`, `ArtistsFilter`, `StarredFilter`) that carry a
+  `Scope store.TrackScope` — a library's filters compiled (`store.ScopeOf`,
+  pure) into one boolean SQL predicate over `tracks`; the zero scope is
+  cross-library. An album, artist or genre is in a scope when at least one of
+  its tracks is. `scope.go` owns the filter vocabulary's SQL and fails closed:
+  a filter it cannot honor matches nothing.
 - **`internal/model` is schema only.** GORM structs + `Migrate()`
   (AutoMigrate + the composite unique index `idx_album_identity` on
   `albums(name_norm, album_artist_norm, mb_release_id)` — album identity is
@@ -72,23 +78,50 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   OpenSubsonic-compliant. Missing capability? Add a proper OpenSubsonic
   *extension* under `/rest` advertised via `getOpenSubsonicExtensions` —
   never a bespoke `/api/v0` music endpoint. See [subsonic-api.md](subsonic-api.md).
-- **`/api/v0` is server management only**: libraries CRUD + folder browse,
-  tasks/schedules/executions, metadata editor, artist MBID/MusicBrainz search,
+- **`/api/v0` is server management only**: libraries CRUD + folder browse
+  (`GET /libraries/browse`, confined to the configured scan folders — a path
+  must be spelled under one of their roots, else `422` at `/path`), `POST
+  /libraries/preview` (the track/album counts a candidate filter set would
+  select, without storing it) and `GET /libraries/filter-options` (the
+  configured scan-folder names plus the formats/genres/release types actually
+  present in the catalog) — both serve the admin UI's filter builder
+  (`webui/src/components/admin/LibraryFilterBuilder.vue`), which previews as
+  the admin edits and offers the values `filter-options` lists — `GET
+  /scan-folders` (read-only list of the
+  configured scan folders with a bounded availability probe and
+  marker-based track counts), tasks/schedules/executions, metadata editor,
+  artist MBID/MusicBrainz search,
   `GET /artists/{id}/image-source` (which of aether's store / the music folder /
   the generated avatar the artist's image comes from — a server filesystem
   detail, not a Subsonic field), artist image candidate listing + pick from the
   image providers (`/artists/image-candidates`, `/artists/{id}/image-from-search`
-  — see [scanning.md](scanning.md)), radio-browser import proxy, health. TODO.md
-  plans moving these under an `/admin` path eventually.
+  — see [scanning.md](scanning.md)), radio-browser import proxy, health.
 
 ## Key domain types (internal/model)
 
-- `Library` — a music folder root; per-library `HideArtists`, `DefaultView`,
-  `Icon`, JSON-encoded `ExcludePatterns`. Deleting/changing a library path
-  wipes its tracks. `Source` (`"db"` | `"config"`) records who owns the row —
-  see [Config-provisioned libraries](#config-provisioned-libraries).
+- `Library` — a named, **filtered view** over the catalog, not a directory: a
+  row is `Name`, `DefaultView`, `Icon`, `HideArtists` and `Filters
+  []LibraryFilter` (`internal/model/library.go`) — nothing else, and it owns
+  no tracks. `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)` compiles
+  the filters into a `TrackScope`: filters are AND-ed, one filter's values are
+  OR-ed, and no filters selects the whole catalog. `internal/libraryfilter`
+  is the friendly layer in front of that compiler: `Validate` normalizes and
+  rejects an unusable filter on write, and `Dangling` reports a stored
+  `scan_folder` value that no longer names a configured folder — surfaced as
+  a `warnings[]` entry on `GET /libraries`/`GET /libraries/{id}` and as a
+  startup `WARN` (`warnDanglingLibraryFilters`, `app/cmd/scanfolders.go`,
+  called right after `warnScanFolders`). One rule spans fields and therefore
+  lives in the `/api/v0` handler, not in `libraryfilter`: a `HideArtists`
+  library must have at least one filter (`libraries.validateFilters`, `422` at
+  `/show_artists`) — with none it is the whole catalog and would hide every
+  artist; `store.hiddenArtistScopes` also skips such a row if one ever reaches
+  the table. See [Scan folders
+  (config-only)](#scan-folders-config-only) for where scanning actually reads
+  its directories from.
 - `Track` — `FilePath` unique; `LastSeenAt` drives scan cleanup;
-  `LibraryID` cascade-deletes. `Album`/`Artist`/`Genre` link via join tables
+  `ScanFolder` names the scan folder the file was indexed under (a marker,
+  not a foreign key — see [scanning.md](scanning.md)); `Suffix` is the
+  lowercase extension. `Album`/`Artist`/`Genre` link via join tables
   (`AlbumArtist`, `TrackArtist`, `TrackGenre`, `AlbumGenre`).
 - `*Norm` columns (e.g. `TitleNorm`, `NameNorm`) hold
   `internal/unidecode.Normalize` output (lowercased ASCII transliteration) —
@@ -113,21 +146,25 @@ through `Runner.GetTaskLog`); the runner sweeps orphaned log files at startup
 table), re-armed at startup; `internal/taskrunner` wraps it in a façade that
 allows many param-carrying schedules per task over tempo's uuid-keyed
 scheduler — schedules are addressed by their own id, not the task name, so
-an hourly incremental scan and a nightly full scan are two schedules on the
-one `scan` task.
-Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan` (typed
-`ScanParams{Full bool}` via `taskrunner.Register[tasks.ScanParams]`, still
-`Singleton()` — at most one scan in flight), `reindex` (typed
-`ReindexParams{LibraryID, Paths}` — the metadata editor's targeted re-index,
-enqueued by its write handlers rather than user-triggered; see
-[scanning.md](scanning.md)), and `fetch-artist-images`. `scan` and `reindex`
-share a `library-writes` `taskrunner.ExclusionGroup` so tempo never runs one
-while the other is in flight; otherwise task registration is independent, and
+one task can carry several (a nightly and a weekly `prune`, say); an hourly
+incremental scan and a nightly full scan are one schedule each on two
+distinct tasks, `scan` and `scan-full`.
+Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan` and
+`scan-full` (two distinct, parameterless, singleton tasks rather than one
+task carrying a `full` flag — see [scanning.md](scanning.md)), `reindex`
+(typed `ReindexParams{ScanFolder, Paths}` — the metadata editor's targeted
+re-index, enqueued by its write handlers rather than user-triggered; see
+[scanning.md](scanning.md)), and `fetch-artist-images`. `scan`, `scan-full`,
+`reindex` and `prune` all share a `library-writes`
+`taskrunner.ExclusionGroup` so tempo never runs one
+while another is in flight; otherwise task registration is independent, and
 **a scan does not auto-trigger the artist-image fetch**.
 
 ## Data directory layout
 
-`DataDir` (default `./data`) holds: `aether.db` (SQLite), `metadata/`
+`DataDir` (default `./data`; `zarf/localdata/data` under `make run`) holds:
+`sqlite/aether.db` (SQLite, opened by `openDB` in `app/cmd/db.go`; its
+`-wal`/`-shm` files sit beside it), `metadata/`
 (assetstore: `<kind>/<key>/<name>[.auto].<ext>` — a plain `<name>.<ext>` is a
 manual upload the fetcher must never overwrite; `.auto.` marks fetched
 images), `image-cache/` (imagecache), `task-logs/`.
@@ -153,45 +190,65 @@ starting with `@` load the referenced file's contents (used for gitignored
 (`unmarshal.go`), so after loading, an omitted key is an allocated `false` —
 indistinguishable from an explicit `false`. Any config bool whose default is
 `true` must therefore be re-checked against the handler
-(`normalizeLibraryBools` in `app/cmd/config.go` asks `handler.GetString` per
-key and resets absent ones to nil). Declaring `*bool` alone silently flips the
-default for everyone who didn't spell the key out.
+(`normalizeScanFolderBools` in `app/cmd/config.go` asks `handler.GetString`
+per scan folder's `FollowSymlinks` key — the only config bool defaulting to
+`true` today — and resets absent ones to nil). Declaring `*bool` alone
+silently flips the default for everyone who didn't spell the key out.
 
-### Config-provisioned libraries
+### Scan folders (config-only)
 
-Libraries come from **two additive sources**: the admin UI (`/api/v0/libraries`)
-and a `Libraries:` list in the config file. `Library.Source` (`model.SourceDB` /
-`model.SourceConfig`) records which.
+The directories Aether scans are declared **only** in `config.yaml`, under
+`ScanFolders:` — a list of `Name`, `Path`, `ExcludePatterns` and
+`FollowSymlinks` (default `true`) entries. There is no database row and no
+API to create one: the startup reconcile that used to materialize a
+`Libraries:` config list into `libraries` rows (`app/cmd/libraries.go`) is
+gone.
 
-`reconcileLibraries` (`app/cmd/libraries.go`) runs in `server.go` right after
-`store.New`, before anything reads the table, and **materializes** each config
-entry into a real `libraries` row. That is the whole design decision: config
-libraries get a normal autoincrement ID, so every existing consumer — the
-`tracks.library_id` FK, the scanner, `getMusicFolders`, the per-library SQL
-joins in `internal/store` — keeps working untouched, and nothing needs to know
-libraries have two origins.
+`app/cmd`'s `scanFolderSet` (`app/cmd/scanfolders.go`) builds the set once, at
+startup, from those entries and validates it through `scanfolder.NewSet`:
+names are trimmed and must be unique, paths are made absolute, roots that are
+equal or nested are rejected, and every exclude pattern must compile as a
+regex — a typo fails loudly at load, naming the offending folder. The
+resulting immutable `scanfolder.Set` is handed to everything that needs to
+know where music lives: the scanner (`scanner.Config.Folders`), the
+`reindex` task, the `/api/v0` handlers through
+`MainAppHandler.scanFolders` (the three metadata-editor handlers
+`TagsHandler`, `ImagesHandler` and `IdentifyHandler`; `GET /scan-folders`; and
+the **libraries handler**, which needs it for all four of its scan-folder
+duties: validating a `scan_folder` filter value against the configured names,
+warning about one that dangles, offering those names in
+`GET /libraries/filter-options`, and confining `GET /libraries/browse` to the
+roots), and the `/rest` media path guard (`router.Cfg.ScanFolders` →
+`subsonic.WithMediaRoots`). The option is always given, so a server with no
+scan folders serves no on-disk media even if its index is still populated.
 
-Semantics (each covered by a test in `app/cmd/libraries_test.go`):
+`scanfolder.NewSet` deliberately does not check that a root's directory
+exists — a share that mounts late must not keep the server from starting.
+Two things instead get a startup `WARN` (`warnScanFolders`,
+`app/cmd/scanfolders.go`), never a failure:
 
-- Config entries are rewritten from the file on **every** startup, including
-  fields the entry omits (those revert to their defaults). This is what makes
-  them read-only over the API: an accepted edit would silently revert on the
-  next restart, so `PUT`/`DELETE` answer **409 `config_managed`** and `POST`
-  refuses a name or path a config library already claims.
-- Matching is by **path** first (that is what gets scanned), then by **name**.
-  A colliding UI-created row is **adopted** rather than duplicated, keeping its
-  scanned tracks. A path change wipes tracks, exactly as the API does it.
-- Name matching one row while the path matches a *different* one is
-  unresolvable, so startup **fails** instead of guessing.
-- Removing an entry from config **never deletes** the library: the row is handed
-  back to the UI as an ordinary editable one, tracks intact. Deleting a library
-  stays a deliberate UI action, so a commented-out entry can't wipe a scan.
-- `LastScanStartedAt` is runtime state, not configuration, and stays on the row
-  for both sources.
+- a scan folder whose root cannot be scanned right now — missing, not a
+  directory, itself a symlink, or a mount that does not answer within the
+  startup probe's 3 s — the scan preflight already refuses to run against it,
+  so nothing is swept in the meantime;
+- indexed tracks whose `scan_folder` marker names a folder no longer listed
+  in `ScanFolders` — at the next scan they are re-stamped if a configured
+  folder still reaches their files (that is what a rename looks like) and
+  removed otherwise, with their stars, playlist entries and play history;
+  with NO folder configured scans do nothing, so neither happens. This is
+  the window to notice a mistyped or commented-out entry.
 
-Config entries are validated with the **same exported validators** the API uses
-(`libraries.ValidateName/ValidatePath/…`) so a config typo fails as loudly as a
-bad request, with the same message. Don't add a second copy of those rules.
+Identity is the **name**, not the path: every track is stamped with the name
+of the scan folder it was indexed under (`tracks.scan_folder`, see
+[scanning.md](scanning.md)), and renaming a folder in the config heals on the
+next scan of any kind, full or incremental. A library's own `scan_folder`
+filter, when it has one, names this same identity — so renaming or removing a
+folder in `ScanFolders:` leaves a stored filter value that names no configured
+folder. Nothing breaks at once: it keeps selecting the tracks that still carry
+the old marker until the next scan re-stamps or removes them, and matches
+nothing from then on until the library is edited;
+`internal/libraryfilter.Dangling` is what notices (see "Key domain types"
+above).
 
 ## External services (all optional)
 

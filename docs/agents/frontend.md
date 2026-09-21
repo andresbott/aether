@@ -53,10 +53,14 @@ When a view diverges from these registries, the registry wins.
   source (a genre filter, say) there rather than branching inside a body.
 - `composables/` — all non-trivial logic. Server state goes through
   TanStack query composables (`useSubsonicQueries.ts` with a central
-  `queryKeys` map — add new keys there, don't inline key arrays).
+  `queryKeys` map — add new keys there, don't inline key arrays). The metadata
+  editor lists the server's configured scan folders via `useScanFolders`
+  (`GET /api/v0/scan-folders`) and addresses every editor request — folders,
+  tracks, pictures, identify, artist image — by the chosen folder's `name`,
+  not a numeric id.
   `usePlayer.ts` is module-scoped singleton state, as is
   `useIdentifyCache.ts` — the metadata editor's identify answers are cached
-  per (library, path) and per selection set, LRU-capped, so reopening an
+  per (scan folder, path) and per selection set, LRU-capped, so reopening an
   identify dialog costs no fingerprint pass. It is deliberately not a
   vue-query cache: identification is a POST over a path list with no stable
   query key, and reuse is per path, not per request. `useIdentifyRuns.ts`
@@ -166,14 +170,15 @@ renders its sidebar as a horizontally-scrolling icon bar below 768px —
 collapse is a desktop concept with no room on a bar, so the collapse button
 and width machinery are hidden entirely. Settings tables use `useViewport().tier`
 to hide secondary columns on phones (via `Column :hidden` binding); hidden data
-either moves into a visible cell (the library path renders under the name on
-phone) or stays reachable through an icon-only button (the schedule calendar
-icon) or the row's edit dialog. The metadata editor (`MetadataEditorView`)
-stacks its split panels vertically and shows an info notice ("works best on a
-larger screen") on phone tier. **The `ContentScaffold` header wraps at any width
-and its title never shrinks below 12rem** (empty titles exempt) — this ensures
-the back button, title, and actions stay readable when the header reflows across
-narrow viewports.
+either moves into a visible cell (the libraries table's filter summary and
+the scan folders table's path both render under the name on phone — see
+"Admin — libraries and scan folders" below) or stays reachable through an
+icon-only button (the schedule calendar icon) or the row's edit dialog. The
+metadata editor (`MetadataEditorView`) stacks its split panels vertically and
+shows an info notice ("works best on a larger screen") on phone tier. **The
+`ContentScaffold` header wraps at any width and its title never shrinks below
+12rem** (empty titles exempt) — this ensures the back button, title, and
+actions stay readable when the header reflows across narrow viewports.
 
 Keyboard shortcuts (`useKeyboardShortcuts`) and `ShortcutHelpOverlay` bind in
 **`DesktopShell` only** — mount-scoped listeners (the reason the shells are
@@ -219,8 +224,10 @@ full), one `BrowseAlbumShelf` per dynamic library (its newest albums; a componen
 per library because a composable cannot be called in a loop over a reactive list),
 then Playlists, Genres, Radio — each a heading, `BROWSE_SHELF_SIZE`
 (`lib/browseShelf.ts`) items in a horizontally snapping strip, and a "See all"
-link to the full view. Per-library shelves appear only above one library, matching
-the sidebar. Two things have no shelf to fill and sit in the header: Search, and
+link to the full view. Per-library shelves appear from the first library on,
+matching the sidebar: a library is a saved filter, so even the only one is
+narrower than the catalog the Library shelf samples.
+Two things have no shelf to fill and sit in the header: Search, and
 the account entries the desktop keeps in `UserMenu` (User settings → Admin →
 About → Log out) behind a `⋮` PrimeVue `Menu` — the phone's **only** way to log
 out. Now Playing and the queue stay reachable through `MiniPlayer`. Mobile only:
@@ -234,6 +241,196 @@ plus artwork at 96/256/512px), mirrors `isPlaying` into `playbackState`, wires
 play/pause/previoustrack/nexttrack/seekto actions, and updates `setPositionState`
 on duration/seek changes — not on every `currentTime` tick (the browser
 extrapolates between updates).
+
+## Admin — libraries and scan folders
+
+`LibrariesView` (`views/settings/LibrariesView.vue`, `/settings/libraries`)
+renders two independent panels: `ScanFoldersPanel` (read-only) then
+`LibrariesPanel` (create/edit/delete). A library owns no directory — it is a
+named, **filtered view** over the whole catalog (see
+[architecture.md](architecture.md#scan-folders-config-only)) — so neither
+panel shows a path, a last-scan time, or a config-provisioned badge; the
+directories actually scanned live only in the server's config file.
+
+**`LibrariesPanel`** columns: name (icon + name, plus a `severity="warn"`
+"Needs attention" `Tag` — tooltip is the joined `warnings[].detail` — shown
+only when the library has any), Filters (one `Tag` per
+`lib/libraryFilters.ts`'s `summarize(filters)` line, or a single "Whole
+catalog" tag when `filters` is empty), Tracks, actions. Deleting asks "Delete
+library "<name>"? Only this view is removed — no track, star or play history
+is touched." — deleting a library never touches `tracks`. On phone
+(`useViewport().tier === 'phone'`) the Filters and Tracks columns hide and
+the filter summary renders a second time under the name instead (the
+"Settings on phones" pattern above); `settingsTables.phone.spec.ts` pins both
+tiers for this table.
+
+**`ScanFoldersPanel`** lists the folders read-only — no dialogs, nothing to
+edit — over `useScanFolders()` (`GET /api/v0/scan-folders`): Name, Path,
+Excludes (a count; the patterns themselves are the tooltip), Symlinks
+("Followed"/"Not followed"), Tracks, Status (a `Tag`, `success` "Available"
+or `danger` "Not usable" with the server's raw `problem` string as tooltip
+AND as small secondary text under the tag — a tooltip alone is unreachable by
+touch and keyboard, and this read-only panel has no dialog to show it in).
+Its hint, shown above the table regardless of data: "Defined in the server's
+config file under ScanFolders; restart the server to apply changes." With
+zero scan folders configured, the empty state spells out the consequence
+rather than just the fact: "No scan folders are configured — nothing is
+scanned and no on-disk media is served. Add them under ScanFolders in the
+server's config file and restart." — the media guard fails closed with no
+scan folders configured (see [subsonic-api.md](subsonic-api.md)). On phone,
+Path/Excludes/Symlinks hide and the path renders under the name instead;
+Tracks and Status stay on every width.
+
+Its one button, **"Scan now"** in the section header, is a shortcut to the
+incremental `scan` task ("Catalog Scan", the same one the Tasks page runs),
+through `useCatalogScan()` (`composables/useCatalogScan.ts`):
+
+- It follows the runner's execution list through `useExecutions()`, the
+  query the Tasks view uses too (polled while any run is queued or running).
+  While a `scan` run is active, whoever started it (this button, the Tasks
+  page, a schedule), the button is disabled and its label is that run's
+  `progressLabel` ("Queued", "Running", "N% complete"). A trigger that joins
+  a run already in flight (`reused`) gets an info toast, and a refused
+  trigger gets an error toast.
+- When a run it saw in flight settles, it invalidates `scan-folders`,
+  `libraries` (which includes the filter pick-lists) and the whole
+  `['subsonic']` tree: a scan changes the track counts on this page and the
+  catalog every music view shows. The run its own trigger returned counts
+  too, since a small scan can finish before any poll sees it running. A run
+  that ends in anything other than `complete` or `canceled` gets an error
+  toast pointing at the Tasks queue. A run that had already settled when the
+  page loaded changes nothing.
+- It is disabled only when the list loaded empty (there is nothing to walk).
+  While loading, or after a failed fetch, it stays usable.
+
+Both panels distinguish a failed request from a genuinely empty one: the
+empty-state copy above renders only once the query actually resolved to an
+empty list (`scanFolders && scanFolders.length === 0` /
+`libraries && libraries.length === 0`) — on `isError` a red `.error-state`
+block ("Could not load the scan folders"/"Could not load the libraries…
+Check that the server is reachable and reload the page.") takes that slot
+instead, so a failed fetch is never reported as "nothing is configured" or
+"no libraries yet". `LibrariesPanel`'s "Add library" and `ScanFoldersPanel`'s
+"Scan now" stay available in that error state; both live in the section
+header, outside the loading/error/empty/table switch.
+
+**`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
+inside `LibraryDialog`) is the one place filters are edited. `LibraryDialog`
+always sends `filters` on both create and update — never omits the key: on
+`PUT /libraries/{id}` an absent `filters` key means "keep what's stored" and
+`[]` means "clear them", so round-tripping exactly what the builder shows is
+what makes an update mean what it looks like. Rules worth knowing about the
+builder itself before touching it:
+
+- A row's position IS its identity: the server's `422` pointers
+  (`/filters/i/field`, `/filters/i/values`, `/filters/i/values/j`) index the
+  filters array as it was last **sent**, so `lib/libraryFilters.ts`'s
+  `rowErrors()` maps purely by array index. `LibraryDialog` hides every
+  `/filters…` error the moment the admin edits the filters after a failed
+  save (add/remove/change a row) — they return only with the next failed
+  submit — because a stale error would otherwise attach to the wrong row;
+  field-level errors (`/name`, `/show_artists`, …) are unaffected.
+- The app's own code never trims, lowercases or otherwise normalizes a
+  value: `genre` / `release_type` / `path` are matched verbatim against
+  scanned data by the server, so a client-side rewrite could turn a matching
+  value into one that matches nothing. `""` for `release_type` is a real
+  selector ("(none)"), not a blank. One thing is *not* verbatim, and it is
+  PrimeVue's doing rather than ours: the `path` row's `AutoComplete` chips
+  input commits `event.target.value.trim()` on Enter, so a **typed** path is
+  trimmed — a directory whose real name is padded can only be added with
+  "Browse…", which appends the server's own path unchanged (the server then
+  `filepath.Clean`s a path value and rejects a relative one). Every other
+  field's values are picked from a list, never typed, so nothing there is
+  retyped or trimmed. `LibraryFilterBuilder.spec.ts` drives the real
+  `AutoComplete` for that one case, so a PrimeVue upgrade that changes it
+  fails the suite rather than silently contradicting this paragraph.
+- A row's value options come from `useLibraryFilterOptions()`
+  (`GET /libraries/filter-options`) plus, via `optionsFor()`, every value
+  the row already holds that the server no longer offers — flagged
+  `missing` and labeled with why (`(not configured)` for a `scan_folder`
+  value, `(not in the catalog)` for everything else) — so a
+  stored-but-stale value (a renamed scan folder, a retagged genre) stays
+  visible and removable instead of silently vanishing or silently
+  surviving the next save.
+- **"Not loaded" is not "not offered".** While that query is still in
+  flight — which is every first open of the dialog on a page load — or if
+  it failed outright, `optionsFor()` gets `undefined` and returns the row's
+  own values as plain options, never `missing`: otherwise every stored
+  value would read as gone, and an admin who believed the label would
+  delete a perfectly good one. On `isError` the builder says so once, above
+  the rows ("Could not load the values to pick from. Stored values are
+  shown as they are; reload the page to try again."), rather than leaving
+  empty pick-lists that look like an empty catalog.
+- A `missing` `scan_folder` value is worse than cosmetic, and only once
+  the options have loaded does the builder know: the dialog always sends
+  `filters`, so that value is re-sent on every Save and refused with a
+  `422` at `/filters/i/values/j` — the library cannot be saved at all until
+  it is removed. The row says so, per value, instead of letting the first
+  Save be the messenger.
+- A 400ms-debounced call to `previewLibrary()` renders "Matches N tracks in
+  M albums" (`countLabel` — singular for exactly one) (or "Fix the
+  filters…" on a 422); every external change to
+  `modelValue` restarts the debounce, and a superseded response is dropped
+  by identity-checking the in-flight `AbortController`, not just waiting
+  for its promise to settle. The very first preview is not debounced at
+  all: `onMounted` fires `runPreview()` immediately, separately from that
+  400ms timer, so opening the dialog on an existing library shows its
+  match count right away instead of after a blank 400ms.
+
+The `path` filter's "Browse…" opens `FolderPickerDialog`, rooted at the
+configured scan folders: calling `browseFolders()` with **no** `path`
+answers their roots, and nothing outside them is reachable — it is a
+directory picker for one filter value, not a library-root picker. Selecting
+a folder at or below a symlink shows a `severity="warn"` `Message` ("tracks
+are recorded under the real location the link points to") because the
+scanner indexes a symlinked tree under its resolved path, so a `path` filter
+on the link itself would match nothing; the ancestry is tracked per-node
+(`data.symlinked` on each `TreeNode`) so a descendant loaded later still
+knows a parent was a link.
+
+**Nested dialogs and Escape.** PrimeVue's `Dialog` binds a document-level
+`keydown` listener per visible dialog and none checks which dialog is on
+top, so one Escape closes every open dialog. `LibraryFilterBuilder`
+therefore emits `update:browsing` while its folder picker is open, `IconSelect`
+emits `update:open` while its icon `Popover` is, and `LibraryDialog` passes
+`:closeOnEscape="!pickerOpen && !iconPickerOpen"` — `closeOnEscape` is
+read at event time, so this is independent of where focus sits. The listener
+itself is bound once, when the dialog enters, and only if `closeOnEscape` is
+true at that moment (`bindGlobalListeners`) — so the flag must be reset BEFORE
+the dialog opens, as `LibraryDialog`'s form-reset watch does. Any dialog or
+`Popover` opened from inside a dialog needs the same treatment (`IconSelect` in
+`LibraryDialog` is the second case: PrimeVue's `Popover` hides on Escape
+without stopping propagation, and binds its own document listener besides).
+A `Popover` needs one thing more than a nested `Dialog`: PrimeVue emits its
+`hide` at the START of the leave, and a trusted key press lets microtasks run
+between the popover's own keydown handler and the document-level listeners — so
+the host must clear its "overlay open" flag in a macrotask (`setTimeout(…, 0)`),
+or the same Escape reaches the Dialog with `closeOnEscape` already back to
+`true`. jsdom cannot show this with one synthetic `dispatchEvent` (no microtask
+checkpoint between listeners): the spec emulates the trusted ordering in three
+steps, and the behaviour was verified with a real key press.
+A spec for it must mount
+with `transition: false`: Vue Test Utils' default transition stub never
+fires the `@enter` hook in which PrimeVue binds that listener, so the
+default harness cannot see the bug.
+
+**A focused `Select` swallows Escape.** PrimeVue 4.5.5's `Select.onEscapeKey`
+calls `event.stopPropagation()` even when its overlay is closed (their source
+marks it `@todo`), so while a `Select` holds focus Escape never reaches any
+`Dialog`'s document-level listener — in every dialog of the app, not only this
+one. (`MultiSelect` stops propagation only while its overlay is open.) Seen in
+a real browser; deliberately not worked around. Re-check on a PrimeVue upgrade.
+
+`useScanFolders()` (`composables/useScanFolders.ts`) is shared by
+`ScanFoldersPanel`, the filter builder and the metadata editor (see the
+`composables/` entry above). In the builder it feeds exactly one thing: the
+"not usable right now" note on a `scan_folder` value naming a folder that IS
+configured but reports `available: false` (an unmounted root, say). It does
+**not** feed the `MultiSelect`'s options — those come from
+`useLibraryFilterOptions().scan_folders` via `optionsFor()` — and it says
+nothing about a *dangling* value, one naming a folder that is not configured
+at all: that one gets the `(not configured)` label from `optionsFor()` plus
+the note that it blocks saving (above).
 
 ## Player (`composables/usePlayer.ts`)
 
@@ -421,6 +618,9 @@ SCSS under `assets/scss/`; shared tokens in `_variables.scss` — notably
 app-wide (never restyle). PrimeVue theme via `@primeuix/themes` (`theme.js`);
 Inter variable font. One deliberate global dialog-footer rule in `_main.scss`
 (confirm-first ordering — see registry 2 before touching dialog footers).
+Error text uses `--app-danger` (defined per theme in
+`assets/scss/_variables.scss`): PrimeVue's `--p-red-*` do not flip with the
+theme and no single red passes AA on both grounds.
 
 **Hidden themes (easter egg).** `_hidden-themes.scss` holds two unlockable
 palettes — Winamp, CRT. They are token-only repaints layered over

@@ -17,6 +17,12 @@ section records a decision and this file records the consequence.
 
 ## Vanished sub-trees inside a present library root
 
+*This heading (and the `TODO.md` item title quoted just below) keep their
+original wording because `TODO.md` links this entry by that exact anchor.
+"Library root" there means a **scan folder**'s root — the directory on disk a
+`ScanFolders` entry names, not a `libraries` row — and the rest of this entry
+says "scan folder" throughout.*
+
 **Status:** accepted — out of reach under the mount assumption below. Marked
 *won't implement* in `TODO.md` ("Guarding a vanished or unreadable sub-tree inside a
 present library root"), which merged the separate "unreadable subtree" item into
@@ -28,21 +34,21 @@ step 5 cleanup (`store.Cleanup` → `store.DeleteOrphanedAggregates`).
 
 ### The operating assumption that defers this
 
-**A mount is the library root itself, never a directory inside a library.**
-`mount /music/library1` is expected; `/music/library1/some/mounted/subdir` is not.
+**A mount is the scan folder root itself, never a directory inside a scan folder.**
+`mount /music/collection1` is expected; `/music/collection1/some/mounted/subdir` is not.
 
 That assumption is what makes this caveat theoretical rather than urgent. When the
 mount *is* the root, a dropped mount takes the root with it, and phase 1's guards
-(below) fail the scan for every library before anything is written — the abort is
+(below) fail the scan for every scan folder before anything is written — the abort is
 atomic and no data moves. Every guard Aether has for this class of problem lives at
 the root, so the assumption is precisely the boundary of what is protected.
 
 What would invalidate it, and should send you back here:
 
-- a per-album, per-disc or per-collection mount *inside* a library root
-- a bind mount, junction or symlink pointing a library subdirectory at another volume
+- a per-album, per-disc or per-collection mount *inside* a scan folder root
+- a bind mount, junction or symlink pointing a scan folder subdirectory at another volume
 - an automounted (autofs) subdirectory that mounts on access and unmounts on idle
-- a NAS share attached at a subfolder rather than at the library root
+- a NAS share attached at a subfolder rather than at the scan folder root
 - Windows, if it ever becomes a target: "mount in an empty NTFS folder" volume mount
   points and `mklink /J` junctions reproduce the same shape (see *Portability* below)
 
@@ -55,11 +61,11 @@ no error at all: the directory exists, opens fine, and is honestly empty.
 
 Two guards already cover the root-level version of this (`scanning.md`, pipeline
 step 1): a root that does not stat as a directory is refused, and a walk that finds
-zero audio files while `CountTracksForLibrary` is non-zero is refused. `makeWalkFn`
+zero audio files while `store.CountTracksInScanFolder` is non-zero is refused. `makeWalkFn`
 swallows every error including the root's, so without them an unmounted share would
-scan "successfully" with zero results and let cleanup delete the whole library.
+scan "successfully" with zero results and let cleanup delete the whole scan folder.
 
-Neither guard sees *inside* a root. A library whose root is healthy while one
+Neither guard sees *inside* a root. A scan folder whose root is healthy while one
 subdirectory is hollow passes both, and the tracks under that subdirectory are
 treated exactly as deletions.
 
@@ -75,7 +81,7 @@ and the share offline when a scan runs:
    vanished row: did this file move? Its proof is equal `file_size`, equal `title`,
    `duration` within ±1s, the old path gone from disk, and exactly one vanished row
    and one new file sharing the fingerprint.
-4. If a byte-identical copy of one of those tracks exists elsewhere in the library —
+4. If a byte-identical copy of one of those tracks exists elsewhere in the scan folder —
    a duplicate in a compilation folder, say — the proof succeeds. The row is
    re-pointed at the copy, carrying its `starred_items`, `playlist_tracks`,
    `play_histories` and `play_queue_entries` with it.
@@ -87,7 +93,7 @@ and the share offline when a scan runs:
 ### Why misattribution is ranked above loss
 
 Step 5 is data loss and it is *visible*: a playlist gets shorter, a star disappears.
-Step 4 produces a library that looks completely healthy while a star sits on the
+Step 4 produces a scan folder that looks completely healthy while a star sits on the
 wrong file and a play count is a blend of two files' listening. There is no error, no
 log line, and no way for the user to discover it. A false match also merges two
 tracks' listening history, which the track-identity design already calls worse than
@@ -98,13 +104,14 @@ only ever swept.
 
 ### Not this caveat
 
-- **Whole library unavailable** — guarded in phase 1, fails the scan atomically.
+- **Whole scan folder unavailable** — guarded in phase 1, fails the scan atomically.
 - **A subtree that fails with EACCES** rather than looking empty —
   `planTrackContinuity` narrows on `fs.ErrNotExist`, so a permissions failure already
   declines. It is specifically the *readable and empty* case that slips through.
-- **A library the user genuinely emptied** — the zero-files guard refuses that too,
-  and its error message says to delete the library instead, because that is the
-  cascade it just declined to perform.
+- **A scan folder the user genuinely emptied** — the zero-files guard refuses that
+  too, and its error message points at removing the entry from `ScanFolders` in the
+  config and restarting, because that is the same cascade — the next scan sweeps the
+  folder's tracks — the guard just declined to perform outright.
 - **Cloud placeholder files** (OneDrive, Offline Files) — those stat successfully and
   report their true size, so nothing is swept; tag reads fail instead and land in
   `ScanStats.Errors`. Different, milder failure.
@@ -114,12 +121,12 @@ only ever swept.
 None chosen. Recorded smallest-first, with the objection to each.
 
 1. **Volume tripwire** (portable, blunt, favoured). Refuse to sweep or re-link when a
-   run would affect an implausible share of one library's tracks. This is the
+   run would affect an implausible share of one scan folder's tracks. This is the
    existing zero-files guard generalised from "all of them" to "too many of them",
    so it introduces no new concept. Catches unattached mounts, dropped shares,
    half-finished imports and permission accidents with one mechanism, and needs no
    OS-specific code. *Objection:* threshold policy, and it needs an escape hatch for
-   a user who really did remove most of a library.
+   a user who really did remove most of a scan folder.
 2. **Hollow-directory rule.** Refuse to *re-link* a row whose directory still exists
    but now holds nothing. Narrower than the rejected rule below: a reorganisation
    takes the directory with it, so a legitimate move should not trip it. *Objection:*
@@ -143,7 +150,7 @@ None chosen. Recorded smallest-first, with the objection to each.
    must become live-rows-only (SQLite partial index — `model.Migrate` already
    hand-writes one raw index, so there is precedent); every raw-SQL and
    `Table("tracks")` read must learn to exclude absent rows, because GORM's soft
-   delete does not apply to those (`FilterChanged`, `BulkUpdateLastSeen`,
+   delete does not apply to those (`FilterChanged`, `BulkMarkSeen`,
    `TrackAlbumIDs`, `AlbumTrackCounts`, `GetAlbumList`'s `EXISTS` filter, the
    discovery aggregates, and the fifteen `DELETE`s in `scan_helpers.go`); orphan
    aggregates need a policy (an album whose tracks are all absent must not be
@@ -156,14 +163,14 @@ None chosen. Recorded smallest-first, with the objection to each.
    live rows rather than re-point one vanished row.
 
 **Rejected:** requiring a vanished row's parent directory to still exist. That breaks
-the primary use case, since reorganising a library moves whole directories — exactly
+the primary use case, since reorganising a scan folder moves whole directories — exactly
 when re-linking matters most.
 
 ### Portability note
 
 Windows is not a build target today (Debian packaging only, no cross-compile targets,
 no platform-specific sources), but the shape matters for choosing a fix. On Windows
-the common layout puts the *whole* library on the network (`Z:\Music`, `\\nas\music`),
+the common layout puts the *whole* scan folder on the network (`Z:\Music`, `\\nas\music`),
 which is the root — so the existing root guards cover it. Windows also reports a
 distinct error for a dead share rather than "not found", which the `fs.ErrNotExist`
 narrowing already declines on. The exposed case there is the same nested one: a volume
@@ -193,7 +200,7 @@ to the same scan. In practice:
 - **Safe:** reorganise the library, then scan. One run sees both halves.
 - **Loses data:** move the files somewhere outside every library root, scan, move them
   back (or onward), scan again.
-- **Loses data:** move tracks between two libraries if those are reconciled as separate
+- **Loses data:** move tracks between two scan folders if those are reconciled as separate
   runs rather than in one `Scan` call.
 
 What goes with the deleted row: `starred_items`, `playlist_tracks`, `play_histories`
@@ -280,3 +287,133 @@ insertion order and a hand-uploaded cover silently comes back on a different ent
 
 **Revisit when:** renaming artists in the metadata editor becomes a routine operation
 rather than an occasional typo fix.
+
+---
+
+## Content reached through a symlink that leaves every scan folder
+
+**Status:** known defect, SCHEDULED in `TODO.md` ("Record a logical (as-spelled) path
+per track"). Recorded here because it is silent and because its fix was analysed.
+**Affects:** `internal/scanner/walk.go` (`walkSymlinkEntry`, `followSymlinkEntry`,
+`symWalk` — they record the RESOLVED path), `internal/pathguard` (`Guard.Allows`),
+`subsonic/media.go` (`mediaPathAllowed`), `internal/store/scope.go` (`pathClause`).
+**Failure mode:** tracks are listed but do not play, and their embedded / on-disk art
+is replaced by a generated cover. Nothing at scan time; "song not found" at play time.
+
+### The gap
+
+With `FollowSymlinks: true` the walker follows a symlinked directory or file and
+records what it finds under the link's TARGET path. The target may lie outside every
+configured root. The track's `scan_folder` marker still names the folder that walked
+it — that is why the marker is a name and not derived from `file_path` — so the row is
+indexed, counted and listed. But `pathguard` resolves a path and requires it to sit
+inside a resolved root before `stream` or `getCoverArt` may read it, and this one does
+not. The same recorded-as-resolved rule has **four** more consequences:
+
+- a library **`path` filter** on, or below, a symlink matches nothing (the folder
+  picker warns when such a directory is selected);
+- a scan folder whose **root itself** is a symlink is refused outright by
+  `Folder.Available()` — deliberately loud (scan and re-index refuse it, startup warns,
+  `GET /api/v0/scan-folders` reports `available:false` with the reason);
+- the scan's second guard loses its path-range backup for such rows: it still sees
+  them through the `scan_folder` marker, but right after the folder was RENAMED in
+  the config — the one window the range exists for — an empty walk of a folder whose
+  content is all reached through symlinks is not refused;
+- the **metadata editor** never lists or traverses a symlinked directory
+  (`metadataedit.ListFolders` without `IncludeSymlinks`, `metadataedit.SearchFolders`;
+  only the library folder picker's `browse` asks for symlinks), so tracks reached
+  through a link cannot be edited in the browser at all.
+
+All of the above is `FollowSymlinks: true`. With `false` a symlinked DIRECTORY is
+not indexed at all, but a symlinked FILE still is — under the link's OWN path
+(`walk.go` runs a plain `filepath.WalkDir`, and `appendAudio` / `audioFileInfo`
+take the link's path while stat-ing through it for size and mtime). The guard
+refuses that row the same way once the target leaves every root, so the failure
+mode is identical; only the recorded path differs.
+
+### The workaround
+
+List the link's target directory as a scan folder of its own. That works unless the
+target directory CONTAINS another scan folder's root — roots may not be equal or
+nested (`scanfolder.NewSet`) — in which case there is no workaround short of moving
+the content. The files are then walked under a path inside a root, the guard allows
+them, and — the recorded path being the same — no row is duplicated (with
+`FollowSymlinks: true`; with `false` the file was recorded under the LINK's path, so
+the second folder indexes it a second time under its real one). For a symlinked
+root: point `Path` at the real directory.
+
+### The fix that was chosen
+
+Record the path as spelled next to the resolved one (the "logical path" column the
+design deferred). For follow-symlinks folders the media guard becomes lexical
+containment of the spelled path, `path` filters match what the admin sees in the
+picker, the editor stops mapping spelled to resolved paths, and the second scan guard
+gets a range that covers symlink-only folders. Rejected as an interim: a per-folder
+scan warning — counting correctly needs the guard's per-file symlink resolution
+(about a million syscalls per scan at 100k files) unless the walker flags
+symlink-reached results. `RescanPaths` must keep its availability guard until the
+logical path replaces it.
+
+---
+
+## Libraries are filters: the edges that come with it
+
+**Status:** accepted — consequences of libraries being dynamic predicates over
+`tracks` (`store.ScopeOf`) with no materialized membership. Edge 2 is an open
+decision in `TODO.md`.
+**Affects:** `internal/store/scope.go`, `internal/store/artist.go`
+(`excludeHiddenArtists`), `subsonic` (`libraryScope`), `internal/libraryfilter`,
+`handlers/libraries`, webui `LibraryFilterBuilder` / `LibraryDialog`.
+**Failure mode:** a library silently shows more, or less, than its name promises —
+except edge 8, which fails outright instead.
+
+### The edges
+
+1. **Lists narrow, detail views do not.** `musicFolderId` exists only on list
+   endpoints. `getAlbum` and `getArtist` take none, so an album found through a
+   "Lossless" library still shows its MP3 tracks, and an artist page shows every album.
+   Changing that needs an OpenSubsonic extension, not a server-side guess.
+2. **A filtered library's artist list ignores OTHER hide-artists libraries.**
+   `excludeHiddenArtists` runs only for a zero scope — the all-libraries index, and
+   a library without filters addressed by id — never inside a filtered library. Open
+   decision in `TODO.md`.
+3. **Saved values are not re-checked against the catalog.** Retagging a genre, or
+   moving a scan folder's `Path` under a `path` filter, makes the library match less
+   with no warning: only `scan_folder` values produce `warnings[]` and a startup
+   warning. The edit dialog marks `genre` / `format` / `release_type` values that the
+   catalog no longer offers "(not in the catalog)"; a `path` value has no such marker —
+   the live match count is the signal.
+4. **`release_type` is matched case-insensitively but offered exactly.** A stored
+   `Album` can read "(not in the catalog)" beside an offered `album` and still match.
+5. **A library with a dangling `scan_folder` value cannot be saved from the admin UI**
+   — not even renamed — until the value is removed or replaced: the dialog always sends
+   `filters` and the server validates what it is sent. (An API client that omits
+   `filters` on `PUT` keeps them unvalidated, which is what keeps such a library
+   renameable at all.) Sending filters only when changed was rejected: it needs
+   dirty-tracking whose failure mode is a silently unsaved edit.
+6. **Values are picked, not typed** (except `path`), because `genre` and
+   `release_type` are matched against what the scanner recorded, verbatim. A library
+   for a genre that is not in the catalog yet cannot be built in the UI; the API
+   accepts any value.
+7. **The `path` control commits on Enter and trims.** PrimeVue's chips input drops
+   surrounding spaces, so a directory whose name begins or ends with a space can only
+   be chosen with *Browse…*, which passes the path through untouched.
+8. **One unreadable `libraries.filters` value fails every library.** The column is
+   JSON; a hand-edited value that does not decode makes `ListLibraries` fail, so
+   `getMusicFolders` and the admin page fail for ALL libraries, and the API cannot
+   delete the row because reading comes first. Only a hand edit can cause it. Repair
+   with the server stopped:
+
+   ```sh
+   sqlite3 <DataDir>/sqlite/aether.db "SELECT id, name FROM libraries WHERE NOT json_valid(filters) OR json_type(filters) <> 'array';"
+   sqlite3 <DataDir>/sqlite/aether.db "UPDATE libraries SET filters = '[]' WHERE id = <id>;"
+   ```
+
+   The query finds invalid JSON and non-arrays (a JSON `null` too, which decodes fine
+   and is harmless to reset); an array whose elements have the wrong shape needs the
+   same `UPDATE` by id. A library reset to `[]` is the whole catalog —
+   and if it hides its artists it is ignored by the artist index until it has a filter.
+
+**Revisit when:** libraries need to be exact at album or artist granularity (edge 1),
+or a per-user library model arrives — both want a materialized membership table,
+which the design kept as its escape hatch.

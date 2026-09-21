@@ -1,4 +1,4 @@
-// Package metadataedit provides library-relative filesystem operations
+// Package metadataedit provides folder-relative filesystem operations
 // and tag read/write for the admin metadata editor. It deliberately
 // avoids any coupling to the store (tracks/albums/artists) or player
 // code, and to the scanner beyond its front-cover filename heuristic
@@ -13,20 +13,20 @@ import (
 	"strings"
 )
 
-// ErrOutsideLibrary is returned when a library-relative path resolves
-// to a location outside the library root.
-var ErrOutsideLibrary = errors.New("path resolves outside library root")
+// ErrOutsideRoot is returned when a folder-relative path resolves
+// to a location outside the scan folder root.
+var ErrOutsideRoot = errors.New("path resolves outside the scan folder")
 
-// ResolveInLibrary takes a library root (absolute) and a relative path
+// ResolveInRoot takes a root (absolute) and a relative path
 // (possibly empty) and returns the absolute resolved path, rejecting
 // anything that escapes the root. An absolute `rel` is always rejected.
-func ResolveInLibrary(libRoot, rel string) (string, error) {
+func ResolveInRoot(root, rel string) (string, error) {
 	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("%w: %q is absolute", ErrOutsideLibrary, rel)
+		return "", fmt.Errorf("%w: %q is absolute", ErrOutsideRoot, rel)
 	}
-	cleanRoot := filepath.Clean(libRoot)
+	cleanRoot := filepath.Clean(root)
 	if rel == "" {
-		// Empty rel cannot traverse; cleanRoot is the library root itself.
+		// Empty rel cannot traverse; cleanRoot is the root itself.
 		return cleanRoot, nil
 	}
 	joined := filepath.Clean(filepath.Join(cleanRoot, rel))
@@ -36,7 +36,7 @@ func ResolveInLibrary(libRoot, rel string) (string, error) {
 		return "", fmt.Errorf("resolve: %w", err)
 	}
 	if relResolved == ".." || strings.HasPrefix(relResolved, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: %q", ErrOutsideLibrary, rel)
+		return "", fmt.Errorf("%w: %q", ErrOutsideRoot, rel)
 	}
 	return joined, nil
 }

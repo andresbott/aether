@@ -11,7 +11,7 @@ import (
 )
 
 // Track is the DTO returned for each audio file discovered under a folder.
-// Path is library-relative with '/' separators so it is stable across the API.
+// Path is relative to the scan folder with '/' separators so it is stable across the API.
 // Error is non-empty when the tag read failed; the remaining fields are zero
 // values in that case.
 type Track struct {
@@ -38,19 +38,19 @@ type Track struct {
 
 // ListTracks walks absDir recursively, calling reader.Read on every file
 // Aether supports (tags.Supported). Paths in the result are relative to
-// libRoot. Read failures are captured per-row (non-fatal) so the client can
+// root. Read failures are captured per-row (non-fatal) so the client can
 // still see the file.
 //
 // Admission is gated on tags.Supported, not reader.CanRead: a reader's
 // capability is wider than what Aether indexes, so listing readable-but-
 // unsupported files would offer the user edits the scanner never applies to the
-// library — a save that reports success while the track never appears. Gating
+// catalog — a save that reports success while the track never appears. Gating
 // on the same predicate the scanner uses keeps "editable" and "indexed" equal.
 //
 // A folder can hold hundreds of files, so ctx aborts the walk rather than
 // reading the rest for a client that has already gone away.
-func ListTracks(ctx context.Context, libRoot, absDir string, reader tags.Reader) ([]Track, error) {
-	cleanRoot := filepath.Clean(libRoot)
+func ListTracks(ctx context.Context, root, absDir string, reader tags.Reader) ([]Track, error) {
+	cleanRoot := filepath.Clean(root)
 	var out []Track
 	err := filepath.WalkDir(absDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if err := ctx.Err(); err != nil {

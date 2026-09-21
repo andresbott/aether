@@ -4,9 +4,12 @@ import { ref } from 'vue'
 import MetadataEditorView from '@/views/settings/MetadataEditorView.vue'
 
 // Same composable scaffold as the other MetadataEditorView specs, but the
-// library set is mutable so each test can configure one or several libraries.
+// scan folder set is mutable so each test can configure one or several scan
+// folders.
 const tracksRef = vi.hoisted(() => ({ value: [] as unknown[] }))
-const librariesRef = vi.hoisted(() => ({ value: [] as { id: number; name: string }[] }))
+const scanFoldersRef = vi.hoisted(
+    () => ({ value: [] as { name: string; available: boolean; problem?: string }[] })
+)
 
 let viewportState: {
     tier: ReturnType<typeof ref>
@@ -36,8 +39,8 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: vi.fn() })
     }
 })
-vi.mock('@/composables/useLibraries', () => ({
-    useLibraries: () => ({ data: librariesRef })
+vi.mock('@/composables/useScanFolders', () => ({
+    useScanFolders: () => ({ data: scanFoldersRef })
 }))
 vi.mock('@/composables/useViewport', () => ({
     useViewport: () => {
@@ -93,7 +96,7 @@ const stubs = {
     InputText: { name: 'InputText', props: ['modelValue'], template: '<input />' },
     FolderTree: {
         name: 'FolderTree',
-        props: ['libraryId', 'expandTo'],
+        props: ['scanFolder', 'expandTo'],
         emits: ['select'],
         template: '<div />'
     },
@@ -113,20 +116,20 @@ async function openPicker(w: ReturnType<typeof mountView>) {
     await flushPromises()
 }
 
-const treeLibraryId = (w: ReturnType<typeof mountView>) =>
-    w.findComponent({ name: 'FolderTree' }).props('libraryId') ?? null
+const treeScanFolder = (w: ReturnType<typeof mountView>) =>
+    w.findComponent({ name: 'FolderTree' }).props('scanFolder') ?? null
 
 beforeEach(() => {
     viewportState = createMockViewportState()
     tracksRef.value = []
-    librariesRef.value = []
+    scanFoldersRef.value = []
 })
 
-describe('MetadataEditorView library list', () => {
-    it('renders a library list when more than one library is configured', async () => {
-        librariesRef.value = [
-            { id: 1, name: 'Music' },
-            { id: 2, name: 'Podcasts' }
+describe('MetadataEditorView scan folder list', () => {
+    it('renders a scan folder list when more than one scan folder is configured', async () => {
+        scanFoldersRef.value = [
+            { name: 'Music', available: true },
+            { name: 'Podcasts', available: true }
         ]
         const w = mountView()
         await openPicker(w)
@@ -134,41 +137,63 @@ describe('MetadataEditorView library list', () => {
         expect(w.findAll('[data-test^="lib-"]').map((n) => n.text())).toEqual(['Music', 'Podcasts'])
     })
 
-    it('omits the library list when only one library is configured', async () => {
-        librariesRef.value = [{ id: 1, name: 'Music' }]
+    it('omits the scan folder list when only one scan folder is configured', async () => {
+        scanFoldersRef.value = [{ name: 'Music', available: true }]
         const w = mountView()
         await openPicker(w)
         expect(w.findComponent({ name: 'Listbox' }).exists()).toBe(false)
     })
 
-    it('auto-selects the library when only one is configured', async () => {
-        librariesRef.value = [{ id: 1, name: 'Music' }]
+    it('auto-selects the scan folder when only one is configured', async () => {
+        scanFoldersRef.value = [{ name: 'Music', available: true }]
         const w = mountView()
         await flushPromises()
         await openPicker(w)
-        expect(treeLibraryId(w)).toBe(1)
+        expect(treeScanFolder(w)).toBe('Music')
     })
 
-    it('does not auto-select when several libraries are configured', async () => {
-        librariesRef.value = [
-            { id: 1, name: 'Music' },
-            { id: 2, name: 'Podcasts' }
+    it('does not auto-select when several scan folders are configured', async () => {
+        scanFoldersRef.value = [
+            { name: 'Music', available: true },
+            { name: 'Podcasts', available: true }
         ]
         const w = mountView()
         await flushPromises()
         await openPicker(w)
-        expect(treeLibraryId(w)).toBe(null)
+        expect(treeScanFolder(w)).toBe(null)
     })
 
-    it('switches the active library when one is chosen from the list', async () => {
-        librariesRef.value = [
-            { id: 1, name: 'Music' },
-            { id: 2, name: 'Podcasts' }
+    it('switches the active scan folder when one is chosen from the list', async () => {
+        scanFoldersRef.value = [
+            { name: 'Music', available: true },
+            { name: 'Podcasts', available: true }
         ]
         const w = mountView()
         await openPicker(w)
-        await w.find('[data-test="lib-2"]').trigger('click')
+        await w.find('[data-test="lib-Podcasts"]').trigger('click')
         await flushPromises()
-        expect(treeLibraryId(w)).toBe(2)
+        expect(treeScanFolder(w)).toBe('Podcasts')
+    })
+
+    it('says why a scan folder is not usable', async () => {
+        scanFoldersRef.value = [
+            { name: 'Music', available: false, problem: 'root "/mnt/music" is unavailable' }
+        ]
+        const w = mountView()
+        await flushPromises()
+        await openPicker(w)
+        const problem = w.find('[data-test="scan-folder-problem"]')
+        expect(problem.exists()).toBe(true)
+        expect(problem.text()).toContain('root "/mnt/music" is unavailable')
+        expect(problem.text()).toContain('refuse it')
+    })
+
+    it('points at the config file when no scan folder is configured', async () => {
+        scanFoldersRef.value = []
+        const w = mountView()
+        await flushPromises()
+        await openPicker(w)
+        expect(w.find('[data-test="no-scan-folders"]').exists()).toBe(true)
+        expect(w.find('[data-test="scan-folder-problem"]').exists()).toBe(false)
     })
 })

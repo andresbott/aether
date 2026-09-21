@@ -7,10 +7,10 @@ import (
 	"github.com/andresbott/aether/internal/model"
 )
 
-// DiscoveryFilter narrows the candidate pool. LibraryID nil means cross-library,
-// matching every other list filter in this package.
+// DiscoveryFilter narrows the candidate pool. The zero Scope means
+// cross-library, matching every other list filter in this package.
 type DiscoveryFilter struct {
-	LibraryID *uint
+	Scope TrackScope
 }
 
 // DiscoveryItem is one placed feed entry. It is deliberately flat and
@@ -131,12 +131,12 @@ func (s *Store) tasteProfile(owner string, now time.Time) (discovery.TasteProfil
 // albumCandidates gathers the bounded album pool with its per-album signals in
 // aggregate queries — never one query per album.
 func (s *Store) albumCandidates(owner string, poolSize int, filter *DiscoveryFilter, now time.Time) ([]discovery.Candidate, error) {
-	var libraryID *uint
+	var scope TrackScope
 	if filter != nil {
-		libraryID = filter.LibraryID
+		scope = filter.Scope
 	}
 
-	ids, err := s.albumCandidateIDs(owner, poolSize, libraryID)
+	ids, err := s.albumCandidateIDs(owner, poolSize, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (s *Store) albumCandidates(owner string, poolSize int, filter *DiscoveryFil
 // call, so two pages of one feed would score partly disjoint sets and the ranks
 // would drift under the user. Rediscovery variety comes from the seeded jitter
 // term in scoring, not from the SQL.
-func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) ([]uint, error) {
+func (s *Store) albumCandidateIDs(owner string, poolSize int, scope TrackScope) ([]uint, error) {
 	seen := map[uint]bool{}
 	var ids []uint
 
@@ -215,7 +215,7 @@ func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) (
 
 	// The three cheap orderings. GetAlbumList already implements each with the
 	// same library filter, so reuse it rather than restating the SQL here.
-	listFilter := &AlbumListFilter{LibraryID: libraryID, Owner: owner}
+	listFilter := &AlbumListFilter{Scope: scope, Owner: owner}
 	for _, listType := range []string{"newest", "frequent", "recent"} {
 		albums, err := s.GetAlbumList(listType, poolSize, 0, listFilter)
 		if err != nil {
@@ -232,12 +232,7 @@ func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) (
 	// crowded out of its own feed by an arbitrary cap.
 	starredQ := s.db.Model(&model.StarredItem{}).
 		Where("owner = ? AND item_type = ?", owner, "album")
-	if libraryID != nil {
-		starredQ = starredQ.Where(
-			"EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = starred_items.item_id AND tracks.library_id = ?)",
-			*libraryID,
-		)
-	}
+	starredQ = scopeByAlbum(starredQ, scope, "starred_items.item_id")
 	var starredIDs []uint
 	if err := starredQ.Pluck("item_id", &starredIDs).Error; err != nil {
 		return nil, err
@@ -253,12 +248,7 @@ func (s *Store) albumCandidateIDs(owner string, poolSize int, libraryID *uint) (
 	// feed — a per-user NOT EXISTS would work but changes the rediscovery flavor.
 	unplayedQ := s.db.Model(&model.Album{}).
 		Where("NOT EXISTS (SELECT 1 FROM play_histories JOIN tracks ON tracks.id = play_histories.track_id WHERE tracks.album_id = albums.id)")
-	if libraryID != nil {
-		unplayedQ = unplayedQ.Where(
-			"EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)",
-			*libraryID,
-		)
-	}
+	unplayedQ = scopeByAlbum(unplayedQ, scope, "albums.id")
 	var unplayedIDs []uint
 	if err := unplayedQ.Order("id ASC").Limit(poolSize).Pluck("id", &unplayedIDs).Error; err != nil {
 		return nil, err

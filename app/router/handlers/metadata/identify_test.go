@@ -12,13 +12,10 @@ import (
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/libs/acoustid"
-	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 type fakeIdentifier struct {
@@ -30,29 +27,22 @@ func (f fakeIdentifier) IdentifyFile(context.Context, string) ([]acoustid.Record
 	return f.recs, f.err
 }
 
-func newIdentifyHandler(t *testing.T, libRoot string, ident metaHandler.IdentifyService) (*mux.Router, *model.Library) {
+func newIdentifyHandler(t *testing.T, root string, ident metaHandler.IdentifyService) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	return newIdentifyHandlerWithReason(t, libRoot, ident, "")
+	return newIdentifyHandlerWithReason(t, root, ident, "")
 }
 
 func newIdentifyHandlerWithReason(
-	t *testing.T, libRoot string, ident metaHandler.IdentifyService, reason string,
-) (*mux.Router, *model.Library) {
+	t *testing.T, root string, ident metaHandler.IdentifyService, reason string,
+) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
+	folder, _ := set.ByName("Main")
 	h := &metaHandler.IdentifyHandler{
-		Store:                     s,
+		Folders:                   set,
 		Reader:                    nullReader{},
 		Identifier:                ident,
 		IdentifyUnavailableReason: reason,
@@ -60,7 +50,7 @@ func newIdentifyHandlerWithReason(
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
 func postIdentify(t *testing.T, r *mux.Router, body any) *httptest.ResponseRecorder {
@@ -136,8 +126,8 @@ func TestCapabilities_ReportsUnavailableReason(t *testing.T) {
 // The 503 body carries the same explanation, for clients that POST anyway.
 func TestIdentify_UnavailableIncludesReason(t *testing.T) {
 	const reason = "fpcalc not found; install libchromaprint-tools"
-	r, lib := newIdentifyHandlerWithReason(t, t.TempDir(), nil, reason)
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"a.mp3"}})
+	r, folder := newIdentifyHandlerWithReason(t, t.TempDir(), nil, reason)
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{"a.mp3"}})
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", w.Code)
 	}
@@ -152,8 +142,8 @@ func TestIdentify_UnavailableIncludesReason(t *testing.T) {
 }
 
 func TestIdentify_UnavailableWithoutService(t *testing.T) {
-	r, lib := newIdentifyHandler(t, t.TempDir(), nil)
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"a.mp3"}})
+	r, folder := newIdentifyHandler(t, t.TempDir(), nil)
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{"a.mp3"}})
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
@@ -171,9 +161,9 @@ func TestIdentify_ReturnsCandidatesPerPath(t *testing.T) {
 			Release: []acoustid.Release{{MBID: "rel-uuid", ReleaseGroupMBID: "rg-uuid", Title: "Album", Year: 2001}},
 		},
 	}}
-	r, lib := newIdentifyHandler(t, root, ident)
+	r, folder := newIdentifyHandler(t, root, ident)
 
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"song.mp3"}})
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{"song.mp3"}})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -217,8 +207,8 @@ func TestIdentify_ReturnsCandidatesPerPath(t *testing.T) {
 }
 
 func TestIdentify_RejectsTraversalPerPath(t *testing.T) {
-	r, lib := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{"../outside.mp3"}})
+	r, folder := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{"../outside.mp3"}})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 with per-path error, got %d", w.Code)
 	}
@@ -234,11 +224,11 @@ func TestIdentify_RejectsTraversalPerPath(t *testing.T) {
 }
 
 func TestIdentify_ValidationErrors(t *testing.T) {
-	r, lib := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
+	r, folder := newIdentifyHandler(t, t.TempDir(), fakeIdentifier{})
 
 	// An empty selection is well-formed but invalid: a 422 itemising /paths,
 	// the same as the picture endpoints (decodeSelection) — not a 400.
-	w := postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": []string{}})
+	w := postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": []string{}})
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for empty paths, got %d", w.Code)
 	}
@@ -256,7 +246,7 @@ func TestIdentify_ValidationErrors(t *testing.T) {
 	for i := range tooMany {
 		tooMany[i] = "a.mp3"
 	}
-	w = postIdentify(t, r, map[string]any{"library_id": lib.ID, "paths": tooMany})
+	w = postIdentify(t, r, map[string]any{"scan_folder": folder.Name, "paths": tooMany})
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for too many paths, got %d", w.Code)
 	}

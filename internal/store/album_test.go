@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -139,8 +140,8 @@ func TestGetAlbumListByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -151,13 +152,12 @@ func TestGetAlbumListByLibrary(t *testing.T) {
 	db.Create(&onlyL2)
 	db.Create(&shared)
 
-	db.Create(&model.Track{AlbumID: onlyL1.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
-	db.Create(&model.Track{AlbumID: onlyL2.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
-	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib1.ID, Filename: "c.mp3", FilePath: "/l1/c.mp3"})
-	db.Create(&model.Track{AlbumID: shared.ID, LibraryID: lib2.ID, Filename: "d.mp3", FilePath: "/l2/d.mp3"})
+	db.Create(&model.Track{AlbumID: onlyL1.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: onlyL2.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, ScanFolder: "L1", Filename: "c.mp3", FilePath: "/l1/c.mp3"})
+	db.Create(&model.Track{AlbumID: shared.ID, ScanFolder: "L2", Filename: "d.mp3", FilePath: "/l2/d.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.GetAlbumList("alphabeticalByName", 10, 0, &store.AlbumListFilter{LibraryID: &id1})
+	got, err := s.GetAlbumList("alphabeticalByName", 10, 0, &store.AlbumListFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,19 +220,18 @@ func TestGetAlbumLetterIndex(t *testing.T) {
 func TestGetAlbumLetterIndexByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 	a := model.Album{Name: "Apple", NameNorm: "apple", AlbumArtistNorm: "x"}
 	b := model.Album{Name: "Banana", NameNorm: "banana", AlbumArtistNorm: "x"}
 	db.Create(&a)
 	db.Create(&b)
-	db.Create(&model.Track{AlbumID: a.ID, LibraryID: lib1.ID, Filename: "a.mp3", FilePath: "/l1/a.mp3"})
-	db.Create(&model.Track{AlbumID: b.ID, LibraryID: lib2.ID, Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+	db.Create(&model.Track{AlbumID: a.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: b.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
 
-	id1 := lib1.ID
-	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{LibraryID: &id1})
+	letters, total, err := s.GetAlbumLetterIndex(&store.AlbumListFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,8 +276,8 @@ func TestSearchAlbumsByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -286,11 +285,10 @@ func TestSearchAlbumsByLibrary(t *testing.T) {
 	a2 := model.Album{Name: "Blue Planet", NameNorm: "blue planet", AlbumArtistNorm: "x"}
 	db.Create(&a1)
 	db.Create(&a2)
-	db.Create(&model.Track{AlbumID: a1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"})
-	db.Create(&model.Track{AlbumID: a2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"})
+	db.Create(&model.Track{AlbumID: a1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"})
+	db.Create(&model.Track{AlbumID: a2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"})
 
-	id1 := lib1.ID
-	got, err := s.SearchAlbums("blue", 10, 0, &store.SearchFilter{LibraryID: &id1})
+	got, err := s.SearchAlbums("blue", 10, 0, &store.SearchFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,6 +349,63 @@ func TestGetAlbumListReleaseTypeExcludesUntyped(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Fatalf("expected 2 unfiltered, got %d", len(all))
+	}
+}
+
+// ReleaseTypeCounts groups types the way the releaseType filter matches them
+// (case-insensitively), so each count is exactly what filtering by that type
+// lists. An album carrying one type in two spellings counts once, and blanks,
+// untyped albums and the JSON null a nil slice stores contribute nothing.
+func TestReleaseTypeCounts(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	db.Create(&model.Album{Name: "Low", NameNorm: "low", AlbumArtistNorm: "x", ReleaseTypes: []string{"album", "Live"}})
+	db.Create(&model.Album{Name: "Twice", NameNorm: "twice", AlbumArtistNorm: "x", ReleaseTypes: []string{"EP", "ep"}})
+	db.Create(&model.Album{Name: "Blank", NameNorm: "blank", AlbumArtistNorm: "x", ReleaseTypes: []string{" "}})
+	db.Create(&model.Album{Name: "Empty", NameNorm: "empty", AlbumArtistNorm: "x", ReleaseTypes: []string{}})
+	db.Create(&model.Album{Name: "Untyped", NameNorm: "untyped", AlbumArtistNorm: "x"})
+
+	got, err := s.ReleaseTypeCounts(store.TrackScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.ReleaseTypeCount{
+		{Name: "Album", AlbumCount: 2},
+		{Name: "EP", AlbumCount: 1},
+		{Name: "Live", AlbumCount: 1},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// Inside a library only the albums with a track in its scope count, so a type
+// that library holds no release of is not reported at all.
+func TestReleaseTypeCountsByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	lp := model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}}
+	hit := model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}}
+	db.Create(&lp)
+	db.Create(&hit)
+	db.Create(&model.Track{AlbumID: lp.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: hit.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+
+	got, err := s.ReleaseTypeCounts(scanFolderScope("L1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []store.ReleaseTypeCount{{Name: "Album", AlbumCount: 1}}; !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+
+	none, err := s.ReleaseTypeCounts(store.NoTracks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("a scope matching nothing reported %+v", none)
 	}
 }
 

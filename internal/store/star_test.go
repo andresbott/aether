@@ -60,8 +60,8 @@ func TestGetStarredByLibrary(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	db.Create(&lib1)
 	db.Create(&lib2)
 
@@ -75,8 +75,8 @@ func TestGetStarredByLibrary(t *testing.T) {
 	db.Create(&album1)
 	db.Create(&album2)
 
-	t1 := model.Track{AlbumID: album1.ID, LibraryID: lib1.ID, Filename: "1.mp3", FilePath: "/l1/1.mp3"}
-	t2 := model.Track{AlbumID: album2.ID, LibraryID: lib2.ID, Filename: "2.mp3", FilePath: "/l2/2.mp3"}
+	t1 := model.Track{AlbumID: album1.ID, ScanFolder: "L1", Filename: "1.mp3", FilePath: "/l1/1.mp3"}
+	t2 := model.Track{AlbumID: album2.ID, ScanFolder: "L2", Filename: "2.mp3", FilePath: "/l2/2.mp3"}
 	db.Create(&t1)
 	db.Create(&t2)
 	_ = db.Model(&t1).Association("Artists").Replace([]*model.Artist{&artist1})
@@ -101,8 +101,7 @@ func TestGetStarredByLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id1 := lib1.ID
-	got, err := s.GetStarred("admin", &store.StarredFilter{LibraryID: &id1})
+	got, err := s.GetStarred("admin", &store.StarredFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +111,7 @@ func TestGetStarredByLibrary(t *testing.T) {
 	if len(got.Albums) != 1 || got.Albums[0].Name != "Alb1" {
 		t.Fatalf("expected [Alb1], got %+v", got.Albums)
 	}
-	if len(got.Tracks) != 1 || got.Tracks[0].LibraryID != lib1.ID {
+	if len(got.Tracks) != 1 || got.Tracks[0].ScanFolder != lib1.Name {
 		t.Fatalf("expected 1 track in library 1, got %+v", got.Tracks)
 	}
 

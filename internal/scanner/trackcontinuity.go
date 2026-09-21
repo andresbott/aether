@@ -45,7 +45,7 @@ type relinkPass struct {
 // store.DeleteOrphanedAggregates cascades away once the id is gone.
 //
 // It runs before the per-track loop and before planAlbumContinuity, and rewrites
-// nothing but file_path, filename and library_id: once the row carries the new
+// nothing but file_path, filename and scan_folder: once the row carries the new
 // path, reconcileTrack's `WHERE file_path = ?` finds it and the whole per-track
 // path is unchanged. Anything this cannot prove is left alone and becomes an
 // insert plus a delete, exactly as before.
@@ -231,7 +231,7 @@ func (s *Scanner) runRelinkPass(ctx context.Context, p relinkPass, files []tagRe
 		if !durationsAgree(row.Duration, int(tr.meta.Duration.Seconds())) {
 			continue
 		}
-		done, err := s.store.RelinkTrack(ctx, row.ID, row.FilePath, tr.walk.FilePath, tr.walk.LibraryID)
+		done, err := s.store.RelinkTrack(ctx, row.ID, row.FilePath, tr.walk.FilePath, tr.walk.ScanFolder)
 		if err != nil {
 			if store.IsUniqueViolation(err) {
 				continue // a concurrent pass got there first
@@ -294,7 +294,7 @@ func durationsAgree(a, b int) bool {
 
 // matchOne returns the single pair a key group proves. One vanished row and one
 // new file is the whole common case. When either side has several entries the
-// group is ambiguous — real libraries hold byte-identical duplicates of the same
+// group is ambiguous — real collections hold byte-identical duplicates of the same
 // track, and those share an audio hash as well as a size — and only an exact mod
 // time can still single one out, because a move on one filesystem preserves it.
 // Anything else is skipped: merging two tracks' history is worse than losing

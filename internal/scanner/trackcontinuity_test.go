@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
@@ -78,11 +79,11 @@ func TestScanKeepsTheTrackIDWhenAFileMoves(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -116,11 +117,11 @@ func TestScanKeepsTheTrackIDWhenAFileIsRenamed(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/track1.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/track1.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -147,11 +148,11 @@ func TestScanDoesNotRelinkACopiedFile(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -188,11 +189,11 @@ func TestScanDoesNotRelinkWhenTheDurationDiffers(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	// An old, whole-second mod time so FilterChanged provably filters src out of
@@ -229,7 +230,7 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 	// os.Stat guard this test exists to exercise.
 	stampModTime(t, src, time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC))
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func TestScanDoesNotRelinkACopiedFileOnAnIncrementalScan(t *testing.T) {
 
 // An unreadable directory is not a deletion. planTrackContinuity narrows its
 // "the old file is gone" test to fs.ErrNotExist exactly so an EACCES stat cannot
-// put a live row into `vanished` — and since Scan's preflight only guards library
+// put a live row into `vanished` — and since Scan's preflight only guards scan folder
 // *roots*, that narrowing is the last defence for a subtree that became
 // unreachable inside a root that is present (a permission change, a per-directory
 // mount that went away). Widening the check to "any stat error means gone" passes
@@ -280,11 +281,11 @@ func TestScanDoesNotRelinkWhenTheOldDirectoryIsUnreadable(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +304,7 @@ func TestScanDoesNotRelinkWhenTheOldDirectoryIsUnreadable(t *testing.T) {
 		t.Skip("this process stats through mode 0000 (running as root); the EACCES path is unreachable here")
 	}
 
-	// A byte-identical file with the same title elsewhere in the same library:
+	// A byte-identical file with the same title elsewhere in the same scan folder:
 	// every part of the proof except the stat says "this is where 01.mp3 moved
 	// to". It also keeps the walk non-empty, so the sweep guard does not fire
 	// first and mask the case under test.
@@ -338,11 +339,11 @@ func TestScanRelinksWhenTheDurationDiffersBy1Second(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +383,7 @@ func TestScanDoesNotRelinkAnAmbiguousFingerprint(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	one := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	two := filepath.Join(dir, "Apocalyptica/Cult/02.mp3")
@@ -393,7 +394,7 @@ func TestScanDoesNotRelinkAnAmbiguousFingerprint(t *testing.T) {
 	// Same title on both: duplicates of one track, which is what makes the
 	// fingerprint ambiguous.
 	reader := &movingTagReader{titles: map[string]string{one: "Beyond Time", two: "Beyond Time"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +431,7 @@ func TestScanRelinksTheVanishedRowWhoseModTimeMatches(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	one := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	two := filepath.Join(dir, "Apocalyptica/Cult/02.mp3")
@@ -438,7 +439,7 @@ func TestScanRelinksTheVanishedRowWhoseModTimeMatches(t *testing.T) {
 	stampModTime(t, two, time.Date(2026, 8, 2, 11, 0, 0, 0, time.UTC))
 
 	reader := &movingTagReader{titles: map[string]string{one: "Beyond Time", two: "Beyond Time"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -473,14 +474,14 @@ func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	stampedTime := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	stampModTime(t, src, stampedTime)
 
 	reader := &movingTagReader{titles: map[string]string{src: "Beyond Time"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -534,34 +535,22 @@ func TestScanRelinksTheNewFileWhoseModTimeMatches(t *testing.T) {
 	}
 }
 
-// namedLibrary is seedLibrary with the name spelled out, because ListLibraries
-// orders by name and the test below needs the unavailable library to sort *after*
-// the healthy one — that ordering is the whole bug.
-func namedLibrary(t *testing.T, s *store.Store, name, path string) *model.Library {
-	t.Helper()
-	lib := &model.Library{Name: name, Path: path, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
-	return lib
-}
-
-// An unavailable library must not have its rows harvested by an earlier
-// library's re-link pass. Scan returns on the first failing guard, but the
-// candidate pool is deliberately cross-library, so before Scan was split into
+// An unavailable scan folder must not have its rows harvested by an earlier
+// folder's re-link pass. Scan returns on the first failing guard, but the
+// candidate pool is deliberately cross-folder, so before Scan was split into
 // preflight + reconcile every row of an unmounted "Zarchive" stat-ed ENOENT and
 // became a move candidate while "Music" was still being reconciled — a single
-// byte-identical new file was enough to move an unreachable library's stars,
-// playlists, history and library_id onto it, and the guard then failed the scan
-// too late to undo any of it.
-func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
+// byte-identical new file was enough to move an unreachable folder's stars,
+// playlists, history and scan_folder onto it, and the guard then failed the
+// scan too late to undo any of it.
+func TestScanValidatesEveryScanFolderBeforeReconcilingAny(t *testing.T) {
 	st := testScanStore(t)
 	musicDir := t.TempDir()
 	archiveDir := t.TempDir()
 	createTestFiles(t, musicDir, []string{"Apocalyptica/Cult/01.mp3"})
 	createTestFiles(t, archiveDir, []string{"Mirror/Cult/01.mp3"})
-	namedLibrary(t, st, "Music", musicDir)
-	archiveLib := namedLibrary(t, st, "Zarchive", archiveDir)
+	musicFolder := scanfolder.Folder{Name: "Music", Path: musicDir, FollowSymlinks: true}
+	archiveFolder := scanfolder.Folder{Name: "Zarchive", Path: archiveDir, FollowSymlinks: true}
 
 	music := filepath.Join(musicDir, "Apocalyptica/Cult/01.mp3")
 	archived := filepath.Join(archiveDir, "Mirror/Cult/01.mp3")
@@ -569,7 +558,7 @@ func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
 		music:    "Beyond Time",
 		archived: "Path Of Glory",
 	}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, musicFolder, archiveFolder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -591,26 +580,26 @@ func TestScanValidatesEveryLibraryBeforeReconcilingAny(t *testing.T) {
 	reader.titles[bait] = "Path Of Glory"
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err == nil {
-		t.Fatal("expected the scan to fail on the unavailable library")
+		t.Fatal("expected the scan to fail on the unavailable scan folder")
 	}
 
 	var after model.Track
 	if err := st.DB().First(&after, before.ID).Error; err != nil {
-		t.Fatalf("the unavailable library's row must survive untouched: %v", err)
+		t.Fatalf("the unavailable scan folder's row must survive untouched: %v", err)
 	}
 	if after.FilePath != archived {
-		t.Fatalf("row %d was re-linked to %q by an earlier library's pass; it belongs to a library "+
+		t.Fatalf("row %d was re-linked to %q by an earlier scan folder's pass; it belongs to a scan folder "+
 			"whose guard had not run yet", before.ID, after.FilePath)
 	}
-	if after.LibraryID != archiveLib.ID {
-		t.Fatalf("LibraryID = %d, want the archive library %d", after.LibraryID, archiveLib.ID)
+	if after.ScanFolder != archiveFolder.Name {
+		t.Fatalf("ScanFolder = %q, want the archive folder %q", after.ScanFolder, archiveFolder.Name)
 	}
 	var count int64
 	if err := st.DB().Model(&model.Track{}).Where("file_path = ?", bait).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
-		t.Fatalf("no library may be reconciled when a later one fails its guard, but %q was indexed", bait)
+		t.Fatalf("no scan folder may be reconciled when a later one fails its guard, but %q was indexed", bait)
 	}
 }
 
@@ -621,11 +610,11 @@ func TestScanMoveKeepsPlaylistsStarsHistoryAndQueue(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Apocalyptica/Cult/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	reader := &movingTagReader{titles: map[string]string{src: "Path Of Glory"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -675,18 +664,18 @@ func TestScanMoveKeepsPlaylistsStarsHistoryAndQueue(t *testing.T) {
 	}
 }
 
-// Moving a file into another collection keeps the row and rewrites library_id.
-// The source library keeps a second file so the move does not empty it — an
-// emptied library is a different case, and the sweep guard (Task 6) stops the
+// Moving a file into another collection keeps the row and rewrites scan_folder.
+// The source folder keeps a second file so the move does not empty it — an
+// emptied folder is a different case, and the sweep guard (Task 6) stops the
 // scan there on purpose.
-func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
+func TestScanKeepsTheTrackIDWhenAFileMovesBetweenScanFolders(t *testing.T) {
 	st := testScanStore(t)
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 	createTestFiles(t, dirA, []string{"Apocalyptica/Cult/01.mp3", "Apocalyptica/Cult/02.mp3"})
 	createTestFiles(t, dirB, []string{"Metallica/S&M/01.mp3"})
-	seedLibrary(t, st, dirA, nil)
-	libB := seedLibrary(t, st, dirB, nil)
+	folderA := seedFolder(dirA, nil)
+	folderB := seedFolder(dirB, nil)
 
 	moving := filepath.Join(dirA, "Apocalyptica/Cult/01.mp3")
 	stayingA := filepath.Join(dirA, "Apocalyptica/Cult/02.mp3")
@@ -696,7 +685,7 @@ func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
 		stayingA: "Beyond Time",
 		stayingB: "No Leaf Clover",
 	}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folderA, folderB)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -716,10 +705,10 @@ func TestScanKeepsTheTrackIDWhenAFileMovesBetweenLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if after.ID != before.ID {
-		t.Fatalf("track id changed on a cross-library move: was %d, now %d", before.ID, after.ID)
+		t.Fatalf("track id changed on a cross-scan-folder move: was %d, now %d", before.ID, after.ID)
 	}
-	if after.LibraryID != libB.ID {
-		t.Fatalf("LibraryID = %d, want the destination library %d", after.LibraryID, libB.ID)
+	if after.ScanFolder != folderB.Name {
+		t.Fatalf("ScanFolder = %q, want the destination folder %q", after.ScanFolder, folderB.Name)
 	}
 }
 
@@ -735,14 +724,14 @@ func TestScanKeepsTrackAndAlbumIdentityWhenAWholeAlbumMoves(t *testing.T) {
 		"Apocalyptica/Cult/02.mp3",
 		"Apocalyptica/Cult/03.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	titles := map[string]string{}
 	for i, name := range []string{"01.mp3", "02.mp3", "03.mp3"} {
 		titles[filepath.Join(dir, "Apocalyptica/Cult", name)] = string(rune('A' + i))
 	}
 	reader := &movingTagReader{titles: titles}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -869,10 +858,10 @@ func TestScanRelinksARetaggedMoveOfAWAV(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "Apocaliptica/Cult/01.wav")
 	writeWAVWithTag(t, src, 20, "the-audio-payload")
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -930,10 +919,10 @@ func TestScanRelinksARetaggedMoveByAudioHash(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "Apocaliptica/Cult/01.mp3")
 	writeMP3WithTag(t, src, 20, "the-audio-payload")
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -992,10 +981,10 @@ func TestScanDoesNotRelinkWhenTheAudioItselfChanged(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	writeMP3WithTag(t, src, 20, "the-audio-payload")
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -1033,10 +1022,10 @@ func TestScanDoesNotRelinkARetaggedMoveWithoutAHash(t *testing.T) {
 	if err := os.WriteFile(src, []byte("wma-audio-payload"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &movingTagReader{titles: map[string]string{src: "Path"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -1076,10 +1065,10 @@ func TestRescanPathsKeepsTheAudioHashAcrossAnInPlaceRetag(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Apocalyptica/Cult/01.mp3")
 	writeMP3WithTag(t, path, 20, "the-audio-payload")
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := &movingTagReader{titles: map[string]string{path: "Path"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -1088,7 +1077,7 @@ func TestRescanPathsKeepsTheAudioHashAcrossAnInPlaceRetag(t *testing.T) {
 	// The editor rewrites the tags of the same file: bigger tag region, same audio.
 	writeMP3WithTag(t, path, 200, "the-audio-payload")
 	reader.titles[path] = "Path Of Glory"
-	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{path}); err != nil {
+	if _, err := s.RescanPaths(context.Background(), folder.Name, []string{path}); err != nil {
 		t.Fatal(err)
 	}
 

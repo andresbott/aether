@@ -92,15 +92,15 @@ const mkTrack = (over: Partial<Track> = {}): Track => ({
     ...over
 })
 
-function mountSection(selection: Track[], libraryId: number | null = 3) {
+function mountSection(selection: Track[], scanFolder: string | null = 'Main') {
     const session = useEditSession(
         () => selection,
-        () => libraryId
+        () => scanFolder
     )
     const wrapper = mount(PicturesSection, {
         props: {
             selection,
-            libraryId,
+            scanFolder,
             session,
             releaseMbid: 'rel-1',
             releaseGroupMbid: 'rg-1',
@@ -126,8 +126,8 @@ const ALBUM = albumKey(mkTrack())
 // cell means slot.image must be present.
 function mkImage(slot: string): { url: string; thumb_url: string } {
     return {
-        url: `/metadata/pictures/image?library_id=3&file=a.mp3&slot=${slot}&type=Front+Cover`,
-        thumb_url: `/metadata/pictures/image?library_id=3&file=a.mp3&slot=${slot}&type=Front+Cover&size=320`
+        url: `/metadata/pictures/image?scan_folder=Main&file=a.mp3&slot=${slot}&type=Front+Cover`,
+        thumb_url: `/metadata/pictures/image?scan_folder=Main&file=a.mp3&slot=${slot}&type=Front+Cover&size=320`
     }
 }
 
@@ -142,7 +142,7 @@ describe('PicturesSection', () => {
     it('requests the inventory for the selection paths, in a POST body', async () => {
         mountSection([mkTrack({ path: 'Artist/Album/01.flac' })])
         await flushPromises()
-        expect(getPicturesSpy).toHaveBeenCalledWith(3, ['Artist/Album/01.flac'])
+        expect(getPicturesSpy).toHaveBeenCalledWith('Main', ['Artist/Album/01.flac'])
     })
 
     it('renders only the embedded and folder slots', async () => {
@@ -471,7 +471,7 @@ describe('PicturesSection', () => {
         await flushPromises()
         // Same directory, different track: the matrix must be refetched with
         // the new paths and the stale type block must disappear.
-        expect(getPicturesSpy).toHaveBeenLastCalledWith(3, ['album/02.flac'])
+        expect(getPicturesSpy).toHaveBeenLastCalledWith('Main', ['album/02.flac'])
         expect(wrapper.find('[data-test="picture-type-Back Cover"]').exists()).toBe(false)
     })
 
@@ -504,7 +504,7 @@ describe('PicturesSection', () => {
             expect(wrapper.find('[data-test="picture-type-Front Cover"]').exists()).toBe(true)
             // The request carries every selected path so the server can derive
             // and span both folders — there is no separate "primary folder" param.
-            expect(getPicturesSpy).toHaveBeenCalledWith(3, [
+            expect(getPicturesSpy).toHaveBeenCalledWith('Main', [
                 'Release/CD 1/01.flac',
                 'Release/CD 2/01.flac'
             ])
@@ -539,9 +539,9 @@ describe('PicturesSection', () => {
             // the <img> src carries no paths[] at all — a large selection on
             // this src is exactly the production 431 this redesign fixes.
             const image = {
-                url: '/metadata/pictures/image?library_id=3&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover',
+                url: '/metadata/pictures/image?scan_folder=Main&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover',
                 thumb_url:
-                    '/metadata/pictures/image?library_id=3&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover&size=320'
+                    '/metadata/pictures/image?scan_folder=Main&file=Release%2FCD%202%2Fcover.jpg&slot=folder&type=Front+Cover&size=320'
             }
             getPicturesSpy.mockResolvedValue([
                 {

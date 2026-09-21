@@ -342,7 +342,7 @@ export type EditSession = ReturnType<typeof useEditSession>
  * field overlays plus per-album staged cover changes, none persisted until
  * save(). Instantiate once in the metadata editor view.
  */
-export function useEditSession(tracks: () => Track[] | undefined, libraryId: () => number | null) {
+export function useEditSession(tracks: () => Track[] | undefined, scanFolder: () => string | null) {
     const qc = useQueryClient()
     const toast = useToast()
     // The session drives many picture ops per save and owns the aggregate
@@ -718,8 +718,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // save()'s job too — one call after every step — so this only reports
     // whether it wrote.
     async function savePictures(): Promise<SavePicturesOutcome> {
-        const lib = libraryId()
-        if (lib === null) {
+        const folder = scanFolder()
+        if (folder === null) {
             return { ok: pictures.value.size === 0, executionIds: [], wrote: false }
         }
         let wrote = false
@@ -731,7 +731,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                         let out: { reindex?: ReindexRef } | undefined
                         if (op.kind === 'set') {
                             const form = new FormData()
-                            form.append('library_id', String(lib))
+                            form.append('scan_folder', folder)
                             form.append('slot', slot)
                             form.append('type', type)
                             for (const p of op.paths) form.append('paths', p)
@@ -740,7 +740,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                             out = await applyPictureMutation.mutateAsync(form)
                         } else {
                             out = await deletePictureMutation.mutateAsync({
-                                libraryId: lib,
+                                scanFolder: folder,
                                 type,
                                 slot,
                                 // Both slots need the staged files: embedded
@@ -774,8 +774,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     // Reports whether it wrote so save() invalidates the music caches once,
     // since the artist's served cover may now differ.
     async function saveArtistImages(): Promise<SavePicturesOutcome> {
-        const lib = libraryId()
-        if (lib === null) {
+        const folder = scanFolder()
+        if (folder === null) {
             return { ok: artistImages.value.size === 0, executionIds: [], wrote: false }
         }
         let wrote = false
@@ -785,7 +785,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                 let out: { reindex?: ReindexRef } | undefined
                 if (op.kind === 'set') {
                     const form = new FormData()
-                    form.append('library_id', String(lib))
+                    form.append('scan_folder', folder)
                     form.append('path', folderPath)
                     if (op.file) form.append('image', op.file)
                     else if (op.mbid && op.url) {
@@ -794,7 +794,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     }
                     out = await applyArtistImage(form)
                 } else {
-                    out = await deleteArtistImage(lib, folderPath)
+                    out = await deleteArtistImage(folder, folderPath)
                 }
                 if (out?.reindex) executionIds.push(out.reindex.execution_id)
                 releaseArtistOpPreview(op)
@@ -821,7 +821,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     }
 
     // reportReindexFailure warns that some writes landed on disk but their
-    // library re-index did not complete (as polled, in one batch, from every
+    // re-index did not complete (as polled, in one batch, from every
     // execution id the save collected — pictures, artist images and tag
     // batches alike).
     function reportReindexFailure(result: { failed: number; pending: number }) {
@@ -829,8 +829,8 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
         if (unconfirmed === 0) return
         toast.add({
             severity: 'warn',
-            summary: 'Saved, but the library index was not confirmed updated',
-            detail: `The re-index did not confirm completion for ${unconfirmed} item${unconfirmed === 1 ? '' : 's'}; if the change does not appear, a library scan will fix it.`,
+            summary: 'Saved, but the index was not confirmed updated',
+            detail: `The re-index did not confirm completion for ${unconfirmed} item${unconfirmed === 1 ? '' : 's'}; if the change does not appear, a full scan will fix it.`,
             life: 8000
         })
     }
@@ -854,15 +854,15 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
     }
 
     async function save() {
-        const lib = libraryId()
-        if (isSaving.value || lib === null) return
+        const folder = scanFolder()
+        if (isSaving.value || folder === null) return
         isSaving.value = true
         // save() owns the single post-write cache invalidation: each write path
         // below flips this, and the finally invalidates once — instead of
         // savePictures / saveArtistImages / the tag loop each firing their own.
         let wrote = false
         // Every write's reindex job id, collected across pictures, artist
-        // images and each tag batch, so the whole save polls the library index
+        // images and each tag batch, so the whole save polls the index
         // ONCE at the end instead of mid-loop per write (see the `quiet` gate on
         // useApplyPicture/useDeletePicture, which skips their internal poll for
         // exactly this reason).
@@ -907,7 +907,7 @@ export function useEditSession(tracks: () => Track[] | undefined, libraryId: () 
                     // Sequential on purpose: the server writes tags into files
                     // and the batches may touch the same directories.
                     const out = await updateTracksPartitioned({
-                        library_id: lib,
+                        scan_folder: folder,
                         paths: batch.paths,
                         fields: batch.fields
                     })

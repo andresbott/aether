@@ -31,7 +31,7 @@ type artistRekey struct {
 	mbid     string
 }
 
-func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagResult, scanStart time.Time, log *slog.Logger, prog ProgressReporter) (reconcileStats, error) {
+func (s *Scanner) reconcile(ctx context.Context, root string, results []tagResult, scanStart time.Time, log *slog.Logger, prog ProgressReporter) (reconcileStats, error) {
 	var stats reconcileStats
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -72,8 +72,8 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 			return stats, ctx.Err()
 		}
 
-		prog.SetStage("Saving: " + relPath(libRoot, tr.walk.FilePath))
-		log.Info("indexing song", slog.String("file", relPath(libRoot, tr.walk.FilePath)))
+		prog.SetStage("Saving: " + relPath(root, tr.walk.FilePath))
+		log.Info("indexing song", slog.String("file", relPath(root, tr.walk.FilePath)))
 
 		// A per-track transaction that fails is retried once before being given
 		// up on. The likeliest cause is a lost SQLite write lock under
@@ -103,7 +103,7 @@ func (s *Scanner) reconcile(ctx context.Context, libRoot string, results []tagRe
 
 	// Every artist folder is listed at most once per run here, instead of once
 	// per track inside the loop above.
-	s.reconcileArtistImages(libRoot, probes)
+	s.reconcileArtistImages(root, probes)
 
 	return stats, nil
 }
@@ -221,8 +221,9 @@ func (s *Scanner) reconcileTrack(tx *store.Store, probes map[uint]*artistImagePr
 	isNew := result.Error != nil
 
 	track.AlbumID = album.ID
-	track.LibraryID = tr.walk.LibraryID
+	track.ScanFolder = tr.walk.ScanFolder
 	track.Filename = filepath.Base(tr.walk.FilePath)
+	track.Suffix = suffixOf(track.Filename)
 	track.FilePath = tr.walk.FilePath
 	track.FileSize = tr.walk.FileSize
 	track.FileModTime = tr.walk.ModTime
@@ -304,19 +305,20 @@ func recordArtistProbes(probes map[uint]*artistImageProbe, trackPath string, art
 	}
 }
 
-// reconcileArtistImages runs once per library after every track is reconciled:
-// for each artist touched this run it records the artist-folder image found on
-// disk (<collection>/<artist>/artist.jpg). A path already on the row is
-// re-checked, not trusted, and kept only when the disk yields nothing — another
-// library's layout may still hold it. Empty detection with no usable stored path
-// clears the row. Failures are logged, never fatal: the field is a soft fallback.
-func (s *Scanner) reconcileArtistImages(libRoot string, probes map[uint]*artistImageProbe) {
+// reconcileArtistImages runs once per scan folder after every track is
+// reconciled: for each artist touched this run it records the artist-folder
+// image found on disk (<collection>/<artist>/artist.jpg). A path already on the
+// row is re-checked, not trusted, and kept only when the disk yields nothing —
+// another scan folder's layout may still hold it. Empty detection with no
+// usable stored path clears the row. Failures are logged, never fatal: the
+// field is a soft fallback.
+func (s *Scanner) reconcileArtistImages(root string, probes map[uint]*artistImageProbe) {
 	for id, p := range probes {
 		img := ""
 		// First directory that yields an image wins (deterministic, first-seen
 		// order) — the old per-track code instead let the last-processed track win.
 		for _, dir := range p.dirs {
-			if got := artistimage.Detect(libRoot, dir, p.name); got != "" {
+			if got := artistimage.Detect(root, dir, p.name); got != "" {
 				img = got
 				break
 			}
@@ -387,4 +389,10 @@ func (s *Scanner) rekeyArtistImages(rk artistRekey) {
 		slog.Warn("artist image re-key failed; the row moved but the stored images did not",
 			"name_norm", rk.nameNorm, "mbid", rk.mbid, "old_key", oldKey, "new_key", newKey, "err", err)
 	}
+}
+
+// suffixOf is a file name's lowercase extension without the dot ("flac"), or ""
+// when it has none.
+func suffixOf(name string) string {
+	return strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
 }

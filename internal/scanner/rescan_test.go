@@ -4,6 +4,7 @@ package scanner_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,18 +53,18 @@ func TestRescanPathsKeepsUntouchedTracks(t *testing.T) {
 		"Artist/Album/02.mp3",
 		"Artist/Album/03.mp3",
 	})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	full := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	full := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := full.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
 
 	edited := filepath.Join(dir, "Artist/Album/01.mp3")
-	rescanner := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	rescanner := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		edited: meta("Edited Title", "Test Artist", "Album"),
-	}})
-	stats, err := rescanner.RescanPaths(context.Background(), lib.ID, []string{edited})
+	}}, folder)
+	stats, err := rescanner.RescanPaths(context.Background(), folder.Name, []string{edited})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,13 +91,13 @@ func TestRescanPathsIndexesANewFile(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	abs := filepath.Join(dir, "Artist/Album/01.mp3")
-	s := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	s := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		abs: meta("Fresh", "Test Artist", "Album"),
-	}})
-	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+	}}, folder)
+	if _, err := s.RescanPaths(context.Background(), folder.Name, []string{abs}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,20 +112,20 @@ func TestRescanPathsPrunesOrphanedArtist(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 	abs := filepath.Join(dir, "Artist/Album/01.mp3")
 
-	before := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	before := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		abs: meta("Song", "Old Artist", "Album"),
-	}})
-	if _, err := before.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+	}}, folder)
+	if _, err := before.RescanPaths(context.Background(), folder.Name, []string{abs}); err != nil {
 		t.Fatal(err)
 	}
 
-	after := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	after := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		abs: meta("Song", "New Artist", "Album"),
-	}})
-	if _, err := after.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+	}}, folder)
+	if _, err := after.RescanPaths(context.Background(), folder.Name, []string{abs}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,7 +145,7 @@ func TestRescanPathsPrunesOrphanedArtist(t *testing.T) {
 // stub serves perfectly good metadata for every one of them: a path that slips
 // through the guard would be *successfully* indexed and fail the assertions.
 // An admission rejection is also not an error: it is a caller passing something
-// the library does not cover, which must not show up as a rescan failure.
+// the scan folder does not cover, which must not show up as a rescan failure.
 func TestRescanPathsSkipsInadmissiblePaths(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
@@ -156,7 +157,7 @@ func TestRescanPathsSkipsInadmissiblePaths(t *testing.T) {
 	})
 	// "^Live$" is anchored: it matches the *directory* name only, which is how
 	// Walk prunes whole subtrees.
-	lib := seedLibrary(t, st, dir, []string{"skipme", "^Live$"})
+	folder := seedFolder(dir, []string{"skipme", "^Live$"})
 
 	notes := filepath.Join(dir, "Artist/Album/notes.txt")
 	skipme := filepath.Join(dir, "Artist/Album/skipme.mp3")
@@ -164,18 +165,18 @@ func TestRescanPathsSkipsInadmissiblePaths(t *testing.T) {
 	outside := "/etc/passwd.mp3"
 	inPrunedDir := filepath.Join(dir, "Artist/Live/01.mp3")
 
-	s := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	s := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		notes:       meta("Notes", "Test Artist", "Album"),
 		skipme:      meta("Skipped", "Test Artist", "Album"),
 		gone:        meta("Gone", "Test Artist", "Album"),
 		outside:     meta("Outside", "Test Artist", "Album"),
 		inPrunedDir: meta("Live", "Test Artist", "Live"),
-	}})
-	stats, err := s.RescanPaths(context.Background(), lib.ID, []string{
+	}}, folder)
+	stats, err := s.RescanPaths(context.Background(), folder.Name, []string{
 		notes,       // not audio
 		skipme,      // excluded by filename
 		gone,        // does not exist
-		outside,     // outside the library
+		outside,     // outside the scan folder
 		inPrunedDir, // inside a directory the walk prunes
 	})
 	if err != nil {
@@ -210,10 +211,10 @@ func TestRescanPathsMatchesWalkForAnchoredDirectoryExcludes(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Live/01.mp3",
 	})
-	lib := seedLibrary(t, st, dir, []string{"^Live$"})
+	folder := seedFolder(dir, []string{"^Live$"})
 
 	// A full scan is the reference: whatever it indexes is admissible.
-	full := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	full := newScanner(t, st, fakeTagReader{}, folder)
 	fullStats, err := full.Scan(context.Background(), scanner.ScanOptions{IsFull: true})
 	if err != nil {
 		t.Fatal(err)
@@ -231,8 +232,8 @@ func TestRescanPathsMatchesWalkForAnchoredDirectoryExcludes(t *testing.T) {
 	}
 
 	// The rescan is handed both paths; it must index the same set the scan did.
-	rescanner := scanner.New(scanner.Config{}, st, fakeTagReader{})
-	stats, err := rescanner.RescanPaths(context.Background(), lib.ID, []string{
+	rescanner := newScanner(t, st, fakeTagReader{}, folder)
+	stats, err := rescanner.RescanPaths(context.Background(), folder.Name, []string{
 		filepath.Join(dir, "Artist/Album/01.mp3"),
 		filepath.Join(dir, "Artist/Live/01.mp3"),
 	})
@@ -261,9 +262,9 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3", "Artist/Album/02.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	full := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	full := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := full.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,15 +275,15 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 	// A scheduled scan starts later than the rescan below and marks every walked
 	// path with its own scanStart.
 	laterScanStart := time.Now().Add(time.Hour)
-	if err := st.BulkUpdateLastSeen([]string{edited, other}, laterScanStart); err != nil {
+	if err := st.BulkMarkSeen([]string{edited, other}, folder.Name, laterScanStart); err != nil {
 		t.Fatal(err)
 	}
 
 	// The rescan runs with an earlier scanStart (its own time.Now()).
-	rescanner := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	rescanner := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		edited: meta("Edited Title", "Test Artist", "Album"),
-	}})
-	if _, err := rescanner.RescanPaths(context.Background(), lib.ID, []string{edited}); err != nil {
+	}}, folder)
+	if _, err := rescanner.RescanPaths(context.Background(), folder.Name, []string{edited}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,20 +302,25 @@ func TestRescanPathsDoesNotLowerLastSeenAt(t *testing.T) {
 	}
 }
 
-func TestRescanPathsUnknownLibrary(t *testing.T) {
+// TestRescanPathsWithNoFoldersConfigured is the only test that drives
+// RescanPaths through a scanner with ZERO folders configured (newScanner
+// called with no folders): "unknown" cannot be a configured scan folder's
+// name when the set holds none, so the call fails exactly as it would for any
+// unrecognized name.
+func TestRescanPathsWithNoFoldersConfigured(t *testing.T) {
 	st := testScanStore(t)
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
-	if _, err := s.RescanPaths(context.Background(), 999, []string{"/x/y.mp3"}); err == nil {
-		t.Fatal("expected an error for an unknown library")
+	s := newScanner(t, st, fakeTagReader{})
+	if _, err := s.RescanPaths(context.Background(), "unknown", []string{"/x/y.mp3"}); err == nil {
+		t.Fatal("expected an error for an unknown scan folder")
 	}
 }
 
 func TestRescanPathsEmptyListIsANoop(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
-	lib := seedLibrary(t, st, dir, nil)
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
-	stats, err := s.RescanPaths(context.Background(), lib.ID, nil)
+	folder := seedFolder(dir, nil)
+	s := newScanner(t, st, fakeTagReader{}, folder)
+	stats, err := s.RescanPaths(context.Background(), folder.Name, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,13 +336,13 @@ func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	lib := seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 	abs := filepath.Join(dir, "Artist/Album/01.mp3")
 
-	s := scanner.New(scanner.Config{}, st, stubReader{meta: map[string]tags.Metadata{
+	s := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
 		abs: meta("Song", "Real Artist", "Album"),
-	}})
-	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+	}}, folder)
+	if _, err := s.RescanPaths(context.Background(), folder.Name, []string{abs}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -356,7 +362,7 @@ func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
 	}
 
 	// Rescan the same real file again — touches only its own aggregates.
-	if _, err := s.RescanPaths(context.Background(), lib.ID, []string{abs}); err != nil {
+	if _, err := s.RescanPaths(context.Background(), folder.Name, []string{abs}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -365,5 +371,42 @@ func TestRescanPathsLeavesUnrelatedOrphansForTheScheduledScan(t *testing.T) {
 	db.Model(&model.Artist{}).Where("name = ?", "Ghost").Count(&artists)
 	if albums != 1 || artists != 1 {
 		t.Fatalf("expected the unrelated orphan to survive the targeted rescan, got albums=%d artists=%d", albums, artists)
+	}
+}
+
+// The editor's targeted re-index inserts and updates rows too, so it has to
+// stamp the marker exactly like a scan does.
+func TestRescanPathsStampsScanFolder(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	folder := seedFolder(dir, nil)
+
+	file := filepath.Join(dir, "Artist/Album/01.mp3")
+	rescanner := newScanner(t, st, stubReader{meta: map[string]tags.Metadata{
+		file: meta("Title", "Test Artist", "Album"),
+	}}, folder)
+	if _, err := rescanner.RescanPaths(context.Background(), folder.Name, []string{file}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got model.Track
+	if err := st.DB().Where("file_path = ?", file).First(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.ScanFolder != folder.Name || got.Suffix != "mp3" {
+		t.Fatalf("ScanFolder = %q, Suffix = %q; want %q, mp3", got.ScanFolder, got.Suffix, folder.Name)
+	}
+}
+
+func TestRescanPathsRejectsAnUnknownScanFolder(t *testing.T) {
+	st := testScanStore(t)
+	dir := t.TempDir()
+	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
+	s := newScanner(t, st, fakeTagReader{}, seedFolder(dir, nil))
+
+	_, err := s.RescanPaths(context.Background(), "No Such Folder", []string{filepath.Join(dir, "Artist/Album/01.mp3")})
+	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("err = %v, want 'not configured'", err)
 	}
 }

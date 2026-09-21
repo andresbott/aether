@@ -33,10 +33,10 @@ func (s *Store) GetSong(id uint) (*model.Track, error) {
 }
 
 type RandomSongsFilter struct {
-	Genre     string
-	FromYear  int
-	ToYear    int
-	LibraryID *uint
+	Genre    string
+	FromYear int
+	ToYear   int
+	Scope    TrackScope
 }
 
 func (s *Store) GetRandomSongs(size int, filter *RandomSongsFilter) ([]model.Track, error) {
@@ -58,9 +58,7 @@ func (s *Store) GetRandomSongs(size int, filter *RandomSongsFilter) ([]model.Tra
 		if filter.ToYear > 0 {
 			q = q.Where("tracks.year <= ?", filter.ToYear)
 		}
-		if filter.LibraryID != nil {
-			q = q.Where("tracks.library_id = ?", *filter.LibraryID)
-		}
+		q = scopeTracks(q, filter.Scope)
 	}
 
 	var tracks []model.Track
@@ -77,8 +75,8 @@ func (s *Store) GetSongsByGenre(genre string, count, offset int, filter *SearchF
 		Joins("JOIN track_genres ON track_genres.track_id = tracks.id").
 		Joins("JOIN genres ON genres.id = track_genres.genre_id").
 		Where("genres.name = ?", genre)
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("tracks.library_id = ?", *filter.LibraryID)
+	if filter != nil {
+		q = scopeTracks(q, filter.Scope)
 	}
 	var tracks []model.Track
 	err := q.Limit(count).Offset(offset).Find(&tracks).Error
@@ -93,8 +91,8 @@ func (s *Store) SearchSongs(query string, count, offset int, filter *SearchFilte
 		Preload("Artists").
 		Preload("Genres").
 		Where("title_norm LIKE ?", "%"+norm+"%")
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("tracks.library_id = ?", *filter.LibraryID)
+	if filter != nil {
+		q = scopeTracks(q, filter.Scope)
 	}
 	var tracks []model.Track
 	err := q.Order("title_norm ASC").Limit(count).Offset(offset).Find(&tracks).Error

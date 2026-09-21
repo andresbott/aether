@@ -22,8 +22,10 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"versions": []int{1},
 			},
 			{
+				// v1: the releaseType parameter on getAlbumList2/getAlbumList2Index.
+				// v2: adds getReleaseTypes, listing the types worth filtering by.
 				"name":     "releaseTypeFilter",
-				"versions": []int{1},
+				"versions": []int{1, 2},
 			},
 			{
 				"name":     "internetRadioCoverArt",

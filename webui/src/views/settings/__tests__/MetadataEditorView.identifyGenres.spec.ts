@@ -32,8 +32,8 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: vi.fn() })
     }
 })
-vi.mock('@/composables/useLibraries', () => ({
-    useLibraries: () => ({ data: { value: [{ id: 1, name: 'Music' }] } })
+vi.mock('@/composables/useScanFolders', () => ({
+    useScanFolders: () => ({ data: { value: [{ name: 'Music', available: true }] } })
 }))
 vi.mock('@tanstack/vue-query', async (importActual) => {
     const actual = await importActual<typeof import('@tanstack/vue-query')>()

@@ -14,7 +14,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/getkin/kin-openapi/openapi3"
+	"gorm.io/gorm"
 )
 
 // This file is the response-contract test: it drives real /api/v0 requests
@@ -31,12 +34,11 @@ import (
 // Validator choice: github.com/getkin/kin-openapi (openapi3), confirmed by a
 // feasibility spike to load and correctly VALIDATE this spec's OpenAPI
 // 3.1-only constructs — `type: [string, 'null']` (TokenInfo.lastUsedAt/
-// expiresAt, Library.last_scan_started_at, ...), `oneOf: [$ref, {type:
-// 'null'}]` (MeResponse.user) and `allOf` composition (ValidationProblem)
-// — accepting a valid body under each shape and REJECTING an
-// invalid one (wrong type, missing required field, a oneOf value matching
-// neither branch). EnableJSONSchema2020() is passed to VisitJSON per
-// kin-openapi's own guidance for 3.1+ documents.
+// expiresAt, ...), `oneOf: [$ref, {type: 'null'}]` (MeResponse.user) and
+// `allOf` composition (ValidationProblem) — accepting a valid body under
+// each shape and REJECTING an invalid one (wrong type, missing required
+// field, a oneOf value matching neither branch). EnableJSONSchema2020() is
+// passed to VisitJSON per kin-openapi's own guidance for 3.1+ documents.
 
 // specDoc parses and OpenAPI-validates docs/openapi/aether-v0.yaml once for
 // the whole test binary (loading + validating a ~3700 line document on every
@@ -262,9 +264,9 @@ func TestContractErrorShapes(t *testing.T) {
 	}
 	assertJSONResponse(t, doc, "createLibrary", http.StatusBadRequest, w)
 
-	// 422: well-formed but invalid — a name over LibraryCreateRequest's
+	// 422: well-formed but invalid — a name over LibraryWriteRequest's
 	// 200-char maxLength — itemising /name via ValidationProblem.
-	body := mustJSON(t, map[string]any{"name": strings.Repeat("x", 201), "path": t.TempDir()})
+	body := mustJSON(t, map[string]any{"name": strings.Repeat("x", 201)})
 	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w = httptest.NewRecorder()
@@ -277,12 +279,34 @@ func TestContractErrorShapes(t *testing.T) {
 
 // --- Libraries: create-then-list, the Library/LibraryList envelopes ---
 
+// TestContractLibrariesCreateAndList also asserts BY CONTENT, not just
+// schema, that a scan_folder filter naming a configured folder round-trips
+// through createLibrary into listLibraries, and that the same filter naming
+// an unconfigured folder is refused with 422 at the exact libraryfilter
+// pointer. That 201-vs-422 difference is the proof that Folders reaches
+// libraryHandler.Handler through router.New/attachApiV0: with the
+// `Folders: h.scanFolders` line removed from api_v0.go, h.Folders is nil,
+// every scan_folder value fails Validate's folders.ByName lookup, and BOTH
+// requests below would answer 422 instead of 201-then-422.
 func TestContractLibrariesCreateAndList(t *testing.T) {
 	doc := specDoc(t)
-	h, _ := newNativeAuthRouter(t)
+	music := t.TempDir()
+	h, _ := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: music}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
 	_, adminAttach := doLogin(t, h, "alice", "secret")
 
-	body := mustJSON(t, map[string]any{"name": "Contract Test Library", "path": t.TempDir()})
+	body := mustJSON(t, map[string]any{
+		"name": "Contract Test Library",
+		"filters": []map[string]any{
+			{"field": "scan_folder", "values": []string{"Music"}},
+		},
+	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
 	adminAttach(req)
 	w := httptest.NewRecorder()
@@ -290,8 +314,6 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("POST /libraries = %d, want 201: %s", w.Code, w.Body.String())
 	}
-	// The freshly created Library exercises last_scan_started_at:null — one
-	// of the spec's `type: [string, 'null']` fields.
 	assertJSONResponse(t, doc, "createLibrary", http.StatusCreated, w)
 
 	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries", nil)
@@ -302,6 +324,249 @@ func TestContractLibrariesCreateAndList(t *testing.T) {
 		t.Fatalf("GET /libraries = %d, want 200: %s", w.Code, w.Body.String())
 	}
 	assertJSONResponse(t, doc, "listLibraries", http.StatusOK, w)
+
+	// The schema validates a library with no filters (or a nil Folders that
+	// dropped them) just as happily, so checking it alone would keep this
+	// test green even if the filter never reached storage — assert the
+	// round trip by content instead.
+	var list struct {
+		Libraries []struct {
+			Name    string `json:"name"`
+			Filters []struct {
+				Field  string   `json:"field"`
+				Values []string `json:"values"`
+			} `json:"filters"`
+		} `json:"libraries"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decoding the list body: %v: %s", err, w.Body.String())
+	}
+	var found bool
+	for _, lib := range list.Libraries {
+		if lib.Name != "Contract Test Library" {
+			continue
+		}
+		found = true
+		if len(lib.Filters) != 1 || lib.Filters[0].Field != "scan_folder" ||
+			len(lib.Filters[0].Values) != 1 || lib.Filters[0].Values[0] != "Music" {
+			t.Fatalf("listLibraries filters = %+v, want [{scan_folder [Music]}]", lib.Filters)
+		}
+	}
+	if !found {
+		t.Fatalf("listLibraries did not report the created library: %s", w.Body.String())
+	}
+
+	// The same filter shape, naming a scan folder that is NOT configured:
+	// 422, itemising the exact pointer libraryfilter.Validate reports.
+	body = mustJSON(t, map[string]any{
+		"name": "Contract Test Library (unconfigured folder)",
+		"filters": []map[string]any{
+			{"field": "scan_folder", "values": []string{"Nope"}},
+		},
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /libraries with an unconfigured scan_folder = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "createLibrary", http.StatusUnprocessableEntity, w)
+	var problem struct {
+		Errors []struct {
+			Pointer string `json:"pointer"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &problem); err != nil {
+		t.Fatalf("decoding the 422 body: %v: %s", err, w.Body.String())
+	}
+	if len(problem.Errors) == 0 || problem.Errors[0].Pointer != "/filters/0/values/0" {
+		t.Fatalf("errors[0].pointer = %+v, want a single entry at /filters/0/values/0", problem.Errors)
+	}
+}
+
+// TestContractLibraryFilterOptionsPreviewAndBrowse asserts BY CONTENT, not
+// just schema, that Folders and Store both reach getLibraryFilterOptions,
+// previewLibrary and browseLibraryPath through router.New/attachApiV0:
+// filter-options lists the configured "Music" folder, browse with no path
+// lists its root at the configured directory, and preview's 200-vs-422 split
+// on a configured vs. unconfigured scan_folder name (with a real track_count
+// for the configured one) is the same proof TestContractLibrariesCreateAndList
+// uses for createLibrary — a schema-only assertion would pass just as
+// happily with h.Folders or h.Store never reaching these handlers.
+func TestContractLibraryFilterOptionsPreviewAndBrowse(t *testing.T) {
+	doc := specDoc(t)
+	music := t.TempDir()
+	h, db := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Music", Path: music}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
+	_, adminAttach := doLogin(t, h, "alice", "secret")
+
+	album := model.Album{Name: "A", NameNorm: "a", AlbumArtistNorm: "x"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, ScanFolder: "Music", Suffix: "flac", Filename: "1.flac", FilePath: filepath.Join(music, "1.flac")}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// getLibraryFilterOptions: scan_folders must name the configured folder.
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/libraries/filter-options", nil)
+	adminAttach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /libraries/filter-options = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "getLibraryFilterOptions", http.StatusOK, w)
+	var options struct {
+		ScanFolders []string `json:"scan_folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &options); err != nil {
+		t.Fatalf("decoding filter-options: %v: %s", err, w.Body.String())
+	}
+	if len(options.ScanFolders) != 1 || options.ScanFolders[0] != "Music" {
+		t.Fatalf("scan_folders = %v, want [Music]", options.ScanFolders)
+	}
+
+	// browseLibraryPath with no path: lists the configured root, not the
+	// filesystem root, and without erroring even though nothing else about
+	// the path was given.
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/libraries/browse", nil)
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /libraries/browse = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "browseLibraryPath", http.StatusOK, w)
+	var browsed struct {
+		Path    string `json:"path"`
+		Folders []struct {
+			Name string `json:"name"`
+			Path string `json:"path"`
+		} `json:"folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &browsed); err != nil {
+		t.Fatalf("decoding browse: %v: %s", err, w.Body.String())
+	}
+	if len(browsed.Folders) != 1 || browsed.Folders[0].Name != "Music" || browsed.Folders[0].Path != music {
+		t.Fatalf("browse folders = %+v, want a single Music root at %q", browsed.Folders, music)
+	}
+
+	// previewLibrary, a configured scan_folder: 200, and the counts reflect
+	// the one seeded track (proving Store, not just Folders, reaches preview).
+	body := mustJSON(t, map[string]any{"filters": []map[string]any{{"field": "scan_folder", "values": []string{"Music"}}}})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries/preview", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST /libraries/preview (Music) = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "previewLibrary", http.StatusOK, w)
+	var preview struct {
+		TrackCount int64 `json:"track_count"`
+		AlbumCount int64 `json:"album_count"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("decoding preview: %v: %s", err, w.Body.String())
+	}
+	if preview.TrackCount != 1 || preview.AlbumCount != 1 {
+		t.Fatalf("preview = %+v, want track_count=1 album_count=1", preview)
+	}
+
+	// previewLibrary, an unconfigured scan_folder name: 422.
+	body = mustJSON(t, map[string]any{"filters": []map[string]any{{"field": "scan_folder", "values": []string{"Nope"}}}})
+	req = httptest.NewRequest(http.MethodPost, "/api/v0/libraries/preview", bytes.NewReader(body))
+	adminAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("POST /libraries/preview (Nope) = %d, want 422: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "previewLibrary", http.StatusUnprocessableEntity, w)
+}
+
+// --- Scan folders: the read-only list of what the config declares ---
+
+func TestContractScanFoldersList(t *testing.T) {
+	doc := specDoc(t)
+	music := t.TempDir()
+	// A second, separate temp dir: roots must not nest, so the missing root
+	// cannot live under the first one.
+	offline := filepath.Join(t.TempDir(), "not-mounted")
+	h, _ := newNativeAuthRouter(t, func(t *testing.T, cfg *Cfg, _ *gorm.DB) {
+		t.Helper()
+		set, err := scanfolder.NewSet([]scanfolder.Folder{
+			{Name: "Music", Path: music, ExcludePatterns: []string{`^\.`}, FollowSymlinks: true},
+			// Not there: exercises available:false with a problem.
+			{Name: "Offline", Path: offline},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.ScanFolders = set
+	})
+	_, adminAttach := doLogin(t, h, "alice", "secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/scan-folders", nil)
+	adminAttach(req)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /scan-folders = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "listScanFolders", http.StatusOK, w)
+
+	// The schema validates an EMPTY list just as happily, so checking it alone
+	// would keep this test green with the configured set never reaching the
+	// handler. Assert the two entries by content instead.
+	var body struct {
+		ScanFolders []struct {
+			Name      string `json:"name"`
+			Available bool   `json:"available"`
+			Problem   string `json:"problem"`
+		} `json:"scan_folders"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding the body: %v: %s", err, w.Body.String())
+	}
+	if len(body.ScanFolders) != 2 {
+		t.Fatalf("got %d scan folders, want the 2 configured ones: %s", len(body.ScanFolders), w.Body.String())
+	}
+	if got := body.ScanFolders[0].Name; got != "Music" {
+		t.Errorf("scan_folders[0].name = %q, want \"Music\" (the set is in name order)", got)
+	}
+	if !body.ScanFolders[0].Available {
+		t.Errorf("scan_folders[0].available = false, want true: %q exists", music)
+	}
+	if got := body.ScanFolders[1].Name; got != "Offline" {
+		t.Errorf("scan_folders[1].name = %q, want \"Offline\" (the set is in name order)", got)
+	}
+	if body.ScanFolders[1].Available {
+		t.Errorf("scan_folders[1].available = true, want false: %q is not there", offline)
+	}
+	if body.ScanFolders[1].Problem == "" {
+		t.Error("scan_folders[1].problem is empty; an unavailable root must say why")
+	}
+
+	// Admin-only, like every management route: a regular user is refused.
+	_, bobAttach := doLogin(t, h, "bob", "secret")
+	req = httptest.NewRequest(http.MethodGet, "/api/v0/scan-folders", nil)
+	bobAttach(req)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("GET /scan-folders as non-admin = %d, want 403: %s", w.Code, w.Body.String())
+	}
+	assertJSONResponse(t, doc, "listScanFolders", http.StatusForbidden, w)
 }
 
 // --- Users: create-then-list, the User/UserList envelopes ---

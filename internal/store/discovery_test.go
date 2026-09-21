@@ -32,7 +32,7 @@ func seedTrack(t *testing.T, s *store.Store, al model.Album, libraryID uint, gen
 		Genres:   genres,
 	}
 	if libraryID != 0 {
-		tr.LibraryID = libraryID
+		tr.ScanFolder = scanFolderOf(t, s, libraryID)
 	}
 	if err := s.DB().Create(&tr).Error; err != nil {
 		t.Fatal(err)
@@ -340,8 +340,8 @@ func TestDiscoveryFeedIsStableForOneSeed(t *testing.T) {
 
 func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	s := testStore(t)
-	lib1 := model.Library{Name: "L1", Path: "/l1"}
-	lib2 := model.Library{Name: "L2", Path: "/l2"}
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
 	if err := s.DB().Create(&lib1).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	seedTrack(t, s, inLib1, lib1.ID)
 	seedTrack(t, s, inLib2, lib2.ID)
 
-	items, err := s.DiscoveryFeed("admin", 10, 0, 1, &store.DiscoveryFilter{LibraryID: &lib1.ID})
+	items, err := s.DiscoveryFeed("admin", 10, 0, 1, &store.DiscoveryFilter{Scope: scanFolderScope("L1")})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -312,7 +312,7 @@ describe('TrackList path display', () => {
         expect(rows[1].text()).toContain('CD2/02 - Song.mp3')
     })
 
-    it('shows the full library-relative path at the library root', () => {
+    it("shows the full folder-relative path at the scan folder's root", () => {
         const w = mountReal([mkTrack({ path: 'Artist/Album/01.mp3' })], null)
         expect(w.findAll('tbody tr')[0].text()).toContain('Artist/Album/01.mp3')
     })

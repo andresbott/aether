@@ -10,7 +10,7 @@ import type { Track } from '@/types/metadata'
 
 const props = defineProps<{
     selection: Track[]
-    libraryId: number | null
+    scanFolder: string | null
     session: EditSession
 }>()
 
@@ -23,7 +23,7 @@ const hiddenFramesHelp =
     'Binary or non-text metadata (private data, ratings, embedded objects) that cannot be shown as tags. It can only be deleted.'
 
 const rawQuery = useRawTags(
-    () => props.libraryId,
+    () => props.scanFolder,
     () => selectionPaths.value,
     () => true
 )

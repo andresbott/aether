@@ -335,10 +335,10 @@ describe('picture staging', () => {
     // album tag, so their identity falls back to their directory.
     const ALBUM = albumKey(mkTrack({ path: 'album/a.mp3' }))
 
-    const mkSession = (tracks: Track[] = [mkTrack({ path: 'album/a.mp3' })], lib = 3) =>
+    const mkSession = (tracks: Track[] = [mkTrack({ path: 'album/a.mp3' })], folder = 'Main') =>
         useEditSession(
             () => tracks,
-            () => lib
+            () => folder
         )
 
     beforeEach(() => {
@@ -464,13 +464,13 @@ describe('picture staging', () => {
         session.stagePictureRemoval(ALBUM, 'Media', 'folder', ['album/a.mp3'])
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
-            libraryId: 3,
+            scanFolder: 'Main',
             type: 'Front Cover',
             slot: 'embedded',
             paths: ['album/a.mp3']
         })
         expect(deletePictureSpy).toHaveBeenCalledWith({
-            libraryId: 3,
+            scanFolder: 'Main',
             type: 'Media',
             slot: 'folder',
             paths: ['album/a.mp3']
@@ -483,7 +483,7 @@ describe('picture staging', () => {
     const reindexWarnings = () =>
         toastAddSpy.mock.calls
             .map((c) => c[0])
-            .filter((t) => t.summary === 'Saved, but the library index was not confirmed updated')
+            .filter((t) => t.summary === 'Saved, but the index was not confirmed updated')
 
     // The flagship contract this task adds: save() does not poll per-write. It
     // collects every write's execution id — pictures AND tag batches — and
@@ -533,7 +533,7 @@ describe('picture staging', () => {
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.',
                 life: 8000
             })
         ])
@@ -556,7 +556,7 @@ describe('picture staging', () => {
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.',
                 life: 8000
             })
         ])
@@ -571,7 +571,7 @@ describe('picture staging', () => {
         expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         ])
     })
@@ -626,7 +626,7 @@ describe('picture staging', () => {
         expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         ])
     })
@@ -775,7 +775,7 @@ describe('picture staging', () => {
         session.stagePictureRemoval(albumKey(discTracks[0]), 'Front Cover', 'folder', discPaths)
         await session.save()
         expect(deletePictureSpy).toHaveBeenCalledWith({
-            libraryId: 3,
+            scanFolder: 'Main',
             type: 'Front Cover',
             slot: 'folder',
             paths: discPaths
@@ -799,7 +799,7 @@ describe('picture staging', () => {
         const tracks = ref<Track[]>(discTracks)
         const session = useEditSession(
             () => tracks.value,
-            () => 3
+            () => 'Main'
         )
         session.stagePictureRemoval(albumKey(discTracks[0]), 'Front Cover', 'folder', discPaths)
         expect(session.hasStagedChanges.value).toBe(true)
@@ -1163,10 +1163,10 @@ describe('albumPickToOverlay', () => {
 
 describe('useEditSession artist image', () => {
     const FOLDER = 'Radiohead'
-    const mkSession = (lib = 3) =>
+    const mkSession = (scanFolder = 'Main') =>
         useEditSession(
             () => [mkTrack({ path: 'Radiohead/OK Computer/a.mp3' })],
-            () => lib
+            () => scanFolder
         )
 
     beforeEach(() => {
@@ -1244,7 +1244,7 @@ describe('useEditSession artist image', () => {
         const session = mkSession()
         session.stageArtistImageRemoval(FOLDER)
         await session.save()
-        expect(deleteArtistImageSpy).toHaveBeenCalledWith(3, FOLDER)
+        expect(deleteArtistImageSpy).toHaveBeenCalledWith('Main', FOLDER)
         expect(session.hasStagedChanges.value).toBe(false)
     })
 
@@ -1264,8 +1264,8 @@ describe('useEditSession artist image', () => {
         expect(toastAddSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 severity: 'warn',
-                summary: 'Saved, but the library index was not confirmed updated',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                summary: 'Saved, but the index was not confirmed updated',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         )
     })

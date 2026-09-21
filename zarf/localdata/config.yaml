@@ -1,3 +1,7 @@
+# Dev config: `make run` starts the server from the repo root with
+# -c zarf/localdata/config.yaml. Relative paths in this file (DataDir, scan
+# folder Paths, "@" key files) resolve against that working directory, not
+# against this file's directory.
 Server:
   Port: 8075
   BindIp: ""
@@ -9,44 +13,72 @@ Observability:
   Port: 9009
   BindIp: ""
 
-DataDir: "./data"
+DataDir: "./zarf/localdata/data"
 
-# Music libraries provisioned from this file. This list and the libraries
-# created in the admin UI are ADDITIVE: the server ends up serving both. A
-# library declared here is materialized into the database at every startup, so:
+# The directories Aether scans for music. They are declared HERE and nowhere
+# else: there is no database row and no UI to add one, so what gets scanned is
+# exactly what this list says. Restart to apply a change.
 #
-#   * it is read-only in the UI (no edit, no delete) — change it here and
-#     restart instead;
-#   * the UI refuses to create a library that reuses a name or path claimed
-#     below;
-#   * removing an entry does NOT delete the library or its scanned tracks; the
-#     library simply becomes an ordinary, editable one in the UI.
+#   Name             identifies the folder: tracks remember the name of the folder
+#                    they were indexed under, and library filters refer to it.
+#                    Renaming a folder takes effect on the next scan. Libraries
+#                    whose filters name the OLD name keep matching its tracks
+#                    until that scan re-labels them, then match nothing until
+#                    they are edited: Settings → Libraries marks them "Needs
+#                    attention" and the server warns at startup.
+#   Path             root directory. Roots must not be equal or nested. Must
+#                    be the real directory: a root that is itself a symlink
+#                    is refused (symlinks INSIDE a root are followed when
+#                    FollowSymlinks is true). A relative path resolves
+#                    against the server's working directory, not this
+#                    file's directory — use an absolute path.
+#   ExcludePatterns  list of Go regexes; matching files/directories are skipped
+#                                                                    (default: none)
+#                    A pattern starting with "@" is read as a FILE PATH by the
+#                    config loader, not a regex — write the Synology "@eaDir"
+#                    exclude as "^@eaDir$" or "[@]eaDir".
+#   FollowSymlinks   follow symlinked folders while scanning         (default: true)
+#                    Content reached through a link is stored under the link's
+#                    TARGET. If that target lies outside every Path listed here,
+#                    those tracks are listed but do not play (known limitation):
+#                    list the target directory as a scan folder of its own (it
+#                    must not contain another scan folder: roots cannot nest).
 #
-# A library is identified by its Path (that is what gets scanned), falling back
-# to its Name. Pointing an existing entry at a new Path wipes that library's
-# tracks, exactly as changing the path in the UI does — the next scan refills it.
+# A directory that is missing at startup (a share that mounts late) is only a
+# warning: the server starts, and scans refuse to run until it is back.
 #
-# Every field the UI offers is available. Only Name and Path are required:
+# With NO scan folder configured at all nothing is scanned and no on-disk media
+# is served: a populated index is still listed, but nothing plays.
 #
-#   ExcludePatterns  list of Go regexes; matching files are skipped   (default: none)
-#   FollowSymlinks   follow symlinked folders while scanning          (default: true)
-#   ShowArtists      list this library's artists in the artist index  (default: true)
-#   DefaultView      "albums" or "artists"                           (default: albums)
-#   Icon             PrimeIcons name without the "pi pi-" prefix      (default: folder)
-#   CoverStyle       generated-cover style: auto, classic, bauhaus,
-#                    rings, waves, poster, remix                      (default: auto)
+# REMOVING an entry removes its tracks at the next scan — together with their
+# stars, playlist entries and play history. The server warns at startup when
+# indexed tracks belong to a folder that is no longer listed.
 #
-# Libraries:
+# CHANGING a Path keeps a folder's tracks (ids, stars, playlists, history)
+# only if the old location is gone by the next scan — a move or rename. If
+# the old copy still exists then (e.g. copied to a new disk and repointed),
+# nothing is re-linked: new rows are created and the old ones are swept
+# instead.
+#
+# What users browse — "libraries" — is NOT configured here. A library is a saved
+# filter over the scanned catalog (by scan folder, folder path, file format,
+# release type, compilation or genre), created in Settings → Libraries.
+# Deleting a library never deletes music; removing a scan folder does.
+#
+# ScanFolders:
 #   - Name: "Music"
 #     Path: "/srv/music"
 #   - Name: "Audiobooks"
 #     Path: "/srv/audiobooks"
 #     ExcludePatterns:
 #       - ".*/covers/.*"
-#     ShowArtists: false
-#     DefaultView: "albums"
-#     Icon: "book"
-#     CoverStyle: "poster"
+#     FollowSymlinks: false
+#
+# Active dev setup: `make run` scans zarf/locallibrary — drop music there; git
+# ignores everything in it except its .gitkeep.
+ScanFolders:
+  - Name: "Music"
+    Path: "./zarf/locallibrary"
 
 # Authentication. Three methods:
 #
@@ -102,11 +134,11 @@ DataDir: "./data"
 # http://localhost:8076 (AdminBootstrap is ignored in this mode; kept for
 # switching back to "native").
 Auth:
-#  Method: "proxy-header"
   Method: "native"
   AdminBootstrap:
     User: "admin"
     Pw: "admin"
+#  Method: "proxy-header"
   ProxyHeader:
     UserHeader: "Remote-User"
     GroupsHeader: "Remote-Groups"

@@ -9,9 +9,9 @@ import (
 	"github.com/andresbott/aether/internal/metadataedit"
 )
 
-func TestResolveInLibrary_Empty(t *testing.T) {
+func TestResolveInRoot_Empty(t *testing.T) {
 	root := t.TempDir()
-	got, err := metadataedit.ResolveInLibrary(root, "")
+	got, err := metadataedit.ResolveInRoot(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,9 +20,9 @@ func TestResolveInLibrary_Empty(t *testing.T) {
 	}
 }
 
-func TestResolveInLibrary_Nested(t *testing.T) {
+func TestResolveInRoot_Nested(t *testing.T) {
 	root := t.TempDir()
-	got, err := metadataedit.ResolveInLibrary(root, "a/b")
+	got, err := metadataedit.ResolveInRoot(root, "a/b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,38 +32,38 @@ func TestResolveInLibrary_Nested(t *testing.T) {
 	}
 }
 
-func TestResolveInLibrary_RejectsParentEscape(t *testing.T) {
+func TestResolveInRoot_RejectsParentEscape(t *testing.T) {
 	root := t.TempDir()
-	_, err := metadataedit.ResolveInLibrary(root, "../etc/passwd")
+	_, err := metadataedit.ResolveInRoot(root, "../etc/passwd")
 	if err == nil {
 		t.Fatal("expected error on .. escape")
 	}
-	if !errors.Is(err, metadataedit.ErrOutsideLibrary) {
-		t.Fatalf("expected ErrOutsideLibrary, got %v", err)
+	if !errors.Is(err, metadataedit.ErrOutsideRoot) {
+		t.Fatalf("expected ErrOutsideRoot, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "outside") {
-		t.Fatalf("expected 'outside library' error, got %v", err)
+		t.Fatalf("expected the outside-the-scan-folder error, got %v", err)
 	}
 }
 
-func TestResolveInLibrary_RejectsAbsolute(t *testing.T) {
+func TestResolveInRoot_RejectsAbsolute(t *testing.T) {
 	root := t.TempDir()
-	_, err := metadataedit.ResolveInLibrary(root, "/etc/passwd")
+	_, err := metadataedit.ResolveInRoot(root, "/etc/passwd")
 	if err == nil {
 		t.Fatal("expected error on absolute path")
 	}
-	if !errors.Is(err, metadataedit.ErrOutsideLibrary) {
-		t.Fatalf("expected ErrOutsideLibrary, got %v", err)
+	if !errors.Is(err, metadataedit.ErrOutsideRoot) {
+		t.Fatalf("expected ErrOutsideRoot, got %v", err)
 	}
 }
 
-func TestResolveInLibrary_RejectsDotDotInMiddle(t *testing.T) {
+func TestResolveInRoot_RejectsDotDotInMiddle(t *testing.T) {
 	root := t.TempDir()
-	_, err := metadataedit.ResolveInLibrary(root, "a/../../b")
+	_, err := metadataedit.ResolveInRoot(root, "a/../../b")
 	if err == nil {
 		t.Fatal("expected error on mid-path escape")
 	}
-	if !errors.Is(err, metadataedit.ErrOutsideLibrary) {
-		t.Fatalf("expected ErrOutsideLibrary, got %v", err)
+	if !errors.Is(err, metadataedit.ErrOutsideRoot) {
+		t.Fatalf("expected ErrOutsideRoot, got %v", err)
 	}
 }

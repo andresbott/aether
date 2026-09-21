@@ -3,12 +3,14 @@ package libraries
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/andresbott/aether/internal/libraryfilter"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
@@ -16,30 +18,56 @@ import (
 
 type Handler struct {
 	Store *store.Store
+	// Folders is the set of configured scan folders: what a scan_folder filter may
+	// name, and where the folder picker may look.
+	Folders *scanfolder.Set
 	// Problems writes this handler's application/problem+json error responses.
 	Problems *problemjson.Writer
 }
 
+// maxLibraryBodyBytes caps the JSON bodies this handler decodes, so a
+// pathologically large one is cut short instead of buffered whole — the same
+// defense in depth the metadata editor's POST-reads apply (maxSelectionBodyBytes).
+const maxLibraryBodyBytes = 1 << 20
+
+// warningDTO flags something about a stored library that is not an error —
+// today a scan_folder value whose folder is no longer configured.
+type warningDTO struct {
+	Pointer string `json:"pointer"`
+	Detail  string `json:"detail"`
+}
+
+// libraryWriteDTO is the body of a create or an update. Filters is a pointer so
+// an update can tell "not mentioned" from "set to none": an update that omits
+// the key keeps the stored filters — omission must never widen a library to the
+// whole catalog — while an explicit [] clears them. On create there is nothing
+// to keep, so an absent key means no filters.
+type libraryWriteDTO struct {
+	Name string `json:"name"`
+	// ShowArtists is a pointer so an omitted key keeps its default (true on
+	// create, the stored value on update) instead of reading as false.
+	ShowArtists *bool                  `json:"show_artists"`
+	DefaultView string                 `json:"default_view"`
+	Icon        string                 `json:"icon"`
+	Filters     *[]model.LibraryFilter `json:"filters"`
+}
+
+// libraryDTO is what the API answers with; libraryWriteDTO is what it accepts.
 type libraryDTO struct {
-	ID              uint     `json:"id"`
-	Name            string   `json:"name"`
-	Path            string   `json:"path"`
-	ExcludePatterns []string `json:"exclude_patterns"`
-	// FollowSymlinks and ShowArtists are pointers so an omitted key keeps its
-	// default (both true on create) instead of reading as false.
-	FollowSymlinks *bool  `json:"follow_symlinks"`
-	ShowArtists    *bool  `json:"show_artists"`
-	DefaultView    string `json:"default_view"`
-	Icon           string `json:"icon"`
-	// Source is "db" for a library managed here or "config" for one declared in
-	// the server config file. Config libraries are read-only over this API and
-	// the UI renders them without edit/delete actions.
-	Source            string     `json:"source"`
-	LastScanStartedAt *time.Time `json:"last_scan_started_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
-	TrackCount        int64      `json:"track_count"`
-	PathChanged       bool       `json:"path_changed,omitempty"`
+	ID          uint   `json:"id"`
+	Name        string `json:"name"`
+	ShowArtists bool   `json:"show_artists"`
+	DefaultView string `json:"default_view"`
+	Icon        string `json:"icon"`
+	// Filters selects the library's tracks; always emitted as an array (see
+	// modelToDTO), never null.
+	Filters []model.LibraryFilter `json:"filters"`
+	// Warnings flags something about a stored library's filters that is not
+	// an error; empty/omitted when there is nothing to report.
+	Warnings   []warningDTO `json:"warnings,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
+	TrackCount int64        `json:"track_count"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -67,8 +95,7 @@ func parseBoolParam(raw string) (bool, error) {
 }
 
 func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
-	patterns, _ := decodeExcludePatterns(lib.ExcludePatterns)
-	count, err := h.Store.CountTracksForLibrary(lib.ID)
+	count, err := h.Store.CountTracks(store.LibraryScope(&lib))
 	if err != nil {
 		return libraryDTO{}, err
 	}
@@ -80,56 +107,39 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if icon == "" {
 		icon = "folder"
 	}
-	source := lib.Source
-	if source == "" {
-		source = model.SourceDB
+	// The serializer stores a nil slice as JSON null. A library created through
+	// this API never has one — libraryfilter.Validate answers a non-nil slice,
+	// so "no filters" is stored as [] — but a row written straight through the
+	// store can; coerce it so the API always emits an array.
+	filters := lib.Filters
+	if filters == nil {
+		filters = []model.LibraryFilter{}
 	}
-	// Convert HideArtists (internal, inverted bool) to ShowArtists (API, positive bool).
-	// HideArtists=false (zero value, default) means artists are visible, so ShowArtists=true.
-	// HideArtists=true means artists are hidden, so ShowArtists=false.
-	showArtists := !lib.HideArtists
-	followSymlinks := lib.FollowSymlinks
+	var warnings []warningDTO
+	for _, is := range libraryfilter.Dangling(lib.Filters, h.Folders) {
+		warnings = append(warnings, warningDTO{Pointer: is.Pointer, Detail: is.Detail})
+	}
 	return libraryDTO{
-		ID:                lib.ID,
-		Name:              lib.Name,
-		Path:              lib.Path,
-		ExcludePatterns:   patterns,
-		FollowSymlinks:    &followSymlinks,
-		ShowArtists:       &showArtists,
-		DefaultView:       dv,
-		Icon:              icon,
-		Source:            source,
-		LastScanStartedAt: lib.LastScanStartedAt,
-		CreatedAt:         lib.CreatedAt,
-		UpdatedAt:         lib.UpdatedAt,
-		TrackCount:        count,
+		ID:   lib.ID,
+		Name: lib.Name,
+		// Convert HideArtists (internal, inverted bool) to ShowArtists (API,
+		// positive bool): HideArtists=false (the zero value) means the artists
+		// are visible, so ShowArtists=true.
+		ShowArtists: !lib.HideArtists,
+		DefaultView: dv,
+		Icon:        icon,
+		Filters:     filters,
+		Warnings:    warnings,
+		CreatedAt:   lib.CreatedAt,
+		UpdatedAt:   lib.UpdatedAt,
+		TrackCount:  count,
 	}, nil
-}
-
-func decodeExcludePatterns(s string) ([]string, error) {
-	if s == "" {
-		return []string{}, nil
-	}
-	var out []string
-	if err := json.Unmarshal([]byte(s), &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func encodeExcludePatterns(patterns []string) (string, error) {
-	if len(patterns) == 0 {
-		return "", nil
-	}
-	b, err := json.Marshal(patterns)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
 }
 
 func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/libraries/browse").Methods(http.MethodGet).HandlerFunc(h.browse)
+	r.Path("/libraries/filter-options").Methods(http.MethodGet).HandlerFunc(h.filterOptions)
+	r.Path("/libraries/preview").Methods(http.MethodPost).HandlerFunc(h.preview)
 	r.Path("/libraries").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/libraries").Methods(http.MethodPost).HandlerFunc(h.create)
 	r.Path("/libraries/{id:[0-9]+}").Methods(http.MethodGet).HandlerFunc(h.get)
@@ -175,43 +185,37 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
-// validateDTO checks every field of an incoming library payload and returns the
-// absolute path. It answers the response itself; ok is false when the request
-// is done. A missing required field (name/path) is 400; a present-but-invalid
-// value (too long, an unusable path, a bad regex/enum) is well-formed-but-
-// invalid input, answered as a 422 validation problem.
-func validateDTO(w http.ResponseWriter, r *http.Request, in libraryDTO, pw *problemjson.Writer) (abs string, ok bool) {
+// validateDTO checks every field of an incoming library payload. It answers
+// the response itself; the return value is false when the request is done. A
+// missing required field (name) is 400; a present-but-invalid value (too
+// long, an unknown enum) is well-formed-but-invalid input, answered as a 422
+// validation problem.
+func validateDTO(w http.ResponseWriter, r *http.Request, in libraryWriteDTO, pw *problemjson.Writer) bool {
 	if err := ValidateName(in.Name); err != nil {
 		writeFieldValidationErr(w, r, "/name", err, pw)
-		return "", false
+		return false
 	}
-	abs, err := ValidatePath(in.Path)
-	if err != nil {
-		writeFieldValidationErr(w, r, "/path", err, pw)
-		return "", false
-	}
-	// Unlike name/path, none of these four ever fail on a missing value (an
+	// Unlike name, neither of these ever fails on a missing value (an
 	// empty/omitted field is always accepted, defaulted elsewhere) — any
 	// failure here is unconditionally a present-but-invalid value.
 	for _, check := range []struct {
 		pointer string
 		err     error
 	}{
-		{"/exclude_patterns", ValidateExcludePatterns(in.ExcludePatterns)},
 		{"/default_view", ValidateDefaultView(in.DefaultView)},
 		{"/icon", ValidateIcon(in.Icon)},
 	} {
 		if check.err != nil {
 			pw.WriteValidation(w, r, check.err.Error(), problemjson.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
-			return "", false
+			return false
 		}
 	}
-	return abs, true
+	return true
 }
 
-// writeFieldValidationErr answers a ValidateName/ValidatePath failure: a
-// missing required field stays 400; a present-but-invalid value (too long,
-// not a usable directory, ...) is well-formed-but-invalid (422).
+// writeFieldValidationErr answers a ValidateName failure: a missing required
+// field stays 400; a present-but-invalid value (too long) is
+// well-formed-but-invalid (422).
 func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer string, err error, pw *problemjson.Writer) {
 	if isValueError(err) {
 		pw.WriteValidation(w, r, err.Error(), problemjson.FieldError{Pointer: pointer, Detail: err.Error()})
@@ -220,22 +224,50 @@ func writeFieldValidationErr(w http.ResponseWriter, r *http.Request, pointer str
 	pw.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 }
 
+// fieldErrors converts libraryfilter issues into problemjson field errors, at
+// the same pointers Validate reported them at. Shared by validateFilters and
+// preview: both turn a []libraryfilter.Issue into a 422's []FieldError.
+func fieldErrors(issues []libraryfilter.Issue) []problemjson.FieldError {
+	fields := make([]problemjson.FieldError, 0, len(issues))
+	for _, is := range issues {
+		fields = append(fields, problemjson.FieldError{Pointer: is.Pointer, Detail: is.Detail})
+	}
+	return fields
+}
+
+// needsAFilter is the one rule that spans fields: a library that hides its
+// artists must select something narrower than the whole catalog, or it would
+// hide every artist. It is judged against the EFFECTIVE filters — the ones the
+// request sends, or the stored ones an update keeps.
+var needsAFilter = problemjson.FieldError{
+	Pointer: "/show_artists",
+	Detail:  "a library that hides its artists needs at least one filter: without any it covers the whole catalog and would hide every artist",
+}
+
+// validateFilters checks the filters a request sends, plus needsAFilter. It
+// answers the 422 itself, itemising EVERY problem so the form can mark each
+// row; ok is false when the request is done.
+func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in []model.LibraryFilter, hideArtists bool) (filters []model.LibraryFilter, ok bool) {
+	filters, issues := libraryfilter.Validate(in, h.Folders)
+	fields := fieldErrors(issues)
+	if len(issues) == 0 && hideArtists && len(filters) == 0 {
+		fields = append(fields, needsAFilter)
+	}
+	if len(fields) > 0 {
+		h.Problems.WriteValidation(w, r, "the library's filters are not valid", fields...)
+		return nil, false
+	}
+	return filters, true
+}
+
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	var in libraryDTO
+	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
+	var in libraryWriteDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	abs, ok := validateDTO(w, r, in, h.Problems)
-	if !ok {
-		return
-	}
-	if refuseIfShadowsConfig(w, r, h.Store, in.Name, abs, h.Problems) {
-		return
-	}
-	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
-	if err != nil {
-		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	if !validateDTO(w, r, in, h.Problems) {
 		return
 	}
 
@@ -250,17 +282,25 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
 	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
 	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
-	// FollowSymlinks defaults to true when the key is absent.
-	followSymlinks := in.FollowSymlinks == nil || *in.FollowSymlinks
+	// On create there is nothing to keep, so an absent "filters" key and an
+	// explicit [] mean the same thing: no filters, the whole catalog.
+	var requested []model.LibraryFilter
+	if in.Filters != nil {
+		requested = *in.Filters
+	}
+	filters, ok := h.validateFilters(w, r, requested, hideArtists)
+	if !ok {
+		return
+	}
 	lib := &model.Library{
-		Name:            in.Name,
-		Path:            abs,
-		ExcludePatterns: excludes,
-		FollowSymlinks:  followSymlinks,
-		HideArtists:     hideArtists,
-		DefaultView:     dv,
-		Icon:            icon,
-		Source:          model.SourceDB,
+		// ValidateName judges the TRIMMED name, so that is what is stored:
+		// otherwise " Music" and "Music" are two libraries the /rest music
+		// folder list shows under one visible name.
+		Name:        strings.TrimSpace(in.Name),
+		HideArtists: hideArtists,
+		DefaultView: dv,
+		Icon:        icon,
+		Filters:     filters,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -287,34 +327,43 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, status, code, err.Error())
 		return
 	}
-	if refuseIfConfigManaged(w, r, existing, h.Problems) {
-		return
-	}
 
-	var in libraryDTO
+	r.Body = http.MaxBytesReader(w, r.Body, maxLibraryBodyBytes)
+	var in libraryWriteDTO
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	abs, ok := validateDTO(w, r, in, h.Problems)
-	if !ok {
-		return
-	}
-	excludes, err := encodeExcludePatterns(in.ExcludePatterns)
-	if err != nil {
-		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	if !validateDTO(w, r, in, h.Problems) {
 		return
 	}
 
-	pathChanged := abs != existing.Path
-
-	existing.Name = in.Name
-	existing.Path = abs
-	existing.ExcludePatterns = excludes
-	// Both bools are pointers: nil means "keep current".
-	if in.FollowSymlinks != nil {
-		existing.FollowSymlinks = *in.FollowSymlinks
+	// The effective hideArtists is the request's show_artists when present,
+	// else whatever is already stored: an update that omits show_artists
+	// keeps that value (see the ShowArtists assignment below), so the
+	// has-a-filter rule must be judged against the value that will actually
+	// be saved, not against a field the caller never touched.
+	effectiveHideArtists := existing.HideArtists
+	if in.ShowArtists != nil {
+		effectiveHideArtists = !*in.ShowArtists
 	}
+	// Same reasoning for the filters: an update that never mentions them keeps
+	// the stored ones, so they are what the has-a-filter rule is judged
+	// against. They are NOT re-validated — they passed on the way in, and
+	// re-checking them would make a library unrenameable once its scan folder
+	// left the config (it reports that as a warning instead).
+	filters := existing.Filters
+	if in.Filters != nil {
+		var ok bool
+		if filters, ok = h.validateFilters(w, r, *in.Filters, effectiveHideArtists); !ok {
+			return
+		}
+	} else if effectiveHideArtists && len(filters) == 0 {
+		h.Problems.WriteValidation(w, r, "the library's filters are not valid", needsAFilter)
+		return
+	}
+
+	existing.Name = strings.TrimSpace(in.Name) // stored trimmed, as on create
 	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
 	if in.ShowArtists != nil {
 		existing.HideArtists = !*in.ShowArtists
@@ -329,19 +378,9 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		icon = "folder"
 	}
 	existing.Icon = icon
+	existing.Filters = filters
 
-	err = h.Store.TransactionContext(r.Context(), func(tx *store.Store) error {
-		if pathChanged {
-			if err := tx.DeleteTracksForLibrary(existing.ID); err != nil {
-				return err
-			}
-			if err := tx.DeleteOrphanedAggregates(); err != nil {
-				return err
-			}
-		}
-		return tx.UpdateLibrary(&existing)
-	})
-	if err != nil {
+	if err := h.Store.UpdateLibrary(&existing); err != nil {
 		status, code := mapStoreError(err)
 		h.Problems.Write(w, r, status, code, err.Error())
 		return
@@ -352,7 +391,6 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	dto.PathChanged = pathChanged
 	writeJSON(w, http.StatusOK, dto)
 }
 
@@ -362,13 +400,11 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	existing, err := h.Store.GetLibrary(id)
-	if err != nil {
+	// The store's delete does not error on a missing row, so fetch first to
+	// answer 404 instead of a silent no-op 204.
+	if _, err := h.Store.GetLibrary(id); err != nil {
 		status, code := mapStoreError(err)
 		h.Problems.Write(w, r, status, code, err.Error())
-		return
-	}
-	if refuseIfConfigManaged(w, r, existing, h.Problems) {
 		return
 	}
 	if err := h.Store.DeleteLibrary(r.Context(), id); err != nil {
@@ -377,53 +413,6 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// configManagedMsg explains why a write was refused. Config libraries are
-// rewritten from the config file on every startup, so an accepted edit here
-// would silently revert on the next restart — refusing is the honest answer.
-const configManagedMsg = "library %q is provisioned from the server config file; " +
-	"edit the Libraries section of config.yaml and restart to change it"
-
-// refuseIfConfigManaged answers 409 for a config-provisioned library and
-// reports whether the request was refused.
-func refuseIfConfigManaged(w http.ResponseWriter, r *http.Request, lib model.Library, pw *problemjson.Writer) bool {
-	if !lib.IsConfigManaged() {
-		return false
-	}
-	pw.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(configManagedMsg, lib.Name))
-	return true
-}
-
-// refuseIfShadowsConfig rejects creating a library whose name or path is
-// already owned by config. Without this the request would fail anyway on the
-// unique indexes, but as an opaque "conflict" — this says which config entry is
-// in the way. Lookup errors other than "not found" are reported as-is.
-func refuseIfShadowsConfig(w http.ResponseWriter, r *http.Request, s *store.Store, name, path string, pw *problemjson.Writer) bool {
-	lookups := []struct {
-		field string
-		find  func() (model.Library, error)
-	}{
-		{"name", func() (model.Library, error) { return s.FindLibraryByName(name) }},
-		{"path", func() (model.Library, error) { return s.FindLibraryByPath(path) }},
-	}
-	for _, lookup := range lookups {
-		lib, err := lookup.find()
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			pw.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
-			return true
-		}
-		if lib.IsConfigManaged() {
-			pw.Write(w, r, http.StatusConflict, "config_managed", fmt.Sprintf(
-				"a library provisioned from the server config file already uses this %s (%q)",
-				lookup.field, lib.Name))
-			return true
-		}
-	}
-	return false
 }
 
 // Map store errors to API status codes.

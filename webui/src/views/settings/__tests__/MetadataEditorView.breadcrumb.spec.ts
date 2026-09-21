@@ -31,8 +31,8 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: vi.fn() })
     }
 })
-vi.mock('@/composables/useLibraries', () => ({
-    useLibraries: () => ({ data: { value: [{ id: 1, name: 'Music' }] } })
+vi.mock('@/composables/useScanFolders', () => ({
+    useScanFolders: () => ({ data: { value: [{ name: 'Music', available: true }] } })
 }))
 vi.mock('@/composables/useViewport', () => ({
     useViewport: () => {
@@ -79,7 +79,7 @@ const stubs = {
     InputText: { name: 'InputText', props: ['modelValue'], template: '<input />' },
     FolderTree: {
         name: 'FolderTree',
-        props: ['libraryId', 'expandTo'],
+        props: ['scanFolder', 'expandTo'],
         emits: ['select'],
         template: '<div />'
     },
@@ -99,9 +99,9 @@ async function clickSelectFolder(w: ReturnType<typeof mountView>) {
     await flushPromises()
 }
 
-// Mount, open the picker (the sole library auto-selects — no list to click),
-// and select Artist/Album as the folder, leaving the breadcrumb showing
-// Music / Artist / Album (dialog closed).
+// Mount, open the picker (the sole scan folder auto-selects — no list to
+// click), and select Artist/Album as the folder, leaving the breadcrumb
+// showing Music / Artist / Album (dialog closed).
 async function selectArtistAlbum() {
     const w = mountView()
     await clickSelectFolder(w)
@@ -118,7 +118,7 @@ beforeEach(() => {
 })
 
 describe('MetadataEditorView breadcrumb', () => {
-    it('renders one clickable crumb for the library and each path segment', async () => {
+    it('renders one clickable crumb for the scan folder and each path segment', async () => {
         const w = await selectArtistAlbum()
         const crumbs = w.findAll('[data-test^="crumb-"]')
         expect(crumbs.map((c) => c.text())).toEqual(['Music', 'Artist', 'Album'])
@@ -132,7 +132,7 @@ describe('MetadataEditorView breadcrumb', () => {
         expect(ftExpandTo(w)).toBe('Artist')
     })
 
-    it('opens the picker at the library root when the library crumb is clicked', async () => {
+    it('opens the picker at the scan folder root when the scan-folder crumb is clicked', async () => {
         const w = await selectArtistAlbum()
         await w.find('[data-test="crumb-0"]').trigger('click')
         await flushPromises()

@@ -20,3 +20,10 @@ func testStore(t *testing.T) *store.Store {
 	}
 	return store.New(db)
 }
+
+// scanFolderFilter builds the filters of a library that selects tracks from
+// the named scan folders — the shape most test libraries use to stand in for
+// "the tracks stamped with this scan folder".
+func scanFolderFilter(names ...string) []model.LibraryFilter {
+	return []model.LibraryFilter{{Field: model.FilterScanFolder, Values: names}}
+}

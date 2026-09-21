@@ -12,7 +12,9 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Seventeen extensions exist today — copy their shape.
+  Eighteen extensions exist today — copy their shape. Growing an existing
+  capability is a new *version* of its extension, not a new name
+  (`releaseTypeFilter` v2 added `getReleaseTypes`).
 - **Never route music features through `/api/v0`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -162,6 +164,17 @@ value; the letter index applies the same filter so virtual-grid offsets stay
 consistent. Untyped releases match no typed value (they appear only
 unfiltered).
 
+**`releaseTypeFilter` (v2)** adds `getReleaseTypes` (`musicFolderId` optional):
+`releaseTypes { releaseType[]: { name, albumCount } }`, every type the albums in
+scope carry — primary and secondary alike — with how many albums filtering by it
+lists. It is the filter's own vocabulary, so it groups exactly as the filter
+matches: case-insensitively, named by the group's first spelling in binary order
+(`Album` over `album`), an album counted once however many spellings it holds;
+blank types are skipped (`Store.ReleaseTypeCounts`). The Releases tab row in
+`LibraryView` offers only the primary types listed here. It is a version, not a
+new extension name, because it grows the same capability: v1's parameter is
+unchanged, so the server advertises `[1, 2]`.
+
 ## Discovery feed (`getDiscovery`, the `discovery` extension)
 
 `discovery.go` serves the ranked Discovery feed. It is the one endpoint whose
@@ -231,13 +244,29 @@ response shape was a deliberate design decision, so the reasoning is recorded he
 
 Helpers in `subsonic.go` — use them instead of raw query reads:
 `paramStr`, `paramInt(default)`, `paramStrSlice`, `paramBoolPtr` (nil =
-absent, distinguishes "not provided" from `false`), and `paramLibraryID`
-(`musicFolderId`; nil = cross-library, matching the store's `*uint` filter
-convention).
+absent, distinguishes "not provided" from `false`), and the handler method
+`libraryScope(w, r) (scope, library, ok)` (`musicFolderId` → the library's
+*compiled filters* — `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)`
+— plus the library itself; absent = the zero, cross-library scope; an unknown
+id = a scope matching nothing, so the request answers empty lists). A store
+failure while resolving the id is answered here as an internal error with
+`ok=false` — like `requireAdmin` — because "no tracks" would hand the client a
+successful empty list to cache; every call site checks `ok` and returns
+immediately when it's false. The artist index is the one caller that reads the
+returned library: a library with `HideArtists` answers an empty index there,
+because a scope carries no library identity for the store to check. A
+`HideArtists` library with no filters is refused at the write path
+(`libraries.validateFilters`, `/api/v0` — it would hide every artist) and,
+belt-and-braces, skipped by `store.hiddenArtistScopes` if one ever reached the
+table anyway, rather than hiding every artist in the unscoped index (see
+[architecture.md](architecture.md)'s "Key domain types"). None of this reaches
+`getMusicFolders` itself: its shape (`id`, `name`, `defaultView`,
+`showArtists`, `icon`) is unchanged — a library's filters are a purely
+internal, server-side detail (`TestGetMusicFoldersShapeIsUnchanged`).
 
 ## Media serving
 
-`media.go`: `stream` serves the original file via `http.ServeFile` (range
+`media.go`: `stream` serves the original file via `serveETaggedFile` (range
 requests work; no transcoding). `getCoverArt` resolves, in order: assetstore
 image → folder cover from disk → embedded front cover → deterministic generated
 cover (`libs/covergen`).
@@ -373,10 +402,17 @@ A file whose only embedded picture is typed `Other` counts as having no cover �
 deliberate: it falls through to folder art, then the generated cover.
 
 gosec path-traversal findings on these handlers are suppressed in
-`.golangci.yaml` **with a documented justification**: served paths come from
-the trusted DB or are validated by `metadataedit.ResolveInLibrary`. If you
-change where a served path comes from, that justification must still hold —
-otherwise validate against the library roots first (also an open TODO).
+`.golangci.yaml` **with a documented justification**, and the justification is
+enforced, not merely asserted: the paths `stream` and `getCoverArt` serve come
+from DB rows, and `mediaPathAllowed` (`subsonic/media.go`) confines them to the
+configured scan-folder roots through `internal/pathguard`, which fails closed —
+with no scan folder configured the guard has no roots and allows nothing.
+Asset-store and generated covers bypass the guard by construction
+(`coverMeta.coverManaged`): aether wrote them under the data dir, outside every
+scan folder root, so guarding them would refuse every uploaded cover. The
+metadata editor's paths are the other case — request-supplied and relative, so
+they are validated by `metadataedit.ResolveInRoot` instead. If you change
+where a served path comes from, that justification must still hold.
 
 ## Authentication (current state)
 

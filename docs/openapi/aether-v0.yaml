@@ -6,8 +6,9 @@ info:
     name: Andres Bott
     url: https://github.com/andresbott/aether
   description: >
-    Internal, admin-only server-management API — collections/libraries,
-    scanning, tasks/scheduling, and other administration concerns. This is
+    Internal, admin-only server-management API — libraries (saved filters) and
+    the read-only scan-folder list, scanning, tasks/scheduling, and other
+    administration concerns. This is
     NOT the music-client API: browsing, playback, playlists, album/artist
     navigation and search live exclusively under `/rest`, which must stay
     OpenSubsonic-compliant and has no OpenAPI document of its own (a Subsonic
@@ -17,8 +18,8 @@ info:
     **Scope.** This document describes the full `/api/v0` surface as mounted
     in `app/router/api_v0.go`: the metadata editor (pictures, raw tags,
     folder/track browsing, identify and identify-album, artist images),
-    artists, users, tasks, tokens, radiobrowser, auth, libraries, and
-    health/version/me.
+    artists, users, tasks, tokens, radiobrowser, auth, libraries, scan
+    folders, and health/version/me.
 servers:
   - url: /api/v0
     description: >
@@ -32,7 +33,9 @@ tags:
   - name: metadata-tags
     description: Raw, unfiltered tag access for the metadata editor.
   - name: metadata-browse
-    description: Folder/track browsing that backs the metadata editor's file picker.
+    description: >
+      Folder/track browsing that backs the metadata editor's file picker,
+      scoped to the configured scan folders.
   - name: metadata-identify
     description: Audio-fingerprint identification of tracks and whole-album releases.
   - name: metadata-artist-image
@@ -48,7 +51,9 @@ tags:
   - name: tasks
     description: Scheduled task management, triggering and execution history (admin).
   - name: libraries
-    description: Collection/library CRUD and filesystem browse (admin).
+    description: Library (filtered view) CRUD, filter preview/options and the scan-folder browser (admin).
+  - name: scan-folders
+    description: The directories the server scans — read-only, declared in the server config (admin).
   - name: artists
     description: Artist MusicBrainz lookup and image management (admin).
   - name: radiobrowser
@@ -106,12 +111,12 @@ paths:
         rather than constructing this URL by hand.
       tags: [metadata-pictures]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/ScanFolderName'
         - name: file
           in: query
           required: true
           description: >
-            The picture cell's resolved Source (its library-relative file),
+            The picture cell's resolved Source (its folder-relative file),
             exactly as encoded inside an inventory cell's `image.url` /
             `image.thumb_url`. A single scalar, **never** a repeated/array
             parameter: that is the deliberate, load-bearing property that
@@ -192,15 +197,17 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The resolved cell could not be opened (a stale link: the embedded
-            picture was removed, or the folder file no longer exists). The
-            handler itself answers with Go's plain `http.NotFound`, but the
-            router-level error envelope (see `app/router/errors.go`) wraps
-            every bare `/api/v0` error — this one included — into the same
-            `application/problem+json` Problem shape every other response on
-            this surface uses, so it is not documented via the shared
-            NotFound response only because its Detail text differs
-            ("404 page not found" rather than a handler-authored message).
+            Either `scan_folder` names a folder that is not configured — a
+            handler-authored `not_found` Problem — or the resolved cell could
+            not be opened (a stale link: the embedded picture was removed, or
+            the folder file no longer exists). The stale-link case answers with
+            Go's plain `http.NotFound`, but the router-level error envelope
+            (see `app/router/errors.go`) wraps every bare `/api/v0` error —
+            that one included — into the same `application/problem+json`
+            Problem shape every other response on this surface uses, so this
+            status is not documented via the shared NotFound response only
+            because its Detail text differs ("404 page not found" rather than
+            a handler-authored message).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -316,7 +323,7 @@ paths:
       description: >
         Proxies the Cover Art Archive image listing. Pre-existing endpoint,
         not reshaped by the header-safe redesign: unlike every other picture
-        endpoint here it takes no `library_id` and is not selection-scoped —
+        endpoint here it takes no `scan_folder` and is not selection-scoped —
         it is a stateless lookup by MusicBrainz id. Answers an empty array,
         never an error, when no Cover Art Archive client is configured.
       tags: [metadata-pictures]
@@ -352,10 +359,12 @@ paths:
   /metadata/folders:
     get:
       operationId: listMetadataFolders
-      summary: Immediate subfolders of a library directory (the editor's folder-tree picker).
+      summary: Immediate subfolders of a scan folder directory (the editor's folder-tree picker).
       description: >
-        Confined lexically to the library root (no symlink traversal), unlike
-        the library path picker elsewhere in the app. A non-blank `q`
+        Confined lexically to the scan folder's root, and it never lists or
+        traverses a symlinked directory — unlike `browseLibraryPath`, which is
+        confined to the same roots but does list symlinked directories
+        (flagged `is_symlink`). A non-blank `q`
         switches the endpoint from a one-level listing to a recursive
         name search of the whole subtree under `path`, capped at 500
         matches; `q` and the response's `truncated` field are both
@@ -363,8 +372,8 @@ paths:
         carries neither.
       tags: [metadata-browse]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
         - name: q
           in: query
           required: false
@@ -391,13 +400,13 @@ paths:
   /metadata/tracks:
     get:
       operationId: listMetadataTracks
-      summary: Tracks in a library directory, with their current tags.
+      summary: Tracks in a scan folder directory, with their current tags.
       description: >
         The structured editor's read side.
       tags: [metadata-browse]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: The directory's tracks and their current tags.
@@ -416,14 +425,13 @@ paths:
         Applies one structured patch to every file in the selection and
         reports one outcome per row. HTTP status describes the request, the
         body describes the work. A malformed request (bad JSON, an invalid
-        field combination, an unknown library, a path outside the library
-        root) fails before any row is attempted and answers the normal
-        `application/problem+json` 400/404 below; a `paths` selection over
-        the shared `maxSelectionPaths` cap (50, the same bound the
-        picture-selection endpoints enforce) answers 422
-        `ValidationProblem`, itemising `/paths`; the library lookup failing
-        for a reason other than "not found" answers the standard 500
-        Problem. Once the request is accepted the response is always `200`
+        field combination, a scan folder that is not configured, a path
+        outside the scan folder root) fails before any row is attempted and
+        answers the normal `application/problem+json` 400/404 below; a `paths`
+        selection over the shared `maxSelectionPaths` cap (50, the same bound
+        the picture-selection endpoints enforce) answers 422
+        `ValidationProblem`, itemising `/paths`. Once the request is accepted
+        the response is always `200`
         — like its read-only sibling `batchReadRawTags` — whatever happened
         to the rows: a file that could not be written is reported on its
         own row's `error`, and a batch where every row failed is still a
@@ -445,7 +453,7 @@ paths:
             or `error`). This is also the response when every row failed.
             `reindex` references the background re-index job enqueued for the
             written files; poll it via `listTaskExecutions` to know when the
-            library index reflects the edit. It is absent when nothing was
+            index reflects the edit. It is absent when nothing was
             written, and also when the re-index could not be enqueued (task
             runner disabled or queue full) — the writes still landed on disk
             and the next scheduled scan reconciles them.
@@ -466,8 +474,8 @@ paths:
       description: >
         Backs the editor's Identify button: when `identify` is `false` the
         UI disables it and shows `identify_unavailable_reason` instead of
-        silently hiding the feature. Never fails — no parameters, no library
-        lookup.
+        silently hiding the feature. Never fails — no parameters, no scan
+        folder lookup.
       tags: [metadata-identify]
       responses:
         '200':
@@ -488,7 +496,7 @@ paths:
         Fingerprints each file (fpcalc) and looks it up against AcoustID,
         sequentially — fingerprinting is CPU-bound and the AcoustID client
         is rate-limited, so concurrency buys nothing. A per-file failure (an
-        unreadable file, a path outside the library, an upstream lookup
+        unreadable file, a path outside the scan folder, an upstream lookup
         failure) is reported on that file's own result row, verbatim, and
         never fails the whole request; the request itself only fails
         validation (a bad selection) or answers 503 when no identification
@@ -560,7 +568,7 @@ paths:
       operationId: getArtistFolder
       summary: Whether the selected folder is an artist folder, and its current portrait image.
       description: >
-        A pure filesystem+tags question, independent of the library index
+        A pure filesystem+tags question, independent of the index
         and any track selection: eligible when the folder — or the nearest
         ancestor of the selected path — has sub-folders whose tracks are
         tagged with an album artist matching the folder's own name
@@ -568,8 +576,8 @@ paths:
         artist-image detection).
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: >
@@ -598,8 +606,8 @@ paths:
         bytes.
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: >
@@ -620,7 +628,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The library does not exist, or the selected folder holds no
+            The scan folder is not configured, or the selected folder holds no
             artist image. The latter case answers with Go's plain
             `http.NotFound`; like `getPictureImage`'s stale-link 404, the
             router-level error envelope (`app/router/errors.go`) still
@@ -639,7 +647,7 @@ paths:
         removing any other-format `artist.*` sibling — from either an
         uploaded file or an online pick downloaded through the
         SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
-        Nothing is written to the library index directly: a re-index of one
+        Nothing is written to the index directly: a re-index of one
         representative track under the folder is enqueued so the scanner's
         reconcile re-detects the artist's image asynchronously (`reindex`
         carries the enqueued job's `execution_id` — poll it via
@@ -677,8 +685,8 @@ paths:
         entirely, meaningless for an artist-folder image.
       tags: [metadata-artist-image]
       parameters:
-        - $ref: '#/components/parameters/LibraryId'
-        - $ref: '#/components/parameters/LibraryPath'
+        - $ref: '#/components/parameters/ScanFolderName'
+        - $ref: '#/components/parameters/ScanFolderPath'
       responses:
         '200':
           description: Removed.
@@ -690,7 +698,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404':
           description: >
-            The library does not exist, or the selected folder holds no
+            The scan folder is not configured, or the selected folder holds no
             artist image to remove (Go's plain `http.NotFound`, wrapped the
             same way as `getArtistImage`'s 404 — see its description).
           content:
@@ -1172,15 +1180,37 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
+  /scan-folders:
+    get:
+      operationId: listScanFolders
+      summary: List the directories the server scans for music.
+      description: >
+        Admin. Read-only: scan folders are declared in the `ScanFolders`
+        section of the server config file and nowhere else, so there is
+        nothing to create, change or delete over this API — edit the file and
+        restart. Listed in name order, the order they are scanned in.
+        `available` (with `problem` saying why not) is probed on every
+        request, each root with a bounded timeout, so a dead mount delays the
+        answer by seconds at most instead of hanging it. `track_count` counts
+        the tracks stamped with the folder's name. Unpaginated, like
+        listLibraries.
+      tags: [scan-folders]
+      responses:
+        '200':
+          description: Every configured scan folder.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScanFolderList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
   /libraries:
     get:
       operationId: listLibraries
-      summary: List every configured collection/library.
+      summary: List every library.
       description: >
-        Admin. Includes both API-managed ("db") and config-file-provisioned
-        ("config") libraries — the two sources are additive, not exclusive,
-        so the UI can render config-provisioned rows locked (no edit/delete)
-        alongside editable ones. Unpaginated, like listUsers.
+        Admin. Unpaginated, like listUsers.
       tags: [libraries]
       responses:
         '200':
@@ -1193,29 +1223,31 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
     post:
       operationId: createLibrary
-      summary: Create a library owned by this API (source "db").
+      summary: Create a library.
       description: >
-        Admin. `name` and `path` are required: a missing value answers 400
-        (validation_error); a present-but-invalid one (name too long, or a
-        path that isn't an existing, readable directory) answers 422,
-        itemising `/name` or `/path`. `path` is resolved to an absolute
-        path server-side before being stored. `exclude_patterns`,
-        `default_view` and `icon` are always optional, so any failure on
-        them (a regex that fails to compile, an unknown view, an unusable
-        icon name) is unconditionally 422 — never 400 — itemising the
-        failing pointer.
+        Admin. `name` is required: a missing value answers 400
+        (validation_error); a present-but-invalid one (over 200 characters)
+        answers 422, itemising `/name`. `show_artists`, `default_view` and
+        `icon` are always optional, so any failure on them (an unknown
+        view, an unusable icon name) is unconditionally 422 — never 400 —
+        itemising the failing pointer.
 
-        Refused with 409 `config_managed` when the submitted `name` or
-        `path` is already owned by a config-provisioned library, distinct
-        from the plain 409 a duplicate against a db-owned library also
-        answers with (both share the `Conflict` response's generic Problem
-        shape).
+        `filters` is optional (omitted or empty selects the whole catalog)
+        and validated as a whole: EVERY problem is reported, not just the
+        first, each itemised at its own pointer — `/filters/<i>/field` for an
+        unknown field, `/filters/<i>/values` for a missing or oversized value
+        list, `/filters/<i>/values/<j>` for a bad value — so a single 422 can
+        carry more than one `errors[]` entry. A library with `show_artists:
+        false` must carry at least one filter, or it would hide every artist;
+        violating this answers 422 at `/show_artists`.
+
+        A duplicate `name` answers 409 (conflict).
       tags: [libraries]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LibraryCreateRequest' }
+            schema: { $ref: '#/components/schemas/LibraryWriteRequest' }
       responses:
         '201':
           description: Created.
@@ -1254,21 +1286,29 @@ paths:
       operationId: updateLibrary
       summary: Replace a library's editable fields.
       description: >
-        Admin. `name`/`path`/`exclude_patterns`/`default_view`/`icon` are
-        always fully replaced by the submitted value (empty/omitted
-        `default_view` and `icon` fall back the same way createLibrary's do)
-        — this is a full replace, not a partial update.
-        `follow_symlinks`/`show_artists` are the only true tri-state fields
-        here: omitted (or explicit null) keeps the library's current stored
-        value instead of resetting it — see LibraryUpdateRequest.
+        Admin. `name`/`default_view`/`icon` are always fully replaced by the
+        submitted value (empty/omitted `default_view` and `icon` fall back
+        the same way createLibrary's do) — this is a full replace, not a
+        partial update. `show_artists` is the one true tri-state field here:
+        omitted (or explicit null) keeps the library's current stored value
+        instead of resetting it — see LibraryWriteRequest.
 
-        Changing `path` wipes and re-scans the library's tracks; the
-        response's `path_changed` reports whether that happened, and is
-        present only then (omitempty on the handler's side) — never
-        present-and-false.
+        `filters` is the one collection an update may leave alone: absent (or
+        explicit null) KEEPS the stored filters untouched and does NOT
+        re-validate them — omission must never widen a curated library to the
+        whole catalog, and a library whose `scan_folder` value no longer names
+        a configured folder stays renameable, still reporting its `warnings`.
+        An explicit `[]` clears them; a non-empty array replaces them and is
+        validated exactly as createLibrary's — every problem itemised, one
+        `errors[]` entry each, at the same `/filters/<i>/field`,
+        `/filters/<i>/values` and `/filters/<i>/values/<j>` pointers. The
+        has-a-filter rule is judged against the EFFECTIVE values: the filters
+        that end up stored (kept or replaced) and the effective `show_artists`
+        (the request's value when present, else the one already stored). If
+        that resolves to `false` the library must end up with at least one
+        filter, or the update answers 422 at `/show_artists`.
 
-        Refused with 409 `config_managed` for a config-provisioned library
-        — edit the Libraries section of config.yaml and restart instead.
+        A duplicate `name` answers 409 (conflict).
       tags: [libraries]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1276,25 +1316,13 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LibraryUpdateRequest' }
+            schema: { $ref: '#/components/schemas/LibraryWriteRequest' }
       responses:
         '200':
-          description: >
-            Updated. The Library shape plus `path_changed` — see the
-            operation description.
+          description: Updated.
           content:
             application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/Library'
-                  - type: object
-                    properties:
-                      path_changed:
-                        type: boolean
-                        description: >
-                          True when this update changed `path`. Omitted
-                          entirely — not present-and-false — when the path
-                          was unchanged.
+              schema: { $ref: '#/components/schemas/Library' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1304,10 +1332,12 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       operationId: deleteLibrary
-      summary: Delete a library and its tracks.
+      summary: Delete a library.
       description: >
-        Admin. Refused with 409 `config_managed` for a config-provisioned
-        library, for the same reason as updateLibrary.
+        Admin. Deletes only the library row: a library is a filtered view
+        over the catalog, not an owner of it, so no track, star or play
+        history is touched — they stay exactly as they were, just no longer
+        grouped under this view.
       tags: [libraries]
       parameters:
         - $ref: '#/components/parameters/ResourceId'
@@ -1318,24 +1348,35 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /libraries/browse:
     get:
       operationId: browseLibraryPath
-      summary: List the immediate subdirectories of an absolute server path (the library path picker).
+      summary: List the immediate subdirectories of an absolute server path, confined to the scan folders (the library path filter's picker).
       description: >
-        Admin. Backs the filesystem picker shown when creating or editing a
-        library. Unlike `listMetadataFolders`, this is not confined to any
-        library root — it has to work before a library exists — so `path`
-        here is an arbitrary absolute path on the server filesystem,
-        distinct from the metadata-browsing surface's library-relative
-        `path` (the shared `LibraryPath` parameter, confined to a library
-        root). Symlinked directories are listed and navigable
-        (`is_symlink`); the reported path is the one typed/followed, not
-        resolved, so pointing a library at a symlink keeps that symlink as
-        its stored path. Dot-directories are omitted unless `show_hidden`
+        Admin. Backs the folder picker for a library's `path` filter (see
+        LibraryFilter) — distinct from the metadata-browsing surface's
+        scan-folder-relative `path` (the shared `ScanFolderPath` parameter).
+        `path` must be spelled under one of the configured scan folders'
+        roots — checked LEXICALLY (symlinks not resolved), so a symlink
+        INSIDE a root stays listed and navigable even though it may resolve
+        elsewhere; a path outside every root answers 422, itemising `/path`.
+        An omitted or empty `path` lists the roots themselves — taken
+        straight from the server's configuration WITHOUT touching the
+        filesystem, so a root that is not mounted right now is still listed,
+        with `has_subfolders: true` and `is_symlink: false` assumed rather
+        than probed (probing every root on a request path risks hanging on
+        a dead network mount). Symlinked directories under a root are listed
+        and navigable, and flagged `is_symlink` so a picker can warn — the
+        flag marks the link itself, not what lies below it. The reported path
+        is the one typed/followed, never resolved, and a `path` filter value
+        at or below a symlink matches NOTHING today, because the scanner
+        records such content under its resolved path (and does not index it
+        at all when that folder's `FollowSymlinks` is off); recording the
+        logical, as-spelled path is a planned follow-up. `previewLibrary` is
+        the safety net — it reports the resulting (zero) count before
+        anything is saved. Dot-directories are omitted unless `show_hidden`
         is set.
       tags: [libraries]
       parameters:
@@ -1343,9 +1384,10 @@ paths:
           in: query
           required: false
           description: >
-            An absolute server filesystem path to list; defaults to "/".
-            See the operation description for how this differs from the
-            shared `LibraryPath` parameter.
+            An absolute path under one of the configured scan folders.
+            Omitted or empty lists the scan-folder roots themselves. A
+            relative path answers 400; an absolute path outside every scan
+            folder answers 422 at `/path`.
           schema: { type: string }
         - name: show_hidden
           in: query
@@ -1354,13 +1396,73 @@ paths:
           schema: { type: boolean }
       responses:
         '200':
-          description: The requested directory's immediate subdirectories, sorted by name.
+          description: >
+            The requested directory's immediate subdirectories, sorted by
+            name — or, for an omitted/empty `path`, the configured
+            scan-folder roots themselves.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LibraryBrowseResult' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/filter-options:
+    get:
+      operationId: getLibraryFilterOptions
+      summary: The values a library filter builder can offer.
+      description: >
+        Admin. Lists the configured scan-folder names alongside the
+        formats, genres and release types actually present in the catalog
+        today, so a filter builder can offer real values instead of free
+        text. `genre`, `release_type` and `path` filter values are matched
+        against what the scanner recorded (see LibraryFilter), so picking a
+        value from here — rather than retyping it — is the only way to be
+        sure it will actually match something. Every list is always an
+        array, even when the catalog is empty — never null.
+      tags: [libraries]
+      responses:
+        '200':
+          description: The catalog's current filter vocabulary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryFilterOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/preview:
+    post:
+      operationId: previewLibrary
+      summary: Preview what a set of filters would select (safe/read-only despite POST).
+      description: >
+        Admin. Reports the track and album counts a set of filters would
+        select, without storing anything — the admin UI's filter builder
+        (`LibraryFilterBuilder`) calls it as the admin edits, before
+        saving. A read that needs a structured body
+        travels as a POST to a named sub-resource, not GET-with-a-body (see
+        api-conventions.md); it is safe and idempotent despite the verb.
+        Filters are validated exactly as createLibrary's — every problem
+        itemised, one `errors[]` entry per pointer — and an empty or
+        omitted `filters` list previews the whole catalog.
+      tags: [libraries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LibraryPreviewRequest' }
+      responses:
+        '200':
+          description: The counts the filters would select.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibraryPreview' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /radiobrowser/search:
@@ -2051,20 +2153,23 @@ components:
         represented by a scheme nothing in the protocol actually sends.
 
   parameters:
-    LibraryId:
-      name: library_id
+    ScanFolderName:
+      name: scan_folder
       in: query
       required: true
-      description: The collection/library id to resolve paths against.
-      schema: { type: integer, format: int64, minimum: 0 }
-    LibraryPath:
+      description: >
+        The name of the configured scan folder to resolve paths against — one of
+        the names `listScanFolders` returns. A name that is not configured
+        answers 404.
+      schema: { type: string, minLength: 1 }
+    ScanFolderPath:
       name: path
       in: query
       required: false
       description: >
-        A directory, library-relative; empty/omitted defaults to the library
-        root. Resolved lexically against the library root — an absolute path,
-        or one that escapes the root, answers 400.
+        A directory, relative to the scan folder's root; empty/omitted
+        defaults to the root. Resolved lexically against the root — an
+        absolute path, or one that escapes the root, answers 400.
       schema: { type: string }
     ResourceId:
       name: id
@@ -2232,23 +2337,23 @@ components:
     PictureSelection:
       type: object
       description: >
-        The library and the selected track paths (library-relative), carried
+        The scan folder and the selected track paths (folder-relative), carried
         in the body rather than the URL so a large multi-disc selection can
         never overflow a header buffer — the production 431 this redesign
         fixes. The JSON request body is capped at 1 MiB; a larger body is
         rejected as a malformed-request 400.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
-          description: Selected track paths, library-relative.
-      required: [library_id, paths]
+          description: Selected track paths, folder-relative.
+      required: [scan_folder, paths]
 
     RawTagsRequest:
-      description: The same `{library_id, paths[]}` shape as the other selection endpoints.
+      description: The same `{scan_folder, paths[]}` shape as the other selection endpoints.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
 
@@ -2310,13 +2415,13 @@ components:
         answers 422, itemising `/paths` — and the whole request is additionally
         bounded by a 12 MiB size cap.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
-          description: Selected track paths, library-relative; one repeated form field per path.
+          description: Selected track paths, folder-relative; one repeated form field per path.
         slot: { $ref: '#/components/schemas/PictureSlot' }
         type: { $ref: '#/components/schemas/PictureType' }
         image:
@@ -2330,7 +2435,7 @@ components:
           type: string
           format: uri
           description: A Cover Art Archive image URL to download instead of an upload.
-      required: [library_id, paths, slot]
+      required: [scan_folder, paths, slot]
 
     ReindexRef:
       type: object
@@ -2510,18 +2615,18 @@ components:
     UpdateTracksRequest:
       type: object
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         paths:
           type: array
           items: { type: string }
           minItems: 1
           maxItems: 50
           description: >
-            Selected track paths, library-relative. Capped at the same
+            Selected track paths, folder-relative. Capped at the same
             `maxSelectionPaths` (50) as the picture-selection endpoints — an
             oversized selection answers 422, itemising `/paths`.
         fields: { $ref: '#/components/schemas/UpdateTracksFields' }
-      required: [library_id, paths, fields]
+      required: [scan_folder, paths, fields]
 
     UpdateTracksResult:
       type: object
@@ -2624,14 +2729,14 @@ components:
           type: string
           description: >
             Set instead of (an empty) `candidates` when this file could not
-            be resolved (outside the library, unreadable, or the AcoustID
+            be resolved (outside the scan folder, unreadable, or the AcoustID
             lookup failed) — the raw error text, since this endpoint has no
             `albumidentify`-style fixed-sentence policy.
       required: [path, candidates]
 
     IdentifyRequest:
       description: >
-        The same `{library_id, paths[]}` shape as the picture-selection
+        The same `{scan_folder, paths[]}` shape as the picture-selection
         endpoints; at least one path is required.
       allOf:
         - $ref: '#/components/schemas/PictureSelection'
@@ -2756,7 +2861,7 @@ components:
       type: object
       description: >
         One requested file `/metadata/identify-album` did not cover: either
-        refused before identification (outside the library) or a file that
+        refused before identification (outside the scan folder) or a file that
         reached the resolver but could not be fingerprinted/looked up.
         `error` is always one of `albumidentify`'s fixed, short sentences —
         never a raw error, since this is rendered verbatim in the dialog.
@@ -2767,7 +2872,7 @@ components:
 
     IdentifyAlbumRequest:
       description: >
-        The same `{library_id, paths[]}` shape as the picture-selection
+        The same `{scan_folder, paths[]}` shape as the picture-selection
         endpoints. Identifying "the album" needs more than one file to
         place: the handler requires **at least two** paths — a single path
         is better served by `/metadata/identify` — and answers 422
@@ -2793,7 +2898,7 @@ components:
           description: >
             Candidate releases, best first. Always an array, never `null`
             — including the empty-selection case (every path was outside
-            the library) and the no-release-matched-anything case.
+            the scan folder) and the no-release-matched-anything case.
         errors:
           type: array
           items: { $ref: '#/components/schemas/IdentifyPathError' }
@@ -2818,7 +2923,7 @@ components:
         path:
           type: string
           description: >
-            Library-relative path of the resolved artist folder — the
+            Folder-relative path of the resolved artist folder — the
             selected folder itself, or the nearest ancestor that
             qualifies. Present only when eligible.
         current_image:
@@ -2856,10 +2961,10 @@ components:
         file wins and `mbid`/`url` are never consulted. Writes
         `artist.<ext>` (jpg or png) into the folder named by `path`.
       properties:
-        library_id: { type: integer, format: int64, minimum: 0 }
+        scan_folder: { type: string, minLength: 1 }
         path:
           type: string
-          description: The artist folder, library-relative.
+          description: The artist folder, folder-relative.
         image:
           type: string
           format: binary
@@ -2874,7 +2979,7 @@ components:
             The provider-offered candidate URL to download. Must be one of
             the URLs currently offered for `mbid` — the SSRF guard rejects
             any other with 400.
-      required: [library_id, path]
+      required: [scan_folder, path]
 
     ApplyArtistImageResult:
       type: object
@@ -2882,7 +2987,7 @@ components:
         ok: { type: boolean }
         path:
           type: string
-          description: Library-relative path of the written file, e.g. "Radiohead/artist.jpg".
+          description: Folder-relative path of the written file, e.g. "Radiohead/artist.jpg".
         reindex: { $ref: '#/components/schemas/ReindexRef' }
       required: [ok, path]
 
@@ -3240,49 +3345,174 @@ components:
             Omitted or blank leaves the role unchanged. Demoting the last
             remaining enabled admin is refused with 409 — see `updateUser`.
 
-    Library:
+    ScanFolder:
       type: object
       description: >
-        A collection/library row, as returned by listLibraries, getLibrary
-        and createLibrary; updateLibrary's response is this shape plus
-        `path_changed` (modeled inline on that operation, not here).
+        One directory tree the server scans, as declared in the server config
+        file. `name` is the identifier: tracks are stamped with it and the
+        metadata editor's requests address a folder by it (`scan_folder`).
       properties:
-        id: { type: integer, format: int64, minimum: 0 }
-        name: { type: string }
-        path: { type: string }
+        name: { type: string, minLength: 1 }
+        path:
+          type: string
+          description: The root directory, absolute.
         exclude_patterns:
           type: array
           items: { type: string }
-          description: Regex patterns matched against each entry name during a scan.
+          description: >
+            Regex patterns; an entry whose path relative to the root, or whose
+            bare name, matches one is skipped by the scan. Empty when none.
         follow_symlinks:
           type: boolean
+          description: Whether the scan descends into symlinked directories inside the root.
+        available:
+          type: boolean
           description: >
-            Always present here (unlike LibraryCreateRequest/
-            LibraryUpdateRequest, where the same field is an optional
-            tri-state pointer).
+            False when the root cannot be scanned right now; scans refuse to
+            run until it can.
+        problem:
+          type: string
+          description: >
+            Why the root is not available — missing, not a directory, itself a
+            symbolic link, or a mount that did not answer in time. Present
+            only when `available` is false.
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tracks stamped with this folder's name.
+      required:
+        - name
+        - path
+        - exclude_patterns
+        - follow_symlinks
+        - available
+        - track_count
+
+    ScanFolderList:
+      type: object
+      properties:
+        scan_folders:
+          type: array
+          items: { $ref: '#/components/schemas/ScanFolder' }
+      required: [scan_folders]
+
+    LibraryFilter:
+      type: object
+      description: >
+        One condition of a library, AND-ed with a library's other filters;
+        the values inside a single filter are OR-ed (a `genre` filter with
+        two values matches either genre), and the same `field` may repeat
+        (two `genre` filters means a track must carry both). What `field`
+        tests: `scan_folder` — one of the configured scan-folder names;
+        `path` — an absolute directory a track's file lies under; `format` —
+        a lowercase file extension such as "flac" or "mp3"; `release_type` —
+        an album's MusicBrainz release type, matched case-insensitively; the
+        empty string `""` is legal ONLY for this field, and selects an album
+        with no release type at all; `compilation` — takes exactly one
+        value, the string `"true"` or `"false"`, and matches the same
+        compilation flag `/rest` reports as `isCompilation`; `genre` — one of
+        the track's genre names, matched EXACTLY (case and whitespace
+        included) against the name as tagged. `path` is likewise an exact
+        prefix of the recorded file path. Values are validated on write (see
+        createLibrary/updateLibrary): `scan_folder`, `format` and
+        `compilation` values are normalized (trimmed; `format` lowercased),
+        while `genre`, `release_type` and `path` values are stored as sent —
+        they are compared with what the scanner recorded, so take them from
+        `getLibraryFilterOptions` rather than retyping them. A `scan_folder`
+        value naming a folder later removed from the server config is left
+        stored as-is and reported back as a warning, not silently dropped —
+        see `Library.warnings`.
+      properties:
+        field:
+          type: string
+          enum: [scan_folder, path, format, release_type, compilation, genre]
+        values:
+          type: array
+          items: { type: string }
+          minItems: 1
+          maxItems: 100
+      required: [field, values]
+
+    LibraryFilterOptions:
+      type: object
+      description: >
+        The values getLibraryFilterOptions offers a filter builder: the
+        configured scan-folder names, and the formats/genres/release types
+        actually present in the catalog. Every property is always an array,
+        even when empty — never null.
+      properties:
+        scan_folders:
+          type: array
+          items: { type: string }
+          description: The configured scan-folder names, in name order.
+        formats:
+          type: array
+          items: { type: string }
+          description: Distinct lowercase file extensions present in the catalog, sorted.
+        genres:
+          type: array
+          items: { type: string }
+          description: Genre names that tag at least one track, sorted.
+        release_types:
+          type: array
+          items: { type: string }
+          description: >
+            Release types present on at least one album, de-duplicated
+            case-insensitively and sorted.
+      required: [scan_folders, formats, genres, release_types]
+
+    LibraryWarning:
+      type: object
+      description: >
+        Something about a stored library's filters that is not an error —
+        today, a `scan_folder` value whose folder is no longer configured
+        (renamed or removed from the server config since the library was
+        saved). The filter itself is left exactly as stored, and still
+        selects the tracks that carry the old marker; the next scan re-stamps
+        or removes those, after which the value matches nothing.
+      properties:
+        pointer:
+          type: string
+          description: JSON Pointer (RFC 6901) to the affected value, e.g. "/filters/0/values/0".
+        detail:
+          type: string
+      required: [pointer, detail]
+
+    Library:
+      type: object
+      description: >
+        A named, filtered view over the catalog, as returned by
+        listLibraries, getLibrary, createLibrary and updateLibrary — what
+        `/rest` exposes as a music folder. `filters` selects its tracks (see
+        LibraryFilter); no filters selects the whole catalog.
+      properties:
+        id: { type: integer, format: int64, minimum: 0 }
+        name: { type: string }
         show_artists:
           type: boolean
           description: >
             Positive-sense wire form of the store's inverted HideArtists
-            column. Always present here — see `follow_symlinks`.
+            column. Always present here (unlike LibraryWriteRequest, where
+            the same field is an optional tri-state pointer).
         default_view:
           type: string
           enum: [albums, artists]
         icon:
           type: string
           description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
-        source:
-          type: string
-          enum: [db, config]
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
           description: >
-            "db": created and owned through this API. "config": declared in
-            the server config file and materialized here at startup —
-            read-only over this API (updateLibrary/deleteLibrary answer 409
-            `config_managed`).
-        last_scan_started_at:
-          type: [string, 'null']
-          format: date-time
-          description: Present but null until a scan of this library has started.
+            Always present, even when empty — an empty list selects the
+            whole catalog.
+        warnings:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryWarning' }
+          description: >
+            Present only when at least one stored filter has something to
+            flag; absent otherwise (never an empty array).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         track_count:
@@ -3292,14 +3522,10 @@ components:
       required:
         - id
         - name
-        - path
-        - exclude_patterns
-        - follow_symlinks
         - show_artists
         - default_view
         - icon
-        - source
-        - last_scan_started_at
+        - filters
         - created_at
         - updated_at
         - track_count
@@ -3312,89 +3538,36 @@ components:
           items: { $ref: '#/components/schemas/Library' }
       required: [libraries]
 
-    LibraryCreateRequest:
+    LibraryWriteRequest:
       type: object
       description: >
-        `follow_symlinks`/`show_artists` are optional pointers: omitting
-        either here takes the create-time default (both true) — unlike
-        LibraryUpdateRequest, where omitting them means "keep current"
-        instead. The response always echoes the resolved value back as a
-        plain, always-present boolean (see `Library`).
-      properties:
-        name:
-          type: string
-          maxLength: 200
-          description: Required (400 if blank); over 200 characters is 422.
-        path:
-          type: string
-          description: >
-            Required (400 if blank). Resolved to an absolute path
-            server-side; must already exist and be a readable directory, or
-            this is 422.
-        exclude_patterns:
-          type: array
-          items: { type: string }
-          description: >
-            Regex patterns matched against each entry name during a scan.
-            Omitted defaults to none. Each must compile as a Go regexp (422
-            itemising `/exclude_patterns` otherwise).
-        follow_symlinks:
-          type: boolean
-          description: Omitted defaults to true.
-        show_artists:
-          type: boolean
-          description: Omitted defaults to true.
-        default_view:
-          type: string
-          enum: [albums, artists]
-          default: albums
-          description: Omitted or empty defaults to "albums".
-        icon:
-          type: string
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
-          maxLength: 100
-          default: folder
-          description: >
-            A PrimeIcons name without the "pi pi-" prefix, e.g.
-            "folder-open". Omitted or empty defaults to "folder".
-      required: [name, path]
+        Used by both createLibrary and updateLibrary. `name` is required;
+        `show_artists`, `default_view`, `icon` and `filters` are always
+        optional. The two operations give an omitted `show_artists`
+        different meanings: on create it defaults to true (a new library
+        starts visible); on update it keeps the library's current stored
+        value instead of resetting it. The response always echoes the
+        resolved value back as a plain, always-present boolean (see
+        `Library`).
 
-    LibraryUpdateRequest:
-      type: object
-      description: >
-        A full replace, not a partial update: `name`/`path`/
-        `exclude_patterns`/`default_view`/`icon` are always overwritten by
-        the submitted value (empty/omitted `default_view`/`icon` fall back
-        the same way LibraryCreateRequest's do). `follow_symlinks`/
-        `show_artists` are the only true tri-state fields: omitted (or
-        explicit null) keeps the library's current stored value instead of
-        resetting it. Refused with 409 `config_managed` for a
-        config-provisioned library.
+        An omitted `filters` key is read the same tri-state way: on create it
+        means no filters — the library selects the whole catalog — while on
+        update it keeps whatever is stored, untouched and not re-validated. An
+        explicit `[]` always means no filters, and a non-empty array always
+        replaces. A library whose EFFECTIVE `show_artists` (the submitted
+        value, or the stored one when omitted) is `false` must end up with at
+        least one EFFECTIVE filter — submitted, or kept by an update that
+        omits the key — otherwise it would hide every artist.
       properties:
         name:
           type: string
           maxLength: 200
           description: Required (400 if blank); over 200 characters is 422.
-        path:
-          type: string
-          description: >
-            Required (400 if blank). Resolved to an absolute path
-            server-side; must already exist and be a readable directory, or
-            this is 422. Changing it wipes and re-scans the library's
-            tracks — see updateLibrary's `path_changed` response field.
-        exclude_patterns:
-          type: array
-          items: { type: string }
-          description: >
-            Replaces the stored patterns entirely; omitted clears them to
-            none (this field is not tri-state). Each must compile as a Go
-            regexp (422 itemising `/exclude_patterns` otherwise).
-        follow_symlinks:
-          type: boolean
-          description: Omitted (or explicit null) keeps the library's current value.
         show_artists:
           type: boolean
-          description: Omitted (or explicit null) keeps the library's current value.
+          description: >
+            Omitted on create defaults to true; omitted (or explicit null)
+            on update keeps the library's current value.
         default_view:
           type: string
           enum: [albums, artists]
@@ -3405,15 +3578,63 @@ components:
           pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
           maxLength: 100
           default: folder
-          description: Omitted or empty falls back to "folder".
-      required: [name, path]
+          description: >
+            A PrimeIcons name without the "pi pi-" prefix, e.g.
+            "folder-open". Omitted or empty falls back to "folder".
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
+          maxItems: 20
+          description: >
+            Optional; AND-ed together (see LibraryFilter for the per-field
+            value rules). Omitted or null means no filters — the whole catalog
+            — on createLibrary, and "keep the stored filters" on
+            updateLibrary; an explicit `[]` clears them. All the filters
+            together may carry at most 200 values, so one library's scope
+            stays cheap to evaluate; over that answers 422 at `/filters`.
+      required: [name]
+
+    LibraryPreviewRequest:
+      type: object
+      description: >
+        The filters to preview, for previewLibrary. Same shape and
+        validation rules as `LibraryWriteRequest.filters`; an empty or
+        omitted list previews the whole catalog.
+      properties:
+        filters:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryFilter' }
+          maxItems: 20
+          description: >
+            Optional; AND-ed together (see LibraryFilter). Omitted means no
+            filters — the whole catalog. All the filters together may carry
+            at most 200 values, the same cap createLibrary enforces; over
+            that answers 422 at `/filters`.
+
+    LibraryPreview:
+      type: object
+      description: The track and album counts a set of filters would select.
+      properties:
+        track_count:
+          type: integer
+          format: int64
+          minimum: 0
+        album_count:
+          type: integer
+          format: int64
+          minimum: 0
+      required: [track_count, album_count]
 
     LibraryBrowseResult:
       type: object
       properties:
         path:
           type: string
-          description: The requested directory, echoed back cleaned but not symlink-resolved.
+          description: >
+            The requested directory, echoed back cleaned but not
+            symlink-resolved; the empty string for an omitted/empty `path`
+            (the scan-folder roots were listed instead of one directory's
+            children).
         folders:
           type: array
           items: { $ref: '#/components/schemas/BrowseFolder' }
@@ -3422,15 +3643,24 @@ components:
     BrowseFolder:
       type: object
       description: >
-        One subdirectory found by browseLibraryPath. Distinct from the
+        One entry of a browseLibraryPath listing. Distinct from the
         metadata-browsing surface's `Folder` schema: that one is
-        library-relative and has no `is_symlink`, since it never crosses
-        one; this one browses arbitrary absolute server paths and does.
+        folder-relative and has no `is_symlink`, since it never crosses
+        one; this one reports absolute server paths — still confined to the
+        configured scan folders — and does.
       properties:
-        name: { type: string }
+        name:
+          type: string
+          description: >
+            The directory's own name; for a scan-folder root entry (listed
+            when no `path` is given) the scan folder's configured NAME, which
+            need not match the last segment of its path.
         path:
           type: string
-          description: Absolute server path (the parent directory joined with name).
+          description: >
+            Absolute server path: the browsed directory joined with `name`
+            for a subdirectory, or the scan folder's own configured root for
+            a root entry.
         has_subfolders: { type: boolean }
         is_symlink: { type: boolean }
       required: [name, path, has_subfolders, is_symlink]
@@ -3744,7 +3974,7 @@ components:
         name:
           type: string
           description: Human-readable display name.
-          example: Library Scan
+          example: Catalog Scan
         description:
           type: string
           example: "Incremental scan -- only re-reads tracks modified since last scan"

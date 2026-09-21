@@ -73,13 +73,11 @@ const discoveryShelf = computed(() =>
     }))
 )
 
-// Same rule as the sidebar and the old drawer: a single library needs no section
-// of its own, since the Library shelf above already covers everything in it.
+// Same rule as the sidebar: shown from the first library on. A library is a
+// saved filter, so even a single one is a narrower view than the whole catalog
+// — which is what the Library shelf above samples.
 const { data: musicFolders } = useMusicFolders()
-const libraryShelves = computed(() => {
-    const folders = musicFolders.value ?? []
-    return folders.length > 1 ? folders : []
-})
+const libraryShelves = computed(() => musicFolders.value ?? [])
 
 const { data: playlists, isError: playlistsError } = usePlaylists()
 const playlistShelf = computed(() =>

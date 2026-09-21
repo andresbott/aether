@@ -24,14 +24,14 @@ const (
 // library-writes exclusion group, so they still never scan concurrently.
 var ScanTaskDef = TaskDef{
 	ID:          ScanTaskName,
-	Name:        "Library Scan",
-	Description: "Scan the music library incrementally: only tracks modified since the last scan are re-read. Runs coalesce, so triggering it again while one is in flight joins the running scan.",
+	Name:        "Catalog Scan",
+	Description: "Scan the configured scan folders incrementally: only tracks modified since the last scan are re-read. Runs coalesce, so triggering it again while one is in flight joins the running scan.",
 }
 
 var ScanFullTaskDef = TaskDef{
 	ID:          ScanFullTaskName,
-	Name:        "Full Library Scan",
-	Description: "Scan the music library in full: every track is re-read regardless of modification time, picking up re-derivations an incremental scan would skip. Distinct from the incremental scan so a full run is never dropped in favour of one.",
+	Name:        "Full Catalog Scan",
+	Description: "Scan the configured scan folders in full: every track is re-read regardless of modification time, picking up re-derivations an incremental scan would skip. Distinct from the incremental scan so a full run is never dropped in favour of one.",
 }
 
 func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, full bool) func(ctx context.Context, log *slog.Logger, prog taskrunner.Progress) error {
@@ -41,7 +41,7 @@ func NewScanTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader, fu
 		if full {
 			mode = "full"
 		}
-		log.Info("starting library scan", slog.String("mode", mode))
+		log.Info("starting scan", slog.String("mode", mode))
 
 		stats, err := sc.Scan(ctx, scanner.ScanOptions{IsFull: full, Log: log, Progress: prog})
 		if err != nil {

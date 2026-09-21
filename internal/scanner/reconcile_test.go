@@ -19,9 +19,9 @@ func TestReconcileRepointsCoverPathToANewFolderImage(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Album/cover.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -59,9 +59,9 @@ func TestReconcileClearsAVanishedCoverPath(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Album/cover.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -91,9 +91,9 @@ func TestReconcileRepointsToAHigherRankedCover(t *testing.T) {
 		"Artist/Album/01.mp3",
 		"Artist/Album/folder.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,14 +134,14 @@ func TestReconcilePreservesCoverAcrossMultiDiscAlbum(t *testing.T) {
 		"Artist/Album/CD 1/cover.jpg",
 		"Artist/Album/CD 2/01.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	// Need a custom tag reader that returns the SAME album name for both discs,
 	// so they collapse into one album row.
 	albumName := "Multi Disc Album"
 	reader := customAlbumTagReader{albumName: albumName}
 
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +195,9 @@ func TestReconcileStoresTheWalkedFileSize(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"}) // createTestFiles writes "fake"
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -244,10 +244,10 @@ func TestReconcileStoresReleaseTypes(t *testing.T) {
 	st := testScanStore(t)
 	dir := t.TempDir()
 	createTestFiles(t, dir, []string{"Artist/Album/01.mp3"})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	reader := releaseTypeTagReader{releaseTypes: []string{"Album", "Compilation"}}
-	s := scanner.New(scanner.Config{}, st, reader)
+	s := newScanner(t, st, reader, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}

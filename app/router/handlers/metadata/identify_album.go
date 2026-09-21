@@ -21,13 +21,13 @@ type AlbumIdentifyService interface {
 const minAlbumIdentifyPaths = 2
 
 type identifyAlbumRequest struct {
-	LibraryID uint     `json:"library_id"`
-	Paths     []string `json:"paths"`
+	ScanFolder string   `json:"scan_folder"`
+	Paths      []string `json:"paths"`
 }
 
 // pathErrorDTO is one requested file that produced no identification, with the
 // short reason a person reads. It covers both kinds: a path refused before
-// identification (outside the library) and a file that reached the resolver but
+// identification (outside the scan folder) and a file that reached the resolver but
 // could not be fingerprinted or looked up.
 //
 // The reason is always one of albumidentify's fixed sentences — never a Go error
@@ -53,7 +53,7 @@ func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) 
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, minAlbumIdentifyPaths, h.Problems)
+	folder, ok := resolveSelection(h.Folders, w, r, body.ScanFolder, body.Paths, minAlbumIdentifyPaths, h.Problems)
 	if !ok {
 		return
 	}
@@ -61,12 +61,12 @@ func (h *IdentifyHandler) identifyAlbum(w http.ResponseWriter, r *http.Request) 
 	inputs := make([]albumidentify.Input, 0, len(body.Paths))
 	pathErrors := make([]pathErrorDTO, 0)
 	for _, p := range body.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, p)
+		abs, rerr := metadataedit.ResolveInRoot(folder.Path, p)
 		if rerr != nil {
-			// The resolution error quotes the rejected path and the library root;
-			// the user only needs to know the file is not eligible.
+			// The resolution error quotes the rejected path and the scan folder
+			// root; the user only needs to know the file is not eligible.
 			pathErrors = append(pathErrors, pathErrorDTO{
-				Path: p, Error: albumidentify.ReasonOutsideLibrary,
+				Path: p, Error: albumidentify.ReasonOutsideFolder,
 			})
 			continue
 		}

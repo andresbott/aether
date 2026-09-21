@@ -36,7 +36,7 @@ client got from a prior response — never a variable-length list — may ride
 along as a `GET`/`DELETE` query param. `GET /metadata/pictures/image` is the
 worked example: it stays a GET with a query because a browser can only `GET`
 an image for an `<img src>`. It is still O(1) and header-safe: it carries a
-single already-resolved `file` (a library-relative path, picked out of an
+single already-resolved `file` (a folder-relative path, picked out of an
 inventory response), never the selection that produced it. `GET
 /radiobrowser/favicon?url=` and the two `candidate-info?url=` endpoints
 (`/metadata/pictures/candidate-info`, `/metadata/artist-image/candidate-info`)
@@ -77,21 +77,29 @@ safe/idempotent in its `description` even though the verb is `POST`, and keep
 the response shape an ordinary read response, not a mutation result.
 
 **Worked examples:**
-- `POST /metadata/pictures/inventory` (`Handler.inventory`) — reports which
-  picture slots are populated for a track selection; body is
-  `{library_id, paths[]}`.
-- `POST /metadata/tracks/raw-tags` (`Handler.rawTags`) — reads the complete,
-  unfiltered tag map of a set of files; same `{library_id, paths[]}` body,
-  decoded by the shared `Handler.decodeSelection`
-  (`app/router/handlers/metadata/metadata.go`), which also enforces the
+- `POST /metadata/pictures/inventory` (`ImagesHandler.inventory`) — reports
+  which picture slots are populated for a track selection; body is
+  `{scan_folder, paths[]}`.
+- `POST /metadata/tracks/raw-tags` (`TagsHandler.rawTags`) — reads the
+  complete, unfiltered tag map of a set of files; same `{scan_folder, paths[]}`
+  body, decoded by the shared package-level `decodeSelection`
+  (`app/router/handlers/metadata/selection.go`), which also enforces the
   selection cap (`maxSelectionPaths = 50`,
   `app/router/handlers/metadata/limits.go`) as defense-in-depth — the body
   already removes the 431 risk; the cap bounds the work a single request can
   demand.
+- `POST /libraries/preview` (`Handler.preview`,
+  `app/router/handlers/libraries/preview.go`) — reports the track/album
+  counts a candidate filter set (`{filters[]}`, the same shape a library
+  stores) would select, without storing anything; the admin UI's filter
+  builder (`LibraryFilterBuilder`) calls it as the admin edits, and
+  `filters[]` — up to `libraryfilter.MaxFilters` entries,
+  each with up to `libraryfilter.MaxValues` values — is exactly the kind of
+  variable-length list a bounded `GET` query string cannot carry.
 
 **The same reasoning extends to selection-shaped mutations that would
 otherwise be `DELETE`-with-body:** `POST /metadata/pictures/removals`
-(`Handler.removals`) clears a picture cell across a selection. It is a named
+(`ImagesHandler.removals`) clears a picture cell across a selection. It is a named
 batch-action `POST`, not `DELETE` with a body, so a client never has to
 attach a payload to a verb that isn't specified to reliably carry one.
 
@@ -116,9 +124,9 @@ explicitly from there. It configures only:
 - the stable, **never-fetched** base URI every problem's `type` is built
   from, `https://aether.local/probs` — unchanged from the original ad hoc
   error package, so every `type` URI is byte-identical across the migration;
-- the human titles for aether's own seven slugs —
+- the human titles for aether's own six slugs —
   `identify_unavailable`, `too_many_tokens`, `usertoken_unavailable`,
-  `not_configured`, `config_managed`, `last_admin`, `queue_full` — the
+  `not_configured`, `last_admin`, `queue_full` — the
   generic slugs (`not_found`, `validation_error`, `internal`,
   `unauthorized`, `forbidden`, `conflict`, `rate_limited`, `unavailable`,
   `upstream_error`, `upstream_rate_limited`, `upstream_timeout`) ship as
@@ -141,6 +149,25 @@ so a client can tell which call failed without re-reading its own request.
 — e.g. `/paths` or `/paths/0` — whether the request was JSON, a query
 string, or multipart form: a caller only needs to know which field failed,
 addressed the same way regardless of wire format.
+
+**A 422 itemizes every problem, not just the first.** `WriteValidation`'s
+`errors[]` carries one `FieldError` per thing wrong with the request, and each
+`Pointer` follows the shape of the *request's own JSON*, not the stored
+model — so a caller can walk the array and mark every offending field at
+once, instead of fixing one, resubmitting, and discovering the next. The
+libraries filter validation is the worked example:
+`internal/libraryfilter.Validate` returns every issue across a `filters[]`
+array in one pass, each pointer rooted at the offending element —
+`/filters/1/values/0` for the first value of the second filter — and
+`libraries.validateFilters` (`app/router/handlers/libraries/libraries.go`)
+appends one more, `/show_artists`, when a hide-artists library's filters
+resolve to none. `POST /libraries/preview` (above) answers the identical
+`errors[]` shape for the same request-shaped reason: a candidate filter set
+can be wrong in more than one place before it is ever saved. It is the
+filters that itemize, not the whole payload: `libraries.validateDTO` answers
+the FIRST of `/name`, `/default_view` and `/icon` alone and returns before
+filters are looked at, and `libraryfilter.Validate` answers `/filters` alone
+when a request sends more than `MaxFilters` of them.
 
 **Status convention, confirmed across every handler:** `422` is
 `Writer.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,
@@ -250,12 +277,15 @@ a layering rule rather than a formatting one:
 - Everything the *request* needs in order to be processable is checked
   before any row is attempted, and a failure there is an ordinary
   problem+json rejection: malformed JSON or an invalid field combination
-  (`400`), a selection over `maxSelectionPaths` (`422`), an unknown library
-  (`404`), the `GetLibrary` lookup failing for any other reason (`500`).
+  (`400`), a missing `scan_folder` (`400`), a selection over
+  `maxSelectionPaths` (`422`), a scan folder that is not configured (`404`),
+  and, for `updateTracks`, a path outside the scan folder root (`400`, all
+  paths are resolved before any file is written).
   Those are the only non-2xx responses these endpoints produce.
 - Once the request is accepted the response is **always `200`**, whatever
   happened to the rows — one failed, some failed, or every one of them. A
-  per-file failure (unreadable, unwritable, outside the library root) is
+  per-file failure (unreadable, unwritable — and for `rawTags` only, outside
+  the scan folder root) is
   that row's `error`; it never escalates to a transport status, not even
   when the whole batch failed. `updateTracks` writes files incrementally,
   so "N of M written" is the true state of the system after the call, and a

@@ -1,16 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
-import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Message from 'primevue/message'
-import FolderPickerDialog from './FolderPickerDialog.vue'
 import IconSelect from '@/components/common/IconSelect.vue'
+import LibraryFilterBuilder from '@/components/admin/LibraryFilterBuilder.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
-import type { Library, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryFilter, LibraryInput } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
@@ -29,29 +28,53 @@ const emit = defineEmits<{
 
 interface FormState {
     name: string
-    path: string
-    excludesText: string
-    follow_symlinks: boolean
     show_artists: boolean
     default_view: 'albums' | 'artists'
     icon: string
+    filters: LibraryFilter[]
 }
 
 function emptyForm(): FormState {
     return {
         name: '',
-        path: '',
-        excludesText: '',
-        follow_symlinks: true,
         show_artists: true,
         default_view: 'albums',
-        icon: 'folder'
+        icon: 'folder',
+        filters: []
     }
 }
 
 const form = ref<FormState>(emptyForm())
-const initialPath = ref('')
-const pickerVisible = ref(false)
+
+// Whether the admin has edited the filters since the last failed submit — see
+// the errors-visibility comment below, by the `builderErrors` computed.
+const filtersTouchedSinceError = ref(false)
+
+// True while the builder's folder picker is open — see the builder's
+// `update:browsing` emit for why the Dialog below must then ignore Escape.
+const pickerOpen = ref(false)
+
+// True while the icon picker (a PrimeVue Popover) is open — and until the key
+// event that closed it has finished. A TRUSTED key press lets microtasks run
+// between the popover's own keydown handler and the document-level listeners,
+// and PrimeVue emits `hide` at the start of the leave: clearing this flag
+// synchronously would hand `closeOnEscape` back to the Dialog before the same
+// Escape reaches it. A macrotask cannot run mid-dispatch.
+const iconPickerOpen = ref(false)
+let iconPickerCloseTimer: ReturnType<typeof setTimeout> | undefined
+
+function onIconPickerOpenChange(open: boolean) {
+    clearTimeout(iconPickerCloseTimer)
+    if (open) {
+        iconPickerOpen.value = true
+        return
+    }
+    iconPickerCloseTimer = setTimeout(() => {
+        iconPickerOpen.value = false
+    }, 0)
+}
+
+onBeforeUnmount(() => clearTimeout(iconPickerCloseTimer))
 
 watch(
     () => [props.visible, props.library],
@@ -61,57 +84,92 @@ watch(
             const lib = props.library
             form.value = {
                 name: lib.name,
-                path: lib.path,
-                excludesText: (lib.exclude_patterns ?? []).join('\n'),
-                follow_symlinks: lib.follow_symlinks,
                 show_artists: lib.show_artists,
                 default_view: lib.default_view,
-                icon: lib.icon || 'folder'
+                icon: lib.icon || 'folder',
+                // Copied, never the vue-query cache's own arrays: editing (even
+                // abandoning an edit to) this form must not mutate objects other
+                // views are reading.
+                filters: lib.filters.map((f) => ({ field: f.field, values: [...f.values] }))
             }
-            initialPath.value = lib.path
         } else {
             form.value = emptyForm()
-            initialPath.value = ''
         }
+        // A freshly (re)opened dialog is a new editing session: any stale-error
+        // suppression left over from a previous visit no longer applies. The
+        // builder and the icon picker unmount with the dialog's content and so
+        // cannot report themselves closed on the way out; reset both here too.
+        filtersTouchedSinceError.value = false
+        pickerOpen.value = false
+        clearTimeout(iconPickerCloseTimer)
+        iconPickerOpen.value = false
     },
     { immediate: true }
 )
 
 const isEditMode = computed(() => props.library !== null)
-const pathChanged = computed(() => isEditMode.value && form.value.path !== initialPath.value)
 
 // A failed submit's per-field validation errors, keyed by the JSON Pointer the
-// backend names (validateDTO in the libraries handler): /name, /path,
-// /exclude_patterns, /default_view, /icon.
+// backend names (validateDTO in the libraries handler): /name, /default_view,
+// /icon, /show_artists, plus the /filters family (handled entirely by the
+// builder — see isFilterPointer below).
 const fieldErrors = computed(() => apiFieldErrorMap(props.error))
 const KNOWN_POINTERS = [
     '/name',
-    '/path',
-    '/exclude_patterns',
     '/default_view',
-    '/icon'
+    '/icon',
+    '/show_artists'
 ]
+
+function isFilterPointer(pointer: string): boolean {
+    return pointer === '/filters' || pointer.startsWith('/filters/')
+}
+
 // Any field error whose pointer we don't render inline (e.g. a future field) is
 // shown as a general message so a validation failure is never swallowed silently.
 const otherErrors = computed(() =>
     Object.entries(fieldErrors.value)
-        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer))
+        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer) && !isFilterPointer(pointer))
         .map(([, detail]) => detail)
 )
 
+// The server's /filters… pointers are POSITIONAL — they index the filters as
+// they were last SENT. If the admin edits the filters after a failed submit
+// (removes a row, changes a row's field or values), a leftover /filters… error
+// would attach to the wrong row, so it is hidden from the builder as soon as
+// that happens; it returns only with the next failed submit (a new `error`
+// prop, which resets the flag below). Errors of other fields are unaffected.
+watch(
+    () => props.error,
+    () => {
+        filtersTouchedSinceError.value = false
+    }
+)
+
+const builderErrors = computed<Record<string, string>>(() => {
+    if (!filtersTouchedSinceError.value) return fieldErrors.value
+    const out: Record<string, string> = {}
+    for (const [pointer, detail] of Object.entries(fieldErrors.value)) {
+        if (!isFilterPointer(pointer)) out[pointer] = detail
+    }
+    return out
+})
+
+function onFiltersUpdate(filters: LibraryFilter[]) {
+    form.value.filters = filters
+    filtersTouchedSinceError.value = true
+}
+
+// The dialog always sends `filters` exactly as the builder holds it: on an
+// update an absent key would keep the stored filters and `[]` would clear
+// them, so round-tripping precisely what is shown avoids that ambiguity.
 function buildInput(): LibraryInput {
-    const excludes = form.value.excludesText
-        .split('\n')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
     return {
         name: form.value.name.trim(),
-        path: form.value.path.trim(),
-        exclude_patterns: excludes,
-        follow_symlinks: form.value.follow_symlinks,
         show_artists: form.value.show_artists,
         default_view: form.value.default_view,
-        icon: form.value.icon
+        icon: form.value.icon,
+        filters: form.value.filters
     }
 }
 
@@ -136,7 +194,8 @@ const defaultViewOptions = [
         @update:visible="emit('update:visible', $event)"
         modal
         :header="isEditMode ? 'Edit Library' : 'Add Library'"
-        :style="{ width: '32rem' }"
+        :closeOnEscape="!pickerOpen && !iconPickerOpen"
+        :style="{ width: 'min(92vw, 44rem)' }"
     >
         <Message
             v-if="otherErrors.length"
@@ -150,8 +209,9 @@ const defaultViewOptions = [
         </Message>
 
         <div class="form-grid">
-            <label>Name</label>
+            <label for="library-name">Name</label>
             <InputText
+                id="library-name"
                 v-model="form.name"
                 placeholder="e.g. Main"
                 :invalid="!!fieldErrors['/name']"
@@ -166,40 +226,17 @@ const defaultViewOptions = [
                 {{ fieldErrors['/name'] }}
             </Message>
 
-            <label>Path</label>
-            <div class="path-row">
-                <InputText
-                    v-model="form.path"
-                    placeholder="/srv/music"
-                    :invalid="!!fieldErrors['/path']"
-                />
-                <Button
-                    icon="pi pi-folder-open"
-                    outlined
-                    aria-label="Browse server folders"
-                    @click="pickerVisible = true"
-                />
-            </div>
+            <label>Show artists</label>
+            <ToggleSwitch v-model="form.show_artists" :invalid="!!fieldErrors['/show_artists']" />
             <Message
-                v-if="fieldErrors['/path']"
+                v-if="fieldErrors['/show_artists']"
                 class="field-error"
                 severity="error"
                 size="small"
                 variant="simple"
             >
-                {{ fieldErrors['/path'] }}
+                {{ fieldErrors['/show_artists'] }}
             </Message>
-
-            <Message v-if="pathChanged" severity="warn" :closable="false">
-                Changing the path will wipe existing tracks under the old path.
-                The library will be empty until the next scan.
-            </Message>
-
-            <label>Follow symlinks</label>
-            <ToggleSwitch v-model="form.follow_symlinks" />
-
-            <label>Show artists</label>
-            <ToggleSwitch v-model="form.show_artists" />
 
             <label>Default view</label>
             <Select
@@ -220,7 +257,7 @@ const defaultViewOptions = [
             </Message>
 
             <label>Icon</label>
-            <IconSelect v-model="form.icon" />
+            <IconSelect v-model="form.icon" @update:open="onIconPickerOpenChange" />
             <Message
                 v-if="fieldErrors['/icon']"
                 class="field-error"
@@ -230,23 +267,19 @@ const defaultViewOptions = [
             >
                 {{ fieldErrors['/icon'] }}
             </Message>
+        </div>
 
-            <label>Exclude patterns</label>
-            <Textarea
-                v-model="form.excludesText"
-                rows="4"
-                placeholder="One Go regex per line"
-                :invalid="!!fieldErrors['/exclude_patterns']"
+        <div class="filters-section">
+            <label class="filters-heading">Filters</label>
+            <LibraryFilterBuilder
+                :modelValue="form.filters"
+                :errors="builderErrors"
+                @update:modelValue="onFiltersUpdate"
+                @update:browsing="pickerOpen = $event"
             />
-            <Message
-                v-if="fieldErrors['/exclude_patterns']"
-                class="field-error"
-                severity="error"
-                size="small"
-                variant="simple"
-            >
-                {{ fieldErrors['/exclude_patterns'] }}
-            </Message>
+            <p class="filters-help">
+                Filters narrow the library: every filter must match; inside one filter any value may.
+            </p>
         </div>
 
         <template #footer>
@@ -257,11 +290,6 @@ const defaultViewOptions = [
                 @click="onSubmit"
             />
         </template>
-
-        <FolderPickerDialog
-            v-model:visible="pickerVisible"
-            @select="form.path = $event"
-        />
     </Dialog>
 </template>
 
@@ -278,13 +306,6 @@ const defaultViewOptions = [
 .form-grid > .p-message {
     grid-column: 2 / 3;
 }
-.path-row {
-    display: flex;
-    gap: 0.5rem;
-}
-.path-row .p-inputtext {
-    flex: 1;
-}
 .field-error {
     grid-column: 2 / 3;
     margin-top: -0.25rem;
@@ -295,5 +316,19 @@ const defaultViewOptions = [
 .form-error-list {
     margin: 0;
     padding-left: 1.1rem;
+}
+.filters-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+}
+.filters-heading {
+    font-weight: 500;
+}
+.filters-help {
+    color: var(--app-text-secondary);
+    font-size: 0.85rem;
+    margin: 0;
 }
 </style>

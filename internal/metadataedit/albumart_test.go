@@ -118,7 +118,7 @@ func TestResolveAlbum_EmptyInputErrors(t *testing.T) {
 }
 
 // TestResolveAlbum_SkipsUnresolvableEntries confirms a paths[] entry that
-// fails to resolve (absolute, or escaping the library root) is dropped, not
+// fails to resolve (absolute, or escaping the scan folder root) is dropped, not
 // fatal: the rest of the selection still resolves and ResolveAlbum returns
 // no error. This is the lenient behaviour selectionPaths/selectionDirs had
 // before this Album replaced them — regression coverage for a Task 1 review
@@ -131,8 +131,8 @@ func TestResolveAlbum_SkipsUnresolvableEntries(t *testing.T) {
 
 	al, err := metadataedit.ResolveAlbum(root, []string{
 		"album/01.flac", // valid
-		"/etc/passwd",   // absolute: rejected by ResolveInLibrary
-		"../outside",    // escapes the library root
+		"/etc/passwd",   // absolute: rejected by ResolveInRoot
+		"../outside",    // escapes the scan folder root
 	})
 	if err != nil {
 		t.Fatalf("ResolveAlbum returned an error for a partially-invalid selection: %v", err)
@@ -307,7 +307,7 @@ func TestDecodeSource_RejectsTraversal(t *testing.T) {
 	root := t.TempDir()
 	q := metadataedit.Source{RelPath: "../outside", Slot: "folder", TypeID: "Front Cover"}.Values()
 	if _, _, err := metadataedit.DecodeSource(root, q); err == nil {
-		t.Fatal("expected an error for a path escaping the library root")
+		t.Fatal("expected an error for a path escaping the scan folder root")
 	}
 }
 

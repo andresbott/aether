@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/store"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/tags"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/go-bumbu/http/problemjson"
@@ -28,11 +28,12 @@ const defaultIdentifyUnavailableReason = "audio identification is not available 
 // IdentifyHandler serves the acoustic-identification endpoints of the metadata
 // editor: per-file identify, album identify, and the capabilities probe that
 // reports whether identification is available. It reads files (Reader, for the
-// album-identify ranking hints) and resolves selections against the library
-// store, but never writes — so it carries no reindexer.
+// album-identify ranking hints) and resolves selections against the configured
+// scan folders, but never writes — so it carries no reindexer.
 type IdentifyHandler struct {
-	Store  *store.Store
-	Reader tags.Reader
+	// Folders is the set of configured scan folders the editor can address.
+	Folders *scanfolder.Set
+	Reader  tags.Reader
 	// Identifier is optional: nil disables the identify endpoint and is
 	// reported through /metadata/capabilities.
 	Identifier IdentifyService
@@ -70,8 +71,8 @@ func (h *IdentifyHandler) capabilities(w http.ResponseWriter, _ *http.Request) {
 }
 
 type identifyRequest struct {
-	LibraryID uint     `json:"library_id"`
-	Paths     []string `json:"paths"`
+	ScanFolder string   `json:"scan_folder"`
+	Paths      []string `json:"paths"`
 }
 
 type identifyArtistDTO struct {
@@ -117,7 +118,7 @@ func (h *IdentifyHandler) identify(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid JSON: "+err.Error())
 		return
 	}
-	libModel, ok := resolveSelection(h.Store, w, r, body.LibraryID, body.Paths, 1, h.Problems)
+	folder, ok := resolveSelection(h.Folders, w, r, body.ScanFolder, body.Paths, 1, h.Problems)
 	if !ok {
 		return
 	}
@@ -127,7 +128,7 @@ func (h *IdentifyHandler) identify(w http.ResponseWriter, r *http.Request) {
 	// are reported per row, not as a request failure.
 	results := make([]identifyResultDTO, 0, len(body.Paths))
 	for _, p := range body.Paths {
-		abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, p)
+		abs, rerr := metadataedit.ResolveInRoot(folder.Path, p)
 		if rerr != nil {
 			results = append(results, identifyResultDTO{Path: p, Candidates: []identifyCandidateDTO{}, Error: rerr.Error()})
 			continue

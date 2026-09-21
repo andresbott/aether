@@ -25,7 +25,7 @@ func newStarFixture(t *testing.T) starFixture {
 	t.Helper()
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Lib", Path: "/l"})
+	db.Create(&model.Library{Name: "Lib", Filters: scanFolderFilter("Lib")})
 
 	f := starFixture{store: s, at: time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)}
 	f.artist = model.Artist{Name: "Starred Artist", NameNorm: "starred artist"}
@@ -40,8 +40,8 @@ func newStarFixture(t *testing.T) starFixture {
 	_ = db.Model(&f.album).Association("Artists").Replace([]*model.Artist{&f.artist})
 	_ = db.Model(&f.album2).Association("Artists").Replace([]*model.Artist{&f.artist2})
 
-	f.track = model.Track{AlbumID: f.album.ID, LibraryID: 1, Filename: "1.mp3", FilePath: "/l/1.mp3", Title: "Starred Song", TrackNumber: 1}
-	f.track2 = model.Track{AlbumID: f.album.ID, LibraryID: 1, Filename: "2.mp3", FilePath: "/l/2.mp3", Title: "Plain Song", TrackNumber: 2}
+	f.track = model.Track{AlbumID: f.album.ID, ScanFolder: "Lib", Filename: "1.mp3", FilePath: "/l/1.mp3", Title: "Starred Song", TrackNumber: 1}
+	f.track2 = model.Track{AlbumID: f.album.ID, ScanFolder: "Lib", Filename: "2.mp3", FilePath: "/l/2.mp3", Title: "Plain Song", TrackNumber: 2}
 	db.Create(&f.track)
 	db.Create(&f.track2)
 	_ = db.Model(&f.track).Association("Artists").Replace([]*model.Artist{&f.artist})
@@ -358,7 +358,7 @@ func TestGetStarred2EnrichesAlbumsAndArtists(t *testing.T) {
 func TestGetStarred2ScopesByLibrary(t *testing.T) {
 	f := newStarFixture(t)
 	db := f.store.DB()
-	db.Create(&model.Library{Name: "Other", Path: "/o"})
+	db.Create(&model.Library{Name: "Other", Filters: scanFolderFilter("Other")})
 	// album2 is starred but has no tracks at all, so no library claims it.
 	db.Create(&model.StarredItem{Owner: "admin", ItemType: "album", ItemID: f.album2.ID, CreatedAt: f.at})
 

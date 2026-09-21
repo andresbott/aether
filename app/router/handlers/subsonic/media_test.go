@@ -203,7 +203,7 @@ func TestGetCoverArtSetsNoCacheHeader(t *testing.T) {
 }
 
 // newGuardedTestServer registers /rest with the media path guard restricted to
-// the given roots, standing in for the configured libraries.
+// the given roots, standing in for the configured scan folders.
 func newGuardedTestServer(t *testing.T, s *store.Store, roots ...string) *httptest.Server {
 	t.Helper()
 	r := mux.NewRouter()
@@ -212,18 +212,18 @@ func newGuardedTestServer(t *testing.T, s *store.Store, roots ...string) *httpte
 	return httptest.NewServer(r)
 }
 
-// A track row whose file_path points outside every configured library must not be
+// A track row whose file_path points outside every configured scan folder must not be
 // served. Nothing in the request supplies that path — it comes from the DB — so
 // this is the enforcement of an assumption the //nolint:gosec on the file open
 // previously only asserted: a stale row or a metadata-editor bug is enough to
 // name any file the server process can read.
-func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
+func TestStreamRefusesFileOutsideEveryScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	secret := filepath.Join(base, "secret.env")
@@ -240,7 +240,7 @@ func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
@@ -253,18 +253,18 @@ func TestStreamRefusesFileOutsideEveryLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(body), "hunter2") {
-		t.Fatal("stream served a file outside every library root")
+		t.Fatal("stream served a file outside every scan folder root")
 	}
 }
 
 // The guard must not break the normal case: a track inside a configured root
 // streams as before.
-func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
+func TestStreamServesFileInsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
-	song := filepath.Join(libRoot, "a.mp3")
+	root := t.TempDir()
+	song := filepath.Join(root, "a.mp3")
 	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestStreamServesFileInsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
@@ -306,8 +306,8 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
-	song := filepath.Join(libRoot, "a.mp3")
+	root := t.TempDir()
+	song := filepath.Join(root, "a.mp3")
 	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	// A radio-station id whose number matches the track must not serve the track.
@@ -346,19 +346,19 @@ func TestStreamRejectsNonTrackID(t *testing.T) {
 	}
 }
 
-// An album cover_path outside every library root is the same defect on the cover
+// An album cover_path outside every scan folder root is the same defect on the cover
 // path: the bytes of an arbitrary file would be re-encoded into a JPEG and
 // served. The request must fall through to the generated cover instead.
-func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtRefusesCoverPathOutsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	// A real PNG living outside the library: if the guard is missing, its 4x4
+	// A real PNG living outside every scan folder: if the guard is missing, its 4x4
 	// dimensions come back instead of the 256px generated cover.
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
@@ -374,7 +374,7 @@ func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -387,25 +387,25 @@ func TestGetCoverArtRefusesCoverPathOutsideLibraryRoot(t *testing.T) {
 	}
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width == 4 {
-		t.Fatal("served a derivative of a file outside every library root")
+		t.Fatal("served a derivative of a file outside every scan folder root")
 	}
 	if cfg.Width != 256 {
 		t.Errorf("served width %d, want the 256px generated cover", cfg.Width)
 	}
 }
 
-// A cover file inside the library must still be served — the guard is about
+// A cover file inside the scan folder must still be served — the guard is about
 // provenance, not about disabling folder covers.
-func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtServesCoverPathInsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
-	libRoot := t.TempDir()
+	root := t.TempDir()
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 4))); err != nil {
 		t.Fatal(err)
 	}
-	cover := filepath.Join(libRoot, "cover.png")
+	cover := filepath.Join(root, "cover.png")
 	if err := os.WriteFile(cover, buf.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +415,7 @@ func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -429,23 +429,23 @@ func TestGetCoverArtServesCoverPathInsideLibraryRoot(t *testing.T) {
 	// Never upscaled, so 4x4 proves the real cover was used, not the generated one.
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width != 4 {
-		t.Errorf("served width %d, want 4 (a derivative of the in-library cover)", cfg.Width)
+		t.Errorf("served width %d, want 4 (a derivative of the cover inside the scan folder)", cfg.Width)
 	}
 }
 
 // An album's embedded-cover source is an audio file path from the DB too, so it
 // needs the same containment check as cover_path.
-func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
+func TestGetCoverArtRefusesEmbeddedSourceOutsideScanFolderRoot(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
 	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
+	root := filepath.Join(base, "music")
+	if err := os.MkdirAll(root, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	// A real audio file with a real embedded front cover, living outside the
-	// library: its distinctive 2:1 shape is what proves whether it was read.
+	// scan folder: its distinctive 2:1 shape is what proves whether it was read.
 	outside := embeddedFixture(t, base, "outside.flac",
 		embeddedPic{"Front Cover", realPNG(t, 300, 150)})
 
@@ -458,7 +458,7 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	srv := newGuardedTestServer(t, s, libRoot)
+	srv := newGuardedTestServer(t, s, root)
 	defer srv.Close()
 
 	resp, err := http.Get(fmt.Sprintf("%s/rest/getCoverArt.view?id=al-%d&size=256", srv.URL, album.ID))
@@ -469,21 +469,22 @@ func TestGetCoverArtRefusesEmbeddedSourceOutsideLibraryRoot(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (the generated cover)", resp.StatusCode)
 	}
-	// Generated covers are square; the out-of-library fixture's art is 2:1, so
+	// Generated covers are square; the out-of-scan-folder fixture's art is 2:1, so
 	// the aspect ratio says which source was actually read regardless of the
 	// size bucket the derivative was scaled into.
 	cfg, _ := decodeServedCover(t, resp)
 	if cfg.Width != cfg.Height {
-		t.Fatalf("served a %dx%d (non-square) cover: the embedded art of a file outside every library root was read", cfg.Width, cfg.Height)
+		t.Fatalf("served a %dx%d (non-square) cover: the embedded art of a file outside every scan folder root was read", cfg.Width, cfg.Height)
 	}
 }
 
 // A manually uploaded cover lives in aether's own asset store, under the data
-// dir and therefore outside every library root by construction. The library
-// guard is about paths that came out of the DB naming user media, so applying it
-// to the asset store would silently fall every upload through to the generated
-// cover. Covers all the entities whose covers can be uploaded through the UI.
-func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
+// dir and therefore outside every scan folder root by construction. The media
+// guard is about paths that came out of the DB naming user media, so applying
+// it to the asset store would silently fall every upload through to the
+// generated cover. Covers all the entities whose covers can be uploaded
+// through the UI.
+func TestGetCoverArtServesUploadedCoverWithMediaGuard(t *testing.T) {
 	// seed stores a 4x4 upload for one entity kind and returns its cover-art id.
 	tests := []struct {
 		name string
@@ -534,14 +535,12 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testStore(t)
-			if err := s.CreateLibrary(&model.Library{Name: "L", Path: t.TempDir()}); err != nil {
-				t.Fatal(err)
-			}
+			root := t.TempDir()
 			as := assetstore.New(t.TempDir())
 			id := tc.seed(t, s, as)
 
 			r := mux.NewRouter()
-			Register(r, s, as, imagecache.New(t.TempDir()), nil, WithLibraryRoots(s.LibraryRoots))
+			Register(r, s, as, imagecache.New(t.TempDir()), nil, WithMediaRoots(root))
 			srv := httptest.NewServer(r)
 			defer srv.Close()
 
@@ -557,7 +556,7 @@ func TestGetCoverArtServesUploadedCoverWithLibraryGuard(t *testing.T) {
 			// rather than the 256px generated fallback.
 			cfg, _ := decodeServedCover(t, resp)
 			if cfg.Width != uploadEdge {
-				t.Errorf("served width %d, want %d: the uploaded cover was refused by the library guard", cfg.Width, uploadEdge)
+				t.Errorf("served width %d, want %d: the uploaded cover was refused by the media guard", cfg.Width, uploadEdge)
 			}
 		})
 	}
@@ -574,10 +573,67 @@ func putUpload(t *testing.T, as *assetstore.Store, kind, key string) {
 	}
 }
 
-// With no roots configured the guard is not installed at all — auth method
-// "none" style single-user setups and every existing test construct the handler
-// that way, and a server with no libraries yet must not 404 its own covers.
-func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
+// Giving the option with no roots is what production does when no scan folder is
+// configured. It must deny, not disable the check: the index can be populated
+// (an old config key that is now ignored leaves it alone), and every row in it
+// names a file the server process can read.
+func TestMediaGuardDeniesEverythingWhenGivenNoRoots(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+
+	song := filepath.Join(t.TempDir(), "a.mp3")
+	if err := os.WriteFile(song, []byte("song-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
+	if err := db.Create(&album).Error; err != nil {
+		t.Fatal(err)
+	}
+	track := model.Track{AlbumID: album.ID, Filename: "a.mp3", FilePath: song}
+	if err := db.Create(&track).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for name, roots := range map[string][]string{"none": nil, "only blank": {"", ""}} {
+		t.Run(name, func(t *testing.T) {
+			srv := newGuardedTestServer(t, s, roots...)
+			defer srv.Close()
+
+			resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?f=json&id=tr-%d", srv.URL, track.ID))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(body), "song-bytes") {
+				t.Fatal("the file was served although no root allows it")
+			}
+			var parsed struct {
+				SubsonicResponse struct {
+					Status string `json:"status"`
+					Error  *struct {
+						Code int `json:"code"`
+					} `json:"error"`
+				} `json:"subsonic-response"`
+			}
+			if err := json.Unmarshal(body, &parsed); err != nil {
+				t.Fatalf("bad body %q: %v", body, err)
+			}
+			if parsed.SubsonicResponse.Error == nil || parsed.SubsonicResponse.Error.Code != 70 {
+				t.Fatalf("want a Subsonic not-found (code 70), got %s", body)
+			}
+		})
+	}
+}
+
+// Registering /rest WITHOUT WithMediaRoots installs no guard. That is the seam
+// this package's tests build on (most of them serve files from t.TempDir() with
+// no roots to declare); production always gives the option — see router.New —
+// and giving it with no roots denies everything (the test above).
+func TestNoMediaGuardWithoutTheOption(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 
@@ -603,112 +659,7 @@ func TestMediaGuardAbsentWhenNoRootsConfigured(t *testing.T) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200 with no guard configured", resp.StatusCode)
-	}
-}
-
-// Libraries are created at runtime through the settings UI, so the guard cannot
-// be a snapshot taken at registration: a library added afterwards must have its
-// files served without restarting the server.
-func TestMediaGuardPicksUpLibrariesAddedAfterRegistration(t *testing.T) {
-	s := testStore(t)
-	db := s.DB()
-
-	firstRoot := t.TempDir()
-	if err := s.CreateLibrary(&model.Library{Name: "First", Path: firstRoot}); err != nil {
-		t.Fatal(err)
-	}
-
-	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
-		WithLibraryRoots(s.LibraryRoots))
-	srv := httptest.NewServer(r)
-	defer srv.Close()
-
-	// Now a second library appears, with a track in it.
-	lateRoot := t.TempDir()
-	if err := s.CreateLibrary(&model.Library{Name: "Late", Path: lateRoot}); err != nil {
-		t.Fatal(err)
-	}
-	song := filepath.Join(lateRoot, "late.mp3")
-	if err := os.WriteFile(song, []byte("late-bytes"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
-	if err := db.Create(&album).Error; err != nil {
-		t.Fatal(err)
-	}
-	track := model.Track{AlbumID: album.ID, Filename: "late.mp3", FilePath: song}
-	if err := db.Create(&track).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200: a library added after registration must be served", resp.StatusCode)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "late-bytes" {
-		t.Errorf("served %q, want the newly added library's file", body)
-	}
-}
-
-// The dynamic guard must still refuse: a path outside every library, however many
-// times the root set is refreshed, stays refused.
-func TestMediaGuardWithLibraryRootsStillRefusesOutsidePaths(t *testing.T) {
-	s := testStore(t)
-	db := s.DB()
-
-	base := t.TempDir()
-	libRoot := filepath.Join(base, "music")
-	if err := os.MkdirAll(libRoot, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CreateLibrary(&model.Library{Name: "L", Path: libRoot}); err != nil {
-		t.Fatal(err)
-	}
-	secret := filepath.Join(base, "secret.env")
-	if err := os.WriteFile(secret, []byte("DB_PASSWORD=hunter2"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	album := model.Album{Name: "X", NameNorm: "x", AlbumArtistNorm: "y"}
-	if err := db.Create(&album).Error; err != nil {
-		t.Fatal(err)
-	}
-	track := model.Track{AlbumID: album.ID, Filename: "secret.env", FilePath: secret}
-	if err := db.Create(&track).Error; err != nil {
-		t.Fatal(err)
-	}
-
-	r := mux.NewRouter()
-	Register(r, s, assetstore.New(t.TempDir()), imagecache.New(t.TempDir()), nil,
-		WithLibraryRoots(s.LibraryRoots))
-	srv := httptest.NewServer(r)
-	defer srv.Close()
-
-	// Twice: the second request exercises the path where the root set has already
-	// been refreshed once, which must not turn into an allow.
-	for i := range 2 {
-		resp, err := http.Get(fmt.Sprintf("%s/rest/stream.view?id=tr-%d", srv.URL, track.ID))
-		if err != nil {
-			t.Fatal(err)
-		}
-		body, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(body), "hunter2") {
-			t.Fatalf("request %d served a file outside every library root", i+1)
-		}
+		t.Fatalf("status = %d, want 200 when the option is not given", resp.StatusCode)
 	}
 }
 

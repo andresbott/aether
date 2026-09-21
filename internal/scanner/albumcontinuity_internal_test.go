@@ -257,10 +257,9 @@ func seedAlbum(t *testing.T, st *store.Store, ident store.AlbumIdentity, trackCo
 	}
 	for i := 0; i < trackCount; i++ {
 		track := &model.Track{
-			AlbumID:   album.ID,
-			LibraryID: 1,
-			Filename:  "t.mp3",
-			FilePath:  t.Name() + "/" + ident.NameNorm + "/" + string(rune('a'+i)) + ".mp3",
+			AlbumID:  album.ID,
+			Filename: "t.mp3",
+			FilePath: t.Name() + "/" + ident.NameNorm + "/" + string(rune('a'+i)) + ".mp3",
 		}
 		if err := st.DB().Create(track).Error; err != nil {
 			t.Fatal(err)

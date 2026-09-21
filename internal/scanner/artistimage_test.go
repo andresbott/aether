@@ -10,6 +10,7 @@ import (
 	"github.com/andresbott/aether/internal/assetkey"
 	"github.com/andresbott/aether/internal/assetstore"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/tags"
 )
@@ -51,9 +52,9 @@ func TestScannerRecordsArtistFolderImage(t *testing.T) {
 		"Test Artist/Album One/cover.jpg",
 		"Test Artist/artist.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestScannerRecordsArtistFolderImage(t *testing.T) {
 	}
 }
 
-// A library that is not laid out as <collection>/<artist>/<album> must leave
+// A collection that is not laid out as <collection>/<artist>/<album> must leave
 // ImagePath empty rather than adopt the album's own folder image.
 func TestScannerLeavesArtistImageEmptyWithoutArtistFolder(t *testing.T) {
 	st := testScanStore(t)
@@ -77,9 +78,9 @@ func TestScannerLeavesArtistImageEmptyWithoutArtistFolder(t *testing.T) {
 		"Album One/01.mp3",
 		"Album One/folder.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -101,9 +102,9 @@ func TestScannerClearsStaleArtistImagePath(t *testing.T) {
 		"Test Artist/Album One/01.mp3",
 		"Test Artist/artist.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +126,7 @@ func TestScannerClearsStaleArtistImagePath(t *testing.T) {
 
 // An artist-folder image already on record is KEPT, not cleared, when a later
 // run detects nothing but the recorded file still exists (another directory or
-// library layout supplied it). Here an incremental scan only re-processes a new
+// collection layout supplied it). Here an incremental scan only re-processes a new
 // track that lives outside any artist folder, so this run's detection is empty
 // while the original artist.jpg is untouched on disk.
 func TestScannerKeepsUsableArtistImageWhenRunDetectsNothing(t *testing.T) {
@@ -135,9 +136,9 @@ func TestScannerKeepsUsableArtistImageWhenRunDetectsNothing(t *testing.T) {
 		"Test Artist/Album One/01.mp3",
 		"Test Artist/artist.jpg",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
-	s := scanner.New(scanner.Config{}, st, fakeTagReader{})
+	s := newScanner(t, st, fakeTagReader{}, folder)
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,12 +179,16 @@ func TestReconcileRekeysArtistImagesWhenTheArtistGainsAnMBID(t *testing.T) {
 	createTestFiles(t, dir, []string{
 		"Nirvana/Nevermind/01.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	// Initial scan: artist has no MBID.
 	reader := &mbidGainReader{mbid: ""}
 	assets := assetstore.New(assetRoot)
-	cfg := scanner.Config{AssetRekeyer: assets}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := scanner.Config{AssetRekeyer: assets, Folders: set}
 	s := scanner.New(cfg, st, reader)
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -280,12 +285,16 @@ func TestReconcileToleratesMalformedMBIDWhereKeysCoincide(t *testing.T) {
 	createTestFiles(t, dir, []string{
 		"Muse/Absolution/01.mp3",
 	})
-	seedLibrary(t, st, dir, nil)
+	folder := seedFolder(dir, nil)
 
 	// Initial scan: artist has no MBID.
 	reader := &mbidGainReader{mbid: ""}
 	assets := assetstore.New(assetRoot)
-	cfg := scanner.Config{AssetRekeyer: assets}
+	set, err := scanfolder.NewSet([]scanfolder.Folder{folder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := scanner.Config{AssetRekeyer: assets, Folders: set}
 	s := scanner.New(cfg, st, reader)
 
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
@@ -307,7 +316,7 @@ func TestReconcileToleratesMalformedMBIDWhereKeysCoincide(t *testing.T) {
 	// assetkey.Artist will fall back to hashing, so old and new keys are equal.
 	// Wrap assets in a recording decorator to verify the hook ran.
 	recorder := &recordingRekeyer{delegate: assets}
-	s = scanner.New(scanner.Config{AssetRekeyer: recorder}, st, reader)
+	s = scanner.New(scanner.Config{AssetRekeyer: recorder, Folders: set}, st, reader)
 	reader.mbid = "malformed/mbid"
 	if _, err := s.Scan(context.Background(), scanner.ScanOptions{IsFull: true}); err != nil {
 		t.Fatal(err)

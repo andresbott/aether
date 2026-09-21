@@ -41,3 +41,11 @@ libs/covergen/allstyles/testdata/text/*.png
 
 libs/covergen/svg/candidates/*
 !libs/covergen/svg/candidates/.gitkeep
+
+# Local dev music library, scanned by `make run` (see zarf/localdata/config.yaml)
+zarf/locallibrary/*
+!zarf/locallibrary/.gitkeep
+
+# Local dev config + data dir used by `make run`; only the config is tracked
+zarf/localdata/*
+!zarf/localdata/config.yaml

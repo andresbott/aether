@@ -9,7 +9,7 @@ import AlbumGrid from '@/components/library/AlbumGrid.vue'
 import ArtistListView from '@/components/library/ArtistListView.vue'
 import ArtistGrid from '@/components/library/ArtistGrid.vue'
 import DiscoveryFeed from '@/components/library/DiscoveryFeed.vue'
-import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import { useMusicFolders, useReleaseTypes } from '@/composables/useSubsonicQueries'
 import { useAlbumIndex } from '@/composables/useAlbumIndex'
 import { useArtistTable } from '@/composables/useArtistTable'
 import { useStarredAlbums, useStarredArtists } from '@/composables/useStarred'
@@ -110,10 +110,6 @@ const RELEASE_TYPE_LABELS: Record<string, string> = {
     Broadcast: 'Broadcast',
     Other: 'Other'
 }
-const releaseTypeOptions = [
-    { label: 'All', value: '' },
-    ...PRIMARY_RELEASE_TYPES.map((t) => ({ label: RELEASE_TYPE_LABELS[t], value: t }))
-]
 
 // In the URL so it is linkable and reload-safe. '' means All. Only meaningful in
 // Releases mode; forced to '' elsewhere and while favorites is on.
@@ -132,6 +128,29 @@ const releaseType = computed<string>({
 })
 // '' → undefined so the "no filter" cache key matches unfiltered fetches.
 const releaseTypeParam = computed<string | undefined>(() => releaseType.value || undefined)
+
+// A type no album in this library carries would only ever list nothing, so its
+// tab is not offered. Until the carried types arrive, or if they cannot be
+// fetched, every type is offered as before. The active type is always kept, so a
+// linked or stale ?releaseType= still shows which filter is on and can be left.
+// Types compare case-insensitively, as the server's filter matches them.
+const { data: carriedReleaseTypes } = useReleaseTypes(folderId, {
+    enabled: computed(() => viewMode.value === 'releases')
+})
+const releaseTypeOptions = computed(() => {
+    const carried = carriedReleaseTypes.value
+        ? new Set(carriedReleaseTypes.value.map((t) => t.name.toLowerCase()))
+        : null
+    const active = releaseType.value.toLowerCase()
+    const offered = PRIMARY_RELEASE_TYPES.filter((t) => {
+        const key = t.toLowerCase()
+        return !carried || carried.has(key) || key === active
+    })
+    return [
+        { label: 'All', value: '' },
+        ...offered.map((t) => ({ label: RELEASE_TYPE_LABELS[t], value: t }))
+    ]
+})
 
 // Header counts — only the active tab's ACTIVE SOURCE is fetched, so the count
 // never costs a request the body isn't already making (the pairs share a query
@@ -182,9 +201,11 @@ const summary = computed(() => {
         <template #actions>
             <!-- Both controls here narrow WHAT is listed (the mode itself is
                  switched from the sidebar), so they read left-to-right as one
-                 filter group: release type first, then favorites. -->
+                 filter group: release type first, then favorites. A lone "All"
+                 (no typed release in this library) narrows nothing, so the
+                 release-type row is dropped rather than shown with one tab. -->
             <SelectButton
-                v-if="viewMode === 'releases' && !favoritesOnly"
+                v-if="viewMode === 'releases' && !favoritesOnly && releaseTypeOptions.length > 1"
                 v-model="releaseType"
                 :options="releaseTypeOptions"
                 optionLabel="label"

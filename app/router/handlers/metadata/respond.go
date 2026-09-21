@@ -14,7 +14,7 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 // codeFor maps an HTTP status to the error code used in the problem body of the
-// non-selection endpoints (the ones that resolve a library from the query
+// non-selection endpoints (the ones that resolve a scan folder from the query
 // string rather than through resolveSelection).
 func codeFor(status int) string {
 	switch status {

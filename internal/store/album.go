@@ -66,7 +66,7 @@ type AlbumListFilter struct {
 	Genre       string
 	FromYear    int
 	ToYear      int
-	LibraryID   *uint
+	Scope       TrackScope
 	Owner       string
 	ReleaseType string
 }
@@ -74,8 +74,8 @@ type AlbumListFilter struct {
 func (s *Store) GetAlbumList(listType string, size, offset int, filter *AlbumListFilter) ([]model.Album, error) {
 	q := s.db.Model(&model.Album{}).Preload("Artists").Preload("Genres")
 
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	if filter != nil && filter.ReleaseType != "" {
 		q = q.Where(
@@ -145,12 +145,12 @@ type AlbumLetter struct {
 }
 
 // GetAlbumLetterIndex returns per-letter offsets/counts for the alphabeticalByName
-// album ordering (same LibraryID filter and name_norm ASC order as GetAlbumList),
+// album ordering (same Scope filter and name_norm ASC order as GetAlbumList),
 // plus the total album count. Non-alphabetic first chars bucket under "#".
 func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int, error) {
 	q := s.db.Model(&model.Album{})
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	if filter != nil && filter.ReleaseType != "" {
 		q = q.Where(
@@ -191,6 +191,32 @@ func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int
 	return letters, running, nil
 }
 
+// ReleaseTypeCount is one release type the albums in a scope carry, and how
+// many of them carry it.
+type ReleaseTypeCount struct {
+	Name       string
+	AlbumCount int
+}
+
+// ReleaseTypeCounts lists the release types the albums in the scope carry, each
+// with its album count: the values an AlbumListFilter.ReleaseType can select,
+// and how many albums each selects. Types are grouped case-insensitively, as
+// that filter matches them, and named by the group's first spelling in binary
+// order ("Album" over "album"). Ordered by name; blank types are skipped.
+func (s *Store) ReleaseTypeCounts(sc TrackScope) ([]ReleaseTypeCount, error) {
+	var out []ReleaseTypeCount
+	// rt.type = 'text' skips what a nil slice serializes to: the JSON literal
+	// null, which json_each yields as one row whose value is NULL.
+	err := scopeByAlbum(s.db.Model(&model.Album{}), sc, "albums.id").
+		Joins("JOIN json_each(albums.release_types) rt").
+		Where("rt.type = 'text' AND TRIM(rt.value) <> ''").
+		Select("MIN(rt.value) AS name, COUNT(DISTINCT albums.id) AS album_count").
+		Group("LOWER(rt.value)").
+		Order("LOWER(rt.value)").
+		Scan(&out).Error
+	return out, err
+}
+
 // AlbumTrackStat holds aggregate track figures for one album.
 type AlbumTrackStat struct {
 	AlbumID  uint
@@ -224,8 +250,8 @@ func (s *Store) SearchAlbums(query string, count, offset int, filter *SearchFilt
 	q := s.db.
 		Preload("Artists").
 		Where("name_norm LIKE ?", "%"+norm+"%")
-	if filter != nil && filter.LibraryID != nil {
-		q = q.Where("EXISTS (SELECT 1 FROM tracks WHERE tracks.album_id = albums.id AND tracks.library_id = ?)", *filter.LibraryID)
+	if filter != nil {
+		q = scopeByAlbum(q, filter.Scope, "albums.id")
 	}
 	var albums []model.Album
 	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&albums).Error

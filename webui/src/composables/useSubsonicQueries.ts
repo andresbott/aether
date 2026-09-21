@@ -37,6 +37,8 @@ export const queryKeys = {
     albumListAll: ['subsonic', 'albumList'] as const,
     albumIndex: (musicFolderId?: number, releaseType?: string) =>
         ['subsonic', 'albumIndex', musicFolderId, releaseType] as const,
+    releaseTypes: (musicFolderId?: number) =>
+        ['subsonic', 'releaseTypes', musicFolderId] as const,
     album: (id: string) => ['subsonic', 'album', id] as const,
     artist: (id: string) => ['subsonic', 'artist', id] as const,
     // The requested per-type counts are part of the key, not just the term: a
@@ -168,6 +170,21 @@ export function useGenres() {
         queryKey: queryKeys.genres,
         queryFn: () => subsonicClient.getGenres(),
         staleTime: 5 * 60 * 1000
+    })
+}
+
+// The release types the albums in a library (or the whole catalog) carry. Kept
+// under the 'subsonic' prefix, so a metadata write or a library edit — which
+// invalidate that whole prefix — refreshes it with the album lists.
+export function useReleaseTypes(
+    musicFolderId: MaybeRefOrGetter<number | undefined>,
+    options?: { enabled?: MaybeRefOrGetter<boolean> }
+) {
+    return useQuery({
+        queryKey: computed(() => queryKeys.releaseTypes(toValue(musicFolderId))),
+        queryFn: () => subsonicClient.getReleaseTypes(toValue(musicFolderId)),
+        staleTime: 2 * 60 * 1000,
+        enabled: options?.enabled
     })
 }
 

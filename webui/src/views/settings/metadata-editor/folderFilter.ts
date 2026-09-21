@@ -9,7 +9,7 @@ export interface FilteredFolderTree {
 }
 
 // buildFilteredFolderTree turns the flat list of matching folders returned by
-// searchFolders (each a full library-relative, forward-slash path) into a nested
+// searchFolders (each a full forward-slash path relative to the scan folder) into a nested
 // tree that shows only the branches leading to a match. Ancestors that did not
 // themselves match are synthesized as structural nodes so the match is
 // reachable; `data.match` flags the folders that actually matched (for

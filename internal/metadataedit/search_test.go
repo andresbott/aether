@@ -17,7 +17,7 @@ func paths(folders []metadataedit.Folder) []string {
 	return out
 }
 
-// searchTree builds a small library tree with nested folders whose names are
+// searchTree builds a small directory tree with nested folders whose names are
 // what the search matches against.
 func searchTree(t *testing.T) string {
 	t.Helper()

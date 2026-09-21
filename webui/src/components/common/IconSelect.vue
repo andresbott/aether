@@ -15,6 +15,11 @@ const props = withDefaults(
 
 const emit = defineEmits<{
     (e: 'update:modelValue', v: string): void
+    // Whether the icon Popover is open. PrimeVue's Popover hides on Escape
+    // without stopping propagation and binds its own document listener, so a
+    // Dialog hosting this picker has to stop closing on Escape while it is
+    // open — or one key press closes both and the form is lost.
+    (e: 'update:open', open: boolean): void
 }>()
 
 const popoverRef = ref<InstanceType<typeof Popover> | null>(null)
@@ -36,6 +41,7 @@ function toggleDropdown(event: Event) {
 
 function onPopoverShow() {
     isOpen.value = true
+    emit('update:open', true)
     searchQuery.value = ''
     if (triggerRef.value) {
         popoverWidth.value = `${triggerRef.value.offsetWidth}px`
@@ -47,6 +53,7 @@ function onPopoverShow() {
 
 function onPopoverHide() {
     isOpen.value = false
+    emit('update:open', false)
 }
 
 function selectIcon(icon: string) {

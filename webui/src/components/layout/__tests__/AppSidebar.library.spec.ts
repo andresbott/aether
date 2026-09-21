@@ -115,11 +115,33 @@ describe('AppSidebar Library block', () => {
         ])
     })
 
-    it('adds no per-library entry when there is one library or none', () => {
+    // A library is a saved filter, so even the only one is a narrower view than
+    // the catalog the Discover/Releases/Artists entries browse: it has to be
+    // reachable, or following the README produces nothing visible here.
+    it('lists the only library, with its own route', async () => {
         foldersRef.value = [{ id: 1, name: 'Main' }]
+        const item = mountSidebar()
+            .findAll('.sidebar-nav .nav-item')
+            .find((n) => n.text() === 'Main')
+        expect(item).toBeTruthy()
+        await item!.trigger('click')
+        expect(pushSpy).toHaveBeenCalledWith('/library/1')
+    })
+
+    it('adds no per-library entry when there is no library', () => {
+        foldersRef.value = []
         const labels = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
             .map((n) => n.text())
-        expect(labels).not.toContain('Main')
+        expect(labels).toEqual([
+            'Now Playing',
+            'Search',
+            'Discover',
+            'Releases',
+            'Artists',
+            'Playlists',
+            'Genres',
+            'Radio'
+        ])
     })
 })

@@ -62,7 +62,7 @@ describe('identify apply → session overlay staging', () => {
         ]
         const session = useEditSession(
             () => tracks,
-            () => 1
+            () => 'Main'
         )
 
         expect(session.overlays.value.size).toBe(0)

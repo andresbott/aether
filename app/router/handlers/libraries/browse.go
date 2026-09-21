@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/scanfolder"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 type browseFolderDTO struct {
@@ -15,25 +17,42 @@ type browseFolderDTO struct {
 	IsSymlink     bool   `json:"is_symlink"`
 }
 
-// browse lists the subdirectories of an absolute server path, for the library
-// path picker in the admin UI. Defaults to the filesystem root. Dot-directories
-// are omitted unless show_hidden is set, since music libraries occasionally
-// live under one (e.g. a hidden mount point).
+// browse lists the subdirectories of an absolute server path, for the
+// library path FILTER's picker in the admin UI (a library no longer names a
+// directory of its own — see docs/agents/architecture.md's "Scan folders"
+// section). Confined to the configured scan folders: a path must be spelled
+// under one of their roots, else 422 at /path.
 //
-// Symlinked directories are listed and navigable: pointing a library at a
-// symlink is normal (mounted disks, curated collections of links), and the
-// picker browses arbitrary absolute server paths anyway, so a link leaving the
-// current subtree grants no access the caller didn't already have. The path is
-// reported as typed, not resolved, so the stored library path stays the symlink
-// the admin picked.
+// An omitted/empty path lists the roots themselves, straight from h.Folders,
+// WITHOUT touching the filesystem: a root that is not mounted right now must
+// still be listed so the admin can see and pick it, and stat-ing every root
+// on a request path risks hanging the request on a dead network mount (the
+// same lesson the scan preflight already learned — see
+// scanfolder.Folder.AvailableWithin). has_subfolders/is_symlink are therefore
+// assumed (true/false) rather than probed for a root entry.
+//
+// Containment is checked LEXICALLY on purpose — scanfolder.Set.Containing,
+// the same first-probe shape internal/pathguard uses before ever resolving a
+// symlink: this offers what is spelled under a root without resolving
+// anything, so a symlink INSIDE a root stays listed and navigable even
+// though it may resolve elsewhere, rather than being refused for pointing
+// outside. Such an entry is flagged is_symlink so a picker can warn — only
+// the link itself is flagged, not what lies below it — because a path filter
+// value at or below a symlink matches NOTHING today: with FollowSymlinks the
+// scanner records what it reaches through a symlinked directory under the
+// RESOLVED path (internal/scanner/walk.go), and without it that content is
+// not indexed at all. Recording the logical, as-spelled path is a planned
+// follow-up; until then POST /libraries/preview is the safety net that shows
+// the empty selection before anything is saved.
 func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
-	if path == "" {
-		path = "/"
-	}
 	showHidden, err := parseBoolParam(r.URL.Query().Get("show_hidden"))
 	if err != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "show_hidden must be a boolean")
+		return
+	}
+	if path == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"path": "", "folders": rootFolderDTOs(h.Folders)})
 		return
 	}
 	if !filepath.IsAbs(path) {
@@ -41,6 +60,11 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path = filepath.Clean(path)
+	if _, ok := h.Folders.Containing(path); !ok {
+		h.Problems.WriteValidation(w, r, "path is outside every configured scan folder",
+			problemjson.FieldError{Pointer: "/path", Detail: "path is outside every configured scan folder"})
+		return
+	}
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "path is not a readable directory")
@@ -64,4 +88,19 @@ func (h *Handler) browse(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "folders": out})
+}
+
+// rootFolderDTOs lists the configured scan folders as browse entries,
+// without touching the filesystem (see browse's doc comment): has_subfolders
+// is always true and is_symlink always false, since telling either apart
+// would mean stat-ing every root. A root that is not mounted right now is
+// still listed — that is a scan/availability concern (GET /scan-folders,
+// scanfolder.Folder.Available), not the picker's.
+func rootFolderDTOs(folders *scanfolder.Set) []browseFolderDTO {
+	roots := folders.All()
+	out := make([]browseFolderDTO, 0, len(roots))
+	for _, f := range roots {
+		out = append(out, browseFolderDTO{Name: f.Name, Path: f.Path, HasSubfolders: true, IsSymlink: false})
+	}
+	return out
 }

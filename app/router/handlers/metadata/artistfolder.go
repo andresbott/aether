@@ -7,13 +7,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/andresbott/aether/internal/artistimage"
 	"github.com/andresbott/aether/internal/imageinfo"
 	"github.com/andresbott/aether/internal/metadataedit"
-	"github.com/andresbott/aether/internal/store"
 )
 
 // ArtistImageFetcher lists and downloads artist portraits from the online image
@@ -56,10 +54,10 @@ type artistFolderDTO struct {
 // artistFolder reports whether the selected folder is an artist folder — one
 // whose sub-folders hold albums tagged with an album artist matching the folder's
 // own name (metadataedit.IsArtistFolder). This is a pure filesystem+tags question
-// (no library index), so the editor can offer an artist image for a folder the
+// (no index), so the editor can offer an artist image for a folder the
 // moment it is selected, independent of any track selection.
 func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := resolveLibraryRel(h.Store, r)
+	folder, abs, status, err := resolveFolderRel(h.Folders, r)
 	if err != nil {
 		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -67,12 +65,12 @@ func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 	// Resolve the artist folder from the selected folder — the folder itself, or
 	// the nearest ancestor that is an artist folder — so selecting an album, or a
 	// disc sub-folder like "CD 1", also finds the artist folder above it.
-	dir, ok := metadataedit.ArtistFolderFor(r.Context(), lib.Path, abs, h.Reader)
+	dir, ok := metadataedit.ArtistFolderFor(r.Context(), folder.Path, abs, h.Reader)
 	if !ok {
 		writeJSON(w, http.StatusOK, artistFolderDTO{Eligible: false})
 		return
 	}
-	rel, rerr := filepath.Rel(lib.Path, dir)
+	rel, rerr := filepath.Rel(folder.Path, dir)
 	if rerr != nil {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
@@ -100,7 +98,7 @@ func (h *ImagesHandler) artistFolder(w http.ResponseWriter, r *http.Request) {
 // file directly rather than the DB-resolved cover, so the editor previews exactly
 // what it manages.
 func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
-	_, abs, status, err := resolveLibraryRel(h.Store, r)
+	_, abs, status, err := resolveFolderRel(h.Folders, r)
 	if err != nil {
 		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -113,21 +111,21 @@ func (h *ImagesHandler) artistImage(w http.ResponseWriter, r *http.Request) {
 	// The editor busts this URL explicitly after each change, so no-cache keeps a
 	// replaced image from lingering in the browser cache.
 	w.Header().Set("Cache-Control", "no-cache")
-	//nolint:gosec // G703: img is BestInDir of a folder confined to the library root by ResolveInLibrary, not a request path
+	//nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInRoot, not a request path
 	http.ServeFile(w, r, img)
 }
 
 // artistImageResult is the response of a successful artist-image write.
 type artistImageResult struct {
 	OK      bool        `json:"ok"`
-	Path    string      `json:"path"` // library-relative path of the written file
+	Path    string      `json:"path"` // folder-relative path of the written file
 	Reindex *reindexRef `json:"reindex,omitempty"`
 }
 
 // setArtistImage writes an artist portrait as artist.<ext> into the SELECTED
 // folder. The image is either an uploaded file ("image") or an online pick
 // ("mbid" + "url") downloaded from the providers. Nothing is written to the
-// library index: the DB catches up through a targeted re-index of one track
+// index: the DB catches up through a targeted re-index of one track
 // under the folder, whose reconcile pass detects the file as the artist's
 // image (a soft fallback — a managed/DB image still wins).
 func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
@@ -136,25 +134,15 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "invalid multipart form: "+err.Error())
 		return
 	}
-	libID, perr := strconv.ParseUint(r.FormValue("library_id"), 10, 64)
-	if perr != nil {
-		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "library_id required")
-		return
-	}
 	if strings.Trim(strings.TrimSpace(r.FormValue("path")), "/") == "" {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", "path required")
 		return
 	}
-	libModel, err := h.Store.GetLibrary(uint(libID))
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			h.Problems.Write(w, r, http.StatusNotFound, "not_found", err.Error())
-			return
-		}
-		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", err.Error())
+	folder, ok := resolveFolder(h.Folders, w, r, r.FormValue("scan_folder"), h.Problems)
+	if !ok {
 		return
 	}
-	abs, rerr := metadataedit.ResolveInLibrary(libModel.Path, r.FormValue("path"))
+	abs, rerr := metadataedit.ResolveInRoot(folder.Path, r.FormValue("path"))
 	if rerr != nil {
 		h.Problems.Write(w, r, http.StatusBadRequest, "validation_error", rerr.Error())
 		return
@@ -181,12 +169,12 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", werr.Error())
 		return
 	}
-	rel, _ := filepath.Rel(libModel.Path, written)
+	rel, _ := filepath.Rel(folder.Path, written)
 
 	writeJSON(w, http.StatusOK, artistImageResult{
 		OK:      true,
 		Path:    filepath.ToSlash(rel),
-		Reindex: h.reindexArtistFolder(r, libModel.ID, abs),
+		Reindex: h.reindexArtistFolder(r, folder.Name, abs),
 	})
 }
 
@@ -194,7 +182,7 @@ func (h *ImagesHandler) setArtistImage(w http.ResponseWriter, r *http.Request) {
 // the serve endpoint returns), 404 when there is none, then enqueues a re-index
 // so the scanner's reconcile clears (or re-detects) artist.ImagePath.
 func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request) {
-	lib, abs, status, err := resolveLibraryRel(h.Store, r)
+	folder, abs, status, err := resolveFolderRel(h.Folders, r)
 	if err != nil {
 		h.Problems.Write(w, r, status, codeFor(status), err.Error())
 		return
@@ -204,12 +192,12 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the library root by ResolveInLibrary
+	if rerr := os.Remove(img); rerr != nil { //nolint:gosec // G703: img is BestInDir of a folder confined to the scan folder root by ResolveInRoot
 		h.Problems.Write(w, r, http.StatusInternalServerError, "internal", rerr.Error())
 		return
 	}
 	out := map[string]any{"ok": true}
-	if rx := h.reindexArtistFolder(r, lib.ID, abs); rx != nil {
+	if rx := h.reindexArtistFolder(r, folder.Name, abs); rx != nil {
 		out["reindex"] = rx
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -220,12 +208,12 @@ func (h *ImagesHandler) deleteArtistImage(w http.ResponseWriter, r *http.Request
 // the artist and pick up (or drop) the folder image — without re-indexing the
 // whole discography. Returns nil when re-indexing is disabled or the folder
 // has no readable track.
-func (h *ImagesHandler) reindexArtistFolder(r *http.Request, libraryID uint, absDir string) *reindexRef {
+func (h *ImagesHandler) reindexArtistFolder(r *http.Request, scanFolder string, absDir string) *reindexRef {
 	p, ok := metadataedit.FirstAudioPath(absDir, h.Reader)
 	if !ok {
 		return nil
 	}
-	return enqueueReindex(r.Context(), h.Reindex, libraryID, []string{p})
+	return enqueueReindex(r.Context(), h.Reindex, scanFolder, []string{p})
 }
 
 // artistImageSource returns the image bytes and normalized extension from either

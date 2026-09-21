@@ -39,7 +39,7 @@ func (FFProbeReader) Read(ctx context.Context, absPath string) (Metadata, error)
 	ctx, cancel := context.WithTimeout(ctx, FFProbeTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned library file
+	out, err := exec.CommandContext(ctx, //nolint:gosec // G204: args are passed directly without a shell; absPath is a scanned file under a scan folder
 		"ffprobe", "-hide_banner", "-v", "0", "-i", absPath,
 		// The attached picture's type only shows up in the stream's "comment"
 		// tag, and its disposition tells a cover apart from a real video

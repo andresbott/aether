@@ -1,18 +1,29 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as LibrariesApi from '@/lib/api/Libraries'
-import type { Library, LibraryInput } from '@/types/libraries'
+import type { Library, LibraryInput, LibraryFilterOptions } from '@/types/libraries'
 import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
 
 export const libraryQueryKeys = {
     all: ['libraries'] as const,
-    detail: (id: number) => ['libraries', id] as const
+    detail: (id: number) => ['libraries', id] as const,
+    filterOptions: ['libraries', 'filter-options'] as const
 }
 
 export function useLibraries() {
     return useQuery<Library[]>({
         queryKey: libraryQueryKeys.all,
         queryFn: () => LibrariesApi.listLibraries(),
+        staleTime: 30 * 1000
+    })
+}
+
+// The options change only when a scan changes the catalog, so a short stale
+// time is plenty; the dialog refetches them each time it opens.
+export function useLibraryFilterOptions() {
+    return useQuery<LibraryFilterOptions>({
+        queryKey: libraryQueryKeys.filterOptions,
+        queryFn: () => LibrariesApi.getLibraryFilterOptions(),
         staleTime: 30 * 1000
     })
 }
@@ -62,7 +73,7 @@ export function useUpdateLibrary() {
             qc.invalidateQueries({ queryKey: ['subsonic'] })
             toast.add({
                 severity: 'success',
-                summary: lib.path_changed ? 'Library updated — tracks wiped' : 'Library updated',
+                summary: 'Library updated',
                 detail: lib.name,
                 life: 3000
             })

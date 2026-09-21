@@ -43,7 +43,7 @@ func failAllTrackWrites(t *testing.T, db *gorm.DB) {
 // of tracks it could not save is surfaced in the task log.
 func TestNewScanTaskFnReportsUnsaveableTracks(t *testing.T) {
 	quietGlobalLogs(t)
-	cfg, st, reader, libID, _ := setupReindexFixture(t)
+	cfg, st, reader, folder, _ := setupReindexFixture(t)
 	failAllTrackWrites(t, st.DB())
 
 	var buf bytes.Buffer
@@ -53,7 +53,7 @@ func TestNewScanTaskFnReportsUnsaveableTracks(t *testing.T) {
 	if err := fn(context.Background(), log, nil); err != nil {
 		t.Fatalf("an unsaveable track must not fail the scan job: %v", err)
 	}
-	if n := countTracks(t, st, libID); n != 0 {
+	if n := countTracks(t, st, folder); n != 0 {
 		t.Fatalf("expected the track to be unsaved, got %d tracks", n)
 	}
 	if out := buf.String(); !strings.Contains(out, `"failed":1`) {
@@ -65,17 +65,17 @@ func TestNewScanTaskFnReportsUnsaveableTracks(t *testing.T) {
 // must surface the same shortfall the same way.
 func TestNewReindexTaskFnReportsUnsaveableTracks(t *testing.T) {
 	quietGlobalLogs(t)
-	cfg, st, reader, libID, audioPath := setupReindexFixture(t)
+	cfg, st, reader, folder, audioPath := setupReindexFixture(t)
 	failAllTrackWrites(t, st.DB())
 
 	var buf bytes.Buffer
 	log := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	fn := NewReindexTaskFn(cfg, st, reader)
-	if err := fn(context.Background(), log, ReindexParams{LibraryID: libID, Paths: []string{audioPath}}); err != nil {
+	if err := fn(context.Background(), log, ReindexParams{ScanFolder: folder, Paths: []string{audioPath}}); err != nil {
 		t.Fatalf("an unsaveable track must not fail the reindex job: %v", err)
 	}
-	if n := countTracks(t, st, libID); n != 0 {
+	if n := countTracks(t, st, folder); n != 0 {
 		t.Fatalf("expected the track to be unsaved, got %d tracks", n)
 	}
 	if out := buf.String(); !strings.Contains(out, `"failed":1`) {

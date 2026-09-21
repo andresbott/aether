@@ -1,6 +1,8 @@
 // internal/scanner/config.go
 package scanner
 
+import "github.com/andresbott/aether/internal/scanfolder"
+
 // AssetRekeyer is the capability the scanner needs to move an entity's stored
 // images when its natural-identity key changes. It is satisfied by
 // *assetstore.Store but the scanner does not import that package.
@@ -14,4 +16,7 @@ type AssetRekeyer interface {
 type Config struct {
 	TagReadWorkers int
 	AssetRekeyer   AssetRekeyer
+	// Folders is the set of directories to scan, built from the config file. A
+	// nil set scans nothing.
+	Folders *scanfolder.Set
 }

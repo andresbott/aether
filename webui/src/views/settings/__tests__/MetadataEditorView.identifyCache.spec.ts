@@ -32,8 +32,8 @@ vi.mock('@/composables/useMetadataEditor', async (importActual) => {
         useDeletePicture: () => ({ mutateAsync: vi.fn() })
     }
 })
-vi.mock('@/composables/useLibraries', () => ({
-    useLibraries: () => ({ data: { value: [{ id: 1, name: 'Music' }] } })
+vi.mock('@/composables/useScanFolders', () => ({
+    useScanFolders: () => ({ data: { value: [{ name: 'Music', available: true }] } })
 }))
 vi.mock('@tanstack/vue-query', async (importActual) => {
     const actual = await importActual<typeof import('@tanstack/vue-query')>()
@@ -148,8 +148,9 @@ function mountView() {
 }
 
 // Drives the view the way the user does: open the folder dialog and pick a
-// folder. The sole configured library auto-selects, so there is no list to pick
-// from. Identify does nothing until a folder is chosen, so every test needs this.
+// folder. The sole configured scan folder auto-selects, so there is no list to
+// pick from. Identify does nothing until a folder is chosen, so every test
+// needs this.
 async function openFolder(w: ReturnType<typeof mountView>) {
     await w.findAll('button')[0].trigger('click')
     w.findComponent({ name: 'FolderTree' }).vm.$emit('select', 'Artist/Album')

@@ -108,6 +108,18 @@ export function deriveTasksWithLastExecution(
     })
 }
 
+// useExecutions is the runner's execution list, polled while any run is queued
+// or running. Shared by the Tasks view and useCatalogScan.
+export function useExecutions() {
+    return useQuery({
+        queryKey: EXECUTIONS_QUERY_KEY,
+        queryFn: ({ signal }) => TasksApi.listExecutions(signal),
+        refetchInterval: (query) =>
+            hasActiveExecutions(query.state.data) ? EXECUTIONS_POLL_INTERVAL_MS : false,
+        refetchIntervalInBackground: false
+    })
+}
+
 export function useTasks() {
     const queryClient = useQueryClient()
     const toast = useToast()
@@ -119,13 +131,7 @@ export function useTasks() {
         staleTime: 60 * 1000
     })
 
-    const executionsQuery = useQuery({
-        queryKey: EXECUTIONS_QUERY_KEY,
-        queryFn: ({ signal }) => TasksApi.listExecutions(signal),
-        refetchInterval: (query) =>
-            hasActiveExecutions(query.state.data) ? EXECUTIONS_POLL_INTERVAL_MS : false,
-        refetchIntervalInBackground: false
-    })
+    const executionsQuery = useExecutions()
 
     const tasks = computed<Task[]>(() =>
         deriveTasksWithLastExecution(tasksQuery.data.value ?? [], executionsQuery.data.value ?? [])

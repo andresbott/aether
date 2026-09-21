@@ -43,7 +43,7 @@ func Describe(data []byte) Info {
 // format. It errors only when the file cannot be opened; an openable but
 // undecodable file yields an Info carrying just its size.
 func DescribeFile(path string) (Info, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: callers pass a path already confined to the library root
+	f, err := os.Open(path) //nolint:gosec // G304: callers pass a path already confined to the scan folder root
 	if err != nil {
 		return Info{}, err
 	}

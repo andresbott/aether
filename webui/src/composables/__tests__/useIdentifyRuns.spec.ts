@@ -107,19 +107,19 @@ beforeEach(() => {
 describe('useIdentifyRuns track identification', () => {
     it('asks the server for uncached paths and shows the results', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
 
         await runs.identify([mkTrack('a.mp3')])
 
         expect(identifySpy).toHaveBeenCalledTimes(1)
-        expect(lastBody(identifySpy)).toEqual({ library_id: 1, paths: ['a.mp3'] })
+        expect(lastBody(identifySpy)).toEqual({ scan_folder: 'Main', paths: ['a.mp3'] })
         expect(runs.trackDialog.value).toBe(true)
         expect(runs.trackResults.value.map((r) => r.path)).toEqual(['a.mp3'])
     })
 
     it('reuses the cached results when the same files are identified again', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
         runs.trackDialog.value = false
 
@@ -132,20 +132,20 @@ describe('useIdentifyRuns track identification', () => {
 
     it('asks only for the paths it has no answer for, and merges both in selection order', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
 
         identifySpy.mockResolvedValue([mkResult('b.mp3')])
         await runs.identify([mkTrack('b.mp3'), mkTrack('a.mp3')])
 
         expect(identifySpy).toHaveBeenCalledTimes(2)
-        expect(lastBody(identifySpy)).toEqual({ library_id: 1, paths: ['b.mp3'] })
+        expect(lastBody(identifySpy)).toEqual({ scan_folder: 'Main', paths: ['b.mp3'] })
         expect(runs.trackResults.value.map((r) => r.path)).toEqual(['b.mp3', 'a.mp3'])
     })
 
     it('asks again for a path whose identification failed', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3', { candidates: [], error: 'fpcalc failed' })])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
 
         await runs.identify([mkTrack('a.mp3')])
@@ -155,7 +155,7 @@ describe('useIdentifyRuns track identification', () => {
 
     it('closes the dialog and caches nothing when the request fails', async () => {
         identifySpy.mockRejectedValue(new Error('boom'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
 
         await runs.identify([mkTrack('a.mp3')])
 
@@ -166,26 +166,26 @@ describe('useIdentifyRuns track identification', () => {
 
     it('refetches the paths of a forced re-identify instead of serving the cache', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
 
         await runs.identify([mkTrack('a.mp3')], { force: true })
 
         expect(identifySpy).toHaveBeenCalledTimes(2)
-        expect(lastBody(identifySpy)).toEqual({ library_id: 1, paths: ['a.mp3'] })
+        expect(lastBody(identifySpy)).toEqual({ scan_folder: 'Main', paths: ['a.mp3'] })
     })
 
-    it('does nothing without a library or without files', async () => {
+    it('does nothing without a scan folder or without files', async () => {
         const runs = useIdentifyRuns(() => null)
         await runs.identify([mkTrack('a.mp3')])
-        const withLibrary = useIdentifyRuns(() => 1)
-        await withLibrary.identify([])
+        const withScanFolder = useIdentifyRuns(() => 'Main')
+        await withScanFolder.identify([])
         expect(identifySpy).not.toHaveBeenCalled()
     })
 
     it('reports a run that reaches the server as loading', async () => {
         identifySpy.mockImplementation(() => new Promise(() => {}))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
 
         void runs.identify([mkTrack('a.mp3')])
 
@@ -195,7 +195,7 @@ describe('useIdentifyRuns track identification', () => {
 
     it('reports a cached run as not loading, so no spinner replaces the results', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
         runs.trackDialog.value = false
 
@@ -213,7 +213,7 @@ describe('useIdentifyRuns track identification', () => {
             seen = vars.signal
             return new Promise(() => {})
         })
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         void runs.identify([mkTrack('a.mp3')])
 
         runs.cancelIdentify()
@@ -226,7 +226,7 @@ describe('useIdentifyRuns forgetAll', () => {
     it('drops the cached answers, so the next run asks the server again', async () => {
         identifySpy.mockResolvedValue([mkResult('a.mp3')])
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identify([mkTrack('a.mp3')])
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
@@ -242,7 +242,7 @@ describe('useIdentifyRuns forgetAll', () => {
 describe('useIdentifyRuns album identification', () => {
     it('asks the server and shows the options and per-path errors', async () => {
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
 
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
@@ -254,7 +254,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('reuses the cached response for the same selection', async () => {
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
         runs.albumDialog.value = false
 
@@ -268,7 +268,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('asks again for a different selection', async () => {
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3'), mkTrack('c.mp3')])
@@ -278,7 +278,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('refetches a forced re-identify instead of serving the cache', async () => {
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')], { force: true })
@@ -288,7 +288,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('closes the dialog and caches nothing when the request fails', async () => {
         identifyAlbumSpy.mockRejectedValue(new Error('boom'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
 
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
@@ -298,7 +298,7 @@ describe('useIdentifyRuns album identification', () => {
     })
 
     it('needs two files, since one file is not an album', async () => {
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identifyAlbum([mkTrack('a.mp3')])
         expect(identifyAlbumSpy).not.toHaveBeenCalled()
     })
@@ -309,7 +309,7 @@ describe('useIdentifyRuns album identification', () => {
             seen = vars.signal
             return new Promise(() => {})
         })
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         void runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
 
         runs.cancelAlbumIdentify()
@@ -319,7 +319,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('reports a run that reaches the server as loading, a cached one as not', async () => {
         identifyAlbumSpy.mockImplementation(() => new Promise(() => {}))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         void runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
         expect(runs.isIdentifyingAlbum.value).toBe(true)
         runs.cancelAlbumIdentify()
@@ -336,7 +336,7 @@ describe('useIdentifyRuns album identification', () => {
 
     it('keeps the tracks the run was launched for, so the dialog can list them', async () => {
         identifyAlbumSpy.mockResolvedValue(mkAlbumResponse('Album A'))
-        const runs = useIdentifyRuns(() => 1)
+        const runs = useIdentifyRuns(() => 'Main')
         await runs.identifyAlbum([mkTrack('a.mp3'), mkTrack('b.mp3')])
         expect(runs.albumTracks.value.map((t) => t.path)).toEqual(['a.mp3', 'b.mp3'])
     })

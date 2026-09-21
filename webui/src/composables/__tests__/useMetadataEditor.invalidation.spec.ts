@@ -64,14 +64,14 @@ beforeEach(() => {
 function reindexWarnings(): any[] {
     return toastAddSpy.mock.calls
         .map((c) => c[0])
-        .filter((t: any) => t.summary === 'Saved, but the library index was not updated')
+        .filter((t: any) => t.summary === 'Saved, but the index was not updated')
 }
 
 describe('metadata write invalidation', () => {
     it('useUpdateTracks drops the editor views and the whole subsonic tree', async () => {
         updateTracksMock.mockResolvedValue({ results: [{ path: 'a.mp3', ok: true }] })
         const { mutation, invalidateSpy } = mountMutation(useUpdateTracks)
-        await mutation.mutateAsync({ library_id: 1, paths: ['a.mp3'], fields: { title: 'T' } })
+        await mutation.mutateAsync({ scan_folder: 'Main', paths: ['a.mp3'], fields: { title: 'T' } })
         const keys = invalidatedKeys(invalidateSpy)
         expect(keys).toContainEqual(['metadata', 'tracks'])
         expect(keys).toContainEqual(['metadata', 'raw'])
@@ -92,7 +92,7 @@ describe('metadata write invalidation', () => {
         deletePictureMock.mockResolvedValue({ ok: true })
         const { mutation, invalidateSpy } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
-            libraryId: 1,
+            scanFolder: 'Main',
             paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
@@ -177,7 +177,7 @@ describe('metadata write reindex polling', () => {
         pollReindexMock.mockResolvedValue({ failed: 1 })
         const { mutation } = mountMutation(useDeletePicture)
         await mutation.mutateAsync({
-            libraryId: 1,
+            scanFolder: 'Main',
             paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'
@@ -193,7 +193,7 @@ describe('metadata write reindex polling', () => {
         })
         pollReindexMock.mockResolvedValue({ failed: 1 })
         const { mutation } = mountMutation(useUpdateTracks)
-        await mutation.mutateAsync({ library_id: 1, paths: ['a.mp3'], fields: { title: 'T' } })
+        await mutation.mutateAsync({ scan_folder: 'Main', paths: ['a.mp3'], fields: { title: 'T' } })
         expect(pollReindexMock).toHaveBeenCalledWith(['z'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([expect.objectContaining({ severity: 'warn', life: 8000 })])
         expect(toastAddSpy).toHaveBeenCalledWith(
@@ -254,7 +254,7 @@ describe('metadata write reindex polling', () => {
         deletePictureMock.mockResolvedValue({ ok: true, reindex: { execution_id: 'y' } })
         const { mutation } = mountMutation(() => useDeletePicture({ quiet: true }))
         const out = await mutation.mutateAsync({
-            libraryId: 1,
+            scanFolder: 'Main',
             paths: ['Artist/Album/01.mp3'],
             type: 'Front Cover',
             slot: 'folder'

@@ -2,6 +2,8 @@ package store
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/andresbott/aether/internal/model"
 	"github.com/andresbott/aether/internal/unidecode"
@@ -86,18 +88,12 @@ func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 	q := s.db.Model(&model.Artist{}).
 		Distinct().
 		Joins("JOIN album_artists ON album_artists.artist_id = artists.id")
-	if filter != nil && filter.LibraryID != nil {
-		// Check if this specific library is hidden
-		var lib model.Library
-		if err := s.db.First(&lib, *filter.LibraryID).Error; err == nil && lib.HideArtists {
-			// Return empty result for hidden libraries
-			return []model.Artist{}, nil
-		}
-		q = q.
-			Joins("JOIN tracks ON tracks.album_id = album_artists.album_id").
-			Where("tracks.library_id = ?", *filter.LibraryID)
+	if filter != nil && !filter.Scope.IsZero() {
+		// Whether the scoped library hides its artists is the caller's call: a
+		// scope carries no library identity (see the /rest artist index).
+		q = scopeTracks(q.Joins("JOIN tracks ON tracks.album_id = album_artists.album_id"), filter.Scope)
 	} else {
-		// No library filter: exclude artists that ONLY appear in hidden libraries
+		// Unscoped: exclude artists that ONLY appear in hide-artists libraries.
 		q = s.excludeHiddenArtists(q)
 	}
 	var artists []model.Artist
@@ -143,11 +139,9 @@ func (s *Store) GetArtistAlbumCounts(filter *ArtistsFilter) (map[uint]int, error
 		Table("track_artists").
 		Select("track_artists.artist_id AS artist_id, tracks.album_id AS album_id").
 		Joins("JOIN tracks ON tracks.id = track_artists.track_id")
-	if filter != nil && filter.LibraryID != nil {
-		credits = credits.
-			Joins("JOIN tracks ON tracks.album_id = album_artists.album_id").
-			Where("tracks.library_id = ?", *filter.LibraryID)
-		appearances = appearances.Where("tracks.library_id = ?", *filter.LibraryID)
+	if filter != nil && !filter.Scope.IsZero() {
+		credits = scopeTracks(credits.Joins("JOIN tracks ON tracks.album_id = album_artists.album_id"), filter.Scope)
+		appearances = scopeTracks(appearances, filter.Scope)
 	}
 	err := s.db.
 		Table("(? UNION ?) AS credits", credits, appearances).
@@ -179,43 +173,79 @@ func (s *Store) SetArtistMBID(id uint, mbid string) error {
 func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFilter) ([]model.Artist, error) {
 	norm := unidecode.Normalize(query)
 	q := s.db.Model(&model.Artist{}).Where("name_norm LIKE ?", "%"+norm+"%")
-	if filter != nil && filter.LibraryID != nil {
-		q = q.
+	if filter != nil && !filter.Scope.IsZero() {
+		q = scopeTracks(q.
 			Distinct().
 			Joins("JOIN track_artists ON track_artists.artist_id = artists.id").
-			Joins("JOIN tracks ON tracks.id = track_artists.track_id").
-			Where("tracks.library_id = ?", *filter.LibraryID)
+			Joins("JOIN tracks ON tracks.id = track_artists.track_id"), filter.Scope)
 	}
 	var artists []model.Artist
 	err := q.Order("name_norm ASC").Limit(count).Offset(offset).Find(&artists).Error
 	return artists, err
 }
 
-// excludeHiddenArtists drops artists whose entire library presence (as track
-// artist or album artist) sits in libraries with hide_artists = true. An
-// artist with at least one track in a visible library stays visible.
-// No-op when no library is hidden.
+// excludeHiddenArtists drops artists whose entire presence (as track artist or
+// album artist) falls inside libraries that hide their artists. An artist with
+// at least one track outside every such library stays visible. No-op when no
+// library hides its artists; fails the query, instead of showing every artist,
+// when the hidden-artist libraries cannot be read.
 func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
-	var hidden []uint
-	if err := s.db.Model(&model.Library{}).
-		Where("hide_artists = ?", true).
-		Pluck("id", &hidden).Error; err != nil || len(hidden) == 0 {
+	hidden, err := s.hiddenArtistScopes()
+	if err != nil {
+		// Failing open here would list every hidden artist; fail the query instead.
+		_ = q.AddError(fmt.Errorf("hidden-artist libraries: %w", err))
 		return q
 	}
-	// Artist is visible if it has at least one track in a visible library.
-	// We exclude artists that ONLY have tracks in hidden libraries.
+	if len(hidden) == 0 {
+		return q
+	}
+	// A track counts as visible when it matches none of the hidden scopes.
+	parts := make([]string, 0, len(hidden))
+	var args []any
+	for _, h := range hidden {
+		sql, a := h.where("t")
+		parts = append(parts, "NOT ("+sql+")")
+		args = append(args, a...)
+	}
+	visible := strings.Join(parts, " AND ")
 	// Check both track_artists (direct artist-track links) and album_artists
-	// (artist → album → tracks).
+	// (artist → album → tracks). The predicate appears twice, so do its args.
 	visiblePresence := `
 		(EXISTS (
 			SELECT 1 FROM track_artists ta
 			JOIN tracks t ON ta.track_id = t.id
-			WHERE ta.artist_id = artists.id AND t.library_id NOT IN (?)
+			WHERE ta.artist_id = artists.id AND ` + visible + `
 		) OR EXISTS (
 			SELECT 1 FROM album_artists aa
 			JOIN tracks t ON aa.album_id = t.album_id
-			WHERE aa.artist_id = artists.id AND t.library_id NOT IN (?)
+			WHERE aa.artist_id = artists.id AND ` + visible + `
 		))
 	`
-	return q.Where(visiblePresence, hidden, hidden)
+	both := make([]any, 0, 2*len(args))
+	both = append(both, args...)
+	both = append(both, args...)
+	return q.Where(visiblePresence, both...)
+}
+
+// hiddenArtistScopes returns the scope of every library that hides its
+// artists, skipping one with no filters: such a library covers the whole
+// catalog, and honouring it would hide every artist rather than the ones it
+// actually names.
+func (s *Store) hiddenArtistScopes() ([]TrackScope, error) {
+	var libs []model.Library
+	if err := s.db.Where("hide_artists = ?", true).Find(&libs).Error; err != nil {
+		return nil, err
+	}
+	scopes := make([]TrackScope, 0, len(libs))
+	for i := range libs {
+		sc := LibraryScope(&libs[i])
+		if sc.IsZero() {
+			// No filters = the whole catalog: hiding "its" artists would hide every
+			// artist. The API refuses to store such a library; ignore one that
+			// reached the table anyway.
+			continue
+		}
+		scopes = append(scopes, sc)
+	}
+	return scopes, nil
 }

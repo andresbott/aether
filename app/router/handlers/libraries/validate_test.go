@@ -5,29 +5,6 @@ import (
 	"testing"
 )
 
-func TestValidatePathRequiresAbsoluteDir(t *testing.T) {
-	if _, err := ValidatePath(""); err == nil {
-		t.Fatal("expected error for empty path")
-	}
-	dir := t.TempDir()
-	abs, err := ValidatePath(dir)
-	if err != nil {
-		t.Fatalf("expected valid dir, got %v", err)
-	}
-	if !strings.HasPrefix(abs, "/") {
-		t.Fatalf("expected absolute path, got %q", abs)
-	}
-}
-
-func TestValidateExcludePatternsRejectsBadRegex(t *testing.T) {
-	if err := ValidateExcludePatterns([]string{"["}); err == nil {
-		t.Fatal("expected error for bad regex")
-	}
-	if err := ValidateExcludePatterns([]string{`^\..`}); err != nil {
-		t.Fatalf("expected valid regex to pass, got %v", err)
-	}
-}
-
 func TestValidateName(t *testing.T) {
 	if err := ValidateName(""); err == nil {
 		t.Fatal("empty name should fail")

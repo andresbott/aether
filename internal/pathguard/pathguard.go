@@ -4,11 +4,11 @@
 // It exists because the media handlers serve files whose paths come from the
 // database rather than from the request — a track's file_path, an album's
 // cover_path. Nothing enforces that those rows point inside a configured
-// library, so a stale row, a hand-edited one, or a metadata-editor bug can name
+// scan folder, so a stale row, a hand-edited one, or a metadata-editor bug can name
 // any file the server process can read. This turns that assumption into an
 // enforced check.
 //
-// metadataedit.ResolveInLibrary solves the adjacent problem — joining a
+// metadataedit.ResolveInRoot solves the adjacent problem — joining a
 // request-supplied *relative* path onto a root without escaping it. This one
 // takes an already-absolute path of unknown provenance and asks where it lives.
 package pathguard
@@ -26,30 +26,61 @@ type Guard struct {
 // New returns a Guard allowing paths inside any of roots. Empty roots are
 // ignored; a Guard with no usable roots allows nothing, because failing open
 // would disable the check exactly when the configuration is broken.
+//
+// Roots are kept as given and resolved on every Allows call, not here: a root
+// may sit behind a symlink whose target appears later (a share that mounts
+// after the server started), and resolving it once would freeze the "not there
+// yet" spelling until a restart. Allows keeps that affordable and keeps one dead
+// mount from stalling the others: see there.
 func New(roots ...string) *Guard {
 	g := &Guard{roots: make([]string, 0, len(roots))}
 	for _, r := range roots {
 		if r == "" {
 			continue
 		}
-		g.roots = append(g.roots, resolve(r))
+		g.roots = append(g.roots, filepath.Clean(r))
 	}
 	return g
 }
 
 // Allows reports whether path lies inside one of the Guard's roots.
+//
+// Roots are resolved here, per call, so a root behind a late mount works (see
+// New). But resolving is a filesystem probe, and a probe on a hung mount blocks
+// until the mount answers. So the root the path is SPELLED under is resolved
+// first, and the check stops there when it matches: a file in a healthy folder
+// is served without ever touching another folder's (possibly dead) root. The
+// other roots are only probed for a path spelled under none of them, or one that
+// resolves out of the root it is spelled under — a row recorded under its
+// resolved spelling, or one the guard is about to refuse. The answer is the same
+// either way; only the order of the probes changes.
 func (g *Guard) Allows(path string) bool {
-	if !filepath.IsAbs(path) {
-		return false
+	if !filepath.IsAbs(path) || len(g.roots) == 0 {
+		return false // and with no roots, without touching the filesystem at all
 	}
-	resolved := resolve(path)
+	clean := filepath.Clean(path)
+	resolved := resolve(clean)
+	var rest []string
 	for _, root := range g.roots {
-		if contains(root, resolved) {
+		if !contains(root, clean) {
+			rest = append(rest, root)
+			continue
+		}
+		if contains(resolveRoot(root), resolved) {
+			return true
+		}
+	}
+	for _, root := range rest {
+		if contains(resolveRoot(root), resolved) {
 			return true
 		}
 	}
 	return false
 }
+
+// resolveRoot resolves one root. A variable so a test can see which roots a
+// check touched.
+var resolveRoot = resolve
 
 // Within reports whether path lies inside root. Both are resolved through
 // symlinks first, so a link pointing out of the root does not smuggle a file

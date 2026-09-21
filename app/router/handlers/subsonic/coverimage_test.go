@@ -329,7 +329,7 @@ func TestGetCoverArtGeneratedFallbackIsCachedAsWebP(t *testing.T) {
 	}
 }
 
-// A real library can hold a truncated or corrupt cover file. Re-encoding it
+// A real collection can hold a truncated or corrupt cover file. Re-encoding it
 // fails, and answering 500 would leave a broken image in every grid cell it
 // appears in — the generated cover is the graceful answer.
 func TestGetCoverArtFallsBackToGeneratedWhenSourceIsUndecodable(t *testing.T) {

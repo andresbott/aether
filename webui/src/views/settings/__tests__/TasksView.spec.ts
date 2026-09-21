@@ -17,7 +17,7 @@ const deleteSchedule = vi.fn()
 const tasksFixtureRef = ref<unknown[]>([
     {
         id: 'scan',
-        name: 'Library Scan',
+        name: 'Catalog Scan',
         description: 'desc',
         schedules: [],
         lastExecution: null,
@@ -92,7 +92,7 @@ beforeEach(() => {
     tasksFixtureRef.value = [
         {
             id: 'scan',
-            name: 'Library Scan',
+            name: 'Catalog Scan',
             description: 'desc',
             schedules: [],
             lastExecution: null,
@@ -110,7 +110,7 @@ describe('TasksView', () => {
 
     it('lists the task and triggers a plain run when Run is clicked', async () => {
         const w = mountView()
-        expect(w.text()).toContain('Library Scan')
+        expect(w.text()).toContain('Catalog Scan')
         const runBtn = w.findAll('button').find((b) => b.text().includes('Run'))!
         await runBtn.trigger('click')
         expect(triggerTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'scan' }))
@@ -125,7 +125,7 @@ describe('TasksView', () => {
         tasksFixtureRef.value = [
             {
                 id: 'scan',
-                name: 'Library Scan',
+                name: 'Catalog Scan',
                 description: 'desc',
                 schedules: [
                     {
@@ -149,7 +149,7 @@ describe('TasksView', () => {
         tasksFixtureRef.value = [
             {
                 id: 'scan',
-                name: 'Library Scan',
+                name: 'Catalog Scan',
                 description: 'desc',
                 schedules: [
                     {
@@ -218,7 +218,7 @@ describe('TasksView', () => {
         tasksFixtureRef.value = [
             {
                 id: 'scan',
-                name: 'Library Scan',
+                name: 'Catalog Scan',
                 description: 'desc',
                 schedules: [
                     {
@@ -245,7 +245,7 @@ describe('TasksView', () => {
         tasksFixtureRef.value = [
             {
                 id: 'scan',
-                name: 'Library Scan',
+                name: 'Catalog Scan',
                 description: 'desc',
                 schedules: [],
                 lastExecution: null,

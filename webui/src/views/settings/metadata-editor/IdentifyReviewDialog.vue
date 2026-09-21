@@ -650,7 +650,7 @@ function cancel() {
     color: var(--app-text-secondary);
 }
 /* The file name identifies the row, so it reads as a path rather than prose, and
-   hovering shows the full path relative to the library. */
+   hovering shows the full path relative to the scan folder. */
 .file-name {
     font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
     font-size: 0.8rem;

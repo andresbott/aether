@@ -22,6 +22,65 @@ Observability:
 # Database, cached artwork and task logs live here. Owned by the aether user.
 DataDir: "/var/lib/aether"
 
+# The directories Aether scans for music. They are declared HERE and nowhere
+# else: there is no database row and no UI to add one, so what gets scanned is
+# exactly what this list says. Restart to apply a change.
+#
+#   Name             identifies the folder: tracks remember the name of the folder
+#                    they were indexed under, and library filters refer to it.
+#                    Renaming a folder takes effect on the next scan. Libraries
+#                    whose filters name the OLD name keep matching its tracks
+#                    until that scan re-labels them, then match nothing until
+#                    they are edited: Settings → Libraries marks them "Needs
+#                    attention" and the server warns at startup.
+#   Path             root directory. Roots must not be equal or nested. Must
+#                    be the real directory: a root that is itself a symlink
+#                    is refused (symlinks INSIDE a root are followed when
+#                    FollowSymlinks is true). A relative path resolves
+#                    against the server's working directory, not this
+#                    file's directory — use an absolute path.
+#   ExcludePatterns  list of Go regexes; matching files/directories are skipped
+#                                                                    (default: none)
+#                    A pattern starting with "@" is read as a FILE PATH by the
+#                    config loader, not a regex — write the Synology "@eaDir"
+#                    exclude as "^@eaDir$" or "[@]eaDir".
+#   FollowSymlinks   follow symlinked folders while scanning         (default: true)
+#                    Content reached through a link is stored under the link's
+#                    TARGET. If that target lies outside every Path listed here,
+#                    those tracks are listed but do not play (known limitation):
+#                    list the target directory as a scan folder of its own (it
+#                    must not contain another scan folder: roots cannot nest).
+#
+# A directory that is missing at startup (a share that mounts late) is only a
+# warning: the server starts, and scans refuse to run until it is back.
+#
+# With NO scan folder configured at all nothing is scanned and no on-disk media
+# is served: a populated index is still listed, but nothing plays.
+#
+# REMOVING an entry removes its tracks at the next scan — together with their
+# stars, playlist entries and play history. The server warns at startup when
+# indexed tracks belong to a folder that is no longer listed.
+#
+# CHANGING a Path keeps a folder's tracks (ids, stars, playlists, history)
+# only if the old location is gone by the next scan — a move or rename. If
+# the old copy still exists then (e.g. copied to a new disk and repointed),
+# nothing is re-linked: new rows are created and the old ones are swept
+# instead.
+#
+# What users browse — "libraries" — is NOT configured here. A library is a saved
+# filter over the scanned catalog (by scan folder, folder path, file format,
+# release type, compilation or genre), created in Settings → Libraries.
+# Deleting a library never deletes music; removing a scan folder does.
+#
+# ScanFolders:
+#   - Name: "Music"
+#     Path: "/srv/music"
+#   - Name: "Audiobooks"
+#     Path: "/srv/audiobooks"
+#     ExcludePatterns:
+#       - ".*/covers/.*"
+#     FollowSymlinks: false
+
 # Authentication. Three methods:
 #
 #   "none"         — no authentication (trusted LAN only).

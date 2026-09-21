@@ -158,7 +158,7 @@ type taskOpts struct {
 // already waiting or running, triggering it again returns the in-flight
 // execution's id instead of piling up a duplicate (see AddRun's reused return).
 // Use it for tasks where two concurrent runs would only fight each other, such
-// as the library scan.
+// as a catalog scan.
 func Singleton() TaskOption {
 	return func(o *taskOpts) { o.singleton = true }
 }

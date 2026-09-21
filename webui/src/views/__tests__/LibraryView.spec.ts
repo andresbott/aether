@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { computed, ref } from 'vue'
+import { computed, ref, toValue } from 'vue'
+import type { MaybeRefOrGetter } from 'vue'
 import { mount } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
-import type { DiscoveryFeedEntry } from '@/types/subsonic'
+import type { DiscoveryFeedEntry, ReleaseTypeCount } from '@/types/subsonic'
 import { useUiStore } from '@/store/uiStore'
 
 // The browse mode is a path segment (route.params.mode), not a URL hash:
@@ -22,8 +23,15 @@ vi.mock('vue-router', () => ({
 const foldersRef = ref<
     Array<{ id: number; name: string; showArtists?: boolean; defaultView?: 'albums' | 'artists' }>
 >([{ id: 1, name: 'Main' }])
+// undefined = not fetched yet (or failed): the view then offers every type.
+const releaseTypesRef = ref<ReleaseTypeCount[] | undefined>(undefined)
+let releaseTypesFolder: MaybeRefOrGetter<number | undefined> = undefined
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useMusicFolders: () => ({ data: foldersRef })
+    useMusicFolders: () => ({ data: foldersRef }),
+    useReleaseTypes: (folderId: MaybeRefOrGetter<number | undefined>) => {
+        releaseTypesFolder = folderId
+        return { data: releaseTypesRef }
+    }
 }))
 const discoveryItems = ref<DiscoveryFeedEntry[]>([])
 vi.mock('@/composables/useDiscovery', () => ({
@@ -139,6 +147,8 @@ beforeEach(() => {
     route.hash = ''
     route.query = {}
     foldersRef.value = [{ id: 1, name: 'Main' }]
+    releaseTypesRef.value = undefined
+    releaseTypesFolder = undefined
     discoveryItems.value = []
     starredAlbumTotal.value = 4
     starredArtistTotal.value = 2
@@ -340,16 +350,61 @@ describe('LibraryView favorites filter', () => {
 // The release-type filter is URL state (?releaseType=), like favorites, and is
 // meaningful only in Releases mode with favorites off.
 describe('LibraryView release-type tabs', () => {
-    it('renders the release-type tabs in Releases mode', () => {
+    // The release-type row's labels, or null when the row is not rendered — the
+    // layout toggle is the other SelectButton, told apart by its "All" option.
+    const typeTabs = (w: ReturnType<typeof mountView>) => {
+        const row = w
+            .findAllComponents(SelectButton)
+            .find((sb) =>
+                (sb.props('options') as Array<{ label: string }>).some((o) => o.label === 'All')
+            )
+        return row ? (row.props('options') as Array<{ label: string }>).map((o) => o.label) : null
+    }
+
+    // Until the carried types arrive (or if they cannot be fetched), nothing is
+    // known to be missing, so every type is offered.
+    it('renders every release-type tab in Releases mode until the carried types are known', () => {
         route.params = { folderId: '1', mode: 'releases' }
         route.query = {}
+        expect(typeTabs(mountView())).toEqual([
+            'All',
+            'Albums',
+            'Singles',
+            'EPs',
+            'Broadcast',
+            'Other'
+        ])
+    })
+
+    // A type with no release would only ever list nothing, so it is not offered.
+    // Secondary types (Compilation) never get a tab, and the server's spelling
+    // may differ in case from the vocabulary's.
+    it('offers only the types the library carries, asking for that library', () => {
+        releaseTypesRef.value = [
+            { name: 'Album', albumCount: 12 },
+            { name: 'Compilation', albumCount: 3 },
+            { name: 'single', albumCount: 4 }
+        ]
         const w = mountView()
-        const labels = w.findAllComponents(SelectButton).flatMap((sb) =>
-            (sb.props('options') as Array<{ label: string }>).map((o) => o.label)
-        )
-        expect(labels).toEqual(
-            expect.arrayContaining(['All', 'Albums', 'Singles', 'EPs', 'Broadcast', 'Other'])
-        )
+        expect(typeTabs(w)).toEqual(['All', 'Albums', 'Singles'])
+        expect(toValue(releaseTypesFolder)).toBe(1)
+    })
+
+    // A linked or stale ?releaseType= naming a type the library no longer carries
+    // keeps its tab, so the view shows which filter is on and it can be left.
+    it('keeps the active type even when the library carries none of it', () => {
+        releaseTypesRef.value = [{ name: 'Album', albumCount: 12 }]
+        route.query = { releaseType: 'Broadcast' }
+        expect(typeTabs(mountView())).toEqual(['All', 'Albums', 'Broadcast'])
+    })
+
+    // With no typed release a lone "All" would narrow nothing, so the row goes.
+    it('drops the row when the library carries no release type', () => {
+        releaseTypesRef.value = []
+        const w = mountView()
+        expect(typeTabs(w)).toBeNull()
+        // Only the layout toggle is left.
+        expect(w.findAllComponents(SelectButton).length).toBe(1)
     })
 
     it('writes ?releaseType when a type tab is chosen', async () => {

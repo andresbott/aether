@@ -2,17 +2,17 @@ package store
 
 // SearchFilter narrows search endpoints. All fields are optional.
 type SearchFilter struct {
-	// LibraryID, when non-nil, restricts results to entities with at least
-	// one track in that library.
-	LibraryID *uint
+	// Scope, when non-zero, restricts results to entities with at least one
+	// track the scope matches (see TrackScope).
+	Scope TrackScope
 }
 
 // ArtistsFilter narrows artist-browsing endpoints.
 type ArtistsFilter struct {
-	LibraryID *uint
+	Scope TrackScope
 }
 
 // StarredFilter narrows GetStarred.
 type StarredFilter struct {
-	LibraryID *uint
+	Scope TrackScope
 }

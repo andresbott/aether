@@ -64,8 +64,10 @@ workflows).
 
 ## Running the app locally
 
-- `make run` — Go server with debug logging (`AETHER_ENV_LOGLEVEL=debug`),
-  default config; serves whatever UI build is currently embedded.
+- `make run` — Go server with debug logging (`AETHER_ENV_LOGLEVEL=debug`) and
+  the dev config `zarf/localdata/config.yaml`: data in `zarf/localdata/data`,
+  scans `zarf/locallibrary` (both git-ignored); serves whatever UI build is
+  currently embedded.
 - `make run-ui` — rebuilds the SPA, copies it into `app/spa/files/ui`, then
   runs the server.
 - `cd webui && npm run dev` — Vite dev server for UI work (set

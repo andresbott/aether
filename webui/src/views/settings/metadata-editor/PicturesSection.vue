@@ -27,7 +27,7 @@ import type { EditSession } from '@/composables/useEditSession'
 
 const props = defineProps<{
     selection: Track[]
-    libraryId: number | null
+    scanFolder: string | null
     session: EditSession
     // MB release IDs from the album form, used by the picker's online search.
     releaseMbid: string
@@ -69,12 +69,12 @@ const serverPictures = ref<PictureInfo[]>([])
 let refreshSeq = 0
 async function refreshPictures() {
     const seq = ++refreshSeq
-    if (props.libraryId === null || pictureDir.value === null) {
+    if (props.scanFolder === null || pictureDir.value === null) {
         serverPictures.value = []
         return
     }
     try {
-        const pictures = await getPictures(props.libraryId, selectionPaths.value)
+        const pictures = await getPictures(props.scanFolder, selectionPaths.value)
         if (seq === refreshSeq) serverPictures.value = pictures
     } catch {
         if (seq === refreshSeq) serverPictures.value = []
@@ -84,7 +84,7 @@ async function refreshPictures() {
 // selected tracks, so switching to another song in the SAME folder must
 // refetch (the dir alone doesn't change).
 watch(
-    () => [props.libraryId, pictureDir.value, pictureBust.value, selectionPaths.value.join('\n')],
+    () => [props.scanFolder, pictureDir.value, pictureBust.value, selectionPaths.value.join('\n')],
     refreshPictures,
     { immediate: true }
 )
@@ -327,7 +327,7 @@ function undoCell(type: string, slot: PictureSlot) {
                 text
                 size="small"
                 data-test="add-picture"
-                :disabled="libraryId === null"
+                :disabled="scanFolder === null"
                 @click="toggleAddMenu"
             />
             <Menu ref="addMenu" :model="addMenuItems" :popup="true" />
@@ -362,7 +362,7 @@ function undoCell(type: string, slot: PictureSlot) {
                             :pending="stagedOp(type, slot)?.kind === 'set'"
                             :removing="stagedOp(type, slot)?.kind === 'remove'"
                             :can-remove="serverHas(type, slot)"
-                            :disabled="libraryId === null"
+                            :disabled="scanFolder === null"
                             :change-test-id="`picture-change-${type}-${slot}`"
                             :remove-test-id="`picture-remove-${type}-${slot}`"
                             :undo-test-id="`picture-undo-${type}-${slot}`"

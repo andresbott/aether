@@ -20,11 +20,15 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		size = 500
 	}
 	owner := requestOwner(r)
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.AlbumListFilter{
 		Genre:       paramStr(r, "genre"),
 		FromYear:    paramInt(r, "fromYear", 0),
 		ToYear:      paramInt(r, "toYear", 0),
-		LibraryID:   paramLibraryID(r),
+		Scope:       scope,
 		Owner:       owner,
 		ReleaseType: paramStr(r, "releaseType"),
 	}
@@ -56,11 +60,15 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 	if size > 500 {
 		size = 500
 	}
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.RandomSongsFilter{
-		Genre:     paramStr(r, "genre"),
-		FromYear:  paramInt(r, "fromYear", 0),
-		ToYear:    paramInt(r, "toYear", 0),
-		LibraryID: paramLibraryID(r),
+		Genre:    paramStr(r, "genre"),
+		FromYear: paramInt(r, "fromYear", 0),
+		ToYear:   paramInt(r, "toYear", 0),
+		Scope:    scope,
 	}
 	tracks, err := h.store.GetRandomSongs(size, filter)
 	if err != nil {
@@ -84,7 +92,11 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 	}
 	count := paramInt(r, "count", 10)
 	offset := paramInt(r, "offset", 0)
-	filter := &store.SearchFilter{LibraryID: paramLibraryID(r)}
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
+	filter := &store.SearchFilter{Scope: scope}
 	tracks, err := h.store.GetSongsByGenre(genre, count, offset, filter)
 	if err != nil {
 		writeError(w, 0, "internal error")
@@ -101,8 +113,11 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	owner := requestOwner(r)
-	libraryID := paramLibraryID(r)
-	starred, err := h.store.GetStarred(owner, &store.StarredFilter{LibraryID: libraryID})
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
+	starred, err := h.store.GetStarred(owner, &store.StarredFilter{Scope: scope})
 	if err != nil {
 		writeError(w, 0, "internal error")
 		return
@@ -112,7 +127,7 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	// Album/artist counts, the same ones getAlbumList2 and getArtists emit: the
 	// favorites list is rendered by the same rows/cards as the full library, and
 	// without these their count columns would sit empty.
-	albumCounts, err := h.store.GetArtistAlbumCounts(&store.ArtistsFilter{LibraryID: libraryID})
+	albumCounts, err := h.store.GetArtistAlbumCounts(&store.ArtistsFilter{Scope: scope})
 	if err != nil {
 		albumCounts = make(map[uint]int)
 	}
@@ -178,8 +193,12 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
 	filter := &store.AlbumListFilter{
-		LibraryID:   paramLibraryID(r),
+		Scope:       scope,
 		ReleaseType: paramStr(r, "releaseType"),
 	}
 	letters, total, err := h.store.GetAlbumLetterIndex(filter)
@@ -199,6 +218,34 @@ func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
 		"albumList2Index": map[string]any{
 			"total": total,
 			"index": index,
+		},
+	})
+}
+
+// getReleaseTypes serves version 2 of the "releaseTypeFilter" extension: the
+// release types the albums in scope carry, each with the number of albums that
+// filtering getAlbumList2 by it lists, so a client offers only the filters that
+// select something. Scoped by musicFolderId like the album lists themselves.
+func (h *Handler) getReleaseTypes(w http.ResponseWriter, r *http.Request) {
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
+	counts, err := h.store.ReleaseTypeCounts(scope)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	types := make([]map[string]any, 0, len(counts))
+	for _, c := range counts {
+		types = append(types, map[string]any{
+			"name":       c.Name,
+			"albumCount": c.AlbumCount,
+		})
+	}
+	writeResponse(w, map[string]any{
+		"releaseTypes": map[string]any{
+			"releaseType": types,
 		},
 	})
 }

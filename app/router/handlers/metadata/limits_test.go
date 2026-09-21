@@ -10,12 +10,9 @@ import (
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
-	"github.com/glebarez/sqlite"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 // newCapHandler wires all three metadata handlers (identify, tags, images) onto
@@ -23,31 +20,24 @@ import (
 // reach their paths[] validation instead of short-circuiting on 503 — for
 // exercising the shared maxSelectionPaths cap across every paths[]-accepting
 // endpoint, which now span all three handlers.
-func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
+func newCapHandler(t *testing.T) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: t.TempDir(), FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: t.TempDir(), FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
+	folder, _ := set.ByName("Main")
 	r := mux.NewRouter()
 	(&metaHandler.IdentifyHandler{
-		Store:           s,
+		Folders:         set,
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
 		AlbumIdentifier: &fakeAlbumIdentifier{},
 		Problems:        problems.New(false),
 	}).Routes(r)
-	(&metaHandler.TagsHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
-	(&metaHandler.ImagesHandler{Store: s, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
-	return r, lib
+	(&metaHandler.TagsHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
+	(&metaHandler.ImagesHandler{Folders: set, Reader: nullReader{}, Problems: problems.New(false)}).Routes(r)
+	return r, folder
 }
 
 // TestCapAppliesUniformly confirms maxSelectionPaths (50) and its "too many
@@ -64,7 +54,7 @@ func newCapHandler(t *testing.T) (*mux.Router, *model.Library) {
 // paths) share one bound via checkPaths/resolveSelection, so the cap — and the
 // empty-selection 422 — can no longer drift between endpoints.
 func TestCapAppliesUniformly(t *testing.T) {
-	r, lib := newCapHandler(t)
+	r, folder := newCapHandler(t)
 	paths := make([]string, 51)
 	for i := range paths {
 		paths[i] = "album/" + strconv.Itoa(i) + ".flac"
@@ -74,9 +64,9 @@ func TestCapAppliesUniformly(t *testing.T) {
 	// ignore the extra key, so one shared body still reaches every endpoint's
 	// paths[] cap.
 	body, err := json.Marshal(map[string]any{
-		"library_id": lib.ID,
-		"paths":      paths,
-		"fields":     map[string]any{"title": "x"},
+		"scan_folder": folder.Name,
+		"paths":       paths,
+		"fields":      map[string]any{"title": "x"},
 	})
 	if err != nil {
 		t.Fatal(err)

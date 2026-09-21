@@ -35,7 +35,7 @@ import (
 var ErrUnsupported = errors.New("audiohash: unsupported format")
 
 // maxHashBytes bounds how much of the audio payload the byte-hash formats read,
-// so a full library scan stays I/O-cheap regardless of track length. Combined
+// so hashing a whole collection stays I/O-cheap regardless of track length. Combined
 // with the exact payload length (mixed into the digest) this is overwhelming
 // evidence of identical audio. Changing it changes every emitted hash, so treat
 // it as part of the on-disk format.
@@ -44,7 +44,7 @@ const maxHashBytes = 256 << 10
 // File returns the metadata-invariant hash of the audio file at path. It is a
 // convenience wrapper that opens the file and delegates to Reader.
 func File(path string) (string, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: hashing the caller's file is the entire purpose of this function; the path is supplied by the caller, which in aether is a library file the scanner already admitted and opened to read tags.
+	f, err := os.Open(path) //nolint:gosec // G304: hashing the caller's file is the entire purpose of this function; the path is supplied by the caller, which in aether is a file the scanner already admitted and opened to read tags.
 	if err != nil {
 		return "", err
 	}

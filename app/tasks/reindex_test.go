@@ -9,38 +9,40 @@ import (
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/scanner"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/andresbott/aether/internal/tags"
 )
 
 func TestNewReindexTaskFnIndexesPaths(t *testing.T) {
-	// Arrange: a store with one library whose folder holds one audio file that
-	// is NOT yet in the index. (Reuse the scanner package's test fixtures /
-	// helpers for building store+library+file; see internal/scanner/*_test.go.)
-	cfg, store, reader, libID, audioPath := setupReindexFixture(t)
+	// Arrange: a store with one scan folder whose directory holds one audio
+	// file that is NOT yet in the index. (Reuse the scanner package's test
+	// fixtures / helpers for building store+folder+file; see
+	// internal/scanner/*_test.go.)
+	cfg, store, reader, folder, audioPath := setupReindexFixture(t)
 
 	fn := NewReindexTaskFn(cfg, store, reader)
-	if err := fn(context.Background(), slog.Default(), ReindexParams{LibraryID: libID, Paths: []string{audioPath}}); err != nil {
+	if err := fn(context.Background(), slog.Default(), ReindexParams{ScanFolder: folder, Paths: []string{audioPath}}); err != nil {
 		t.Fatalf("reindex fn: %v", err)
 	}
 
-	if n := countTracks(t, store, libID); n != 1 {
+	if n := countTracks(t, store, folder); n != 1 {
 		t.Fatalf("track not indexed: got %d tracks, want 1", n)
 	}
 }
 
-// setupReindexFixture builds a store with one library whose folder holds one
-// real (tag-less) audio file, plus a real tags.Reader — so the reindex task's
-// RescanPaths call exercises actual tag reading end to end (a stub reader
-// would not catch a wiring break between the task, the scanner, and a real
-// Reader).
+// setupReindexFixture builds a store with one scan folder whose directory
+// holds one real (tag-less) audio file, plus a real tags.Reader — so the
+// reindex task's RescanPaths call exercises actual tag reading end to end (a
+// stub reader would not catch a wiring break between the task, the scanner,
+// and a real Reader).
 //
-// It reuses newTestStore (defined in artistimage_test.go) for the
+// It reuses newTestStore (defined in helpers_test.go) for the
 // migrated in-memory store, and copies the same testdata/empty.flac fixture
 // internal/tags and internal/metadataedit tests already share into the
-// library dir — this package never writes to the shared fixture itself.
-func setupReindexFixture(t *testing.T) (scanner.Config, *store.Store, tags.Reader, uint, string) {
+// scan folder — this package never writes to the shared fixture itself.
+func setupReindexFixture(t *testing.T) (scanner.Config, *store.Store, tags.Reader, string, string) {
 	t.Helper()
 	fx := "../../internal/tags/testdata/empty.flac"
 	if _, err := os.Stat(fx); err != nil {
@@ -58,18 +60,18 @@ func setupReindexFixture(t *testing.T) (scanner.Config, *store.Store, tags.Reade
 	}
 
 	st := newTestStore(t)
-	lib := &model.Library{Name: "Main", Path: root}
-	if err := st.CreateLibrary(lib); err != nil {
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	reader := tags.NewFallbackReader(tags.TaglibReader{}, tags.FFProbeReader{})
-	return scanner.Config{}, st, reader, lib.ID, dst
+	return scanner.Config{Folders: set}, st, reader, "Main", dst
 }
 
-func countTracks(t *testing.T, s *store.Store, libID uint) int {
+func countTracks(t *testing.T, s *store.Store, scanFolder string) int {
 	t.Helper()
 	var n int64
-	s.DB().Model(&model.Track{}).Where("library_id = ?", libID).Count(&n)
+	s.DB().Model(&model.Track{}).Where("scan_folder = ?", scanFolder).Count(&n)
 	return int(n)
 }

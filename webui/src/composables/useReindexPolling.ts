@@ -13,7 +13,7 @@ export interface PollReindexOptions {
 //   pending - jobs never confirmed complete before polling ended: the timeout
 //             elapsed, the poll was aborted, the executions fetch kept failing,
 //             or the job never surfaced in the runner's (bounded) history.
-// Either being non-zero means the library index is NOT known to reflect the
+// Either being non-zero means the index is NOT known to reflect the
 // write, so a caller must not report an unqualified success.
 export interface ReindexPollResult {
     failed: number

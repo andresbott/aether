@@ -6,60 +6,49 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
-	"github.com/glebarez/sqlite"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
-func newRawHandler(t *testing.T, libRoot string, read func(string) (map[string][]string, error)) (*mux.Router, *model.Library) {
+func newRawHandler(t *testing.T, root string, read func(string) (map[string][]string, error)) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	return newRawHandlerUnsupported(t, libRoot, read, func(string) ([]string, error) {
+	return newRawHandlerUnsupported(t, root, read, func(string) ([]string, error) {
 		return []string{}, nil
 	})
 }
 
 func newRawHandlerUnsupported(
 	t *testing.T,
-	libRoot string,
+	root string,
 	read func(string) (map[string][]string, error),
 	readUnsupported func(string) ([]string, error),
-) (*mux.Router, *model.Library) {
+) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
+	folder, _ := set.ByName("Main")
 	h := &metaHandler.TagsHandler{
-		Store: s, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported,
+		Folders: set, Reader: nullReader{}, RawTagReader: read, UnsupportedReader: readUnsupported,
 		Problems: problems.New(false),
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
-// postRaw POSTs a raw-tags selection request: library_id + paths[] travel in
+// postRaw POSTs a raw-tags selection request: scan_folder + paths[] travel in
 // the JSON body (never the URL), the transport this endpoint moved to so a
 // large multi-disc selection can never overflow a header buffer.
-func postRaw(t *testing.T, r *mux.Router, libID uint, paths ...string) *httptest.ResponseRecorder {
+func postRaw(t *testing.T, r *mux.Router, scanFolder string, paths ...string) *httptest.ResponseRecorder {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{"library_id": libID, "paths": paths})
+	payload, err := json.Marshal(map[string]any{"scan_folder": scanFolder, "paths": paths})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,10 +65,10 @@ func TestRawTags_ReturnsFullTagMap(t *testing.T) {
 		"REPLAYGAIN_TRACK_GAIN": {"-3.10 dB"},
 		"CUSTOM":                {"a", "b"},
 	}
-	r, lib := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
+	r, folder := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
 		return fixture, nil
 	})
-	w := postRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, folder.Name, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -102,7 +91,7 @@ func TestRawTags_ReturnsFullTagMap(t *testing.T) {
 }
 
 func TestRawTags_IncludesUnsupportedFrames(t *testing.T) {
-	r, lib := newRawHandlerUnsupported(t, t.TempDir(),
+	r, folder := newRawHandlerUnsupported(t, t.TempDir(),
 		func(string) (map[string][]string, error) {
 			return map[string][]string{"TITLE": {"Song"}}, nil
 		},
@@ -110,7 +99,7 @@ func TestRawTags_IncludesUnsupportedFrames(t *testing.T) {
 			return []string{"PRIV/com.example.junk", "GEOB", "UNKNOWN/XXXX"}, nil
 		},
 	)
-	w := postRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, folder.Name, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -133,7 +122,7 @@ func TestRawTags_IncludesUnsupportedFrames(t *testing.T) {
 func TestRawTags_FiltersCoverArtDescriptors(t *testing.T) {
 	// Embedded cover art (APIC/covr/WM/Picture/APE Cover Art) must not be
 	// listed as deletable hidden frames.
-	r, lib := newRawHandlerUnsupported(t, t.TempDir(),
+	r, folder := newRawHandlerUnsupported(t, t.TempDir(),
 		func(string) (map[string][]string, error) {
 			return map[string][]string{}, nil
 		},
@@ -141,7 +130,7 @@ func TestRawTags_FiltersCoverArtDescriptors(t *testing.T) {
 			return []string{"APIC", "covr", "WM/Picture", "Cover Art (Front)", "PRIV/junk"}, nil
 		},
 	)
-	w := postRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, folder.Name, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -160,9 +149,8 @@ func TestRawTags_FiltersCoverArtDescriptors(t *testing.T) {
 }
 
 func TestUpdateTracks_RejectsCoverDescriptorRemoval(t *testing.T) {
-	r, lib := newRawHandler(t, t.TempDir(), nil)
-	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) +
-		`, "paths": ["a.mp3"], "fields": {"remove_unsupported": ["APIC"]}}`
+	r, folder := newRawHandler(t, t.TempDir(), nil)
+	body := `{"scan_folder": "` + folder.Name + `", "paths": ["a.mp3"], "fields": {"remove_unsupported": ["APIC"]}}`
 	req := httptest.NewRequest("PUT", "/metadata/tracks", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -174,7 +162,7 @@ func TestUpdateTracks_RejectsCoverDescriptorRemoval(t *testing.T) {
 func TestRawTags_UnsupportedReadFailureDegrades(t *testing.T) {
 	// A hidden-frame read error must not fail the row: tags still return,
 	// unsupported comes back empty.
-	r, lib := newRawHandlerUnsupported(t, t.TempDir(),
+	r, folder := newRawHandlerUnsupported(t, t.TempDir(),
 		func(string) (map[string][]string, error) {
 			return map[string][]string{"TITLE": {"Song"}}, nil
 		},
@@ -182,7 +170,7 @@ func TestRawTags_UnsupportedReadFailureDegrades(t *testing.T) {
 			return nil, errors.New("boom")
 		},
 	)
-	w := postRaw(t, r, lib.ID, "song.mp3")
+	w := postRaw(t, r, folder.Name, "song.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -203,10 +191,10 @@ func TestRawTags_UnsupportedReadFailureDegrades(t *testing.T) {
 }
 
 func TestRawTags_PerPathErrors(t *testing.T) {
-	r, lib := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
+	r, folder := newRawHandler(t, t.TempDir(), func(string) (map[string][]string, error) {
 		return nil, errors.New("boom")
 	})
-	w := postRaw(t, r, lib.ID, "song.mp3", "../outside.mp3")
+	w := postRaw(t, r, folder.Name, "song.mp3", "../outside.mp3")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", w.Code)
 	}
@@ -222,28 +210,26 @@ func TestRawTags_PerPathErrors(t *testing.T) {
 }
 
 func TestRawTags_Validation(t *testing.T) {
-	r, lib := newRawHandler(t, t.TempDir(), nil)
+	r, folder := newRawHandler(t, t.TempDir(), nil)
 	// Empty paths[] is well-formed but invalid input: 422, not 400.
-	if w := postRaw(t, r, lib.ID); w.Code != http.StatusUnprocessableEntity {
+	if w := postRaw(t, r, folder.Name); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for missing paths, got %d", w.Code)
 	}
-	// An omitted (zero-value) library_id resolves like any other unknown
-	// library_id — decodeSelection's uniform "library not found" mapping,
-	// shared with the picture-selection endpoints — rather than a distinct
-	// "library_id required" 400.
+	// An omitted scan_folder is a missing required field: 400, not a lookup
+	// failure — unlike the numeric-id era, where an absent id decoded to 0 and
+	// answered 404 ("no such library"). A name has no such accident.
 	req := httptest.NewRequest("POST", "/metadata/tracks/raw-tags", strings.NewReader(`{"paths":["a.mp3"]}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for missing library, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a missing scan_folder, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestUpdateTracks_RejectsManagedRawKey(t *testing.T) {
-	r, lib := newRawHandler(t, t.TempDir(), nil)
-	body := `{"library_id": ` + strconv.FormatUint(uint64(lib.ID), 10) +
-		`, "paths": ["a.mp3"], "fields": {"raw_tags": {"MUSICBRAINZ_TRACKID": ["x"]}}}`
+	r, folder := newRawHandler(t, t.TempDir(), nil)
+	body := `{"scan_folder": "` + folder.Name + `", "paths": ["a.mp3"], "fields": {"raw_tags": {"MUSICBRAINZ_TRACKID": ["x"]}}}`
 	req := httptest.NewRequest("PUT", "/metadata/tracks", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

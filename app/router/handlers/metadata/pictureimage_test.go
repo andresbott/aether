@@ -18,6 +18,7 @@ import (
 	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/imagecache"
 	"github.com/andresbott/aether/internal/model"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/andresbott/aether/internal/store"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/mux"
@@ -44,14 +45,14 @@ func bigPNG(t *testing.T, w, h int) []byte {
 
 // pictureImageServer wires a metadata handler with an image cache and seeds an
 // album whose front cover lives in the folder as cover.png.
-func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Library, string) {
+func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, scanfolder.Folder, string) {
 	t.Helper()
-	libRoot := t.TempDir()
-	trackAbs := filepath.Join(libRoot, "a.flac")
+	root := t.TempDir()
+	trackAbs := filepath.Join(root, "a.flac")
 	if err := os.WriteFile(trackAbs, []byte("audio"), 0o600); err != nil {
 		t.Fatalf("write track: %v", err)
 	}
-	coverAbs := filepath.Join(libRoot, "cover.png")
+	coverAbs := filepath.Join(root, "cover.png")
 	if err := os.WriteFile(coverAbs, src, 0o600); err != nil {
 		t.Fatalf("write cover: %v", err)
 	}
@@ -64,14 +65,16 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 		t.Fatal(err)
 	}
 	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
+	key := seedAlbum(t, s, trackAbs)
+
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	key := seedAlbum(t, s, lib, trackAbs)
+	folder, _ := set.ByName("Main")
 
 	h := &metaHandler.ImagesHandler{
-		Store:    s,
+		Folders:  set,
 		Reader:   nullReader{},
 		Images:   imagecache.New(t.TempDir()),
 		Problems: problems.New(false),
@@ -80,18 +83,18 @@ func pictureImageServer(t *testing.T, src []byte) (*httptest.Server, *model.Libr
 	h.Routes(r)
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
-	return srv, lib, key
+	return srv, folder, key
 }
 
 // pictureImageURL builds a request for the album's folder-slot front cover,
-// addressed by its resolved file (library-relative) rather than a browsed
+// addressed by its resolved file (folder-relative) rather than a browsed
 // folder + selection.
-func pictureImageURL(srv *httptest.Server, lib *model.Library, size string) string {
+func pictureImageURL(srv *httptest.Server, folder scanfolder.Folder, size string) string {
 	q := url.Values{
-		"library_id": {libIDStr(lib)},
-		"file":       {"cover.png"},
-		"type":       {"Front Cover"},
-		"slot":       {"folder"},
+		"scan_folder": {folder.Name},
+		"file":        {"cover.png"},
+		"type":        {"Front Cover"},
+		"slot":        {"folder"},
 	}
 	if size != "" {
 		q.Set("size", size)
@@ -122,9 +125,9 @@ func fetchPicture(t *testing.T, rawURL string) (*http.Response, []byte) {
 // an optimized derivative rather than the full scan.
 func TestPictureImageServesSizedDerivative(t *testing.T) {
 	src := bigPNG(t, 1500, 1500)
-	srv, lib, _ := pictureImageServer(t, src)
+	srv, folder, _ := pictureImageServer(t, src)
 
-	resp, body := fetchPicture(t, pictureImageURL(srv, lib, "160"))
+	resp, body := fetchPicture(t, pictureImageURL(srv, folder, "160"))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
@@ -148,9 +151,9 @@ func TestPictureImageServesSizedDerivative(t *testing.T) {
 // full-fidelity bytes, not a downscaled re-encode.
 func TestPictureImageServesOriginalWithoutSize(t *testing.T) {
 	src := bigPNG(t, 1500, 1500)
-	srv, lib, _ := pictureImageServer(t, src)
+	srv, folder, _ := pictureImageServer(t, src)
 
-	resp, body := fetchPicture(t, pictureImageURL(srv, lib, ""))
+	resp, body := fetchPicture(t, pictureImageURL(srv, folder, ""))
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}

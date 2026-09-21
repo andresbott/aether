@@ -16,10 +16,10 @@ RestartSec=5s
 # relative paths against it. /var/lib/aether keeps a relative config working.
 WorkingDirectory=/var/lib/aether
 
-# Hardening. ReadWritePaths is deliberately narrow — the music library itself is
-# only ever read, except by the metadata editor, which writes tags back to the
-# audio files. If you use it, add your library root to ReadWritePaths via a
-# drop-in: systemctl edit aether.service
+# Hardening. ReadWritePaths is deliberately narrow — the scanned music is only
+# ever read, except by the metadata editor, which writes tags, covers and artist
+# images back into the scan folders. If you use it, add EVERY scan folder's Path
+# to ReadWritePaths via a drop-in: systemctl edit aether.service
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

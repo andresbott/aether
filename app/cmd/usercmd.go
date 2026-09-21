@@ -5,17 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	usersHandler "github.com/andresbott/aether/app/router/handlers/users"
-	"github.com/glebarez/sqlite"
 	"github.com/go-bumbu/userauth"
 	"github.com/go-bumbu/userauth/service/user"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
-	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
@@ -49,17 +46,14 @@ func cliAppCfg(configFile string) (AppCfg, error) {
 // on first start; the CLI edits an existing store rather than bootstrapping one,
 // so a missing DB is a clear error instead of a stray empty file.
 func openUsersStore(cfg AppCfg) (*user.Service, error) {
-	dbPath := filepath.Join(cfg.DataDir, dbFile)
-	if _, err := os.Stat(dbPath); err != nil {
-		return nil, fmt.Errorf("database not found at %s (wrong DataDir or server never started?)", dbPath)
+	path := dbPath(cfg.DataDir)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("database not found at %s (wrong DataDir or server never started?)", path)
 	}
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
-		Logger: gormlogger.Discard,
-	})
+	db, err := openDB(cfg.DataDir, gormlogger.Discard)
 	if err != nil {
 		return nil, err
 	}
-	db.Exec("PRAGMA busy_timeout=5000")
 	users, err := newUserStore(db, nil)
 	if err != nil {
 		return nil, fmt.Errorf("user store: %w", err)

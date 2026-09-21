@@ -27,13 +27,13 @@ import (
 // conservative — a false rename would merge two albums that should stay apart,
 // while a missed one only reproduces today's behaviour. Known conservative
 // misses: a track deleted from disk still counts until Cleanup runs, and an
-// album spanning two libraries is only ever half a batch because reconcile runs
-// per library.
+// album spanning two scan folders is only ever half a batch because reconcile
+// runs per scan folder.
 //
 // Shape: read a snapshot, plan off it in a pure function, then commit one album
 // per transaction. The proof is per album, so the unit of work is too — one
 // album's DB error no longer discards every other album's retag in the batch,
-// and the scanner never holds a write transaction across a whole library. That
+// and the scanner never holds a write transaction across a whole scan folder. That
 // matches reconcile's own per-track loop, which is one transaction per track.
 // Splitting the reads from the writes is only safe because applyAlbumRetag
 // re-proves every plan against the live rows inside the writing transaction.

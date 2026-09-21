@@ -10,7 +10,7 @@ import (
 // Folder describes one subdirectory of a resolved directory.
 type Folder struct {
 	Name          string
-	Path          string // library-relative path, forward-slash form
+	Path          string // folder-relative path, forward-slash form
 	HasSubfolders bool
 	IsSymlink     bool // the entry is a symlink that resolves to a directory
 }
@@ -23,7 +23,7 @@ type ListFoldersOptions struct {
 	// IncludeSymlinks reports symlinks that resolve to a directory as folders.
 	// Only enable it where traversing outside the starting directory is
 	// acceptable — a symlink can point anywhere on the filesystem, so callers
-	// that confine paths lexically (ResolveInLibrary) must leave it off.
+	// that confine paths lexically (ResolveInRoot) must leave it off.
 	IncludeSymlinks bool
 }
 

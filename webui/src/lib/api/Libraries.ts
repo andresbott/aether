@@ -2,6 +2,9 @@ import { apiClient } from '@/lib/api/client'
 import type {
     Library,
     LibraryInput,
+    LibraryFilter,
+    LibraryPreview,
+    LibraryFilterOptions,
     ListLibrariesResponse,
     BrowseResponse
 } from '@/types/libraries'
@@ -40,5 +43,15 @@ export async function browseFolders(
             ...(showHidden ? { show_hidden: true } : {})
         }
     })
+    return data
+}
+
+export async function previewLibrary(filters: LibraryFilter[], signal?: AbortSignal): Promise<LibraryPreview> {
+    const { data } = await apiClient.post<LibraryPreview>('/libraries/preview', { filters }, { signal })
+    return data
+}
+
+export async function getLibraryFilterOptions(): Promise<LibraryFilterOptions> {
+    const { data } = await apiClient.get<LibraryFilterOptions>('/libraries/filter-options')
     return data
 }

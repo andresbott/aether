@@ -3,23 +3,18 @@ package libraries
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-// The validators are exported because config-provisioned libraries
-// (app/cmd/libraries.go) must be held to exactly the same rules as ones
-// created through this API — a config typo should fail as loudly as a bad
-// request, and a second copy of these rules would drift.
+// Validators for the fields the libraries API accepts on create/update: name,
+// default_view and icon.
 
 // valueError marks a validator failure as well-formed-but-invalid: the field
-// is present but its value fails a business rule (too long, not a usable
-// directory, ...) — as opposed to an outright missing required field. The
-// /api/v0 handlers (libraries.go's validateDTO) use this distinction to
-// answer 422 instead of 400; app/cmd's config-load path only ever checks
-// err != nil, so it is unaffected.
+// is present but its value fails a business rule (too long, an unknown enum,
+// ...) — as opposed to an outright missing required field. The /api/v0
+// handler (libraries.go's validateDTO) uses this distinction to answer 422
+// instead of 400.
 type valueError struct{ msg string }
 
 func (e *valueError) Error() string { return e.msg }
@@ -28,44 +23,6 @@ func (e *valueError) Error() string { return e.msg }
 func isValueError(err error) bool {
 	var e *valueError
 	return errors.As(err, &e)
-}
-
-// ValidatePath resolves path to an absolute one and verifies it is an existing,
-// readable directory.
-func ValidatePath(path string) (string, error) {
-	if strings.TrimSpace(path) == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", &valueError{fmt.Sprintf("invalid path: %v", err)}
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", &valueError{fmt.Sprintf("path does not exist: %s", abs)}
-		}
-		return "", &valueError{fmt.Sprintf("cannot stat path: %v", err)}
-	}
-	if !info.IsDir() {
-		return "", &valueError{fmt.Sprintf("path is not a directory: %s", abs)}
-	}
-	f, err := os.Open(abs) //nolint:gosec // G304: abs is an admin-configured library root being validated, not an attacker-controlled path
-	if err != nil {
-		return "", &valueError{fmt.Sprintf("path is not readable: %v", err)}
-	}
-	_ = f.Close()
-	return abs, nil
-}
-
-// ValidateExcludePatterns verifies every pattern compiles as a Go regexp.
-func ValidateExcludePatterns(patterns []string) error {
-	for _, p := range patterns {
-		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("invalid regex %q: %w", p, err)
-		}
-	}
-	return nil
 }
 
 // ValidateName verifies the library name is present and of sane length.

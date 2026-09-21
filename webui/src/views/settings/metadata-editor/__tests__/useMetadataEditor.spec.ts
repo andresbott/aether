@@ -205,7 +205,7 @@ describe('updateTracksPartitioned', () => {
             reindex: { execution_id: 'x' }
         })
         const out = await updateTracksPartitioned({
-            library_id: 1,
+            scan_folder: 'Main',
             paths: ['a.mp3'],
             fields: { title: 'T' }
         })
@@ -224,7 +224,7 @@ describe('updateTracksPartitioned', () => {
                 reindex: { execution_id: 'second' }
             })
         const out = await updateTracksPartitioned({
-            library_id: 1,
+            scan_folder: 'Main',
             paths: ['a.mp3'],
             fields: { artists: ['New'], artist_mbids: { New: 'id' } }
         })
@@ -238,7 +238,7 @@ describe('updateTracksPartitioned', () => {
             reindex: { execution_id: 'first' }
         })
         const out = await updateTracksPartitioned({
-            library_id: 1,
+            scan_folder: 'Main',
             paths: ['a.mp3'],
             fields: { artists: ['New'], artist_mbids: { New: 'id' } }
         })

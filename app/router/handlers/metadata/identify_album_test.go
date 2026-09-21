@@ -16,13 +16,11 @@ import (
 	metaHandler "github.com/andresbott/aether/app/router/handlers/metadata"
 	"github.com/andresbott/aether/app/router/handlers/problems"
 	"github.com/andresbott/aether/internal/albumidentify"
-	"github.com/andresbott/aether/internal/model"
-	"github.com/andresbott/aether/internal/store"
-	"github.com/glebarez/sqlite"
+	"github.com/andresbott/aether/internal/metadataedit"
+	"github.com/andresbott/aether/internal/scanfolder"
 	"github.com/go-bumbu/http/outbound"
 	"github.com/go-bumbu/http/problemjson"
 	"github.com/gorilla/mux"
-	"gorm.io/gorm"
 )
 
 type fakeAlbumIdentifier struct {
@@ -42,23 +40,16 @@ func (f *fakeAlbumIdentifier) Resolve(
 }
 
 func newAlbumIdentifyHandler(
-	t *testing.T, libRoot string, svc metaHandler.AlbumIdentifyService,
-) (*mux.Router, *model.Library) {
+	t *testing.T, root string, svc metaHandler.AlbumIdentifyService,
+) (*mux.Router, scanfolder.Folder) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	set, err := scanfolder.NewSet([]scanfolder.Folder{{Name: "Main", Path: root, FollowSymlinks: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := model.Migrate(db); err != nil {
-		t.Fatal(err)
-	}
-	s := store.New(db)
-	lib := &model.Library{Name: "Main", Path: libRoot, FollowSymlinks: true}
-	if err := s.CreateLibrary(lib); err != nil {
-		t.Fatal(err)
-	}
+	folder, _ := set.ByName("Main")
 	h := &metaHandler.IdentifyHandler{
-		Store:           s,
+		Folders:         set,
 		Reader:          nullReader{},
 		Identifier:      fakeIdentifier{},
 		AlbumIdentifier: svc,
@@ -66,7 +57,7 @@ func newAlbumIdentifyHandler(
 	}
 	r := mux.NewRouter()
 	h.Routes(r)
-	return r, lib
+	return r, folder
 }
 
 func postIdentifyAlbum(t *testing.T, r *mux.Router, body any) *httptest.ResponseRecorder {
@@ -82,9 +73,9 @@ func postIdentifyAlbum(t *testing.T, r *mux.Router, body any) *httptest.Response
 }
 
 func TestIdentifyAlbum_UnavailableWithoutService(t *testing.T) {
-	r, lib := newAlbumIdentifyHandler(t, t.TempDir(), nil)
+	r, folder := newAlbumIdentifyHandler(t, t.TempDir(), nil)
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"a.mp3", "b.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"a.mp3", "b.mp3"},
 	})
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
@@ -92,13 +83,13 @@ func TestIdentifyAlbum_UnavailableWithoutService(t *testing.T) {
 }
 
 func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
-	r, lib := newAlbumIdentifyHandler(t, t.TempDir(), &fakeAlbumIdentifier{})
+	r, folder := newAlbumIdentifyHandler(t, t.TempDir(), &fakeAlbumIdentifier{})
 
 	// An empty selection, or one below the two-file floor, is well-formed but
 	// invalid: a 422 itemising /paths, the same as the picture endpoints — not
 	// a 400.
 	if w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{},
+		"scan_folder": folder.Name, "paths": []string{},
 	}); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for empty paths, got %d", w.Code)
 	}
@@ -106,17 +97,19 @@ func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 	// Album identification is meaningless for a single file — still a /paths
 	// floor violation, so 422.
 	if w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"only.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"only.mp3"},
 	}); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for a single path, got %d", w.Code)
 	}
 
-	// A missing library_id decodes to 0; no library has id 0, so the lookup
-	// answers 404 ("no such library"), not a request-shape error.
+	// A missing scan_folder is a missing required field — 400 — not a lookup
+	// failure. This is the deliberate departure from the numeric-id era, where
+	// an absent id decoded to 0 and answered 404 ("no such library"): a name
+	// has no such accident, so an absent/empty scan_folder is always 400.
 	if w := postIdentifyAlbum(t, r, map[string]any{
 		"paths": []string{"a.mp3", "b.mp3"},
-	}); w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for a missing library_id, got %d", w.Code)
+	}); w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a missing scan_folder, got %d: %s", w.Code, w.Body.String())
 	}
 
 	// Over-cap paths[] is likewise a 422 itemising /paths — the same shared
@@ -126,7 +119,7 @@ func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 		tooMany[i] = "a.mp3"
 	}
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": tooMany,
+		"scan_folder": folder.Name, "paths": tooMany,
 	})
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for too many paths, got %d", w.Code)
@@ -150,13 +143,18 @@ func TestIdentifyAlbum_ValidationErrors(t *testing.T) {
 	}
 }
 
-func TestIdentifyAlbum_UnknownLibrary(t *testing.T) {
+// TestIdentifyAlbum_UnknownScanFolder confirms a well-formed but unconfigured
+// scan_folder name answers 404 with a detail that says so.
+func TestIdentifyAlbum_UnknownScanFolder(t *testing.T) {
 	r, _ := newAlbumIdentifyHandler(t, t.TempDir(), &fakeAlbumIdentifier{})
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": 4242, "paths": []string{"a.mp3", "b.mp3"},
+		"scan_folder": "No Such Folder", "paths": []string{"a.mp3", "b.mp3"},
 	})
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "is not configured") {
+		t.Fatalf("expected detail to say the scan folder is not configured, got %s", w.Body.String())
 	}
 }
 
@@ -166,10 +164,10 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := &fakeAlbumIdentifier{}
-	r, lib := newAlbumIdentifyHandler(t, root, svc)
+	r, folder := newAlbumIdentifyHandler(t, root, svc)
 
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"song.mp3", "../outside.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"song.mp3", "../outside.mp3"},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -201,11 +199,15 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 		t.Fatalf("expected a per-path error, got %s", w.Body.String())
 	}
 	// A short reason, not the resolution error: that one quotes the rejected path
-	// and the library root back at the client.
-	if body.Errors[0].Error != albumidentify.ReasonOutsideLibrary {
-		t.Fatalf("expected %q, got %q", albumidentify.ReasonOutsideLibrary, body.Errors[0].Error)
+	// and the scan folder root back at the client.
+	if body.Errors[0].Error != albumidentify.ReasonOutsideFolder {
+		t.Fatalf("expected %q, got %q", albumidentify.ReasonOutsideFolder, body.Errors[0].Error)
 	}
-	for _, leak := range []string{"resolves outside library root", root} {
+	_, rerr := metadataedit.ResolveInRoot(root, "../outside.mp3")
+	if rerr == nil || !strings.Contains(rerr.Error(), metadataedit.ErrOutsideRoot.Error()) {
+		t.Fatalf("the leak needle does not occur in a real resolution error: %v", rerr)
+	}
+	for _, leak := range []string{metadataedit.ErrOutsideRoot.Error(), root} {
 		if strings.Contains(w.Body.String(), leak) {
 			t.Fatalf("server detail %q leaked into the body: %s", leak, w.Body.String())
 		}
@@ -215,10 +217,10 @@ func TestIdentifyAlbum_RejectsTraversalPerPath(t *testing.T) {
 func TestIdentifyAlbum_AllPathsRejected(t *testing.T) {
 	root := t.TempDir()
 	svc := &fakeAlbumIdentifier{}
-	r, lib := newAlbumIdentifyHandler(t, root, svc)
+	r, folder := newAlbumIdentifyHandler(t, root, svc)
 
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"../a.mp3", "../b.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"../a.mp3", "../b.mp3"},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -255,16 +257,16 @@ func TestIdentifyAlbum_AllPathsRejected(t *testing.T) {
 }
 
 // assertResolvedPathsAreValid verifies every input in the call has an absolute
-// AbsPath that lies inside libRoot (the library the handler looked up).
-func assertResolvedPathsAreValid(t *testing.T, libRoot string, inputs []albumidentify.Input) {
+// AbsPath that lies inside root (the scan folder the handler looked up).
+func assertResolvedPathsAreValid(t *testing.T, root string, inputs []albumidentify.Input) {
 	t.Helper()
 	for _, input := range inputs {
 		if !filepath.IsAbs(input.AbsPath) {
 			t.Fatalf("expected absolute path, got %q", input.AbsPath)
 		}
-		relPath, err := filepath.Rel(libRoot, input.AbsPath)
+		relPath, err := filepath.Rel(root, input.AbsPath)
 		if err != nil || filepath.IsAbs(relPath) || len(relPath) >= 3 && relPath[:3] == ".."+string(filepath.Separator) {
-			t.Fatalf("path %q is not inside library root %q", input.AbsPath, libRoot)
+			t.Fatalf("path %q is not inside scan folder root %q", input.AbsPath, root)
 		}
 	}
 }
@@ -291,10 +293,10 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 				RecordingMBID: "rec-2", DiscNumber: 1, TrackNumber: 2},
 		},
 	}}}
-	r, lib := newAlbumIdentifyHandler(t, root, svc)
+	r, folder := newAlbumIdentifyHandler(t, root, svc)
 
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"01.mp3", "02.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"01.mp3", "02.mp3"},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
@@ -337,7 +339,7 @@ func TestIdentifyAlbum_ReturnsRankedOptions(t *testing.T) {
 	}
 	// The handler must pass the current tags down as ranking signals. Verify
 	// the resolver was called exactly once with two inputs, and that each
-	// AbsPath is absolute and inside the library root.
+	// AbsPath is absolute and inside the scan folder root.
 	if len(svc.callHistory) != 1 {
 		t.Fatalf("expected 1 resolver call, got %d", len(svc.callHistory))
 	}
@@ -374,10 +376,10 @@ func TestIdentifyAlbum_UpstreamOutageIsClassifiedNotOK(t *testing.T) {
 				err: fmt.Errorf("acoustid: %w", outbound.WrapError(
 					"AcoustID", tc.kind, tc.status, errors.New("dial tcp: connection refused"))),
 			}
-			r, lib := newAlbumIdentifyHandler(t, root, svc)
+			r, folder := newAlbumIdentifyHandler(t, root, svc)
 
 			w := postIdentifyAlbum(t, r, map[string]any{
-				"library_id": lib.ID, "paths": []string{"01.mp3", "02.mp3"},
+				"scan_folder": folder.Name, "paths": []string{"01.mp3", "02.mp3"},
 			})
 			if w.Code != tc.wantStatus {
 				t.Fatalf("expected %d, got %d: %s", tc.wantStatus, w.Code, w.Body.String())
@@ -413,10 +415,10 @@ func TestIdentifyAlbum_ResolverErrorIsBadGateway(t *testing.T) {
 		}
 	}
 	svc := &fakeAlbumIdentifier{err: errors.New("acoustid down")}
-	r, lib := newAlbumIdentifyHandler(t, root, svc)
+	r, folder := newAlbumIdentifyHandler(t, root, svc)
 
 	w := postIdentifyAlbum(t, r, map[string]any{
-		"library_id": lib.ID, "paths": []string{"01.mp3", "02.mp3"},
+		"scan_folder": folder.Name, "paths": []string{"01.mp3", "02.mp3"},
 	})
 	if w.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())

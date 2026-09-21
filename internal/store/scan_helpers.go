@@ -10,26 +10,48 @@ import (
 	"gorm.io/gorm"
 )
 
-// BulkUpdateLastSeen advances the liveness marker on paths an incremental scan
-// found unchanged on disk.
+// BulkMarkSeen marks paths as seen by the scan that started at scanTime and
+// stamps them with the scan folder they were walked under. The two updates run
+// as separate statements, because they need different guards.
 //
-// The update is monotonic — `last_seen_at < scanTime` in the WHERE clause — for
-// the same reason reconcileTrack's assignment is: kept as a cheap safety net —
-// scan and reindex are serialized by the `library-writes` exclusion group so
-// they don't actually overlap. Lowering a newer marker would make a live track
-// look stale to a scan already in flight, and its Cleanup would delete the row
-// along with the track's playlist memberships, play history and stars. Within a
-// single scan every row is either already at scanTime (no-op) or older
-// (advances), so the added predicate never skips a row that needs the bump.
-func (s *Store) BulkUpdateLastSeen(paths []string, scanTime time.Time) error {
+// The first statement advances the liveness marker on paths an incremental
+// scan found unchanged on disk. It is monotonic — `last_seen_at < scanTime` in
+// the WHERE clause — for the same reason reconcileTrack's assignment is: kept
+// as a cheap safety net — scan and reindex are serialized by the
+// `library-writes` exclusion group so they don't actually overlap. Lowering a
+// newer marker would make a live track look stale to a scan already in
+// flight, and its Cleanup would delete the row along with the track's
+// playlist memberships, play history and stars.
+//
+// The second statement stamps the scan folder and is deliberately NOT behind
+// that guard. Every folder of one scan shares one scanTime, so for a file
+// walked under two folders — nested roots, or two folders reaching one
+// directory through symlinks — a guarded stamp would be skipped for every
+// folder after the first: the first folder would win on an incremental scan
+// while reconcileTrack (which overwrites unconditionally) makes the last one
+// win on a full scan, so the marker would flip with the scan kind. Unguarded,
+// the rule is the same for both kinds: the last folder to walk a file owns
+// it, and folders are scanned in name order. `scan_folder <> ?` keeps the
+// steady state write-free — it only writes after a rename or an ownership
+// change.
+//
+// This is still the one function that touches every walked file on every
+// scan, which is what heals a renamed folder on an incremental scan.
+func (s *Store) BulkMarkSeen(paths []string, scanFolder string, scanTime time.Time) error {
 	for i := 0; i < len(paths); i += chunkSize {
 		end := i + chunkSize
 		if end > len(paths) {
 			end = len(paths)
 		}
+		chunk := paths[i:end]
 		if err := s.db.Table("tracks").
-			Where("file_path IN ? AND last_seen_at < ?", paths[i:end], scanTime).
+			Where("file_path IN ? AND last_seen_at < ?", chunk, scanTime).
 			Update("last_seen_at", scanTime).Error; err != nil {
+			return err
+		}
+		if err := s.db.Table("tracks").
+			Where("file_path IN ? AND scan_folder <> ?", chunk, scanFolder).
+			Update("scan_folder", scanFolder).Error; err != nil {
 			return err
 		}
 	}
@@ -267,4 +289,42 @@ func execInChunks(db *gorm.DB, ids []uint, query string) error {
 		}
 	}
 	return nil
+}
+
+// CountTracksInScanFolder is the empty-walk guard's predicate, not a
+// membership count: it is deliberately OVER-INCLUSIVE, counting tracks
+// stamped with name OR recorded under root. The marker is the truth; the path
+// range backs it up for the one moment the marker lags — a folder renamed in
+// configuration, before the next scan re-stamps its rows. The scan's
+// empty-walk guard relies on that slack to notice an unmounted share even
+// then. Anything that wants "how many tracks does this folder own" must count
+// by the marker alone, not call this.
+func (s *Store) CountTracksInScanFolder(name, root string) (int64, error) {
+	lo, hi := PathRange(root)
+	var n int64
+	err := s.db.Model(&model.Track{}).
+		Where("scan_folder = ? OR (file_path >= ? AND file_path < ?)", name, lo, hi).
+		Count(&n).Error
+	return n, err
+}
+
+// TrackCountsByScanFolder returns how many tracks carry each scan-folder marker.
+// Startup uses it to warn about tracks whose folder is no longer configured.
+func (s *Store) TrackCountsByScanFolder() (map[string]int64, error) {
+	type row struct {
+		ScanFolder string
+		N          int64
+	}
+	var rows []row
+	if err := s.db.Model(&model.Track{}).
+		Select("scan_folder, COUNT(*) AS n").
+		Group("scan_folder").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.ScanFolder] = r.N
+	}
+	return out, nil
 }

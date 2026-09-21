@@ -539,7 +539,7 @@ function cancel() {
         >
             <!-- Covers both kinds the server reports here: files it could not
                  fingerprint or look up, and paths it refused before
-                 identification (outside the library). Naming only fingerprinting
+                 identification (outside the scan folder). Naming only fingerprinting
                  would mislabel the latter, which was never fingerprinted. -->
             <p class="path-errors-header">Some files were not identified:</p>
             <ul class="path-errors-list">
@@ -1095,7 +1095,7 @@ function cancel() {
     color: var(--app-text-secondary);
 }
 /* The file name identifies the row, so it reads as a path rather than prose, and
-   hovering shows the full path relative to the library. */
+   hovering shows the full path relative to the scan folder. */
 .file-name {
     font-family: var(--app-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
     font-size: 0.8rem;
