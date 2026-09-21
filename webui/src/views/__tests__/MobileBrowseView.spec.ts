@@ -145,11 +145,23 @@ describe('MobileBrowseView sections', () => {
         ])
     })
 
-    // Same rule as the sidebar: with one library the Library shelf already
-    // covers everything in it.
-    it('omits the per-library shelves when there is only one library', () => {
+    // Same rule as the sidebar: a library is a saved filter, so even the only
+    // one is narrower than the catalog the Library shelf samples.
+    it('gives the only library its own shelf', () => {
         fillSections()
         folders.value = [{ id: 1, name: 'Music' }]
+        expect(sectionTitles(mountView())).toEqual([
+            'Library',
+            'Music',
+            'Playlists',
+            'Genres',
+            'Radio'
+        ])
+    })
+
+    it('adds no per-library shelf when there is no library', () => {
+        fillSections()
+        folders.value = []
         expect(sectionTitles(mountView())).toEqual(['Library', 'Playlists', 'Genres', 'Radio'])
     })
 

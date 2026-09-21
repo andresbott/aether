@@ -43,9 +43,12 @@ const playlistsItem: NavItem = {
 
 const { data: musicFolders } = useMusicFolders()
 
+// Listed from the first library on: a library is a saved filter, so even a
+// single one is a narrower view than the whole catalog — that is what the
+// Discover/Releases/Artists entries above already browse. An empty list still
+// yields no entries.
 const folderItems = computed<NavItem[]>(() => {
     const folders = musicFolders.value ?? []
-    if (folders.length <= 1) return []
     return folders.map((folder) => ({
         label: folder.name,
         icon: `pi pi-${folder.icon || 'folder'}`,

@@ -224,8 +224,10 @@ full), one `BrowseAlbumShelf` per dynamic library (its newest albums; a componen
 per library because a composable cannot be called in a loop over a reactive list),
 then Playlists, Genres, Radio — each a heading, `BROWSE_SHELF_SIZE`
 (`lib/browseShelf.ts`) items in a horizontally snapping strip, and a "See all"
-link to the full view. Per-library shelves appear only above one library, matching
-the sidebar. Two things have no shelf to fill and sit in the header: Search, and
+link to the full view. Per-library shelves appear from the first library on,
+matching the sidebar: a library is a saved filter, so even the only one is
+narrower than the catalog the Library shelf samples.
+Two things have no shelf to fill and sit in the header: Search, and
 the account entries the desktop keeps in `UserMenu` (User settings → Admin →
 About → Log out) behind a `⋮` PrimeVue `Menu` — the phone's **only** way to log
 out. Now Playing and the queue stay reachable through `MiniPlayer`. Mobile only:
