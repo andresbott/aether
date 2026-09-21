@@ -495,7 +495,7 @@ onUnmounted(() => {
     min-width: 0;
 }
 .filter-error {
-    color: var(--p-red-600, #dc2626);
+    color: var(--app-danger);
     font-size: 0.8rem;
     /* The builder spaces its children with `gap`, so the one <p> that carries
        this class must not add the browser's default paragraph margin on top. */

@@ -143,7 +143,7 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
 .error-state {
     text-align: center;
     padding: 2rem;
-    color: var(--p-red-700, #b91c1c);
+    color: var(--app-danger);
 }
 .folder-name {
     display: inline-flex;

@@ -224,7 +224,7 @@ function warningsTooltip(lib: Library): string {
 .error-state {
     text-align: center;
     padding: 2rem;
-    color: var(--p-red-700, #b91c1c);
+    color: var(--app-danger);
 }
 .library-name {
     display: inline-flex;

@@ -36,6 +36,11 @@ $bp-desktop-min: 1024px;
        accent so pending changes stand out (metadata editor). */
     --app-staged: #b45309;
     --app-staged-soft: rgba(217, 119, 6, 0.12);
+    /* Error text — validation messages, "could not load" states. Its own token
+       because PrimeVue's red palette does not flip with the theme and no single
+       red passes AA on both grounds: red-700 on the light surface, red-400 on
+       the dark one. */
+    --app-danger: #b91c1c;
     /* Row hover tint — translucent so it reads on both the white surface
        (sidebar) and the grey app background (full Now Playing view). */
     --app-hover: rgba(20, 120, 150, 0.07);
@@ -110,6 +115,7 @@ $bp-desktop-min: 1024px;
     --app-accent-soft-hover: rgba(47, 211, 239, 0.24);
     --app-staged: #fbbf24;
     --app-staged-soft: rgba(251, 191, 36, 0.14);
+    --app-danger: #f87171;
     --app-hover: rgba(47, 211, 239, 0.09);
     --app-nav-bg: #0a0e13;
     --app-nav-text: #d7dee6;
