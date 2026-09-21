@@ -29,7 +29,7 @@ const props = withDefaults(
         removing?: boolean
         // Show Remove in the idle (unstaged) state.
         canRemove?: boolean
-        // Disable Change/Add (e.g. no library selected yet).
+        // Disable Change/Add (e.g. no scan folder selected yet).
         disabled?: boolean
         addLabel?: string
         changeTestId?: string

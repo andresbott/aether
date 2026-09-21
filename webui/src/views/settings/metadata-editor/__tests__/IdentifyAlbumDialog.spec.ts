@@ -670,20 +670,20 @@ describe('IdentifyAlbumDialog', () => {
         // The reasons the server actually sends: short, user-facing sentences.
         const pathErrs = [
             { path: 'bad.mp3', error: 'could not be fingerprinted' },
-            { path: '../outside.mp3', error: 'is outside the library' }
+            { path: '../outside.mp3', error: 'is outside the scan folder' }
         ]
         const w = mountDialog([], [], pathErrs)
         expect(w.find('[data-test="album-path-errors"]').exists()).toBe(true)
         expect(w.text()).toContain('bad.mp3')
         expect(w.text()).toContain('could not be fingerprinted')
         expect(w.text()).toContain('../outside.mp3')
-        expect(w.text()).toContain('is outside the library')
+        expect(w.text()).toContain('is outside the scan folder')
     })
 
-    // errors[] carries library-resolution refusals too, which were never
+    // errors[] carries path-resolution refusals too, which were never
     // fingerprinted, so the header must not claim fingerprinting for all of them.
     it('labels the error block for both refusals and fingerprint failures', () => {
-        const w = mountDialog([], [], [{ path: '../outside.mp3', error: 'is outside the library' }])
+        const w = mountDialog([], [], [{ path: '../outside.mp3', error: 'is outside the scan folder' }])
         const header = w.find('[data-test="album-path-errors"]').text()
         expect(header).not.toContain('could not be fingerprinted:')
         expect(header).toContain('were not identified')

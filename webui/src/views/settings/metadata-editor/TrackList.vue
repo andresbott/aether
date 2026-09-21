@@ -10,11 +10,12 @@ const props = defineProps<{
     selection: Track[]
     // Paths of tracks with staged (unsaved) session edits; shown as a marker.
     stagedPaths?: ReadonlySet<string>
-    // Library-relative path of the folder selected above the list. Track paths
-    // are library-relative too, so we show each one relative to this folder —
-    // just the file name for a flat album, or a subfolder-qualified name
-    // (e.g. "CD2/02 - Song.mp3") for multi-disc ones. Null/empty means the
-    // library root is selected, so the full library-relative path is shown.
+    // Path, relative to the scan folder, of the folder selected above the list.
+    // Track paths are relative to the scan folder too, so we show each one
+    // relative to this folder — just the file name for a flat album, or a
+    // subfolder-qualified name (e.g. "CD2/02 - Song.mp3") for multi-disc ones.
+    // Null/empty means the scan folder's root is selected, so the full
+    // folder-relative path is shown.
     folderPath?: string | null
 }>()
 const emit = defineEmits<{
@@ -66,7 +67,7 @@ function rowClass(t: Track): string {
 }
 
 // The path shown in the list, made relative to the selected folder by dropping
-// its prefix. Falls back to the full library-relative path at the library root
+// its prefix. Falls back to the full folder-relative path at the scan folder's root
 // (no folder prefix) or if the path somehow lies outside the folder.
 function displayPath(t: Track): string {
     const base = props.folderPath

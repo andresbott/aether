@@ -1,7 +1,7 @@
 import type { Track } from '@/types/metadata'
 
-// dirOf returns the library-relative parent directory of a track path
-// ('' = library root).
+// dirOf returns a track path's parent directory, relative to the scan folder
+// ('' = the scan folder's root).
 export function dirOf(path: string): string {
     const i = path.lastIndexOf('/')
     return i === -1 ? '' : path.slice(0, i)
