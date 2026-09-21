@@ -17,7 +17,10 @@ DataDir: "./data"
 #
 #   Name             identifies the folder: tracks remember the name of the folder
 #                    they were indexed under, and library filters refer to it.
-#                    Renaming a folder takes effect on the next scan.
+#                    Renaming a folder takes effect on the next scan. Libraries
+#                    whose filters name the OLD name match nothing for it until
+#                    they are edited: Settings → Libraries marks them "Needs
+#                    attention" and the server warns at startup.
 #   Path             root directory. Roots must not be equal or nested. Must
 #                    be the real directory: a root that is itself a symlink
 #                    is refused (symlinks INSIDE a root are followed when
@@ -30,6 +33,10 @@ DataDir: "./data"
 #                    config loader, not a regex — write the Synology "@eaDir"
 #                    exclude as "^@eaDir$" or "[@]eaDir".
 #   FollowSymlinks   follow symlinked folders while scanning         (default: true)
+#                    Content reached through a link is stored under the link's
+#                    TARGET. If that target lies outside every Path listed here,
+#                    those tracks are listed but do not play (known limitation):
+#                    list the target directory as a scan folder of its own.
 #
 # A directory that is missing at startup (a share that mounts late) is only a
 # warning: the server starts, and scans refuse to run until it is back.
@@ -47,7 +54,10 @@ DataDir: "./data"
 # nothing is re-linked: new rows are created and the old ones are swept
 # instead.
 #
-# What users browse — "libraries" — is configured in Settings → Libraries.
+# What users browse — "libraries" — is NOT configured here. A library is a saved
+# filter over the scanned catalog (by scan folder, folder path, file format,
+# release type, compilation or genre), created in Settings → Libraries.
+# Deleting a library never deletes music; removing a scan folder does.
 #
 # ScanFolders:
 #   - Name: "Music"

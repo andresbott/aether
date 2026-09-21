@@ -16,6 +16,9 @@ Vue 3 web player embedded.
   internet radio.
 - **Scanning** — incremental and full scans of multiple folders, on a cron
   schedule.
+- **Libraries** — named views over the scanned catalog, filtered by scan folder,
+  folder path, file format, release type, compilation or genre; served to
+  Subsonic clients as music folders.
 - **Artwork** — embedded and on-disk covers, plus Cover Art Archive and
   fanart.tv lookups.
 - **Metadata editor** — edit tags in the browser, identify tracks via
@@ -44,11 +47,58 @@ scan. Restart the server after editing, then run a scan. Removing an entry
 removes its tracks at the next scan, along with their stars, playlist
 entries and play history. Changing a `Path` keeps its tracks only if the old
 location is gone by the next scan (a move); if the old copy still exists,
-new rows are created and the old ones are swept instead. With no scan folder
+new rows are created and the old ones are swept instead. Content reached
+through a symbolic link is stored under the link's target; if that target
+lies outside every listed `Path`, those tracks are listed but do not play —
+list the target directory as a scan folder of its own. With no scan folder
 configured at all nothing is scanned and no on-disk media is served: a
 populated index is still listed, but nothing plays.
 
 See `config.yaml` for the full annotated example and every other setting.
+
+## Libraries are filters
+
+A **library** is what you browse — a named, saved filter over everything that
+was scanned, not a directory. Create one under **Settings → Libraries → Add
+library**: a name, an icon, the view it opens on, whether it has an Artists
+tab, and any number of filters:
+
+| Filter | Matches tracks… |
+|---|---|
+| Scan folder | indexed under one of the chosen `ScanFolders` entries |
+| Folder path | stored under one of the chosen directories |
+| File format | with one of the chosen extensions (`flac`, `mp3`, …) |
+| Release type | on an album of one of the chosen types; "(none)" means untyped albums |
+| Compilation | on a compilation album (Yes) or on any other album (No) |
+| Genre | tagged with one of the chosen genres |
+
+A track must pass **every** filter; within one filter **any** of its values is
+enough. A library without filters is the whole catalog. While you edit, the
+dialog shows how many tracks and albums the filters match.
+
+Worth knowing:
+
+- **Scan first.** Formats, genres and release types are picked from what the
+  catalog already holds; before the first scan there is nothing to pick.
+- **Libraries overlap, and deleting one deletes no music.** The same album can
+  sit in several libraries; removing a library removes only the view.
+- **Lists narrow, detail pages do not.** A "Lossless" library lists only albums
+  that have a FLAC track — but an album page shows all of its tracks, MP3
+  included, and an artist page shows all of the artist's albums.
+- **Renaming a scan folder orphans the filters that name it.** Settings →
+  Libraries marks such a library "Needs attention": it matches nothing for the
+  old name, and the dialog cannot save it until that value is removed or
+  replaced.
+- **Retagging can shrink a library silently.** A genre, format or release-type
+  filter keeps the value it was saved with; when no track carries it any more
+  the library just matches less, and the edit dialog marks the value "(not in
+  the catalog)".
+- **Folder paths are matched as stored.** Pick directories with *Browse…*. A
+  typed path counts only after Enter, and spaces around it are dropped. A
+  directory that is a symbolic link, or sits below one, matches nothing:
+  tracks reached through a link are stored under the link's target. A path
+  filter does not follow a scan folder whose `Path` you change — edit it
+  afterwards.
 
 ## Development
 

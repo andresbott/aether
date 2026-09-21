@@ -62,7 +62,7 @@ whole app whenever auth method `native` reports no session (see
 | View | Route | Purpose |
 |------|-------|---------|
 | `SettingsView` | `/settings` | Settings shell (renders children) |
-| `LibrariesView` | `/settings/libraries` | Manage collections/libraries |
+| `LibrariesView` | `/settings/libraries` | Manage libraries — named, **filtered views** over the catalog, not directories (`LibrariesPanel` + `LibraryDialog`: name, icon, default view, show-artists, and AND-ed filters built in `LibraryFilterBuilder` with a live match count; deleting one never touches tracks) — above a read-only `ScanFoldersPanel` listing the directories declared under `ScanFolders:` in the config file, the only place they can be changed |
 | `UsersView` | `/settings/users` | Manage native users (only with `Auth.Method: native`; nav entry hidden otherwise) |
 | `TasksView` | `/settings/tasks` | Scanning / scheduled tasks |
 | `MetadataEditorView` | `/metadata-editor` | Metadata editing (composes `EditPanel`, `FolderTree`, `TrackList` sub-components). Top-level route rendered in the settings layout (admin-only); reached from the sidebar `UserMenu` and the settings side-nav (Tools group) |
