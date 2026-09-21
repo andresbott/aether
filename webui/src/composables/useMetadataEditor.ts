@@ -96,7 +96,7 @@ export function mergeUpdateResults(a: UpdateResult[], b: UpdateResult[]): Update
 
 // One logical tracks update: per-path write results plus a reference to the
 // re-index job the write enqueued (poll it with pollReindex to learn whether
-// it actually caught the library index up).
+// it actually caught the index up).
 export interface UpdateTracksResult {
     results: UpdateResult[]
     reindex?: ReindexRef

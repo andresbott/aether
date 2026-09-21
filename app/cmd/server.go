@@ -206,7 +206,7 @@ func runServer(configFile string) error {
 	// user-triggered tasks. scan and scan-full are separate singleton tasks so
 	// a full run never coalesces onto an in-flight incremental one (the runner
 	// dedupes by task name); both share the library-writes exclusion group, so
-	// they — and the reindex below — never touch the library index at once.
+	// they — and the reindex below — never touch the index at once.
 	// Reindex is the metadata editor's targeted re-index, enqueued by its write
 	// handlers rather than run on demand.
 	runner.RegisterWithProgress(tasks.NewScanTaskFn(scanCfg, dataStore, tagReader, false), tasks.ScanTaskName, 1,

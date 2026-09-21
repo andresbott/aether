@@ -821,7 +821,7 @@ export function useEditSession(tracks: () => Track[] | undefined, scanFolder: ()
     }
 
     // reportReindexFailure warns that some writes landed on disk but their
-    // library re-index did not complete (as polled, in one batch, from every
+    // re-index did not complete (as polled, in one batch, from every
     // execution id the save collected — pictures, artist images and tag
     // batches alike).
     function reportReindexFailure(result: { failed: number; pending: number }) {
@@ -862,7 +862,7 @@ export function useEditSession(tracks: () => Track[] | undefined, scanFolder: ()
         // savePictures / saveArtistImages / the tag loop each firing their own.
         let wrote = false
         // Every write's reindex job id, collected across pictures, artist
-        // images and each tag batch, so the whole save polls the library index
+        // images and each tag batch, so the whole save polls the index
         // ONCE at the end instead of mid-loop per write (see the `quiet` gate on
         // useApplyPicture/useDeletePicture, which skips their internal poll for
         // exactly this reason).

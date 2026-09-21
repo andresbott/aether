@@ -35,7 +35,7 @@ import (
 var ErrUnsupported = errors.New("audiohash: unsupported format")
 
 // maxHashBytes bounds how much of the audio payload the byte-hash formats read,
-// so a full library scan stays I/O-cheap regardless of track length. Combined
+// so hashing a whole collection stays I/O-cheap regardless of track length. Combined
 // with the exact payload length (mixed into the digest) this is overwhelming
 // evidence of identical audio. Changing it changes every emitted hash, so treat
 // it as part of the on-disk format.

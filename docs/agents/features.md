@@ -85,7 +85,7 @@ a chosen direction (usually in `TODO.md`). Statuses verified against the code
 Last.fm scrobbling, DLNA/UPnP, jukebox/relay, transcoding, CUE sheets,
 app icon/branding, per-scan cover-path
 revalidation (known stale-cover bug with detailed root-cause notes),
-`getPlaylists` N+1 fix, favorites schema rework, image-cache eviction,
+`getPlaylists` N+1 fix, favorites schema rework,
 a per-root health gate for scan folders, logical (as-spelled) track paths
 (behind it: symlink-reached content outside every root is listed but does not
 play), negated library filters.

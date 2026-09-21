@@ -6,7 +6,7 @@
 // carries it to, can never become group-accessible regardless of the umask.
 // Requesting the conventional 0666 instead hands control back to the umask and
 // lets a setgid parent supply the group, exactly like cp or touch. This matters
-// for files aether writes into the shared music library (e.g. folder cover art);
+// for files aether writes into the shared scan folders (e.g. folder cover art);
 // files under the private DataDir deliberately keep the stdlib defaults.
 package fsx
 

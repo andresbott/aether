@@ -269,12 +269,11 @@ canceled context, or a DB error snapshotting/pruning aggregates); a non-empty `S
 task, and never fails it. The synchronous handler this replaced (`rescanSaved`,
 now removed) used to treat that shortfall as a failure and report it in the
 response's `rescan.ok`/`rescan.error` fields — visibility the edit path had
-that the scheduled scan never did. Moving to the job engine traded that away:
-`reconcile`'s per-track transaction failures are now swallowed identically on
-both entry points, and the SPA's poll only ever sees the job's terminal
-status, never a processed-count shortfall. Surfacing those failures is the
-separate "reconcile swallows failures" item in TODO.md, untouched by this
-change.
+that the scheduled scan never did. Moving to the job engine traded part of
+that away: `reconcile`'s per-track transaction failures are counted into
+`ScanStats.TracksFailed` and WARNed by both task bodies, so they are no
+longer silent in the task log — but the SPA's poll only ever sees the job's
+terminal status, never that count and never a processed-count shortfall.
 
 What a re-index failure costs still depends on the write, and **"the next
 scan catches up" is only true for audio-file writes.** A tag or

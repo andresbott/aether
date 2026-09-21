@@ -63,7 +63,7 @@ func (c *Client) Fingerprint(ctx context.Context, absPath string) (Result, error
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, //nolint:gosec // G204: args are passed directly without a shell; absPath is a library file
+	out, err := exec.CommandContext(ctx, //nolint:gosec // G204: args are passed directly without a shell; absPath is a local audio file
 		c.binary(), "-json", absPath,
 	).Output()
 	if err != nil {

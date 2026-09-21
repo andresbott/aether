@@ -95,8 +95,7 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   the generated avatar the artist's image comes from — a server filesystem
   detail, not a Subsonic field), artist image candidate listing + pick from the
   image providers (`/artists/image-candidates`, `/artists/{id}/image-from-search`
-  — see [scanning.md](scanning.md)), radio-browser import proxy, health. TODO.md
-  plans moving these under an `/admin` path eventually.
+  — see [scanning.md](scanning.md)), radio-browser import proxy, health.
 
 ## Key domain types (internal/model)
 
@@ -147,16 +146,18 @@ through `Runner.GetTaskLog`); the runner sweeps orphaned log files at startup
 table), re-armed at startup; `internal/taskrunner` wraps it in a façade that
 allows many param-carrying schedules per task over tempo's uuid-keyed
 scheduler — schedules are addressed by their own id, not the task name, so
-an hourly incremental scan and a nightly full scan are two schedules on the
-one `scan` task.
+one task can carry several (a nightly and a weekly `prune`, say); an hourly
+incremental scan and a nightly full scan are one schedule each on two
+distinct tasks, `scan` and `scan-full`.
 Tasks are registered in `app/cmd/server.go` from `app/tasks`: `scan` and
 `scan-full` (two distinct, parameterless, singleton tasks rather than one
 task carrying a `full` flag — see [scanning.md](scanning.md)), `reindex`
 (typed `ReindexParams{ScanFolder, Paths}` — the metadata editor's targeted
 re-index, enqueued by its write handlers rather than user-triggered; see
-[scanning.md](scanning.md)), and `fetch-artist-images`. `scan` and `reindex`
-share a `library-writes` `taskrunner.ExclusionGroup` so tempo never runs one
-while the other is in flight; otherwise task registration is independent, and
+[scanning.md](scanning.md)), and `fetch-artist-images`. `scan`, `scan-full`,
+`reindex` and `prune` all share a `library-writes`
+`taskrunner.ExclusionGroup` so tempo never runs one
+while another is in flight; otherwise task registration is independent, and
 **a scan does not auto-trigger the artist-image fetch**.
 
 ## Data directory layout

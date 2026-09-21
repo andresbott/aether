@@ -21,7 +21,7 @@ import (
 
 	"image/jpeg"
 
-	// Source images are whatever the library and the providers hold; GIF and
+	// Source images are whatever the catalog and the providers hold; GIF and
 	// BMP show up as folder art (see scanner.coverExts).
 	_ "image/gif"
 	_ "image/png"

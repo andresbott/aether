@@ -253,7 +253,7 @@ internal, server-side detail (`TestGetMusicFoldersShapeIsUnchanged`).
 
 ## Media serving
 
-`media.go`: `stream` serves the original file via `http.ServeFile` (range
+`media.go`: `stream` serves the original file via `serveETaggedFile` (range
 requests work; no transcoding). `getCoverArt` resolves, in order: assetstore
 image → folder cover from disk → embedded front cover → deterministic generated
 cover (`libs/covergen`).

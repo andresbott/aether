@@ -10,8 +10,8 @@ import (
 	"github.com/andresbott/aether/internal/tags"
 )
 
-// LibraryWriteExclusionGroup serializes every task that writes to the library
-// index over SQLite's single write lock. Both the scan and reindex tasks join
+// LibraryWriteExclusionGroup serializes every task that writes to the index
+// over SQLite's single write lock. Both the scan and reindex tasks join
 // it, so an edit-triggered reindex never runs while a full/incremental scan is
 // in progress (and vice versa). See app/cmd/server.go registrations.
 const LibraryWriteExclusionGroup = "library-writes"
@@ -35,7 +35,7 @@ var ReindexTaskDef = TaskDef{
 // NewReindexTaskFn builds the reindex task body. It reuses one Scanner (as
 // NewScanTaskFn does) and calls RescanPaths, which re-reads the given files'
 // tags, reconciles them, and prunes only the aggregates the edit could have
-// emptied — never the whole-library Cleanup.
+// emptied — never the whole-catalog Cleanup.
 func NewReindexTaskFn(cfg scanner.Config, s *store.Store, tagReader tags.Reader) func(ctx context.Context, log *slog.Logger, p ReindexParams) error {
 	sc := scanner.New(cfg, s, tagReader)
 	return func(ctx context.Context, log *slog.Logger, p ReindexParams) error {
