@@ -12,6 +12,7 @@ import { useScanFolders } from '@/composables/useScanFolders'
 import { previewLibrary } from '@/lib/api/Libraries'
 import { isCanceledError } from '@/lib/apiError'
 import {
+    countLabel,
     FILTER_FIELDS,
     LIMITS,
     optionsFor,
@@ -428,7 +429,8 @@ onUnmounted(() => {
             data-test="filter-preview"
         >
             <template v-if="previewState.status === 'ok'">
-                Matches {{ previewState.trackCount }} tracks in {{ previewState.albumCount }} albums.
+                Matches {{ countLabel(previewState.trackCount, 'track') }} in
+                {{ countLabel(previewState.albumCount, 'album') }}.
             </template>
             <template v-else>Fix the filters to see what they match.</template>
         </div>

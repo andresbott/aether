@@ -1,10 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { valueLabel, optionsFor, summarize, rowErrors } from '@/lib/libraryFilters'
+import { valueLabel, optionsFor, summarize, rowErrors, countLabel } from '@/lib/libraryFilters'
 import type { LibraryFilterOptions } from '@/types/libraries'
 
 function options(over: Partial<LibraryFilterOptions>): LibraryFilterOptions {
     return { scan_folders: [], formats: [], genres: [], release_types: [], ...over }
 }
+
+describe('countLabel', () => {
+    it('pluralises everything but exactly one', () => {
+        expect(countLabel(0, 'track')).toBe('0 tracks')
+        expect(countLabel(1, 'track')).toBe('1 track')
+        expect(countLabel(2, 'track')).toBe('2 tracks')
+        expect(countLabel(1, 'album')).toBe('1 album')
+        expect(countLabel(12, 'album')).toBe('12 albums')
+    })
+})
 
 describe('valueLabel', () => {
     it('labels the empty release_type value as (none)', () => {

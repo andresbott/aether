@@ -565,6 +565,13 @@ describe('LibraryFilterBuilder', () => {
             expect(w.get('[data-test="filter-preview"]').text()).toBe('Matches 5 tracks in 2 albums.')
         })
 
+        it('says 1 track in 1 album for a single match', async () => {
+            previewSpy.mockResolvedValueOnce({ track_count: 1, album_count: 1 })
+            const w = mountBuilder([mkRow('format', ['flac'])])
+            await vi.advanceTimersByTimeAsync(0)
+            expect(w.get('[data-test="filter-preview"]').text()).toBe('Matches 1 track in 1 album.')
+        })
+
         it('debounces a preview 400ms after the last change, clearing any pending one', async () => {
             const w = mountBuilder([mkRow('genre', [])])
             await vi.advanceTimersByTimeAsync(0)

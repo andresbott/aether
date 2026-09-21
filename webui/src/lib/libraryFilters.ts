@@ -70,6 +70,12 @@ export function optionsFor(
     return out
 }
 
+// countLabel renders a count with its noun, singular for exactly one:
+// "1 track", "0 tracks", "12 albums".
+export function countLabel(n: number, noun: string): string {
+    return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
+
 /** One line per filter for the libraries table, e.g. "Genre: Jazz, Ambient". */
 export function summarize(filters: LibraryFilter[]): string[] {
     return filters.map((f) => {
