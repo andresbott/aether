@@ -160,6 +160,14 @@ export interface AlbumIndex {
     index: AlbumLetter[]
 }
 
+// One entry of getReleaseTypes (Aether's "releaseTypeFilter" OpenSubsonic
+// extension, v2): a release type the albums in scope carry, and how many albums
+// filtering by it lists. Spellings that differ only in case are one entry.
+export interface ReleaseTypeCount {
+    name: string
+    albumCount: number
+}
+
 export interface ArtistIndex {
     total: number
     letters: AlbumLetter[]

@@ -5,8 +5,9 @@ import ScanFoldersPanel from '@/components/admin/ScanFoldersPanel.vue'
 
 <template>
     <div class="libraries-view">
-        <LibrariesPanel />
         <ScanFoldersPanel />
+        <hr class="section-divider" />
+        <LibrariesPanel />
     </div>
 </template>
 
@@ -14,5 +15,12 @@ import ScanFoldersPanel from '@/components/admin/ScanFoldersPanel.vue'
 .libraries-view {
     padding: 2rem;
     overflow-y: auto;
+}
+/* The panel above already ends in a 2.5rem margin; matching it below keeps
+   the rule centred between the two sections. */
+.section-divider {
+    border: none;
+    border-top: 1px solid var(--app-border);
+    margin: 0 0 2.5rem;
 }
 </style>

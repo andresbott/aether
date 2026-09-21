@@ -169,16 +169,7 @@ func TestSetupAuthLoginThrottle(t *testing.T) {
 
 func TestResetUserPassword(t *testing.T) {
 	dataDir := t.TempDir()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, dbFile)), &gorm.Config{
-		Logger: gormlogger.Discard,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	users, err := newUserStore(db, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	users := usersAt(t, dataDir)
 	createUser(t, users, "alice", "old-pw")
 	cfg := AppCfg{DataDir: dataDir}
 
@@ -210,13 +201,11 @@ func TestResetUserPassword(t *testing.T) {
 	})
 }
 
-// usersAt opens a fresh identity store on a DB in dataDir, mirroring the file
-// layout the CLI commands expect (DataDir/dbFile).
+// usersAt opens a fresh identity store on a DB in dataDir, created by openDB
+// at the path the CLI commands expect (dbPath).
 func usersAt(t *testing.T, dataDir string) *user.Service {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(filepath.Join(dataDir, dbFile)), &gorm.Config{
-		Logger: gormlogger.Discard,
-	})
+	db, err := openDB(dataDir, gormlogger.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}

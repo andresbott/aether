@@ -46,6 +46,18 @@ vi.mock('@/composables/useScanFolders', async () => {
     }
 })
 
+vi.mock('@/composables/useCatalogScan', async () => {
+    const { ref: vueRef } = await import('vue')
+    return {
+        useCatalogScan: () => ({
+            start: vi.fn(),
+            starting: vueRef(false),
+            running: vueRef(false),
+            progressText: vueRef('')
+        })
+    }
+})
+
 // ======== UsersPanel mocks ========
 const users = vi.hoisted(() => {
     return { current: [] as User[] }

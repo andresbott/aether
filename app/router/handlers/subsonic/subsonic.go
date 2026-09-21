@@ -201,6 +201,8 @@ func Register(r *mux.Router, s *store.Store, assets *assetstore.Store, images *i
 	// Lists
 	register("getAlbumList2", h.getAlbumList2)
 	register("getAlbumList2Index", h.getAlbumList2Index)
+	// releaseTypeFilter v2: which release types the album lists can filter by
+	register("getReleaseTypes", h.getReleaseTypes)
 	register("getRandomSongs", h.getRandomSongs)
 	register("getSongsByGenre", h.getSongsByGenre)
 	register("getStarred2", h.getStarred2)

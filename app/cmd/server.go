@@ -30,14 +30,10 @@ import (
 	"github.com/andresbott/aether/internal/taskrunner"
 	"github.com/andresbott/aether/libs/acoustid"
 	"github.com/andresbott/aether/libs/fpcalc"
-	"github.com/glebarez/sqlite"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
-	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
-
-const dbFile = "aether.db"
 
 func serverCmd() *cobra.Command {
 	var configFile string
@@ -92,24 +88,10 @@ func runServer(configFile string) error {
 			LogLevel:                  gormlogger.Warn,
 		},
 	)
-	// busy_timeout is per-connection state, so it must be set in the DSN: a PRAGMA
-	// issued via db.Exec runs on a single pooled connection and leaves the other
-	// nine at the default of 0, which returns SQLITE_BUSY immediately under write
-	// contention instead of waiting. journal_mode=WAL is recorded in the database
-	// file, so the one-off Exec below suffices for it.
-	dsn := filepath.Join(cfg.DataDir, dbFile) + "?_pragma=busy_timeout(5000)"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: gormLog,
-	})
+	db, err := openDB(cfg.DataDir, gormLog)
 	if err != nil {
 		return err
 	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		return err
-	}
-	sqlDB.SetMaxOpenConns(10)
-	db.Exec("PRAGMA journal_mode=WAL")
 
 	// Migrate domain models
 	if err := model.Migrate(db); err != nil {

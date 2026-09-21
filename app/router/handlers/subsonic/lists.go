@@ -222,6 +222,34 @@ func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getReleaseTypes serves version 2 of the "releaseTypeFilter" extension: the
+// release types the albums in scope carry, each with the number of albums that
+// filtering getAlbumList2 by it lists, so a client offers only the filters that
+// select something. Scoped by musicFolderId like the album lists themselves.
+func (h *Handler) getReleaseTypes(w http.ResponseWriter, r *http.Request) {
+	scope, _, ok := h.libraryScope(w, r)
+	if !ok {
+		return
+	}
+	counts, err := h.store.ReleaseTypeCounts(scope)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
+	types := make([]map[string]any, 0, len(counts))
+	for _, c := range counts {
+		types = append(types, map[string]any{
+			"name":       c.Name,
+			"albumCount": c.AlbumCount,
+		})
+	}
+	writeResponse(w, map[string]any{
+		"releaseTypes": map[string]any{
+			"releaseType": types,
+		},
+	})
+}
+
 func (h *Handler) getNowPlaying(w http.ResponseWriter, r *http.Request) {
 	nowPlaying, err := h.store.GetNowPlaying()
 	if err != nil {

@@ -281,12 +281,17 @@ onUnmounted(() => {
             :data-test="`filter-row-${idx}`"
         >
             <div class="filter-row-main">
+                <!-- The field list is short and fixed, so it is never capped:
+                     PrimeVue's default 14rem scroll height is a few pixels
+                     short of FILTER_FIELDS and left the last one half-hidden
+                     behind a scrollbar. -->
                 <Select
                     :modelValue="row.field"
                     @update:modelValue="onFieldChange(idx, $event)"
                     :options="FILTER_FIELDS"
                     optionLabel="label"
                     optionValue="field"
+                    scrollHeight="none"
                     aria-label="Filter field"
                     :invalid="!!rowError(idx).field"
                     class="field-select"

@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/andresbott/aether/internal/model"
@@ -348,6 +349,63 @@ func TestGetAlbumListReleaseTypeExcludesUntyped(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Fatalf("expected 2 unfiltered, got %d", len(all))
+	}
+}
+
+// ReleaseTypeCounts groups types the way the releaseType filter matches them
+// (case-insensitively), so each count is exactly what filtering by that type
+// lists. An album carrying one type in two spellings counts once, and blanks,
+// untyped albums and the JSON null a nil slice stores contribute nothing.
+func TestReleaseTypeCounts(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	db.Create(&model.Album{Name: "Low", NameNorm: "low", AlbumArtistNorm: "x", ReleaseTypes: []string{"album", "Live"}})
+	db.Create(&model.Album{Name: "Twice", NameNorm: "twice", AlbumArtistNorm: "x", ReleaseTypes: []string{"EP", "ep"}})
+	db.Create(&model.Album{Name: "Blank", NameNorm: "blank", AlbumArtistNorm: "x", ReleaseTypes: []string{" "}})
+	db.Create(&model.Album{Name: "Empty", NameNorm: "empty", AlbumArtistNorm: "x", ReleaseTypes: []string{}})
+	db.Create(&model.Album{Name: "Untyped", NameNorm: "untyped", AlbumArtistNorm: "x"})
+
+	got, err := s.ReleaseTypeCounts(store.TrackScope{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.ReleaseTypeCount{
+		{Name: "Album", AlbumCount: 2},
+		{Name: "EP", AlbumCount: 1},
+		{Name: "Live", AlbumCount: 1},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// Inside a library only the albums with a track in its scope count, so a type
+// that library holds no release of is not reported at all.
+func TestReleaseTypeCountsByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	lp := model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}}
+	hit := model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}}
+	db.Create(&lp)
+	db.Create(&hit)
+	db.Create(&model.Track{AlbumID: lp.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: hit.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+
+	got, err := s.ReleaseTypeCounts(scanFolderScope("L1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []store.ReleaseTypeCount{{Name: "Album", AlbumCount: 1}}; !slices.Equal(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+
+	none, err := s.ReleaseTypeCounts(store.NoTracks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("a scope matching nothing reported %+v", none)
 	}
 }
 

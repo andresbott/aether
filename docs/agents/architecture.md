@@ -162,7 +162,9 @@ while another is in flight; otherwise task registration is independent, and
 
 ## Data directory layout
 
-`DataDir` (default `./data`) holds: `aether.db` (SQLite), `metadata/`
+`DataDir` (default `./data`; `zarf/localdata/data` under `make run`) holds:
+`sqlite/aether.db` (SQLite, opened by `openDB` in `app/cmd/db.go`; its
+`-wal`/`-shm` files sit beside it), `metadata/`
 (assetstore: `<kind>/<key>/<name>[.auto].<ext>` — a plain `<name>.<ext>` is a
 manual upload the fetcher must never overwrite; `.auto.` marks fetched
 images), `image-cache/` (imagecache), `task-logs/`.

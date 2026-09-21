@@ -12,7 +12,9 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Seventeen extensions exist today — copy their shape.
+  Eighteen extensions exist today — copy their shape. Growing an existing
+  capability is a new *version* of its extension, not a new name
+  (`releaseTypeFilter` v2 added `getReleaseTypes`).
 - **Never route music features through `/api/v0`** — that surface is admin
   only ([architecture.md](architecture.md), "two-API split").
 - Every endpoint registers under both `/rest/<name>` and `/rest/<name>.view`
@@ -161,6 +163,17 @@ optional `releaseType=<MB primary type>` (`Album`/`Single`/`EP`/`Broadcast`/
 value; the letter index applies the same filter so virtual-grid offsets stay
 consistent. Untyped releases match no typed value (they appear only
 unfiltered).
+
+**`releaseTypeFilter` (v2)** adds `getReleaseTypes` (`musicFolderId` optional):
+`releaseTypes { releaseType[]: { name, albumCount } }`, every type the albums in
+scope carry — primary and secondary alike — with how many albums filtering by it
+lists. It is the filter's own vocabulary, so it groups exactly as the filter
+matches: case-insensitively, named by the group's first spelling in binary order
+(`Album` over `album`), an album counted once however many spellings it holds;
+blank types are skipped (`Store.ReleaseTypeCounts`). The Releases tab row in
+`LibraryView` offers only the primary types listed here. It is a version, not a
+new extension name, because it grows the same capability: v1's parameter is
+unchanged, so the server advertises `[1, 2]`.
 
 ## Discovery feed (`getDiscovery`, the `discovery` extension)
 

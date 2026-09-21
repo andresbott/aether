@@ -245,9 +245,9 @@ extrapolates between updates).
 ## Admin — libraries and scan folders
 
 `LibrariesView` (`views/settings/LibrariesView.vue`, `/settings/libraries`)
-renders two independent panels: `LibrariesPanel` (create/edit/delete) then
-`ScanFoldersPanel` (read-only). A library owns no directory — it is a named,
-**filtered view** over the whole catalog (see
+renders two independent panels: `ScanFoldersPanel` (read-only) then
+`LibrariesPanel` (create/edit/delete). A library owns no directory — it is a
+named, **filtered view** over the whole catalog (see
 [architecture.md](architecture.md#scan-folders-config-only)) — so neither
 panel shows a path, a last-scan time, or a config-provisioned badge; the
 directories actually scanned live only in the server's config file.
@@ -264,8 +264,8 @@ the filter summary renders a second time under the name instead (the
 "Settings on phones" pattern above); `settingsTables.phone.spec.ts` pins both
 tiers for this table.
 
-**`ScanFoldersPanel`** is genuinely read-only — no buttons, no dialogs, no
-mutations — over `useScanFolders()` (`GET /api/v0/scan-folders`): Name, Path,
+**`ScanFoldersPanel`** lists the folders read-only — no dialogs, nothing to
+edit — over `useScanFolders()` (`GET /api/v0/scan-folders`): Name, Path,
 Excludes (a count; the patterns themselves are the tooltip), Symlinks
 ("Followed"/"Not followed"), Tracks, Status (a `Tag`, `success` "Available"
 or `danger` "Not usable" with the server's raw `problem` string as tooltip
@@ -281,6 +281,28 @@ scan folders configured (see [subsonic-api.md](subsonic-api.md)). On phone,
 Path/Excludes/Symlinks hide and the path renders under the name instead;
 Tracks and Status stay on every width.
 
+Its one button, **"Scan now"** in the section header, is a shortcut to the
+incremental `scan` task ("Catalog Scan", the same one the Tasks page runs),
+through `useCatalogScan()` (`composables/useCatalogScan.ts`):
+
+- It follows the runner's execution list through `useExecutions()`, the
+  query the Tasks view uses too (polled while any run is queued or running).
+  While a `scan` run is active, whoever started it (this button, the Tasks
+  page, a schedule), the button is disabled and its label is that run's
+  `progressLabel` ("Queued", "Running", "N% complete"). A trigger that joins
+  a run already in flight (`reused`) gets an info toast, and a refused
+  trigger gets an error toast.
+- When a run it saw in flight settles, it invalidates `scan-folders`,
+  `libraries` (which includes the filter pick-lists) and the whole
+  `['subsonic']` tree: a scan changes the track counts on this page and the
+  catalog every music view shows. The run its own trigger returned counts
+  too, since a small scan can finish before any poll sees it running. A run
+  that ends in anything other than `complete` or `canceled` gets an error
+  toast pointing at the Tasks queue. A run that had already settled when the
+  page loaded changes nothing.
+- It is disabled only when the list loaded empty (there is nothing to walk).
+  While loading, or after a failed fetch, it stays usable.
+
 Both panels distinguish a failed request from a genuinely empty one: the
 empty-state copy above renders only once the query actually resolved to an
 empty list (`scanFolders && scanFolders.length === 0` /
@@ -288,9 +310,9 @@ empty list (`scanFolders && scanFolders.length === 0` /
 block ("Could not load the scan folders"/"Could not load the libraries…
 Check that the server is reachable and reload the page.") takes that slot
 instead, so a failed fetch is never reported as "nothing is configured" or
-"no libraries yet". `LibrariesPanel`'s "Add library" button stays available
-in that error state; it lives in the section header, outside the
-loading/error/empty/table switch.
+"no libraries yet". `LibrariesPanel`'s "Add library" and `ScanFoldersPanel`'s
+"Scan now" stay available in that error state; both live in the section
+header, outside the loading/error/empty/table switch.
 
 **`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
 inside `LibraryDialog`) is the one place filters are edited. `LibraryDialog`

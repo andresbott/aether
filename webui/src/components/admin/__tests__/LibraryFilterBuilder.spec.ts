@@ -72,7 +72,7 @@ function valuesOf(n: number): string[] {
 const stubs = {
     Select: {
         name: 'Select',
-        props: ['modelValue', 'options', 'optionLabel', 'optionValue'],
+        props: ['modelValue', 'options', 'optionLabel', 'optionValue', 'scrollHeight'],
         emits: ['update:modelValue'],
         template:
             '<div class="select-stub">' +
@@ -238,6 +238,13 @@ describe('LibraryFilterBuilder', () => {
             expect(select.props('options')).toEqual(FILTER_FIELDS)
             expect(select.props('optionLabel')).toBe('label')
             expect(select.props('optionValue')).toBe('field')
+        })
+
+        // PrimeVue caps a Select's list at 14rem by default, a few pixels short
+        // of the six fields, which scrolled the last one half out of sight.
+        it('never caps the field list, so every field shows without a scrollbar', () => {
+            const w = mountBuilder([mkRow('scan_folder')])
+            expect(fieldSelectIn(w, 0).props('scrollHeight')).toBe('none')
         })
 
         it('gives the field select and the remove button accessible names', () => {

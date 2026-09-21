@@ -3,6 +3,7 @@ package subsonic
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -40,32 +41,33 @@ func TestGetOpenSubsonicExtensions(t *testing.T) {
 	for _, e := range exts {
 		names[e.Name] = e.Versions
 	}
-	expected := []string{
-		"musicFolderDefaultView",
-		"musicFolderShowArtists",
-		"musicFolderIcon",
-		"albumList2Index",
-		"internetRadioCoverArt",
-		"playlistCoverArt",
-		"artistCoverArt",
-		"genreCoverArt",
-		"albumCoverArt",
-		"playlistStar",
-		"playlistScrobble",
-		"playlistStats",
-		"discovery",
-		"indexBasedQueue",
-		"searchGenres",
-		"apiKeyAuthentication",
-		"releaseTypeFilter",
-		"generatedCovers",
+	expected := map[string][]int{
+		"musicFolderDefaultView": {1},
+		"musicFolderShowArtists": {1},
+		"musicFolderIcon":        {1},
+		"albumList2Index":        {1},
+		"internetRadioCoverArt":  {1},
+		"playlistCoverArt":       {1},
+		"artistCoverArt":         {1},
+		"genreCoverArt":          {1},
+		"albumCoverArt":          {1},
+		"playlistStar":           {1},
+		"playlistScrobble":       {1},
+		"playlistStats":          {1},
+		"discovery":              {1},
+		"indexBasedQueue":        {1},
+		"searchGenres":           {1},
+		"apiKeyAuthentication":   {1},
+		// v2 adds getReleaseTypes; v1's releaseType parameter is unchanged.
+		"releaseTypeFilter": {1, 2},
+		"generatedCovers":   {1},
 	}
 	if len(exts) != len(expected) {
 		t.Fatalf("expected %d extensions, got %d: %+v", len(expected), len(exts), exts)
 	}
-	for _, name := range expected {
-		if v, ok := names[name]; !ok || len(v) != 1 || v[0] != 1 {
-			t.Fatalf("%s versions = %v", name, v)
+	for name, want := range expected {
+		if v, ok := names[name]; !ok || !slices.Equal(v, want) {
+			t.Fatalf("%s versions = %v, want %v", name, v, want)
 		}
 	}
 }

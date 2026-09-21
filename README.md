@@ -56,7 +56,8 @@ another scan folder: roots cannot nest). With no scan folder configured at
 all nothing is scanned and no on-disk media is served: a populated index is
 still listed, but nothing plays.
 
-See `config.yaml` for the full annotated example and every other setting.
+See `zarf/localdata/config.yaml` (the dev config `make run` uses) for the full
+annotated example and every other setting.
 
 ## Libraries are filters
 

@@ -405,8 +405,8 @@ except edge 8, which fails outright instead.
    with the server stopped:
 
    ```sh
-   sqlite3 <DataDir>/aether.db "SELECT id, name FROM libraries WHERE NOT json_valid(filters) OR json_type(filters) <> 'array';"
-   sqlite3 <DataDir>/aether.db "UPDATE libraries SET filters = '[]' WHERE id = <id>;"
+   sqlite3 <DataDir>/sqlite/aether.db "SELECT id, name FROM libraries WHERE NOT json_valid(filters) OR json_type(filters) <> 'array';"
+   sqlite3 <DataDir>/sqlite/aether.db "UPDATE libraries SET filters = '[]' WHERE id = <id>;"
    ```
 
    The query finds invalid JSON and non-arrays (a JSON `null` too, which decodes fine

@@ -191,6 +191,32 @@ func (s *Store) GetAlbumLetterIndex(filter *AlbumListFilter) ([]AlbumLetter, int
 	return letters, running, nil
 }
 
+// ReleaseTypeCount is one release type the albums in a scope carry, and how
+// many of them carry it.
+type ReleaseTypeCount struct {
+	Name       string
+	AlbumCount int
+}
+
+// ReleaseTypeCounts lists the release types the albums in the scope carry, each
+// with its album count: the values an AlbumListFilter.ReleaseType can select,
+// and how many albums each selects. Types are grouped case-insensitively, as
+// that filter matches them, and named by the group's first spelling in binary
+// order ("Album" over "album"). Ordered by name; blank types are skipped.
+func (s *Store) ReleaseTypeCounts(sc TrackScope) ([]ReleaseTypeCount, error) {
+	var out []ReleaseTypeCount
+	// rt.type = 'text' skips what a nil slice serializes to: the JSON literal
+	// null, which json_each yields as one row whose value is NULL.
+	err := scopeByAlbum(s.db.Model(&model.Album{}), sc, "albums.id").
+		Joins("JOIN json_each(albums.release_types) rt").
+		Where("rt.type = 'text' AND TRIM(rt.value) <> ''").
+		Select("MIN(rt.value) AS name, COUNT(DISTINCT albums.id) AS album_count").
+		Group("LOWER(rt.value)").
+		Order("LOWER(rt.value)").
+		Scan(&out).Error
+	return out, err
+}
+
 // AlbumTrackStat holds aggregate track figures for one album.
 type AlbumTrackStat struct {
 	AlbumID  uint

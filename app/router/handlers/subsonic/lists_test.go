@@ -163,6 +163,77 @@ func TestGetAlbumList2IndexFilterByReleaseType(t *testing.T) {
 	}
 }
 
+type releaseTypesBody struct {
+	SubsonicResponse struct {
+		Status       string `json:"status"`
+		ReleaseTypes struct {
+			ReleaseType []struct {
+				Name       string `json:"name"`
+				AlbumCount int    `json:"albumCount"`
+			} `json:"releaseType"`
+		} `json:"releaseTypes"`
+	} `json:"subsonic-response"`
+}
+
+// getReleaseTypes (releaseTypeFilter v2) lists the types a releaseType filter
+// can select, with the album count each selects — so a client offers only
+// filters that list something. Spellings differing in case are one type.
+func TestGetReleaseTypes(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	db.Create(&model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}})
+	db.Create(&model.Album{Name: "Low", NameNorm: "low", AlbumArtistNorm: "x", ReleaseTypes: []string{"album", "Compilation"}})
+	db.Create(&model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}})
+	db.Create(&model.Album{Name: "Untyped", NameNorm: "untyped", AlbumArtistNorm: "x"})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	var body releaseTypesBody
+	decodeJSON(t, srv.URL+"/rest/getReleaseTypes.view", &body)
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("status = %q, want ok", body.SubsonicResponse.Status)
+	}
+	got := fmt.Sprintf("%+v", body.SubsonicResponse.ReleaseTypes.ReleaseType)
+	if want := "[{Name:Album AlbumCount:2} {Name:Compilation AlbumCount:1} {Name:Single AlbumCount:1}]"; got != want {
+		t.Fatalf("releaseType = %s, want %s", got, want)
+	}
+}
+
+// Like every album list, the counts follow musicFolderId: a type the library
+// holds no release of is absent, and an unknown library answers an empty list.
+func TestGetReleaseTypesScopesByLibrary(t *testing.T) {
+	s := testStore(t)
+	db := s.DB()
+	lib := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	db.Create(&lib)
+	lp := model.Album{Name: "LP", NameNorm: "lp", AlbumArtistNorm: "x", ReleaseTypes: []string{"Album"}}
+	hit := model.Album{Name: "Hit", NameNorm: "hit", AlbumArtistNorm: "x", ReleaseTypes: []string{"Single"}}
+	db.Create(&lp)
+	db.Create(&hit)
+	db.Create(&model.Track{AlbumID: lp.ID, ScanFolder: "L1", Filename: "a.mp3", FilePath: "/l1/a.mp3"})
+	db.Create(&model.Track{AlbumID: hit.ID, ScanFolder: "L2", Filename: "b.mp3", FilePath: "/l2/b.mp3"})
+
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	var body releaseTypesBody
+	decodeJSON(t, fmt.Sprintf("%s/rest/getReleaseTypes.view?musicFolderId=%d", srv.URL, lib.ID), &body)
+	got := body.SubsonicResponse.ReleaseTypes.ReleaseType
+	if len(got) != 1 || got[0].Name != "Album" || got[0].AlbumCount != 1 {
+		t.Fatalf("library L1 release types = %+v, want only Album ×1", got)
+	}
+
+	body = releaseTypesBody{}
+	decodeJSON(t, srv.URL+"/rest/getReleaseTypes.view?musicFolderId=999", &body)
+	if body.SubsonicResponse.Status != "ok" {
+		t.Fatalf("status = %q, want ok", body.SubsonicResponse.Status)
+	}
+	if got := body.SubsonicResponse.ReleaseTypes.ReleaseType; len(got) != 0 {
+		t.Fatalf("unknown library reported %+v, want none", got)
+	}
+}
+
 func TestGetStarred2IncludesPlaylists(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()

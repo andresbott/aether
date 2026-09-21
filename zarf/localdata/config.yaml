@@ -1,3 +1,7 @@
+# Dev config: `make run` starts the server from the repo root with
+# -c zarf/localdata/config.yaml. Relative paths in this file (DataDir, scan
+# folder Paths, "@" key files) resolve against that working directory, not
+# against this file's directory.
 Server:
   Port: 8075
   BindIp: ""
@@ -9,7 +13,7 @@ Observability:
   Port: 9009
   BindIp: ""
 
-DataDir: "./data"
+DataDir: "./zarf/localdata/data"
 
 # The directories Aether scans for music. They are declared HERE and nowhere
 # else: there is no database row and no UI to add one, so what gets scanned is
@@ -69,6 +73,12 @@ DataDir: "./data"
 #     ExcludePatterns:
 #       - ".*/covers/.*"
 #     FollowSymlinks: false
+#
+# Active dev setup: `make run` scans zarf/locallibrary — drop music there; git
+# ignores everything in it except its .gitkeep.
+ScanFolders:
+  - Name: "Music"
+    Path: "./zarf/locallibrary"
 
 # Authentication. Three methods:
 #
@@ -124,11 +134,11 @@ DataDir: "./data"
 # http://localhost:8076 (AdminBootstrap is ignored in this mode; kept for
 # switching back to "native").
 Auth:
-#  Method: "proxy-header"
   Method: "native"
   AdminBootstrap:
     User: "admin"
     Pw: "admin"
+#  Method: "proxy-header"
   ProxyHeader:
     UserHeader: "Remote-User"
     GroupsHeader: "Remote-Groups"

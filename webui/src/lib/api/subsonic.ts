@@ -12,6 +12,7 @@ import type {
     Playlist,
     MusicFolder,
     Genre,
+    ReleaseTypeCount,
     InternetRadioStation,
     DiscoveryPage,
     SavedPlayQueue,
@@ -204,6 +205,20 @@ class SubsonicClient {
             params
         )
         return response.albumList2Index ?? { total: 0, index: [] }
+    }
+
+    // The release types the albums in scope carry, so the Releases filter can
+    // offer only the types that list something.
+    async getReleaseTypes(musicFolderId?: number): Promise<ReleaseTypeCount[]> {
+        if (!this.isConfigured()) return []
+        const params: Record<string, string | number | undefined> = {}
+        if (musicFolderId !== undefined) {
+            params.musicFolderId = musicFolderId
+        }
+        const response = await this.request<{
+            releaseTypes?: { releaseType?: ReleaseTypeCount[] }
+        }>('getReleaseTypes.view', params)
+        return response.releaseTypes?.releaseType ?? []
     }
 
     // Every favorite in one response — getStarred2 takes no size/offset by spec.

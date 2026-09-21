@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import type { ScanFolder } from '@/types/scanFolders'
@@ -23,6 +23,33 @@ vi.mock('@/composables/useScanFolders', async () => {
             isError: vueRef(state.isError)
         })
     }
+})
+
+// Same shape as useCatalogScan(): refs read fresh on every mount, so a test
+// sets the scan's state before mounting.
+const scan = vi.hoisted(() => ({
+    start: (() => {}) as (...args: unknown[]) => void,
+    starting: false,
+    running: false,
+    progressText: ''
+}))
+vi.mock('@/composables/useCatalogScan', async () => {
+    const { ref: vueRef } = await import('vue')
+    return {
+        useCatalogScan: () => ({
+            start: scan.start,
+            starting: vueRef(scan.starting),
+            running: vueRef(scan.running),
+            progressText: vueRef(scan.progressText)
+        })
+    }
+})
+
+beforeEach(() => {
+    scan.start = vi.fn()
+    scan.starting = false
+    scan.running = false
+    scan.progressText = ''
 })
 
 import ScanFoldersPanel from '@/components/admin/ScanFoldersPanel.vue'
@@ -185,5 +212,48 @@ describe('ScanFoldersPanel load error', () => {
         await flushPromises()
         expect(w.find('[data-test="scan-folders-error"]').exists()).toBe(false)
         expect(w.text()).toContain('No scan folders are configured')
+    })
+})
+
+describe('ScanFoldersPanel scan now', () => {
+    it('starts a catalog scan from the header button', async () => {
+        const w = mountPanel([scanFolder({})])
+        await flushPromises()
+        const button = w.find('[data-test="scan-now"]')
+        expect(button.text()).toBe('Scan now')
+        expect(button.attributes('disabled')).toBeUndefined()
+        await button.trigger('click')
+        expect(scan.start).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the running scan’s progress on the button and holds it disabled', async () => {
+        scan.running = true
+        scan.progressText = '42% complete'
+        const w = mountPanel([scanFolder({})])
+        await flushPromises()
+        const button = w.find('[data-test="scan-now"]')
+        expect(button.text()).toBe('42% complete')
+        expect(button.attributes('disabled')).toBeDefined()
+    })
+
+    it('holds the button disabled while the trigger is in flight', async () => {
+        scan.starting = true
+        const w = mountPanel([scanFolder({})])
+        await flushPromises()
+        expect(w.find('[data-test="scan-now"]').attributes('disabled')).toBeDefined()
+    })
+
+    it('disables the button when no scan folders are configured', async () => {
+        const w = mountPanel([])
+        await flushPromises()
+        expect(w.find('[data-test="scan-now"]').attributes('disabled')).toBeDefined()
+    })
+
+    // A failed fetch says nothing about the server's config, so it must not
+    // pass for "nothing to scan" — same rule as the empty-state copy above.
+    it('keeps the button usable when the folders failed to load', async () => {
+        const w = mountPanel(undefined, false, true)
+        await flushPromises()
+        expect(w.find('[data-test="scan-now"]').attributes('disabled')).toBeUndefined()
     })
 })

@@ -77,8 +77,8 @@ coverage-report: ## generate a coverage report
 #==========================================================================================
 ##@ Running
 #==========================================================================================
-run: ## start the GO service (uses built-in defaults; optional -c config.yaml)
-	@AETHER_ENV_LOGLEVEL="debug" go run main.go start
+run: ## start the GO service with the dev config (zarf/localdata/config.yaml)
+	@AETHER_ENV_LOGLEVEL="debug" go run main.go start -c zarf/localdata/config.yaml
 
 run-ui: package-ui run## build the UI and start the GO service
 
@@ -93,7 +93,7 @@ proxy: ## smoke-test proxy for auth proxy-header mode: make proxy USER=admin GRO
 	@[ "$(origin USER)" = "command line" ] || ( echo ">> USER is not set, usage: make proxy USER=admin GROUP=aether-admin"; exit 1 )
 	@go run ./zarf/devproxy -user "$(USER)" -groups "$(GROUP)"
 
-DATA_DIR ?= ./data
+DATA_DIR ?= ./zarf/localdata/data
 .PHONY: reset-data
 reset-data: ## delete the local data dir — user DB, image cache, metadata, task logs, session/PAT keys (FORCE=1 skips the prompt)
 	@if [ ! -e "$(DATA_DIR)" ]; then \

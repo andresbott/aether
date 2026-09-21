@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import { useScanFolders } from '@/composables/useScanFolders'
+import { useCatalogScan } from '@/composables/useCatalogScan'
 import { useViewport } from '@/composables/useViewport'
 import type { ScanFolder } from '@/types/scanFolders'
 
 // Read-only: scan folders are declared only in the server's config file (see
 // docs/agents/architecture.md#scan-folders-config-only) — there is nothing to
-// create, edit or delete here, so this panel has no buttons and no dialogs.
+// create, edit or delete here, so this panel has no dialogs. Its one button,
+// "Scan now", is a shortcut to the Catalog Scan task on the Tasks page.
 const { data: scanFolders, isLoading, isError } = useScanFolders()
+
+const { start: scanNow, starting, running, progressText } = useCatalogScan()
+// With no folder configured a scan has nothing to walk. Only a list that
+// actually loaded empty says so: while loading or after a failed fetch the
+// server may well have folders, so the button stays usable.
+const noFolders = computed(() => scanFolders.value?.length === 0)
 
 const { tier } = useViewport()
 // Spec §5: settings tables must not overflow a phone; the path, excludes and
@@ -30,6 +39,14 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
     <section class="section">
         <div class="section-header">
             <h2>Scan folders</h2>
+            <Button
+                :label="running ? progressText : 'Scan now'"
+                icon="pi pi-sync"
+                :loading="starting || running"
+                :disabled="starting || running || noFolders"
+                data-test="scan-now"
+                @click="scanNow"
+            />
         </div>
         <p class="hint">
             Defined in the server's config file under ScanFolders; restart the server to apply

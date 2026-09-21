@@ -159,9 +159,9 @@ type Msg struct {
 const EnvBarPrefix = "AETHER"
 
 // configSearchPaths is where the config file is looked up when no -c flag is
-// given, in order of precedence: the working directory (development, `make
-// run`) then the packaged location used by the deb + systemd unit. Missing
-// files are skipped; if none exist the built-in defaults apply.
+// given, in order of precedence: the working directory, then the packaged
+// location used by the deb + systemd unit. Missing files are skipped; if none
+// exist the built-in defaults apply.
 var configSearchPaths = []string{
 	"./config.yaml",
 	"/etc/aether/config.yaml",
