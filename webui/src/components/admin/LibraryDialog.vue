@@ -54,6 +54,10 @@ const filtersTouchedSinceError = ref(false)
 // `update:browsing` emit for why the Dialog below must then ignore Escape.
 const pickerOpen = ref(false)
 
+// The same for the icon picker: a PrimeVue Popover, which hides on Escape
+// without stopping propagation — see IconSelect's `update:open` emit.
+const iconPickerOpen = ref(false)
+
 watch(
     () => [props.visible, props.library],
     () => {
@@ -75,10 +79,11 @@ watch(
         }
         // A freshly (re)opened dialog is a new editing session: any stale-error
         // suppression left over from a previous visit no longer applies. The
-        // builder unmounts with the dialog's content and so cannot report the
-        // picker closed on the way out; reset that here too.
+        // builder and the icon picker unmount with the dialog's content and so
+        // cannot report themselves closed on the way out; reset both here too.
         filtersTouchedSinceError.value = false
         pickerOpen.value = false
+        iconPickerOpen.value = false
     },
     { immediate: true }
 )
@@ -170,7 +175,7 @@ const defaultViewOptions = [
         @update:visible="emit('update:visible', $event)"
         modal
         :header="isEditMode ? 'Edit Library' : 'Add Library'"
-        :closeOnEscape="!pickerOpen"
+        :closeOnEscape="!pickerOpen && !iconPickerOpen"
         :style="{ width: 'min(92vw, 44rem)' }"
     >
         <Message
@@ -233,7 +238,7 @@ const defaultViewOptions = [
             </Message>
 
             <label>Icon</label>
-            <IconSelect v-model="form.icon" />
+            <IconSelect v-model="form.icon" @update:open="iconPickerOpen = $event" />
             <Message
                 v-if="fieldErrors['/icon']"
                 class="field-error"

@@ -368,10 +368,14 @@ knows a parent was a link.
 **Nested dialogs and Escape.** PrimeVue's `Dialog` binds a document-level
 `keydown` listener per visible dialog and none checks which dialog is on
 top, so one Escape closes every open dialog. `LibraryFilterBuilder`
-therefore emits `update:browsing` while its folder picker is open and
-`LibraryDialog` passes `:closeOnEscape="!pickerOpen"` — `closeOnEscape` is
-read at event time, so this is independent of where focus sits. Any new
-dialog-inside-a-dialog needs the same treatment. A spec for it must mount
+therefore emits `update:browsing` while its folder picker is open, `IconSelect`
+emits `update:open` while its icon `Popover` is, and `LibraryDialog` passes
+`:closeOnEscape="!pickerOpen && !iconPickerOpen"` — `closeOnEscape` is
+read at event time, so this is independent of where focus sits. Any dialog or
+`Popover` opened from inside a dialog needs the same treatment (`IconSelect` in
+`LibraryDialog` is the second case: PrimeVue's `Popover` hides on Escape
+without stopping propagation, and binds its own document listener besides).
+A spec for it must mount
 with `transition: false`: Vue Test Utils' default transition stub never
 fires the `@enter` hook in which PrimeVue binds that listener, so the
 default harness cannot see the bug.

@@ -5,6 +5,7 @@ import PrimeVue from 'primevue/config'
 import InputText from 'primevue/inputtext'
 import ToggleSwitch from 'primevue/toggleswitch'
 import Dialog from 'primevue/dialog'
+import Popover from 'primevue/popover'
 
 vi.mock('primevue/usetoast', () => ({ useToast: () => ({ add: vi.fn() }) }))
 
@@ -41,6 +42,20 @@ const mountDialog = (library: Library | null) =>
             plugins: [PrimeVue],
             directives: { tooltip: {} },
             stubs: { teleport: true, LibraryFilterBuilder: FilterBuilderStub }
+        }
+    })
+
+// The Escape harness: real IconSelect, real PrimeVue Dialog + Popover, attached
+// to the document, and real <transition>s — the @enter hook is where PrimeVue
+// binds the document-level Escape listener this case is about.
+const mountEscapeDialog = () =>
+    mount(LibraryDialog, {
+        props: { visible: true, library: null, submitting: false },
+        attachTo: document.body,
+        global: {
+            plugins: [PrimeVue],
+            directives: { tooltip: {} },
+            stubs: { teleport: true, transition: false, LibraryFilterBuilder: FilterBuilderStub }
         }
     })
 
@@ -293,6 +308,38 @@ describe('LibraryDialog chrome', () => {
         filterBuilder(w).vm.$emit('update:browsing', false)
         await flushPromises()
         expect(w.findComponent(Dialog).props('closeOnEscape')).toBe(true)
+    })
+
+    // Same defect class, second host: PrimeVue's Popover hides on Escape
+    // WITHOUT stopPropagation and binds its own document listener, so one
+    // Escape in the icon search reaches this Dialog's document listener too.
+    // The harness has to use real transitions and attach to the document: Vue
+    // Test Utils' default <transition> stub never fires the @enter hook in
+    // which PrimeVue binds that listener, so the default harness cannot see it.
+    it('keeps the dialog open when Escape closes the icon picker, and closes it on the next one', async () => {
+        const w = mountEscapeDialog()
+        await flushPromises()
+
+        await w.get('.icon-select-trigger').trigger('click')
+        await flushPromises()
+        expect(w.findComponent(Popover).vm.visible).toBe(true)
+
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })
+        )
+        await flushPromises()
+
+        // Asserted first, so a failure names the defect rather than the picker.
+        expect(w.emitted('update:visible')).toBeUndefined()
+        expect(w.findComponent(Popover).vm.visible).toBe(false)
+
+        // and the NEXT Escape still closes the dialog: the fix must not leave it deaf
+        document.dispatchEvent(
+            new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })
+        )
+        await flushPromises()
+        expect(w.emitted('update:visible')![0]).toEqual([false])
+        w.unmount()
     })
 
     // The builder unmounts with the dialog's content, so it cannot report
