@@ -450,7 +450,7 @@ paths:
             or `error`). This is also the response when every row failed.
             `reindex` references the background re-index job enqueued for the
             written files; poll it via `listTaskExecutions` to know when the
-            library index reflects the edit. It is absent when nothing was
+            index reflects the edit. It is absent when nothing was
             written, and also when the re-index could not be enqueued (task
             runner disabled or queue full) — the writes still landed on disk
             and the next scheduled scan reconciles them.
@@ -565,7 +565,7 @@ paths:
       operationId: getArtistFolder
       summary: Whether the selected folder is an artist folder, and its current portrait image.
       description: >
-        A pure filesystem+tags question, independent of the library index
+        A pure filesystem+tags question, independent of the index
         and any track selection: eligible when the folder — or the nearest
         ancestor of the selected path — has sub-folders whose tracks are
         tagged with an album artist matching the folder's own name
@@ -644,7 +644,7 @@ paths:
         removing any other-format `artist.*` sibling — from either an
         uploaded file or an online pick downloaded through the
         SSRF-guarded provider chain (see `getArtistImageCandidateInfo`).
-        Nothing is written to the library index directly: a re-index of one
+        Nothing is written to the index directly: a re-index of one
         representative track under the folder is enqueued so the scanner's
         reconcile re-detects the artist's image asynchronously (`reindex`
         carries the enqueued job's `execution_id` — poll it via
@@ -3971,7 +3971,7 @@ components:
         name:
           type: string
           description: Human-readable display name.
-          example: Library Scan
+          example: Catalog Scan
         description:
           type: string
           example: "Incremental scan -- only re-reads tracks modified since last scan"

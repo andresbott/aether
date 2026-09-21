@@ -29,7 +29,7 @@ type ReindexParams struct {
 var ReindexTaskDef = TaskDef{
 	ID:          ReindexTaskName,
 	Name:        "Metadata Re-index",
-	Description: "Re-read and reconcile specific files after a metadata-editor write, without scanning the whole library. Enqueued automatically by the editor; not meant to be scheduled.",
+	Description: "Re-read and reconcile specific files after a metadata-editor write, without scanning the whole catalog. Enqueued automatically by the editor; not meant to be scheduled.",
 }
 
 // NewReindexTaskFn builds the reindex task body. It reuses one Scanner (as

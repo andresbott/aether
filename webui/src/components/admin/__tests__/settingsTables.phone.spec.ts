@@ -70,7 +70,7 @@ vi.mock('@/composables/useTasks', async (importOriginal) => {
         ...actual,
         useTasks: () => ({
             tasks: computed(() => [
-                { id: 'scan', name: 'Library Scan', description: 'desc', schedules: [], lastExecution: null, lastExecutionStatus: 'complete' }
+                { id: 'scan', name: 'Catalog Scan', description: 'desc', schedules: [], lastExecution: null, lastExecutionStatus: 'complete' }
             ]),
             executions: computed(() => [
                 { id: 'a', task_name: 'scan', status: 'complete', queued_at: '2026-01-01T09:00:00Z', ended_at: '2026-01-01T09:00:02Z' }

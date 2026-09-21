@@ -153,8 +153,8 @@ export function useUpdateTracks() {
             if (out.reindexFailed) {
                 toast.add({
                     severity: 'warn',
-                    summary: 'Saved, but the library index was not updated',
-                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    summary: 'Saved, but the index was not updated',
+                    detail: 'The re-index did not complete; a full scan will fix it.',
                     life: 8000
                 })
             }
@@ -315,8 +315,8 @@ export function useApplyPicture(opts: PictureMutationOptions = {}) {
             if (out.reindexFailed) {
                 toast.add({
                     severity: 'warn',
-                    summary: 'Saved, but the library index was not updated',
-                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    summary: 'Saved, but the index was not updated',
+                    detail: 'The re-index did not complete; a full scan will fix it.',
                     life: 8000
                 })
             }
@@ -365,8 +365,8 @@ export function useDeletePicture(opts: PictureMutationOptions = {}) {
             if (out.reindexFailed) {
                 toast.add({
                     severity: 'warn',
-                    summary: 'Saved, but the library index was not updated',
-                    detail: 'The re-index did not complete; a library scan will fix it.',
+                    summary: 'Saved, but the index was not updated',
+                    detail: 'The re-index did not complete; a full scan will fix it.',
                     life: 8000
                 })
             }

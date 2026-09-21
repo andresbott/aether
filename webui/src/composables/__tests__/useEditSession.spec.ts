@@ -483,7 +483,7 @@ describe('picture staging', () => {
     const reindexWarnings = () =>
         toastAddSpy.mock.calls
             .map((c) => c[0])
-            .filter((t) => t.summary === 'Saved, but the library index was not confirmed updated')
+            .filter((t) => t.summary === 'Saved, but the index was not confirmed updated')
 
     // The flagship contract this task adds: save() does not poll per-write. It
     // collects every write's execution id — pictures AND tag batches — and
@@ -533,7 +533,7 @@ describe('picture staging', () => {
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.',
                 life: 8000
             })
         ])
@@ -556,7 +556,7 @@ describe('picture staging', () => {
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
                 severity: 'warn',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.',
                 life: 8000
             })
         ])
@@ -571,7 +571,7 @@ describe('picture staging', () => {
         expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         ])
     })
@@ -626,7 +626,7 @@ describe('picture staging', () => {
         expect(pollReindexSpy).toHaveBeenCalledWith(['del-1'], { signal: expect.any(AbortSignal) })
         expect(reindexWarnings()).toEqual([
             expect.objectContaining({
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         ])
     })
@@ -1264,8 +1264,8 @@ describe('useEditSession artist image', () => {
         expect(toastAddSpy).toHaveBeenCalledWith(
             expect.objectContaining({
                 severity: 'warn',
-                summary: 'Saved, but the library index was not confirmed updated',
-                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a library scan will fix it.'
+                summary: 'Saved, but the index was not confirmed updated',
+                detail: 'The re-index did not confirm completion for 1 item; if the change does not appear, a full scan will fix it.'
             })
         )
     })

@@ -288,10 +288,11 @@ in the same folder — repoints it from there. That gap only matters when the
 reindex job itself never runs to completion: a *successful* job always
 repoints it immediately regardless of mtime, since `RescanPaths` re-reads
 unconditionally. The frontend's warning on a failed poll ("the re-index did
-not complete; a library scan will fix it") is now one generic message for
-every write kind — unlike the old `rescan.error` note, it no longer spells out
-that a folder-cover or artist-image write specifically needs a *full* scan,
-not just any scan, to self-heal.
+not complete; a full scan will fix it") is now one generic message for
+every write kind — it names the remedy that holds for all of them, but
+unlike the old `rescan.error` note it no longer spells out that a
+folder-cover or artist-image write is the reason a full scan, and not just
+any scan, is the one named.
 
 ## Identity & normalization rules
 

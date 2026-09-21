@@ -64,7 +64,7 @@ beforeEach(() => {
 function reindexWarnings(): any[] {
     return toastAddSpy.mock.calls
         .map((c) => c[0])
-        .filter((t: any) => t.summary === 'Saved, but the library index was not updated')
+        .filter((t: any) => t.summary === 'Saved, but the index was not updated')
 }
 
 describe('metadata write invalidation', () => {

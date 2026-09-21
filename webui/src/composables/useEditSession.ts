@@ -829,8 +829,8 @@ export function useEditSession(tracks: () => Track[] | undefined, scanFolder: ()
         if (unconfirmed === 0) return
         toast.add({
             severity: 'warn',
-            summary: 'Saved, but the library index was not confirmed updated',
-            detail: `The re-index did not confirm completion for ${unconfirmed} item${unconfirmed === 1 ? '' : 's'}; if the change does not appear, a library scan will fix it.`,
+            summary: 'Saved, but the index was not confirmed updated',
+            detail: `The re-index did not confirm completion for ${unconfirmed} item${unconfirmed === 1 ? '' : 's'}; if the change does not appear, a full scan will fix it.`,
             life: 8000
         })
     }
