@@ -84,6 +84,19 @@ const buildTime = computed(() => serverVersion.value?.build_time || '')
                         >
                     </p>
                 </section>
+
+                <section class="about-section">
+                    <h2>Credits</h2>
+                    <p>
+                        Icons: Material Symbols by Google, Apache License 2.0 —
+                        <a
+                            href="https://github.com/google/material-design-icons"
+                            target="_blank"
+                            rel="noopener"
+                            >github.com/google/material-design-icons</a
+                        >. Bundled into the app; never loaded from a CDN.
+                    </p>
+                </section>
             </div>
         </div>
     </ContentScaffold>

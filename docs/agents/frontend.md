@@ -531,12 +531,9 @@ reason. `--app-player-range` must be defined by every palette that repaints
 `--app-player-track` (both hidden themes use their dim variant, so the bright
 accent stays the hover state).
 
-The speaker has three states — loud / quiet / silent. PrimeIcons ships no
-slashed-speaker glyph (`pi-volume-off` is a bare cone that reads as "quiet"
-beside `pi-volume-down`), so silence is that glyph plus a `muted` class whose
-`::after` draws the strike in `currentColor`. Every dimension of it is in `em`,
-including the knockout ring: a px ring tuned at 40px swallows the cone at the
-bar's actual 1rem.
+The speaker has three states — loud / quiet / silent: `ms-volume-up`,
+`ms-volume-down`, and `ms-volume-off` (Material's slashed speaker, so silence
+needs no drawn strike).
 
 Two style specs guard this, because scoped SFC styles never apply under
 vue-test-utils — no mounted test can catch a colour regression:
@@ -679,6 +676,30 @@ stays dark) and are selected by a `theme-<name>` root class. Five clicks on the
 wordmark's "e" in `AppSidebar` unlock them for good (`aether:hiddenThemes` in
 localStorage) and cycle between them; once unlocked they appear in the
 User settings (`/user-settings`) theme picker. This is intentional — don't "clean it up".
+
+## Icons
+
+Material Symbols **Rounded**, self-hosted — never a CDN. `build/material-symbols`
+(a Vite plugin) reads `@iconify-json/material-symbols` from node_modules:
+
+- **Static icons are classes**: `ms-<name>` outlined, `msf-<name>` filled
+  (kebab-case Material names: `ms-play-arrow`, `msf-favorite`). They are plain
+  class strings, so PrimeVue `icon=` props and menu models take them as-is. The
+  plugin scans `src/**/*.{vue,ts}` (specs excluded) and emits CSS-mask rules for
+  exactly the tokens it finds; an unknown name, or a class built at runtime
+  (`` `ms-${x}` ``), **fails the build** — write the literal class.
+- Icons are `1.2em` boxes following `font-size`/`color`, tuned with
+  `--app-icon-size` / `--app-icon-align`. Spin with `icon-spin`; the sheet also
+  styles `pi-spin` because PrimeVue hard-codes it on its own loading icons.
+- **Library icons** are runtime data: a snake_case Material name
+  (`queue_music`, the `musicFolderIcon` vocabulary). Render them with
+  `<LibraryIcon :name>`, which masks with the per-icon SVG the build emits to
+  `dist/icons/ms/<name>.svg`; malformed names fall back to `folder`.
+- **The picker** (`IconSelect`) lazily imports `virtual:material-symbols/catalogue`
+  — every Rounded icon name, sorted — and searches by name with
+  `lib/iconSearch.ts` (exact, prefix, word start, substring). An empty query
+  shows `SUGGESTED_LIBRARY_ICONS` (`lib/libraryIcons.ts`), a hand-picked
+  music-flavoured list checked against the catalogue by a test.
 
 ## Icons and static assets (`webui/public/`)
 
