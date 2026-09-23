@@ -6,12 +6,14 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 	writeResponse(w, map[string]any{
 		"openSubsonicExtensions": []map[string]any{
 			{
-				"name":     "musicFolderDefaultView",
-				"versions": []int{1},
-			},
-			{
-				"name":     "musicFolderShowArtists",
-				"versions": []int{1},
+				// v1: views (discover/artists/releases) and defaultView, one
+				// of them, on every getMusicFolders entry.
+				// v2: adds splitViews, whether a client should list each view
+				// as its own navigation entry rather than one for the folder,
+				// and a catalog descriptor (views/defaultView/splitViews, no
+				// id) on musicFolders for the root, browsed without a folder.
+				"name":     "musicFolderViews",
+				"versions": []int{1, 2},
 			},
 			{
 				"name":     "musicFolderIcon",

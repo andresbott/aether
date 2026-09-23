@@ -57,10 +57,10 @@ watch(
     { immediate: true }
 )
 
-// The Library shelf samples the ranked Discovery feed — the same query
-// `/library`'s Discover tab renders in full, so this costs no extra request once
-// either surface has been visited. It is deliberately not library-scoped: the
-// ranking is cross-collection (see useDiscovery).
+// The Library shelf samples the whole catalog's ranked Discovery feed — the same
+// query the root `/library`'s Discover view renders in full, so this costs no
+// extra request once either surface has been visited. The per-library shelves
+// below show newest albums instead, whatever views their library offers.
 const {
     items: discoveryItems,
     isLoading: discoveryLoading,

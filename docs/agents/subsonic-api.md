@@ -12,7 +12,7 @@ to consume it**, so compliance beats convenience.
   OpenSubsonic *extension*: a `/rest` endpoint (or field) advertised in
   `getOpenSubsonicExtensions` (`extensions.go`) so non-supporting clients
   ignore it. Prefer upstreaming the extension to the OpenSubsonic registry.
-  Eighteen extensions exist today — copy their shape. Growing an existing
+  Seventeen extensions exist today — copy their shape. Growing an existing
   capability is a new *version* of its extension, not a new name
   (`releaseTypeFilter` v2 added `getReleaseTypes`).
 - **Never route music features through `/api/v0`** — that surface is admin
@@ -194,7 +194,12 @@ response shape was a deliberate design decision, so the reasoning is recorded he
   client needs, and publishing scores invites clients to re-sort or re-weight.
 - **Params:** `size` (default 48, cap 200), `offset`, `seed`, `musicFolderId`. A
   malformed `seed` falls back to a day-derived default rather than erroring — a bad
-  seed should still yield a feed.
+  seed should still yield a feed. `musicFolderId` narrows the candidates to that
+  library: albums AND playlists with at least one track in its scope, the rule
+  every other scoped entity follows (`store.playlistsInScope`,
+  `TestDiscoveryFeedScopesPlaylistsToTheLibrary`); the taste profile stays the
+  user's whole listening history. The SPA uses it for a library's own Discover
+  view.
 - **Scoring lives in `internal/discovery`, which has no DB access**, so the formula
   is unit-testable without SQLite; `Store.DiscoveryFeed` gathers signals and calls
   in. Do not move arithmetic into SQL.
@@ -245,24 +250,39 @@ response shape was a deliberate design decision, so the reasoning is recorded he
 Helpers in `subsonic.go` — use them instead of raw query reads:
 `paramStr`, `paramInt(default)`, `paramStrSlice`, `paramBoolPtr` (nil =
 absent, distinguishes "not provided" from `false`), and the handler method
-`libraryScope(w, r) (scope, library, ok)` (`musicFolderId` → the library's
-*compiled filters* — `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)`
-— plus the library itself; absent = the zero, cross-library scope; an unknown
-id = a scope matching nothing, so the request answers empty lists). A store
-failure while resolving the id is answered here as an internal error with
-`ok=false` — like `requireAdmin` — because "no tracks" would hand the client a
-successful empty list to cache; every call site checks `ok` and returns
-immediately when it's false. The artist index is the one caller that reads the
-returned library: a library with `HideArtists` answers an empty index there,
-because a scope carries no library identity for the store to check. A
-`HideArtists` library with no filters is refused at the write path
+`libraryScope(w, r) (scope, ok)` (`musicFolderId` → the library's *compiled
+filters* — `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)`; absent =
+the zero, cross-library scope; an unknown id = a scope matching nothing, so the
+request answers empty lists). A store failure while resolving the id is
+answered here as an internal error with `ok=false` — like `requireAdmin` —
+because "no tracks" would hand the client a successful empty list to cache;
+every call site checks `ok` and returns immediately when it's false. A
+library's own artist index (`getArtists`/`getIndexes` with its
+`musicFolderId`) always lists its artists; `HideFromArtistIndex` only keeps
+them out of the UNSCOPED index (`store.excludeHiddenArtists`), and whether the
+library offers an Artists view is a presentation hint that changes no answer
+(`TestGetArtistsOfHiddenLibraryListsItsArtists`). A `HideFromArtistIndex`
+library with no filters is refused at the write path
 (`libraries.validateFilters`, `/api/v0` — it would hide every artist) and,
 belt-and-braces, skipped by `store.hiddenArtistScopes` if one ever reached the
 table anyway, rather than hiding every artist in the unscoped index (see
-[architecture.md](architecture.md)'s "Key domain types"). None of this reaches
-`getMusicFolders` itself: its shape (`id`, `name`, `defaultView`,
-`showArtists`, `icon`) is unchanged — a library's filters are a purely
-internal, server-side detail (`TestGetMusicFoldersShapeIsUnchanged`).
+[architecture.md](architecture.md)'s "Key domain types").
+
+`getMusicFolders` answers `id`, `name`, `views`, `defaultView`, `splitViews`
+and `icon` per library — exactly those (`TestGetMusicFoldersShapeIsUnchanged`): a library's
+filters and its `HideFromArtistIndex` are purely internal, server-side
+details. `views` (always an array; `discover`/`artists`/`releases` in that
+order) and `defaultView` (one of them) are the `musicFolderViews` extension —
+which of Aether's browsing views the library offers and which it opens on;
+`splitViews` (v2 of the same extension) tells a client to list each of those
+views as its own navigation entry rather than one entry for the folder. v2
+also puts a `catalog` descriptor on `musicFolders` itself, beside the
+`musicFolder` list: the root — the whole catalog, browsed without a
+`musicFolderId` — described like a folder minus `id`/`name`/`icon`. Its
+`views` and `defaultView` are fixed (every view, opening on Discover); its
+`splitViews` comes from the single-row `model.CatalogSettings` (default
+`true`), which admins edit through `GET`/`PUT /api/v0/libraries/catalog`.
+`icon` is `musicFolderIcon`.
 
 ## Media serving
 

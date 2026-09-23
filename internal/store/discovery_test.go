@@ -364,6 +364,65 @@ func TestDiscoveryFeedRespectsLibraryFilter(t *testing.T) {
 	}
 }
 
+// A library's feed takes a playlist when at least one of its tracks is in the
+// library — the rule albums, artists and genres already follow. The unscoped
+// feed keeps every playlist, empty ones included.
+func TestDiscoveryFeedScopesPlaylistsToTheLibrary(t *testing.T) {
+	s := testStore(t)
+	lib1 := model.Library{Name: "L1", Filters: scanFolderFilter("L1")}
+	lib2 := model.Library{Name: "L2", Filters: scanFolderFilter("L2")}
+	for _, lib := range []*model.Library{&lib1, &lib2} {
+		if err := s.DB().Create(lib).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	inLib1 := seedTrack(t, s, seedAlbum(t, s, "In L1"), lib1.ID)
+	inLib2 := seedTrack(t, s, seedAlbum(t, s, "In L2"), lib2.ID)
+
+	playlist := func(name string, tracks ...model.Track) model.Playlist {
+		t.Helper()
+		pl := model.Playlist{Name: name, Owner: "admin"}
+		if err := s.DB().Create(&pl).Error; err != nil {
+			t.Fatal(err)
+		}
+		for i, tr := range tracks {
+			if err := s.DB().Create(&model.PlaylistTrack{PlaylistID: pl.ID, TrackID: tr.ID, SortOrder: i}).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+		return pl
+	}
+	mixed := playlist("Mixed", inLib2, inLib1)
+	onlyL2 := playlist("Only L2", inLib2)
+	empty := playlist("Empty")
+
+	playlistsIn := func(filter *store.DiscoveryFilter) map[uint]bool {
+		t.Helper()
+		items, err := s.DiscoveryFeed("admin", 50, 0, 1, filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[uint]bool{}
+		for _, it := range items {
+			if it.Kind == "pl" {
+				got[it.PlaylistID] = true
+			}
+		}
+		return got
+	}
+
+	scoped := playlistsIn(&store.DiscoveryFilter{Scope: scanFolderScope("L1")})
+	if !scoped[mixed.ID] || scoped[onlyL2.ID] || scoped[empty.ID] || len(scoped) != 1 {
+		t.Fatalf("L1 feed playlists = %v, want only Mixed (%d)", scoped, mixed.ID)
+	}
+	if all := playlistsIn(nil); len(all) != 3 {
+		t.Fatalf("unscoped feed playlists = %v, want all three", all)
+	}
+	if none := playlistsIn(&store.DiscoveryFilter{Scope: store.NoTracks()}); len(none) != 0 {
+		t.Fatalf("a scope matching nothing kept playlists %v", none)
+	}
+}
+
 // The horizon is what bounds the taste query. A play past it must not shape the
 // profile, so an album in that stale genre must not be boosted by it.
 func TestTasteProfileIgnoresPlaysPastTheHorizon(t *testing.T) {

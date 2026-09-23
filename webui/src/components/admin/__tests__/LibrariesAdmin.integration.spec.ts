@@ -42,8 +42,10 @@ import FolderPickerDialog from '@/components/admin/FolderPickerDialog.vue'
 const stored: Library = {
     id: 7,
     name: 'Main',
-    show_artists: true,
-    default_view: 'albums',
+    views: ['discover', 'artists', 'releases'],
+    default_view: 'discover',
+    hide_from_artist_index: false,
+    split_views: false,
     icon: 'folder',
     filters: [
         { field: 'scan_folder', values: ['Music', 'Gone'] },

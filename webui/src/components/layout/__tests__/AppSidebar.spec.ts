@@ -8,7 +8,8 @@ vi.mock('vue-router', () => ({
     useRouter: () => ({ push })
 }))
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useMusicFolders: () => ({ data: ref([{ id: 1, name: 'Main' }]) })
+    useMusicFolders: () => ({ data: ref([{ id: 1, name: 'Main' }]) }),
+    useCatalogView: () => ({ data: ref(undefined) })
 }))
 const collapsed = ref(false)
 vi.mock('@/store/uiStore', () => ({

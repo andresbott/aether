@@ -1,8 +1,19 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { defineComponent, h, ref } from 'vue'
+import type { Ref } from 'vue'
+import { mount, flushPromises } from '@vue/test-utils'
+import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
+
+const getDiscovery = vi.fn()
+vi.mock('@/lib/api/subsonic', () => ({
+    subsonicClient: { getDiscovery: (...args: unknown[]) => getDiscovery(...args) }
+}))
+
 import {
     flattenDiscoveryPages,
     nextDiscoveryOffset,
     discoverySeedForTime,
+    useDiscoveryFeed,
     DISCOVERY_PAGE_SIZE,
     DISCOVERY_SEED_WINDOW_MS
 } from '@/composables/useDiscovery'
@@ -182,5 +193,51 @@ describe('discoverySeedForTime', () => {
 
     it('advances by one per window across a day', () => {
         expect(discoverySeedForTime(BASE + 24 * HOUR)).toBe(discoverySeedForTime(BASE) + 2)
+    })
+})
+
+describe('useDiscoveryFeed', () => {
+    beforeEach(() => {
+        getDiscovery.mockReset()
+        getDiscovery.mockResolvedValue({ album: [], playlist: [] })
+    })
+
+    const mountFeed = (folder: Ref<number | undefined>, enabled?: Ref<boolean>) =>
+        mount(
+            defineComponent({
+                setup() {
+                    useDiscoveryFeed(folder, { enabled })
+                    return () => h('div')
+                }
+            }),
+            { global: { plugins: [[VueQueryPlugin, { queryClient: new QueryClient() }]] } }
+        )
+
+    it("asks for the whole catalog's feed without a folder", async () => {
+        mountFeed(ref(undefined))
+        await flushPromises()
+        expect(getDiscovery).toHaveBeenCalledWith(DISCOVERY_PAGE_SIZE, 0, expect.any(Number), undefined)
+    })
+
+    it("asks for one library's feed, and the next library's when it changes", async () => {
+        const folder = ref<number | undefined>(5)
+        mountFeed(folder)
+        await flushPromises()
+        expect(getDiscovery).toHaveBeenLastCalledWith(DISCOVERY_PAGE_SIZE, 0, expect.any(Number), 5)
+
+        folder.value = 7
+        await flushPromises()
+        expect(getDiscovery).toHaveBeenLastCalledWith(DISCOVERY_PAGE_SIZE, 0, expect.any(Number), 7)
+    })
+
+    it('fetches nothing while disabled', async () => {
+        const enabled = ref(false)
+        mountFeed(ref(5), enabled)
+        await flushPromises()
+        expect(getDiscovery).not.toHaveBeenCalled()
+
+        enabled.value = true
+        await flushPromises()
+        expect(getDiscovery).toHaveBeenCalledTimes(1)
     })
 })

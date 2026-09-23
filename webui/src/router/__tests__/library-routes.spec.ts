@@ -32,22 +32,27 @@ describe('library routes', () => {
         expect(folderReleases.params.mode).toBe('artists')
     })
 
-    // The mode segment is constrained to the library-scoped modes and the folder
-    // segment to digits, so the two axes never collide: a word is always a mode,
-    // a number is always a folder.
+    // The mode segment is constrained to the view names and the folder segment
+    // to digits, so the two axes never collide: a word is always a mode, a
+    // number is always a folder.
     it('keeps the folder and mode axes disjoint', () => {
         const releases = router.resolve('/library/releases')
         expect(releases.name).toBe('library')
         expect(releases.params.folderId).toBeUndefined()
     })
 
-    // Discover is only ever the bare root — there is no /library/discover, nor a
-    // per-folder discover, because discovery is cross-collection.
-    it('does not address discover as a mode segment', () => {
+    // The root's Discover is only ever the bare path — there is no
+    // /library/discover. A library's own Discover is a segment like its other
+    // views, since a library may open on a different one.
+    it('addresses discover as a segment inside a library only', () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
         expect(router.resolve('/library/discover').matched.length).toBe(0)
-        expect(router.resolve('/library/5/discover').matched.length).toBe(0)
         warnSpy.mockRestore()
+
+        const folderDiscover = router.resolve('/library/5/discover')
+        expect(folderDiscover.name).toBe('library-folder')
+        expect(folderDiscover.params.folderId).toBe('5')
+        expect(folderDiscover.params.mode).toBe('discover')
     })
 
     // Per-folder deep links (e.g. BrowseAlbumShelf) navigate by name; the folderId

@@ -100,9 +100,17 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
 ## Key domain types (internal/model)
 
 - `Library` — a named, **filtered view** over the catalog, not a directory: a
-  row is `Name`, `DefaultView`, `Icon`, `HideArtists` and `Filters
+  row is `Name`, `Views` (which of the `LibraryView`s discover / artists /
+  releases it can be browsed by, stored in that display order), `DefaultView`
+  (the one of them it opens on), `HideFromArtistIndex`, `Icon` and `Filters
   []LibraryFilter` (`internal/model/library.go`) — nothing else, and it owns
-  no tracks. `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)` compiles
+  no tracks. The column defaults give a library created with just a name every
+  view, opening on Discover. `Views` is presentation only: turning a view off
+  hides that view, not the data (`/rest` still answers the library's artist
+  index). `HideFromArtistIndex` is the one catalog-wide switch: it keeps the
+  library's artists out of the unscoped artist index (the main Artists page)
+  while its own index still lists them.
+  `store.LibraryScope(lib)` = `store.ScopeOf(lib.Filters)` compiles
   the filters into a `TrackScope`: filters are AND-ed, one filter's values are
   OR-ed, and no filters selects the whole catalog. `internal/libraryfilter`
   is the friendly layer in front of that compiler: `Validate` normalizes and
@@ -111,9 +119,10 @@ Settled in CLAUDE.md; restated because it decides where every new endpoint goes:
   a `warnings[]` entry on `GET /libraries`/`GET /libraries/{id}` and as a
   startup `WARN` (`warnDanglingLibraryFilters`, `app/cmd/scanfolders.go`,
   called right after `warnScanFolders`). One rule spans fields and therefore
-  lives in the `/api/v0` handler, not in `libraryfilter`: a `HideArtists`
-  library must have at least one filter (`libraries.validateFilters`, `422` at
-  `/show_artists`) — with none it is the whole catalog and would hide every
+  lives in the `/api/v0` handler, not in `libraryfilter`: a
+  `HideFromArtistIndex` library must have at least one filter
+  (`libraries.validateFilters`, `422` at `/hide_from_artist_index`) — with
+  none it is the whole catalog and would hide every
   artist; `store.hiddenArtistScopes` also skips such a row if one ever reaches
   the table. See [Scan folders
   (config-only)](#scan-folders-config-only) for where scanning actually reads

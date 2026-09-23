@@ -41,10 +41,10 @@ const routes: RouteRecordRaw[] = [
     },
     {
         // The cross-collection root. Bare /library is Discover (the default,
-        // cross-collection ranked feed); the browse modes are real path segments,
-        // /library/releases and /library/artists. The mode is constrained to the
-        // library-scoped modes, so there is deliberately no /library/discover —
-        // discover is only ever the bare root.
+        // cross-collection ranked feed); the other views are real path segments,
+        // /library/releases and /library/artists. The segment only names those
+        // two, so there is deliberately no /library/discover — the root's
+        // Discover is only ever the bare path.
         path: '/library/:mode(releases|artists)?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
@@ -52,10 +52,12 @@ const routes: RouteRecordRaw[] = [
         meta: { flush: true }
     },
     {
-        // A single collection. folderId is numeric so it never collides with the
-        // mode segment above; the optional trailing mode (/library/5/artists)
-        // overrides that folder's default view.
-        path: '/library/:folderId(\\d+)/:mode(releases|artists)?',
+        // A single library. folderId is numeric so it never collides with the
+        // mode segment above; bare /library/5 opens the library's default view,
+        // and the optional trailing mode (/library/5/artists) names another of
+        // its views. LibraryView rewrites a view the library does not offer back
+        // to the bare path.
+        path: '/library/:folderId(\\d+)/:mode(discover|releases|artists)?',
         name: 'library-folder',
         component: () => import('@/views/LibraryView.vue'),
         props: true,

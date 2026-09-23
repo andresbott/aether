@@ -3,11 +3,13 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useUiStore } from '@/store/uiStore'
-import { useMusicFolders } from '@/composables/useSubsonicQueries'
+import { useCatalogView, useMusicFolders } from '@/composables/useSubsonicQueries'
 import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BrandMark from '@/components/common/BrandMark.vue'
+import { LIBRARY_VIEWS, openingView } from '@/lib/libraryViews'
+import type { LibraryView } from '@/types/libraries'
 
 const route = useRoute()
 const router = useRouter()
@@ -18,9 +20,19 @@ interface NavItem {
     icon: string
     route: string
     routeName: string
-    mode?: 'discover' | 'releases' | 'artists'
+    mode?: LibraryView
     folderId?: number
     shortcut?: string
+    // The collapsed sidebar's tooltip, when the label alone is ambiguous there.
+    tooltip?: string
+}
+
+// A library that lists each of its views as an entry of its own, under a header
+// with its name.
+interface NavSection {
+    folderId: number
+    label: string
+    items: NavItem[]
 }
 
 const topItems: NavItem[] = [
@@ -33,22 +45,33 @@ const topItems: NavItem[] = [
 // which is distinct from the route record a folder resolves to ('library-folder').
 const libraryModes: NavItem[] = [
     { label: 'Discover', icon: 'pi pi-compass', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
-    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' },
-    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' }
+    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' },
+    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' }
 ]
 
-const playlistsItem: NavItem = {
-    label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists', shortcut: 'playlists'
+// The root as one entry, for a catalog set not to split its views: its page
+// switches them instead. No mode — it covers them all — and it keeps the badge.
+const libraryRoot: NavItem = {
+    label: 'All music',
+    icon: 'pi pi-compass',
+    route: '/library',
+    routeName: 'library',
+    shortcut: 'library'
 }
 
 const { data: musicFolders } = useMusicFolders()
+const { data: catalog } = useCatalogView()
+
+// Split unless the server says otherwise: an older server, or a descriptor
+// still loading, keeps every root view reachable from here.
+const rootSplit = computed(() => catalog.value?.splitViews ?? true)
 
 // Listed from the first library on: a library is a saved filter, so even a
 // single one is a narrower view than the whole catalog — that is what the
 // Discover/Releases/Artists entries above already browse. An empty list still
 // yields no entries.
 const folderItems = computed<NavItem[]>(() => {
-    const folders = musicFolders.value ?? []
+    const folders = (musicFolders.value ?? []).filter((folder) => !folder.splitViews)
     return folders.map((folder) => ({
         label: folder.name,
         icon: `pi pi-${folder.icon || 'folder'}`,
@@ -58,18 +81,59 @@ const folderItems = computed<NavItem[]>(() => {
     }))
 })
 
-// The Library block: browse modes, Playlists, then per-library entries.
-const libraryGroup = computed<NavItem[]>(() => [...libraryModes, playlistsItem, ...folderItems.value])
+// The Library block: the root (its browse modes, or one entry), then
+// per-library entries.
+const libraryGroup = computed<NavItem[]>(() => [
+    ...(rootSplit.value ? libraryModes : [libraryRoot]),
+    ...folderItems.value
+])
 
-const streamingItems: NavItem[] = [
+// The libraries set to split their views (musicFolderViews v2), each a section
+// of its own below the Library block. The view a library opens on is its bare
+// path, as LibraryView addresses it; the others take a mode segment.
+const librarySections = computed<NavSection[]>(() =>
+    (musicFolders.value ?? [])
+        .filter((folder) => folder.splitViews)
+        .map((folder) => {
+            const views = folder.views ?? []
+            const landing = openingView(views, folder.defaultView)
+            return {
+                folderId: folder.id,
+                label: folder.name,
+                items: LIBRARY_VIEWS.filter((v) => views.includes(v.value)).map((v) => ({
+                    label: v.label,
+                    icon: v.icon,
+                    route: v.value === landing ? `/library/${folder.id}` : `/library/${folder.id}/${v.value}`,
+                    routeName: 'library',
+                    mode: v.value,
+                    folderId: folder.id,
+                    tooltip: `${folder.name} · ${v.label}`
+                }))
+            }
+        })
+)
+
+// The view a split library's bare path opens on, by folder id.
+const landingViews = computed(() => {
+    const out = new Map<number, LibraryView | undefined>()
+    for (const folder of musicFolders.value ?? []) {
+        out.set(folder.id, openingView(folder.views ?? [], folder.defaultView))
+    }
+    return out
+})
+
+// Past the spacer below the Library block.
+const bottomItems: NavItem[] = [
+    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
     { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres', shortcut: 'genres' },
     { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio', shortcut: 'radio' }
 ]
 
-const currentMode = computed<'discover' | 'releases' | 'artists'>(() => {
+// The mode segment of the current path; undefined on a bare path.
+const modeParam = computed<LibraryView | undefined>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'releases' || m === 'artists' ? m : 'discover'
+    return m === 'discover' || m === 'releases' || m === 'artists' ? m : undefined
 })
 
 const isActive = (item: NavItem): boolean => {
@@ -81,10 +145,17 @@ const isActive = (item: NavItem): boolean => {
         const raw = route.params.folderId
         const currentFolder = Array.isArray(raw) ? raw[0] : raw
         const currentId = currentFolder ? Number(currentFolder) : undefined
-        if (item.folderId !== undefined) return item.folderId === currentId
-        // Root browse-mode entry: active only at the cross-collection root and on
-        // the matching mode segment.
-        return currentId === undefined && item.mode === currentMode.value
+        if (item.folderId !== undefined) {
+            if (item.folderId !== currentId) return false
+            // A single library entry covers all its views; a split one only its
+            // own, the bare path being the view the library opens on.
+            if (item.mode === undefined) return true
+            return item.mode === (modeParam.value ?? landingViews.value.get(item.folderId))
+        }
+        // Root entries: active only at the cross-collection root — the single
+        // one on any view, a browse mode on its own (the bare root is Discover).
+        if (currentId !== undefined) return false
+        return item.mode === undefined || item.mode === (modeParam.value ?? 'discover')
     }
     return route.path.startsWith(item.route)
 }
@@ -209,8 +280,8 @@ onBeforeUnmount(resetEgg)
             <div v-if="!collapsed" class="nav-section-label">Library</div>
 
             <!-- Library block: the browse modes (path-addressed off /library),
-                 Playlists, then any per-folder entries. Only Discover and Playlists
-                 carry shortcut badges. -->
+                 or the root's single entry, then any per-folder entries. Only Discover carries a shortcut
+                 badge. -->
             <button
                 v-for="item in libraryGroup"
                 :key="item.route"
@@ -224,10 +295,29 @@ onBeforeUnmount(resetEgg)
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 
+            <!-- One section per library that splits its views: a header with
+                 its name, then an entry per view it offers. Collapsed, the
+                 spacer alone sets it apart and the tooltips name the library. -->
+            <template v-for="section in librarySections" :key="section.folderId">
+                <div class="nav-separator"></div>
+                <div v-if="!collapsed" class="nav-section-label">{{ section.label }}</div>
+                <button
+                    v-for="item in section.items"
+                    :key="item.route"
+                    class="nav-item"
+                    :class="{ active: isActive(item) }"
+                    @click="navigateTo(item)"
+                    v-tooltip.right="collapsed ? item.tooltip : undefined"
+                >
+                    <i :class="item.icon"></i>
+                    <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+                </button>
+            </template>
+
             <div class="nav-separator"></div>
 
             <button
-                v-for="item in streamingItems"
+                v-for="item in bottomItems"
                 :key="item.routeName"
                 class="nav-item"
                 :data-shortcut="item.shortcut"
@@ -331,6 +421,10 @@ onBeforeUnmount(resetEgg)
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--app-nav-text-dim);
+    /* A split library's header carries its name, which can be long. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sidebar-header {

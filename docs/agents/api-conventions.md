@@ -160,14 +160,16 @@ libraries filter validation is the worked example:
 array in one pass, each pointer rooted at the offending element —
 `/filters/1/values/0` for the first value of the second filter — and
 `libraries.validateFilters` (`app/router/handlers/libraries/libraries.go`)
-appends one more, `/show_artists`, when a hide-artists library's filters
-resolve to none. `POST /libraries/preview` (above) answers the identical
-`errors[]` shape for the same request-shaped reason: a candidate filter set
-can be wrong in more than one place before it is ever saved. It is the
-filters that itemize, not the whole payload: `libraries.validateDTO` answers
-the FIRST of `/name`, `/default_view` and `/icon` alone and returns before
-filters are looked at, and `libraryfilter.Validate` answers `/filters` alone
-when a request sends more than `MaxFilters` of them.
+appends one more, `/hide_from_artist_index`, when a library hidden from the
+artist index has filters that resolve to none. `POST /libraries/preview`
+(above) answers the identical `errors[]` shape for the same request-shaped
+reason: a candidate filter set can be wrong in more than one place before it
+is ever saved. The `views` array itemizes the same way (`ValidateViews`: every
+unknown value at `/views/<i>`, or `/views` when empty). The rest of the
+payload does not: `libraries.validateDTO` answers the FIRST of `/name` and
+`/icon` alone, then `resolveViews` the views and `/default_view`, each
+returning before filters are looked at, and `libraryfilter.Validate` answers
+`/filters` alone when a request sends more than `MaxFilters` of them.
 
 **Status convention, confirmed across every handler:** `422` is
 `Writer.WriteValidation` — hard-coded to `http.StatusUnprocessableEntity`,

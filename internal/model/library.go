@@ -9,16 +9,45 @@ import "time"
 type Library struct {
 	ID   uint   `gorm:"primaryKey"`
 	Name string `gorm:"not null;uniqueIndex"`
-	// HideArtists, when set, removes this library's artists from the artist
-	// index. Albums/tracks/search are unaffected. Zero value = visible.
-	HideArtists bool   `gorm:"not null;default:false"`
-	DefaultView string `gorm:"not null;default:'albums'"` // "albums" | "artists"
-	Icon        string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
+	// Views are the ways the library can be browsed, in LibraryViews order;
+	// DefaultView is the one of them it opens on. The column defaults give a
+	// library created with just a name every view, opening on Discover — the
+	// same browsing the whole catalog offers.
+	Views       []LibraryView `gorm:"serializer:json;not null;default:'[\"discover\",\"artists\",\"releases\"]'"`
+	DefaultView LibraryView   `gorm:"not null;default:'discover'"`
+	// HideFromArtistIndex keeps this library's artists out of the cross-library
+	// artist index (the main Artists page). It does not touch the library
+	// itself: its own Artists view, when it has one, still lists them.
+	HideFromArtistIndex bool `gorm:"not null;default:false"`
+	// SplitViews gives the library a sidebar section of its own, one entry per
+	// view, instead of a single entry whose page switches between them. It is
+	// presentation only: what the library selects and offers is unchanged.
+	SplitViews bool   `gorm:"not null;default:false"`
+	Icon       string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
 	// Filters select the library's tracks: they are AND-ed, and the values of
 	// one filter are OR-ed (see store.ScopeOf). None means the whole catalog.
 	Filters   []LibraryFilter `gorm:"serializer:json"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// LibraryView names one way of browsing a library.
+type LibraryView string
+
+// The view vocabulary.
+const (
+	// ViewDiscover is the ranked feed of the library's albums and playlists.
+	ViewDiscover LibraryView = "discover"
+	// ViewArtists is the index of the artists credited on its albums.
+	ViewArtists LibraryView = "artists"
+	// ViewReleases lists its albums, filterable by release type.
+	ViewReleases LibraryView = "releases"
+)
+
+// LibraryViews returns every view, in the order a library stores and shows
+// them.
+func LibraryViews() []LibraryView {
+	return []LibraryView{ViewDiscover, ViewArtists, ViewReleases}
 }
 
 // LibraryFilterField names what a LibraryFilter tests.
@@ -47,4 +76,22 @@ const (
 type LibraryFilter struct {
 	Field  LibraryFilterField `json:"field"`
 	Values []string           `json:"values"`
+}
+
+// CatalogSettings configures the root library — the whole catalog, browsed
+// without a library. It is a single row (ID 1); store.GetCatalogSettings answers
+// the defaults below until one is saved.
+type CatalogSettings struct {
+	ID uint `gorm:"primaryKey"`
+	// SplitViews lists each of the root's views as its own sidebar entry, as a
+	// library's SplitViews does; false gives the root a single entry whose page
+	// switches views. No gorm default: it would turn a saved false back into
+	// true on insert.
+	SplitViews bool `gorm:"not null"`
+}
+
+// DefaultCatalogSettings is what an install that never saved any gets: every
+// root view its own sidebar entry.
+func DefaultCatalogSettings() CatalogSettings {
+	return CatalogSettings{ID: 1, SplitViews: true}
 }

@@ -6,26 +6,25 @@ import { useDiscoveryFeed } from '@/composables/useDiscovery'
 
 /**
  * The Discovery feed BODY — states, grid/list rendering, and the infinite-scroll
- * sentinel — with no header of its own, so its consumer frames it: the Discover tab
- * in `LibraryView` (`/library`, no folder), inside that view's `ContentScaffold`.
+ * sentinel — with no header of its own, so its consumer frames it: the Discover
+ * view in `LibraryView`, inside that view's `ContentScaffold`. It is the whole
+ * catalog's feed at the root `/library`, and one library's (`folderId`) inside a
+ * library that offers Discover.
  *
- * There is deliberately no standalone `/discover` route: the feed is Library's
- * default tab and the sidebar's `Library` entry is the single door to it. The
- * component stays header-free anyway — that separation is what let the tab adopt it
- * unchanged, and what would let a second consumer do the same.
+ * There is deliberately no standalone `/discover` route: the feed is one of
+ * Library's views. The component stays header-free anyway — that separation is
+ * what let the view adopt it unchanged, and what would let a second consumer do
+ * the same.
  *
  * It owns the query rather than taking items as a prop. The query key is shared,
  * so a consumer that also needs the count (for a header summary) calls
- * `useDiscoveryFeed` itself and reads the same cache entry — the same pattern
- * `LibraryView` already uses for `useAlbumIndex` / `useArtistTable`.
- *
- * The feed is deliberately NOT library-scoped: the ranking is cross-collection, so
- * there is no `musicFolderId` prop and the tab exists only on the root `/library`.
+ * `useDiscoveryFeed` with the same folder and reads the same cache entry — the
+ * same pattern `LibraryView` already uses for `useAlbumIndex` / `useArtistTable`.
  */
-const props = defineProps<{ layout: 'grid' | 'list' }>()
+const props = defineProps<{ layout: 'grid' | 'list'; folderId?: number }>()
 
 const { items, isLoading, isError, hasNextPage, isFetchingNextPage, fetchNextPage } =
-    useDiscoveryFeed()
+    useDiscoveryFeed(() => props.folderId)
 
 const isEmpty = computed(() => !isLoading.value && !isError.value && items.value.length === 0)
 

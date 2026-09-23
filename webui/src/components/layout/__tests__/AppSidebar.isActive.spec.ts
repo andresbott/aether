@@ -22,7 +22,8 @@ vi.mock('vue-router', () => ({
 
 const foldersRef = ref<Array<{ id: number; name: string; icon?: string }>>([])
 vi.mock('@/composables/useSubsonicQueries', () => ({
-    useMusicFolders: () => ({ data: foldersRef })
+    useMusicFolders: () => ({ data: foldersRef }),
+    useCatalogView: () => ({ data: ref(undefined) })
 }))
 vi.mock('@/store/uiStore', () => ({
     useUiStore: () => ({ sidebarCollapsed: false, toggleSidebar: vi.fn() })

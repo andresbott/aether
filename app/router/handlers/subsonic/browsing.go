@@ -20,24 +20,39 @@ func (h *Handler) getMusicFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	folders := make([]map[string]any, 0, len(libs))
 	for _, lib := range libs {
-		dv := lib.DefaultView
-		if dv == "" {
-			dv = "albums"
-		}
 		icon := lib.Icon
 		if icon == "" {
 			icon = "folder"
 		}
+		// views is always an array on the wire: a client iterates it.
+		views := lib.Views
+		if views == nil {
+			views = []model.LibraryView{}
+		}
 		folders = append(folders, map[string]any{
 			"id":          lib.ID,
 			"name":        lib.Name,
-			"defaultView": dv,
-			"showArtists": !lib.HideArtists,
+			"views":       views,
+			"defaultView": lib.DefaultView,
+			"splitViews":  lib.SplitViews,
 			"icon":        icon,
 		})
 	}
+	cs, err := h.store.GetCatalogSettings()
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
+	}
 	writeResponse(w, map[string]any{
 		"musicFolders": map[string]any{
+			// The root — the whole catalog, browsed without a musicFolderId —
+			// described the way each folder is (musicFolderViews v2). Its views
+			// are fixed: every one, opening on Discover.
+			"catalog": map[string]any{
+				"views":       model.LibraryViews(),
+				"defaultView": model.ViewDiscover,
+				"splitViews":  cs.SplitViews,
+			},
 			"musicFolder": folders,
 		},
 	})
@@ -52,21 +67,15 @@ func (h *Handler) getIndexes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeArtistIndex(w http.ResponseWriter, r *http.Request, key string) {
-	scope, lib, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
 	filter := &store.ArtistsFilter{Scope: scope}
-	var artists []model.Artist
-	// A library that hides its artists answers an empty index by design. A scope
-	// carries no library identity, so the check lives here, not in the store.
-	if lib == nil || !lib.HideArtists {
-		var err error
-		artists, err = h.store.GetArtists(filter)
-		if err != nil {
-			writeError(w, 0, "internal error")
-			return
-		}
+	artists, err := h.store.GetArtists(filter)
+	if err != nil {
+		writeError(w, 0, "internal error")
+		return
 	}
 	albumCounts, err := h.store.GetArtistAlbumCounts(filter)
 	if err != nil {

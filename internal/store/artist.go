@@ -89,11 +89,12 @@ func (s *Store) GetArtists(filter *ArtistsFilter) ([]model.Artist, error) {
 		Distinct().
 		Joins("JOIN album_artists ON album_artists.artist_id = artists.id")
 	if filter != nil && !filter.Scope.IsZero() {
-		// Whether the scoped library hides its artists is the caller's call: a
-		// scope carries no library identity (see the /rest artist index).
+		// A library's own index always lists its artists: hiding them keeps
+		// them out of the cross-library index only.
 		q = scopeTracks(q.Joins("JOIN tracks ON tracks.album_id = album_artists.album_id"), filter.Scope)
 	} else {
-		// Unscoped: exclude artists that ONLY appear in hide-artists libraries.
+		// Unscoped: exclude artists that ONLY appear in libraries hidden from
+		// the artist index.
 		q = s.excludeHiddenArtists(q)
 	}
 	var artists []model.Artist
@@ -185,10 +186,10 @@ func (s *Store) SearchArtists(query string, count, offset int, filter *SearchFil
 }
 
 // excludeHiddenArtists drops artists whose entire presence (as track artist or
-// album artist) falls inside libraries that hide their artists. An artist with
-// at least one track outside every such library stays visible. No-op when no
-// library hides its artists; fails the query, instead of showing every artist,
-// when the hidden-artist libraries cannot be read.
+// album artist) falls inside libraries hidden from the artist index. An artist
+// with at least one track outside every such library stays visible. No-op when
+// no library is hidden; fails the query, instead of showing every artist, when
+// the hidden libraries cannot be read.
 func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	hidden, err := s.hiddenArtistScopes()
 	if err != nil {
@@ -227,13 +228,13 @@ func (s *Store) excludeHiddenArtists(q *gorm.DB) *gorm.DB {
 	return q.Where(visiblePresence, both...)
 }
 
-// hiddenArtistScopes returns the scope of every library that hides its
-// artists, skipping one with no filters: such a library covers the whole
+// hiddenArtistScopes returns the scope of every library hidden from the artist
+// index, skipping one with no filters: such a library covers the whole
 // catalog, and honouring it would hide every artist rather than the ones it
 // actually names.
 func (s *Store) hiddenArtistScopes() ([]TrackScope, error) {
 	var libs []model.Library
-	if err := s.db.Where("hide_artists = ?", true).Find(&libs).Error; err != nil {
+	if err := s.db.Where("hide_from_artist_index = ?", true).Find(&libs).Error; err != nil {
 		return nil, err
 	}
 	scopes := make([]TrackScope, 0, len(libs))

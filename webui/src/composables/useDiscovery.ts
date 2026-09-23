@@ -1,4 +1,5 @@
-import { computed } from 'vue'
+import { computed, toValue } from 'vue'
+import type { MaybeRefOrGetter } from 'vue'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { subsonicClient } from '@/lib/api/subsonic'
 import { queryKeys } from '@/composables/useSubsonicQueries'
@@ -64,24 +65,32 @@ export function discoverySeedForTime(nowMs: number): number {
     return Math.floor(nowMs / DISCOVERY_SEED_WINDOW_MS)
 }
 
-// The ranked Discovery feed. Every page of one visit shares one seed, which is
+// The ranked Discovery feed — the whole catalog's, or one library's when given
+// its musicFolderId (the server then ranks only the albums and playlists with a
+// track in that library). Every page of one visit shares one seed, which is
 // what keeps the rank sequence gap-free.
 //
 // The window is captured once per mount rather than read reactively: a feed the
 // user is currently scrolling must not reshuffle underneath them just because a
 // 12-hour boundary passed mid-session. The next visit picks up the new window.
-export function useDiscoveryFeed() {
+export function useDiscoveryFeed(
+    musicFolderId?: MaybeRefOrGetter<number | undefined>,
+    options?: { enabled?: MaybeRefOrGetter<boolean> }
+) {
     const seed = discoverySeedForTime(Date.now())
 
     const query = useInfiniteQuery({
-        queryKey: queryKeys.discovery(seed),
-        queryFn: ({ pageParam }) =>
-            subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed),
+        queryKey: computed(() => queryKeys.discovery(seed, toValue(musicFolderId))),
+        // The folder comes from the key, so a page always belongs to the feed
+        // it is cached under.
+        queryFn: ({ pageParam, queryKey }) =>
+            subsonicClient.getDiscovery(DISCOVERY_PAGE_SIZE, pageParam as number, seed, queryKey[3]),
         initialPageParam: 0,
         getNextPageParam: nextDiscoveryOffset,
         // Matches the seed window: within one window the server returns the same
         // ranking anyway, so refetching earlier only costs requests.
-        staleTime: DISCOVERY_SEED_WINDOW_MS
+        staleTime: DISCOVERY_SEED_WINDOW_MS,
+        enabled: options?.enabled
     })
 
     return {

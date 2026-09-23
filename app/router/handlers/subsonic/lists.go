@@ -20,7 +20,7 @@ func (h *Handler) getAlbumList2(w http.ResponseWriter, r *http.Request) {
 		size = 500
 	}
 	owner := requestOwner(r)
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
@@ -60,7 +60,7 @@ func (h *Handler) getRandomSongs(w http.ResponseWriter, r *http.Request) {
 	if size > 500 {
 		size = 500
 	}
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
@@ -92,7 +92,7 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 	}
 	count := paramInt(r, "count", 10)
 	offset := paramInt(r, "offset", 0)
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
@@ -113,7 +113,7 @@ func (h *Handler) getSongsByGenre(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 	owner := requestOwner(r)
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
@@ -193,7 +193,7 @@ func (h *Handler) getStarred2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}
@@ -227,7 +227,7 @@ func (h *Handler) getAlbumList2Index(w http.ResponseWriter, r *http.Request) {
 // filtering getAlbumList2 by it lists, so a client offers only the filters that
 // select something. Scoped by musicFolderId like the album lists themselves.
 func (h *Handler) getReleaseTypes(w http.ResponseWriter, r *http.Request) {
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}

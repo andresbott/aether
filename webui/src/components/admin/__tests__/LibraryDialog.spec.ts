@@ -3,7 +3,8 @@ import { nextTick, toRaw } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 import InputText from 'primevue/inputtext'
-import ToggleSwitch from 'primevue/toggleswitch'
+import Checkbox from 'primevue/checkbox'
+import Select from 'primevue/select'
 import Dialog from 'primevue/dialog'
 import Popover from 'primevue/popover'
 
@@ -15,8 +16,10 @@ import type { Library, LibraryFilter, LibraryInput } from '@/types/libraries'
 const baseLibrary: Library = {
     id: 1,
     name: 'Main',
-    show_artists: true,
-    default_view: 'albums',
+    views: ['discover', 'artists', 'releases'],
+    default_view: 'discover',
+    hide_from_artist_index: false,
+    split_views: false,
     icon: 'folder',
     filters: [],
     created_at: '',
@@ -77,6 +80,23 @@ function filterBuilder(w: ReturnType<typeof mountDialog>) {
     return w.findComponent(FilterBuilderStub)
 }
 
+// The checkbox whose input carries `inputId` — one per view, plus the
+// main-Artists-page one.
+function checkbox(w: ReturnType<typeof mountDialog>, inputId: string) {
+    return w.findAllComponents(Checkbox).find((c) => c.props('inputId') === inputId)!
+}
+
+async function toggleView(w: ReturnType<typeof mountDialog>, view: string) {
+    await w.get(`#library-view-${view}`).trigger('change')
+    await flushPromises()
+}
+
+async function submitted(w: ReturnType<typeof mountDialog>, label: string): Promise<LibraryInput> {
+    await findButton(w, label).trigger('click')
+    await flushPromises()
+    return w.emitted('submit')![0][0] as LibraryInput
+}
+
 // PrimeVue's Popover keeps its open state in a private `visible` data property
 // its public type does not expose, and in jsdom the leave transition never
 // finishes, so the overlay element outlives the close. Its `show`/`hide` events
@@ -98,8 +118,10 @@ describe('LibraryDialog create mode', () => {
         const input = w.emitted('submit')![0][0] as LibraryInput
         expect(input).toEqual({
             name: '',
-            show_artists: true,
-            default_view: 'albums',
+            views: ['discover', 'artists', 'releases'],
+            default_view: 'discover',
+            hide_from_artist_index: false,
+            split_views: false,
             icon: 'folder',
             filters: []
         })
@@ -121,6 +143,87 @@ describe('LibraryDialog create mode', () => {
         const input = w.emitted('submit')![0][0] as LibraryInput
         expect(input.name).toBe('Rock Albums')
         expect(input.filters).toEqual([{ field: 'genre', values: ['Rock '] }])
+    })
+})
+
+describe('LibraryDialog views', () => {
+    it('opens on the first view left when the one it opened on is unticked', async () => {
+        const w = mountDialog(null)
+        await flushPromises()
+
+        await toggleView(w, 'discover')
+
+        const input = await submitted(w, 'Create')
+        expect(input.views).toEqual(['artists', 'releases'])
+        expect(input.default_view).toBe('artists')
+    })
+
+    it('offers only the ticked views to open on, and sends them in display order', async () => {
+        const w = mountDialog({ ...baseLibrary, views: ['releases'], default_view: 'releases' })
+        await flushPromises()
+        const opensOn = () => w.findComponent(Select)
+        const offered = () => (opensOn().props('options') as { value: string }[]).map((o) => o.value)
+
+        // One view leaves nothing to pick.
+        expect(offered()).toEqual(['releases'])
+        expect(opensOn().props('disabled')).toBe(true)
+
+        // Ticked after Releases, but listed and sent before it.
+        await toggleView(w, 'artists')
+        expect(offered()).toEqual(['artists', 'releases'])
+        expect(opensOn().props('disabled')).toBe(false)
+
+        opensOn().vm.$emit('update:modelValue', 'artists')
+        await flushPromises()
+
+        const input = await submitted(w, 'Save')
+        expect(input.views).toEqual(['artists', 'releases'])
+        expect(input.default_view).toBe('artists')
+    })
+
+    it('keeps the last ticked view from being unticked', async () => {
+        const w = mountDialog({ ...baseLibrary, views: ['artists'], default_view: 'artists' })
+        await flushPromises()
+        expect(checkbox(w, 'library-view-artists').props('disabled')).toBe(true)
+        expect(checkbox(w, 'library-view-discover').props('disabled')).toBe(false)
+    })
+
+    // Hiding the artists from the main Artists page is its own setting: it
+    // neither needs nor touches the Artists view.
+    it("round-trips the main Artists page setting independently of the views", async () => {
+        const w = mountDialog({
+            ...baseLibrary,
+            views: ['releases'],
+            default_view: 'releases',
+            hide_from_artist_index: true
+        })
+        await flushPromises()
+        expect(checkbox(w, 'library-hide-artists').props('modelValue')).toBe(true)
+
+        const input = await submitted(w, 'Save')
+        expect(input.views).toEqual(['releases'])
+        expect(input.hide_from_artist_index).toBe(true)
+    })
+
+    it('round-trips the sidebar layout', async () => {
+        const w = mountDialog({ ...baseLibrary, split_views: true })
+        await flushPromises()
+        const radios = w.findAll<HTMLInputElement>('input[name="library-sidebar"]')
+        expect(radios.map((r) => r.element.checked)).toEqual([false, true])
+
+        await radios[0].setValue(true)
+        await flushPromises()
+        const input = await submitted(w, 'Save')
+        expect(input.split_views).toBe(false)
+    })
+
+    it("copies the library's views instead of aliasing the array handed in", async () => {
+        const lib: Library = { ...baseLibrary, views: ['artists', 'releases'], default_view: 'artists' }
+        const w = mountDialog(lib)
+        await flushPromises()
+
+        await toggleView(w, 'releases')
+        expect(lib.views).toEqual(['artists', 'releases'])
     })
 })
 
@@ -196,7 +299,7 @@ describe('LibraryDialog validation errors', () => {
         expect(w.find('.p-invalid').exists()).toBe(false)
     })
 
-    it('routes a 422 to where each pointer belongs: the builder, show artists, name, and the general list for the rest', async () => {
+    it('routes a 422 to where each pointer belongs: the builder, the main Artists page, name, and the general list for the rest', async () => {
         const err = {
             response: {
                 status: 422,
@@ -205,7 +308,7 @@ describe('LibraryDialog validation errors', () => {
                     status: 422,
                     errors: [
                         { pointer: '/filters/0/values/0', detail: 'not a real genre' },
-                        { pointer: '/show_artists', detail: 'needs at least one filter' },
+                        { pointer: '/hide_from_artist_index', detail: 'needs at least one filter' },
                         { pointer: '/name', detail: 'name is required' },
                         { pointer: '/mystery', detail: 'unknown field failed' }
                     ]
@@ -221,9 +324,9 @@ describe('LibraryDialog validation errors', () => {
             '/filters/0/values/0': 'not a real genre'
         })
 
-        // /name under the Name field, /show_artists under the toggle.
+        // /name under the Name field, /hide_from_artist_index under its checkbox.
         expect(w.findComponent(InputText).props('invalid')).toBe(true)
-        expect(w.findComponent(ToggleSwitch).props('invalid')).toBe(true)
+        expect(checkbox(w, 'library-hide-artists').props('invalid')).toBe(true)
         const fieldErrorTexts = w.findAll('.field-error').map((m) => m.text())
         expect(fieldErrorTexts).toEqual(['name is required', 'needs at least one filter'])
 
@@ -234,6 +337,32 @@ describe('LibraryDialog validation errors', () => {
         expect(generalText).not.toContain('not a real genre')
         expect(generalText).not.toContain('name is required')
         expect(generalText).not.toContain('needs at least one filter')
+    })
+
+    it('shows every /views error on the views row and /default_view under Opens on', async () => {
+        const err = {
+            response: {
+                status: 422,
+                data: {
+                    title: 'Unprocessable Entity',
+                    status: 422,
+                    errors: [
+                        { pointer: '/views/1', detail: 'unknown view "songs"' },
+                        { pointer: '/default_view', detail: 'not one of the views' }
+                    ]
+                }
+            }
+        }
+        const w = mountWithError(err)
+        await flushPromises()
+
+        expect(checkbox(w, 'library-view-discover').props('invalid')).toBe(true)
+        expect(w.findComponent(Select).props('invalid')).toBe(true)
+        expect(w.findAll('.field-error').map((m) => m.text())).toEqual([
+            'unknown view "songs"',
+            'not one of the views'
+        ])
+        expect(w.find('.form-error').exists()).toBe(false)
     })
 })
 

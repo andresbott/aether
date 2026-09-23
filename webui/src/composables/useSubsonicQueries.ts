@@ -13,7 +13,8 @@ import type {
     Song,
     Playlist,
     SearchParams,
-    InternetRadioStation
+    InternetRadioStation,
+    MusicFolders
 } from '@/types/subsonic'
 
 // The subset of SearchParams that changes WHICH types a response carries, and so
@@ -85,12 +86,22 @@ export function usePing() {
     })
 }
 
+// The music folders and the root's descriptor come from one getMusicFolders
+// call: both composables share its cache entry, each selecting its part.
+const musicFoldersQuery = {
+    queryKey: queryKeys.musicFolders,
+    queryFn: () => subsonicClient.getMusicFolders(),
+    staleTime: 10 * 60 * 1000
+}
+
 export function useMusicFolders() {
-    return useQuery({
-        queryKey: queryKeys.musicFolders,
-        queryFn: () => subsonicClient.getMusicFolders(),
-        staleTime: 10 * 60 * 1000
-    })
+    return useQuery({ ...musicFoldersQuery, select: (d: MusicFolders) => d.folders })
+}
+
+// The root library's descriptor; undefined from a server without
+// musicFolderViews v2, which callers read as the defaults (split views).
+export function useCatalogView() {
+    return useQuery({ ...musicFoldersQuery, select: (d: MusicFolders) => d.catalog })
 }
 
 // The id may be reactive (and empty) so callers that follow a changing album —
