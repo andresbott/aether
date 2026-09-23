@@ -10,6 +10,7 @@ import IconSelect from '@/components/common/IconSelect.vue'
 import LibraryFilterBuilder from '@/components/admin/LibraryFilterBuilder.vue'
 import SidebarLayoutPicker from '@/components/admin/SidebarLayoutPicker.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
+import { DEFAULT_LIBRARY_ICON } from '@/lib/libraryIcons'
 import { ALL_LIBRARY_VIEWS, LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
 import type { Library, LibraryFilter, LibraryInput, LibraryView } from '@/types/libraries'
 
@@ -47,7 +48,7 @@ function emptyForm(): FormState {
         default_view: 'discover',
         hide_from_artist_index: false,
         split_views: false,
-        icon: 'folder',
+        icon: DEFAULT_LIBRARY_ICON,
         filters: []
     }
 }
@@ -96,7 +97,7 @@ watch(
                 default_view: lib.default_view,
                 hide_from_artist_index: lib.hide_from_artist_index,
                 split_views: lib.split_views,
-                icon: lib.icon || 'folder',
+                icon: lib.icon || DEFAULT_LIBRARY_ICON,
                 // Copied, never the vue-query cache's own arrays: editing (even
                 // abandoning an edit to) this form must not mutate objects other
                 // views are reading.

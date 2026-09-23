@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T extends { key: string }">
 import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
+import LibraryIcon from '@/components/common/LibraryIcon.vue'
 
 /**
  * One section of the mobile landing page (`MobileBrowseView`): a heading, a few
@@ -21,6 +22,8 @@ const props = withDefaults(
         to: RouteLocationRaw
         items: T[]
         icon?: string
+        // A library's icon name, rendered by LibraryIcon instead of the icon class
+        libraryIcon?: string
         loading?: boolean
         error?: boolean
         errorText?: string
@@ -40,7 +43,8 @@ const isEmpty = computed(() => !props.loading && !props.error && props.items.len
     <section class="browse-shelf">
         <header class="shelf-header">
             <h2 class="shelf-title">
-                <i v-if="icon" :class="icon" aria-hidden="true"></i>
+                <LibraryIcon v-if="libraryIcon" :name="libraryIcon" />
+                <i v-else-if="icon" :class="icon" aria-hidden="true"></i>
                 <span>{{ title }}</span>
             </h2>
             <!-- Labelled per section, so a screen reader hears which "See all"

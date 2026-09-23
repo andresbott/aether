@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue'
+import { ref, shallowRef, computed, nextTick } from 'vue'
 import Popover from 'primevue/popover'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
-import { PRIME_ICONS } from '@/utils/primeIcons'
+import LibraryIcon from '@/components/common/LibraryIcon.vue'
+import { searchIcons, MAX_ICON_RESULTS } from '@/lib/iconSearch'
+import { DEFAULT_LIBRARY_ICON } from '@/lib/libraryIcons'
 
 const props = withDefaults(
     defineProps<{
         modelValue?: string
     }>(),
-    { modelValue: 'folder' }
+    { modelValue: DEFAULT_LIBRARY_ICON }
 )
 
 const emit = defineEmits<{
@@ -29,11 +31,24 @@ const searchQuery = ref('')
 const isOpen = ref(false)
 const popoverWidth = ref('360px')
 
-const filteredIcons = computed(() => {
-    if (!searchQuery.value) return PRIME_ICONS
-    const query = searchQuery.value.toLowerCase()
-    return PRIME_ICONS.filter((icon) => icon.includes(query))
-})
+// The ~4,000 icon names are admin-only, so they are their own chunk, fetched
+// the first time the picker opens.
+const catalogue = shallowRef<readonly string[] | null>(null)
+const catalogueFailed = ref(false)
+async function loadCatalogue() {
+    if (catalogue.value) return
+    catalogueFailed.value = false
+    try {
+        catalogue.value = (await import('virtual:material-symbols/catalogue')).default
+    } catch {
+        catalogueFailed.value = true
+    }
+}
+
+const filteredIcons = computed(() => (catalogue.value ? searchIcons(catalogue.value, searchQuery.value) : []))
+const truncated = computed(() => searchQuery.value.trim() !== '' && filteredIcons.value.length === MAX_ICON_RESULTS)
+
+const humanize = (name: string) => name.replace(/_/g, ' ')
 
 function toggleDropdown(event: Event) {
     popoverRef.value?.toggle(event)
@@ -43,6 +58,7 @@ function onPopoverShow() {
     isOpen.value = true
     emit('update:open', true)
     searchQuery.value = ''
+    void loadCatalogue()
     if (triggerRef.value) {
         popoverWidth.value = `${triggerRef.value.offsetWidth}px`
     }
@@ -71,10 +87,10 @@ function selectIcon(icon: string) {
             :class="{ 'icon-select-trigger--open': isOpen }"
             @click="toggleDropdown"
         >
-            <i :class="`pi pi-${props.modelValue}`" class="trigger-icon"></i>
-            <span class="trigger-label">{{ props.modelValue }}</span>
+            <LibraryIcon :name="props.modelValue" class="trigger-icon" />
+            <span class="trigger-label">{{ humanize(props.modelValue) }}</span>
             <i
-                class="pi pi-chevron-down trigger-chevron"
+                class="ms-keyboard-arrow-down trigger-chevron"
                 :class="{ 'trigger-chevron--open': isOpen }"
             ></i>
         </button>
@@ -88,7 +104,7 @@ function selectIcon(icon: string) {
             <div class="icon-picker-content" :style="{ width: popoverWidth }">
                 <div class="icon-search">
                     <IconField>
-                        <InputIcon class="pi pi-search" />
+                        <InputIcon class="ms-search" />
                         <InputText
                             ref="searchInputRef"
                             v-model="searchQuery"
@@ -105,17 +121,25 @@ function selectIcon(icon: string) {
                         type="button"
                         class="icon-item"
                         :class="{ 'icon-item--selected': props.modelValue === icon }"
-                        :title="icon"
+                        :title="humanize(icon)"
                         @click="selectIcon(icon)"
                     >
-                        <i :class="`pi pi-${icon}`"></i>
+                        <LibraryIcon :name="icon" />
                     </button>
                 </div>
 
-                <div v-if="filteredIcons.length === 0" class="icons-empty">
-                    <i class="pi pi-search"></i>
+                <div v-if="!catalogue && !catalogueFailed" class="icons-empty">
+                    <i class="ms-progress-activity icon-spin"></i>
+                </div>
+                <div v-else-if="catalogueFailed" class="icons-empty">
+                    <i class="ms-error"></i>
+                    <p>Could not load the icon list</p>
+                </div>
+                <div v-else-if="filteredIcons.length === 0" class="icons-empty">
+                    <i class="ms-search"></i>
                     <p>No icons found for "{{ searchQuery }}"</p>
                 </div>
+                <p v-else-if="truncated" class="icons-hint">Showing the first {{ MAX_ICON_RESULTS }} — type to narrow</p>
             </div>
         </Popover>
     </div>
@@ -194,6 +218,12 @@ function selectIcon(icon: string) {
     flex-direction: column;
     align-items: center;
     padding: 1.5rem;
+    color: var(--app-text-secondary);
+}
+.icon-select-popover .icons-hint {
+    margin: 0;
+    padding: 0 0.75rem 0.75rem;
+    font-size: 0.8rem;
     color: var(--app-text-secondary);
 }
 </style>

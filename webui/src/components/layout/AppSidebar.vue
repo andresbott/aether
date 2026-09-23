@@ -8,6 +8,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BrandMark from '@/components/common/BrandMark.vue'
+import LibraryIcon from '@/components/common/LibraryIcon.vue'
 import { LIBRARY_VIEWS, openingView } from '@/lib/libraryViews'
 import type { LibraryView } from '@/types/libraries'
 
@@ -17,7 +18,9 @@ const uiStore = useUiStore()
 
 interface NavItem {
     label: string
-    icon: string
+    icon?: string
+    // A library's own icon (a Material Symbols name) — rendered by LibraryIcon, not a class
+    libraryIcon?: string
     route: string
     routeName: string
     mode?: LibraryView
@@ -74,7 +77,7 @@ const folderItems = computed<NavItem[]>(() => {
     const folders = (musicFolders.value ?? []).filter((folder) => !folder.splitViews)
     return folders.map((folder) => ({
         label: folder.name,
-        icon: `pi pi-${folder.icon || 'folder'}`,
+        libraryIcon: folder.icon,
         route: `/library/${folder.id}`,
         routeName: 'library',
         folderId: folder.id
@@ -291,7 +294,8 @@ onBeforeUnmount(resetEgg)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <i :class="item.icon"></i>
+                <LibraryIcon v-if="item.libraryIcon" :name="item.libraryIcon" />
+                <i v-else :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 

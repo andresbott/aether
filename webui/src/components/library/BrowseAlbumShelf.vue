@@ -17,7 +17,7 @@ import { BROWSE_SHELF_SIZE } from '@/lib/browseShelf'
  * The key is the shared `albumList` one, so this shelf and `/library`'s own
  * album queries hit the same cache entries.
  */
-const props = defineProps<{ folderId: number; title: string; icon?: string }>()
+const props = defineProps<{ folderId: number; title: string; libraryIcon?: string }>()
 
 const { data, isLoading, isError } = useQuery({
     queryKey: computed(() =>
@@ -33,7 +33,7 @@ const items = computed(() => (data.value ?? []).map((album) => ({ key: album.id,
 <template>
     <BrowseShelf
         :title="title"
-        :icon="icon"
+        :library-icon="libraryIcon"
         :to="{ name: 'library-folder', params: { folderId: String(folderId) } }"
         :items="items"
         :loading="isLoading"

@@ -196,7 +196,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
                     :key="folder.id"
                     :folder-id="folder.id"
                     :title="folder.name"
-                    :icon="`pi pi-${folder.icon || 'folder'}`"
+                    :library-icon="folder.icon"
                 />
 
                 <BrowseShelf

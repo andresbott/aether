@@ -15,6 +15,7 @@ import {
 import type { Library, LibraryInput } from '@/types/libraries'
 import { summarize } from '@/lib/libraryFilters'
 import LibraryDialog from './LibraryDialog.vue'
+import LibraryIcon from '@/components/common/LibraryIcon.vue'
 import { useViewport } from '@/composables/useViewport'
 
 const { data: libraries, isLoading, isError } = useLibraries()
@@ -120,7 +121,7 @@ function warningsTooltip(lib: Library): string {
                 <Column field="name" header="Name">
                     <template #body="{ data }">
                         <span class="library-name">
-                            <i :class="`pi pi-${data.icon || 'folder'}`"></i>
+                            <LibraryIcon :name="data.icon" />
                             {{ data.name }}
                             <Tag
                                 v-if="data.warnings?.length"
