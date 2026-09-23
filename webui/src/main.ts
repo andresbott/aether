@@ -15,6 +15,7 @@ import { apiErrorMessage, NETWORK_MESSAGE } from './lib/apiError'
 import { reportNetworkError, dismissBanner } from './composables/useConnectivity'
 import 'primeflex/primeflex.css'
 import 'primeicons/primeicons.css'
+import 'virtual:material-symbols.css'
 import '@fontsource-variable/inter'
 import './assets/scss/_main.scss'
 
