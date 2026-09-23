@@ -274,7 +274,13 @@ a:hover {
 /* Compact icons — sized to sit with the smaller label rather than the default
    1rem. Covers the custom tab/scope glyphs (bare .ms-* in the #option slot)
    and the built-in heart/layout icons. */
-.p-selectbutton.as-button-group .pi,
-.p-togglebutton.as-button-group .pi {
+.p-selectbutton.as-button-group [class^='ms-'],
+.p-selectbutton.as-button-group [class*=' ms-'],
+.p-selectbutton.as-button-group [class^='msf-'],
+.p-selectbutton.as-button-group [class*=' msf-'],
+.p-togglebutton.as-button-group [class^='ms-'],
+.p-togglebutton.as-button-group [class*=' ms-'],
+.p-togglebutton.as-button-group [class^='msf-'],
+.p-togglebutton.as-button-group [class*=' msf-'] {
     font-size: 0.95rem;
 }
