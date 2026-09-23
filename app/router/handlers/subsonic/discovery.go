@@ -37,7 +37,7 @@ func (h *Handler) getDiscovery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	owner := requestOwner(r)
-	scope, _, ok := h.libraryScope(w, r)
+	scope, ok := h.libraryScope(w, r)
 	if !ok {
 		return
 	}

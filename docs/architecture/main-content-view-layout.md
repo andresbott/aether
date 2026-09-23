@@ -265,7 +265,7 @@ chrome like the queue sidebar.
 | --- | --- | --- |
 | Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
 | Browse (`MobileBrowseView`, mobile only) | `/browse` | ✅ `ContentScaffold` (`navRoot`, Recipe B body of `BrowseShelf` strips) |
-| Library (discover/releases/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover tab = Recipe B body via `DiscoveryFeed`; modes switched from the sidebar, no in-view mode selector; Releases carries a release-type `SelectButton` bound to `?releaseType=`) |
+| Library (discover/releases/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover view = Recipe B body via `DiscoveryFeed`; views switched from the sidebar at the desktop root, and by a Discover/Artists/Releases `SelectButton` group in `#actions` inside a library offering more than one and at the phone root; Releases carries a release-type `SelectButton` bound to `?releaseType=`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
 | Album detail (`AlbumView`) | `/album/:id` | ✅ `ContentScaffold` (cover in body hero) |

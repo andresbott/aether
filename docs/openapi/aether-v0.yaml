@@ -1227,19 +1227,22 @@ paths:
       description: >
         Admin. `name` is required: a missing value answers 400
         (validation_error); a present-but-invalid one (over 200 characters)
-        answers 422, itemising `/name`. `show_artists`, `default_view` and
-        `icon` are always optional, so any failure on them (an unknown
-        view, an unusable icon name) is unconditionally 422 — never 400 —
-        itemising the failing pointer.
+        answers 422, itemising `/name`. `views`, `default_view`,
+        `hide_from_artist_index` and `icon` are always optional, so any
+        failure on them (an unknown view, a default outside the views, an
+        unusable icon name) is unconditionally 422 — never 400 — itemising
+        the failing pointer: `/views` for an empty list, `/views/<i>` for
+        each unknown value, `/default_view`, `/icon`.
 
         `filters` is optional (omitted or empty selects the whole catalog)
         and validated as a whole: EVERY problem is reported, not just the
         first, each itemised at its own pointer — `/filters/<i>/field` for an
         unknown field, `/filters/<i>/values` for a missing or oversized value
         list, `/filters/<i>/values/<j>` for a bad value — so a single 422 can
-        carry more than one `errors[]` entry. A library with `show_artists:
-        false` must carry at least one filter, or it would hide every artist;
-        violating this answers 422 at `/show_artists`.
+        carry more than one `errors[]` entry. A library with
+        `hide_from_artist_index: true` must carry at least one filter, or it
+        would hide every artist; violating this answers 422 at
+        `/hide_from_artist_index`.
 
         A duplicate `name` answers 409 (conflict).
       tags: [libraries]
@@ -1289,9 +1292,11 @@ paths:
         Admin. `name`/`default_view`/`icon` are always fully replaced by the
         submitted value (empty/omitted `default_view` and `icon` fall back
         the same way createLibrary's do) — this is a full replace, not a
-        partial update. `show_artists` is the one true tri-state field here:
+        partial update. `views`, `hide_from_artist_index` and `split_views`
+        are tri-state:
         omitted (or explicit null) keeps the library's current stored value
-        instead of resetting it — see LibraryWriteRequest.
+        instead of resetting it — see LibraryWriteRequest. `default_view` is
+        judged against the EFFECTIVE views (submitted, or kept).
 
         `filters` is the one collection an update may leave alone: absent (or
         explicit null) KEEPS the stored filters untouched and does NOT
@@ -1303,10 +1308,11 @@ paths:
         `errors[]` entry each, at the same `/filters/<i>/field`,
         `/filters/<i>/values` and `/filters/<i>/values/<j>` pointers. The
         has-a-filter rule is judged against the EFFECTIVE values: the filters
-        that end up stored (kept or replaced) and the effective `show_artists`
-        (the request's value when present, else the one already stored). If
-        that resolves to `false` the library must end up with at least one
-        filter, or the update answers 422 at `/show_artists`.
+        that end up stored (kept or replaced) and the effective
+        `hide_from_artist_index` (the request's value when present, else the
+        one already stored). If that resolves to `true` the library must end
+        up with at least one filter, or the update answers 422 at
+        `/hide_from_artist_index`.
 
         A duplicate `name` answers 409 (conflict).
       tags: [libraries]
@@ -1463,6 +1469,48 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
+  /libraries/catalog:
+    get:
+      operationId: getCatalogSettings
+      summary: Fetch the root library's settings.
+      description: >
+        Admin. The root library is the whole catalog, browsed without a
+        library. Answers the defaults (`split_views: true`) until they are
+        first saved. Clients read the same setting over `/rest` as the
+        `catalog` descriptor of getMusicFolders (the `musicFolderViews`
+        extension, v2).
+      tags: [libraries]
+      responses:
+        '200':
+          description: The root library's settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      operationId: updateCatalogSettings
+      summary: Update the root library's settings.
+      description: >
+        Admin. An omitted `split_views` keeps the stored value.
+      tags: [libraries]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CatalogSettingsWriteRequest' }
+      responses:
+        '200':
+          description: The settings as stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogSettings' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
   /radiobrowser/search:
@@ -3489,15 +3537,28 @@ components:
       properties:
         id: { type: integer, format: int64, minimum: 0 }
         name: { type: string }
-        show_artists:
+        views:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryView' }
+          description: >
+            The ways the library can be browsed, in display order (discover,
+            artists, releases), each at most once.
+        default_view:
+          $ref: '#/components/schemas/LibraryView'
+        hide_from_artist_index:
           type: boolean
           description: >
-            Positive-sense wire form of the store's inverted HideArtists
-            column. Always present here (unlike LibraryWriteRequest, where
-            the same field is an optional tri-state pointer).
-        default_view:
-          type: string
-          enum: [albums, artists]
+            Keeps the library's artists off the cross-library artist index
+            (the main Artists page); its own Artists view still lists them.
+            Always present here (unlike LibraryWriteRequest, where the same
+            field is an optional tri-state pointer).
+        split_views:
+          type: boolean
+          description: >
+            How the library appears in the SPA sidebar: false is one entry
+            whose page switches between its views, true a section of its own
+            with one entry per view. Presentation only; `/rest` carries it as
+            `splitViews` (the `musicFolderViews` extension, v2).
         icon:
           type: string
           description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
@@ -3522,13 +3583,41 @@ components:
       required:
         - id
         - name
-        - show_artists
+        - views
         - default_view
+        - hide_from_artist_index
+        - split_views
         - icon
         - filters
         - created_at
         - updated_at
         - track_count
+
+    LibraryView:
+      type: string
+      enum: [discover, artists, releases]
+      description: >
+        One way of browsing a library: the ranked Discovery feed, the artist
+        index, or the release list. `/rest` advertises the same vocabulary as
+        the `musicFolderViews` extension on getMusicFolders.
+
+    CatalogSettings:
+      type: object
+      properties:
+        split_views:
+          type: boolean
+          description: >
+            How the root library appears in the SPA sidebar: true lists each
+            of its views (Discover, Artists, Releases) as its own entry, false
+            gives it one entry whose page switches between them.
+      required: [split_views]
+
+    CatalogSettingsWriteRequest:
+      type: object
+      properties:
+        split_views:
+          type: boolean
+          description: Omitted (or explicit null) keeps the stored value.
 
     LibraryList:
       type: object
@@ -3542,37 +3631,54 @@ components:
       type: object
       description: >
         Used by both createLibrary and updateLibrary. `name` is required;
-        `show_artists`, `default_view`, `icon` and `filters` are always
-        optional. The two operations give an omitted `show_artists`
-        different meanings: on create it defaults to true (a new library
-        starts visible); on update it keeps the library's current stored
-        value instead of resetting it. The response always echoes the
-        resolved value back as a plain, always-present boolean (see
-        `Library`).
+        `views`, `default_view`, `hide_from_artist_index`, `split_views`,
+        `icon` and `filters` are always optional. The two operations give an
+        omitted `views`, `hide_from_artist_index` or `split_views` different
+        meanings: on create they default to every view and to false (a new
+        library browses like the whole catalog, its artists in the main
+        index, one sidebar entry); on update they
+        keep the library's current stored value instead of resetting it. The
+        response always echoes the resolved values back (see `Library`).
 
         An omitted `filters` key is read the same tri-state way: on create it
         means no filters — the library selects the whole catalog — while on
         update it keeps whatever is stored, untouched and not re-validated. An
         explicit `[]` always means no filters, and a non-empty array always
-        replaces. A library whose EFFECTIVE `show_artists` (the submitted
-        value, or the stored one when omitted) is `false` must end up with at
-        least one EFFECTIVE filter — submitted, or kept by an update that
-        omits the key — otherwise it would hide every artist.
+        replaces. A library whose EFFECTIVE `hide_from_artist_index` (the
+        submitted value, or the stored one when omitted) is `true` must end up
+        with at least one EFFECTIVE filter — submitted, or kept by an update
+        that omits the key — otherwise it would hide every artist.
       properties:
         name:
           type: string
           maxLength: 200
           description: Required (400 if blank); over 200 characters is 422.
-        show_artists:
+        views:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryView' }
+          minItems: 1
+          description: >
+            Stored in display order, each view once, whatever order the
+            request lists them in. Omitted on create means every view;
+            omitted (or explicit null) on update keeps the current views. An
+            empty list is 422 at `/views`; an unknown value is 422 at
+            `/views/<i>`.
+        default_view:
+          $ref: '#/components/schemas/LibraryView'
+          description: >
+            Must be one of the effective views (422 at `/default_view`
+            otherwise); omitted or empty falls back to the first of them.
+        hide_from_artist_index:
           type: boolean
           description: >
-            Omitted on create defaults to true; omitted (or explicit null)
+            Omitted on create defaults to false; omitted (or explicit null)
             on update keeps the library's current value.
-        default_view:
-          type: string
-          enum: [albums, artists]
-          default: albums
-          description: Omitted or empty falls back to "albums".
+        split_views:
+          type: boolean
+          description: >
+            One sidebar entry per view instead of one for the library.
+            Omitted on create defaults to false; omitted (or explicit null)
+            on update keeps the library's current value.
         icon:
           type: string
           pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'

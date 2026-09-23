@@ -6,7 +6,8 @@ import type {
     LibraryPreview,
     LibraryFilterOptions,
     ListLibrariesResponse,
-    BrowseResponse
+    BrowseResponse,
+    CatalogSettings
 } from '@/types/libraries'
 
 export async function listLibraries(): Promise<Library[]> {
@@ -31,6 +32,16 @@ export async function updateLibrary(id: number, input: LibraryInput): Promise<Li
 
 export async function deleteLibrary(id: number): Promise<void> {
     await apiClient.delete(`/libraries/${id}`)
+}
+
+export async function getCatalogSettings(): Promise<CatalogSettings> {
+    const { data } = await apiClient.get<CatalogSettings>('/libraries/catalog')
+    return data
+}
+
+export async function updateCatalogSettings(input: CatalogSettings): Promise<CatalogSettings> {
+    const { data } = await apiClient.put<CatalogSettings>('/libraries/catalog', input)
+    return data
 }
 
 export async function browseFolders(

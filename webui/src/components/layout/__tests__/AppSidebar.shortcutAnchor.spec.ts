@@ -15,7 +15,8 @@ vi.mock('@/composables/useSubsonicQueries', () => ({
             { id: 1, name: 'Main' },
             { id: 2, name: 'Archive' }
         ])
-    })
+    }),
+    useCatalogView: () => ({ data: ref(undefined) })
 }))
 vi.mock('@/store/uiStore', () => ({
     useUiStore: () => ({ sidebarCollapsed: false, toggleSidebar: vi.fn() })

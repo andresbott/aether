@@ -3,13 +3,15 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
-import ToggleSwitch from 'primevue/toggleswitch'
+import Checkbox from 'primevue/checkbox'
 import Select from 'primevue/select'
 import Message from 'primevue/message'
 import IconSelect from '@/components/common/IconSelect.vue'
 import LibraryFilterBuilder from '@/components/admin/LibraryFilterBuilder.vue'
+import SidebarLayoutPicker from '@/components/admin/SidebarLayoutPicker.vue'
 import { apiFieldErrorMap } from '@/lib/apiError'
-import type { Library, LibraryFilter, LibraryInput } from '@/types/libraries'
+import { ALL_LIBRARY_VIEWS, LIBRARY_VIEWS, inDisplayOrder, openingView } from '@/lib/libraryViews'
+import type { Library, LibraryFilter, LibraryInput, LibraryView } from '@/types/libraries'
 
 const props = defineProps<{
     visible: boolean
@@ -28,17 +30,23 @@ const emit = defineEmits<{
 
 interface FormState {
     name: string
-    show_artists: boolean
-    default_view: 'albums' | 'artists'
+    views: LibraryView[]
+    default_view: LibraryView
+    hide_from_artist_index: boolean
+    split_views: boolean
     icon: string
     filters: LibraryFilter[]
 }
 
+// A new library browses like the whole catalog: every view, opening on
+// Discover — the server's defaults too.
 function emptyForm(): FormState {
     return {
         name: '',
-        show_artists: true,
-        default_view: 'albums',
+        views: [...ALL_LIBRARY_VIEWS],
+        default_view: 'discover',
+        hide_from_artist_index: false,
+        split_views: false,
         icon: 'folder',
         filters: []
     }
@@ -84,8 +92,10 @@ watch(
             const lib = props.library
             form.value = {
                 name: lib.name,
-                show_artists: lib.show_artists,
+                views: [...lib.views],
                 default_view: lib.default_view,
+                hide_from_artist_index: lib.hide_from_artist_index,
+                split_views: lib.split_views,
                 icon: lib.icon || 'folder',
                 // Copied, never the vue-query cache's own arrays: editing (even
                 // abandoning an edit to) this form must not mutate objects other
@@ -109,27 +119,58 @@ watch(
 
 const isEditMode = computed(() => props.library !== null)
 
+// The views are a set shown in display order; the one the library opens on is
+// picked among them. Unticking the view it opened on moves it to the first view
+// left, and the last view cannot be unticked: a library needs at least one.
+const openOptions = computed(() => LIBRARY_VIEWS.filter((v) => form.value.views.includes(v.value)))
+
+watch(
+    () => form.value.views,
+    (views) => {
+        if (!views.includes(form.value.default_view)) {
+            form.value.default_view = openingView(views) ?? 'releases'
+        }
+    }
+)
+
+function isLastView(view: LibraryView): boolean {
+    return form.value.views.length === 1 && form.value.views[0] === view
+}
+
 // A failed submit's per-field validation errors, keyed by the JSON Pointer the
-// backend names (validateDTO in the libraries handler): /name, /default_view,
-// /icon, /show_artists, plus the /filters family (handled entirely by the
+// backend names: /name, /icon, the /views family, /default_view,
+// /hide_from_artist_index, plus the /filters family (handled entirely by the
 // builder — see isFilterPointer below).
 const fieldErrors = computed(() => apiFieldErrorMap(props.error))
-const KNOWN_POINTERS = [
-    '/name',
-    '/default_view',
-    '/icon',
-    '/show_artists'
-]
+const KNOWN_POINTERS = ['/name', '/default_view', '/icon', '/hide_from_artist_index']
 
 function isFilterPointer(pointer: string): boolean {
     return pointer === '/filters' || pointer.startsWith('/filters/')
 }
 
+// `/views` (none ticked) or `/views/<i>` (an unknown value): all shown on the
+// one Views row.
+function isViewsPointer(pointer: string): boolean {
+    return pointer === '/views' || pointer.startsWith('/views/')
+}
+
+const viewsError = computed(() =>
+    Object.entries(fieldErrors.value)
+        .filter(([pointer]) => isViewsPointer(pointer))
+        .map(([, detail]) => detail)
+        .join(' ')
+)
+
 // Any field error whose pointer we don't render inline (e.g. a future field) is
 // shown as a general message so a validation failure is never swallowed silently.
 const otherErrors = computed(() =>
     Object.entries(fieldErrors.value)
-        .filter(([pointer]) => !KNOWN_POINTERS.includes(pointer) && !isFilterPointer(pointer))
+        .filter(
+            ([pointer]) =>
+                !KNOWN_POINTERS.includes(pointer) &&
+                !isFilterPointer(pointer) &&
+                !isViewsPointer(pointer)
+        )
         .map(([, detail]) => detail)
 )
 
@@ -166,8 +207,10 @@ function onFiltersUpdate(filters: LibraryFilter[]) {
 function buildInput(): LibraryInput {
     return {
         name: form.value.name.trim(),
-        show_artists: form.value.show_artists,
+        views: inDisplayOrder(form.value.views),
         default_view: form.value.default_view,
+        hide_from_artist_index: form.value.hide_from_artist_index,
+        split_views: form.value.split_views,
         icon: form.value.icon,
         filters: form.value.filters
     }
@@ -181,11 +224,6 @@ function onCancel() {
     emit('cancel')
     emit('update:visible', false)
 }
-
-const defaultViewOptions = [
-    { label: 'Albums', value: 'albums' },
-    { label: 'Artists', value: 'artists' }
-]
 </script>
 
 <template>
@@ -226,24 +264,56 @@ const defaultViewOptions = [
                 {{ fieldErrors['/name'] }}
             </Message>
 
-            <label>Show artists</label>
-            <ToggleSwitch v-model="form.show_artists" :invalid="!!fieldErrors['/show_artists']" />
+            <label>Icon</label>
+            <IconSelect v-model="form.icon" @update:open="onIconPickerOpenChange" />
             <Message
-                v-if="fieldErrors['/show_artists']"
+                v-if="fieldErrors['/icon']"
                 class="field-error"
                 severity="error"
                 size="small"
                 variant="simple"
             >
-                {{ fieldErrors['/show_artists'] }}
+                {{ fieldErrors['/icon'] }}
             </Message>
 
-            <label>Default view</label>
+            <!-- The pages the library offers, in the order its view switcher shows
+                 them. A native group: each box has its own label, the row is
+                 named by the grid label. -->
+            <label id="library-views-label">Views</label>
+            <div class="views-field" role="group" aria-labelledby="library-views-label">
+                <div v-for="view in LIBRARY_VIEWS" :key="view.value" class="check-option">
+                    <Checkbox
+                        v-model="form.views"
+                        :inputId="`library-view-${view.value}`"
+                        :value="view.value"
+                        :disabled="isLastView(view.value)"
+                        :invalid="!!viewsError"
+                    />
+                    <label :for="`library-view-${view.value}`">
+                        <i :class="view.icon" aria-hidden="true"></i>
+                        {{ view.label }}
+                    </label>
+                </div>
+            </div>
+            <Message
+                v-if="viewsError"
+                class="field-error"
+                severity="error"
+                size="small"
+                variant="simple"
+            >
+                {{ viewsError }}
+            </Message>
+
+            <!-- The Select's combobox is a span, which <label for> cannot name. -->
+            <label id="library-default-view-label">Opens on</label>
             <Select
                 v-model="form.default_view"
-                :options="defaultViewOptions"
+                ariaLabelledby="library-default-view-label"
+                :options="openOptions"
                 optionLabel="label"
                 optionValue="value"
+                :disabled="openOptions.length < 2"
                 :invalid="!!fieldErrors['/default_view']"
             />
             <Message
@@ -256,16 +326,36 @@ const defaultViewOptions = [
                 {{ fieldErrors['/default_view'] }}
             </Message>
 
-            <label>Icon</label>
-            <IconSelect v-model="form.icon" @update:open="onIconPickerOpenChange" />
+            <!-- How the library sits in the sidebar: one entry whose page
+                 switches views, or a section of its own with an entry per view. -->
+            <label id="library-sidebar-label">Sidebar</label>
+            <SidebarLayoutPicker
+                v-model="form.split_views"
+                name="library-sidebar"
+                ariaLabelledby="library-sidebar-label"
+            />
+
+            <!-- Independent of the Artists view above: this only takes the
+                 artists off the main Artists page; the library's own Artists
+                 view, when ticked, still lists them. -->
+            <label for="library-hide-artists">Main Artists page</label>
+            <div class="check-option">
+                <Checkbox
+                    v-model="form.hide_from_artist_index"
+                    inputId="library-hide-artists"
+                    binary
+                    :invalid="!!fieldErrors['/hide_from_artist_index']"
+                />
+                <label for="library-hide-artists">Hide this library's artists</label>
+            </div>
             <Message
-                v-if="fieldErrors['/icon']"
+                v-if="fieldErrors['/hide_from_artist_index']"
                 class="field-error"
                 severity="error"
                 size="small"
                 variant="simple"
             >
-                {{ fieldErrors['/icon'] }}
+                {{ fieldErrors['/hide_from_artist_index'] }}
             </Message>
         </div>
 
@@ -300,8 +390,29 @@ const defaultViewOptions = [
     gap: 0.75rem 1rem;
     align-items: center;
 }
-.form-grid label {
+/* The row labels only — a checkbox's own label stays at body weight. */
+.form-grid > label {
     font-weight: 500;
+}
+.views-field {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+}
+.check-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.check-option label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+.check-option i {
+    color: var(--app-text-secondary);
+    font-size: 0.95rem;
 }
 .form-grid > .p-message {
     grid-column: 2 / 3;

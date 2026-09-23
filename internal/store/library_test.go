@@ -108,9 +108,9 @@ func TestDeleteLibraryKeepsTracks(t *testing.T) {
 	}
 }
 
-func TestCreateLibraryHideArtistsRoundTrip(t *testing.T) {
+func TestCreateLibraryHideFromArtistIndexRoundTrip(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Main", Filters: scanFolderFilter("Main"), HideArtists: true}
+	lib := &model.Library{Name: "Main", Filters: scanFolderFilter("Main"), HideFromArtistIndex: true}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -118,10 +118,34 @@ func TestCreateLibraryHideArtistsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.HideArtists {
-		t.Fatal("expected HideArtists to persist on create")
+	if !got.HideFromArtistIndex {
+		t.Fatal("expected HideFromArtistIndex to persist on create")
 	}
 	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
 		t.Fatalf("expected timestamps to be set on create, got created=%v updated=%v", got.CreatedAt, got.UpdatedAt)
+	}
+}
+
+// The root library's settings answer the defaults until saved, and a saved
+// false survives — the column has no default to turn it back into true.
+func TestCatalogSettingsDefaultsAndRoundTrip(t *testing.T) {
+	s := testStore(t)
+	got, err := s.GetCatalogSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != model.DefaultCatalogSettings() {
+		t.Fatalf("got %+v before any save, want the defaults", got)
+	}
+	for _, split := range []bool{false, true, false} {
+		if err := s.SaveCatalogSettings(model.CatalogSettings{SplitViews: split}); err != nil {
+			t.Fatal(err)
+		}
+		if got, err = s.GetCatalogSettings(); err != nil {
+			t.Fatal(err)
+		}
+		if got.SplitViews != split {
+			t.Fatalf("saved split_views=%v, read back %v", split, got.SplitViews)
+		}
 	}
 }

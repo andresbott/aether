@@ -7,8 +7,9 @@ import (
 	"github.com/andresbott/aether/internal/model"
 )
 
-// DiscoveryFilter narrows the candidate pool. The zero Scope means
-// cross-library, matching every other list filter in this package.
+// DiscoveryFilter narrows the candidate pool: albums and playlists alike are
+// candidates when at least one of their tracks is in Scope. The zero Scope
+// means cross-library, matching every other list filter in this package.
 type DiscoveryFilter struct {
 	Scope TrackScope
 }
@@ -56,11 +57,15 @@ func (s *Store) DiscoveryFeed(owner string, size, offset int, seed int64, filter
 	if err != nil {
 		profile = discovery.TasteProfile{}
 	}
-	albums, err := s.albumCandidates(owner, discoveryPoolSize, filter, now)
+	var scope TrackScope
+	if filter != nil {
+		scope = filter.Scope
+	}
+	albums, err := s.albumCandidates(owner, discoveryPoolSize, scope, now)
 	if err != nil {
 		return nil, err
 	}
-	playlists, err := s.playlistCandidates(owner)
+	playlists, err := s.playlistCandidates(owner, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +135,7 @@ func (s *Store) tasteProfile(owner string, now time.Time) (discovery.TasteProfil
 
 // albumCandidates gathers the bounded album pool with its per-album signals in
 // aggregate queries — never one query per album.
-func (s *Store) albumCandidates(owner string, poolSize int, filter *DiscoveryFilter, now time.Time) ([]discovery.Candidate, error) {
-	var scope TrackScope
-	if filter != nil {
-		scope = filter.Scope
-	}
-
+func (s *Store) albumCandidates(owner string, poolSize int, scope TrackScope, now time.Time) ([]discovery.Candidate, error) {
 	ids, err := s.albumCandidateIDs(owner, poolSize, scope)
 	if err != nil {
 		return nil, err
@@ -315,12 +315,18 @@ func (s *Store) albumGenreIDs(albumIDs []uint) (map[uint][]uint, error) {
 	return out, nil
 }
 
-// playlistCandidates takes every playlist: a library holds few enough of them
-// that sampling would cost more clarity than it saves query time.
-func (s *Store) playlistCandidates(owner string) ([]discovery.Candidate, error) {
+// playlistCandidates takes every playlist the owner can see: a library holds
+// few enough of them that sampling would cost more clarity than it saves query
+// time. A scoped feed keeps those with at least one track in the scope.
+func (s *Store) playlistCandidates(owner string, scope TrackScope) ([]discovery.Candidate, error) {
 	playlists, err := s.GetPlaylists(owner)
 	if err != nil {
 		return nil, err
+	}
+	if !scope.IsZero() {
+		if playlists, err = s.playlistsInScope(playlists, scope); err != nil {
+			return nil, err
+		}
 	}
 	if len(playlists) == 0 {
 		return nil, nil
@@ -362,6 +368,36 @@ func (s *Store) playlistCandidates(owner string) ([]discovery.Candidate, error) 
 			}
 		}
 		out = append(out, c)
+	}
+	return out, nil
+}
+
+// playlistsInScope keeps the playlists holding at least one track in the
+// scope, in their original order.
+func (s *Store) playlistsInScope(playlists []model.Playlist, scope TrackScope) ([]model.Playlist, error) {
+	if len(playlists) == 0 {
+		return nil, nil
+	}
+	ids := make([]uint, 0, len(playlists))
+	for i := range playlists {
+		ids = append(ids, playlists[i].ID)
+	}
+	q := s.db.Table("playlist_tracks").
+		Joins("JOIN tracks ON tracks.id = playlist_tracks.track_id").
+		Where("playlist_tracks.playlist_id IN ?", ids)
+	var inScope []uint
+	if err := scopeTracks(q, scope).Distinct().Pluck("playlist_tracks.playlist_id", &inScope).Error; err != nil {
+		return nil, err
+	}
+	keep := make(map[uint]bool, len(inScope))
+	for _, id := range inScope {
+		keep[id] = true
+	}
+	out := make([]model.Playlist, 0, len(inScope))
+	for i := range playlists {
+		if keep[playlists[i].ID] {
+			out = append(out, playlists[i])
+		}
 	}
 	return out, nil
 }

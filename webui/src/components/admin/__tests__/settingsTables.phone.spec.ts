@@ -113,8 +113,10 @@ function library(over: Partial<Library>): Library {
     return {
         id: 1,
         name: 'Main',
-        show_artists: true,
-        default_view: 'albums',
+        views: ['discover', 'artists', 'releases'],
+        default_view: 'discover',
+        hide_from_artist_index: false,
+        split_views: false,
         icon: 'folder',
         filters: [],
         created_at: '',

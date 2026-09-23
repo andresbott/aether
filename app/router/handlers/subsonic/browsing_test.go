@@ -98,40 +98,42 @@ func TestBrowsingRejectsWrongKindID(t *testing.T) {
 	}
 }
 
+// musicFoldersBody decodes getMusicFolders with the musicFolderViews and
+// musicFolderIcon extension fields.
+type musicFoldersBody struct {
+	SubsonicResponse struct {
+		MusicFolders struct {
+			Catalog struct {
+				Views       []string `json:"views"`
+				DefaultView string   `json:"defaultView"`
+				SplitViews  bool     `json:"splitViews"`
+			} `json:"catalog"`
+			MusicFolder []struct {
+				ID          uint     `json:"id"`
+				Name        string   `json:"name"`
+				Views       []string `json:"views"`
+				DefaultView string   `json:"defaultView"`
+				SplitViews  bool     `json:"splitViews"`
+				Icon        string   `json:"icon"`
+			} `json:"musicFolder"`
+		} `json:"musicFolders"`
+	} `json:"subsonic-response"`
+}
+
 func TestGetMusicFoldersFromDB(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	db.Create(&model.Library{Name: "Zulu", DefaultView: "artists", HideArtists: true, Icon: "heart"})
-	db.Create(&model.Library{Name: "Alpha", DefaultView: "albums", HideArtists: false})
+	db.Create(&model.Library{
+		Name: "Zulu", Views: []model.LibraryView{model.ViewArtists, model.ViewReleases},
+		DefaultView: model.ViewArtists, HideFromArtistIndex: true, SplitViews: true, Icon: "heart",
+	})
+	db.Create(&model.Library{Name: "Alpha"}) // the column defaults
 
 	srv := newTestServer(t, s)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/rest/getMusicFolders.view")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	var body struct {
-		SubsonicResponse struct {
-			MusicFolders struct {
-				MusicFolder []struct {
-					ID          uint   `json:"id"`
-					Name        string `json:"name"`
-					DefaultView string `json:"defaultView"`
-					ShowArtists bool   `json:"showArtists"`
-					Icon        string `json:"icon"`
-				} `json:"musicFolder"`
-			} `json:"musicFolders"`
-		} `json:"subsonic-response"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
+	var body musicFoldersBody
+	decodeJSON(t, srv.URL+"/rest/getMusicFolders.view", &body)
 	folders := body.SubsonicResponse.MusicFolders.MusicFolder
 	if len(folders) != 2 {
 		t.Fatalf("expected 2 folders, got %d", len(folders))
@@ -140,23 +142,47 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 	if folders[0].Name != "Alpha" || folders[1].Name != "Zulu" {
 		t.Fatalf("unexpected order: %+v", folders)
 	}
-	if folders[0].DefaultView != "albums" {
-		t.Fatalf("Alpha: expected defaultView=albums, got %q", folders[0].DefaultView)
+	if want := []string{"discover", "artists", "releases"}; !slices.Equal(folders[0].Views, want) || folders[0].DefaultView != "discover" {
+		t.Fatalf("Alpha: got views %v opening on %q, want %v opening on discover", folders[0].Views, folders[0].DefaultView, want)
 	}
-	if folders[1].DefaultView != "artists" {
-		t.Fatalf("Zulu: expected defaultView=artists, got %q", folders[1].DefaultView)
-	}
-	if !folders[0].ShowArtists {
-		t.Fatalf("Alpha: expected showArtists=true, got false")
-	}
-	if folders[1].ShowArtists {
-		t.Fatalf("Zulu: expected showArtists=false, got true")
+	if want := []string{"artists", "releases"}; !slices.Equal(folders[1].Views, want) || folders[1].DefaultView != "artists" {
+		t.Fatalf("Zulu: got views %v opening on %q, want %v opening on artists", folders[1].Views, folders[1].DefaultView, want)
 	}
 	if folders[1].Icon != "heart" {
 		t.Fatalf("Zulu: expected icon=heart, got %q", folders[1].Icon)
 	}
 	if folders[0].Icon != "folder" {
 		t.Fatalf("Alpha: expected icon=folder (default), got %q", folders[0].Icon)
+	}
+	if folders[0].SplitViews || !folders[1].SplitViews {
+		t.Fatalf("got splitViews Alpha=%v Zulu=%v, want false (default) and true", folders[0].SplitViews, folders[1].SplitViews)
+	}
+
+}
+
+// The root is described like a folder, without an id: every view, opening on
+// Discover, split until the catalog settings say otherwise.
+func TestGetMusicFoldersCatalog(t *testing.T) {
+	s := testStore(t)
+	srv := newTestServer(t, s)
+	defer srv.Close()
+
+	var body musicFoldersBody
+	decodeJSON(t, srv.URL+"/rest/getMusicFolders.view", &body)
+	catalog := body.SubsonicResponse.MusicFolders.Catalog
+	if want := []string{"discover", "artists", "releases"}; !slices.Equal(catalog.Views, want) || catalog.DefaultView != "discover" {
+		t.Fatalf("got views %v opening on %q, want %v opening on discover", catalog.Views, catalog.DefaultView, want)
+	}
+	if !catalog.SplitViews {
+		t.Fatal("expected the root to split its views by default")
+	}
+
+	if err := s.SaveCatalogSettings(model.CatalogSettings{SplitViews: false}); err != nil {
+		t.Fatal(err)
+	}
+	decodeJSON(t, srv.URL+"/rest/getMusicFolders.view", &body)
+	if body.SubsonicResponse.MusicFolders.Catalog.SplitViews {
+		t.Fatal("expected splitViews=false once saved")
 	}
 }
 
@@ -258,37 +284,30 @@ func TestGetArtistAlbumsIncludeSongCountAndDuration(t *testing.T) {
 	}
 }
 
-func TestGetMusicFoldersDefaultViewFallback(t *testing.T) {
+// A client iterates views, so the wire carries an array even for a row stored
+// without any (only a direct write can produce one; the API refuses it).
+func TestGetMusicFoldersViewsIsAlwaysAnArray(t *testing.T) {
 	s := testStore(t)
-	db := s.DB()
-	// Explicitly insert a library with empty DefaultView to simulate legacy rows.
-	db.Exec("INSERT INTO libraries (name, default_view, hide_artists) VALUES (?, ?, ?)", "Legacy", "", false)
-
-	srv := newTestServer(t, s)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/rest/getMusicFolders.view")
-	if err != nil {
+	if err := s.DB().Exec("INSERT INTO libraries (name, views) VALUES (?, ?)", "Bare", "").Error; err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	srv := newTestServer(t, s)
+	defer srv.Close()
 
 	var body struct {
 		SubsonicResponse struct {
 			MusicFolders struct {
-				MusicFolder []struct {
-					Name        string `json:"name"`
-					DefaultView string `json:"defaultView"`
-				} `json:"musicFolder"`
+				MusicFolder []map[string]json.RawMessage `json:"musicFolder"`
 			} `json:"musicFolders"`
 		} `json:"subsonic-response"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
+	decodeJSON(t, srv.URL+"/rest/getMusicFolders.view", &body)
 	folders := body.SubsonicResponse.MusicFolders.MusicFolder
-	if len(folders) != 1 || folders[0].DefaultView != "albums" {
-		t.Fatalf("expected one folder with defaultView=albums, got %+v", folders)
+	if len(folders) != 1 {
+		t.Fatalf("expected 1 folder, got %d", len(folders))
+	}
+	if got := string(folders[0]["views"]); got != "[]" {
+		t.Fatalf(`views = %s, want the JSON array "[]"`, got)
 	}
 }
 
@@ -329,12 +348,12 @@ func TestAlbumToMapIsCompilation(t *testing.T) {
 	}
 }
 
-// A library that hides its artists answers an empty artist index. The store
-// cannot know which library a scope came from, so the handler decides.
-func TestGetArtistsOfHiddenLibraryIsEmpty(t *testing.T) {
+// Hiding a library from the artist index keeps its artists off the
+// cross-library index only: the library's own index still lists them.
+func TestGetArtistsOfHiddenLibraryListsItsArtists(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
-	hid := model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
+	hid := model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideFromArtistIndex: true}
 	db.Create(&hid)
 	artist := model.Artist{Name: "Hidden Artist", NameNorm: "hidden artist"}
 	db.Create(&artist)
@@ -346,22 +365,34 @@ func TestGetArtistsOfHiddenLibraryIsEmpty(t *testing.T) {
 	srv := newTestServer(t, s)
 	defer srv.Close()
 
-	var body struct {
-		SubsonicResponse struct {
-			Status  string `json:"status"`
-			Artists struct {
-				Index []struct {
-					Name string `json:"name"`
-				} `json:"index"`
-			} `json:"artists"`
-		} `json:"subsonic-response"`
+	artistsAt := func(query string) []string {
+		t.Helper()
+		var body struct {
+			SubsonicResponse struct {
+				Status  string `json:"status"`
+				Artists struct {
+					Index []struct {
+						Artist []starredItem `json:"artist"`
+					} `json:"index"`
+				} `json:"artists"`
+			} `json:"subsonic-response"`
+		}
+		decodeJSON(t, srv.URL+"/rest/getArtists.view"+query, &body)
+		if body.SubsonicResponse.Status != "ok" {
+			t.Fatalf("%s: status = %q, want ok", query, body.SubsonicResponse.Status)
+		}
+		var ids []string
+		for _, letter := range body.SubsonicResponse.Artists.Index {
+			ids = append(ids, idsOf(letter.Artist)...)
+		}
+		return ids
 	}
-	decodeJSON(t, srv.URL+"/rest/getArtists.view?musicFolderId="+strconv.FormatUint(uint64(hid.ID), 10), &body)
-	if body.SubsonicResponse.Status != "ok" {
-		t.Fatalf("status = %q, want ok", body.SubsonicResponse.Status)
+
+	if got := artistsAt("?musicFolderId=" + strconv.FormatUint(uint64(hid.ID), 10)); !slices.Equal(got, []string{encodeArtistID(artist.ID)}) {
+		t.Fatalf("the hidden library's own index = %v, want its artist", got)
 	}
-	if n := len(body.SubsonicResponse.Artists.Index); n != 0 {
-		t.Fatalf("expected an empty index for a library that hides its artists, got %d letters", n)
+	if got := artistsAt(""); len(got) != 0 {
+		t.Fatalf("the cross-library index = %v, want the hidden library's artist left out", got)
 	}
 }
 
@@ -411,14 +442,15 @@ func TestMusicFolderLookupFailureIsAnError(t *testing.T) {
 }
 
 // TestGetMusicFoldersShapeIsUnchanged pins getMusicFolders to exactly the
-// fields OpenSubsonic plus its three advertised extensions define. A
-// library's filters are a purely internal, server-side detail
-// (store.LibraryScope) and must never leak onto the wire.
+// fields OpenSubsonic plus its two advertised extensions (musicFolderViews,
+// musicFolderIcon) define. A library's filters and whether it is hidden from
+// the artist index are purely internal, server-side details and must never
+// leak onto the wire.
 func TestGetMusicFoldersShapeIsUnchanged(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	db.Create(&model.Library{
-		Name: "Filtered", DefaultView: "artists", HideArtists: true, Icon: "heart",
+		Name: "Filtered", DefaultView: model.ViewArtists, HideFromArtistIndex: true, Icon: "heart",
 		Filters: []model.LibraryFilter{{Field: model.FilterFormat, Values: []string{"flac"}}},
 	})
 
@@ -450,7 +482,7 @@ func TestGetMusicFoldersShapeIsUnchanged(t *testing.T) {
 		got = append(got, k)
 	}
 	slices.Sort(got)
-	want := []string{"defaultView", "icon", "id", "name", "showArtists"}
+	want := []string{"defaultView", "icon", "id", "name", "splitViews", "views"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("musicFolder keys = %v, want exactly %v — no filter may leak into /rest", got, want)
 	}

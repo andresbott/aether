@@ -515,7 +515,7 @@ func TestGetArtistAlbumCountsIncludesAppearances(t *testing.T) {
 func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 	s := testStore(t)
 	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
-	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
+	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideFromArtistIndex: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}
@@ -534,13 +534,14 @@ func TestGetArtistsExcludesHiddenLibraries(t *testing.T) {
 	}
 }
 
-// Two hide-artists libraries: the visibility predicate carries one bind value
-// per library and appears twice in the SQL, so the args must line up in both.
+// Two libraries hidden from the artist index: the visibility predicate carries
+// one bind value per library and appears twice in the SQL, so the args must
+// line up in both.
 func TestGetArtistsExcludesArtistsOfSeveralHiddenLibraries(t *testing.T) {
 	s := testStore(t)
 	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
-	hid1 := &model.Library{Name: "Hid1", Filters: scanFolderFilter("Hid1"), HideArtists: true}
-	hid2 := &model.Library{Name: "Hid2", Filters: scanFolderFilter("Hid2"), HideArtists: true}
+	hid1 := &model.Library{Name: "Hid1", Filters: scanFolderFilter("Hid1"), HideFromArtistIndex: true}
+	hid2 := &model.Library{Name: "Hid2", Filters: scanFolderFilter("Hid2"), HideFromArtistIndex: true}
 	for _, lib := range []*model.Library{vis, hid1, hid2} {
 		if err := s.CreateLibrary(lib); err != nil {
 			t.Fatal(err)
@@ -569,12 +570,12 @@ func TestGetArtistsExcludesArtistsOfSeveralHiddenLibraries(t *testing.T) {
 	}
 }
 
-// A hide-artists library with no filters covers the whole catalog; honouring it
-// would blank the entire artist index. Validation refuses to store one, and the
-// store ignores one that slipped past it.
-func TestHideArtistsLibraryWithoutFiltersHidesNobody(t *testing.T) {
+// A library hidden from the artist index with no filters covers the whole
+// catalog; honouring it would blank the entire artist index. Validation refuses
+// to store one, and the store ignores one that slipped past it.
+func TestHiddenLibraryWithoutFiltersHidesNobody(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "All", HideArtists: true}
+	lib := &model.Library{Name: "All", HideFromArtistIndex: true}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
@@ -660,12 +661,12 @@ func TestHiddenArtistsWithMultiClauseFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, lib := range []*model.Library{
-		{Name: "Curated", HideArtists: true, Filters: []model.LibraryFilter{
+		{Name: "Curated", HideFromArtistIndex: true, Filters: []model.LibraryFilter{
 			{Field: model.FilterGenre, Values: []string{"Jazz"}},
 			{Field: model.FilterCompilation, Values: []string{"true"}},
 			{Field: model.FilterPath, Values: []string{"/vault/a", "/vault/b"}},
 		}},
-		{Name: "Plain", HideArtists: true, Filters: []model.LibraryFilter{
+		{Name: "Plain", HideFromArtistIndex: true, Filters: []model.LibraryFilter{
 			{Field: model.FilterCompilation, Values: []string{"false"}},
 			{Field: model.FilterReleaseType, Values: []string{"", "Single"}},
 		}},
@@ -705,15 +706,15 @@ func TestHiddenArtistsWithMultiClauseFilters(t *testing.T) {
 	}
 }
 
-// A hide-artists library whose filters the compiler cannot honor resolves to
+// A hidden library whose filters the compiler cannot honor resolves to
 // NoTracks, not to the whole catalog — ScopeOf fails closed. Negated, that is
 // "NOT (1 = 0)", so such a library hides nobody. Validation refuses to store
 // one; this is what happens to one that reached the table anyway, and it is the
 // opposite failure mode from the zero-filter case
-// (TestHideArtistsLibraryWithoutFiltersHidesNobody), which is skipped outright.
-func TestHideArtistsLibraryThatCompilesToNothingHidesNobody(t *testing.T) {
+// (TestHiddenLibraryWithoutFiltersHidesNobody), which is skipped outright.
+func TestHiddenLibraryThatCompilesToNothingHidesNobody(t *testing.T) {
 	s := testStore(t)
-	lib := &model.Library{Name: "Broken", HideArtists: true, Filters: []model.LibraryFilter{
+	lib := &model.Library{Name: "Broken", HideFromArtistIndex: true, Filters: []model.LibraryFilter{
 		{Field: "mood", Values: []string{"x"}},
 	}}
 	if err := s.CreateLibrary(lib); err != nil {
@@ -753,7 +754,7 @@ func TestGetArtistsFailsWhenTheHiddenLibrariesCannotBeRead(t *testing.T) {
 func TestGetArtistsKeepsArtistsSharedWithVisibleLibrary(t *testing.T) {
 	s := testStore(t)
 	vis := &model.Library{Name: "Vis", Filters: scanFolderFilter("Vis")}
-	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideArtists: true}
+	hid := &model.Library{Name: "Hid", Filters: scanFolderFilter("Hid"), HideFromArtistIndex: true}
 	if err := s.CreateLibrary(vis); err != nil {
 		t.Fatal(err)
 	}

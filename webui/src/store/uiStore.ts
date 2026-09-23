@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import type { LibraryView as ViewMode } from '@/types/libraries'
 
-type ViewMode = 'discover' | 'releases' | 'artists'
 type Layout = 'grid' | 'list'
 
 export const useUiStore = defineStore('ui', () => {

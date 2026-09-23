@@ -219,7 +219,7 @@ hamburger `ContentScaffold` puts at the head of every top-level view's header
 navigates (detail views show Back in that spot instead; the browse view itself
 passes `navRoot` so it grows no button back to itself). It is a *page*, so each
 destination shows what is in it: one `BrowseShelf` per section — Library (samples
-the ranked `useDiscoveryFeed`, the same query `/library`'s Discover tab renders in
+the ranked `useDiscoveryFeed`, the same query `/library`'s Discover view renders in
 full), one `BrowseAlbumShelf` per dynamic library (its newest albums; a component
 per library because a composable cannot be called in a loop over a reactive list),
 then Playlists, Genres, Radio — each a heading, `BROWSE_SHELF_SIZE`
@@ -314,6 +314,56 @@ instead, so a failed fetch is never reported as "nothing is configured" or
 "Scan now" stay available in that error state; both live in the section
 header, outside the loading/error/empty/table switch.
 
+**`LibraryDialog`'s view settings** are three separate controls, all over
+`lib/libraryViews.ts` (the single list of views, labels, icons and display
+order — the sidebar's root Library block shows the same three in the same
+order): a **Views** checkbox group (at least one: the last ticked box is
+disabled), **Opens on** (a `Select` offering only the ticked views; unticking
+the view it opened on moves it to the first view left; disabled with one
+view), and **Main Artists page — Hide this library's artists**
+(`hide_from_artist_index`). The last is deliberately independent of the
+Artists view: it only keeps the artists off the cross-library index, and a
+library can list its artists in its own Artists view while hiding them from
+the main page. A fourth, **Sidebar** (`SidebarLayoutPicker`: two radio
+cards, One entry / Entry per view, each holding a themed miniature of the app —
+grey bars for text, the view switch drawn in the page header or as sidebar
+lines; `split_views`), picks how the library appears in `AppSidebar`: one
+entry in the Library block whose page switches views, or a section of its
+own below it — a `.nav-section-label` header with the library's name, then an
+entry per offered view in display order (the view it opens on at the bare
+`/library/:id`, the others at `/library/:id/:mode`; each active only on its
+own view). Collapsed, the header drops, the section keeps its spacer and the
+tooltips read "Library · View". The root has the same choice: the **Main
+library** block (`MainLibraryPanel`, between the scan folders and the
+libraries, the same picker, saving on pick through `useUpdateCatalogSettings`
+→ `PUT /api/v0/libraries/catalog`). The sidebar and `LibraryView` read it from
+`getMusicFolders`' `catalog` descriptor via `useCatalogView`, which shares
+`useMusicFolders`' query (one request, each `select`ing its part); a missing
+descriptor means split. Split, the Library block starts with Discover /
+Artists / Releases; not split, with one **All music** entry (`/library`,
+compass icon, the Library shortcut badge, active on any root view). New libraries default to every view, opening on Discover —
+the server's defaults too. `/views…` errors render on the Views row,
+`/default_view` under Opens on.
+
+**`LibraryView`'s views** follow the library: `offeredViews` is every view at
+the root and `folder.views` inside a library (the `musicFolderViews`
+extension); the path's `:mode` shows when offered, else the library's
+default (`openingView`). A mode the library does not offer is rewritten to
+the bare `/library/:folderId` path (query kept) once the folders are loaded —
+before that, nothing is rendered or fetched, since every view looks
+unoffered. The view switcher — a `SelectButton` (`.library-view-switch`,
+the header's `as-button-group` look, first in `#actions` before the filters)
+— renders wherever more than one view is offered and the sidebar is not
+already switching them: always on the mobile shell (no sidebar), and on the
+desktop only where the root or the library has a single sidebar entry (a
+split root or `splitViews` library is switched by the sidebar); on phones
+its labels are visually hidden (kept for screen readers) and the header's
+actions may wrap, since the switcher plus the release-type row overflow 390px
+otherwise. Choosing a view pushes its canonical path: the landing view is the
+bare path, every other
+view a segment. A library's Discover passes `folderId` to `DiscoveryFeed` /
+`useDiscoveryFeed`, so it is that library's own feed.
+
 **`LibraryFilterBuilder`** (`components/admin/LibraryFilterBuilder.vue`,
 inside `LibraryDialog`) is the one place filters are edited. `LibraryDialog`
 always sends `filters` on both create and update — never omits the key: on
@@ -329,7 +379,7 @@ builder itself before touching it:
   `/filters…` error the moment the admin edits the filters after a failed
   save (add/remove/change a row) — they return only with the next failed
   submit — because a stale error would otherwise attach to the wrong row;
-  field-level errors (`/name`, `/show_artists`, …) are unaffected.
+  field-level errors (`/name`, `/hide_from_artist_index`, …) are unaffected.
 - The app's own code never trims, lowercases or otherwise normalizes a
   value: `genre` / `release_type` / `path` are matched verbatim against
   scanned data by the server, so a client-side rewrite could turn a matching
@@ -584,9 +634,9 @@ the style block — same reason `PlayerControls.railStyles.spec.ts` exists.
 Sidebar anchors come from a per-item `shortcut` field on `AppSidebar`'s `NavItem`
 (not a `NAV_SHORTCUT_ANCHORS` routeName map): every nav loop binds the same
 `:data-shortcut="item.shortcut"` attribute, so which entries anchor is entirely
-data-driven — `topItems`, the Discover entry in `libraryModes`, `playlistsItem`
-and `streamingItems` each set one, six in total. The three library modes
-(Discover/Releases/Artists) share `routeName: 'library'`, but only Discover's
+data-driven — every entry in `topItems` and `bottomItems` sets one, as does the
+Discover entry in `libraryModes`, six in total. The three library modes
+(Discover/Artists/Releases) share `routeName: 'library'`, but only Discover's
 entry sets `shortcut`; Releases/Artists and every `folderItems` entry leave
 it unset, since anchoring more than one of them would let the overlay badge
 whichever it found first instead of the cross-collection root. That is why

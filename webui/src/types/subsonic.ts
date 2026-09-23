@@ -1,3 +1,5 @@
+import type { LibraryView } from '@/types/libraries'
+
 export interface SubsonicResponse<T = unknown> {
     'subsonic-response': {
         status: 'ok' | 'failed'
@@ -130,10 +132,29 @@ export interface Genre {
 export interface MusicFolder {
     id: number
     name: string
-    defaultView?: 'albums' | 'artists'
-    showArtists?: boolean
+    // Aether's "musicFolderViews" OpenSubsonic extension: the ways the folder can
+    // be browsed, in display order, and the one of them it opens on; v2 adds
+    // splitViews — list each view as its own navigation entry.
+    views?: LibraryView[]
+    defaultView?: LibraryView
+    splitViews?: boolean
     // Aether's "musicFolderIcon" OpenSubsonic extension: PrimeIcons name without the "pi pi-" prefix.
     icon?: string
+}
+
+// The musicFolderViews extension's (v2) description of the root: the whole
+// catalog, browsed without a musicFolderId. A folder's fields, minus id/name/icon.
+export interface CatalogView {
+    views?: LibraryView[]
+    defaultView?: LibraryView
+    splitViews?: boolean
+}
+
+// getMusicFolders: the folders (one per library) and, from servers with
+// musicFolderViews v2, the root's descriptor.
+export interface MusicFolders {
+    catalog?: CatalogView
+    folders: MusicFolder[]
 }
 
 export interface SearchResult3 {

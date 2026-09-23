@@ -1,13 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query'
 import { useToast } from 'primevue/usetoast'
 import * as LibrariesApi from '@/lib/api/Libraries'
-import type { Library, LibraryInput, LibraryFilterOptions } from '@/types/libraries'
+import type { CatalogSettings, Library, LibraryInput, LibraryFilterOptions } from '@/types/libraries'
 import { apiErrorMessage, apiFieldErrors } from '@/lib/apiError'
 
 export const libraryQueryKeys = {
     all: ['libraries'] as const,
     detail: (id: number) => ['libraries', id] as const,
-    filterOptions: ['libraries', 'filter-options'] as const
+    filterOptions: ['libraries', 'filter-options'] as const,
+    catalog: ['libraries', 'catalog'] as const
 }
 
 export function useLibraries() {
@@ -111,6 +112,38 @@ export function useDeleteLibrary() {
             toast.add({
                 severity: 'error',
                 summary: 'Failed to delete library',
+                detail: apiErrorMessage(err),
+                life: 5000
+            })
+        }
+    })
+}
+
+// The root library's settings, as the admin panel edits them. Everyone else
+// reads them from getMusicFolders' catalog descriptor (useCatalogView).
+export function useCatalogSettings() {
+    return useQuery<CatalogSettings>({
+        queryKey: libraryQueryKeys.catalog,
+        queryFn: () => LibrariesApi.getCatalogSettings(),
+        staleTime: 30 * 1000
+    })
+}
+
+export function useUpdateCatalogSettings() {
+    const qc = useQueryClient()
+    const toast = useToast()
+    return useMutation({
+        mutationFn: (input: CatalogSettings) => LibrariesApi.updateCatalogSettings(input),
+        onSuccess: (settings) => {
+            qc.setQueryData(libraryQueryKeys.catalog, settings)
+            // The sidebar reads the setting from the Subsonic music folders.
+            qc.invalidateQueries({ queryKey: ['subsonic'] })
+            toast.add({ severity: 'success', summary: 'Main library updated', life: 3000 })
+        },
+        onError: (err: any) => {
+            toast.add({
+                severity: 'error',
+                summary: 'Failed to update the main library',
                 detail: apiErrorMessage(err),
                 life: 5000
             })

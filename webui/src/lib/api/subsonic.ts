@@ -16,7 +16,9 @@ import type {
     InternetRadioStation,
     DiscoveryPage,
     SavedPlayQueue,
-    Starred2
+    Starred2,
+    CatalogView,
+    MusicFolders
 } from '@/types/subsonic'
 import { ref } from 'vue'
 
@@ -161,12 +163,15 @@ class SubsonicClient {
         }
     }
 
-    async getMusicFolders(): Promise<MusicFolder[]> {
-        if (!this.isConfigured()) return []
+    async getMusicFolders(): Promise<MusicFolders> {
+        if (!this.isConfigured()) return { folders: [] }
         const response = await this.request<{
-            musicFolders: { musicFolder: MusicFolder[] }
+            musicFolders: { catalog?: CatalogView; musicFolder: MusicFolder[] }
         }>('getMusicFolders.view')
-        return response.musicFolders?.musicFolder || []
+        return {
+            catalog: response.musicFolders?.catalog,
+            folders: response.musicFolders?.musicFolder || []
+        }
     }
 
     async getAlbumList(

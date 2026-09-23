@@ -37,28 +37,36 @@ type warningDTO struct {
 	Detail  string `json:"detail"`
 }
 
-// libraryWriteDTO is the body of a create or an update. Filters is a pointer so
-// an update can tell "not mentioned" from "set to none": an update that omits
-// the key keeps the stored filters — omission must never widen a library to the
-// whole catalog — while an explicit [] clears them. On create there is nothing
-// to keep, so an absent key means no filters.
+// libraryWriteDTO is the body of a create or an update. Its pointer fields let
+// an update tell "not mentioned" from a value: an update that omits one keeps
+// what is stored, and a create takes the default. For filters that is the
+// point — omission must never widen a library to the whole catalog — while an
+// explicit [] clears them; on create there is nothing to keep, so an absent
+// key means no filters.
 type libraryWriteDTO struct {
 	Name string `json:"name"`
-	// ShowArtists is a pointer so an omitted key keeps its default (true on
-	// create, the stored value on update) instead of reading as false.
-	ShowArtists *bool                  `json:"show_artists"`
-	DefaultView string                 `json:"default_view"`
-	Icon        string                 `json:"icon"`
-	Filters     *[]model.LibraryFilter `json:"filters"`
+	// Views lists the ways the library can be browsed; every view on create.
+	Views *[]model.LibraryView `json:"views"`
+	// DefaultView is the view the library opens on; "" is the first of its views.
+	DefaultView model.LibraryView `json:"default_view"`
+	// HideFromArtistIndex keeps the library's artists off the cross-library
+	// artist index; false on create.
+	HideFromArtistIndex *bool `json:"hide_from_artist_index"`
+	// SplitViews gives the library one sidebar entry per view; false on create.
+	SplitViews *bool                  `json:"split_views"`
+	Icon       string                 `json:"icon"`
+	Filters    *[]model.LibraryFilter `json:"filters"`
 }
 
 // libraryDTO is what the API answers with; libraryWriteDTO is what it accepts.
 type libraryDTO struct {
-	ID          uint   `json:"id"`
-	Name        string `json:"name"`
-	ShowArtists bool   `json:"show_artists"`
-	DefaultView string `json:"default_view"`
-	Icon        string `json:"icon"`
+	ID                  uint                `json:"id"`
+	Name                string              `json:"name"`
+	Views               []model.LibraryView `json:"views"`
+	DefaultView         model.LibraryView   `json:"default_view"`
+	HideFromArtistIndex bool                `json:"hide_from_artist_index"`
+	SplitViews          bool                `json:"split_views"`
+	Icon                string              `json:"icon"`
 	// Filters selects the library's tracks; always emitted as an array (see
 	// modelToDTO), never null.
 	Filters []model.LibraryFilter `json:"filters"`
@@ -99,10 +107,6 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 	if err != nil {
 		return libraryDTO{}, err
 	}
-	dv := lib.DefaultView
-	if dv == "" {
-		dv = "albums"
-	}
 	icon := lib.Icon
 	if icon == "" {
 		icon = "folder"
@@ -120,19 +124,18 @@ func (h *Handler) modelToDTO(lib model.Library) (libraryDTO, error) {
 		warnings = append(warnings, warningDTO{Pointer: is.Pointer, Detail: is.Detail})
 	}
 	return libraryDTO{
-		ID:   lib.ID,
-		Name: lib.Name,
-		// Convert HideArtists (internal, inverted bool) to ShowArtists (API,
-		// positive bool): HideArtists=false (the zero value) means the artists
-		// are visible, so ShowArtists=true.
-		ShowArtists: !lib.HideArtists,
-		DefaultView: dv,
-		Icon:        icon,
-		Filters:     filters,
-		Warnings:    warnings,
-		CreatedAt:   lib.CreatedAt,
-		UpdatedAt:   lib.UpdatedAt,
-		TrackCount:  count,
+		ID:                  lib.ID,
+		Name:                lib.Name,
+		Views:               lib.Views,
+		DefaultView:         lib.DefaultView,
+		HideFromArtistIndex: lib.HideFromArtistIndex,
+		SplitViews:          lib.SplitViews,
+		Icon:                icon,
+		Filters:             filters,
+		Warnings:            warnings,
+		CreatedAt:           lib.CreatedAt,
+		UpdatedAt:           lib.UpdatedAt,
+		TrackCount:          count,
 	}, nil
 }
 
@@ -140,6 +143,8 @@ func (h *Handler) Routes(r *mux.Router) {
 	r.Path("/libraries/browse").Methods(http.MethodGet).HandlerFunc(h.browse)
 	r.Path("/libraries/filter-options").Methods(http.MethodGet).HandlerFunc(h.filterOptions)
 	r.Path("/libraries/preview").Methods(http.MethodPost).HandlerFunc(h.preview)
+	r.Path("/libraries/catalog").Methods(http.MethodGet).HandlerFunc(h.getCatalog)
+	r.Path("/libraries/catalog").Methods(http.MethodPut).HandlerFunc(h.updateCatalog)
 	r.Path("/libraries").Methods(http.MethodGet).HandlerFunc(h.list)
 	r.Path("/libraries").Methods(http.MethodPost).HandlerFunc(h.create)
 	r.Path("/libraries/{id:[0-9]+}").Methods(http.MethodGet).HandlerFunc(h.get)
@@ -185,32 +190,54 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto)
 }
 
-// validateDTO checks every field of an incoming library payload. It answers
-// the response itself; the return value is false when the request is done. A
-// missing required field (name) is 400; a present-but-invalid value (too
-// long, an unknown enum) is well-formed-but-invalid input, answered as a 422
-// validation problem.
+// validateDTO checks the name and icon of an incoming library payload. It
+// answers the response itself; the return value is false when the request is
+// done. A missing required field (name) is 400; a present-but-invalid value
+// (too long, a malformed icon) is well-formed-but-invalid input, answered as a
+// 422 validation problem.
 func validateDTO(w http.ResponseWriter, r *http.Request, in libraryWriteDTO, pw *problemjson.Writer) bool {
 	if err := ValidateName(in.Name); err != nil {
 		writeFieldValidationErr(w, r, "/name", err, pw)
 		return false
 	}
-	// Unlike name, neither of these ever fails on a missing value (an
-	// empty/omitted field is always accepted, defaulted elsewhere) — any
-	// failure here is unconditionally a present-but-invalid value.
-	for _, check := range []struct {
-		pointer string
-		err     error
-	}{
-		{"/default_view", ValidateDefaultView(in.DefaultView)},
-		{"/icon", ValidateIcon(in.Icon)},
-	} {
-		if check.err != nil {
-			pw.WriteValidation(w, r, check.err.Error(), problemjson.FieldError{Pointer: check.pointer, Detail: check.err.Error()})
-			return false
-		}
+	// Unlike name, an icon never fails on a missing value (it defaults to
+	// "folder") — any failure here is a present-but-invalid value.
+	if err := ValidateIcon(in.Icon); err != nil {
+		pw.WriteValidation(w, r, err.Error(), problemjson.FieldError{Pointer: "/icon", Detail: err.Error()})
+		return false
 	}
 	return true
+}
+
+// resolveViews answers the views and default view a write stores: the
+// request's views when it sends them, normalized by ValidateViews, else keep —
+// the stored views on update, every view on create — and the request's
+// default_view when set, else the first of those views. It answers the 422
+// itself; ok is false when the request is done.
+func (h *Handler) resolveViews(w http.ResponseWriter, r *http.Request, in libraryWriteDTO, keep []model.LibraryView) (views []model.LibraryView, defaultView model.LibraryView, ok bool) {
+	views = keep
+	if in.Views != nil {
+		var problems []problemjson.FieldError
+		if views, problems = ValidateViews(*in.Views); len(problems) > 0 {
+			h.Problems.WriteValidation(w, r, "the library's views are not valid", problems...)
+			return nil, "", false
+		}
+	}
+	if len(views) == 0 {
+		// Only an update that keeps the views of a row stored without any gets
+		// here; it has to name some.
+		h.Problems.WriteValidation(w, r, "the library's views are not valid",
+			problemjson.FieldError{Pointer: "/views", Detail: "a library needs at least one view"})
+		return nil, "", false
+	}
+	if err := ValidateDefaultView(in.DefaultView, views); err != nil {
+		h.Problems.WriteValidation(w, r, err.Error(), problemjson.FieldError{Pointer: "/default_view", Detail: err.Error()})
+		return nil, "", false
+	}
+	if in.DefaultView == "" {
+		return views, views[0], true
+	}
+	return views, in.DefaultView, true
 }
 
 // writeFieldValidationErr answers a ValidateName failure: a missing required
@@ -235,22 +262,22 @@ func fieldErrors(issues []libraryfilter.Issue) []problemjson.FieldError {
 	return fields
 }
 
-// needsAFilter is the one rule that spans fields: a library that hides its
-// artists must select something narrower than the whole catalog, or it would
-// hide every artist. It is judged against the EFFECTIVE filters — the ones the
-// request sends, or the stored ones an update keeps.
+// needsAFilter is the one rule that spans fields: a library hidden from the
+// artist index must select something narrower than the whole catalog, or it
+// would hide every artist. It is judged against the EFFECTIVE filters — the
+// ones the request sends, or the stored ones an update keeps.
 var needsAFilter = problemjson.FieldError{
-	Pointer: "/show_artists",
-	Detail:  "a library that hides its artists needs at least one filter: without any it covers the whole catalog and would hide every artist",
+	Pointer: "/hide_from_artist_index",
+	Detail:  "a library hidden from the artist index needs at least one filter: without any it covers the whole catalog and would hide every artist",
 }
 
 // validateFilters checks the filters a request sends, plus needsAFilter. It
 // answers the 422 itself, itemising EVERY problem so the form can mark each
 // row; ok is false when the request is done.
-func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in []model.LibraryFilter, hideArtists bool) (filters []model.LibraryFilter, ok bool) {
+func (h *Handler) validateFilters(w http.ResponseWriter, r *http.Request, in []model.LibraryFilter, hidden bool) (filters []model.LibraryFilter, ok bool) {
 	filters, issues := libraryfilter.Validate(in, h.Folders)
 	fields := fieldErrors(issues)
-	if len(issues) == 0 && hideArtists && len(filters) == 0 {
+	if len(issues) == 0 && hidden && len(filters) == 0 {
 		fields = append(fields, needsAFilter)
 	}
 	if len(fields) > 0 {
@@ -270,25 +297,23 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if !validateDTO(w, r, in, h.Problems) {
 		return
 	}
-
-	dv := in.DefaultView
-	if dv == "" {
-		dv = "albums"
+	views, defaultView, ok := h.resolveViews(w, r, in, model.LibraryViews())
+	if !ok {
+		return
 	}
+
 	icon := in.Icon
 	if icon == "" {
 		icon = "folder"
 	}
-	// ShowArtists is a pointer: nil means "visible" (HideArtists=false),
-	// true means visible (HideArtists=false), false means hidden (HideArtists=true).
-	hideArtists := in.ShowArtists != nil && !*in.ShowArtists
+	hidden := in.HideFromArtistIndex != nil && *in.HideFromArtistIndex
 	// On create there is nothing to keep, so an absent "filters" key and an
 	// explicit [] mean the same thing: no filters, the whole catalog.
 	var requested []model.LibraryFilter
 	if in.Filters != nil {
 		requested = *in.Filters
 	}
-	filters, ok := h.validateFilters(w, r, requested, hideArtists)
+	filters, ok := h.validateFilters(w, r, requested, hidden)
 	if !ok {
 		return
 	}
@@ -296,11 +321,13 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		// ValidateName judges the TRIMMED name, so that is what is stored:
 		// otherwise " Music" and "Music" are two libraries the /rest music
 		// folder list shows under one visible name.
-		Name:        strings.TrimSpace(in.Name),
-		HideArtists: hideArtists,
-		DefaultView: dv,
-		Icon:        icon,
-		Filters:     filters,
+		Name:                strings.TrimSpace(in.Name),
+		Views:               views,
+		DefaultView:         defaultView,
+		HideFromArtistIndex: hidden,
+		SplitViews:          in.SplitViews != nil && *in.SplitViews,
+		Icon:                icon,
+		Filters:             filters,
 	}
 	if err := h.Store.CreateLibrary(lib); err != nil {
 		status, code := mapStoreError(err)
@@ -337,15 +364,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	if !validateDTO(w, r, in, h.Problems) {
 		return
 	}
+	views, defaultView, ok := h.resolveViews(w, r, in, existing.Views)
+	if !ok {
+		return
+	}
 
-	// The effective hideArtists is the request's show_artists when present,
-	// else whatever is already stored: an update that omits show_artists
-	// keeps that value (see the ShowArtists assignment below), so the
+	// The effective flag is the request's when present, else whatever is
+	// already stored: an update that omits it keeps that value, so the
 	// has-a-filter rule must be judged against the value that will actually
 	// be saved, not against a field the caller never touched.
-	effectiveHideArtists := existing.HideArtists
-	if in.ShowArtists != nil {
-		effectiveHideArtists = !*in.ShowArtists
+	hidden := existing.HideFromArtistIndex
+	if in.HideFromArtistIndex != nil {
+		hidden = *in.HideFromArtistIndex
 	}
 	// Same reasoning for the filters: an update that never mentions them keeps
 	// the stored ones, so they are what the has-a-filter rule is judged
@@ -354,25 +384,21 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	// left the config (it reports that as a warning instead).
 	filters := existing.Filters
 	if in.Filters != nil {
-		var ok bool
-		if filters, ok = h.validateFilters(w, r, *in.Filters, effectiveHideArtists); !ok {
+		if filters, ok = h.validateFilters(w, r, *in.Filters, hidden); !ok {
 			return
 		}
-	} else if effectiveHideArtists && len(filters) == 0 {
+	} else if hidden && len(filters) == 0 {
 		h.Problems.WriteValidation(w, r, "the library's filters are not valid", needsAFilter)
 		return
 	}
 
 	existing.Name = strings.TrimSpace(in.Name) // stored trimmed, as on create
-	// ShowArtists is a pointer: nil means "keep current", otherwise set HideArtists to the inverse.
-	if in.ShowArtists != nil {
-		existing.HideArtists = !*in.ShowArtists
+	existing.Views = views
+	existing.DefaultView = defaultView
+	existing.HideFromArtistIndex = hidden
+	if in.SplitViews != nil { // omitted keeps the stored layout
+		existing.SplitViews = *in.SplitViews
 	}
-	dv := in.DefaultView
-	if dv == "" {
-		dv = "albums"
-	}
-	existing.DefaultView = dv
 	icon := in.Icon
 	if icon == "" {
 		icon = "folder"

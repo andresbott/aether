@@ -137,11 +137,11 @@ describe('apiFieldErrors', () => {
                 type: 'https://aether.local/probs/validation_error',
                 title: 'Unprocessable Entity',
                 status: 422,
-                detail: 'invalid default_view: "grid" (allowed: albums, artists)',
+                detail: `default_view "grid" is not one of the library's views`,
                 errors: [
                     {
                         pointer: '/default_view',
-                        detail: 'invalid default_view: "grid" (allowed: albums, artists)'
+                        detail: `default_view "grid" is not one of the library's views`
                     }
                 ]
             }
@@ -152,14 +152,14 @@ describe('apiFieldErrors', () => {
         expect(apiFieldErrors(validation)).toEqual([
             {
                 pointer: '/default_view',
-                detail: 'invalid default_view: "grid" (allowed: albums, artists)'
+                detail: `default_view "grid" is not one of the library's views`
             }
         ])
     })
 
     it('maps each pointer to its detail', () => {
         expect(apiFieldErrorMap(validation)).toEqual({
-            '/default_view': 'invalid default_view: "grid" (allowed: albums, artists)'
+            '/default_view': `default_view "grid" is not one of the library's views`
         })
     })
 

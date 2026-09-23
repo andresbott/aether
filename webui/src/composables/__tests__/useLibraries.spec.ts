@@ -27,8 +27,10 @@ function sampleLibrary(): Library {
     return {
         id: 1,
         name: 'Main',
-        show_artists: true,
+        views: ['artists', 'releases'],
         default_view: 'artists',
+        hide_from_artist_index: false,
+        split_views: false,
         icon: 'folder',
         filters: [],
         created_at: '',
@@ -39,8 +41,10 @@ function sampleLibrary(): Library {
 
 const sampleInput: LibraryInput = {
     name: 'Main',
-    show_artists: true,
+    views: ['artists', 'releases'],
     default_view: 'artists',
+    hide_from_artist_index: false,
+    split_views: false,
     icon: 'folder',
     filters: []
 }

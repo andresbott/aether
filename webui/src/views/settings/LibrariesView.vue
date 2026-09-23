@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import LibrariesPanel from '@/components/admin/LibrariesPanel.vue'
+import MainLibraryPanel from '@/components/admin/MainLibraryPanel.vue'
 import ScanFoldersPanel from '@/components/admin/ScanFoldersPanel.vue'
 </script>
 
 <template>
     <div class="libraries-view">
         <ScanFoldersPanel />
+        <hr class="section-divider" />
+        <MainLibraryPanel />
         <hr class="section-divider" />
         <LibrariesPanel />
     </div>

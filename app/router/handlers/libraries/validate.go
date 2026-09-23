@@ -4,11 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/andresbott/aether/internal/model"
+	"github.com/go-bumbu/http/problemjson"
 )
 
 // Validators for the fields the libraries API accepts on create/update: name,
-// default_view and icon.
+// views, default_view and icon.
 
 // valueError marks a validator failure as well-formed-but-invalid: the field
 // is present but its value fails a business rule (too long, an unknown enum,
@@ -37,14 +42,42 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// ValidateDefaultView verifies v is an allowed default view ("" = albums).
-func ValidateDefaultView(v string) error {
-	switch v {
-	case "", "albums", "artists":
-		return nil
-	default:
-		return fmt.Errorf("invalid default_view: %q (allowed: albums, artists)", v)
+// ValidateViews checks a library's views and returns them normalized: each
+// view once, in model.LibraryViews order. It reports every problem, each at a
+// pointer into the request's views array.
+func ValidateViews(views []model.LibraryView) ([]model.LibraryView, []problemjson.FieldError) {
+	if len(views) == 0 {
+		return nil, []problemjson.FieldError{{Pointer: "/views", Detail: "a library needs at least one view"}}
 	}
+	all := model.LibraryViews()
+	var problems []problemjson.FieldError
+	for i, v := range views {
+		if !slices.Contains(all, v) {
+			problems = append(problems, problemjson.FieldError{
+				Pointer: "/views/" + strconv.Itoa(i),
+				Detail:  fmt.Sprintf("unknown view %q (allowed: discover, artists, releases)", v),
+			})
+		}
+	}
+	if len(problems) > 0 {
+		return nil, problems
+	}
+	out := make([]model.LibraryView, 0, len(all))
+	for _, v := range all {
+		if slices.Contains(views, v) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+// ValidateDefaultView verifies v is one of the library's views ("" = the first
+// of them).
+func ValidateDefaultView(v model.LibraryView, views []model.LibraryView) error {
+	if v == "" || slices.Contains(views, v) {
+		return nil
+	}
+	return fmt.Errorf("default_view %q is not one of the library's views", v)
 }
 
 // iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".
