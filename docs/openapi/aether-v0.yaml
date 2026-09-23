@@ -3561,7 +3561,7 @@ components:
             `splitViews` (the `musicFolderViews` extension, v2).
         icon:
           type: string
-          description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
+          description: A Material Symbols icon name in Google's snake_case, e.g. "queue_music".
         filters:
           type: array
           items: { $ref: '#/components/schemas/LibraryFilter' }
@@ -3681,12 +3681,12 @@ components:
             on update keeps the library's current value.
         icon:
           type: string
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          pattern: '^[a-z0-9]+(_[a-z0-9]+)*$'
           maxLength: 100
           default: folder
           description: >
-            A PrimeIcons name without the "pi pi-" prefix, e.g.
-            "folder-open". Omitted or empty falls back to "folder".
+            A Material Symbols icon name in Google's snake_case, e.g.
+            "queue_music". Omitted or empty falls back to "folder".
         filters:
           type: array
           items: { $ref: '#/components/schemas/LibraryFilter' }

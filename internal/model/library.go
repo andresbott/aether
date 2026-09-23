@@ -23,7 +23,7 @@ type Library struct {
 	// view, instead of a single entry whose page switches between them. It is
 	// presentation only: what the library selects and offers is unchanged.
 	SplitViews bool   `gorm:"not null;default:false"`
-	Icon       string `gorm:"not null;default:'folder'"` // PrimeIcons name without the "pi pi-" prefix
+	Icon       string `gorm:"not null;default:'folder'"` // Material Symbols name, snake_case, e.g. "queue_music"
 	// Filters select the library's tracks: they are AND-ed, and the values of
 	// one filter are OR-ed (see store.ScopeOf). None means the whole catalog.
 	Filters   []LibraryFilter `gorm:"serializer:json"`

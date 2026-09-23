@@ -80,10 +80,12 @@ func ValidateDefaultView(v model.LibraryView, views []model.LibraryView) error {
 	return fmt.Errorf("default_view %q is not one of the library's views", v)
 }
 
-// iconNameRe matches PrimeIcons names without the "pi pi-" prefix, e.g. "folder-open".
-var iconNameRe = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+// iconNameRe matches a Material Symbols icon name in Google's canonical
+// snake_case, e.g. "queue_music" — the vocabulary the musicFolderIcon extension
+// advertises, so a client can render it straight from Google's font.
+var iconNameRe = regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)*$`)
 
-// ValidateIcon verifies v is a PrimeIcons name without the "pi pi-" prefix.
+// ValidateIcon verifies v is a Material Symbols icon name such as "queue_music".
 func ValidateIcon(v string) error {
 	if v == "" {
 		return nil
@@ -92,7 +94,7 @@ func ValidateIcon(v string) error {
 		return fmt.Errorf("icon name too long (max 100 chars)")
 	}
 	if !iconNameRe.MatchString(v) {
-		return fmt.Errorf("invalid icon: %q (expected a PrimeIcons name like \"folder\" or \"folder-open\")", v)
+		return fmt.Errorf("invalid icon: %q (expected a Material Symbols name like \"folder\" or \"queue_music\")", v)
 	}
 	return nil
 }

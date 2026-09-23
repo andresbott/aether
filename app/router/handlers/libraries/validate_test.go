@@ -84,13 +84,15 @@ func TestValidateIcon(t *testing.T) {
 	}{
 		{"", true}, // empty coerced to default by caller
 		{"folder", true},
-		{"folder-open", true},
-		{"th-large", true},
-		{"Folder", false}, // case-sensitive
+		{"queue_music", true},
+		{"10k", true},
+		{"folder-open", false}, // kebab-case is the old PrimeIcons shape
+		{"Folder", false},      // case-sensitive
 		{"folder!", false},
 		{"folder open", false},
-		{"-folder", false},
-		{"folder-", false},
+		{"_folder", false},
+		{"folder_", false},
+		{"folder__open", false},
 		{strings.Repeat("a", 101), false},
 	}
 	for _, c := range cases {

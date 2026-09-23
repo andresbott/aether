@@ -282,7 +282,10 @@ also puts a `catalog` descriptor on `musicFolders` itself, beside the
 `views` and `defaultView` are fixed (every view, opening on Discover); its
 `splitViews` comes from the single-row `model.CatalogSettings` (default
 `true`), which admins edit through `GET`/`PUT /api/v0/libraries/catalog`.
-`icon` is `musicFolderIcon`.
+`icon` is `musicFolderIcon`: a Material Symbols icon name in Google's canonical
+snake_case (`queue_music`, `nightlife`) — renderable by any client that ships the
+Material Symbols font or SVGs. Validated by `libraries.ValidateIcon`; default
+`folder`.
 
 ## Media serving
 
