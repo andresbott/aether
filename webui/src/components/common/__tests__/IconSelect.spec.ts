@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import PrimeVue from 'primevue/config'
 
@@ -16,6 +16,11 @@ const mountSelect = () =>
     })
 
 describe('IconSelect', () => {
+    // Clean up any mounted components and DOM state between tests
+    afterEach(() => {
+        document.body.innerHTML = ''
+    })
+
     // A Dialog hosting this picker needs to know the Popover is open so it can
     // stop closing on Escape while it is — see LibraryDialog's iconPickerOpen.
     it('reports its popover open and closed', async () => {
@@ -35,13 +40,12 @@ describe('IconSelect', () => {
         w.unmount()
     })
 
-    // FIXME: These tests fail because the async catalogue import in loadCatalogue()
-    // doesn't complete in the test environment, even though importing the virtual
-    // module directly works. The component works correctly in the real app.
-    it.skip('opens on the suggestions and narrows by name', async () => {
+    it('opens on the suggestions and narrows by name', async () => {
         const w = mountSelect()
+        await flushPromises()
         await w.get('.icon-select-trigger').trigger('click')
-        await vi.waitFor(() => expect(w.findAll('.icon-item').length).toBeGreaterThan(0))
+        await flushPromises()
+        await vi.waitFor(() => expect(w.findAll('.icon-item').length).toBeGreaterThan(0), { timeout: 5000 })
         const shown = () => w.findAll('.icon-item [data-icon]').map((i) => i.attributes('data-icon'))
         expect(shown()).toEqual([...SUGGESTED_LIBRARY_ICONS])
         await w.get('input').setValue('piano')
@@ -49,10 +53,12 @@ describe('IconSelect', () => {
         w.unmount()
     }, 10000)
 
-    it.skip('emits the snake_case name of the picked icon', async () => {
+    it('emits the snake_case name of the picked icon', async () => {
         const w = mountSelect()
+        await flushPromises()
         await w.get('.icon-select-trigger').trigger('click')
-        await vi.waitFor(() => expect(w.findAll('.icon-item').length).toBeGreaterThan(0))
+        await flushPromises()
+        await vi.waitFor(() => expect(w.findAll('.icon-item').length).toBeGreaterThan(0), { timeout: 5000 })
         await w.get('input').setValue('queue music')
         await w.findAll('.icon-item')[0].trigger('click')
         expect(w.emitted('update:modelValue')?.[0]).toEqual(['queue_music'])
