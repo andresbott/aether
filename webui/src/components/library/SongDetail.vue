@@ -109,7 +109,7 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
     <div class="song-detail" :class="{ 'song-detail--card': card }">
         <Button
             v-if="showBackButton"
-            icon="pi pi-arrow-left"
+            icon="ms-arrow-back"
             text
             rounded
             class="back-btn"
@@ -120,7 +120,7 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
             <div class="cover-art">
                 <img v-if="coverArtUrl" :src="coverArtUrl" :alt="song.title" />
                 <div v-else class="cover-placeholder">
-                    <i class="pi pi-music" style="font-size: 4rem"></i>
+                    <i class="ms-music-note" style="font-size: 4rem"></i>
                 </div>
             </div>
 
@@ -193,7 +193,7 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
                          `danger` red) — see unified-play-experience.md. -->
                     <div class="card-actions">
                         <Button
-                            :icon="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"
+                            :icon="isStarred ? 'msf-favorite' : 'ms-favorite'"
                             :label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                             severity="secondary"
                             outlined
@@ -203,7 +203,7 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
                 </template>
 
                 <div v-if="!card" class="actions">
-                    <Button label="Play" icon="pi pi-play" @click="emit('play')" />
+                    <Button label="Play" icon="ms-play-arrow" @click="emit('play')" />
                 </div>
             </div>
         </div>

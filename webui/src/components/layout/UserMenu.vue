@@ -63,7 +63,7 @@ const onLogout = () => {
             v-tooltip.right="collapsed ? displayName : undefined"
             @click="toggleMenu"
         >
-            <span class="user-avatar" aria-hidden="true"><i class="pi pi-user"></i></span>
+            <span class="user-avatar" aria-hidden="true"><i class="ms-person"></i></span>
             <span v-if="!collapsed" class="user-name">{{ displayName }}</span>
         </button>
 
@@ -75,7 +75,7 @@ const onLogout = () => {
         >
             <div class="account-menu" role="menu" :aria-label="`Account menu for ${displayName}`">
                 <button class="menu-item" role="menuitem" type="button" @click="goUserSettings">
-                    <i class="pi pi-user"></i>
+                    <i class="ms-person"></i>
                     <span>User settings</span>
                 </button>
                 <button
@@ -85,7 +85,7 @@ const onLogout = () => {
                     type="button"
                     @click="goSettings"
                 >
-                    <i class="pi pi-cog"></i>
+                    <i class="ms-settings"></i>
                     <span>Admin</span>
                 </button>
                 <button
@@ -95,11 +95,11 @@ const onLogout = () => {
                     type="button"
                     @click="goMetadataEditor"
                 >
-                    <i class="pi pi-pencil"></i>
+                    <i class="ms-edit"></i>
                     <span>Metadata editor</span>
                 </button>
                 <button class="menu-item" role="menuitem" type="button" @click="goAbout">
-                    <i class="pi pi-info-circle"></i>
+                    <i class="ms-info"></i>
                     <span>About</span>
                 </button>
                 <template v-if="authRequired">
@@ -110,7 +110,7 @@ const onLogout = () => {
                         type="button"
                         @click="onLogout"
                     >
-                        <i class="pi pi-sign-out"></i>
+                        <i class="ms-logout"></i>
                         <span>Log out</span>
                     </button>
                 </template>

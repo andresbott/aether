@@ -62,11 +62,11 @@ onBeforeUnmount(stopObserving)
 <template>
     <div class="discovery-scroll">
         <div v-if="isLoading" class="discovery-state content-col">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
 
         <div v-else-if="isError" class="discovery-state content-col">
-            <i class="pi pi-exclamation-triangle"></i>
+            <i class="ms-warning"></i>
             <span>Could not load the discovery feed</span>
         </div>
 
@@ -121,7 +121,7 @@ onBeforeUnmount(stopObserving)
             <div v-if="hasNextPage" ref="sentinel" class="discovery-sentinel content-col">
                 <i
                     v-if="isFetchingNextPage"
-                    class="pi pi-spin pi-spinner"
+                    class="icon-spin ms-progress-activity"
                     style="font-size: 1.25rem"
                 ></i>
             </div>

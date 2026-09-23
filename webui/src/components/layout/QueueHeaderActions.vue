@@ -26,7 +26,7 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
     >
         <Button
             class="queue-action-edit"
-            icon="pi pi-pencil"
+            icon="ms-edit"
             :text="labels"
             :rounded="labels"
             :outlined="!labels"
@@ -42,7 +42,7 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
         />
         <Button
             class="queue-action-save"
-            icon="pi pi-save"
+            icon="ms-save"
             :text="labels"
             :rounded="labels"
             :outlined="!labels"
@@ -57,7 +57,7 @@ defineEmits<{ (e: 'toggle-edit'): void; (e: 'save'): void; (e: 'clear'): void }>
         />
         <Button
             class="queue-action-clear"
-            icon="pi pi-eraser"
+            icon="ms-ink-eraser"
             :text="labels"
             :rounded="labels"
             :outlined="!labels"

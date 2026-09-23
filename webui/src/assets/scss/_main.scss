@@ -271,9 +271,9 @@ a:hover {
     color: inherit;
 }
 
-/* Compact icons — sized to sit with the smaller label rather than PrimeIcons'
-   default 1rem. Covers the custom tab/scope glyphs (bare .pi in the #option
-   slot) and the built-in heart/layout icons. */
+/* Compact icons — sized to sit with the smaller label rather than the default
+   1rem. Covers the custom tab/scope glyphs (bare .ms-* in the #option slot)
+   and the built-in heart/layout icons. */
 .p-selectbutton.as-button-group .pi,
 .p-togglebutton.as-button-group .pi {
     font-size: 0.95rem;

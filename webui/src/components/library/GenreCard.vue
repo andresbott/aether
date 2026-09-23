@@ -37,7 +37,7 @@ const subtitle = computed(() => {
         <div class="card-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="genre.value" draggable="false" />
             <div v-else class="cover-placeholder">
-                <i class="pi pi-tags" style="font-size: 2rem"></i>
+                <i class="ms-genres" style="font-size: 2rem"></i>
             </div>
         </div>
         <div class="card-info">

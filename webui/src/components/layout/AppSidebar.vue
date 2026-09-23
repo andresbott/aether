@@ -39,24 +39,24 @@ interface NavSection {
 }
 
 const topItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home', shortcut: 'now-playing' },
-    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search', shortcut: 'search' }
+    { label: 'Now Playing', icon: 'ms-play-circle', route: '/', routeName: 'home', shortcut: 'now-playing' },
+    { label: 'Search', icon: 'ms-search', route: '/search', routeName: 'search', shortcut: 'search' }
 ]
 
 // The browse modes are path segments off /library; only Discover carries the
 // shortcut badge. All three share `routeName: 'library'` — the item's section tag,
 // which is distinct from the route record a folder resolves to ('library-folder').
 const libraryModes: NavItem[] = [
-    { label: 'Discover', icon: 'pi pi-compass', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
-    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' },
-    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' }
+    { label: 'Discover', icon: 'ms-explore', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
+    { label: 'Artists', icon: 'ms-artist', route: '/library/artists', routeName: 'library', mode: 'artists' },
+    { label: 'Releases', icon: 'ms-album', route: '/library/releases', routeName: 'library', mode: 'releases' }
 ]
 
 // The root as one entry, for a catalog set not to split its views: its page
 // switches them instead. No mode — it covers them all — and it keeps the badge.
 const libraryRoot: NavItem = {
     label: 'All music',
-    icon: 'pi pi-compass',
+    icon: 'ms-explore',
     route: '/library',
     routeName: 'library',
     shortcut: 'library'
@@ -127,9 +127,9 @@ const landingViews = computed(() => {
 
 // Past the spacer below the Library block.
 const bottomItems: NavItem[] = [
-    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
-    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres', shortcut: 'genres' },
-    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio', shortcut: 'radio' }
+    { label: 'Playlists', icon: 'ms-queue-music', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
+    { label: 'Genres', icon: 'ms-genres', route: '/genres', routeName: 'genres', shortcut: 'genres' },
+    { label: 'Radio', icon: 'ms-radio', route: '/radio', routeName: 'radio', shortcut: 'radio' }
 ]
 
 // The mode segment of the current path; undefined on a bare path.
@@ -260,7 +260,7 @@ onBeforeUnmount(resetEgg)
                 v-tooltip.right="collapsed ? 'Expand' : undefined"
                 @click="uiStore.toggleSidebar"
             >
-                <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
+                <i :class="collapsed ? 'ms-chevron-right' : 'ms-chevron-left'"></i>
             </button>
         </div>
 

@@ -517,7 +517,7 @@ function cancel() {
         class="album-identify-dialog"
     >
         <div v-if="loading" class="album-loading" data-test="album-loading">
-            <i class="pi pi-spin pi-spinner"></i>
+            <i class="icon-spin ms-progress-activity"></i>
             <div class="loading-text">
                 <p class="loading-headline">
                     Identifying {{ tracks.length }} song{{ tracks.length === 1 ? '' : 's' }}…
@@ -582,7 +582,7 @@ function cancel() {
                 <Button
                     v-if="options.length > 1"
                     :label="`Compare ${options.length} candidates`"
-                    icon="pi pi-list"
+                    icon="ms-list"
                     text
                     data-test="album-compare"
                     @click="pickerVisible = true"
@@ -806,7 +806,7 @@ function cancel() {
             <Button
                 v-if="!loading"
                 label="Re-identify"
-                icon="pi pi-refresh"
+                icon="ms-refresh"
                 text
                 v-tooltip.top="'Ignore the cached answer and identify these files again'"
                 data-test="album-reidentify"
@@ -815,7 +815,7 @@ function cancel() {
             <Button
                 v-if="!loading && options.length > 0"
                 :label="`Stage ${includedPaths.length} song${includedPaths.length === 1 ? '' : 's'}`"
-                icon="pi pi-check"
+                icon="ms-check"
                 data-test="album-apply"
                 :disabled="!canApply"
                 @click="apply"
@@ -831,7 +831,7 @@ function cancel() {
     gap: 0.9rem;
     padding: 2rem 0.5rem;
 }
-.album-loading .pi-spinner {
+.album-loading .ms-progress-activity {
     font-size: 1.6rem;
     color: var(--app-accent);
 }

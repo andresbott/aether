@@ -74,9 +74,9 @@ describe('FolderPickerDialog', () => {
         await flushPromises()
         const rows = w.findAll('.p-tree-node')
         expect(rows).toHaveLength(3)
-        expect(rows[0].find('.p-tree-node-icon').classes()).toContain('pi-database')
-        expect(rows[1].find('.p-tree-node-icon').classes()).toContain('pi-link')
-        expect(rows[2].find('.p-tree-node-icon').classes()).toContain('pi-folder')
+        expect(rows[0].find('.p-tree-node-icon').classes()).toContain('ms-database')
+        expect(rows[1].find('.p-tree-node-icon').classes()).toContain('ms-link')
+        expect(rows[2].find('.p-tree-node-icon').classes()).toContain('ms-folder')
     })
 
     it("expanding a root asks the server for that root's own path", async () => {

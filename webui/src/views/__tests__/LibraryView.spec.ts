@@ -451,8 +451,8 @@ describe('LibraryView favorites filter', () => {
     it('is off by default and passes favoritesOnly=false to the body', () => {
         const w = mountView()
         // Outline heart while off, filled while on — the app-wide favorites signal.
-        expect(favoriteIcon(w).classes()).toContain('pi-heart')
-        expect(favoriteIcon(w).classes()).not.toContain('pi-heart-fill')
+        expect(favoriteIcon(w).classes()).toContain('ms-favorite')
+        expect(favoriteIcon(w).classes()).not.toContain('msf-favorite')
         expect(favoritesToggle(w).attributes('aria-pressed')).toBe('false')
         expect(w.findComponent(AlbumGridStub).props('favoritesOnly')).toBe(false)
     })
@@ -460,7 +460,7 @@ describe('LibraryView favorites filter', () => {
     it('fills the heart while the filter is on', () => {
         route.query = { favorites: '1' }
         const w = mountView()
-        expect(favoriteIcon(w).classes()).toContain('pi-heart-fill')
+        expect(favoriteIcon(w).classes()).toContain('msf-favorite')
         expect(favoritesToggle(w).attributes('aria-pressed')).toBe('true')
     })
 

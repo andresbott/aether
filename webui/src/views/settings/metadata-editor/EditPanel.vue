@@ -185,7 +185,7 @@ watch(
                 >
                     <Button
                         :label="`Identify album (${identifiable.length})`"
-                        icon="pi pi-compact-disc"
+                        icon="ms-album"
                         size="small"
                         outlined
                         data-test="identify-album-button"
@@ -197,7 +197,7 @@ watch(
                 <span v-if="!rawMode" v-tooltip.left="identifyTooltip" class="identify-wrap">
                     <Button
                         :label="isMass ? `Identify ${identifiable.length} tracks` : 'Identify'"
-                        icon="pi pi-wave-pulse"
+                        icon="ms-graphic-eq"
                         size="small"
                         outlined
                         data-test="identify-button"
@@ -208,7 +208,7 @@ watch(
                 </span>
                 <Button
                     label="Raw"
-                    icon="pi pi-code"
+                    icon="ms-code"
                     size="small"
                     :outlined="!rawMode"
                     data-test="raw-toggle"
@@ -293,7 +293,7 @@ watch(
             <template #actions>
                 <Button
                     v-if="isDirty('artists')"
-                    icon="pi pi-undo"
+                    icon="ms-undo"
                     label="Reset"
                     text
                     size="small"
@@ -329,7 +329,7 @@ watch(
         <CollapsibleSection title="Album" data-test="album-block">
             <template #actions>
                 <Button
-                    icon="pi pi-search"
+                    icon="ms-search"
                     label="Search MusicBrainz"
                     text
                     size="small"
@@ -342,7 +342,7 @@ watch(
                 <label :for="fid('album')">
                     Name
                     <i
-                        class="pi pi-exclamation-circle field-warn"
+                        class="ms-error field-warn"
                         tabindex="0"
                         role="note"
                         :aria-label="albumGroupingHelp"
@@ -361,7 +361,7 @@ watch(
                 />
                 <Button
                     v-if="form.isDirty('album')"
-                    icon="pi pi-undo"
+                    icon="ms-undo"
                     text
                     size="small"
                     aria-label="Reset album name"
@@ -420,7 +420,7 @@ watch(
                 <label>
                     Album artists
                     <i
-                        class="pi pi-question-circle field-help"
+                        class="ms-help field-help"
                         tabindex="0"
                         role="note"
                         :aria-label="albumArtistsHelp"
@@ -432,7 +432,7 @@ watch(
                     ></i>
                     <Button
                         v-if="isDirty('album_artists')"
-                        icon="pi pi-undo"
+                        icon="ms-undo"
                         text
                         size="small"
                         aria-label="Reset album artists"
@@ -483,7 +483,7 @@ watch(
                 </div>
                 <Button
                     v-if="form.isDirty('compilation')"
-                    icon="pi pi-undo"
+                    icon="ms-undo"
                     text
                     size="small"
                     aria-label="Reset compilation"
@@ -527,7 +527,7 @@ watch(
                 </div>
                 <Button
                     v-if="form.isDirty('release_types')"
-                    icon="pi pi-undo"
+                    icon="ms-undo"
                     text
                     size="small"
                     aria-label="Reset release type"

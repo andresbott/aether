@@ -51,18 +51,18 @@ const isEmpty = computed(() => !props.loading && !props.error && props.items.len
                  this is when the links are read out of context. -->
             <router-link class="shelf-more" :to="to" :aria-label="`See all in ${title}`">
                 <span>See all</span>
-                <i class="pi pi-angle-right" aria-hidden="true"></i>
+                <i class="ms-chevron-right" aria-hidden="true"></i>
             </router-link>
         </header>
 
         <div v-if="loading" class="shelf-state">
-            <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
+            <i class="icon-spin ms-progress-activity" aria-hidden="true"></i>
         </div>
 
         <!-- Distinct from the empty branch on purpose: a failed request must not
              read as "this section has nothing in it". -->
         <div v-else-if="error" class="shelf-state">
-            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <i class="ms-warning" aria-hidden="true"></i>
             <span>{{ errorText }}</span>
         </div>
 

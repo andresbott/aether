@@ -121,17 +121,17 @@ const accountItems = computed<MenuItem[]>(() => {
     const items: MenuItem[] = [
         {
             label: 'User settings',
-            icon: 'pi pi-user',
+            icon: 'ms-person',
             command: () => void router.push('/user-settings')
         }
     ]
     if (isAdmin.value) {
-        items.push({ label: 'Admin', icon: 'pi pi-cog', command: () => void router.push('/settings') })
+        items.push({ label: 'Admin', icon: 'ms-settings', command: () => void router.push('/settings') })
     }
-    items.push({ label: 'About', icon: 'pi pi-info-circle', command: () => void router.push('/about') })
+    items.push({ label: 'About', icon: 'ms-info', command: () => void router.push('/about') })
     if (authRequired.value) {
         items.push({ separator: true })
-        items.push({ label: 'Log out', icon: 'pi pi-sign-out', command: () => logout.mutate() })
+        items.push({ label: 'Log out', icon: 'ms-logout', command: () => logout.mutate() })
     }
     return items
 })
@@ -157,7 +157,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
         <template #actions>
             <Button
                 class="browse-search-btn"
-                icon="pi pi-search"
+                icon="ms-search"
                 text
                 rounded
                 aria-label="Search"
@@ -165,7 +165,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
             />
             <Button
                 class="browse-account-btn"
-                icon="pi pi-ellipsis-v"
+                icon="ms-more-vert"
                 text
                 rounded
                 aria-label="Settings and account"
@@ -179,7 +179,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
             <div class="browse-shelves content-col">
                 <BrowseShelf
                     title="Library"
-                    icon="pi pi-compass"
+                    icon="ms-explore"
                     :to="{ name: 'library' }"
                     :items="discoveryShelf"
                     :loading="discoveryLoading"
@@ -202,7 +202,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
                 <BrowseShelf
                     v-if="showPlaylists"
                     title="Playlists"
-                    icon="pi pi-list"
+                    icon="ms-queue-music"
                     :to="{ name: 'playlists' }"
                     :items="playlistShelf"
                     :error="playlistsError"
@@ -216,7 +216,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
                 <BrowseShelf
                     v-if="showGenres"
                     title="Genres"
-                    icon="pi pi-tags"
+                    icon="ms-genres"
                     :to="{ name: 'genres' }"
                     :items="genreShelf"
                     :error="genresError"
@@ -230,7 +230,7 @@ const toggleAccountMenu = (event: Event): void => accountMenu.value?.toggle(even
                 <BrowseShelf
                     v-if="showRadio"
                     title="Radio"
-                    icon="pi pi-wifi"
+                    icon="ms-radio"
                     :to="{ name: 'radio' }"
                     :items="radioShelf"
                     :error="stationsError"

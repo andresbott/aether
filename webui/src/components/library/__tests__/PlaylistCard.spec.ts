@@ -60,9 +60,9 @@ beforeEach(() => {
 
 describe('PlaylistCard star toggle', () => {
     it('shows an outline heart when unstarred and a filled one when starred', () => {
-        expect(mountCard(playlist()).find('.card-star i').classes()).toContain('pi-heart')
+        expect(mountCard(playlist()).find('.card-star i').classes()).toContain('ms-favorite')
         const starred = mountCard(playlist({ starred: '2026-02-01T00:00:00Z' }))
-        expect(starred.find('.card-star i').classes()).toContain('pi-heart-fill')
+        expect(starred.find('.card-star i').classes()).toContain('msf-favorite')
     })
 
     it('labels the favorite toggle for screen readers', () => {

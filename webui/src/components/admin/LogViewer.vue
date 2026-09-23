@@ -45,7 +45,7 @@ watch(logText, async () => {
         <div ref="logContainer" class="log-content">
             <pre v-if="logText">{{ logText }}</pre>
             <div v-else class="log-empty">
-                <i class="pi pi-file" style="font-size: 1.5rem"></i>
+                <i class="ms-description" style="font-size: 1.5rem"></i>
                 <p>No log output</p>
             </div>
         </div>

@@ -86,14 +86,14 @@ function mbidPlaceholder(pair: Pair): string {
             </div>
             <div class="pair-actions">
                 <Button
-                    icon="pi pi-search"
+                    icon="ms-search"
                     text
                     size="small"
                     aria-label="Search MusicBrainz"
                     @click="openPicker(i)"
                 />
                 <Button
-                    icon="pi pi-times"
+                    icon="ms-close"
                     text
                     size="small"
                     severity="secondary"
@@ -103,7 +103,7 @@ function mbidPlaceholder(pair: Pair): string {
             </div>
         </div>
         <Button
-            icon="pi pi-plus"
+            icon="ms-add"
             :label="labels.addLabel"
             text
             size="small"

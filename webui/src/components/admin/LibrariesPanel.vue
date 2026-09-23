@@ -62,7 +62,7 @@ function onDelete(lib: Library) {
     confirm.require({
         message: `Delete library "${lib.name}"? Only this view is removed — no track, star or play history is touched.`,
         header: 'Delete library?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         rejectLabel: 'Cancel',
         acceptLabel: 'Delete',
         acceptClass: 'p-button-danger',
@@ -98,11 +98,11 @@ function warningsTooltip(lib: Library): string {
     <section class="section">
         <div class="section-header">
             <h2>Libraries</h2>
-            <Button label="Add library" icon="pi pi-plus" @click="openCreate" />
+            <Button label="Add library" icon="ms-add" @click="openCreate" />
         </div>
 
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
 
         <div v-else-if="isError" class="error-state" data-test="libraries-error">
@@ -164,14 +164,14 @@ function warningsTooltip(lib: Library): string {
                 <Column header="" style="width: 11rem; text-align: right">
                     <template #body="{ data }">
                         <Button
-                            icon="pi pi-pencil"
+                            icon="ms-edit"
                             text
                             rounded
                             :aria-label="`Edit library ${data.name}`"
                             @click="openEdit(data)"
                         />
                         <Button
-                            icon="pi pi-trash"
+                            icon="ms-delete"
                             text
                             rounded
                             severity="danger"

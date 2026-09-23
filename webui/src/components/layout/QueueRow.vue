@@ -87,7 +87,7 @@ const onRowKeydown = (event: KeyboardEvent): void => {
         </span>
         <span class="row-cover">
             <img v-if="coverUrl" :src="coverUrl" alt="" />
-            <i v-else class="pi pi-music"></i>
+            <i v-else class="ms-music-note"></i>
         </span>
         <span class="row-info" :class="{ 'row-info--columns': artistColumn }">
             <span class="row-title">{{ song.title }}</span>
@@ -95,10 +95,10 @@ const onRowKeydown = (event: KeyboardEvent): void => {
         </span>
         <span class="row-end row-end--editing">
             <span class="drag-handle" @click.stop v-tooltip.left="'Drag to reorder'">
-                <i class="pi pi-bars"></i>
+                <i class="ms-menu"></i>
             </span>
             <Button
-                icon="pi pi-trash"
+                icon="ms-delete"
                 text
                 rounded
                 size="small"
@@ -128,12 +128,12 @@ const onRowKeydown = (event: KeyboardEvent): void => {
         @mouseleave="hovered = false"
     >
         <span class="row-index">
-            <i v-if="hovered" class="pi pi-play play-hover-icon"></i>
+            <i v-if="hovered" class="ms-play-arrow play-hover-icon"></i>
             <span v-else class="track-number">{{ position }}</span>
         </span>
         <span class="row-cover">
             <img v-if="coverUrl" :src="coverUrl" alt="" />
-            <i v-else class="pi pi-music"></i>
+            <i v-else class="ms-music-note"></i>
         </span>
         <span class="row-info" :class="{ 'row-info--columns': artistColumn }">
             <span class="row-title">{{ song.title }}</span>

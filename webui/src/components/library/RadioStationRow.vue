@@ -37,7 +37,7 @@ const onRowDragStart = (event: DragEvent): void => {
     >
         <div class="col-avatar">
             <img v-if="coverUrl" :src="coverUrl" :alt="station.name" draggable="false" />
-            <div v-else class="avatar-placeholder"><i class="pi pi-wifi"></i></div>
+            <div v-else class="avatar-placeholder"><i class="ms-radio"></i></div>
         </div>
         <div class="col-name">{{ station.name }}</div>
         <div class="col-homepage">{{ station.homepageUrl }}</div>

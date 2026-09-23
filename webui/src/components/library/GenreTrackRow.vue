@@ -78,10 +78,10 @@ const onAlbumClick = (event: MouseEvent): void => {
     >
         <div class="col-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="song.album" draggable="false" />
-            <div v-else class="cover-placeholder"><i class="pi pi-music"></i></div>
+            <div v-else class="cover-placeholder"><i class="ms-music-note"></i></div>
         </div>
         <span class="col-title row-title">
-            <i v-if="playing" class="pi pi-volume-up playing-icon"></i>
+            <i v-if="playing" class="ms-volume-up playing-icon"></i>
             {{ song.title }}
         </span>
         <span class="col-artist">{{ song.artist || 'Unknown' }}</span>
@@ -110,7 +110,7 @@ const onAlbumClick = (event: MouseEvent): void => {
                 aria-label="Track actions"
                 @click.stop="emit('menu')"
             >
-                <i class="pi pi-ellipsis-v"></i>
+                <i class="ms-more-vert"></i>
             </button>
         </span>
         <span class="col-star"><TrackFavoriteButton :song="song" /></span>

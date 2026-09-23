@@ -28,7 +28,7 @@ const splitViews = computed<boolean>({
         </p>
 
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
         <div v-else-if="isError" class="error-state" data-test="main-library-error">
             Could not load the main library's settings. Check that the server is reachable and

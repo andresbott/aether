@@ -297,11 +297,11 @@ onUnmounted(() => {
 <template>
     <div class="radio-station-detail-view">
         <div v-if="isLoading && !create" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
 
         <div v-else-if="notFound" class="error">
-            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <i class="ms-warning" style="font-size: 2rem"></i>
             <p>Station not found</p>
         </div>
 
@@ -312,7 +312,7 @@ onUnmounted(() => {
                 <Button
                     v-if="create && isAdmin"
                     class="discover-station"
-                    icon="pi pi-globe"
+                    icon="ms-public"
                     text
                     rounded
                     v-tooltip.bottom="'Discover'"
@@ -325,7 +325,7 @@ onUnmounted(() => {
                 <HeroHeader
                     class="detail-hero"
                     eyebrow="Radio Station"
-                    cover-placeholder-icon="pi pi-wifi"
+                    cover-placeholder-icon="ms-radio"
                     cover-back-label="Station cover"
                     :cover-url="displayedCoverUrl"
                     :cover-size-error="sizeError"
@@ -349,7 +349,7 @@ onUnmounted(() => {
                         />
                     </template>
                     <template v-if="isAdmin && !create" #cover-actions>
-                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                        <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>
                     <template #read>
                         <h2 class="hero-name">{{ station?.name }}</h2>

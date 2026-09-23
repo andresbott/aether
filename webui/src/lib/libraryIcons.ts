@@ -47,8 +47,8 @@ export const SUGGESTED_LIBRARY_ICONS: readonly string[] = [
     'bookmark', 'collections_bookmark', 'inventory_2', 'archive', 'cloud'
 ]
 
-// The name to render: anything malformed (a hand-edited row, an old PrimeIcons
-// name) falls back to the default rather than leaving a blank gap.
+// The name to render: anything malformed (a hand-edited row, an obsolete name)
+// falls back to the default rather than leaving a blank gap.
 export function resolveLibraryIcon(name?: string | null): string {
     return name && LIBRARY_ICON_NAME.test(name) ? name : DEFAULT_LIBRARY_ICON
 }

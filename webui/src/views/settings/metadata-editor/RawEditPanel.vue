@@ -224,7 +224,7 @@ function addTag() {
 <template>
     <div class="raw-panel">
         <div v-if="rawQuery.isLoading.value" class="raw-loading">
-            <i class="pi pi-spin pi-spinner"></i>
+            <i class="icon-spin ms-progress-activity"></i>
         </div>
         <template v-else>
             <small v-for="err in readErrors" :key="err.path" class="raw-error">
@@ -246,7 +246,7 @@ function addTag() {
                     <span class="raw-key-name">{{ row.key }}</span>
                     <i
                         v-if="row.managed"
-                        class="pi pi-lock raw-managed"
+                        class="ms-lock raw-managed"
                         tabindex="0"
                         role="note"
                         :aria-label="managedTagHelp"
@@ -273,7 +273,7 @@ function addTag() {
                 <div class="raw-actions">
                     <Button
                         v-if="row.staged"
-                        icon="pi pi-undo"
+                        icon="ms-undo"
                         text
                         size="small"
                         :aria-label="`Revert ${row.key}`"
@@ -283,7 +283,7 @@ function addTag() {
                     />
                     <Button
                         v-if="!row.managed && !row.stagedDelete"
-                        icon="pi pi-trash"
+                        icon="ms-delete"
                         text
                         size="small"
                         severity="danger"
@@ -298,7 +298,7 @@ function addTag() {
                 <div class="raw-hidden-header">
                     <span class="raw-hidden-title">Hidden frames</span>
                     <i
-                        class="pi pi-question-circle raw-hidden-help"
+                        class="ms-help raw-hidden-help"
                         tabindex="0"
                         role="note"
                         :aria-label="hiddenFramesHelp"
@@ -331,7 +331,7 @@ function addTag() {
                     <div class="raw-actions">
                         <Button
                             v-if="row.staged"
-                            icon="pi pi-undo"
+                            icon="ms-undo"
                             text
                             size="small"
                             :aria-label="`Revert ${row.descriptor}`"
@@ -341,7 +341,7 @@ function addTag() {
                         />
                         <Button
                             v-else
-                            icon="pi pi-trash"
+                            icon="ms-delete"
                             text
                             size="small"
                             severity="danger"
@@ -371,7 +371,7 @@ function addTag() {
                     data-test="raw-add-value"
                 />
                 <Button
-                    icon="pi pi-plus"
+                    icon="ms-add"
                     label="Add tag"
                     text
                     size="small"

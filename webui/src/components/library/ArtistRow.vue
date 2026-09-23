@@ -41,7 +41,7 @@ const onStar = (event: Event): void => {
     >
         <div class="col-avatar">
             <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" />
-            <div v-else class="avatar-placeholder"><i class="pi pi-user"></i></div>
+            <div v-else class="avatar-placeholder"><i class="ms-person"></i></div>
         </div>
         <div class="col-name">{{ artist.name }}</div>
         <div class="col-star">
@@ -52,7 +52,7 @@ const onStar = (event: Event): void => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
             </button>
         </div>
         <!-- Always rendered so the count column keeps its grid slot; without it a

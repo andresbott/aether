@@ -120,7 +120,7 @@ describe('PlayerFace', () => {
         isStarred.value = true
         await w.vm.$nextTick()
         const heart = w.find('.play-art .play-favorite-indicator')
-        expect(heart.classes()).toContain('pi-heart-fill')
+        expect(heart.classes()).toContain('msf-favorite')
         expect(heart.attributes('aria-hidden')).toBe('true')
     })
 

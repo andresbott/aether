@@ -22,7 +22,7 @@ defineEmits<{
         <Button
             class="es-top"
             label="Move to top"
-            icon="pi pi-angle-double-up"
+            icon="ms-keyboard-double-arrow-up"
             severity="secondary"
             text
             @click="$emit('move-top')"
@@ -30,7 +30,7 @@ defineEmits<{
         <Button
             class="es-bottom"
             label="Move to bottom"
-            icon="pi pi-angle-double-down"
+            icon="ms-keyboard-double-arrow-down"
             severity="secondary"
             text
             @click="$emit('move-bottom')"
@@ -38,7 +38,7 @@ defineEmits<{
         <Button
             class="es-delete"
             label="Delete"
-            icon="pi pi-trash"
+            icon="ms-delete"
             severity="secondary"
             text
             @click="$emit('delete')"
@@ -47,7 +47,7 @@ defineEmits<{
         <span class="es-count"><b>{{ count }}</b> selected</span>
         <Button
             class="es-clear"
-            icon="pi pi-times"
+            icon="ms-close"
             severity="secondary"
             text
             rounded

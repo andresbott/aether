@@ -51,7 +51,7 @@ function onDragStart(event: DragEvent): void {
     >
         <div class="col-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="album.name" draggable="false" />
-            <div v-else class="cover-placeholder"><i class="pi pi-music"></i></div>
+            <div v-else class="cover-placeholder"><i class="ms-music-note"></i></div>
         </div>
         <div class="col-title">{{ album.name }}</div>
         <div class="col-artist">{{ album.artist }}</div>
@@ -63,7 +63,7 @@ function onDragStart(event: DragEvent): void {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
             </button>
         </div>
         <div class="col-songs">{{ album.songCount ?? '' }}</div>

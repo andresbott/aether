@@ -52,7 +52,7 @@ const onStar = (event: Event): void => {
     >
         <div class="col-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="playlist.name" draggable="false" />
-            <div v-else class="cover-placeholder"><i class="pi pi-list"></i></div>
+            <div v-else class="cover-placeholder"><i class="ms-queue-music"></i></div>
         </div>
         <div class="col-title">{{ playlist.name }}</div>
         <!-- Empty, standing in for AlbumRow's artist column (a playlist has no
@@ -68,14 +68,14 @@ const onStar = (event: Event): void => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
             </button>
         </div>
         <div class="col-songs">
             {{ playlist.songCount }}
             <i
                 v-if="!isOwner"
-                class="pi pi-lock not-mine-icon"
+                class="ms-lock not-mine-icon"
                 :title="`Shared by ${playlist.owner} — view only`"
             ></i>
         </div>

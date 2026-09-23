@@ -88,12 +88,12 @@ interface SettingsTab {
 // the device-level General settings exist. Account holds the change-password
 // form, so it appears only where a password can be changed (native + signed in).
 const tabs = computed<SettingsTab[]>(() => [
-    { id: 'general', label: 'General', icon: 'pi pi-user' },
+    { id: 'general', label: 'General', icon: 'ms-person' },
     ...(canChangePassword.value
-        ? ([{ id: 'account', label: 'Account', icon: 'pi pi-lock' }] as SettingsTab[])
+        ? ([{ id: 'account', label: 'Account', icon: 'ms-lock' }] as SettingsTab[])
         : []),
     ...(currentUser.value
-        ? ([{ id: 'access', label: 'Connected apps', icon: 'pi pi-mobile' }] as SettingsTab[])
+        ? ([{ id: 'access', label: 'Connected apps', icon: 'ms-mobile' }] as SettingsTab[])
         : [])
 ])
 
@@ -171,7 +171,7 @@ function confirmRevoke(tok: ApiToken): void {
             ? `Revoke this Aether app session ("${tok.name}")? That app is signed out of playback until it reloads.`
             : `Revoke "${tok.name}"? The app or script using it can no longer sign in.`,
         header: session ? 'Revoke session?' : 'Revoke token?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         rejectLabel: 'Cancel',
         acceptLabel: 'Revoke',
         acceptClass: 'p-button-danger',
@@ -391,7 +391,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                 class="intent-card"
                                 @click="openCreate('usertoken')"
                             >
-                                <span class="intent-ico"><i class="pi pi-mobile" /></span>
+                                <span class="intent-ico"><i class="ms-mobile" /></span>
                                 <span class="intent-title">Connect a music app</span>
                                 <span class="setting-hint">
                                     Generate a username + password for a Subsonic app's login form —
@@ -400,7 +400,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                 <span class="intent-cta">Create app password →</span>
                             </button>
                             <button type="button" class="intent-card" @click="openCreate('apikey')">
-                                <span class="intent-ico"><i class="pi pi-key" /></span>
+                                <span class="intent-ico"><i class="ms-key" /></span>
                                 <span class="intent-title">Create an API key</span>
                                 <span class="setting-hint">
                                     A single key for OpenSubsonic clients and your own scripts that
@@ -425,8 +425,8 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                         <i
                                             :class="
                                                 tok.type === 'usertoken'
-                                                    ? 'pi pi-mobile'
-                                                    : 'pi pi-key'
+                                                    ? 'ms-mobile'
+                                                    : 'ms-key'
                                             "
                                         />
                                     </span>
@@ -458,7 +458,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                         severity="danger"
                                         text
                                         rounded
-                                        icon="pi pi-trash"
+                                        icon="ms-delete"
                                         :aria-label="`Revoke ${tok.name}`"
                                         :loading="
                                             revokeToken.isPending.value &&
@@ -484,7 +484,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                     class="token-row"
                                 >
                                     <span class="token-ico is-neutral"
-                                        ><i class="pi pi-desktop"
+                                        ><i class="ms-computer"
                                     /></span>
                                     <div class="token-meta">
                                         <span class="token-name">
@@ -515,7 +515,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                                         severity="danger"
                                         text
                                         rounded
-                                        icon="pi pi-trash"
+                                        icon="ms-delete"
                                         :aria-label="`Revoke session ${tok.name}`"
                                         :loading="
                                             revokeToken.isPending.value &&
@@ -588,7 +588,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                         <code class="token-plaintext">{{ created.username }}</code>
                         <Button
                             label="Copy"
-                            icon="pi pi-copy"
+                            icon="ms-content-copy"
                             text
                             @click="copyText(created?.username)"
                         />
@@ -598,7 +598,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                         <code class="token-plaintext">{{ created.password }}</code>
                         <Button
                             label="Copy"
-                            icon="pi pi-copy"
+                            icon="ms-content-copy"
                             text
                             @click="copyText(created?.password)"
                         />
@@ -614,7 +614,7 @@ function lastUsed(tok: ApiToken): { text: string; tone: 'fresh' | 'stale' | 'non
                         <code class="token-plaintext">{{ created?.token }}</code>
                         <Button
                             label="Copy"
-                            icon="pi pi-copy"
+                            icon="ms-content-copy"
                             text
                             @click="copyText(created?.token)"
                         />

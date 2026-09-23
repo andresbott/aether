@@ -9,14 +9,14 @@ const { data: genres, isLoading, error } = useGenres()
 <template>
     <div class="genre-list-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
         <div v-else-if="error" class="empty-state">
-            <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+            <i class="ms-warning" style="font-size: 3rem"></i>
             <p>Could not load genres</p>
         </div>
         <div v-else-if="!genres?.length" class="empty-state">
-            <i class="pi pi-tags" style="font-size: 3rem"></i>
+            <i class="ms-genres" style="font-size: 3rem"></i>
             <p>No genres found</p>
         </div>
         <div v-else class="list-body">

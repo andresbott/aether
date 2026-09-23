@@ -75,11 +75,11 @@ const onLinkClick = (event: MouseEvent): void => {
     >
         <div class="col-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="song.album" draggable="false" />
-            <div v-else class="cover-placeholder"><i class="pi pi-music"></i></div>
+            <div v-else class="cover-placeholder"><i class="ms-music-note"></i></div>
         </div>
         <div class="col-title-artist">
             <span class="row-title">
-                <i v-if="playing" class="pi pi-volume-up playing-icon"></i>
+                <i v-if="playing" class="ms-volume-up playing-icon"></i>
                 {{ song.title }}
             </span>
             <span class="row-artist">

@@ -49,10 +49,10 @@ describe('ArtistCard', () => {
 
 describe('ArtistCard favorite toggle', () => {
     it('shows an outline heart when unstarred and a filled one when starred', () => {
-        expect(mountCard().find('.card-star i').classes()).toContain('pi-heart')
+        expect(mountCard().find('.card-star i').classes()).toContain('ms-favorite')
         expect(
             mountCard({ starred: '2026-02-01T00:00:00Z' }).find('.card-star i').classes()
-        ).toContain('pi-heart-fill')
+        ).toContain('msf-favorite')
     })
 
     it('labels the toggle by the current state', () => {

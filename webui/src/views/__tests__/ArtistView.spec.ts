@@ -372,8 +372,8 @@ describe('ArtistView image-source note', () => {
         await flushPromises()
 
         const icons = w.findAll('.image-source-note i')
-        expect(icons[0].classes()).toContain('pi-image')
-        expect(icons[icons.length - 1].classes()).toContain('pi-question-circle')
+        expect(icons[0].classes()).toContain('ms-image')
+        expect(icons[icons.length - 1].classes()).toContain('ms-help')
     })
 
     // Only the "?" carries the tooltip, so hovering the label itself stays quiet.

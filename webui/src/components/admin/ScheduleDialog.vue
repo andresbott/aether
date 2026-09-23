@@ -105,9 +105,9 @@ defineExpose({ resetAddForm: resetForm })
                         <span v-if="!s.enabled" class="schedule-row-paused">(paused)</span>
                     </div>
                     <div class="schedule-row-actions">
-                        <Button icon="pi pi-pencil" text rounded size="small" aria-label="Edit schedule" :disabled="saving || removingId != null" @click="editRow(s)" />
+                        <Button icon="ms-edit" text rounded size="small" aria-label="Edit schedule" :disabled="saving || removingId != null" @click="editRow(s)" />
                         <Button
-                            icon="pi pi-trash"
+                            icon="ms-delete"
                             text
                             rounded
                             size="small"
@@ -152,7 +152,7 @@ defineExpose({ resetAddForm: resetForm })
                 <p v-if="error" class="error">{{ error }}</p>
                 <div class="form-actions">
                     <Button v-if="editingId" label="Cancel edit" text severity="secondary" :disabled="saving || removingId != null" @click="cancelEdit" />
-                    <Button :label="editingId ? 'Save changes' : 'Add schedule'" icon="pi pi-check" :loading="saving" :disabled="removingId != null" @click="onSave" />
+                    <Button :label="editingId ? 'Save changes' : 'Add schedule'" icon="ms-check" :loading="saving" :disabled="removingId != null" @click="onSave" />
                 </div>
             </div>
         </div>

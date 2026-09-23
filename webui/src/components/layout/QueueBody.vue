@@ -120,7 +120,7 @@ onMounted(() => scrollCurrentIntoView('center'))
         @drop="onQueueDrop"
     >
         <i
-            :class="dropActive ? 'pi pi-plus-circle' : 'pi pi-play-circle'"
+            :class="dropActive ? 'ms-add-circle' : 'ms-play-circle'"
             style="font-size: 2.5rem"
         ></i>
         <p v-if="dropActive">Drop to add album</p>
@@ -186,12 +186,12 @@ onMounted(() => scrollCurrentIntoView('center'))
                         <span class="strip-number-value">{{ currentPosition }}</span>
                         <i
                             class="strip-toggle-icon"
-                            :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"
+                            :class="player.isPlaying.value ? 'ms-pause' : 'ms-play-arrow'"
                         ></i>
                     </button>
                     <div class="strip-cover">
                         <img v-if="stripCoverUrl" :src="stripCoverUrl" alt="" />
-                        <i v-else class="pi pi-music"></i>
+                        <i v-else class="ms-music-note"></i>
                     </div>
                     <div class="strip-info">
                         <div class="strip-title">{{ currentSong.title }}</div>

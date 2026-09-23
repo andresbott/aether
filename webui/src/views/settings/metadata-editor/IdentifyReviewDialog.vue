@@ -318,7 +318,7 @@ function cancel() {
         class="song-identify-dialog"
     >
         <div v-if="loading" class="identify-loading" data-test="identify-loading">
-            <i class="pi pi-spin pi-spinner"></i>
+            <i class="icon-spin ms-progress-activity"></i>
             <div class="loading-text">
                 <p class="loading-headline">
                     Identifying {{ pending.length }} track{{ pending.length === 1 ? '' : 's' }}…
@@ -501,7 +501,7 @@ function cancel() {
             <Button
                 v-if="!loading"
                 label="Re-identify"
-                icon="pi pi-refresh"
+                icon="ms-refresh"
                 text
                 v-tooltip.top="'Ignore the cached answer and fingerprint these files again'"
                 data-test="identify-reidentify"
@@ -510,7 +510,7 @@ function cancel() {
             <Button
                 v-if="!loading"
                 :label="`Stage ${acceptedCount} track${acceptedCount === 1 ? '' : 's'}`"
-                icon="pi pi-check"
+                icon="ms-check"
                 data-test="identify-apply"
                 :disabled="acceptedCount === 0 || selectedFields.length === 0"
                 @click="apply"
@@ -526,7 +526,7 @@ function cancel() {
     gap: 0.9rem;
     padding: 2rem 0.5rem;
 }
-.identify-loading .pi-spinner {
+.identify-loading .ms-progress-activity {
     font-size: 1.6rem;
     color: var(--app-accent);
 }

@@ -34,7 +34,7 @@ const genres = computed({
             Genres
             <Button
                 v-if="dirty"
-                icon="pi pi-undo"
+                icon="ms-undo"
                 text
                 size="small"
                 aria-label="Reset genres"

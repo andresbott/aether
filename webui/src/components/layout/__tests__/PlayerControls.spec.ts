@@ -79,7 +79,7 @@ describe('PlayerControls now-playing', () => {
         expect(w.find('.now-artist').text()).toBe('Aurora Skies')
         const like = w.find('.now-like')
         expect(like.exists()).toBe(true)
-        expect(like.find('.pi-heart').exists()).toBe(true)
+        expect(like.find('.ms-favorite').exists()).toBe(true)
     })
 
     it('toggles favorite and fills the heart when liked', async () => {
@@ -88,7 +88,7 @@ describe('PlayerControls now-playing', () => {
         await w.find('.now-like').trigger('click')
         expect(mutate).toHaveBeenCalledWith({ id: 's1', starred: false })
         await w.vm.$nextTick()
-        expect(w.find('.now-like .pi-heart-fill').exists()).toBe(true)
+        expect(w.find('.now-like .msf-favorite').exists()).toBe(true)
     })
 })
 
@@ -111,14 +111,12 @@ describe('PlayerControls mute button', () => {
 
         volume.value = 0
         await w.vm.$nextTick()
-        expect(button.find('.pi-volume-off').exists()).toBe(true)
+        expect(button.find('.ms-volume-off').exists()).toBe(true)
         expect(button.attributes('aria-label')).toBe('Unmute')
     })
 
-    // The three loudness steps must be told apart at a glance. PrimeIcons has no
-    // slashed-speaker glyph, so silence is `pi-volume-off` (a bare cone) plus a
-    // `muted` class the stylesheet draws the slash from — without that class the
-    // muted state would look like the quiet one.
+    // The three loudness steps must be told apart at a glance: Material Symbols'
+    // volume_off is a slashed speaker, distinct from volume_down's quiet cone.
     it('marks silence with its own icon, distinct from the quiet and loud states', async () => {
         const w = mountBar()
         const icon = () => w.find('.volume-toggle i')
@@ -135,13 +133,9 @@ describe('PlayerControls mute button', () => {
         await w.vm.$nextTick()
         const silent = icon().classes()
 
-        expect(loud).toContain('pi-volume-up')
-        expect(quiet).toContain('pi-volume-down')
-        expect(silent).toContain('pi-volume-off')
-        // The slash is what separates silence from quiet; the others must not carry it.
-        expect(silent).toContain('muted')
-        expect(loud).not.toContain('muted')
-        expect(quiet).not.toContain('muted')
+        expect(loud).toContain('ms-volume-up')
+        expect(quiet).toContain('ms-volume-down')
+        expect(silent).toContain('ms-volume-off')
     })
 })
 

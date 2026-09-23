@@ -58,7 +58,7 @@ function onDelete(user: User) {
     confirm.require({
         message: `Delete user "${user.login}"? This cannot be undone.`,
         header: 'Delete user?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         rejectLabel: 'Cancel',
         acceptLabel: 'Delete',
         acceptClass: 'p-button-danger',
@@ -80,11 +80,11 @@ const phoneCols = computed(() => tier.value === 'phone')
     <section class="section">
         <div class="section-header">
             <h2>Users</h2>
-            <Button label="Add user" icon="pi pi-plus" @click="openCreate" />
+            <Button label="Add user" icon="ms-add" @click="openCreate" />
         </div>
 
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
 
         <div v-else-if="!users || users.length === 0" class="empty-state">
@@ -97,7 +97,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                 <Column field="login" header="Login">
                     <template #body="{ data }">
                         <span class="user-login">
-                            <i :class="data.role === 'admin' ? 'pi pi-shield' : 'pi pi-user'"></i>
+                            <i :class="data.role === 'admin' ? 'ms-shield' : 'ms-person'"></i>
                             {{ data.login }}
                         </span>
                     </template>
@@ -120,9 +120,9 @@ const phoneCols = computed(() => tier.value === 'phone')
                 </Column>
                 <Column header="" style="width: 11rem; text-align: right">
                     <template #body="{ data }">
-                        <Button icon="pi pi-pencil" text rounded @click="openEdit(data)" />
+                        <Button icon="ms-edit" text rounded @click="openEdit(data)" />
                         <Button
-                            icon="pi pi-trash"
+                            icon="ms-delete"
                             text
                             rounded
                             severity="danger"

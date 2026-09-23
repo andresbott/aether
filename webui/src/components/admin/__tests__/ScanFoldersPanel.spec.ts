@@ -189,7 +189,7 @@ describe('ScanFoldersPanel', () => {
 
     it('shows a loading indicator while the folders are still loading', () => {
         const w = mountPanel([], true)
-        expect(w.find('.pi-spinner').exists()).toBe(true)
+        expect(w.find('.ms-progress-activity').exists()).toBe(true)
     })
 })
 

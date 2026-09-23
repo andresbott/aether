@@ -138,7 +138,7 @@ export interface MusicFolder {
     views?: LibraryView[]
     defaultView?: LibraryView
     splitViews?: boolean
-    // Aether's "musicFolderIcon" OpenSubsonic extension: PrimeIcons name without the "pi pi-" prefix.
+    // Aether's "musicFolderIcon" OpenSubsonic extension: Material Symbols kebab-case name.
     icon?: string
 }
 

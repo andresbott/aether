@@ -43,7 +43,7 @@ function makeNode(f: BrowseFolder, parent: TreeNode | null): TreeNode {
         // The scan-folder roots get their own icon; below them, a symlinked
         // directory gets its own icon so an admin can tell what they are
         // picking.
-        icon: parent === null ? 'pi pi-database' : f.is_symlink ? 'pi pi-link' : 'pi pi-folder',
+        icon: parent === null ? 'ms-database' : f.is_symlink ? 'ms-link' : 'ms-folder',
         leaf,
         data: { path: f.path, symlinked },
         children: leaf ? undefined : []
@@ -214,11 +214,11 @@ watch(
     border: 1px solid var(--app-border);
     border-radius: 6px;
 }
-/* Symlinked folders read as folders, just marked: the pi-link icon is the
+/* Symlinked folders read as folders, just marked: the ms-link icon is the
    signal, dimmed so it reads as a qualifier rather than a different kind of
    row. Keyed off the icon class because PrimeVue's TreeNode ignores
    `styleClass` on a node. */
-.tree-wrap :deep(.p-tree-node-icon.pi-link) {
+.tree-wrap :deep(.p-tree-node-icon.ms-link) {
     color: var(--app-text-secondary);
 }
 .hidden-toggle {

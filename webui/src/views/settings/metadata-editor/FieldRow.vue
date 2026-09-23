@@ -55,7 +55,7 @@ function handleNumberUpdate(value: number | null | undefined) {
         />
         <Button
             v-if="dirty"
-            icon="pi pi-undo"
+            icon="ms-undo"
             text
             size="small"
             :aria-label="undoAriaLabel"

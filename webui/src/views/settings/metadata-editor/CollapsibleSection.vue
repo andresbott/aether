@@ -28,13 +28,13 @@ const collapsed = ref(false)
             >
                 <i
                     class="pi collapse-chevron"
-                    :class="collapsed ? 'pi-chevron-right' : 'pi-chevron-down'"
+                    :class="collapsed ? 'ms-chevron-right' : 'ms-expand-more'"
                 ></i>
                 <h4>
                     {{ title }}
                     <i
                         v-if="help"
-                        class="pi pi-question-circle field-help"
+                        class="ms-help field-help"
                         v-tooltip.right="help"
                         data-test="section-help"
                         @click.stop

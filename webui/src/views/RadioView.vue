@@ -15,8 +15,8 @@ const route = useRoute()
 const router = useRouter()
 
 const layoutOptions = [
-    { label: 'List', value: 'list', icon: 'pi pi-list' },
-    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
+    { label: 'List', value: 'list', icon: 'ms-view-list' },
+    { label: 'Grid', value: 'grid', icon: 'ms-grid-view' }
 ]
 
 const layout = computed<Layout>({
@@ -65,7 +65,7 @@ function openAdd() {
             <Button
                 v-if="isAdmin"
                 class="add-station"
-                icon="pi pi-plus"
+                icon="ms-add"
                 text
                 rounded
                 v-tooltip.bottom="'Add station'"

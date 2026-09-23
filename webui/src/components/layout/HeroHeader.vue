@@ -31,7 +31,7 @@ const props = withDefaults(
     }>(),
     {
         coverUrl: null,
-        coverPlaceholderIcon: 'pi pi-image',
+        coverPlaceholderIcon: 'ms-image',
         coverEditable: true,
         coverBackLabel: 'Cover art',
         coverSizeError: null,
@@ -181,7 +181,7 @@ const onSelect = (event: { files: File[] }): void => {
                                     class="cover-remove"
                                     outlined
                                     severity="danger"
-                                    icon="pi pi-trash"
+                                    icon="ms-delete"
                                     label="Remove"
                                     @click="emit('cover-remove')"
                                 />

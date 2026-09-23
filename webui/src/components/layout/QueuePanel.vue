@@ -52,7 +52,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
             <div class="queue-heading-actions">
                 <Button
                     class="queue-action-shuffle"
-                    icon="pi pi-arrow-right-arrow-left"
+                    icon="ms-swap-horiz"
                     text
                     rounded
                     size="small"
@@ -63,7 +63,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                 />
                 <Button
                     class="queue-action-repeat"
-                    icon="pi pi-refresh"
+                    icon="ms-refresh"
                     text
                     rounded
                     size="small"
@@ -74,7 +74,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                 />
                 <Button
                     class="queue-overflow-btn"
-                    icon="pi pi-ellipsis-v"
+                    icon="ms-more-vert"
                     text
                     rounded
                     size="small"

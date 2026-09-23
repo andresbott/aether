@@ -289,16 +289,16 @@ watch(editing, (isEditing) => {
 <template>
     <div class="genre-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
 
         <div v-else-if="error" class="error">
-            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <i class="ms-warning" style="font-size: 2rem"></i>
             <p>{{ error.message }}</p>
         </div>
 
         <div v-else-if="!genre" class="error">
-            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <i class="ms-warning" style="font-size: 2rem"></i>
             <p>Genre not found</p>
         </div>
 
@@ -307,7 +307,7 @@ watch(editing, (isEditing) => {
                 <HeroHeader
                     class="detail-hero genre-hero"
                     eyebrow="Genre"
-                    cover-placeholder-icon="pi pi-tags"
+                    cover-placeholder-icon="ms-genres"
                     cover-back-label="Genre image"
                     :cover-url="coverUrl"
                     :cover-size-error="coverSizeError"
@@ -327,7 +327,7 @@ watch(editing, (isEditing) => {
                         />
                     </template>
                     <template v-if="isAdmin" #cover-actions>
-                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                        <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>
                     <template #read>
                         <h2 class="hero-name">{{ genre.value }}</h2>
@@ -370,7 +370,7 @@ watch(editing, (isEditing) => {
                             <span class="col-select"></span>
                             <span class="col-star"></span>
                             <span class="col-duration" aria-label="Duration">
-                                <i class="pi pi-clock"></i>
+                                <i class="ms-schedule"></i>
                             </span>
                         </div>
                     </div>

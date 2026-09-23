@@ -342,11 +342,11 @@ const onQueue = async (): Promise<void> => {
 <template>
     <div class="artist-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
 
         <div v-else-if="error" class="error">
-            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <i class="ms-warning" style="font-size: 2rem"></i>
             <p>{{ error.message }}</p>
         </div>
 
@@ -356,7 +356,7 @@ const onQueue = async (): Promise<void> => {
                     class="detail-hero"
                     eyebrow="Artist"
                     round-cover
-                    cover-placeholder-icon="pi pi-user"
+                    cover-placeholder-icon="ms-person"
                     cover-back-label="Artist image"
                     :cover-url="coverUrl"
                     :cover-size-error="coverSizeError"
@@ -382,11 +382,11 @@ const onQueue = async (): Promise<void> => {
                             data-test="open-image-search"
                             outlined
                             severity="secondary"
-                            icon="pi pi-search"
+                            icon="ms-search"
                             label="Search online"
                             @click="imageSearchOpen = true"
                         />
-                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                        <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>
 
                     <template #cover-note>
@@ -395,12 +395,12 @@ const onQueue = async (): Promise<void> => {
                             class="image-source-note"
                             :class="{ 'is-pending': imageNote.pending }"
                         >
-                            <i class="pi pi-image"></i>
+                            <i class="ms-image"></i>
                             <span class="image-source-text">{{ imageNote.text }}</span>
                             <i
                                 v-if="imageNote.hint"
                                 v-tooltip.top="imageNote.hint"
-                                class="pi pi-question-circle image-source-help"
+                                class="ms-help image-source-help"
                             ></i>
                         </span>
                     </template>

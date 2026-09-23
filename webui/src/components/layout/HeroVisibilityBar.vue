@@ -16,7 +16,7 @@ const toggle = (): void => {
     <div class="edit-visibility" role="group" aria-label="Playlist visibility">
         <Button
             class="ev-toggle"
-            :icon="model ? 'pi pi-globe' : 'pi pi-lock'"
+            :icon="model ? 'ms-public' : 'ms-lock'"
             :label="model ? 'Public' : 'Private'"
             severity="secondary"
             text

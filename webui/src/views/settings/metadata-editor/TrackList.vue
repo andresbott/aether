@@ -244,7 +244,7 @@ const wrapperEl = ref<HTMLElement | null>(null)
 <template>
     <div class="track-list">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
         <div v-else-if="rows.length === 0" class="empty">No audio files in this folder.</div>
 
@@ -275,7 +275,7 @@ const wrapperEl = ref<HTMLElement | null>(null)
                 <template #body="{ data }">
                     <i
                         v-if="stagedPaths?.has((data as Track).path)"
-                        class="pi pi-circle-fill staged-dot"
+                        class="msf-circle staged-dot"
                         v-tooltip.right="'Unsaved changes'"
                         data-test="staged-marker"
                     ></i>

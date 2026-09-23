@@ -71,12 +71,12 @@ const startResize = (event: MouseEvent) => {
                     v-tooltip.left="'Expand queue'"
                     @click="toggleSidebar"
                 >
-                    <i class="pi pi-angle-left"></i>
+                    <i class="ms-chevron-left"></i>
                 </button>
             </div>
             <div class="queue-collapsed">
                 <div v-if="trackCount === 0" class="empty-state-collapsed">
-                    <i class="pi pi-list"></i>
+                    <i class="ms-queue-music"></i>
                 </div>
                 <div v-else class="collapsed-list">
                     <button
@@ -94,7 +94,7 @@ const startResize = (event: MouseEvent) => {
                                 :src="getCoverUrl(item.coverArt)!"
                                 alt=""
                             />
-                            <i v-else class="pi pi-music"></i>
+                            <i v-else class="ms-music-note"></i>
                         </div>
                     </button>
                 </div>
@@ -110,7 +110,7 @@ const startResize = (event: MouseEvent) => {
                     v-tooltip.left="'Collapse'"
                     @click="toggleSidebar"
                 >
-                    <i class="pi pi-angle-right"></i>
+                    <i class="ms-chevron-right"></i>
                 </button>
             </template>
         </QueueView>

@@ -90,7 +90,7 @@ describe('AppSidebar Library block', () => {
         const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
             .find((n) => n.text() === 'Discover')!
-        expect(item.find('i').classes()).toContain('pi-compass')
+        expect(item.find('i').classes()).toContain('ms-explore')
         await item.trigger('click')
         expect(pushSpy).toHaveBeenCalledWith('/library')
     })

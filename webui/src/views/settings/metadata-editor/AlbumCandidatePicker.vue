@@ -147,7 +147,7 @@ function cancel() {
                             title="View release on MusicBrainz"
                             @click.stop
                         >
-                            <i class="pi pi-external-link"></i>
+                            <i class="ms-open-in-new"></i>
                         </a>
                     </td>
                     <td class="col-artist">{{ row.artist }}</td>
@@ -169,7 +169,7 @@ function cancel() {
             <Button label="Cancel" text data-test="candidate-cancel" @click="cancel" />
             <Button
                 label="Use this release"
-                icon="pi pi-check"
+                icon="ms-check"
                 data-test="candidate-confirm"
                 :disabled="!canConfirm"
                 @click="confirm"

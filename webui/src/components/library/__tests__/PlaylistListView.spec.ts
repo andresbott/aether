@@ -43,9 +43,9 @@ describe('PlaylistListView', () => {
             global: { stubs }
         })
         const rows = w.findAll('.playlist-row')
-        expect(rows[0].find('.row-star i').classes()).toContain('pi-heart')
+        expect(rows[0].find('.row-star i').classes()).toContain('ms-favorite')
         expect(rows[0].find('.row-star').attributes('aria-label')).toBe('Add to favorites')
-        expect(rows[1].find('.row-star i').classes()).toContain('pi-heart-fill')
+        expect(rows[1].find('.row-star i').classes()).toContain('msf-favorite')
         expect(rows[1].find('.row-star').attributes('aria-label')).toBe('Remove from favorites')
     })
 

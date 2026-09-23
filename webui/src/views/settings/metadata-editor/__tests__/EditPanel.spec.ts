@@ -292,7 +292,7 @@ describe('EditPanel album section', () => {
         const { wrapper } = mountPanel([mkTrack()])
         const marker = wrapper.find('[data-test="album-grouping-help"]')
         expect(marker.exists()).toBe(true)
-        expect(marker.classes()).toContain('pi-exclamation-circle')
+        expect(marker.classes()).toContain('ms-error')
         // Prose needs more room than the theme's default tooltip width.
         expect(marker.attributes('data-tooltip-class')).toBe('wide-tooltip')
 

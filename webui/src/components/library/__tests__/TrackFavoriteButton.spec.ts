@@ -21,9 +21,9 @@ beforeEach(() => {
 
 describe('TrackFavoriteButton', () => {
     it('shows an outline heart when unstarred and a filled one when starred', () => {
-        expect(mountButton().find('i').classes()).toContain('pi-heart')
+        expect(mountButton().find('i').classes()).toContain('ms-favorite')
         expect(mountButton({ starred: '2026-02-01T00:00:00Z' }).find('i').classes()).toContain(
-            'pi-heart-fill'
+            'msf-favorite'
         )
     })
 

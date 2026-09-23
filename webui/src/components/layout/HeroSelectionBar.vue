@@ -168,13 +168,13 @@ const createNew = (): void => {
         <Button
             class="sel-play"
             label="Play"
-            icon="pi pi-play"
+            icon="ms-play-arrow"
             @click="emit('play')"
         />
         <Button
             class="sel-queue"
             label="Add to queue"
-            icon="pi pi-plus"
+            icon="ms-add"
             severity="secondary"
             text
             @click="emit('queue')"
@@ -183,7 +183,7 @@ const createNew = (): void => {
             class="sel-add-playlist"
             :class="{ 'is-open': pickerOpen }"
             label="Add to playlist"
-            icon="pi pi-list"
+            icon="ms-queue-music"
             severity="secondary"
             text
             aria-haspopup="dialog"
@@ -192,7 +192,7 @@ const createNew = (): void => {
         />
         <Button
             class="sel-favorite"
-            icon="pi pi-heart"
+            icon="ms-favorite"
             severity="secondary"
             text
             rounded
@@ -205,7 +205,7 @@ const createNew = (): void => {
         <span class="hs-count"><b>{{ count }}</b> selected</span>
         <Button
             class="sel-clear"
-            icon="pi pi-times"
+            icon="ms-close"
             severity="secondary"
             text
             rounded
@@ -235,7 +235,7 @@ const createNew = (): void => {
                                     :src="playlistCover(pl) as string"
                                     alt=""
                                 />
-                                <i v-else class="pi pi-list"></i>
+                                <i v-else class="ms-queue-music"></i>
                             </span>
                             <span class="pl-txt">
                                 <span class="pl-name">{{ pl.name }}</span>
@@ -256,7 +256,7 @@ const createNew = (): void => {
                     </div>
                     <div class="pl-foot">
                         <button type="button" class="pl-item pl-new sel-pl-new" @click="face = 'new'">
-                            <span class="pl-cover"><i class="pi pi-plus"></i></span>
+                            <span class="pl-cover"><i class="ms-add"></i></span>
                             <span class="pl-name">New playlist…</span>
                         </button>
                     </div>

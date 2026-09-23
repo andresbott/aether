@@ -28,8 +28,8 @@ const uiStore = useUiStore()
 const { shell } = useViewport()
 
 const layoutOptions = [
-    { label: 'List', value: 'list', icon: 'pi pi-list' },
-    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
+    { label: 'List', value: 'list', icon: 'ms-view-list' },
+    { label: 'Grid', value: 'grid', icon: 'ms-grid-view' }
 ]
 
 const folderId = computed<number | undefined>(() => {
@@ -283,8 +283,8 @@ const summary = computed(() => {
                 v-if="viewKnown && viewMode !== 'discover'"
                 v-model="favoritesOnly"
                 class="library-favorites-filter as-button-group"
-                onIcon="pi pi-heart-fill"
-                offIcon="pi pi-heart"
+                onIcon="msf-favorite"
+                offIcon="ms-favorite"
                 onLabel=""
                 offLabel=""
                 :aria-label="favoritesOnly ? 'Show all' : 'Show favorites only'"

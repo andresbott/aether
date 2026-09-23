@@ -22,8 +22,8 @@ const showCreateDialog = ref(false)
 const newPlaylistName = ref('')
 
 const layoutOptions = [
-    { label: 'List', value: 'list', icon: 'pi pi-list' },
-    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
+    { label: 'List', value: 'list', icon: 'ms-view-list' },
+    { label: 'Grid', value: 'grid', icon: 'ms-grid-view' }
 ]
 
 const layout = computed<Layout>({
@@ -105,8 +105,8 @@ const handleCreate = () => {
             <ToggleButton
                 v-model="favoritesOnly"
                 class="playlists-favorites-filter as-button-group"
-                onIcon="pi pi-heart-fill"
-                offIcon="pi pi-heart"
+                onIcon="msf-favorite"
+                offIcon="ms-favorite"
                 onLabel=""
                 offLabel=""
                 :aria-label="favoritesOnly ? 'Show all' : 'Show favorites only'"
@@ -118,8 +118,8 @@ const handleCreate = () => {
             <ToggleButton
                 v-model="publicOnly"
                 class="playlists-public-filter as-button-group"
-                onIcon="pi pi-globe"
-                offIcon="pi pi-globe"
+                onIcon="ms-public"
+                offIcon="ms-public"
                 onLabel=""
                 offLabel=""
                 :aria-label="publicOnly ? 'Show all' : 'Show public only'"
@@ -140,7 +140,7 @@ const handleCreate = () => {
                 </template>
             </SelectButton>
             <Button
-                icon="pi pi-plus"
+                icon="ms-add"
                 text
                 rounded
                 v-tooltip.bottom="'Create playlist'"
@@ -151,7 +151,7 @@ const handleCreate = () => {
 
         <div class="playlists-scroll">
             <div v-if="isLoading" class="loading">
-                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
             </div>
 
             <template v-else-if="visiblePlaylists.length > 0">
@@ -165,7 +165,7 @@ const handleCreate = () => {
                  on, the latter would claim the user has none at all. -->
             <div v-else class="empty-state">
                 <i
-                    :class="favoritesOnly ? 'pi pi-heart' : publicOnly ? 'pi pi-globe' : 'pi pi-list'"
+                    :class="favoritesOnly ? 'ms-favorite' : publicOnly ? 'ms-public' : 'ms-queue-music'"
                     style="font-size: 3rem"
                 ></i>
                 <p v-if="favoritesOnly">No favorite playlists yet</p>

@@ -52,7 +52,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                 <Button
                     v-if="showNavButton"
                     class="scaffold-nav-btn"
-                    icon="pi pi-bars"
+                    icon="ms-menu"
                     text
                     rounded
                     aria-label="Open navigation"
@@ -61,7 +61,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                 <Button
                     v-if="showBack"
                     class="scaffold-back"
-                    icon="pi pi-arrow-left"
+                    icon="ms-arrow-back"
                     text
                     rounded
                     aria-label="Back"
@@ -80,7 +80,7 @@ const toggleOverflow = (event: Event) => overflowRef.value?.toggle(event)
                     <template v-else>
                         <Button
                             class="scaffold-overflow-btn"
-                            icon="pi pi-ellipsis-v"
+                            icon="ms-more-vert"
                             text
                             rounded
                             aria-label="More actions"
