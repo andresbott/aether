@@ -24,7 +24,7 @@ function withComposable(folderId = ref<number | undefined>(1)) {
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     mount(Host, { global: { plugins: [[VueQueryPlugin, { queryClient }]] } })
-    return captured
+    return Object.assign(captured, { queryClient })
 }
 
 beforeEach(() => {
@@ -147,5 +147,26 @@ describe('useAlbumTable', () => {
         // Its rows must not have overwritten the current (post-change) window.
         expect(captured.api!.items.value[0]).toEqual({ id: 'single0' })
         expect(captured.api!.items.value.slice(0, 50)).not.toContainEqual({ id: 'stale0' })
+    })
+
+    // Regression: pages are fetchQuery'd, so nothing observed them and a star
+    // toggle's invalidation left the old `starred` in items until a reload.
+    it('refetches loaded pages when their query is invalidated', async () => {
+        getAlbumIndex.mockResolvedValue({ total: 250, index: [] })
+        let starred = false
+        getAlbumList.mockImplementation((_type: string, size: number, offset: number) =>
+            Promise.resolve(Array.from({ length: size }, (_, i) => ({ id: `al${offset + i}`, starred })))
+        )
+        const c = withComposable()
+        await vi.waitFor(() => expect(c.api!.total.value).toBe(250))
+        await c.api!.ensureRange(0, 50)
+        expect(c.api!.items.value[0]).toEqual({ id: 'al0', starred: false })
+
+        starred = true
+        await c.queryClient.invalidateQueries({ queryKey: ['subsonic'] })
+        await vi.waitFor(() => expect(c.api!.items.value[0]).toEqual({ id: 'al0', starred: true }))
+        // Only the loaded page is refetched, not every page of the library.
+        expect(getAlbumList).toHaveBeenCalledTimes(2)
+        expect(getAlbumList).toHaveBeenLastCalledWith('alphabeticalByName', 100, 0, 1, undefined)
     })
 })

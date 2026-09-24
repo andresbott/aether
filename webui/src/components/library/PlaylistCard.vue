@@ -48,7 +48,7 @@ const onPlay = async (event: Event): Promise<void> => {
         <div class="card-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="playlist.name" draggable="false" />
             <div v-else class="cover-placeholder">
-                <i class="pi pi-list" style="font-size: 2rem"></i>
+                <i class="ms-queue-music" style="font-size: 2rem"></i>
             </div>
         </div>
         <div class="card-info">
@@ -58,7 +58,7 @@ const onPlay = async (event: Event): Promise<void> => {
                     {{ playlist.songCount }} songs
                     <i
                         v-if="!isOwner"
-                        class="pi pi-lock not-mine-icon"
+                        class="ms-lock not-mine-icon"
                         :title="`Shared by ${playlist.owner} — view only`"
                     ></i>
                 </div>
@@ -70,10 +70,10 @@ const onPlay = async (event: Event): Promise<void> => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
             </button>
             <button class="card-play" type="button" aria-label="Play playlist" @click="onPlay">
-                <i class="pi pi-play"></i>
+                <i class="ms-play-arrow"></i>
             </button>
         </div>
     </router-link>

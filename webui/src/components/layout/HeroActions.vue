@@ -39,7 +39,7 @@ const emit = defineEmits<{
         <Button
             class="hero-action-play"
             :label="playLabel"
-            icon="pi pi-play"
+            icon="ms-play-arrow"
             :disabled="playDisabled"
             :loading="busy"
             @click="emit('play')"
@@ -48,7 +48,7 @@ const emit = defineEmits<{
             v-if="canQueue"
             class="hero-action-queue"
             label="Add to queue"
-            icon="pi pi-plus"
+            icon="ms-add"
             severity="secondary"
             text
             @click="emit('queue')"
@@ -61,7 +61,7 @@ const emit = defineEmits<{
         <Button
             v-if="canStar"
             class="hero-action-star"
-            :icon="starred ? 'pi pi-heart-fill' : 'pi pi-heart'"
+            :icon="starred ? 'ms-favorite' : 'mso-favorite'"
             :aria-label="favoriteLabel"
             severity="secondary"
             text

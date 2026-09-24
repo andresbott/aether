@@ -162,7 +162,7 @@ describe('UserSettingsView', () => {
         const w = mountView()
         const btn = w.find('.token-revoke')
         expect(btn.text()).toBe('')
-        expect(btn.find('.pi-trash').exists()).toBe(true)
+        expect(btn.find('.ms-delete').exists()).toBe(true)
         expect(btn.attributes('aria-label')).toBe('Revoke Symfonium')
         currentUser.value = null
         mockTokens.value = []

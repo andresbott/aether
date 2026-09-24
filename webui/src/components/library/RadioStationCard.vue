@@ -53,7 +53,7 @@ const onCardDragStart = (event: DragEvent): void => {
         <div class="card-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="station.name" draggable="false" />
             <div v-else class="cover-placeholder">
-                <i class="pi pi-wifi" style="font-size: 2rem"></i>
+                <i class="ms-radio" style="font-size: 2rem"></i>
             </div>
         </div>
         <div class="card-info">
@@ -65,7 +65,7 @@ const onCardDragStart = (event: DragEvent): void => {
                 </div>
             </div>
             <button class="card-play" type="button" aria-label="Play station" @click="onPlay">
-                <i class="pi pi-play"></i>
+                <i class="ms-play-arrow"></i>
             </button>
         </div>
     </RouterLink>

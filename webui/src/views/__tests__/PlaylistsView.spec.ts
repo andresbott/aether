@@ -81,8 +81,8 @@ describe('PlaylistsView favorites filter', () => {
 
     it('is off by default and lists everything with an outline heart', () => {
         const w = mountView()
-        expect(favoriteIcon(w).classes()).toContain('pi-heart')
-        expect(favoriteIcon(w).classes()).not.toContain('pi-heart-fill')
+        expect(favoriteIcon(w).classes()).toContain('mso-favorite')
+        expect(favoriteIcon(w).classes()).not.toContain('ms-favorite')
         expect(w.findAll('.playlist-card')).toHaveLength(2)
     })
 
@@ -90,7 +90,7 @@ describe('PlaylistsView favorites filter', () => {
         playlists.value = starred()
         route.query = { favorites: '1' }
         const grid = mountView()
-        expect(favoriteIcon(grid).classes()).toContain('pi-heart-fill')
+        expect(favoriteIcon(grid).classes()).toContain('ms-favorite')
         expect(grid.findAll('.playlist-card')).toHaveLength(1)
         expect(grid.text()).toContain('Mix Two')
         expect(grid.text()).not.toContain('Mix One')

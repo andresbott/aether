@@ -31,11 +31,11 @@ func TestValidateViews(t *testing.T) {
 		want         []v
 		wantPointers []string
 	}{
-		{"one view", []v{"releases"}, []v{"releases"}, nil},
-		{"put in display order", []v{"releases", "discover", "artists"}, []v{"discover", "artists", "releases"}, nil},
+		{"one view", []v{"albums"}, []v{"albums"}, nil},
+		{"put in display order", []v{"albums", "discover", "artists"}, []v{"discover", "artists", "albums"}, nil},
 		{"each view once", []v{"artists", "artists"}, []v{"artists"}, nil},
 		{"none", []v{}, nil, []string{"/views"}},
-		{"every unknown value, by index", []v{"albums", "artists", "Songs"}, nil, []string{"/views/0", "/views/2"}},
+		{"every unknown value, by index", []v{"releases", "artists", "Songs"}, nil, []string{"/views/0", "/views/2"}},
 		{"case-sensitive", []v{"Discover"}, nil, []string{"/views/0"}},
 	}
 	for _, c := range cases {
@@ -56,16 +56,16 @@ func TestValidateViews(t *testing.T) {
 }
 
 func TestValidateDefaultView(t *testing.T) {
-	views := []model.LibraryView{model.ViewArtists, model.ViewReleases}
+	views := []model.LibraryView{model.ViewArtists, model.ViewAlbums}
 	cases := []struct {
 		in model.LibraryView
 		ok bool
 	}{
 		{"", true}, // the first view, picked by the caller
 		{"artists", true},
-		{"releases", true},
+		{"albums", true},
 		{"discover", false}, // a real view, but not one of this library's
-		{"albums", false},
+		{"releases", false},
 		{"Artists", false}, // case-sensitive
 	}
 	for _, c := range cases {
@@ -84,13 +84,15 @@ func TestValidateIcon(t *testing.T) {
 	}{
 		{"", true}, // empty coerced to default by caller
 		{"folder", true},
-		{"folder-open", true},
-		{"th-large", true},
-		{"Folder", false}, // case-sensitive
+		{"queue_music", true},
+		{"10k", true},
+		{"folder-open", false}, // kebab-case is the old PrimeIcons shape
+		{"Folder", false},      // case-sensitive
 		{"folder!", false},
 		{"folder open", false},
-		{"-folder", false},
-		{"folder-", false},
+		{"_folder", false},
+		{"folder_", false},
+		{"folder__open", false},
 		{strings.Repeat("a", 101), false},
 	}
 	for _, c := range cases {

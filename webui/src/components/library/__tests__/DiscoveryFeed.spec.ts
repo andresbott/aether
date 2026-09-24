@@ -84,7 +84,7 @@ describe('DiscoveryFeed', () => {
 
     it('shows a loading state', () => {
         feed.isLoading.value = true
-        expect(mountFeed().find('.pi-spinner').exists()).toBe(true)
+        expect(mountFeed().find('.ms-progress-activity').exists()).toBe(true)
     })
 
     it('shows an error state', () => {
@@ -118,7 +118,7 @@ describe('DiscoveryFeed', () => {
         feed.items.value = [albumEntry(0)]
         const w = mountFeed()
         expect(w.find('.discovery-refresh').exists()).toBe(false)
-        expect(w.find('.pi-refresh').exists()).toBe(false)
+        expect(w.find('.ms-refresh').exists()).toBe(false)
     })
 
     it('renders the sentinel only while more pages remain', () => {

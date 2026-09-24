@@ -367,15 +367,15 @@ function cancel() {
                     class="picker-tab"
                     data-test="picture-tab-copy"
                 >
-                    <i class="pi pi-copy"></i>
+                    <i class="ms-content-copy"></i>
                     <span>This album ({{ sources.length }})</span>
                 </Tab>
                 <Tab value="search" class="picker-tab" data-test="picture-tab-search">
-                    <i class="pi pi-search"></i>
+                    <i class="ms-search"></i>
                     <span>Search online</span>
                 </Tab>
                 <Tab value="upload" class="picker-tab" data-test="picture-tab-upload">
-                    <i class="pi pi-upload"></i>
+                    <i class="ms-upload"></i>
                     <span>Upload</span>
                 </Tab>
             </TabList>
@@ -400,7 +400,7 @@ function cancel() {
                                 <img :src="s.thumbUrl" :alt="s.label" />
                                 <i
                                     v-if="selectedSource?.key === s.key"
-                                    class="pi pi-check-circle tile-check"
+                                    class="ms-check-circle tile-check"
                                 ></i>
                             </span>
                             <span class="tile-label">{{ s.label }}</span>
@@ -425,7 +425,7 @@ function cancel() {
                             />
                             <Button
                                 label="Search"
-                                icon="pi pi-search"
+                                icon="ms-search"
                                 data-test="picture-manual-search"
                                 :disabled="!canSearchByName"
                                 :loading="searchingReleases"
@@ -435,7 +435,7 @@ function cancel() {
                         <div class="shortcut-row">
                             <Button
                                 label="Use this album’s MusicBrainz ID"
-                                icon="pi pi-bolt"
+                                icon="ms-bolt"
                                 size="small"
                                 text
                                 data-test="picture-search"
@@ -458,7 +458,7 @@ function cancel() {
                                 <span>{{ releaseError }}</span>
                                 <Button
                                     label="Try again"
-                                    icon="pi pi-refresh"
+                                    icon="ms-refresh"
                                     size="small"
                                     text
                                     data-test="picture-release-retry"
@@ -470,7 +470,7 @@ function cancel() {
 
                         <div class="results">
                             <div v-if="searchingReleases" class="searching">
-                                <i class="pi pi-spin pi-spinner"></i>
+                                <i class="icon-spin ms-progress-activity"></i>
                             </div>
                             <ul
                                 v-else-if="releases.length > 0"
@@ -492,7 +492,7 @@ function cancel() {
                                             releaseMeta(r)
                                         }}</span>
                                     </div>
-                                    <i class="pi pi-angle-right release-go"></i>
+                                    <i class="ms-chevron-right release-go"></i>
                                 </li>
                             </ul>
                             <!-- A failed search is not an empty one: the error
@@ -510,7 +510,7 @@ function cancel() {
                     <template v-else>
                         <div class="covers-head">
                             <Button
-                                icon="pi pi-arrow-left"
+                                icon="ms-arrow-back"
                                 label="Change release"
                                 size="small"
                                 text
@@ -532,7 +532,7 @@ function cancel() {
                                 <span>{{ searchError }}</span>
                                 <Button
                                     label="Try again"
-                                    icon="pi pi-refresh"
+                                    icon="ms-refresh"
                                     size="small"
                                     text
                                     data-test="picture-search-retry"
@@ -544,7 +544,7 @@ function cancel() {
 
                         <div class="results">
                             <div v-if="searching" class="searching">
-                                <i class="pi pi-spin pi-spinner"></i>
+                                <i class="icon-spin ms-progress-activity"></i>
                             </div>
                             <div v-else-if="sortedCandidates.length > 0" class="tile-grid">
                                 <button
@@ -559,7 +559,7 @@ function cancel() {
                                         <img :src="c.thumbUrl" :alt="coverDescription(c)" />
                                         <i
                                             v-if="selectedCandidate?.id === c.id"
-                                            class="pi pi-check-circle tile-check"
+                                            class="ms-check-circle tile-check"
                                         ></i>
                                     </span>
                                     <span class="tile-label">
@@ -599,7 +599,7 @@ function cancel() {
                             data-test="picture-upload"
                             @change="onFileChange"
                         />
-                        <i class="pi pi-image dropzone-icon"></i>
+                        <i class="ms-image dropzone-icon"></i>
                         <span class="dropzone-title">Drop an image here, or click to choose</span>
                         <small class="dropzone-note">PNG or JPEG</small>
                     </label>
@@ -609,7 +609,7 @@ function cancel() {
                             <span class="upload-name">{{ uploadFile?.name }}</span>
                             <Button
                                 label="Remove"
-                                icon="pi pi-times"
+                                icon="ms-close"
                                 size="small"
                                 text
                                 severity="secondary"

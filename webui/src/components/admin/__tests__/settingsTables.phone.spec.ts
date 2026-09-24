@@ -113,7 +113,7 @@ function library(over: Partial<Library>): Library {
     return {
         id: 1,
         name: 'Main',
-        views: ['discover', 'artists', 'releases'],
+        views: ['discover', 'artists', 'albums'],
         default_view: 'discover',
         hide_from_artist_index: false,
         split_views: false,
@@ -349,7 +349,7 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             expect(w.text()).toContain('Schedule')
-            expect(w.find('.pi-calendar').exists()).toBe(true)
+            expect(w.find('.ms-calendar-today').exists()).toBe(true)
         })
 
         it('hides Schedule column but shows the calendar icon on phone', () => {
@@ -362,7 +362,7 @@ describe('Settings tables hide low-value columns on phones', () => {
                 }
             })
             expect(w.text()).not.toContain('Schedule')
-            expect(w.find('.pi-calendar').exists()).toBe(true)
+            expect(w.find('.ms-calendar-today').exists()).toBe(true)
             // Should still show Name and Actions
             expect(w.text()).toContain('Name')
             expect(w.text()).toContain('Actions')

@@ -26,7 +26,7 @@ const coverUrl = computed(() => {
     >
         <div class="col-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="genre.value" draggable="false" />
-            <div v-else class="cover-placeholder"><i class="pi pi-tags"></i></div>
+            <div v-else class="cover-placeholder"><i class="ms-genres"></i></div>
         </div>
         <div class="col-name">{{ genre.value }}</div>
         <div class="col-albums">{{ genre.albumCount || '' }}</div>

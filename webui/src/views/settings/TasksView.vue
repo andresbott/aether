@@ -180,7 +180,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                             <Column style="width: 4rem">
                                 <template #body="{ data }">
                                     <Button
-                                        icon="pi pi-calendar"
+                                        icon="ms-calendar-today"
                                         text
                                         rounded
                                         size="small"
@@ -193,7 +193,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                                 <template #body="{ data }">
                                     <Button
                                         :label="isTaskRunning(data) ? progressLabel(data.lastExecutionStatus, data.lastExecutionProgress) : 'Run'"
-                                        :icon="isTaskRunning(data) ? undefined : 'pi pi-play'"
+                                        :icon="isTaskRunning(data) ? undefined : 'ms-play-arrow'"
                                         :class="{ 'task-progress': isTaskRunning(data) }"
                                         size="small"
                                         :loading="triggeringTaskId === data.id || isTaskRunning(data)"

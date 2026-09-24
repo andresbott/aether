@@ -7,9 +7,9 @@ import type { LibraryView } from '@/types/libraries'
  * lists the same three, in the same order.
  */
 export const LIBRARY_VIEWS: readonly { value: LibraryView; label: string; icon: string }[] = [
-    { value: 'discover', label: 'Discover', icon: 'pi pi-compass' },
-    { value: 'artists', label: 'Artists', icon: 'pi pi-users' },
-    { value: 'releases', label: 'Releases', icon: 'pi pi-images' }
+    { value: 'discover', label: 'Discover', icon: 'ms-explore' },
+    { value: 'artists', label: 'Artists', icon: 'ms-artist' },
+    { value: 'albums', label: 'Albums', icon: 'ms-album' }
 ]
 
 /** Every view, in display order. */

@@ -322,7 +322,7 @@ function undoCell(type: string, slot: PictureSlot) {
         <template #actions>
             <Button
                 v-if="singleAlbum && addableTypes.length > 0"
-                icon="pi pi-plus"
+                icon="ms-add"
                 label="Add picture…"
                 text
                 size="small"
@@ -349,7 +349,7 @@ function undoCell(type: string, slot: PictureSlot) {
                             aria-hidden="true"
                             v-tooltip.top="'Editor display order (not serving precedence)'"
                         >
-                            <i class="pi pi-angle-right"></i>
+                            <i class="ms-chevron-right"></i>
                         </div>
                         <PictureCell
                             :data-test="`picture-cell-${type}-${slot}`"

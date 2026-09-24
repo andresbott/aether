@@ -97,7 +97,7 @@ function hideBrokenImage(e: Event) {
         <Message v-if="searchError" severity="error" :closable="false">{{ searchError }}</Message>
 
         <div class="results">
-            <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
+            <div v-if="searching" class="searching"><i class="icon-spin ms-progress-activity"></i></div>
             <ul v-else-if="results.length > 0" class="result-list">
                 <li
                     v-for="s in results"

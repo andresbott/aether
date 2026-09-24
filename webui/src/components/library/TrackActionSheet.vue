@@ -128,34 +128,34 @@ const favoriteLabel = computed(() =>
     >
         <nav v-if="face === 'actions'" class="sheet-actions" aria-label="Track actions">
             <button type="button" class="sheet-action" @click="onPlay">
-                <i class="pi pi-play"></i>
+                <i class="ms-play-arrow"></i>
                 <span>Play</span>
             </button>
             <button type="button" class="sheet-action" @click="onQueue">
-                <i class="pi pi-plus"></i>
+                <i class="ms-add"></i>
                 <span>Add to queue</span>
             </button>
             <button type="button" class="sheet-action" @click="onFavorite">
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
                 <span>{{ favoriteLabel }}</span>
             </button>
             <button type="button" class="sheet-action" @click="face = 'playlists'">
-                <i class="pi pi-list"></i>
+                <i class="ms-queue-music"></i>
                 <span>Add to playlist</span>
             </button>
             <button v-if="song?.albumId" type="button" class="sheet-action" @click="onAlbum">
-                <i class="pi pi-clone"></i>
+                <i class="ms-album"></i>
                 <span>Go to album</span>
             </button>
             <button v-if="song?.artistId" type="button" class="sheet-action" @click="onArtist">
-                <i class="pi pi-user"></i>
+                <i class="ms-artist"></i>
                 <span>Go to artist</span>
             </button>
         </nav>
 
         <nav v-else class="sheet-actions" aria-label="Pick a playlist">
             <button type="button" class="sheet-action sheet-back" @click="face = 'actions'">
-                <i class="pi pi-chevron-left"></i>
+                <i class="ms-chevron-left"></i>
                 <span>Back</span>
             </button>
             <button
@@ -165,7 +165,7 @@ const favoriteLabel = computed(() =>
                 class="sheet-action"
                 @click="onPickPlaylist(playlist.id, playlist.name)"
             >
-                <i class="pi pi-list"></i>
+                <i class="ms-queue-music"></i>
                 <span>{{ playlist.name }}</span>
             </button>
             <!-- The fetch is gated on the first open (see script), so the very first

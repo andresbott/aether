@@ -9,14 +9,14 @@ const { total, items, isLoading, error } = useRadioTable()
 <template>
     <div class="radio-grid-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
         <div v-else-if="error" class="empty-state">
-            <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+            <i class="ms-warning" style="font-size: 3rem"></i>
             <p>Could not load stations</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i class="pi pi-wifi" style="font-size: 3rem"></i>
+            <i class="ms-radio" style="font-size: 3rem"></i>
             <p>No radio stations</p>
         </div>
         <VirtualCardGrid v-else :items="items" :letters="[]" :total="total" :showRail="false">

@@ -38,14 +38,12 @@ const onProgressChange = (value: number | number[]) => {
     }
 }
 
-// Three loudness steps that have to be told apart at a glance. PrimeIcons has no
-// slashed-speaker glyph — `pi-volume-off` is a bare cone, which reads as "quiet"
-// next to `pi-volume-down`, not as "muted". The `muted` class carries the strike
-// the stylesheet draws over the cone, giving silence a distinct icon.
+// Three loudness steps that have to be told apart at a glance: Material's
+// volume_off is a slashed speaker, distinct from volume_down's quiet cone.
 const volumeIcon = computed(() => {
-    if (player.isMuted.value) return 'pi pi-volume-off muted'
-    if (player.volume.value < 0.5) return 'pi pi-volume-down'
-    return 'pi pi-volume-up'
+    if (player.isMuted.value) return 'ms-volume-off'
+    if (player.volume.value < 0.5) return 'ms-volume-down'
+    return 'ms-volume-up'
 })
 
 const volumePercent = computed({
@@ -140,7 +138,7 @@ const {
             <template v-if="currentTrack">
                 <div class="now-cover">
                     <img v-if="nowCoverUrl" :src="nowCoverUrl" alt="" />
-                    <i v-else class="pi pi-music"></i>
+                    <i v-else class="ms-music-note"></i>
                 </div>
                 <div class="now-text">
                     <div class="now-title">{{ currentTrack.title }}</div>
@@ -157,7 +155,7 @@ const {
                     :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                     @click="toggleFavorite"
                 >
-                    <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                    <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
                 </button>
             </template>
         </div>
@@ -169,7 +167,7 @@ const {
                     :class="{ active: player.shuffle.value }"
                     @click="player.toggleShuffle"
                 >
-                    <i class="pi pi-sort-alt"></i>
+                    <i class="ms-shuffle"></i>
                 </button>
                 <button
                     class="control-btn"
@@ -177,10 +175,10 @@ const {
                     :disabled="!player.hasPrevious.value"
                     @click="player.playPrevious"
                 >
-                    <i class="pi pi-step-backward"></i>
+                    <i class="ms-skip-previous"></i>
                 </button>
                 <button class="play-btn" data-shortcut="play-pause" @click="player.togglePlayPause">
-                    <i :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"></i>
+                    <i :class="player.isPlaying.value ? 'ms-pause' : 'ms-play-arrow'"></i>
                 </button>
                 <button
                     class="control-btn"
@@ -188,14 +186,14 @@ const {
                     :disabled="!player.hasNext.value"
                     @click="player.playNext"
                 >
-                    <i class="pi pi-step-forward"></i>
+                    <i class="ms-skip-next"></i>
                 </button>
                 <button
                     class="control-btn"
                     :class="{ active: player.repeat.value !== 'none' }"
                     @click="player.toggleRepeat"
                 >
-                    <i class="pi pi-sync"></i>
+                    <i class="ms-repeat"></i>
                 </button>
             </div>
 
@@ -246,7 +244,7 @@ const {
                 :class="{ active: !sidebarCollapsed }"
                 @click="toggleSidebar"
             >
-                <i class="pi pi-list"></i>
+                <i class="ms-queue-music"></i>
             </button>
         </div>
     </div>
@@ -549,30 +547,6 @@ const {
     width: 30px;
     height: 30px;
     font-size: 1rem;
-}
-
-/* The muted state's own icon. PrimeIcons has no slashed speaker — `pi-volume-off`
-   is a bare cone that reads as "quiet" beside `pi-volume-down` — so the strike is
-   drawn here, over the cone, in the icon's own colour.
-   Every dimension is in `em`, including the knockout ring: the glyph is 1rem in
-   the bar but resizes, and a px ring that looks tight at 40px swallows the cone at
-   16px. The ring is the bar's own background, so the line stays legible where it
-   crosses the cone's strokes without hiding them. */
-.volume-toggle i.muted {
-    position: relative;
-}
-
-.volume-toggle i.muted::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 0.8em;
-    height: 0.105em;
-    border-radius: 0.105em;
-    background: currentColor;
-    box-shadow: 0 0 0 0.11em var(--app-player-bg);
-    transform: translate(-50%, -50%) rotate(-45deg);
 }
 
 /* Wide enough that each 1% volume step is ~1.5px of travel, so the rail can be

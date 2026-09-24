@@ -61,11 +61,11 @@ const query = ref('')
 type Scope = 'all' | 'artists' | 'albums' | 'genres' | 'songs'
 
 const scopeOptions: { label: string; value: Scope; icon: string }[] = [
-    { label: 'All', value: 'all', icon: 'pi pi-asterisk' },
-    { label: 'Artists', value: 'artists', icon: 'pi pi-users' },
-    { label: 'Albums', value: 'albums', icon: 'pi pi-images' },
-    { label: 'Genres', value: 'genres', icon: 'pi pi-tags' },
-    { label: 'Songs', value: 'songs', icon: 'pi pi-wave-pulse' }
+    { label: 'All', value: 'all', icon: 'ms-asterisk' },
+    { label: 'Artists', value: 'artists', icon: 'ms-artist' },
+    { label: 'Albums', value: 'albums', icon: 'ms-album' },
+    { label: 'Genres', value: 'genres', icon: 'ms-genres' },
+    { label: 'Songs', value: 'songs', icon: 'ms-graphic-eq' }
 ]
 
 // Backing ref so the All→Songs auto-switch (see onSongSelect) can narrow the
@@ -100,8 +100,8 @@ const resetSearch = (): void => {
 }
 
 const layoutOptions = [
-    { label: 'List', value: 'list', icon: 'pi pi-list' },
-    { label: 'Grid', value: 'grid', icon: 'pi pi-th-large' }
+    { label: 'List', value: 'list', icon: 'ms-view-list' },
+    { label: 'Grid', value: 'grid', icon: 'ms-grid-view' }
 ]
 
 const layout = computed<Layout>({
@@ -252,7 +252,7 @@ watch(query, () => clearSelection())
         <div class="search-page">
             <div class="search-hero">
                 <span class="search-input-wrapper">
-                    <i class="pi pi-search search-icon"></i>
+                    <i class="ms-search search-icon"></i>
                     <InputText
                         v-model="query"
                         placeholder="Search artists, albums, genres, songs..."
@@ -271,7 +271,7 @@ watch(query, () => clearSelection())
                     <span v-if="!isPristine" class="reset-search-slot">
                         <Button
                             class="reset-search"
-                            icon="pi pi-times"
+                            icon="ms-close"
                             text
                             rounded
                             v-tooltip.bottom="'Reset search'"
@@ -312,7 +312,7 @@ watch(query, () => clearSelection())
 
             <div class="search-scroll">
                 <div v-if="!hasQuery" class="state-message">
-                    <i class="pi pi-search" style="font-size: 3rem"></i>
+                    <i class="ms-search" style="font-size: 3rem"></i>
                     <p v-if="termTooShort">
                         Keep typing — at least {{ MIN_SEARCH_LENGTH }} characters
                     </p>
@@ -320,16 +320,16 @@ watch(query, () => clearSelection())
                 </div>
 
                 <div v-else-if="isLoading" class="state-message">
-                    <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                    <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
                 </div>
 
                 <div v-else-if="error" class="state-message">
-                    <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+                    <i class="ms-warning" style="font-size: 3rem"></i>
                     <p>Could not search</p>
                 </div>
 
                 <div v-else-if="!hasResults" class="state-message">
-                    <i class="pi pi-search" style="font-size: 3rem"></i>
+                    <i class="ms-search" style="font-size: 3rem"></i>
                     <p>{{ emptyMessage }}</p>
                 </div>
 
@@ -379,7 +379,7 @@ watch(query, () => clearSelection())
                                 <span class="col-select"></span>
                                 <span class="col-star"></span>
                                 <span class="col-duration" aria-label="Duration">
-                                    <i class="pi pi-clock"></i>
+                                    <i class="ms-schedule"></i>
                                 </span>
                             </div>
                             <GenreTrackRow

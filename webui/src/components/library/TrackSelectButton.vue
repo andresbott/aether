@@ -36,7 +36,7 @@ const onClick = (event: Event): void => {
         @click="onClick"
         @dblclick.stop.prevent
     >
-        <i :class="selected ? 'pi pi-check-circle' : 'pi pi-circle'"></i>
+        <i :class="selected ? 'ms-check-circle' : 'mso-circle'"></i>
     </button>
 </template>
 

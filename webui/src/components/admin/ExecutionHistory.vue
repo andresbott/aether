@@ -93,7 +93,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                         <Button
                             v-if="isActiveStatus(data.status)"
                             label="Cancel"
-                            icon="pi pi-times"
+                            icon="ms-close"
                             size="small"
                             severity="secondary"
                             :disabled="canceling"
@@ -103,7 +103,7 @@ const phoneCols = computed(() => tier.value === 'phone')
                              pointer, and on phones the dialog is the only place
                              the hidden Queued/Duration columns survive. -->
                         <Button
-                            icon="pi pi-info-circle"
+                            icon="ms-info"
                             text
                             rounded
                             size="small"

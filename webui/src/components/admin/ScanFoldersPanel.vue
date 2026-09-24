@@ -41,7 +41,7 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
             <h2>Scan folders</h2>
             <Button
                 :label="running ? progressText : 'Scan now'"
-                icon="pi pi-sync"
+                icon="ms-sync"
                 :loading="starting || running"
                 :disabled="starting || running || noFolders"
                 data-test="scan-now"
@@ -54,7 +54,7 @@ function excludesTooltip(folder: ScanFolder): string | undefined {
         </p>
 
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
 
         <div v-else-if="isError" class="error-state" data-test="scan-folders-error">

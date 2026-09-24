@@ -36,15 +36,15 @@ describe('HeroActions', () => {
         const w = mountActions({ canStar: true, starred: true })
         const star = w.find('.hero-action-star')
         expect(star.exists()).toBe(true)
-        expect(star.find('.pi-heart-fill').exists()).toBe(true)
+        expect(star.find('.ms-favorite').exists()).toBe(true)
         await star.trigger('click')
         expect(w.emitted('star')).toHaveLength(1)
     })
 
     it('shows the outline heart when not starred', () => {
         const w = mountActions({ canStar: true, starred: false })
-        expect(w.find('.hero-action-star .pi-heart').exists()).toBe(true)
-        expect(w.find('.hero-action-star .pi-heart-fill').exists()).toBe(false)
+        expect(w.find('.hero-action-star .mso-favorite').exists()).toBe(true)
+        expect(w.find('.hero-action-star .ms-favorite').exists()).toBe(false)
     })
 
     it('labels the favorite toggle for screen readers', () => {

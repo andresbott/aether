@@ -42,7 +42,7 @@ import FolderPickerDialog from '@/components/admin/FolderPickerDialog.vue'
 const stored: Library = {
     id: 7,
     name: 'Main',
-    views: ['discover', 'artists', 'releases'],
+    views: ['discover', 'artists', 'albums'],
     default_view: 'discover',
     hide_from_artist_index: false,
     split_views: false,
@@ -88,7 +88,7 @@ function buttonWithText(w: Wrapper, label: string) {
 }
 
 function buttonWithIcon(w: Wrapper, icon: string) {
-    return w.findAll('button').find((b) => b.find(`.pi-${icon}`).exists())!
+    return w.findAll('button').find((b) => b.find(`.ms-${icon}`).exists())!
 }
 
 function filterRow(w: Wrapper, idx: number) {
@@ -96,7 +96,7 @@ function filterRow(w: Wrapper, idx: number) {
 }
 
 async function openEditDialog(w: Wrapper) {
-    await buttonWithIcon(w, 'pencil').trigger('click')
+    await buttonWithIcon(w, 'edit').trigger('click')
     await flushPromises()
 }
 

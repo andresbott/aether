@@ -23,12 +23,12 @@ const splitViews = computed<boolean>({
             <h2 id="main-library-heading">Main library</h2>
         </div>
         <p class="hint">
-            The whole catalog, above the libraries in the sidebar: its Discover, Artists and Releases
+            The whole catalog, above the libraries in the sidebar: its Discover, Artists and Albums
             as an entry each, or one entry that switches between them.
         </p>
 
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 1.5rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 1.5rem"></i>
         </div>
         <div v-else-if="isError" class="error-state" data-test="main-library-error">
             Could not load the main library's settings. Check that the server is reachable and

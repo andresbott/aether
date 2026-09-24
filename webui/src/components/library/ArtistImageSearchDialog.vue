@@ -151,7 +151,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
         <Message v-if="searchError" severity="error" :closable="false">{{ searchError }}</Message>
 
         <div class="results">
-            <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
+            <div v-if="searching" class="searching"><i class="icon-spin ms-progress-activity"></i></div>
             <ul v-else-if="results.length > 0" class="result-list">
                 <li
                     v-for="c in results"
@@ -177,7 +177,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
              endpoint of ours is hit to preview it, only to list the URLs. -->
         <div v-if="pickedArtist" class="image-section">
             <div class="preview-title">Choose an image for this artist:</div>
-            <div v-if="loadingImages" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
+            <div v-if="loadingImages" class="searching"><i class="icon-spin ms-progress-activity"></i></div>
             <Message v-else-if="imagesError" severity="error" :closable="false">{{ imagesError }}</Message>
             <div v-else-if="candidates.length > 0" class="image-grid">
                 <img
@@ -196,7 +196,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
 
             <div v-if="pickedImage" class="candidate-meta-row">
                 <span v-if="metaLoading" class="meta-loading">
-                    <i class="pi pi-spin pi-spinner"></i> Checking image…
+                    <i class="icon-spin ms-progress-activity"></i> Checking image…
                 </span>
                 <span
                     v-else-if="pickedMeta"
@@ -220,7 +220,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
             <Button
                 v-if="allowUpload"
                 label="Upload file…"
-                icon="pi pi-upload"
+                icon="ms-upload"
                 text
                 data-test="image-upload"
                 @click="triggerUpload"

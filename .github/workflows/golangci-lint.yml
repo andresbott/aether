@@ -26,4 +26,4 @@ jobs:
         with:
           # Pin the exact version so the bundled gosec ruleset matches local
           # runs; version skew makes nolintlint flag directives inconsistently.
-          version: v2.12.2
+          version: v2.13.2

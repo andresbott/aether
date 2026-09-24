@@ -16,7 +16,7 @@ import type { Library, LibraryFilter, LibraryInput } from '@/types/libraries'
 const baseLibrary: Library = {
     id: 1,
     name: 'Main',
-    views: ['discover', 'artists', 'releases'],
+    views: ['discover', 'artists', 'albums'],
     default_view: 'discover',
     hide_from_artist_index: false,
     split_views: false,
@@ -118,7 +118,7 @@ describe('LibraryDialog create mode', () => {
         const input = w.emitted('submit')![0][0] as LibraryInput
         expect(input).toEqual({
             name: '',
-            views: ['discover', 'artists', 'releases'],
+            views: ['discover', 'artists', 'albums'],
             default_view: 'discover',
             hide_from_artist_index: false,
             split_views: false,
@@ -154,30 +154,30 @@ describe('LibraryDialog views', () => {
         await toggleView(w, 'discover')
 
         const input = await submitted(w, 'Create')
-        expect(input.views).toEqual(['artists', 'releases'])
+        expect(input.views).toEqual(['artists', 'albums'])
         expect(input.default_view).toBe('artists')
     })
 
     it('offers only the ticked views to open on, and sends them in display order', async () => {
-        const w = mountDialog({ ...baseLibrary, views: ['releases'], default_view: 'releases' })
+        const w = mountDialog({ ...baseLibrary, views: ['albums'], default_view: 'albums' })
         await flushPromises()
         const opensOn = () => w.findComponent(Select)
         const offered = () => (opensOn().props('options') as { value: string }[]).map((o) => o.value)
 
         // One view leaves nothing to pick.
-        expect(offered()).toEqual(['releases'])
+        expect(offered()).toEqual(['albums'])
         expect(opensOn().props('disabled')).toBe(true)
 
-        // Ticked after Releases, but listed and sent before it.
+        // Ticked after Albums, but listed and sent before it.
         await toggleView(w, 'artists')
-        expect(offered()).toEqual(['artists', 'releases'])
+        expect(offered()).toEqual(['artists', 'albums'])
         expect(opensOn().props('disabled')).toBe(false)
 
         opensOn().vm.$emit('update:modelValue', 'artists')
         await flushPromises()
 
         const input = await submitted(w, 'Save')
-        expect(input.views).toEqual(['artists', 'releases'])
+        expect(input.views).toEqual(['artists', 'albums'])
         expect(input.default_view).toBe('artists')
     })
 
@@ -193,15 +193,15 @@ describe('LibraryDialog views', () => {
     it("round-trips the main Artists page setting independently of the views", async () => {
         const w = mountDialog({
             ...baseLibrary,
-            views: ['releases'],
-            default_view: 'releases',
+            views: ['albums'],
+            default_view: 'albums',
             hide_from_artist_index: true
         })
         await flushPromises()
         expect(checkbox(w, 'library-hide-artists').props('modelValue')).toBe(true)
 
         const input = await submitted(w, 'Save')
-        expect(input.views).toEqual(['releases'])
+        expect(input.views).toEqual(['albums'])
         expect(input.hide_from_artist_index).toBe(true)
     })
 
@@ -218,12 +218,12 @@ describe('LibraryDialog views', () => {
     })
 
     it("copies the library's views instead of aliasing the array handed in", async () => {
-        const lib: Library = { ...baseLibrary, views: ['artists', 'releases'], default_view: 'artists' }
+        const lib: Library = { ...baseLibrary, views: ['artists', 'albums'], default_view: 'artists' }
         const w = mountDialog(lib)
         await flushPromises()
 
-        await toggleView(w, 'releases')
-        expect(lib.views).toEqual(['artists', 'releases'])
+        await toggleView(w, 'albums')
+        expect(lib.views).toEqual(['artists', 'albums'])
     })
 })
 

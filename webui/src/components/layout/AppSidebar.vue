@@ -8,6 +8,7 @@ import { usePlayer } from '@/composables/usePlayer'
 import { useTheme } from '@/composables/useTheme'
 import UserMenu from '@/components/layout/UserMenu.vue'
 import BrandMark from '@/components/common/BrandMark.vue'
+import LibraryIcon from '@/components/common/LibraryIcon.vue'
 import { LIBRARY_VIEWS, openingView } from '@/lib/libraryViews'
 import type { LibraryView } from '@/types/libraries'
 
@@ -17,7 +18,9 @@ const uiStore = useUiStore()
 
 interface NavItem {
     label: string
-    icon: string
+    icon?: string
+    // A library's own icon (a Material Symbols name) — rendered by LibraryIcon, not a class
+    libraryIcon?: string
     route: string
     routeName: string
     mode?: LibraryView
@@ -36,24 +39,24 @@ interface NavSection {
 }
 
 const topItems: NavItem[] = [
-    { label: 'Now Playing', icon: 'pi pi-play-circle', route: '/', routeName: 'home', shortcut: 'now-playing' },
-    { label: 'Search', icon: 'pi pi-search', route: '/search', routeName: 'search', shortcut: 'search' }
+    { label: 'Now Playing', icon: 'ms-play-circle', route: '/', routeName: 'home', shortcut: 'now-playing' },
+    { label: 'Search', icon: 'ms-search', route: '/search', routeName: 'search', shortcut: 'search' }
 ]
 
 // The browse modes are path segments off /library; only Discover carries the
 // shortcut badge. All three share `routeName: 'library'` — the item's section tag,
 // which is distinct from the route record a folder resolves to ('library-folder').
 const libraryModes: NavItem[] = [
-    { label: 'Discover', icon: 'pi pi-compass', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
-    { label: 'Artists', icon: 'pi pi-users', route: '/library/artists', routeName: 'library', mode: 'artists' },
-    { label: 'Releases', icon: 'pi pi-images', route: '/library/releases', routeName: 'library', mode: 'releases' }
+    { label: 'Discover', icon: 'ms-explore', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
+    { label: 'Artists', icon: 'ms-artist', route: '/library/artists', routeName: 'library', mode: 'artists' },
+    { label: 'Albums', icon: 'ms-album', route: '/library/albums', routeName: 'library', mode: 'albums' }
 ]
 
 // The root as one entry, for a catalog set not to split its views: its page
 // switches them instead. No mode — it covers them all — and it keeps the badge.
 const libraryRoot: NavItem = {
     label: 'All music',
-    icon: 'pi pi-compass',
+    icon: 'ms-explore',
     route: '/library',
     routeName: 'library',
     shortcut: 'library'
@@ -68,13 +71,13 @@ const rootSplit = computed(() => catalog.value?.splitViews ?? true)
 
 // Listed from the first library on: a library is a saved filter, so even a
 // single one is a narrower view than the whole catalog — that is what the
-// Discover/Releases/Artists entries above already browse. An empty list still
+// Discover/Albums/Artists entries above already browse. An empty list still
 // yields no entries.
 const folderItems = computed<NavItem[]>(() => {
     const folders = (musicFolders.value ?? []).filter((folder) => !folder.splitViews)
     return folders.map((folder) => ({
         label: folder.name,
-        icon: `pi pi-${folder.icon || 'folder'}`,
+        libraryIcon: folder.icon,
         route: `/library/${folder.id}`,
         routeName: 'library',
         folderId: folder.id
@@ -124,16 +127,16 @@ const landingViews = computed(() => {
 
 // Past the spacer below the Library block.
 const bottomItems: NavItem[] = [
-    { label: 'Playlists', icon: 'pi pi-list', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
-    { label: 'Genres', icon: 'pi pi-tags', route: '/genres', routeName: 'genres', shortcut: 'genres' },
-    { label: 'Radio', icon: 'pi pi-wifi', route: '/radio', routeName: 'radio', shortcut: 'radio' }
+    { label: 'Playlists', icon: 'ms-queue-music', route: '/playlists', routeName: 'playlists', shortcut: 'playlists' },
+    { label: 'Genres', icon: 'ms-genres', route: '/genres', routeName: 'genres', shortcut: 'genres' },
+    { label: 'Radio', icon: 'ms-radio', route: '/radio', routeName: 'radio', shortcut: 'radio' }
 ]
 
 // The mode segment of the current path; undefined on a bare path.
 const modeParam = computed<LibraryView | undefined>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'discover' || m === 'releases' || m === 'artists' ? m : undefined
+    return m === 'discover' || m === 'albums' || m === 'artists' ? m : undefined
 })
 
 const isActive = (item: NavItem): boolean => {
@@ -257,7 +260,7 @@ onBeforeUnmount(resetEgg)
                 v-tooltip.right="collapsed ? 'Expand' : undefined"
                 @click="uiStore.toggleSidebar"
             >
-                <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
+                <i :class="collapsed ? 'ms-chevron-right' : 'ms-chevron-left'"></i>
             </button>
         </div>
 
@@ -291,7 +294,8 @@ onBeforeUnmount(resetEgg)
                 @click="navigateTo(item)"
                 v-tooltip.right="collapsed ? item.label : undefined"
             >
-                <i :class="item.icon"></i>
+                <LibraryIcon v-if="item.libraryIcon" :name="item.libraryIcon" />
+                <i v-else :class="item.icon"></i>
                 <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
             </button>
 

@@ -27,7 +27,7 @@ function sampleLibrary(): Library {
     return {
         id: 1,
         name: 'Main',
-        views: ['artists', 'releases'],
+        views: ['artists', 'albums'],
         default_view: 'artists',
         hide_from_artist_index: false,
         split_views: false,
@@ -41,7 +41,7 @@ function sampleLibrary(): Library {
 
 const sampleInput: LibraryInput = {
     name: 'Main',
-    views: ['artists', 'releases'],
+    views: ['artists', 'albums'],
     default_view: 'artists',
     hide_from_artist_index: false,
     split_views: false,

@@ -164,7 +164,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
                 >{{ currentMbid }}</a
             >
             <button class="clear-btn" title="Clear match" @click="clearMatch">
-                <i class="pi pi-times"></i>
+                <i class="ms-close"></i>
             </button>
         </div>
 
@@ -182,7 +182,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
         </Message>
 
         <div v-else class="results">
-            <div v-if="searching" class="searching"><i class="pi pi-spin pi-spinner"></i></div>
+            <div v-if="searching" class="searching"><i class="icon-spin ms-progress-activity"></i></div>
             <ul v-else-if="results.length > 0" class="result-list">
                 <li
                     v-for="c in results"
@@ -221,7 +221,7 @@ function lifeSpan(c: MusicBrainzCandidate): string {
                     </template>
                     <template v-else>
                         <span class="preview-value old">{{ row.current || '(empty)' }}</span>
-                        <i class="pi pi-arrow-right preview-arrow"></i>
+                        <i class="ms-arrow-forward preview-arrow"></i>
                         <span class="preview-value">{{ row.next }}</span>
                     </template>
                 </span>

@@ -22,7 +22,7 @@ const props = withDefaults(
         dirty: false,
         deleteHeader: 'Delete?',
         deleteMessage: 'This cannot be undone.',
-        saveIcon: 'pi pi-check',
+        saveIcon: 'ms-check',
         saveTooltip: 'Save'
     }
 )
@@ -40,7 +40,7 @@ function confirmDelete(): void {
     confirm.require({
         header: props.deleteHeader,
         message: props.deleteMessage,
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         acceptClass: 'p-button-danger',
         acceptLabel: 'Delete',
         rejectLabel: 'Cancel',
@@ -77,7 +77,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         <slot name="read-actions" />
         <Button
             class="edit-action-edit"
-            icon="pi pi-pencil"
+            icon="ms-edit"
             text
             rounded
             v-tooltip.bottom="'Edit'"
@@ -91,7 +91,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         <Button
             v-if="canDelete"
             class="edit-action-delete"
-            icon="pi pi-trash"
+            icon="ms-delete"
             text
             rounded
             severity="danger"
@@ -110,7 +110,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
         />
         <Button
             class="edit-action-cancel"
-            icon="pi pi-times"
+            icon="ms-close"
             text
             rounded
             v-tooltip.bottom="'Cancel'"

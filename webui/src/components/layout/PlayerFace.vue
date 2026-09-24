@@ -74,20 +74,20 @@ const goArtist = (): void => {
             aria-label="Close Now Playing"
             @click="emit('collapse')"
         >
-            <i class="pi pi-angle-down" aria-hidden="true"></i>
+            <i class="ms-keyboard-arrow-down" aria-hidden="true"></i>
         </button>
 
         <div class="play-art" @click="onArtTap">
             <img v-if="coverUrl" :src="coverUrl" alt="" class="play-cover" />
             <div v-else class="play-cover play-cover--placeholder" aria-hidden="true">
-                <i class="pi pi-music"></i>
+                <i class="ms-music-note"></i>
             </div>
             <!-- Passive echo of the starred state, set by double-tapping the
                  cover. Decorative only (the queue rows' hearts are the
                  accessible toggle), hence aria-hidden. -->
             <i
                 v-if="isStarred"
-                class="pi pi-heart-fill play-favorite-indicator"
+                class="ms-favorite play-favorite-indicator"
                 aria-hidden="true"
             ></i>
         </div>
@@ -138,7 +138,7 @@ const goArtist = (): void => {
                 :disabled="!player.hasPrevious.value"
                 @click="player.playPrevious()"
             >
-                <i class="pi pi-step-backward"></i>
+                <i class="ms-skip-previous"></i>
             </button>
             <button
                 type="button"
@@ -146,7 +146,7 @@ const goArtist = (): void => {
                 :aria-label="player.isPlaying.value ? 'Pause' : 'Play'"
                 @click="player.togglePlayPause()"
             >
-                <i :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"></i>
+                <i :class="player.isPlaying.value ? 'ms-pause' : 'ms-play-arrow'"></i>
             </button>
             <button
                 type="button"
@@ -155,7 +155,7 @@ const goArtist = (): void => {
                 :disabled="!player.hasNext.value"
                 @click="player.playNext()"
             >
-                <i class="pi pi-step-forward"></i>
+                <i class="ms-skip-next"></i>
             </button>
         </div>
 
@@ -165,7 +165,7 @@ const goArtist = (): void => {
             aria-label="Show queue"
             @click="emit('show-queue')"
         >
-            <i class="pi pi-angle-up" aria-hidden="true"></i>
+            <i class="ms-keyboard-arrow-up" aria-hidden="true"></i>
         </button>
     </section>
 </template>

@@ -81,7 +81,7 @@ const onArtTap = (): void => {
                 <div class="cell-face cell-back">
                     <Button
                         v-if="staged"
-                        icon="pi pi-undo"
+                        icon="ms-undo"
                         label="Undo"
                         text
                         size="small"
@@ -91,7 +91,7 @@ const onArtTap = (): void => {
                     />
                     <template v-else>
                         <Button
-                            icon="pi pi-images"
+                            icon="ms-photo-library"
                             label="Change"
                             text
                             size="small"
@@ -102,7 +102,7 @@ const onArtTap = (): void => {
                         />
                         <Button
                             v-if="canRemove"
-                            icon="pi pi-trash"
+                            icon="ms-delete"
                             label="Remove"
                             text
                             size="small"
@@ -120,7 +120,7 @@ const onArtTap = (): void => {
                 <Button
                     v-if="staged"
                     class="cell-placeholder-btn"
-                    icon="pi pi-undo"
+                    icon="ms-undo"
                     label="Undo"
                     text
                     size="small"
@@ -131,7 +131,7 @@ const onArtTap = (): void => {
                 <Button
                     v-else
                     class="cell-placeholder-btn"
-                    icon="pi pi-plus"
+                    icon="ms-add"
                     :label="addLabel"
                     text
                     size="small"

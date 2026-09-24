@@ -85,7 +85,7 @@ function makeNode(name: string, path: string, leaf: boolean): TreeNode {
     return {
         key: path || '__root__',
         label: name,
-        icon: leaf ? 'pi pi-folder' : 'pi pi-folder-open',
+        icon: leaf ? 'ms-folder' : 'ms-folder-open',
         leaf,
         data: { path },
         children: leaf ? undefined : []

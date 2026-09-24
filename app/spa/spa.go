@@ -8,7 +8,7 @@ import (
 	spah "github.com/go-bumbu/http/spa"
 )
 
-//go:embed files/ui/*
+//go:embed all:files/ui
 var UiFiles embed.FS
 
 func init() {

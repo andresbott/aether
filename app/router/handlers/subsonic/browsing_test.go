@@ -124,7 +124,7 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 	s := testStore(t)
 	db := s.DB()
 	db.Create(&model.Library{
-		Name: "Zulu", Views: []model.LibraryView{model.ViewArtists, model.ViewReleases},
+		Name: "Zulu", Views: []model.LibraryView{model.ViewArtists, model.ViewAlbums},
 		DefaultView: model.ViewArtists, HideFromArtistIndex: true, SplitViews: true, Icon: "heart",
 	})
 	db.Create(&model.Library{Name: "Alpha"}) // the column defaults
@@ -142,10 +142,10 @@ func TestGetMusicFoldersFromDB(t *testing.T) {
 	if folders[0].Name != "Alpha" || folders[1].Name != "Zulu" {
 		t.Fatalf("unexpected order: %+v", folders)
 	}
-	if want := []string{"discover", "artists", "releases"}; !slices.Equal(folders[0].Views, want) || folders[0].DefaultView != "discover" {
+	if want := []string{"discover", "artists", "albums"}; !slices.Equal(folders[0].Views, want) || folders[0].DefaultView != "discover" {
 		t.Fatalf("Alpha: got views %v opening on %q, want %v opening on discover", folders[0].Views, folders[0].DefaultView, want)
 	}
-	if want := []string{"artists", "releases"}; !slices.Equal(folders[1].Views, want) || folders[1].DefaultView != "artists" {
+	if want := []string{"artists", "albums"}; !slices.Equal(folders[1].Views, want) || folders[1].DefaultView != "artists" {
 		t.Fatalf("Zulu: got views %v opening on %q, want %v opening on artists", folders[1].Views, folders[1].DefaultView, want)
 	}
 	if folders[1].Icon != "heart" {
@@ -170,7 +170,7 @@ func TestGetMusicFoldersCatalog(t *testing.T) {
 	var body musicFoldersBody
 	decodeJSON(t, srv.URL+"/rest/getMusicFolders.view", &body)
 	catalog := body.SubsonicResponse.MusicFolders.Catalog
-	if want := []string{"discover", "artists", "releases"}; !slices.Equal(catalog.Views, want) || catalog.DefaultView != "discover" {
+	if want := []string{"discover", "artists", "albums"}; !slices.Equal(catalog.Views, want) || catalog.DefaultView != "discover" {
 		t.Fatalf("got views %v opening on %q, want %v opening on discover", catalog.Views, catalog.DefaultView, want)
 	}
 	if !catalog.SplitViews {

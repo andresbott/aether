@@ -66,7 +66,7 @@ function library(over: Partial<Library> = {}): Library {
     return {
         id: 1,
         name: 'Main',
-        views: ['discover', 'artists', 'releases'],
+        views: ['discover', 'artists', 'albums'],
         default_view: 'discover',
         hide_from_artist_index: false,
         split_views: false,

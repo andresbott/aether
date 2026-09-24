@@ -62,7 +62,7 @@ const onCardDragStart = (event: DragEvent): void => {
         <div class="card-cover">
             <img v-if="coverUrl" :src="coverUrl" :alt="artist.name" draggable="false" />
             <div v-else class="cover-placeholder">
-                <i class="pi pi-user" style="font-size: 2rem"></i>
+                <i class="ms-person" style="font-size: 2rem"></i>
             </div>
         </div>
         <div class="card-info">
@@ -80,10 +80,10 @@ const onCardDragStart = (event: DragEvent): void => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'pi pi-heart-fill' : 'pi pi-heart'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
             </button>
             <button class="card-play" type="button" aria-label="Play random album" @click="onPlay">
-                <i class="pi pi-play"></i>
+                <i class="ms-play-arrow"></i>
             </button>
         </div>
     </router-link>

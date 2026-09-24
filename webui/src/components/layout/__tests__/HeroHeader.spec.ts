@@ -24,9 +24,9 @@ describe('HeroHeader', () => {
     })
 
     it('renders a placeholder icon when there is no cover', () => {
-        const w = mountHero({ coverUrl: null, coverPlaceholderIcon: 'pi pi-user' })
+        const w = mountHero({ coverUrl: null, coverPlaceholderIcon: 'ms-person' })
         expect(w.find('.flip-front img').exists()).toBe(false)
-        expect(w.find('.cover-placeholder .pi.pi-user').exists()).toBe(true)
+        expect(w.find('.cover-placeholder .ms-person').exists()).toBe(true)
     })
 
     it('flips the cover and marks the root editing when editing is true', () => {

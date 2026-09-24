@@ -22,17 +22,6 @@ Notes for editors:
 
 # 1.0
 
-## Up next
-
-- [x] Expose Release type as an editable field
-  **Emit + full editor shipped** (branch `feat/opensubsonic-release-types`, verify-green) — the "editable field" goal is met. Emit: multi-value read (`tags.Metadata.ReleaseTypes`), `[]string serializer:json` album column, OpenSubsonic `releaseTypes` + derived `isCompilation` on all six album endpoints. Editor reads/edits release types end to end from all three sources — file tags, manual entry (primary single-select + secondary multi-select `EditPanel` control over the fixed MusicBrainz vocabulary), and MusicBrainz identify-pull (`GET /musicbrainz/release-groups/{mbid}/types` → `useReleaseGroupTypes`, staged on an identify pick beside genres, concurrent lookup). Writes `MUSICBRAINZ_ALBUMTYPE` (managed tag); flat storage, UX-only primary/secondary split; iTunes Compilation checkbox kept separate. Only remaining (a separate capability, not "editable"): **consume** — `LibraryView` type filter + `ArtistView` discography grouping. Design in `docs/local/release-type-editor-design.md`.
-- [x] Extract a shared helper for the three cover-art extension handlers
-  `updateArtist` (`handlers/subsonic/artists.go`), `updateGenre` (`genres.go`) and `updateAlbum` (`albums.go`) differ in five places — the endpoint name in one error string, the `decodeID` kind, the store lookup, the `assetstore.Kind`, and the key derivation (`artistCoverKey`'s MBID-or-DB-id logic vs `strconv.FormatUint`) — while everything around them is character-identical: multipart guard, byte cap, `id` presence, kind check, 404, `readCoverFile`, the put/clear switch, `writeResponse`. Roughly 40 duplicated lines. Shape: a helper taking `(endpointName, idKind string, kind assetstore.Kind, resolve func(uint) (writeKey string, clearKeys []string, err error))`, where the artist's extra DB-id slot clear fits `clearKeys` naturally. `dupl` flagged the albums/genres pair when `albums.go` was added and stopped firing once `requireAdmin` diverged them, so nothing is currently suppressed — this is a real DRY item, not a lint workaround. While there: `maxRadioRequestBytes` / `radioMultipartMemory` / `radioCoverMaxBytes` are now imported by four non-radio handlers and deserve cover-neutral names.
-- [x] Surface field-level validation errors (RFC 9457 `errors[]`) in the editor forms — the backend now returns `422` `ValidationProblem` with `errors[]` (`{pointer, detail}`) and the SPA type carries it, but no view renders it; the UI still shows only the top-level `detail`/`title`.
-- [x] Fix `stream` ignoring the id kind (`rs-3` serves track 3)
-  `stream` discards the id kind (`_, id, err := decodeID(...)`, `subsonic/media.go:29`), so `stream?id=rs-3` today serves track 3's file. A latent bug worth fixing on its own; also a trap any future radio-in-queue design walks straight into.
-- [ ] Once detached albums are delivered, review releas types
-
 ## Features
 
 - [x] Proper playlist editing
@@ -40,7 +29,7 @@ Notes for editors:
 - [x] detach scaned folders from libraries
   use metaadata queries insetd of folders for sources of songs — **Shipped** (branch `feat/virtual-libraries`): scan folders are config-only (`ScanFolders:`), libraries are saved filters (scan folder, path, format, release type, compilation, genre) served to `/rest` as music folders.
 - [ ] Migrate into own GH org
-- [ ] new icon theme
+- [x] new icon theme
 - [x] migrate httperr and upstrem to bunbu http
 
 ## Backend

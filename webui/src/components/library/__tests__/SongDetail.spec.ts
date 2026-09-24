@@ -120,10 +120,10 @@ describe('SongDetail favorite toggle', () => {
     })
 
     it('reflects the starred state in the heart icon', () => {
-        expect(mountCard(song()).find('.card-actions .pi-heart').exists()).toBe(true)
+        expect(mountCard(song()).find('.card-actions .mso-favorite').exists()).toBe(true)
         expect(
             mountCard(song({ starred: '2026-02-01T00:00:00Z' }))
-                .find('.card-actions .pi-heart-fill')
+                .find('.card-actions .ms-favorite')
                 .exists()
         ).toBe(true)
     })

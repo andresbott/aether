@@ -34,11 +34,11 @@ const groups = computed<SettingsNavGroup[]>(() => [
     {
         label: 'Administration',
         items: [
-            { label: 'Libraries', icon: 'pi pi-folder', route: '/settings/libraries' },
+            { label: 'Libraries', icon: 'ms-folder', route: '/settings/libraries' },
             ...(userManagement.value
-                ? [{ label: 'Users', icon: 'pi pi-users', route: '/settings/users' }]
+                ? [{ label: 'Users', icon: 'ms-group', route: '/settings/users' }]
                 : []),
-            { label: 'Tasks', icon: 'pi pi-clock', route: '/settings/tasks' }
+            { label: 'Tasks', icon: 'ms-schedule', route: '/settings/tasks' }
         ]
     },
     {
@@ -46,7 +46,7 @@ const groups = computed<SettingsNavGroup[]>(() => [
         // in this layout, so it also gets a side-nav entry here, under its own
         // Tools header (it is reachable from the sidebar UserMenu as well).
         label: 'Tools',
-        items: [{ label: 'Metadata Editor', icon: 'pi pi-pencil', route: '/metadata-editor' }]
+        items: [{ label: 'Metadata Editor', icon: 'ms-edit', route: '/metadata-editor' }]
     }
 ])
 
@@ -93,7 +93,7 @@ const versionTitle = computed(() => {
                     v-tooltip.right="collapsed ? 'Expand' : undefined"
                     @click="uiStore.toggleSettingsSidebar"
                 >
-                    <i :class="collapsed ? 'pi pi-angle-right' : 'pi pi-angle-left'"></i>
+                    <i :class="collapsed ? 'ms-chevron-right' : 'ms-chevron-left'"></i>
                 </button>
             </div>
 
@@ -133,7 +133,7 @@ const versionTitle = computed(() => {
                     @click="goBack"
                     v-tooltip.right="collapsed ? 'Back to player' : undefined"
                 >
-                    <i class="pi pi-arrow-left"></i>
+                    <i class="ms-arrow-back"></i>
                     <span v-if="!collapsed" class="nav-label">Back to player</span>
                 </button>
             </nav>

@@ -3542,7 +3542,7 @@ components:
           items: { $ref: '#/components/schemas/LibraryView' }
           description: >
             The ways the library can be browsed, in display order (discover,
-            artists, releases), each at most once.
+            artists, albums), each at most once.
         default_view:
           $ref: '#/components/schemas/LibraryView'
         hide_from_artist_index:
@@ -3561,7 +3561,11 @@ components:
             `splitViews` (the `musicFolderViews` extension, v2).
         icon:
           type: string
-          description: A PrimeIcons name without the "pi pi-" prefix, e.g. "folder-open".
+          description: >
+            A Material Symbols icon name in Google's snake_case, e.g.
+            "queue_music". A well-formed name that is not a real Material
+            Symbols icon renders blank; only malformed names fall back to
+            "folder".
         filters:
           type: array
           items: { $ref: '#/components/schemas/LibraryFilter' }
@@ -3595,7 +3599,7 @@ components:
 
     LibraryView:
       type: string
-      enum: [discover, artists, releases]
+      enum: [discover, artists, albums]
       description: >
         One way of browsing a library: the ranked Discovery feed, the artist
         index, or the release list. `/rest` advertises the same vocabulary as
@@ -3608,7 +3612,7 @@ components:
           type: boolean
           description: >
             How the root library appears in the SPA sidebar: true lists each
-            of its views (Discover, Artists, Releases) as its own entry, false
+            of its views (Discover, Artists, Albums) as its own entry, false
             gives it one entry whose page switches between them.
       required: [split_views]
 
@@ -3681,12 +3685,14 @@ components:
             on update keeps the library's current value.
         icon:
           type: string
-          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+          pattern: '^[a-z0-9]+(_[a-z0-9]+)*$'
           maxLength: 100
           default: folder
           description: >
-            A PrimeIcons name without the "pi pi-" prefix, e.g.
-            "folder-open". Omitted or empty falls back to "folder".
+            A Material Symbols icon name in Google's snake_case, e.g.
+            "queue_music". A well-formed name that is not a real Material
+            Symbols icon renders blank; only malformed names fall back to
+            "folder". Omitted or empty falls back to "folder".
         filters:
           type: array
           items: { $ref: '#/components/schemas/LibraryFilter' }

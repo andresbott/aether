@@ -51,11 +51,11 @@ export function buildFilteredFolderTree(matches: Folder[]): FilteredFolderTree {
             const children = node.children ?? []
             if (children.length === 0) {
                 node.leaf = true
-                node.icon = 'pi pi-folder'
+                node.icon = 'ms-folder'
                 node.children = undefined
             } else {
                 node.leaf = false
-                node.icon = 'pi pi-folder-open'
+                node.icon = 'ms-folder-open'
                 expandedKeys[node.key as string] = true
                 finalize(children)
             }

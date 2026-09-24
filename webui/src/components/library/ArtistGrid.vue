@@ -15,14 +15,14 @@ const { total, letters, items, isLoading, error } = useArtistSource(
 <template>
     <div class="artist-grid-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
         <div v-else-if="error" class="empty-state">
-            <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+            <i class="ms-warning" style="font-size: 3rem"></i>
             <p>Could not load artists</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-users'" style="font-size: 3rem"></i>
+            <i :class="favoritesOnly ? 'mso-favorite' : 'ms-artist'" style="font-size: 3rem"></i>
             <p v-if="favoritesOnly">No favorite artists yet</p>
             <p v-else>No artists found</p>
         </div>

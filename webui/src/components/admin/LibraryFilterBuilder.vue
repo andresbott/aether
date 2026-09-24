@@ -354,7 +354,7 @@ onUnmounted(() => {
                 </div>
 
                 <Button
-                    icon="pi pi-trash"
+                    icon="ms-delete"
                     text
                     rounded
                     size="small"
@@ -421,7 +421,7 @@ onUnmounted(() => {
 
         <Button
             label="Add filter"
-            icon="pi pi-plus"
+            icon="ms-add"
             data-test="add-filter"
             :disabled="modelValue.length >= LIMITS.filters"
             @click="addFilter"

@@ -65,7 +65,7 @@ const onClick = (event: MouseEvent): void => {
         @dragend="emit('dragend')"
     >
         <span class="col-index track-number">
-            <i v-if="playing" class="pi pi-volume-up playing-icon"></i>
+            <i v-if="playing" class="ms-volume-up playing-icon"></i>
             <template v-else>{{ trackNumber }}</template>
         </span>
         <!-- .row-title is read by the multi-song drag image builder. -->
@@ -85,7 +85,7 @@ const onClick = (event: MouseEvent): void => {
                 aria-label="Track actions"
                 @click.stop="emit('menu')"
             >
-                <i class="pi pi-ellipsis-v"></i>
+                <i class="ms-more-vert"></i>
             </button>
         </span>
         <span class="col-star"><TrackFavoriteButton :song="song" /></span>

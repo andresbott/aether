@@ -45,7 +45,7 @@ const progressPercent = computed(() => {
 
         <img v-if="coverUrl" :src="coverUrl" alt="" class="mini-cover" />
         <div v-else class="mini-cover mini-cover--placeholder" aria-hidden="true">
-            <i class="pi pi-music"></i>
+            <i class="ms-music-note"></i>
         </div>
 
         <div class="mini-meta">
@@ -59,7 +59,7 @@ const progressPercent = computed(() => {
             :aria-label="player.isPlaying.value ? 'Pause' : 'Play'"
             @click="player.togglePlayPause()"
         >
-            <i :class="player.isPlaying.value ? 'pi pi-pause' : 'pi pi-play'"></i>
+            <i :class="player.isPlaying.value ? 'ms-pause' : 'ms-play-arrow'"></i>
         </button>
         <button
             type="button"
@@ -67,7 +67,7 @@ const progressPercent = computed(() => {
             aria-label="Next track"
             @click="player.playNext()"
         >
-            <i class="pi pi-step-forward"></i>
+            <i class="ms-skip-next"></i>
         </button>
     </div>
 </template>

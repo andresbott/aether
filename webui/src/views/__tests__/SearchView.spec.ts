@@ -213,7 +213,7 @@ describe('SearchView', () => {
         isLoading.value = true
         const w = mountView()
         await typeQuery(w, 'floyd')
-        expect(w.find('.pi-spinner').exists()).toBe(true)
+        expect(w.find('.ms-progress-activity').exists()).toBe(true)
     })
 
     it('shows an error state distinct from the empty-results state', async () => {

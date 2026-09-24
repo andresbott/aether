@@ -163,7 +163,7 @@ function guardUnsaved(action: () => void) {
     confirm.require({
         header: 'Unsaved changes',
         message: 'You have unsaved changes. Discard them?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         acceptLabel: 'Discard',
         rejectLabel: 'Cancel',
         acceptClass: 'p-button-danger',
@@ -228,7 +228,7 @@ function onCancel() {
     confirm.require({
         header: 'Discard changes',
         message: 'Discard all staged changes?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         acceptLabel: 'Discard',
         rejectLabel: 'Keep editing',
         acceptClass: 'p-button-danger',
@@ -246,7 +246,7 @@ onBeforeRouteLeave((_to, _from, next) => {
     confirm.require({
         header: 'Unsaved changes',
         message: 'You have unsaved changes. Discard them and leave?',
-        icon: 'pi pi-exclamation-triangle',
+        icon: 'ms-warning',
         acceptLabel: 'Discard',
         rejectLabel: 'Cancel',
         acceptClass: 'p-button-danger',
@@ -314,7 +314,7 @@ function onAlbumReidentify() {
     <div class="metadata-editor">
         <div class="editor-header">
             <Button
-                icon="pi pi-folder-open"
+                icon="ms-folder-open"
                 label="Select folder"
                 severity="secondary"
                 @click="openFolderPicker(null)"
@@ -336,7 +336,7 @@ function onAlbumReidentify() {
             <span v-else class="folder-breadcrumb">No folder selected</span>
             <span class="count">({{ tracksQuery.data.value?.length ?? 0 }} files)</span>
             <Button
-                icon="pi pi-refresh"
+                icon="ms-refresh"
                 text
                 rounded
                 aria-label="Reload"
@@ -344,7 +344,7 @@ function onAlbumReidentify() {
             />
             <span class="header-spacer"></span>
             <span v-if="session.isSaving.value" class="saving-note" data-test="saving-note">
-                <i class="pi pi-spin pi-spinner"></i>
+                <i class="icon-spin ms-progress-activity"></i>
                 Saving and re-indexing…
             </span>
             <span
@@ -356,7 +356,7 @@ function onAlbumReidentify() {
             </span>
             <Button
                 label="Cancel"
-                icon="pi pi-times"
+                icon="ms-close"
                 severity="secondary"
                 outlined
                 data-test="session-cancel"
@@ -365,7 +365,7 @@ function onAlbumReidentify() {
             />
             <Button
                 label="Save"
-                icon="pi pi-save"
+                icon="ms-save"
                 data-test="session-save"
                 :disabled="!session.hasStagedChanges.value || session.isSaving.value"
                 :loading="session.isSaving.value"

@@ -13,9 +13,9 @@ const mountShelf = (props: Record<string, unknown> = {}) =>
 
 describe('BrowseShelf', () => {
     it('renders the heading, its icon, and one strip item per item', () => {
-        const w = mountShelf({ icon: 'pi pi-list' })
+        const w = mountShelf({ icon: 'ms-queue-music' })
         expect(w.find('.shelf-title').text()).toBe('Playlists')
-        expect(w.find('.shelf-title i').classes()).toContain('pi-list')
+        expect(w.find('.shelf-title i').classes()).toContain('ms-queue-music')
         expect(w.findAll('.shelf-item')).toHaveLength(3)
         expect(w.findAll('.card-probe')).toHaveLength(3)
     })
@@ -29,7 +29,7 @@ describe('BrowseShelf', () => {
 
     it('shows a spinner and no strip while loading', () => {
         const w = mountShelf({ loading: true, items: [] })
-        expect(w.find('.shelf-state .pi-spinner').exists()).toBe(true)
+        expect(w.find('.shelf-state .ms-progress-activity').exists()).toBe(true)
         expect(w.find('.shelf-strip').exists()).toBe(false)
     })
 

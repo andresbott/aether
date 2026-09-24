@@ -173,7 +173,7 @@ describe('AlbumView disc grouping', () => {
         expect(header.text()).toContain('Title')
         expect(header.text()).toContain('Artist')
         // The duration column header is a clock icon (labelled for a11y).
-        expect(header.find('.pi-clock').exists()).toBe(true)
+        expect(header.find('.ms-schedule').exists()).toBe(true)
     })
 
     it('renders no disc header for a single-disc album', () => {

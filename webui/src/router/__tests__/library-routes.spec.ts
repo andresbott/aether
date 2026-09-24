@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import router from '@/router'
 
-// The Library browse mode (Discover / Releases / Artists) is a real path segment,
-// not a URL hash. Discover is the bare cross-collection root; Releases and Artists
+// The Library browse mode (Discover / Albums / Artists) is a real path segment,
+// not a URL hash. Discover is the bare cross-collection root; Albums and Artists
 // are constrained sub-paths that also compose with a numeric folder segment.
 describe('library routes', () => {
     it('resolves the root browse modes to path segments, not a hash', () => {
@@ -11,9 +11,9 @@ describe('library routes', () => {
         // An absent optional mode reports as '' (see the settings :tab convention).
         expect(root.params.mode).toBe('')
 
-        const releases = router.resolve('/library/releases')
-        expect(releases.name).toBe('library')
-        expect(releases.params.mode).toBe('releases')
+        const albums = router.resolve('/library/albums')
+        expect(albums.name).toBe('library')
+        expect(albums.params.mode).toBe('albums')
 
         const artists = router.resolve('/library/artists')
         expect(artists.name).toBe('library')
@@ -26,19 +26,19 @@ describe('library routes', () => {
         expect(folder.params.folderId).toBe('5')
         expect(folder.params.mode).toBe('')
 
-        const folderReleases = router.resolve('/library/5/artists')
-        expect(folderReleases.name).toBe('library-folder')
-        expect(folderReleases.params.folderId).toBe('5')
-        expect(folderReleases.params.mode).toBe('artists')
+        const folderArtists = router.resolve('/library/5/artists')
+        expect(folderArtists.name).toBe('library-folder')
+        expect(folderArtists.params.folderId).toBe('5')
+        expect(folderArtists.params.mode).toBe('artists')
     })
 
     // The mode segment is constrained to the view names and the folder segment
     // to digits, so the two axes never collide: a word is always a mode, a
     // number is always a folder.
     it('keeps the folder and mode axes disjoint', () => {
-        const releases = router.resolve('/library/releases')
-        expect(releases.name).toBe('library')
-        expect(releases.params.folderId).toBeUndefined()
+        const albums = router.resolve('/library/albums')
+        expect(albums.name).toBe('library')
+        expect(albums.params.folderId).toBeUndefined()
     })
 
     // The root's Discover is only ever the bare path — there is no

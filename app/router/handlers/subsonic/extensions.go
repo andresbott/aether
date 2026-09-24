@@ -6,7 +6,7 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 	writeResponse(w, map[string]any{
 		"openSubsonicExtensions": []map[string]any{
 			{
-				// v1: views (discover/artists/releases) and defaultView, one
+				// v1: views (discover/artists/albums) and defaultView, one
 				// of them, on every getMusicFolders entry.
 				// v2: adds splitViews, whether a client should list each view
 				// as its own navigation entry rather than one for the folder,
@@ -16,6 +16,8 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"versions": []int{1, 2},
 			},
 			{
+				// Material Symbols icon name in Google's snake_case (e.g.
+				// "queue_music") carried on each getMusicFolders entry.
 				"name":     "musicFolderIcon",
 				"versions": []int{1},
 			},

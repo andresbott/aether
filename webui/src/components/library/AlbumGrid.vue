@@ -21,14 +21,14 @@ function onLazyLoad(first: number, last: number): void {
 <template>
     <div class="album-grid-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
         <div v-else-if="error" class="empty-state">
-            <i class="pi pi-exclamation-triangle" style="font-size: 3rem"></i>
+            <i class="ms-warning" style="font-size: 3rem"></i>
             <p>Could not load albums</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i :class="favoritesOnly ? 'pi pi-heart' : 'pi pi-music'" style="font-size: 3rem"></i>
+            <i :class="favoritesOnly ? 'mso-favorite' : 'ms-music-note'" style="font-size: 3rem"></i>
             <p v-if="favoritesOnly">No favorite albums yet</p>
             <p v-else>No albums found</p>
         </div>

@@ -410,11 +410,11 @@ onUnmounted(() => {
 <template>
     <div class="playlist-detail-view">
         <div v-if="isLoading" class="loading">
-            <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+            <i class="icon-spin ms-progress-activity" style="font-size: 2rem"></i>
         </div>
 
         <div v-else-if="error" class="error">
-            <i class="pi pi-exclamation-triangle" style="font-size: 2rem"></i>
+            <i class="ms-warning" style="font-size: 2rem"></i>
             <p>{{ error.message }}</p>
         </div>
 
@@ -444,7 +444,7 @@ onUnmounted(() => {
                         />
                     </template>
                     <template v-if="isOwner" #cover-actions>
-                        <Button label="Generate" icon="pi pi-sparkles" outlined @click="showGenerate = true" />
+                        <Button label="Generate" icon="ms-auto-awesome" outlined @click="showGenerate = true" />
                     </template>
                     <template #read>
                         <h2 class="hero-name">{{ playlist.name }}</h2>
@@ -454,7 +454,7 @@ onUnmounted(() => {
                             <span v-if="playlist.owner" :class="{ dot: !!summary }">
                                 <i
                                     v-if="!isOwner"
-                                    class="pi pi-lock not-mine-icon"
+                                    class="ms-lock not-mine-icon"
                                     aria-hidden="true"
                                     v-tooltip.bottom="`Shared by ${playlist.owner} — view only`"
                                 ></i>
@@ -541,7 +541,7 @@ onUnmounted(() => {
                                 <span class="col-select"></span>
                                 <span class="col-star"></span>
                                 <span class="col-duration" aria-label="Duration">
-                                    <i class="pi pi-clock"></i>
+                                    <i class="ms-schedule"></i>
                                 </span>
                             </div>
                             <GenreTrackRow
