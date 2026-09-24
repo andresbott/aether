@@ -18,6 +18,11 @@ builds:
       - v1
     flags:
       - -trimpath
+    # nodynamic: gen2brain/webp otherwise dlopens libwebp through purego,
+    # which links the binary against glibc even with CGO_ENABLED=0 — it would
+    # not start on Alpine/musl (including the container image).
+    tags:
+      - nodynamic
     ldflags:
       - -s -w
       - -X github.com/andresbott/aether/app/metainfo.Version={{.Version}}
@@ -25,8 +30,9 @@ builds:
       - -X github.com/andresbott/aether/app/metainfo.ShaVer={{.Commit}}
     binary: aether
     # Pure Go: the SQLite driver (glebarez/modernc) and taglib (wazero/wasm)
-    # need no C toolchain. CGO_ENABLED=0 yields a static binary with no glibc
-    # floor, so the same artifact runs on Debian 12, older distros and Alpine.
+    # need no C toolchain. CGO_ENABLED=0 plus the nodynamic tag above yields a
+    # static binary with no glibc floor, so the same artifact runs on Debian 12,
+    # older distros and Alpine.
     # Verify with `make verify` before reintroducing CGO for any dependency.
     env:
       - CGO_ENABLED=0
@@ -44,6 +50,11 @@ builds:
       - v3
     flags:
       - -trimpath
+    # nodynamic: gen2brain/webp otherwise dlopens libwebp through purego,
+    # which links the binary against glibc even with CGO_ENABLED=0 — it would
+    # not start on Alpine/musl (including the container image).
+    tags:
+      - nodynamic
     ldflags:
       - -s -w
       - -X github.com/andresbott/aether/app/metainfo.Version={{.Version}}
@@ -154,6 +165,41 @@ nfpms:
       postinstall: zarf/packaging/postinstall.sh
       preremove: zarf/packaging/preremove.sh
       postremove: zarf/packaging/postremove.sh
+
+# =====================================================================================
+# Container image — ghcr.io/andresbott/aether, multi-arch (amd64 + arm64).
+# Only the baseline `linux` build: linux-opt is also linux/amd64 and the two
+# would collide on the same platform; an image must run on any amd64 host.
+# Prereleases (v1.2.3-rc1) get only their exact version tag, never latest or
+# the moving major.minor tag.
+# =====================================================================================
+dockers_v2:
+  - id: aether
+    ids:
+      - linux
+    dockerfile: zarf/docker/Dockerfile
+    extra_files:
+      - zarf/docker/config.yaml
+    images:
+      - "ghcr.io/andresbott/aether"
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      # Links the ghcr package to the repository.
+      "org.opencontainers.image.source": "https://github.com/andresbott/aether"
+    annotations:
+      "org.opencontainers.image.title": "aether"
+      "org.opencontainers.image.description": "Music server with a web player and an OpenSubsonic-compatible API."
+      "org.opencontainers.image.source": "https://github.com/andresbott/aether"
+      "org.opencontainers.image.licenses": "AGPL-3.0"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.created": "{{ .Date }}"
 
 checksum:
   name_template: 'checksums.txt'
