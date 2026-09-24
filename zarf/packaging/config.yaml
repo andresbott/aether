@@ -8,8 +8,11 @@
 
 Server:
   Port: 8075
-  # Bind address. Empty means all interfaces. Set to 127.0.0.1 when a reverse
-  # proxy (nginx/Traefik/Caddy, optionally with Authelia) fronts the server.
+  # Bind address. What empty means depends on Auth.Method: with "none" it is
+  # 127.0.0.1 (localhost only), and a wildcard like 0.0.0.0 is refused at
+  # startup; with "native"/"proxy-header" it is all interfaces. Set to
+  # 127.0.0.1 when a reverse proxy (nginx/Traefik/Caddy, optionally with
+  # Authelia) on the same host fronts the server.
   BindIp: ""
 
 # Observability endpoints (health, metrics). Off by default; when enabled, keep

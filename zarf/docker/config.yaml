@@ -1,0 +1,53 @@
+# Aether server configuration (container image defaults).
+#
+# Every key is documented in zarf/packaging/config.yaml. Override single values
+# with AETHER_* environment variables (e.g. AETHER_AUTH_METHOD=native), or mount
+# your own file over /etc/aether/config.yaml — needed for anything a flat
+# variable cannot express, such as more than one scan folder.
+
+Server:
+  Port: 8075
+  # All interfaces: inside a container loopback is unreachable from the host.
+  # Explicit rather than empty, which would silently mean loopback if Auth
+  # were switched to "none".
+  BindIp: "0.0.0.0"
+
+Observability:
+  Enabled: false
+  Port: 9009
+  BindIp: "127.0.0.1"
+
+# Mount a volume here to keep the database, artwork cache and task logs.
+DataDir: "/var/lib/aether"
+
+# Mount your music at /music (read-only is fine unless you use the metadata
+# editor, which writes tags and covers back into the scan folders).
+ScanFolders:
+  - Name: "Music"
+    Path: "/music"
+
+# "native": the server refuses auth method "none" on a wildcard bind. The admin
+# is seeded only on first start (empty user store) — set the password before
+# that with AETHER_AUTH_ADMINBOOTSTRAP_PW (plaintext or a bcrypt hash from
+# `aether user hash`); the "admin" fallback is for a quick local try only.
+# Behind an authenticating proxy, use "proxy-header" (mount your own config).
+Auth:
+  Method: "native"
+  AdminBootstrap:
+    User: "admin"
+    Pw: "admin"
+
+Env:
+  LogLevel: "info"
+  Production: true
+
+TaskRunner:
+  Parallelism: 2
+  QueueSize: 20
+  HistorySize: 50
+  TagReadWorkers: 0
+  LogDir: ""
+
+ArtistImages:
+  FanartApiKey: ""
+  TheAudioDBApiKey: ""

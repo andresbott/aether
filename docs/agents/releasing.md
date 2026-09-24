@@ -18,7 +18,10 @@ yourself first.
 - **Linux + Windows job** (ubuntu-latest): `npm ci` + `make package-ui` (build
   the SPA and copy it into `app/spa/files/ui/` — the `//go:embed files/ui/*`
   in `app/spa/spa.go` picks it up), then goreleaser with `.goreleaser.yaml`
-  (binary name `aether`, `CGO_ENABLED=0`, deb packages, GitHub release).
+  (binary name `aether`, `CGO_ENABLED=0`, deb packages, GitHub release,
+  container image — see below). QEMU + Buildx + a ghcr.io login (the
+  built-in `GITHUB_TOKEN`, `packages: write`) run before goreleaser for the
+  image.
 - **macOS job**: same UI build, goreleaser with `.goreleaser-darwin.yaml`.
 
 ## Build artifacts
@@ -89,6 +92,32 @@ plain `apt install aether` should get the full feature set:
   metadata editor shows Identify greyed out with the reason from
   `/api/v0/metadata/capabilities`.
 
+## The container image
+
+`ghcr.io/andresbott/aether`, linux/amd64 + linux/arm64, pushed by goreleaser's
+`dockers_v2` from the release job. Assets in `zarf/docker/`: the `Dockerfile`
+copies the prebuilt binary from `$TARGETPLATFORM/aether` in goreleaser's build
+context (nothing compiles in the image), and `config.yaml` is the image's
+`/etc/aether/config.yaml`.
+
+- Built from the **`linux` build id only** (GOAMD64 v1): `linux-opt` is also
+  linux/amd64 and would collide on the platform, and an image must run on any
+  amd64 host.
+- Tags: exact `{{.Version}}` always; `MAJOR.MINOR` and `latest` only for
+  non-prerelease tags.
+- Base `alpine` + `ffmpeg` + `chromaprint` (the same two optional tools as the
+  deb's Recommends), runs as uid/gid 1000 `aether`, `DataDir` is the
+  `/var/lib/aether` volume, music is expected at `/music` (one scan folder in
+  the image config; more need a mounted config — `ScanFolders` is a list and
+  cannot be expressed as flat `AETHER_*` vars).
+- Binds `0.0.0.0`, so the image defaults to `Auth.Method: native`: the server
+  refuses `none` on a wildcard bind. The admin password comes from
+  `AETHER_AUTH_ADMINBOOTSTRAP_PW` on first start.
+- The first push creates a **private** ghcr package; making it public is a
+  one-time manual step in the package settings.
+- Test locally without publishing: `goreleaser release --snapshot --clean`
+  builds per-arch images tagged `…-snapshot-amd64` / `-arm64`.
+
 ## Config resolution
 
 `aether start` with no `-c` probes `./config.yaml` then
@@ -109,7 +138,11 @@ working directory cannot shadow the packaged one.
   (`glebarez/sqlite`, modernc) and taglib (the wazero/wasm fork) need no C
   toolchain, so every target cross-compiles from any host and the binaries are
   static: no glibc floor, so one artifact runs on Debian 12, older distros and
-  musl systems alike. If you add a dependency that needs CGO you reintroduce a
+  musl systems alike. **Linux builds also need the `nodynamic` build tag**:
+  `gen2brain/webp` (imagecache) otherwise dlopens libwebp through `purego`,
+  which links the binary against glibc *despite* `CGO_ENABLED=0` — it then
+  fails with `no such file or directory` on Alpine, including the container
+  image. Check with `file dist/linux*/aether` ("statically linked"). If you add a dependency that needs CGO you reintroduce a
   glibc floor (the ubuntu runner's glibc becomes the minimum) and per-target
   cross-compilers — verify `CGO_ENABLED=0 go build` for linux/amd64,
   linux/arm64, windows/amd64 and darwin/{amd64,arm64} before changing this.

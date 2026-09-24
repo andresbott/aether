@@ -105,6 +105,26 @@ Worth knowing:
   filter does not follow a scan folder whose `Path` you change — edit it
   afterwards.
 
+## Docker
+
+Each release publishes a multi-arch image (amd64, arm64) to
+`ghcr.io/andresbott/aether`:
+
+```sh
+docker run -d --name aether -p 8075:8075 \
+  -e AETHER_AUTH_ADMINBOOTSTRAP_PW='change-me' \
+  -v aether-data:/var/lib/aether \
+  -v /path/to/music:/music:ro \
+  ghcr.io/andresbott/aether:latest
+```
+
+The image scans `/music` and signs in with the native `admin` user, whose
+password is taken from `AETHER_AUTH_ADMINBOOTSTRAP_PW` on first start. Drop
+`:ro` if you use the metadata editor (it writes tags back into the files). For
+more scan folders or proxy-header auth, mount your own config over
+`/etc/aether/config.yaml` (see [`zarf/packaging/config.yaml`](zarf/packaging/config.yaml)
+for every option).
+
 ## Development
 
 Tasks are driven by make:
