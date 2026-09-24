@@ -317,7 +317,7 @@ func (h *ImagesHandler) pictureImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if rp.filePath != "" {
-		http.ServeFile(w, r, rp.filePath) //nolint:gosec // G703: rp.filePath is resolved via metadataedit.OpenSource, which resolves Source.RelPath through ResolveInRoot — confined lexically to the scan folder root (rejects absolute paths and ".." escapes via filepath.Rel; does not resolve symlinks)
+		http.ServeFile(w, r, rp.filePath)
 		return
 	}
 	writeImage(w, rp.data)
@@ -589,7 +589,7 @@ func (h *ImagesHandler) removals(w http.ResponseWriter, r *http.Request) {
 // writeImage writes raw image bytes with a sniffed image content-type.
 func writeImage(w http.ResponseWriter, data []byte) {
 	w.Header().Set("Content-Type", http.DetectContentType(data))
-	_, _ = w.Write(data) //nolint:gosec // G705: writes raw image bytes with a sniffed image/* (or application/octet-stream) Content-Type set immediately above, never text/html, so this is not an HTML/XSS sink
+	_, _ = w.Write(data)
 }
 
 type pictureCandidateDTO struct {
