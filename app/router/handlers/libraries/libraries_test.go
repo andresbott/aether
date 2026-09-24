@@ -352,12 +352,12 @@ func TestCreateLibraryNormalizesViews(t *testing.T) {
 		name, body  string
 		wantDefault model.LibraryView
 	}{
-		{"default named", `{"name":"Classical","views":["releases","artists","releases"],"default_view":"releases"}`, model.ViewReleases},
-		{"default omitted", `{"name":"Jazz","views":["releases","artists"]}`, model.ViewArtists},
+		{"default named", `{"name":"Classical","views":["albums","artists","albums"],"default_view":"albums"}`, model.ViewAlbums},
+		{"default omitted", `{"name":"Jazz","views":["albums","artists"]}`, model.ViewArtists},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := decodeViews(t, send(t, r, "POST", "/libraries", tc.body), http.StatusCreated)
-			want := []model.LibraryView{model.ViewArtists, model.ViewReleases}
+			want := []model.LibraryView{model.ViewArtists, model.ViewAlbums}
 			if !slices.Equal(got.Views, want) || got.DefaultView != tc.wantDefault {
 				t.Fatalf("got views %v opening on %q, want %v opening on %q", got.Views, got.DefaultView, want, tc.wantDefault)
 			}
@@ -372,9 +372,9 @@ func TestCreateLibraryRejectsBadViews(t *testing.T) {
 		wantPointers []string
 	}{
 		{"no view", `{"name":"X","views":[]}`, []string{"/views"}},
-		{"unknown views", `{"name":"X","views":["albums","artists","songs"]}`, []string{"/views/0", "/views/2"}},
-		{"default not among the views", `{"name":"X","views":["releases"],"default_view":"discover"}`, []string{"/default_view"}},
-		{"unknown default", `{"name":"X","default_view":"albums"}`, []string{"/default_view"}},
+		{"unknown views", `{"name":"X","views":["releases","artists","songs"]}`, []string{"/views/0", "/views/2"}},
+		{"default not among the views", `{"name":"X","views":["albums"],"default_view":"discover"}`, []string{"/default_view"}},
+		{"unknown default", `{"name":"X","default_view":"releases"}`, []string{"/default_view"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := send(t, r, "POST", "/libraries", tc.body)
@@ -402,9 +402,9 @@ func TestUpdateLibraryViews(t *testing.T) {
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
-	got := decodeViews(t, send(t, r, "PUT", "/libraries/"+itoa(lib.ID), `{"name":"A","views":["releases"]}`), http.StatusOK)
-	if !slices.Equal(got.Views, []model.LibraryView{model.ViewReleases}) || got.DefaultView != model.ViewReleases {
-		t.Fatalf("got views %v opening on %q, want [releases] opening on releases", got.Views, got.DefaultView)
+	got := decodeViews(t, send(t, r, "PUT", "/libraries/"+itoa(lib.ID), `{"name":"A","views":["albums"]}`), http.StatusOK)
+	if !slices.Equal(got.Views, []model.LibraryView{model.ViewAlbums}) || got.DefaultView != model.ViewAlbums {
+		t.Fatalf("got views %v opening on %q, want [albums] opening on albums", got.Views, got.DefaultView)
 	}
 }
 
@@ -412,15 +412,15 @@ func TestUpdateLibraryViews(t *testing.T) {
 // judged against them.
 func TestUpdateLibraryWithoutViewsKeepsThem(t *testing.T) {
 	_, s, r := newTestHandler(t)
-	kept := []model.LibraryView{model.ViewArtists, model.ViewReleases}
-	lib := &model.Library{Name: "A", Views: kept, DefaultView: model.ViewReleases}
+	kept := []model.LibraryView{model.ViewArtists, model.ViewAlbums}
+	lib := &model.Library{Name: "A", Views: kept, DefaultView: model.ViewAlbums}
 	if err := s.CreateLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
 	path := "/libraries/" + itoa(lib.ID)
 
-	got := decodeViews(t, send(t, r, "PUT", path, `{"name":"A","default_view":"releases"}`), http.StatusOK)
-	if !slices.Equal(got.Views, kept) || got.DefaultView != model.ViewReleases {
+	got := decodeViews(t, send(t, r, "PUT", path, `{"name":"A","default_view":"albums"}`), http.StatusOK)
+	if !slices.Equal(got.Views, kept) || got.DefaultView != model.ViewAlbums {
 		t.Fatalf("got views %v opening on %q, want %v opening on releases", got.Views, got.DefaultView, kept)
 	}
 	// "" opens on the first view, as on create.

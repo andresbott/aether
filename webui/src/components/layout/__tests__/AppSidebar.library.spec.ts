@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 
-// Guards the Library block: Discover/Artists/Releases sit under a titled
+// Guards the Library block: Discover/Artists/Albums sit under a titled
 // "Library" section header, followed by any per-folder entries, with Now
 // Playing/Search above it and Playlists/Genres/Radio past the spacer below.
 
@@ -78,7 +78,7 @@ describe('AppSidebar Library block', () => {
             'Library',
             'Discover',
             'Artists',
-            'Releases',
+            'Albums',
             '---',
             'Playlists',
             'Genres',
@@ -95,12 +95,12 @@ describe('AppSidebar Library block', () => {
         expect(pushSpy).toHaveBeenCalledWith('/library')
     })
 
-    it('routes Releases to the /library/releases path', async () => {
+    it('routes Albums to the /library/albums path', async () => {
         const item = mountSidebar()
             .findAll('.sidebar-nav .nav-item')
-            .find((n) => n.text() === 'Releases')!
+            .find((n) => n.text() === 'Albums')!
         await item.trigger('click')
-        expect(pushSpy).toHaveBeenCalledWith('/library/releases')
+        expect(pushSpy).toHaveBeenCalledWith('/library/albums')
     })
 
     it('routes Artists to the /library/artists path', async () => {
@@ -123,7 +123,7 @@ describe('AppSidebar Library block', () => {
             'Library',
             'Discover',
             'Artists',
-            'Releases',
+            'Albums',
             'Main',
             'Classical',
             '---',
@@ -134,7 +134,7 @@ describe('AppSidebar Library block', () => {
     })
 
     // A library is a saved filter, so even the only one is a narrower view than
-    // the catalog the Discover/Releases/Artists entries browse: it has to be
+    // the catalog the Discover/Albums/Artists entries browse: it has to be
     // reachable, or following the README produces nothing visible here.
     it('lists the only library, with its own route', async () => {
         foldersRef.value = [{ id: 1, name: 'Main' }]
@@ -156,7 +156,7 @@ describe('AppSidebar Library block', () => {
             'Search',
             'Discover',
             'Artists',
-            'Releases',
+            'Albums',
             'Playlists',
             'Genres',
             'Radio'
@@ -170,15 +170,15 @@ describe('AppSidebar split libraries', () => {
     const classical = (): MusicFolder => ({
         id: 2,
         name: 'Classical',
-        views: ['artists', 'releases'],
-        defaultView: 'releases',
+        views: ['artists', 'albums'],
+        defaultView: 'albums',
         splitViews: true
     })
 
     const sectionItems = () =>
         mountSidebar()
             .findAll('.sidebar-nav .nav-item')
-            .filter((n) => n.text() === 'Artists' || n.text() === 'Releases')
+            .filter((n) => n.text() === 'Artists' || n.text() === 'Albums')
             .slice(2) // past the root Library block's own two
 
     it('gives a split library its own section, keeping single ones in the Library block', () => {
@@ -190,12 +190,12 @@ describe('AppSidebar split libraries', () => {
             'Library',
             'Discover',
             'Artists',
-            'Releases',
+            'Albums',
             'Main',
             '---',
             'Classical',
             'Artists',
-            'Releases',
+            'Albums',
             '---',
             'Playlists',
             'Genres',
@@ -205,10 +205,10 @@ describe('AppSidebar split libraries', () => {
 
     it('routes the view it opens on to the bare path and the others to a segment', async () => {
         foldersRef.value = [classical()]
-        const [artists, releases] = sectionItems()
+        const [artists, albums] = sectionItems()
         await artists.trigger('click')
         expect(pushSpy).toHaveBeenLastCalledWith('/library/2/artists')
-        await releases.trigger('click')
+        await albums.trigger('click')
         expect(pushSpy).toHaveBeenLastCalledWith('/library/2')
     })
 

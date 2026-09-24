@@ -40,7 +40,7 @@ func TestLibraryColumnDefaults(t *testing.T) {
 // Explicit views are stored as given, not replaced by the column default.
 func TestLibraryViewsRoundTrip(t *testing.T) {
 	db := testDB(t)
-	lib := model.Library{Name: "Books", Views: []model.LibraryView{model.ViewReleases}, DefaultView: model.ViewReleases}
+	lib := model.Library{Name: "Books", Views: []model.LibraryView{model.ViewAlbums}, DefaultView: model.ViewAlbums}
 	if err := db.Create(&lib).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +48,8 @@ func TestLibraryViewsRoundTrip(t *testing.T) {
 	if err := db.First(&got, lib.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got.Views, []model.LibraryView{model.ViewReleases}) || got.DefaultView != model.ViewReleases {
-		t.Fatalf("got views %v opening on %q, want [releases] opening on releases", got.Views, got.DefaultView)
+	if !slices.Equal(got.Views, []model.LibraryView{model.ViewAlbums}) || got.DefaultView != model.ViewAlbums {
+		t.Fatalf("got views %v opening on %q, want [albums] opening on albums", got.Views, got.DefaultView)
 	}
 }
 

@@ -55,19 +55,19 @@ const offeredViews = computed<readonly ViewMode[]>(() =>
 )
 
 // Where the bare path lands: Discover at the root, a library's configured
-// default inside one. Releases when the library offers nothing known, so an id
+// default inside one. Albums when the library offers nothing known, so an id
 // that names no library shows the empty release list it always has.
 const landingView = computed<ViewMode>(() => {
     if (folderId.value === undefined) return 'discover'
-    return openingView(offeredViews.value, folder.value?.defaultView) ?? 'releases'
+    return openingView(offeredViews.value, folder.value?.defaultView) ?? 'albums'
 })
 
-// The view named by the path segment (/library/releases, /library/5/artists).
+// The view named by the path segment (/library/albums, /library/5/artists).
 // The router constrains the segment, so anything else reads as absent.
 const modeParam = computed<ViewMode | null>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'discover' || m === 'releases' || m === 'artists' ? m : null
+    return m === 'discover' || m === 'albums' || m === 'artists' ? m : null
 })
 
 // The view shown: the path's when this page offers it, else the landing view.
@@ -132,7 +132,7 @@ const layout = computed<Layout>({
 })
 
 // Favorites filter, in the URL so it survives a reload and is linkable. It applies
-// to the Releases and Artists views only: Discover is a ranked feed in which
+// to the Albums and Artists views only: Discover is a ranked feed in which
 // favorites are already a scoring term, not a filterable list.
 const favoritesOnly = computed<boolean>({
     get: () => route.query.favorites === '1' && viewMode.value !== 'discover',
@@ -153,10 +153,10 @@ const RELEASE_TYPE_LABELS: Record<string, string> = {
 }
 
 // In the URL so it is linkable and reload-safe. '' means All. Only meaningful in
-// Releases mode; forced to '' elsewhere and while favorites is on.
+// Albums mode; forced to '' elsewhere and while favorites is on.
 const releaseType = computed<string>({
     get: () => {
-        if (viewMode.value !== 'releases' || favoritesOnly.value) return ''
+        if (viewMode.value !== 'albums' || favoritesOnly.value) return ''
         const q = route.query.releaseType
         return typeof q === 'string' ? q : ''
     },
@@ -172,7 +172,7 @@ const releaseTypeParam = computed<string | undefined>(() => releaseType.value ||
 
 // Each source below is fetched only while its view is the one shown.
 const showing = (view: ViewMode) => computed(() => viewKnown.value && viewMode.value === view)
-const showingReleases = showing('releases')
+const showingAlbums = showing('albums')
 const showingArtists = showing('artists')
 const showingDiscover = showing('discover')
 
@@ -181,7 +181,7 @@ const showingDiscover = showing('discover')
 // fetched, every type is offered as before. The active type is always kept, so a
 // linked or stale ?releaseType= still shows which filter is on and can be left.
 // Types compare case-insensitively, as the server's filter matches them.
-const { data: carriedReleaseTypes } = useReleaseTypes(folderId, { enabled: showingReleases })
+const { data: carriedReleaseTypes } = useReleaseTypes(folderId, { enabled: showingAlbums })
 const releaseTypeOptions = computed(() => {
     const carried = carriedReleaseTypes.value
         ? new Set(carriedReleaseTypes.value.map((t) => t.name.toLowerCase()))
@@ -202,14 +202,14 @@ const releaseTypeOptions = computed(() => {
 // cache entry with the grid/list below).
 const { total: albumTotal } = useAlbumIndex(
     folderId,
-    { enabled: computed(() => showingReleases.value && !favoritesOnly.value) },
+    { enabled: computed(() => showingAlbums.value && !favoritesOnly.value) },
     releaseTypeParam
 )
 const { total: artistTotal } = useArtistTable(folderId, {
     enabled: computed(() => showingArtists.value && !favoritesOnly.value)
 })
 const { total: starredAlbumTotal } = useStarredAlbums(folderId, {
-    enabled: computed(() => showingReleases.value && favoritesOnly.value)
+    enabled: computed(() => showingAlbums.value && favoritesOnly.value)
 })
 const { total: starredArtistTotal } = useStarredArtists(folderId, {
     enabled: computed(() => showingArtists.value && favoritesOnly.value)
@@ -222,17 +222,17 @@ const summary = computed(() => {
         const n = discoveryItems.value.length
         return n > 0 ? `${n} item${n === 1 ? '' : 's'}` : ''
     }
-    // Filtered, the count is of favorites, and a bare "6 releases" would read as the
-    // whole library. "6 favorites" rather than "6 favorite releases" because the
+    // Filtered, the count is of favorites, and a bare "6 albums" would read as the
+    // whole library. "6 favorites" rather than "6 favorite albums" because the
     // view already names the type, and a phone header has no room for the longer
     // form.
     if (favoritesOnly.value) {
-        const n = viewMode.value === 'releases' ? starredAlbumTotal.value : starredArtistTotal.value
+        const n = viewMode.value === 'albums' ? starredAlbumTotal.value : starredArtistTotal.value
         return n > 0 ? `${n} favorite${n === 1 ? '' : 's'}` : ''
     }
-    if (viewMode.value === 'releases') {
+    if (viewMode.value === 'albums') {
         return albumTotal.value > 0
-            ? `${albumTotal.value} ${albumTotal.value === 1 ? 'release' : 'releases'}`
+            ? `${albumTotal.value} ${albumTotal.value === 1 ? 'release' : 'albums'}`
             : ''
     }
     return artistTotal.value > 0
@@ -268,7 +268,7 @@ const summary = computed(() => {
                  the release-type row is dropped rather than shown with one
                  tab. -->
             <SelectButton
-                v-if="viewKnown && viewMode === 'releases' && !favoritesOnly && releaseTypeOptions.length > 1"
+                v-if="viewKnown && viewMode === 'albums' && !favoritesOnly && releaseTypeOptions.length > 1"
                 v-model="releaseType"
                 :options="releaseTypeOptions"
                 optionLabel="label"
@@ -314,13 +314,13 @@ const summary = computed(() => {
         <template v-if="viewKnown">
             <DiscoveryFeed v-if="viewMode === 'discover'" :layout="layout" :folderId="folderId" />
             <AlbumListView
-                v-else-if="viewMode === 'releases' && layout === 'list'"
+                v-else-if="viewMode === 'albums' && layout === 'list'"
                 :folderId="folderId"
                 :favoritesOnly="favoritesOnly"
                 :releaseType="releaseTypeParam"
             />
             <AlbumGrid
-                v-else-if="viewMode === 'releases'"
+                v-else-if="viewMode === 'albums'"
                 :folderId="folderId"
                 :favoritesOnly="favoritesOnly"
                 :releaseType="releaseTypeParam"

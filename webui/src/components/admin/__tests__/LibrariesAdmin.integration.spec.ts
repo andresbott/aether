@@ -42,7 +42,7 @@ import FolderPickerDialog from '@/components/admin/FolderPickerDialog.vue'
 const stored: Library = {
     id: 7,
     name: 'Main',
-    views: ['discover', 'artists', 'releases'],
+    views: ['discover', 'artists', 'albums'],
     default_view: 'discover',
     hide_from_artist_index: false,
     split_views: false,

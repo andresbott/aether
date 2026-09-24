@@ -212,7 +212,7 @@ class SubsonicClient {
         return response.albumList2Index ?? { total: 0, index: [] }
     }
 
-    // The release types the albums in scope carry, so the Releases filter can
+    // The release types the albums in scope carry, so the Albums view's release-type filter can
     // offer only the types that list something.
     async getReleaseTypes(musicFolderId?: number): Promise<ReleaseTypeCount[]> {
         if (!this.isConfigured()) return []

@@ -3542,7 +3542,7 @@ components:
           items: { $ref: '#/components/schemas/LibraryView' }
           description: >
             The ways the library can be browsed, in display order (discover,
-            artists, releases), each at most once.
+            artists, albums), each at most once.
         default_view:
           $ref: '#/components/schemas/LibraryView'
         hide_from_artist_index:
@@ -3599,7 +3599,7 @@ components:
 
     LibraryView:
       type: string
-      enum: [discover, artists, releases]
+      enum: [discover, artists, albums]
       description: >
         One way of browsing a library: the ranked Discovery feed, the artist
         index, or the release list. `/rest` advertises the same vocabulary as
@@ -3612,7 +3612,7 @@ components:
           type: boolean
           description: >
             How the root library appears in the SPA sidebar: true lists each
-            of its views (Discover, Artists, Releases) as its own entry, false
+            of its views (Discover, Artists, Albums) as its own entry, false
             gives it one entry whose page switches between them.
       required: [split_views]
 

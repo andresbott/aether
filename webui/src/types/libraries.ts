@@ -1,5 +1,5 @@
 /** One way of browsing a library; labels, icons and display order live in lib/libraryViews.ts. */
-export type LibraryView = 'discover' | 'artists' | 'releases'
+export type LibraryView = 'discover' | 'artists' | 'albums'
 export type LibraryFilterField = 'scan_folder' | 'path' | 'format' | 'release_type' | 'compilation' | 'genre'
 
 /** One condition of a library. A library's filters are AND-ed; the values of one filter are OR-ed. */

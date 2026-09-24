@@ -13,7 +13,7 @@ type Library struct {
 	// DefaultView is the one of them it opens on. The column defaults give a
 	// library created with just a name every view, opening on Discover — the
 	// same browsing the whole catalog offers.
-	Views       []LibraryView `gorm:"serializer:json;not null;default:'[\"discover\",\"artists\",\"releases\"]'"`
+	Views       []LibraryView `gorm:"serializer:json;not null;default:'[\"discover\",\"artists\",\"albums\"]'"`
 	DefaultView LibraryView   `gorm:"not null;default:'discover'"`
 	// HideFromArtistIndex keeps this library's artists out of the cross-library
 	// artist index (the main Artists page). It does not touch the library
@@ -40,14 +40,14 @@ const (
 	ViewDiscover LibraryView = "discover"
 	// ViewArtists is the index of the artists credited on its albums.
 	ViewArtists LibraryView = "artists"
-	// ViewReleases lists its albums, filterable by release type.
-	ViewReleases LibraryView = "releases"
+	// ViewAlbums lists its albums, filterable by release type.
+	ViewAlbums LibraryView = "albums"
 )
 
 // LibraryViews returns every view, in the order a library stores and shows
 // them.
 func LibraryViews() []LibraryView {
-	return []LibraryView{ViewDiscover, ViewArtists, ViewReleases}
+	return []LibraryView{ViewDiscover, ViewArtists, ViewAlbums}
 }
 
 // LibraryFilterField names what a LibraryFilter tests.

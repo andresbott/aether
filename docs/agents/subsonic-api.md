@@ -170,8 +170,8 @@ scope carry — primary and secondary alike — with how many albums filtering b
 lists. It is the filter's own vocabulary, so it groups exactly as the filter
 matches: case-insensitively, named by the group's first spelling in binary order
 (`Album` over `album`), an album counted once however many spellings it holds;
-blank types are skipped (`Store.ReleaseTypeCounts`). The Releases tab row in
-`LibraryView` offers only the primary types listed here. It is a version, not a
+blank types are skipped (`Store.ReleaseTypeCounts`). The Albums view's
+release-type tab row in `LibraryView` offers only the primary types listed here. It is a version, not a
 new extension name, because it grows the same capability: v1's parameter is
 unchanged, so the server advertises `[1, 2]`.
 
@@ -271,7 +271,7 @@ table anyway, rather than hiding every artist in the unscoped index (see
 `getMusicFolders` answers `id`, `name`, `views`, `defaultView`, `splitViews`
 and `icon` per library — exactly those (`TestGetMusicFoldersShapeIsUnchanged`): a library's
 filters and its `HideFromArtistIndex` are purely internal, server-side
-details. `views` (always an array; `discover`/`artists`/`releases` in that
+details. `views` (always an array; `discover`/`artists`/`albums` in that
 order) and `defaultView` (one of them) are the `musicFolderViews` extension —
 which of Aether's browsing views the library offers and which it opens on;
 `splitViews` (v2 of the same extension) tells a client to list each of those

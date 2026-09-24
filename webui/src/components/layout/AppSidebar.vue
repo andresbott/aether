@@ -49,7 +49,7 @@ const topItems: NavItem[] = [
 const libraryModes: NavItem[] = [
     { label: 'Discover', icon: 'ms-explore', route: '/library', routeName: 'library', mode: 'discover', shortcut: 'library' },
     { label: 'Artists', icon: 'ms-artist', route: '/library/artists', routeName: 'library', mode: 'artists' },
-    { label: 'Releases', icon: 'ms-album', route: '/library/releases', routeName: 'library', mode: 'releases' }
+    { label: 'Albums', icon: 'ms-album', route: '/library/albums', routeName: 'library', mode: 'albums' }
 ]
 
 // The root as one entry, for a catalog set not to split its views: its page
@@ -71,7 +71,7 @@ const rootSplit = computed(() => catalog.value?.splitViews ?? true)
 
 // Listed from the first library on: a library is a saved filter, so even a
 // single one is a narrower view than the whole catalog — that is what the
-// Discover/Releases/Artists entries above already browse. An empty list still
+// Discover/Albums/Artists entries above already browse. An empty list still
 // yields no entries.
 const folderItems = computed<NavItem[]>(() => {
     const folders = (musicFolders.value ?? []).filter((folder) => !folder.splitViews)
@@ -136,7 +136,7 @@ const bottomItems: NavItem[] = [
 const modeParam = computed<LibraryView | undefined>(() => {
     const raw = route.params.mode
     const m = Array.isArray(raw) ? raw[0] : raw
-    return m === 'discover' || m === 'releases' || m === 'artists' ? m : undefined
+    return m === 'discover' || m === 'albums' || m === 'artists' ? m : undefined
 })
 
 const isActive = (item: NavItem): boolean => {

@@ -42,10 +42,10 @@ const routes: RouteRecordRaw[] = [
     {
         // The cross-collection root. Bare /library is Discover (the default,
         // cross-collection ranked feed); the other views are real path segments,
-        // /library/releases and /library/artists. The segment only names those
+        // /library/albums and /library/artists. The segment only names those
         // two, so there is deliberately no /library/discover — the root's
         // Discover is only ever the bare path.
-        path: '/library/:mode(releases|artists)?',
+        path: '/library/:mode(albums|artists)?',
         name: 'library',
         component: () => import('@/views/LibraryView.vue'),
         props: true,
@@ -57,7 +57,7 @@ const routes: RouteRecordRaw[] = [
         // and the optional trailing mode (/library/5/artists) names another of
         // its views. LibraryView rewrites a view the library does not offer back
         // to the bare path.
-        path: '/library/:folderId(\\d+)/:mode(discover|releases|artists)?',
+        path: '/library/:folderId(\\d+)/:mode(discover|albums|artists)?',
         name: 'library-folder',
         component: () => import('@/views/LibraryView.vue'),
         props: true,

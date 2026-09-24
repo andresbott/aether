@@ -9,7 +9,7 @@ export interface ReleaseGroup {
     albums: Album[]
 }
 
-// Plural section headings, matching the Releases browse tabs.
+// Plural section headings, matching the Albums view's release-type tabs.
 const LABELS: Record<PrimaryReleaseType, string> = {
     Album: 'Albums',
     Single: 'Singles',

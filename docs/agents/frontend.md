@@ -340,7 +340,7 @@ libraries, the same picker, saving on pick through `useUpdateCatalogSettings`
 `getMusicFolders`' `catalog` descriptor via `useCatalogView`, which shares
 `useMusicFolders`' query (one request, each `select`ing its part); a missing
 descriptor means split. Split, the Library block starts with Discover /
-Artists / Releases; not split, with one **All music** entry (`/library`,
+Artists / Albums; not split, with one **All music** entry (`/library`,
 compass icon, the Library shortcut badge, active on any root view). New libraries default to every view, opening on Discover —
 the server's defaults too. `/views…` errors render on the Views row,
 `/default_view` under Opens on.
@@ -633,8 +633,8 @@ Sidebar anchors come from a per-item `shortcut` field on `AppSidebar`'s `NavItem
 `:data-shortcut="item.shortcut"` attribute, so which entries anchor is entirely
 data-driven — every entry in `topItems` and `bottomItems` sets one, as does the
 Discover entry in `libraryModes`, six in total. The three library modes
-(Discover/Artists/Releases) share `routeName: 'library'`, but only Discover's
-entry sets `shortcut`; Releases/Artists and every `folderItems` entry leave
+(Discover/Artists/Albums) share `routeName: 'library'`, but only Discover's
+entry sets `shortcut`; Albums/Artists and every `folderItems` entry leave
 it unset, since anchoring more than one of them would let the overlay badge
 whichever it found first instead of the cross-collection root. That is why
 `AppSidebar.shortcutAnchor.spec.ts` asserts a bare *count* of anchored entries — a

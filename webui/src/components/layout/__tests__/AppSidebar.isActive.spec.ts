@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
 
 // Guards the mode-aware `isActive` in AppSidebar: the root browse modes
-// (Discover/Releases/Artists) share the library section with every per-folder
+// (Discover/Albums/Artists) share the library section with every per-folder
 // entry, yet each must highlight independently. The mode is now a path segment
 // (route.params.mode), and a folder resolves to the separate 'library-folder'
 // route — isActive must treat both route names as "the library".
@@ -63,15 +63,15 @@ describe('AppSidebar isActive', () => {
     it('activates Discover at the cross-collection root with no mode segment', () => {
         const w = mountSidebar()
         expect(isActive(w, 'Discover')).toBe(true)
-        expect(isActive(w, 'Releases')).toBe(false)
+        expect(isActive(w, 'Albums')).toBe(false)
         expect(isActive(w, 'Artists')).toBe(false)
     })
 
-    it('activates Releases in releases mode, and not Discover', () => {
-        route.path = '/library/releases'
-        route.params = { mode: 'releases' }
+    it('activates Albums in albums mode, and not Discover', () => {
+        route.path = '/library/albums'
+        route.params = { mode: 'albums' }
         const w = mountSidebar()
-        expect(isActive(w, 'Releases')).toBe(true)
+        expect(isActive(w, 'Albums')).toBe(true)
         expect(isActive(w, 'Discover')).toBe(false)
     })
 
@@ -81,7 +81,7 @@ describe('AppSidebar isActive', () => {
         const w = mountSidebar()
         expect(isActive(w, 'Artists')).toBe(true)
         expect(isActive(w, 'Discover')).toBe(false)
-        expect(isActive(w, 'Releases')).toBe(false)
+        expect(isActive(w, 'Albums')).toBe(false)
     })
 
     it('activates the matching folder entry, and no mode entry, on the folder route', () => {
@@ -96,7 +96,7 @@ describe('AppSidebar isActive', () => {
         expect(isActive(w, 'Archive')).toBe(true)
         expect(isActive(w, 'Main')).toBe(false)
         expect(isActive(w, 'Discover')).toBe(false)
-        expect(isActive(w, 'Releases')).toBe(false)
+        expect(isActive(w, 'Albums')).toBe(false)
         expect(isActive(w, 'Artists')).toBe(false)
     })
 })

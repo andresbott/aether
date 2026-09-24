@@ -1,6 +1,6 @@
 // Storage and the wire are a single flat list; the primary/secondary split
 // below is UX only. The vocabulary itself now lives in @/lib (shared with the
-// Releases browse tabs) — re-exported here so existing editor imports keep
+// Albums view's release-type tabs) — re-exported here so existing editor imports keep
 // resolving.
 import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from '@/lib/releaseTypes'
 export { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES }

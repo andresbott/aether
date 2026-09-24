@@ -129,7 +129,7 @@ watch(
     () => form.value.views,
     (views) => {
         if (!views.includes(form.value.default_view)) {
-            form.value.default_view = openingView(views) ?? 'releases'
+            form.value.default_view = openingView(views) ?? 'albums'
         }
     }
 )

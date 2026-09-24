@@ -9,7 +9,7 @@ import type { LibraryView } from '@/types/libraries'
 export const LIBRARY_VIEWS: readonly { value: LibraryView; label: string; icon: string }[] = [
     { value: 'discover', label: 'Discover', icon: 'ms-explore' },
     { value: 'artists', label: 'Artists', icon: 'ms-artist' },
-    { value: 'releases', label: 'Releases', icon: 'ms-album' }
+    { value: 'albums', label: 'Albums', icon: 'ms-album' }
 ]
 
 /** Every view, in display order. */

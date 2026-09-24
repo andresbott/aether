@@ -114,7 +114,7 @@ const summary = computed(() => {
 })
 ```
 
-- Library: `"1240 releases"` / `"87 artists"` / `"48 items"` (Discover); Radio: `"5 stations"`; Now Playing:
+- Library: `"1240 albums"` / `"87 artists"` / `"48 items"` (Discover); Radio: `"5 stations"`; Now Playing:
   `"27 tracks • 1 hr 34 min"` (an extra `• duration` segment, omitted when duration is 0).
 - Pre-build multi-part summaries as one string (no stray whitespace between number and
   unit) so `.text()` assertions stay reliable.
@@ -143,7 +143,7 @@ handle scrollbar compensation at different depths.
 Phone overrides: below `$bp-phone-max` (768px), `--app-content-gutter` tightens to `0.75rem` and `--app-rail-clearance` collapses to `0px` (the rail is `display:none`, so the clearance must collapse with it). Recipes resolve through these tokens, so every conforming view adapts with no per-view change.
 
 **`--app-list-header-top` goes on the header element, never on the scroll container
-above it.** Library → Releases and Artists have fixed headers where either would look
+above it.** Library → Albums and Artists have fixed headers where either would look
 the same, but Discover's list header is `position: sticky`: container padding
 scrolls away, so the gap would collapse the moment the list moved. Keeping it on the
 header makes the gap identical scrolled and unscrolled, and identical across all
@@ -265,7 +265,7 @@ chrome like the queue sidebar.
 | --- | --- | --- |
 | Now Playing (`QueueView` full — desktop) | `/` | ✅ `ContentScaffold` (origin of the pattern) |
 | Browse (`MobileBrowseView`, mobile only) | `/browse` | ✅ `ContentScaffold` (`navRoot`, Recipe B body of `BrowseShelf` strips) |
-| Library (discover/releases/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover view = Recipe B body via `DiscoveryFeed`; views switched from the sidebar at the desktop root, and by a Discover/Artists/Releases `SelectButton` group in `#actions` inside a library offering more than one and at the phone root; Releases carries a release-type `SelectButton` bound to `?releaseType=`) |
+| Library (discover/albums/artist × list/grid) | `/library` | ✅ `ContentScaffold` (Discover view = Recipe B body via `DiscoveryFeed`; views switched from the sidebar at the desktop root, and by a Discover/Artists/Albums `SelectButton` group in `#actions` inside a library offering more than one and at the phone root; Albums carries a release-type `SelectButton` bound to `?releaseType=`) |
 | Search | `/search` | ✅ `ContentScaffold` |
 | Radio | `/radio` | ✅ `ContentScaffold` |
 | Album detail (`AlbumView`) | `/album/:id` | ✅ `ContentScaffold` (cover in body hero) |

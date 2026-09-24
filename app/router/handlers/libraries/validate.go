@@ -55,7 +55,7 @@ func ValidateViews(views []model.LibraryView) ([]model.LibraryView, []problemjso
 		if !slices.Contains(all, v) {
 			problems = append(problems, problemjson.FieldError{
 				Pointer: "/views/" + strconv.Itoa(i),
-				Detail:  fmt.Sprintf("unknown view %q (allowed: discover, artists, releases)", v),
+				Detail:  fmt.Sprintf("unknown view %q (allowed: discover, artists, albums)", v),
 			})
 		}
 	}

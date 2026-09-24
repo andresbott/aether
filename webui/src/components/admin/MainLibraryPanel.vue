@@ -23,7 +23,7 @@ const splitViews = computed<boolean>({
             <h2 id="main-library-heading">Main library</h2>
         </div>
         <p class="hint">
-            The whole catalog, above the libraries in the sidebar: its Discover, Artists and Releases
+            The whole catalog, above the libraries in the sidebar: its Discover, Artists and Albums
             as an entry each, or one entry that switches between them.
         </p>
 
