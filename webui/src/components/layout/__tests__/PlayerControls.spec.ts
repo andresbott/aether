@@ -79,7 +79,7 @@ describe('PlayerControls now-playing', () => {
         expect(w.find('.now-artist').text()).toBe('Aurora Skies')
         const like = w.find('.now-like')
         expect(like.exists()).toBe(true)
-        expect(like.find('.ms-favorite').exists()).toBe(true)
+        expect(like.find('.mso-favorite').exists()).toBe(true)
     })
 
     it('toggles favorite and fills the heart when liked', async () => {
@@ -88,7 +88,7 @@ describe('PlayerControls now-playing', () => {
         await w.find('.now-like').trigger('click')
         expect(mutate).toHaveBeenCalledWith({ id: 's1', starred: false })
         await w.vm.$nextTick()
-        expect(w.find('.now-like .msf-favorite').exists()).toBe(true)
+        expect(w.find('.now-like .ms-favorite').exists()).toBe(true)
     })
 })
 

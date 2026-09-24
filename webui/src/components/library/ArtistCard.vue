@@ -80,7 +80,7 @@ const onCardDragStart = (event: DragEvent): void => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
             </button>
             <button class="card-play" type="button" aria-label="Play random album" @click="onPlay">
                 <i class="ms-play-arrow"></i>

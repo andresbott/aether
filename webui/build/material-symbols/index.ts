@@ -13,7 +13,7 @@ const RESOLVED_CATALOGUE = '\0material-symbols-catalogue'
 
 /**
  * Material Symbols (Rounded), self-hosted: CSS-mask classes for the icons the
- * source names (ms-<name> outlined, msf-<name> filled), one SVG file per
+ * source names (ms-<name> filled, mso-<name> outlined), one SVG file per
  * catalogue icon for runtime-chosen library icons, and the picker's name
  * list. Everything comes from node_modules — no network, ever.
  */

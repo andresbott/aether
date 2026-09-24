@@ -192,7 +192,7 @@ const createNew = (): void => {
         />
         <Button
             class="sel-favorite"
-            icon="ms-favorite"
+            icon="mso-favorite"
             severity="secondary"
             text
             rounded

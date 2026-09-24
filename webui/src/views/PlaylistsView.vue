@@ -105,8 +105,8 @@ const handleCreate = () => {
             <ToggleButton
                 v-model="favoritesOnly"
                 class="playlists-favorites-filter as-button-group"
-                onIcon="msf-favorite"
-                offIcon="ms-favorite"
+                onIcon="ms-favorite"
+                offIcon="mso-favorite"
                 onLabel=""
                 offLabel=""
                 :aria-label="favoritesOnly ? 'Show all' : 'Show favorites only'"
@@ -165,7 +165,7 @@ const handleCreate = () => {
                  on, the latter would claim the user has none at all. -->
             <div v-else class="empty-state">
                 <i
-                    :class="favoritesOnly ? 'ms-favorite' : publicOnly ? 'ms-public' : 'ms-queue-music'"
+                    :class="favoritesOnly ? 'mso-favorite' : publicOnly ? 'ms-public' : 'ms-queue-music'"
                     style="font-size: 3rem"
                 ></i>
                 <p v-if="favoritesOnly">No favorite playlists yet</p>

@@ -5,7 +5,7 @@ import TrackSelectButton from '@/components/library/TrackSelectButton.vue'
 
 describe('TrackSelectButton', () => {
     it('shows an empty circle when unselected and a check when selected', () => {
-        expect(mount(TrackSelectButton).find('i').classes()).toContain('ms-circle')
+        expect(mount(TrackSelectButton).find('i').classes()).toContain('mso-circle')
         expect(
             mount(TrackSelectButton, { props: { selected: true } })
                 .find('i')

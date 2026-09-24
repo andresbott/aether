@@ -61,7 +61,7 @@ const emit = defineEmits<{
         <Button
             v-if="canStar"
             class="hero-action-star"
-            :icon="starred ? 'msf-favorite' : 'ms-favorite'"
+            :icon="starred ? 'ms-favorite' : 'mso-favorite'"
             :aria-label="favoriteLabel"
             severity="secondary"
             text

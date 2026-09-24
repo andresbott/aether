@@ -52,7 +52,7 @@ const onStar = (event: Event): void => {
                 :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                 @click="onStar"
             >
-                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
             </button>
         </div>
         <!-- Always rendered so the count column keeps its grid slot; without it a

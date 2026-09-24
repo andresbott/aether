@@ -193,7 +193,7 @@ const { isStarred, toggleFavorite: toggleLike } = useSongFavorite(() => props.so
                          `danger` red) — see unified-play-experience.md. -->
                     <div class="card-actions">
                         <Button
-                            :icon="isStarred ? 'msf-favorite' : 'ms-favorite'"
+                            :icon="isStarred ? 'ms-favorite' : 'mso-favorite'"
                             :label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                             severity="secondary"
                             outlined

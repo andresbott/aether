@@ -28,7 +28,7 @@ function onSelectLetter(offset: number): void {
             <p>Could not load artists</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i :class="favoritesOnly ? 'ms-favorite' : 'ms-artist'" style="font-size: 3rem"></i>
+            <i :class="favoritesOnly ? 'mso-favorite' : 'ms-artist'" style="font-size: 3rem"></i>
             <p v-if="favoritesOnly">No favorite artists yet</p>
             <p v-else>No artists found</p>
         </div>

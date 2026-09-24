@@ -275,7 +275,7 @@ const wrapperEl = ref<HTMLElement | null>(null)
                 <template #body="{ data }">
                     <i
                         v-if="stagedPaths?.has((data as Track).path)"
-                        class="msf-circle staged-dot"
+                        class="ms-circle staged-dot"
                         v-tooltip.right="'Unsaved changes'"
                         data-test="staged-marker"
                     ></i>

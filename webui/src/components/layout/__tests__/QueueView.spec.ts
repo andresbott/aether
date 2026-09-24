@@ -165,7 +165,7 @@ describe('QueueView', () => {
         const w = mountView('sidebar')
         const heart = w.find('.queue-upcoming .row-star')
         expect(heart.classes()).toContain('is-starred')
-        expect(heart.find('i').classes()).toContain('msf-favorite')
+        expect(heart.find('i').classes()).toContain('ms-favorite')
     })
 
     // The now-playing track is a track like any other and needs the same heart;
@@ -182,7 +182,7 @@ describe('QueueView', () => {
     it('the strip heart reflects the current track state', () => {
         queue.value = [song('1'), song('2', { starred: '2026-02-01T00:00:00Z' }), song('3')]
         const w = mountView('sidebar') // currentIndex = 1
-        expect(w.find('.strip-star .row-star i').classes()).toContain('msf-favorite')
+        expect(w.find('.strip-star .row-star i').classes()).toContain('ms-favorite')
     })
 
     // The full variant's SongDetail card carries its own, so a second one here

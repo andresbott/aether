@@ -87,7 +87,7 @@ const goArtist = (): void => {
                  accessible toggle), hence aria-hidden. -->
             <i
                 v-if="isStarred"
-                class="msf-favorite play-favorite-indicator"
+                class="ms-favorite play-favorite-indicator"
                 aria-hidden="true"
             ></i>
         </div>

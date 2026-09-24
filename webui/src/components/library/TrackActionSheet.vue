@@ -136,7 +136,7 @@ const favoriteLabel = computed(() =>
                 <span>Add to queue</span>
             </button>
             <button type="button" class="sheet-action" @click="onFavorite">
-                <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
+                <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
                 <span>{{ favoriteLabel }}</span>
             </button>
             <button type="button" class="sheet-action" @click="face = 'playlists'">

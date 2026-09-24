@@ -682,8 +682,11 @@ User settings (`/user-settings`) theme picker. This is intentional — don't "cl
 Material Symbols **Rounded**, self-hosted — never a CDN. `build/material-symbols`
 (a Vite plugin) reads `@iconify-json/material-symbols` from node_modules:
 
-- **Static icons are classes**: `ms-<name>` outlined, `msf-<name>` filled
-  (kebab-case Material names: `ms-play-arrow`, `msf-favorite`). They are plain
+- **Static icons are classes**: `ms-<name>` is the **filled** glyph — the app's
+  icon style — and `mso-<name>` the outlined one, used only for the "off" half
+  of a toggle whose "on" half is the filled glyph (`mso-favorite`/`ms-favorite`
+  hearts, `mso-circle`/`ms-circle` selection). Names are kebab-case Material
+  names (`ms-play-arrow`). They are plain
   class strings, so PrimeVue `icon=` props and menu models take them as-is. The
   plugin scans `src/**/*.{vue,ts}` (specs excluded) and emits CSS-mask rules for
   exactly the tokens it finds; an unknown name, or a class built at runtime
@@ -693,8 +696,8 @@ Material Symbols **Rounded**, self-hosted — never a CDN. `build/material-symbo
   styles `pi-spin` because PrimeVue hard-codes it on its own loading icons.
 - **Library icons** are runtime data: a snake_case Material name
   (`queue_music`, the `musicFolderIcon` vocabulary). Render them with
-  `<LibraryIcon :name>`, which masks with the per-icon SVG the build emits to
-  `dist/icons/ms/<name>.svg`; a well-formed name that is not a real Material
+  `<LibraryIcon :name>`, which masks with the per-icon (filled) SVG the build
+  emits to `dist/icons/ms/<name>.svg`; a well-formed name that is not a real Material
   Symbols icon renders blank, only malformed names fall back to `folder`.
 - **The picker** (`IconSelect`) lazily imports `virtual:material-symbols/catalogue`
   — every Rounded icon name, sorted — and searches by name with

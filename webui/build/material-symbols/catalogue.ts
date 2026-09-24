@@ -3,7 +3,7 @@ import { iconSvg, type IconSet } from './iconset'
 export interface Catalogue {
     // Every Rounded icon, as the snake_case name a library stores, sorted.
     names: string[]
-    // Its standalone SVG (outlined where Google ships one), for icons/ms/<name>.svg.
+    // Its standalone SVG (filled, like the ms-* classes), for icons/ms/<name>.svg.
     svgs: Map<string, string>
 }
 
@@ -18,7 +18,7 @@ export function buildCatalogue(set: IconSet): Catalogue {
     const names: string[] = []
     const svgs = new Map<string, string>()
     for (const kebab of bases) {
-        const svg = iconSvg(set, kebab, 'outline')
+        const svg = iconSvg(set, kebab, 'fill')
         if (!svg) continue
         const name = kebab.replace(/-/g, '_')
         names.push(name)

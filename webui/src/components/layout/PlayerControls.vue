@@ -155,7 +155,7 @@ const {
                     :aria-label="isStarred ? 'Remove from favorites' : 'Add to favorites'"
                     @click="toggleFavorite"
                 >
-                    <i :class="isStarred ? 'msf-favorite' : 'ms-favorite'"></i>
+                    <i :class="isStarred ? 'ms-favorite' : 'mso-favorite'"></i>
                 </button>
             </template>
         </div>

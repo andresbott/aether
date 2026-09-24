@@ -2,16 +2,18 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { iconSvg, type IconSet } from './iconset'
 
-// A static icon class: ms-<name> is outlined, msf-<name> filled. The lookbehind
-// keeps words like "items-center" and custom properties like --ms-svg out.
-const TOKEN_RE = /(?<![\w-])(msf?)-([a-z0-9]+(?:-[a-z0-9]+)*)(?![\w-])/g
+// A static icon class: ms-<name> is filled (the app's style), mso-<name>
+// outlined — kept for the "off" half of a toggle whose "on" half is the filled
+// glyph (favorite hearts, selection circles). The lookbehind keeps words like
+// "items-center" and custom properties like --ms-svg out.
+const TOKEN_RE = /(?<![\w-])(mso?)-([a-z0-9]+(?:-[a-z0-9]+)*)(?![\w-])/g
 // A class assembled at runtime would never reach the scanner, so its CSS would
 // silently be missing — refuse it. Runtime-chosen icons go through LibraryIcon.
-const DYNAMIC_RE = /(?<![\w-])msf?-\$\{|(?<![\w-])msf?-['"`]\s*\+/
+const DYNAMIC_RE = /(?<![\w-])mso?-\$\{|(?<![\w-])mso?-['"`]\s*\+/
 
 export function scanTokens(source: string, file: string): Set<string> {
     if (DYNAMIC_RE.test(source)) {
-        throw new Error(`${file}: dynamic icon class — use a literal ms-/msf- class, or <LibraryIcon> for runtime-chosen icons`)
+        throw new Error(`${file}: dynamic icon class — use a literal ms-/mso- class, or <LibraryIcon> for runtime-chosen icons`)
     }
     return new Set([...source.matchAll(TOKEN_RE)].map((m) => m[0]))
 }
@@ -48,8 +50,8 @@ export function buildIconCss(set: IconSet, tokens: Iterable<string>): string {
     const rules: string[] = []
     const missing: string[] = []
     for (const token of [...tokens].sort()) {
-        const fill = token.startsWith('msf-')
-        const svg = iconSvg(set, token.slice(fill ? 4 : 3), fill ? 'fill' : 'outline')
+        const outline = token.startsWith('mso-')
+        const svg = iconSvg(set, token.slice(outline ? 4 : 3), outline ? 'outline' : 'fill')
         if (!svg) {
             missing.push(token)
             continue

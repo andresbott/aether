@@ -28,7 +28,7 @@ function onLazyLoad(first: number, last: number): void {
             <p>Could not load albums</p>
         </div>
         <div v-else-if="total === 0" class="empty-state">
-            <i :class="favoritesOnly ? 'ms-favorite' : 'ms-music-note'" style="font-size: 3rem"></i>
+            <i :class="favoritesOnly ? 'mso-favorite' : 'ms-music-note'" style="font-size: 3rem"></i>
             <p v-if="favoritesOnly">No favorite albums yet</p>
             <p v-else>No albums found</p>
         </div>

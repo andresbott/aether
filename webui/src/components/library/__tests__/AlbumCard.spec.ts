@@ -67,9 +67,9 @@ describe('AlbumCard drag source', () => {
 
 describe('AlbumCard favorite toggle', () => {
     it('shows an outline heart when unstarred and a filled one when starred', () => {
-        expect(mountCard().find('.card-star i').classes()).toContain('ms-favorite')
+        expect(mountCard().find('.card-star i').classes()).toContain('mso-favorite')
         expect(mountCard({ starred: '2026-02-01T00:00:00Z' }).find('.card-star i').classes()).toContain(
-            'msf-favorite'
+            'ms-favorite'
         )
     })
 
