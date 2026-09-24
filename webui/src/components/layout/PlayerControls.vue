@@ -167,7 +167,7 @@ const {
                     :class="{ active: player.shuffle.value }"
                     @click="player.toggleShuffle"
                 >
-                    <i class="ms-swap-vert"></i>
+                    <i class="ms-shuffle"></i>
                 </button>
                 <button
                     class="control-btn"
@@ -193,7 +193,7 @@ const {
                     :class="{ active: player.repeat.value !== 'none' }"
                     @click="player.toggleRepeat"
                 >
-                    <i class="ms-sync"></i>
+                    <i class="ms-repeat"></i>
                 </button>
             </div>
 

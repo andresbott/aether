@@ -138,7 +138,7 @@ export interface MusicFolder {
     views?: LibraryView[]
     defaultView?: LibraryView
     splitViews?: boolean
-    // Aether's "musicFolderIcon" OpenSubsonic extension: Material Symbols kebab-case name.
+    // Aether's "musicFolderIcon" OpenSubsonic extension: Material Symbols snake_case name.
     icon?: string
 }
 

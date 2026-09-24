@@ -58,7 +58,7 @@ function choose(c: { style: string; variation: number }) {
             </button>
         </div>
         <template #footer>
-            <Button label="Shuffle" icon="ms-refresh" text :loading="loading" aria-label="Shuffle" @click="load" />
+            <Button label="Shuffle" icon="ms-shuffle" text :loading="loading" aria-label="Shuffle" @click="load" />
             <Button label="Cancel" text aria-label="Cancel" @click="emit('update:visible', false)" />
         </template>
     </Dialog>

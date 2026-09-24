@@ -148,7 +148,7 @@ const favoriteLabel = computed(() =>
                 <span>Go to album</span>
             </button>
             <button v-if="song?.artistId" type="button" class="sheet-action" @click="onArtist">
-                <i class="ms-person"></i>
+                <i class="ms-artist"></i>
                 <span>Go to artist</span>
             </button>
         </nav>
