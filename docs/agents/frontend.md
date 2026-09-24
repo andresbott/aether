@@ -694,7 +694,8 @@ Material Symbols **Rounded**, self-hosted — never a CDN. `build/material-symbo
 - **Library icons** are runtime data: a snake_case Material name
   (`queue_music`, the `musicFolderIcon` vocabulary). Render them with
   `<LibraryIcon :name>`, which masks with the per-icon SVG the build emits to
-  `dist/icons/ms/<name>.svg`; malformed names fall back to `folder`.
+  `dist/icons/ms/<name>.svg`; a well-formed name that is not a real Material
+  Symbols icon renders blank, only malformed names fall back to `folder`.
 - **The picker** (`IconSelect`) lazily imports `virtual:material-symbols/catalogue`
   — every Rounded icon name, sorted — and searches by name with
   `lib/iconSearch.ts` (exact, prefix, word start, substring). An empty query

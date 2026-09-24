@@ -16,6 +16,8 @@ func (h *Handler) getOpenSubsonicExtensions(w http.ResponseWriter, r *http.Reque
 				"versions": []int{1, 2},
 			},
 			{
+				// Material Symbols icon name in Google's snake_case (e.g.
+				// "queue_music") carried on each getMusicFolders entry.
 				"name":     "musicFolderIcon",
 				"versions": []int{1},
 			},
