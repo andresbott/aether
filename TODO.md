@@ -35,8 +35,6 @@ Notes for editors:
 ## Backend
 
 - [x] does the artist image job still make sense?
-- [ ] Upstream a "key present and non-null" accessor to `go-bumbu/config`
-  `normalizeScanFolderBools` (`app/cmd`) tells a blank `FollowSymlinks:` from an explicit `false` by comparing `GetString`'s result with the literal `"<nil>"` — how `go-bumbu/config` v0.4.0 renders a null scalar (`fmt.Sprintf("%v", nil)`; verified against that version's source; a typo such as `FollowSymlinks: nope` still fails the load). Re-check on ANY bump of that module; a proper accessor upstream removes the coupling.
 
 ### Backend — API Surface
 
