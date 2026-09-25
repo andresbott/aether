@@ -24,8 +24,8 @@ github.com/glebarez/go-sqlite v1.21.2 h1:3a6LFC4sKahUunAmynQKLZceZCOzUthkRkEAl9g
 github.com/glebarez/go-sqlite v1.21.2/go.mod h1:sfxdZyhQjTM2Wry3gVYWaW072Ri1WMdWJi0k6+3382k=
 github.com/glebarez/sqlite v1.11.0 h1:wSG0irqzP6VurnMEpFGer5Li19RpIRi2qvQz++w0GMw=
 github.com/glebarez/sqlite v1.11.0/go.mod h1:h8/o8j5wiAsqSPoWELDUdJXhjAhsVliSn7bWZjOhrgQ=
-github.com/go-bumbu/config v0.4.0 h1:Opyg0YBbauGaChQ1NYupuzBbMrxFOfst0xhYW9dubeU=
-github.com/go-bumbu/config v0.4.0/go.mod h1:+7x+YHBelQapKLZX5wTp23TSb8SRlk2KIXoQjCPXWjI=
+github.com/go-bumbu/config v0.5.0 h1:HhKdNXYv4VlUC87yTSo3GU2AC9NIntzORZQP5DzNtyE=
+github.com/go-bumbu/config v0.5.0/go.mod h1:+7x+YHBelQapKLZX5wTp23TSb8SRlk2KIXoQjCPXWjI=
 github.com/go-bumbu/http v0.6.0 h1:APxeM3T3GGfoYdjIwyUOdtqYU1XHodrMUJ6fI1dlfSg=
 github.com/go-bumbu/http v0.6.0/go.mod h1:/8vI7kGIgHhCt7CtkiyGnOgUx5HQdPN9OcOFG7ln3xQ=
 github.com/go-bumbu/tempo v0.4.2 h1:RedNrZYq+/XXBI0w1WY8OJ3Hf6QjJG8OCV1isqsYVm0=

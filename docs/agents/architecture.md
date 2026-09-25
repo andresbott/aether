@@ -194,15 +194,12 @@ vars prefixed `AETHER_` (e.g. `AETHER_ENV_LOGLEVEL=debug`). Config values
 starting with `@` load the referenced file's contents (used for gitignored
 `*.api.key` provider keys).
 
-**Optional bools in config need a presence check, not just a `*bool`.**
-`go-bumbu/config`'s unmarshaller allocates every nil pointer field it walks
-(`unmarshal.go`), so after loading, an omitted key is an allocated `false` —
-indistinguishable from an explicit `false`. Any config bool whose default is
-`true` must therefore be re-checked against the handler
-(`normalizeScanFolderBools` in `app/cmd/config.go` asks `handler.GetString`
-per scan folder's `FollowSymlinks` key — the only config bool defaulting to
-`true` today — and resets absent ones to nil). Declaring `*bool` alone
-silently flips the default for everyone who didn't spell the key out.
+**Optional config values are pointers.** `go-bumbu/config` (v0.5.0+) leaves
+a nil pointer field nil when no source sets its key — missing, blank or
+`null` — and allocates it only for a real value, so an explicit `false` is a
+non-nil pointer to `false`. A config bool whose default is `true`
+(`FollowSymlinks`, `LoginThrottle.Enabled`) is therefore a `*bool` read as
+`p == nil || *p`; a plain `bool` would decode an omitted key as `false`.
 
 ### Scan folders (config-only)
 

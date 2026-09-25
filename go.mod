@@ -5,7 +5,7 @@ go 1.25.14
 require (
 	github.com/getkin/kin-openapi v0.147.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/go-bumbu/config v0.4.0
+	github.com/go-bumbu/config v0.5.0
 	github.com/go-bumbu/http v0.6.0
 	github.com/go-bumbu/tempo v0.4.2
 	github.com/go-bumbu/userauth v0.8.0

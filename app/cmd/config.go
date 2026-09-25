@@ -27,9 +27,8 @@ type AppCfg struct {
 // ONLY in the config file — there is no database row and no API to create one —
 // so what gets scanned is exactly what this list says.
 //
-// FollowSymlinks is a pointer so that an omitted key keeps its default (true)
-// instead of decoding as false; nil means "not declared" (see
-// normalizeScanFolderBools).
+// FollowSymlinks is a pointer so that an omitted, blank or null key keeps its
+// default (true) instead of decoding as false; nil means "not declared".
 type ScanFolderCfg struct {
 	Name            string
 	Path            string
@@ -58,9 +57,9 @@ type AuthCfg struct {
 // after a few failed attempts per login identifier an escalating delay is
 // required, making password guessing infeasible without locking the account
 // out. It applies to method "native" only (proxy-header delegates login to the
-// IdP, "none" has no login). Enabled is a pointer so an omitted key keeps the
-// default (enabled) rather than decoding as false; set it to false to turn the
-// protection off.
+// IdP, "none" has no login). Enabled is a pointer so an omitted, blank or null
+// key keeps the default (enabled) rather than decoding as false; set it to
+// false to turn the protection off.
 type LoginThrottleCfg struct {
 	Enabled *bool
 }
@@ -246,12 +245,11 @@ func getAppCfg(file string, mandatory bool) (AppCfg, error) {
 			}
 		}},
 	)
-	handler, err := config.Load(opts...)
+	_, err := config.Load(opts...)
 	cfg.Msgs = configMsg
 	if err != nil {
 		return cfg, err
 	}
-	normalizeScanFolderBools(cfg.ScanFolders, handler)
 
 	absPath, err := filepath.Abs(cfg.DataDir)
 	if err != nil {
@@ -332,28 +330,6 @@ func isWildcardBind(s string) bool {
 		return false
 	}
 	return addr.IsUnspecified()
-}
-
-// normalizeScanFolderBools resets FollowSymlinks to nil when the key is
-// absent, blank, or explicitly null in the loaded config. go-bumbu/config
-// allocates every pointer field it walks, so after unmarshalling an omitted
-// FollowSymlinks is an allocated false — indistinguishable from an explicit
-// "false" — which would silently flip the default (true) for anyone who
-// didn't spell it out; a key written with no value or with YAML's null (~)
-// decodes the same way, for the same reason. Asking the handler for the key's
-// raw string is the only way to tell "really not there" and "written blank"
-// apart from a deliberate false: a missing key answers an error, and a null
-// value comes back not as an error or an empty string but as the literal
-// string "<nil>" (CfgHandler.GetString falls back to fmt.Sprintf("%v", val)
-// for anything that isn't itself a string) — so both are checked for here,
-// once, right after loading.
-func normalizeScanFolderBools(folders []ScanFolderCfg, handler *config.CfgHandler) {
-	for i := range folders {
-		v, err := handler.GetString("ScanFolders." + strconv.Itoa(i) + ".FollowSymlinks")
-		if err != nil || strings.TrimSpace(v) == "" || v == "<nil>" {
-			folders[i].FollowSymlinks = nil
-		}
-	}
 }
 
 // parseTrustedProxies parses the configured CIDR list. A bare IP is accepted
