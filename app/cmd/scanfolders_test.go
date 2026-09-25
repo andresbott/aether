@@ -102,10 +102,7 @@ func TestScanFoldersConfigErrorsFailTheLoad(t *testing.T) {
 }
 
 // A blank FollowSymlinks: key (no value) must be treated as "not declared" —
-// the default (true) — not as an explicit false. go-bumbu/config allocates the
-// bool pointer while decoding either way, so only asking the handler for the
-// key's raw STRING value, and treating a blank one like an absent one, tells
-// the two apart (normalizeScanFolderBools).
+// the default (true) — not as an explicit false.
 func TestFollowSymlinksBlankValueDefaultsToTrue(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := getAppCfg(writeCfg(t, "ScanFolders:\n  - Name: \"A\"\n    Path: \""+dir+"\"\n    FollowSymlinks:\n"), true)
