@@ -18,6 +18,7 @@ import { useRowSelection } from '@/composables/useRowSelection'
 import { useAuth } from '@/composables/useAuth'
 import { bumpCoverVersion, versionedCoverUrl } from '@/composables/useCoverVersion'
 import { subsonicClient } from '@/lib/api/subsonic'
+import { formatReleaseTypes } from '@/lib/releaseTypes'
 import type { Song } from '@/types/subsonic'
 
 const props = defineProps<{ id: string }>()
@@ -177,6 +178,10 @@ const coverUrl = computed(() => {
     return versionedCoverUrl(base, album.value.coverArt)
 })
 
+// The hero eyebrow names the release ("Album · Soundtrack", "EP"); an album
+// without release-type tags reads as a plain "Album".
+const heroEyebrow = computed(() => formatReleaseTypes(album.value?.releaseTypes) || 'Album')
+
 const totalDuration = computed(() => {
     if (!album.value?.duration) return ''
     const mins = Math.floor(album.value.duration / 60)
@@ -295,7 +300,7 @@ watch(editing, (isEditing) => {
             <div class="album-scroll">
                 <HeroHeader
                     class="detail-hero"
-                    eyebrow="Album"
+                    :eyebrow="heroEyebrow"
                     cover-placeholder-icon="ms-music-note"
                     cover-back-label="Album cover"
                     :cover-url="coverUrl"

@@ -3,7 +3,7 @@ import type { Track, TrackOverlay } from '@/types/metadata'
 import { diffInitialValues, distinctArtistMbids, type FieldDiff, type InitialValues } from '@/composables/useMetadataEditor'
 import type { EditSession } from '@/composables/useEditSession'
 import type { AlbumMatchPayload, ArtistMatchPayload } from '@/types/artists'
-import { mergeReleaseTypes, splitReleaseTypes } from './releaseTypes'
+import { mergeReleaseTypes, splitReleaseTypes } from '@/lib/releaseTypes'
 
 export type TextKey =
     | 'title' | 'album' | 'mb_recording_id' | 'mb_release_id' | 'mb_release_group_id' | 'disc_subtitle'

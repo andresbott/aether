@@ -17,7 +17,7 @@ import FieldRow from './FieldRow.vue'
 import CreditListEditor from './CreditListEditor.vue'
 import GenreChips from './GenreChips.vue'
 import { useEditForm } from './useEditForm'
-import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from './releaseTypes'
+import { PRIMARY_RELEASE_TYPES, SECONDARY_RELEASE_TYPES } from '@/lib/releaseTypes'
 
 const props = defineProps<{
     selection: Track[]
