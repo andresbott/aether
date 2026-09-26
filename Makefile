@@ -145,7 +145,8 @@ check-git-clean: # check if git repo is clean
 	@git diff --quiet
 
 tag: check-git-clean check-branch ## create a git tag to publish a new release
-	@[ "${version}" ] || ( echo ">> version is not set, usage: make release version=\"v1.2.3\" "; exit 1 )
+	@[ "${version}" ] || ( echo ">> version is not set, usage: make tag version=\"v1.2.3\" "; exit 1 )
+	@echo "$(version)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$' || ( echo ">> version \"$(version)\" must look like v1.2.3 (leading v): release.yml only publishes v*.*.* tags"; exit 1 )
 	@git tag -d $(version) || true
 	@git tag -a $(version) -m "Release version: $(version)"
 	@git push --delete origin $(version) || true
